@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,14 +34,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
+import dev.agentperf.adb.ConnectedDeviceSession
+import dev.agentperf.adb.LiveDeviceClient
 import dev.agentperf.fixtures.SampleSnapshots
+import dev.agentperf.protocol.ProtocolCodec
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Image
+import kotlin.math.roundToInt
 
 private val Panel = Color(0xFF141820)
 private val CanvasBackground = Color(0xFF0D1016)
@@ -53,6 +70,40 @@ fun DesktopViewerApp() {
         InspectorStore().apply { load(SampleSnapshots.dashboard) }
     }
     var state by remember { mutableStateOf(store.state) }
+    val deviceClient = remember { LiveDeviceClient() }
+    val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
+
+    LaunchedEffect(Unit) {
+        while (currentCoroutineContext().isActive) {
+            var session: ConnectedDeviceSession? = null
+            try {
+                store.connecting()
+                state = store.state
+                session = withContext(Dispatchers.IO) {
+                    deviceClient.connect(SAMPLE_PACKAGE)
+                }
+                while (currentCoroutineContext().isActive) {
+                    val frame = withContext(Dispatchers.IO) { session.capture() }
+                    store.loadCapture(
+                        snapshot = protocolCodec.decodeSnapshot(frame.snapshotJson),
+                        screenshotPng = frame.screenshotPng,
+                    )
+                    state = store.state
+                    delay(CAPTURE_INTERVAL_MILLIS)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                store.connectionFailed(error.message ?: error.javaClass.simpleName)
+                state = store.state
+                delay(RECONNECT_INTERVAL_MILLIS)
+            } finally {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    session?.close()
+                }
+            }
+        }
+    }
 
     MaterialTheme {
         Surface(color = CanvasBackground, modifier = Modifier.fillMaxSize()) {
@@ -89,8 +140,15 @@ private fun Header(state: InspectorState) {
         Text("AgentPerf", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         Text("  Desktop Viewer", color = Color(0xFFAAB4C5))
         Spacer(Modifier.weight(1f))
-        StatusDot(Color(0xFF55D187))
+        val connectionColor = when (model.connectionTone) {
+            ConnectionTone.NEUTRAL -> Color(0xFFF5A524)
+            ConnectionTone.SUCCESS -> Color(0xFF55D187)
+            ConnectionTone.ERROR -> Color(0xFFEF5350)
+        }
+        StatusDot(connectionColor)
         Spacer(Modifier.width(8.dp))
+        Text(model.connectionLabel, color = connectionColor, fontSize = 12.sp)
+        Spacer(Modifier.width(12.dp))
         Text(model.packageName ?: "No app", color = Color(0xFFDCE4F2), fontFamily = FontFamily.Monospace)
         Spacer(Modifier.width(18.dp))
         Text(model.metricsText, color = Color(0xFF8E9AAF), fontSize = 12.sp)
@@ -133,8 +191,13 @@ private fun HierarchyPane(
 @Composable
 private fun PreviewPane(state: InspectorState, modifier: Modifier) {
     val selectedBounds = state.selectedNode?.bounds
+    val display = state.snapshot?.display
+    val screenshot = rememberScreenshot(state.screenshotPng)
     Column(modifier.background(CanvasBackground)) {
-        PanelTitle("CANVAS", "1080 × 2400")
+        PanelTitle(
+            "CANVAS",
+            display?.let { "${it.widthPx} × ${it.heightPx}" } ?: "No live frame",
+        )
         Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
             Surface(
                 modifier = Modifier.fillMaxHeight().widthIn(max = 390.dp),
@@ -144,27 +207,69 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
             ) {
                 Canvas(Modifier.fillMaxSize()) {
                     drawRect(Color(0xFFF8FAFC))
-                    drawRect(Color(0xFF1D4ED8), size = Size(size.width, size.height * 0.085f))
-                    drawRoundRect(
-                        color = Color(0xFFE2E8F0),
-                        topLeft = Offset(size.width * 0.06f, size.height * 0.12f),
-                        size = Size(size.width * 0.88f, size.height * 0.46f),
-                    )
-                    selectedBounds?.let { bounds ->
-                        val scaleX = size.width / 1080f
-                        val scaleY = size.height / 2400f
-                        drawRect(
-                            color = Color(0xFFEF4444),
-                            topLeft = Offset(bounds.left * scaleX, bounds.top * scaleY),
-                            size = Size(bounds.width * scaleX, bounds.height * scaleY),
-                            style = Stroke(width = 2.dp.toPx()),
+                    if (screenshot != null && display != null) {
+                        val destination = CanvasGeometry.contain(
+                            sourceWidth = display.widthPx,
+                            sourceHeight = display.heightPx,
+                            canvasWidth = size.width,
+                            canvasHeight = size.height,
                         )
+                        drawImage(
+                            image = screenshot,
+                            dstOffset = IntOffset(
+                                destination.left.roundToInt(),
+                                destination.top.roundToInt(),
+                            ),
+                            dstSize = IntSize(
+                                destination.width.roundToInt(),
+                                destination.height.roundToInt(),
+                            ),
+                        )
+                        selectedBounds?.let { bounds ->
+                            val overlay = CanvasGeometry.mapBounds(
+                                bounds = bounds,
+                                sourceWidth = display.widthPx,
+                                sourceHeight = display.heightPx,
+                                destination = destination,
+                            )
+                            drawRect(
+                                color = Color(0xFFEF4444),
+                                topLeft = Offset(overlay.left, overlay.top),
+                                size = Size(overlay.width, overlay.height),
+                                style = Stroke(width = 2.dp.toPx()),
+                            )
+                        }
+                    } else {
+                        drawRect(Color(0xFF1D4ED8), size = Size(size.width, size.height * 0.085f))
+                        drawRoundRect(
+                            color = Color(0xFFE2E8F0),
+                            topLeft = Offset(size.width * 0.06f, size.height * 0.12f),
+                            size = Size(size.width * 0.88f, size.height * 0.46f),
+                        )
+                        selectedBounds?.let { bounds ->
+                            val scaleX = size.width / 1080f
+                            val scaleY = size.height / 2400f
+                            drawRect(
+                                color = Color(0xFFEF4444),
+                                topLeft = Offset(bounds.left * scaleX, bounds.top * scaleY),
+                                size = Size(bounds.width * scaleX, bounds.height * scaleY),
+                                style = Stroke(width = 2.dp.toPx()),
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun rememberScreenshot(bytes: ByteArray?): ImageBitmap? =
+    remember(bytes) {
+        bytes?.let { encoded ->
+            runCatching { Image.makeFromEncoded(encoded).toComposeImageBitmap() }.getOrNull()
+        }
+    }
 
 @Composable
 private fun DetailsPane(state: InspectorState, modifier: Modifier) {
@@ -257,3 +362,7 @@ private fun StatusDot(color: Color) {
 private fun Separator() {
     Box(Modifier.fillMaxHeight().width(1.dp).background(Border))
 }
+
+private const val SAMPLE_PACKAGE = "dev.agentperf.sample"
+private const val CAPTURE_INTERVAL_MILLIS = 1_000L
+private const val RECONNECT_INTERVAL_MILLIS = 1_000L

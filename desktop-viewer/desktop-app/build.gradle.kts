@@ -20,8 +20,10 @@ java {
 }
 
 dependencies {
+    implementation(project(":adb-gateway"))
     implementation(project(":application"))
     implementation(project(":shared-kernel:test-fixtures"))
+    implementation(libs.kotlinx.coroutines.core)
     implementation(compose.desktop.currentOs)
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     testImplementation(platform(libs.junit.bom))

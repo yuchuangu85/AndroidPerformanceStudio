@@ -70,4 +70,30 @@ PING <token>
 PONG 1.0
 ```
 
-Any missing or invalid token receives `UNAUTHORIZED`. Snapshot request framing will be added without weakening this bootstrap.
+Any missing or invalid token receives `ERROR UNAUTHORIZED Invalid session token`.
+
+## Live capture
+
+The desktop opens a new connection and sends:
+
+```text
+CAPTURE <token>
+```
+
+The Agent captures the resumed Activity's decor View hierarchy and window PNG as one logical frame. A successful response starts with an ASCII header:
+
+```text
+CAPTURE <snapshotJsonByteCount> <screenshotPngByteCount>\n
+```
+
+The header is followed immediately by exactly `snapshotJsonByteCount` UTF-8 JSON bytes and `screenshotPngByteCount` PNG bytes. The maximum accepted sizes are 8 MiB for JSON and 32 MiB for PNG. Receivers reject negative, oversized, malformed, and truncated payloads before publishing a frame.
+
+Capture failures are line-oriented:
+
+```text
+ERROR <stableCode> <message>\n
+```
+
+Current stable codes include `UNAUTHORIZED`, `NO_ACTIVITY`, `NO_CONTENT`, `CAPTURE_TIMEOUT`, `CAPTURE_INTERRUPTED`, `CAPTURE_FAILED`, and `SCREENSHOT_FAILED`.
+
+The screenshot dimensions match `display.widthPx` and `display.heightPx`. View bounds use the same physical-pixel coordinate system so the desktop can apply one contain-fit transform to both the PNG and selected-node overlay.

@@ -1,6 +1,7 @@
 package dev.agentperf.desktop
 
 import dev.agentperf.analysis.Severity
+import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.textContent
 import dev.agentperf.protocol.Bounds
@@ -28,6 +29,12 @@ data class SeveritySummary(
     val error: Int,
 )
 
+enum class ConnectionTone {
+    NEUTRAL,
+    SUCCESS,
+    ERROR,
+}
+
 data class InspectorScreenModel(
     val packageName: String?,
     val rows: List<TreeRowModel>,
@@ -35,6 +42,8 @@ data class InspectorScreenModel(
     val severitySummary: SeveritySummary,
     val metricsText: String,
     val emptyMessage: String?,
+    val connectionLabel: String,
+    val connectionTone: ConnectionTone,
 )
 
 object InspectorPresenter {
@@ -68,6 +77,19 @@ object InspectorPresenter {
             ),
             metricsText = "${metrics.nodeCount} nodes · depth ${metrics.maxDepth} · width ${metrics.widestLevel}",
             emptyMessage = if (state.snapshot == null) "No snapshot loaded" else null,
+            connectionLabel = when (state.connectionStatus) {
+                ConnectionStatus.DISCONNECTED -> "Disconnected"
+                ConnectionStatus.CONNECTING -> "Connecting"
+                ConnectionStatus.CONNECTED -> "Live"
+                ConnectionStatus.ERROR -> state.connectionError ?: "Connection failed"
+            },
+            connectionTone = when (state.connectionStatus) {
+                ConnectionStatus.DISCONNECTED,
+                ConnectionStatus.CONNECTING,
+                -> ConnectionTone.NEUTRAL
+                ConnectionStatus.CONNECTED -> ConnectionTone.SUCCESS
+                ConnectionStatus.ERROR -> ConnectionTone.ERROR
+            },
         )
     }
 

@@ -7,6 +7,7 @@ AgentPerf Desktop Viewer is a Compose Desktop inspector for Android layout snaps
 - safe ADB device/output parsing and command construction;
 - a three-pane hierarchy, canvas, and properties UI;
 - a debug-only Android Agent using AndroidX Startup and an ADB-forwarded local abstract socket;
+- synchronized live View hierarchy and PNG capture from one authorized device;
 - an API 21–37 sample application.
 
 ## Run the desktop application
@@ -44,9 +45,17 @@ adb shell run-as dev.agentperf.sample cat files/agentperf/session.json
 
 The session file contains a random token and a `localabstract` socket name. No network permission, root, system signature, hidden API, or production-build integration is used.
 
+With exactly one authorized device connected and the sample Activity in the foreground, start the desktop application:
+
+```bash
+./gradlew :desktop-app:run
+```
+
+The viewer connects to `dev.agentperf.sample`, refreshes approximately once per second, and renders the captured window PNG with the selected View bounds overlaid. Connection failures remain visible in the header and are retried automatically.
+
 ## Current scope
 
-The desktop UI currently renders a built-in snapshot fixture. The Android Agent accepts authenticated `PING` requests and records its session descriptor. Live snapshot transport, PixelCopy capture, Compose semantics, report persistence, and timeline diff are the next milestones.
+The live path currently targets one authorized device and the sample package. Traditional View hierarchy and screenshots are supported. Arbitrary package selection, multiple-device selection, Compose semantics, report persistence, and timeline diff remain future work.
 
 See:
 

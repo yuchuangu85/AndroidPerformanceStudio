@@ -2,6 +2,7 @@ package dev.agentperf.desktop
 
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
+import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.fixtures.SampleSnapshots
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -39,5 +40,28 @@ class InspectorPresenterTest {
 
         assertTrue(model.rows.isEmpty())
         assertEquals("No snapshot loaded", model.emptyMessage)
+    }
+
+    @Test
+    fun `connection status distinguishes progress success and failure`() {
+        val connecting = InspectorPresenter.present(
+            InspectorState(connectionStatus = ConnectionStatus.CONNECTING),
+        )
+        val connected = InspectorPresenter.present(
+            InspectorState(connectionStatus = ConnectionStatus.CONNECTED),
+        )
+        val failed = InspectorPresenter.present(
+            InspectorState(
+                connectionStatus = ConnectionStatus.ERROR,
+                connectionError = "No resumed activity",
+            ),
+        )
+
+        assertEquals("Connecting", connecting.connectionLabel)
+        assertEquals(ConnectionTone.NEUTRAL, connecting.connectionTone)
+        assertEquals("Live", connected.connectionLabel)
+        assertEquals(ConnectionTone.SUCCESS, connected.connectionTone)
+        assertEquals("No resumed activity", failed.connectionLabel)
+        assertEquals(ConnectionTone.ERROR, failed.connectionTone)
     }
 }
