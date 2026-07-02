@@ -1,0 +1,87 @@
+package dev.agentperf.protocol
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Test
+
+class ProtocolCodecTest {
+    private val codec = ProtocolCodec(supportedMajor = 1)
+
+    @Test
+    fun `snapshot survives a JSON round trip`() {
+        val snapshot = LayoutSnapshot(
+            protocolVersion = ProtocolVersion(1, 0),
+            packageName = "dev.agentperf.sample",
+            capturedAtEpochMillis = 1_750_000_000_000,
+            display = DisplayInfo(widthPx = 1080, heightPx = 2400, density = 3f),
+            capabilities = AgentCapabilities(viewHierarchy = true, screenshots = true),
+            root = ViewNode(
+                id = "root",
+                className = "android.widget.FrameLayout",
+                bounds = Bounds(0, 0, 1080, 2400),
+                children = listOf(
+                    ComposeNode(
+                        id = "compose-title",
+                        className = "Text",
+                        bounds = Bounds(24, 40, 320, 96),
+                        text = "AgentPerf",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(snapshot, codec.decodeSnapshot(codec.encodeSnapshot(snapshot)))
+    }
+
+    @Test
+    fun `unknown minor fields are ignored`() {
+        val json = """
+            {
+              "protocolVersion": {"major": 1, "minor": 9},
+              "packageName": "dev.agentperf.sample",
+              "capturedAtEpochMillis": 42,
+              "display": {"widthPx": 100, "heightPx": 200, "density": 2.0},
+              "capabilities": {"viewHierarchy": true, "screenshots": false},
+              "root": {
+                "type": "view",
+                "id": "root",
+                "className": "View",
+                "bounds": {"left": 0, "top": 0, "right": 100, "bottom": 200},
+                "children": [],
+                "futureNodeField": "ignored"
+              },
+              "futureSnapshotField": {"enabled": true}
+            }
+        """.trimIndent()
+
+        val snapshot = codec.decodeSnapshot(json)
+
+        assertEquals(ProtocolVersion(1, 9), snapshot.protocolVersion)
+        assertEquals("root", snapshot.root.id)
+    }
+
+    @Test
+    fun `unsupported major version is rejected without partial parsing`() {
+        val json = """
+            {
+              "protocolVersion": {"major": 2, "minor": 0},
+              "packageName": "dev.agentperf.sample",
+              "capturedAtEpochMillis": 42,
+              "display": {"widthPx": 100, "heightPx": 200, "density": 2.0},
+              "capabilities": {},
+              "root": {
+                "type": "view",
+                "id": "root",
+                "className": "View",
+                "bounds": {"left": 0, "top": 0, "right": 100, "bottom": 200}
+              }
+            }
+        """.trimIndent()
+
+        val error = assertThrows(UnsupportedProtocolVersionException::class.java) {
+            codec.decodeSnapshot(json)
+        }
+
+        assertEquals(2, error.actualMajor)
+    }
+}
