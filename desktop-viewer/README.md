@@ -17,13 +17,13 @@ Prerequisites:
 - JDK 17 or newer (the repository currently builds with JDK 21 and emits Java 17 bytecode).
 
 ```bash
-./gradlew :desktop-viewer:desktop-app:run
+./gradlew :desktop-app:run
 ```
 
 Create the native application image for the current OS:
 
 ```bash
-./gradlew :desktop-viewer:desktop-app:createDistributable
+./gradlew :desktop-app:createDistributable
 ```
 
 ## Try the Android sample

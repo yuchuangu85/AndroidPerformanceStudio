@@ -20,7 +20,7 @@ java {
 }
 
 dependencies {
-    implementation(project(":desktop-viewer:application"))
+    implementation(project(":application"))
     implementation(project(":shared-kernel:test-fixtures"))
     implementation(compose.desktop.currentOs)
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")

@@ -24,10 +24,11 @@ shared-kernel/
   android-agent-view/     traditional View hierarchy collection
   android-agent-startup/  zero-code AndroidX Startup integration
 
-desktop-viewer/
-  adb-gateway/            pure ADB parsing and argument-vector construction
-  application/            inspector state and selection use cases
-  desktop-app/            Compose Desktop presentation and native packaging
+adb-gateway/              pure ADB parsing and argument-vector construction
+application/              inspector state and selection use cases
+desktop-app/              Compose Desktop presentation and native packaging
+samples/
+  android-view-app/       API 21+ zero-code Agent integration sample
 ```
 
 Dependencies flow inward: UI and platform adapters depend on application/domain modules; protocol and analysis modules do not depend on Android or Compose.
@@ -42,7 +43,7 @@ Dependencies flow inward: UI and platform adapters depend on application/domain 
 ./gradlew :samples:android-view-app:assembleDebug
 
 # Desktop app image for this OS
-./gradlew :desktop-viewer:desktop-app:createDistributable
+./gradlew :desktop-app:createDistributable
 
 # Full local verification
 ./gradlew clean test assemble

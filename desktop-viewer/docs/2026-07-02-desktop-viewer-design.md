@@ -60,26 +60,29 @@ Desktop Viewer 是面向内部多个 Android 项目的独立布局复杂度分�
 
 ## 3. 项目架构
 
-仓库采用共享内核加桌面应用的模块结构：
+`desktop-viewer/` 是独立 Gradle 根工程，内部采用共享候选内核加桌面应用的模块结构：
 
 ```text
-shared-kernel/
-  protocol-model/
-  analysis-engine/
-  android-agent-core/
-  android-agent-view/
-  android-agent-compose/
-  android-agent-startup/
-  test-fixtures/
-
 desktop-viewer/
+  settings.gradle.kts
+  shared-kernel/
+    protocol-model/
+    analysis-engine/
+    android-agent-core/
+    android-agent-view/
+    android-agent-compose/
+    android-agent-startup/
+    test-fixtures/
   desktop-app/
   application/
   adb-gateway/
   report-storage/
   platform-integration/
+  samples/
   docs/
 ```
+
+这些 `shared-kernel` 模块目前只服务 Desktop 纵向版本；待 Android Studio 插件或 Web 方案产生真实依赖后，再评估提升为仓库级共享构建。
 
 ### 3.1 Shared Kernel
 

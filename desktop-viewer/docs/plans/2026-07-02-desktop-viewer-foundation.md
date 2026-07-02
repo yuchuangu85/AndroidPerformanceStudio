@@ -4,7 +4,7 @@
 
 **Goal:** Deliver the first runnable vertical slice of Desktop Viewer: a versioned snapshot protocol, deterministic layout analysis, ADB discovery/forwarding logic, a three-pane Compose Desktop inspector, and a zero-code debug Android Agent sample.
 
-**Architecture:** Keep transport-neutral domain logic in JVM modules under `shared-kernel`, Android-only collection and startup code in Android library modules, and host orchestration/UI in `desktop-viewer`. The Android Agent exposes a debuggable-only local abstract socket; the desktop side reaches it exclusively through ADB forwarding. JSON is the initial wire format, with explicit protocol versions and capability negotiation.
+**Architecture:** Keep transport-neutral domain logic in JVM modules under `shared-kernel`, Android-only collection and startup code in Android library modules, and host orchestration/UI in the standalone Desktop Gradle root. The Android Agent exposes a debuggable-only local abstract socket; the desktop side reaches it exclusively through ADB forwarding. JSON is the initial wire format, with explicit protocol versions and capability negotiation.
 
 **Tech Stack:** JDK 17 toolchain, Gradle 9.4.1, Kotlin 2.3.21, Android Gradle Plugin 9.2.0, Compose Multiplatform 1.11.1, kotlinx.serialization, kotlinx.coroutines, JUnit 5, AndroidX Startup, Android API 21–37.
 
@@ -71,11 +71,11 @@ Live socket request handling, PixelCopy frame capture, SQLite report indexing, C
 ## Task 4: Build the ADB gateway boundary
 
 **Files:**
-- Create: `desktop-viewer/adb-gateway/build.gradle.kts`
-- Create: `desktop-viewer/adb-gateway/src/main/kotlin/dev/agentperf/adb/AdbModels.kt`
-- Create: `desktop-viewer/adb-gateway/src/main/kotlin/dev/agentperf/adb/AdbOutputParser.kt`
-- Create: `desktop-viewer/adb-gateway/src/main/kotlin/dev/agentperf/adb/AdbCommandFactory.kt`
-- Create: `desktop-viewer/adb-gateway/src/test/kotlin/dev/agentperf/adb/AdbGatewayTest.kt`
+- Create: `adb-gateway/build.gradle.kts`
+- Create: `adb-gateway/src/main/kotlin/dev/agentperf/adb/AdbModels.kt`
+- Create: `adb-gateway/src/main/kotlin/dev/agentperf/adb/AdbOutputParser.kt`
+- Create: `adb-gateway/src/main/kotlin/dev/agentperf/adb/AdbCommandFactory.kt`
+- Create: `adb-gateway/src/test/kotlin/dev/agentperf/adb/AdbGatewayTest.kt`
 
 - [ ] RED: test authorized/offline/unauthorized device parsing, package-safe `run-as`, and localabstract forwarding commands.
 - [ ] Run the focused test and verify it fails because the gateway API is absent.
@@ -88,10 +88,10 @@ Live socket request handling, PixelCopy frame capture, SQLite report indexing, C
 **Files:**
 - Create: `shared-kernel/test-fixtures/build.gradle.kts`
 - Create: `shared-kernel/test-fixtures/src/main/kotlin/dev/agentperf/fixtures/SampleSnapshots.kt`
-- Create: `desktop-viewer/application/build.gradle.kts`
-- Create: `desktop-viewer/application/src/main/kotlin/dev/agentperf/application/InspectorState.kt`
-- Create: `desktop-viewer/application/src/main/kotlin/dev/agentperf/application/InspectorStore.kt`
-- Create: `desktop-viewer/application/src/test/kotlin/dev/agentperf/application/InspectorStoreTest.kt`
+- Create: `application/build.gradle.kts`
+- Create: `application/src/main/kotlin/dev/agentperf/application/InspectorState.kt`
+- Create: `application/src/main/kotlin/dev/agentperf/application/InspectorStore.kt`
+- Create: `application/src/test/kotlin/dev/agentperf/application/InspectorStoreTest.kt`
 
 - [ ] RED: test fixture load, node selection, missing-node handling, and analysis propagation.
 - [ ] Run the focused test and observe the intended missing-API failure.
@@ -102,16 +102,16 @@ Live socket request handling, PixelCopy frame capture, SQLite report indexing, C
 ## Task 6: Create the Compose Desktop inspector
 
 **Files:**
-- Create: `desktop-viewer/desktop-app/build.gradle.kts`
-- Create: `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/Main.kt`
-- Create: `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt`
-- Create: `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/InspectorPresenter.kt`
-- Create: `desktop-viewer/desktop-app/src/test/kotlin/dev/agentperf/desktop/InspectorPresenterTest.kt`
+- Create: `desktop-app/build.gradle.kts`
+- Create: `desktop-app/src/main/kotlin/dev/agentperf/desktop/Main.kt`
+- Create: `desktop-app/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt`
+- Create: `desktop-app/src/main/kotlin/dev/agentperf/desktop/InspectorPresenter.kt`
+- Create: `desktop-app/src/test/kotlin/dev/agentperf/desktop/InspectorPresenterTest.kt`
 
 - [ ] RED: test presentation rows, selected-node details, severity summaries, and empty states.
 - [ ] Run the focused test and confirm failure from the absent presenter.
 - [ ] GREEN: implement the presenter and the approved three-pane UI plus bottom findings/timeline region.
-- [ ] Run desktop tests and `./gradlew :desktop-viewer:desktop-app:createDistributable`.
+- [ ] Run desktop tests and `./gradlew :desktop-app:createDistributable`.
 - [ ] Commit the runnable desktop inspector.
 
 ## Task 7: Add the zero-code debug Android Agent sample
@@ -140,12 +140,12 @@ Live socket request handling, PixelCopy frame capture, SQLite report indexing, C
 ## Task 8: Document, verify, and package the foundation
 
 **Files:**
-- Modify: `desktop-viewer/README.md`
-- Create: `desktop-viewer/docs/DEVELOPMENT.md`
-- Create: `desktop-viewer/docs/PROTOCOL.md`
+- Modify: `README.md`
+- Create: `docs/DEVELOPMENT.md`
+- Create: `docs/PROTOCOL.md`
 
 - [ ] Document prerequisites, commands, module boundaries, debug-only security constraints, and known limitations.
 - [ ] Run `./gradlew clean test assemble`.
-- [ ] Run `./gradlew :desktop-viewer:desktop-app:createDistributable`.
+- [ ] Run `./gradlew :desktop-app:createDistributable`.
 - [ ] Inspect `git diff --check` and `git status --short` for accidental or unrelated files.
 - [ ] Commit documentation and verification evidence with a Lore-formatted message.

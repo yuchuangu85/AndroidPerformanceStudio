@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "agent-perf"
+rootProject.name = "agent-perf-desktop-viewer"
 
 include(
     ":shared-kernel:protocol-model",
@@ -23,8 +23,8 @@ include(
     ":shared-kernel:android-agent-core",
     ":shared-kernel:android-agent-view",
     ":shared-kernel:android-agent-startup",
-    ":desktop-viewer:adb-gateway",
-    ":desktop-viewer:application",
-    ":desktop-viewer:desktop-app",
+    ":adb-gateway",
+    ":application",
+    ":desktop-app",
     ":samples:android-view-app",
 )
