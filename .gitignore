@@ -7,6 +7,10 @@ local.properties
 
 # Log/OS Files
 *.log
+.DS_Store
+
+# Compose Desktop distributions
+out/
 
 # Android Studio generated files and folders
 captures/
