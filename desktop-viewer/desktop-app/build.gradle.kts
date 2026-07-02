@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":desktop-viewer:application"))
     implementation(project(":shared-kernel:test-fixtures"))
     implementation(compose.desktop.currentOs)
+    implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
@@ -38,7 +39,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "AgentPerfDesktopViewer"
-            packageVersion = "0.1.0"
+            packageVersion = "1.0.0"
         }
     }
 }
