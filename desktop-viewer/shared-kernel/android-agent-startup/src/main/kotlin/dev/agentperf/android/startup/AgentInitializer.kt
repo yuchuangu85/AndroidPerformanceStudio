@@ -1,11 +1,14 @@
 package dev.agentperf.android.startup
 
+import android.app.Application
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import androidx.startup.Initializer
 import dev.agentperf.android.core.AgentRuntime
 import dev.agentperf.android.core.AgentServer
 import dev.agentperf.android.core.StartResult
+import dev.agentperf.android.view.ActivityCaptureProvider
+import dev.agentperf.android.view.ResumedActivityTracker
 
 class AgentInitializer : Initializer<StartResult> {
     override fun create(context: Context): StartResult {
@@ -19,7 +22,12 @@ class AgentInitializer : Initializer<StartResult> {
     private fun runtime(context: Context): AgentRuntime =
         processRuntime ?: synchronized(this) {
             processRuntime ?: AgentRuntime {
-                AgentServer(context).start()
+                val application = context.applicationContext as Application
+                val tracker = ResumedActivityTracker(application)
+                AgentServer(
+                    context = context,
+                    captureProvider = ActivityCaptureProvider(tracker),
+                ).start()
             }.also { processRuntime = it }
         }
 

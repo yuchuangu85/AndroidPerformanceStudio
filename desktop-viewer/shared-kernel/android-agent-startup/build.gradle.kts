@@ -19,6 +19,7 @@ android {
 
 dependencies {
     api(project(":shared-kernel:android-agent-core"))
+    implementation(project(":shared-kernel:android-agent-view"))
     implementation(libs.androidx.startup)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
