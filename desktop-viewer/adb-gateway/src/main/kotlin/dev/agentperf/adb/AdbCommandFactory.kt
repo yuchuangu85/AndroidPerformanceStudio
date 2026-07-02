@@ -33,6 +33,18 @@ object AdbCommandFactory {
         )
     }
 
+    fun removeForward(
+        serial: String,
+        hostPort: Int,
+    ): List<String> {
+        require(hostPort in 1..65535) { "Host port must be between 1 and 65535" }
+        return devicePrefix(serial) + listOf(
+            "forward",
+            "--remove",
+            "tcp:$hostPort",
+        )
+    }
+
     private fun devicePrefix(serial: String): List<String> {
         require(safeDeviceValue.matches(serial)) { "Invalid device serial" }
         return listOf("-s", serial)
