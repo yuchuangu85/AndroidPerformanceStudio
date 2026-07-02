@@ -8,6 +8,9 @@ import java.util.concurrent.Executors
 
 class AgentServer(
     context: Context,
+    private val captureProvider: CaptureProvider = CaptureProvider {
+        throw CaptureUnavailableException("CAPTURE_UNAVAILABLE", "Capture provider is not configured")
+    },
 ) {
     private val applicationContext = context.applicationContext
     private val executor = Executors.newSingleThreadExecutor { runnable ->
@@ -24,20 +27,17 @@ class AgentServer(
             token = randomToken(),
         )
         persistSession(descriptor)
+        val requestHandler = AgentRequestHandler(
+            token = descriptor.token,
+            captureProvider = captureProvider,
+        )
         val server = LocalServerSocket(socketName)
         executor.execute {
             while (!Thread.currentThread().isInterrupted) {
                 val client = server.accept()
                 client.use { socket ->
                     val request = socket.inputStream.bufferedReader().readLine().orEmpty()
-                    val response = if (request == "PING ${descriptor.token}") {
-                        "PONG ${descriptor.protocolMajor}.${descriptor.protocolMinor}"
-                    } else {
-                        "UNAUTHORIZED"
-                    }
-                    socket.outputStream.bufferedWriter().use { writer ->
-                        writer.appendLine(response)
-                    }
+                    requestHandler.handle(request, socket.outputStream)
                 }
             }
         }
