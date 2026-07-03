@@ -47,7 +47,6 @@ import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
 import dev.agentperf.adb.ConnectedDeviceSession
 import dev.agentperf.adb.LiveDeviceClient
-import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.ProtocolCodec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -66,9 +65,7 @@ private val Accent = Color(0xFF70A5FF)
 
 @Composable
 fun DesktopViewerApp() {
-    val store = remember {
-        InspectorStore().apply { load(SampleSnapshots.dashboard) }
-    }
+    val store = remember { createInitialInspectorStore() }
     var state by remember { mutableStateOf(store.state) }
     val deviceClient = remember { LiveDeviceClient() }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
@@ -129,6 +126,8 @@ fun DesktopViewerApp() {
         }
     }
 }
+
+internal fun createInitialInspectorStore(): InspectorStore = InspectorStore()
 
 @Composable
 private fun Header(state: InspectorState) {
@@ -205,9 +204,9 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                 color = Color(0xFFEEF2F6),
                 shadowElevation = 8.dp,
             ) {
-                Canvas(Modifier.fillMaxSize()) {
-                    drawRect(Color(0xFFF8FAFC))
-                    if (screenshot != null && display != null) {
+                if (screenshot != null && display != null) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawRect(Color(0xFFF8FAFC))
                         val destination = CanvasGeometry.contain(
                             sourceWidth = display.widthPx,
                             sourceHeight = display.heightPx,
@@ -239,23 +238,10 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                                 style = Stroke(width = 2.dp.toPx()),
                             )
                         }
-                    } else {
-                        drawRect(Color(0xFF1D4ED8), size = Size(size.width, size.height * 0.085f))
-                        drawRoundRect(
-                            color = Color(0xFFE2E8F0),
-                            topLeft = Offset(size.width * 0.06f, size.height * 0.12f),
-                            size = Size(size.width * 0.88f, size.height * 0.46f),
-                        )
-                        selectedBounds?.let { bounds ->
-                            val scaleX = size.width / 1080f
-                            val scaleY = size.height / 2400f
-                            drawRect(
-                                color = Color(0xFFEF4444),
-                                topLeft = Offset(bounds.left * scaleX, bounds.top * scaleY),
-                                size = Size(bounds.width * scaleX, bounds.height * scaleY),
-                                style = Stroke(width = 2.dp.toPx()),
-                            )
-                        }
+                    }
+                } else {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Waiting for live device frame", color = Color(0xFF64748B), fontSize = 13.sp)
                     }
                 }
             }
@@ -300,7 +286,7 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
             Spacer(Modifier.width(8.dp))
             Badge("ERROR ${model.severitySummary.error}", Color(0xFFEF5350))
             Spacer(Modifier.weight(1f))
-            Text("TIMELINE  Sample frame", color = Color(0xFF657086), fontSize = 11.sp)
+            Text("TIMELINE  Live capture", color = Color(0xFF657086), fontSize = 11.sp)
         }
         HorizontalDivider(color = Border)
         if (state.analysis.findings.isEmpty()) {

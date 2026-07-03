@@ -17,6 +17,12 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
+object ScreenshotFallbackPolicy {
+    fun shouldDrawFallback(pixelCopyResult: Int): Boolean = pixelCopyResult != PIXEL_COPY_SUCCESS
+
+    private const val PIXEL_COPY_SUCCESS = 0
+}
+
 class ActivityCaptureProvider(
     private val activityTracker: ResumedActivityTracker,
     private val mainHandler: Handler = Handler(Looper.getMainLooper()),
@@ -63,27 +69,38 @@ class ActivityCaptureProvider(
             }
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                PixelCopy.request(
-                    activity.window,
-                    bitmap,
-                    { result ->
-                        if (result == PixelCopy.SUCCESS) {
-                            completeFrame(activity, bitmap, future)
-                        } else {
-                            future.completeExceptionally(
-                                CaptureUnavailableException(
-                                    "SCREENSHOT_FAILED",
-                                    "PixelCopy failed with result $result",
-                                ),
-                            )
-                        }
-                    },
-                    mainHandler,
-                )
+                try {
+                    PixelCopy.request(
+                        activity.window,
+                        bitmap,
+                        { result ->
+                            if (ScreenshotFallbackPolicy.shouldDrawFallback(result)) {
+                                drawViewFallback(activity, bitmap, future)
+                            } else {
+                                completeFrame(activity, bitmap, future)
+                            }
+                        },
+                        mainHandler,
+                    )
+                } catch (_: IllegalArgumentException) {
+                    drawViewFallback(activity, bitmap, future)
+                }
             } else {
-                root.draw(Canvas(bitmap))
-                completeFrame(activity, bitmap, future)
+                drawViewFallback(activity, bitmap, future)
             }
+        } catch (error: Throwable) {
+            future.completeExceptionally(error)
+        }
+    }
+
+    private fun drawViewFallback(
+        activity: Activity,
+        bitmap: Bitmap,
+        future: CompletableFuture<CaptureFrame>,
+    ) {
+        try {
+            activity.window.decorView.rootView.draw(Canvas(bitmap))
+            completeFrame(activity, bitmap, future)
         } catch (error: Throwable) {
             future.completeExceptionally(error)
         }

@@ -44,6 +44,45 @@ class LiveDeviceClientTest {
     }
 
     @Test
+    fun `connecting prefers a physical device when an emulator is also authorized`() {
+        val server = ServerSocket(0)
+        val executor = Executors.newSingleThreadExecutor()
+        val serverResult = executor.submit {
+            server.accept().use { socket ->
+                assertEquals("PING secret", socket.getInputStream().bufferedReader().readLine())
+                socket.getOutputStream().write("PONG 1.0\n".toByteArray())
+            }
+        }
+        val runner = fakeRunner(
+            devices = """
+                List of devices attached
+                emulator-5554 device product:sdk_gphone model:sdk_gphone transport_id:1
+                physical-1 device product:sample model:Phone transport_id:2
+            """.trimIndent(),
+        )
+
+        try {
+            val session = LiveDeviceClient(
+                processRunner = runner,
+                portAllocator = { server.localPort },
+            ).connect("dev.agentperf.sample")
+
+            assertEquals("physical-1", session.serial)
+            session.close()
+            serverResult.get(2, TimeUnit.SECONDS)
+            assertTrue(
+                runner.commands.any {
+                    it.take(2) == listOf("-s", "physical-1") &&
+                        it.any { argument -> argument.endsWith("session.json") }
+                },
+            )
+        } finally {
+            server.close()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
     fun `connected session authenticates and decodes capture frames`() {
         val expected = CaptureFrame("""{"packageName":"dev.agentperf.sample"}""", byteArrayOf(1, 2, 3, 4))
         val server = ServerSocket(0)

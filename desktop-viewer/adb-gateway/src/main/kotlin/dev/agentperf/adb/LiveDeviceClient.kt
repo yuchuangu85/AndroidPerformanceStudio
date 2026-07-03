@@ -30,12 +30,17 @@ class LiveDeviceClient(
         val devices = checkedRun(listOf("devices", "-l")).stdout
             .let(AdbOutputParser::parseDevices)
             .filter { it.state == DeviceState.DEVICE }
-        if (devices.size != 1) {
+        val physicalDevices = devices.filterNot { it.serial.startsWith(EMULATOR_SERIAL_PREFIX) }
+        val device = when {
+            physicalDevices.size == 1 -> physicalDevices.single()
+            physicalDevices.isEmpty() && devices.size == 1 -> devices.single()
+            else -> null
+        }
+        if (device == null) {
             throw DeviceSelectionException(
                 "Expected exactly one authorized device, found ${devices.size}",
             )
         }
-        val device = devices.single()
         val descriptor = checkedRun(AdbCommandFactory.readSession(device.serial, packageName))
             .stdout
             .let(AgentSessionDescriptor::parse)
@@ -63,6 +68,7 @@ class LiveDeviceClient(
         }
 
     private companion object {
+        const val EMULATOR_SERIAL_PREFIX = "emulator-"
         const val SOCKET_TIMEOUT_MILLIS = 5_000
     }
 }
