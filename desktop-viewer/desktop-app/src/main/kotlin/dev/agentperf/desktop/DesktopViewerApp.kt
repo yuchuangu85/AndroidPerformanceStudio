@@ -239,7 +239,7 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                 } else {
                     Modifier.fillMaxHeight().widthIn(max = 390.dp)
                 },
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(canvasCornerRadiusDp(appOnly).dp),
                 color = Color(0xFFEEF2F6),
                 shadowElevation = 8.dp,
             ) {
@@ -287,6 +287,8 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
         }
     }
 }
+
+internal fun canvasCornerRadiusDp(appOnly: Boolean): Int = if (appOnly) 24 else 4
 
 @Composable
 private fun CanvasModeToggle(
