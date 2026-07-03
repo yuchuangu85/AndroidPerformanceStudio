@@ -51,7 +51,7 @@ With exactly one authorized device connected, start the desktop application:
 ./gradlew :desktop-app:run
 ```
 
-The viewer follows the foreground application and reconnects automatically when the user switches apps. AgentPerf-enabled debug builds use the Agent socket for high-fidelity capture. Other foreground applications fall back to `uiautomator dump` plus `screencap`, so newly installed debug apps appear without requiring AgentPerf integration. CANVAS defaults to `仅应用 ON`, which crops to the real application bounds and maximizes that content at its native aspect ratio; switch it off to inspect the complete device or emulator display. The selected View bounds are overlaid on the matching screenshot coordinate space. Connection failures remain visible in the header and are retried automatically.
+The viewer follows the foreground application and reconnects automatically when the user switches apps. AgentPerf-enabled debug builds use the Agent socket for high-fidelity capture. Other foreground applications fall back to `uiautomator dump` plus `screencap`, so newly installed debug apps appear without requiring AgentPerf integration. CANVAS defaults to `仅应用 ON`, which crops to the real application bounds and maximizes that content at its native aspect ratio; switch it off to inspect the complete device or emulator display. The selected View bounds are overlaid on the matching screenshot coordinate space. Connection failures remain visible in the header and are retried automatically. The two vertical separators can be dragged to resize HIERARCHY and PROPERTIES for the current session; CANVAS uses the remaining width.
 
 ## Current scope
 
