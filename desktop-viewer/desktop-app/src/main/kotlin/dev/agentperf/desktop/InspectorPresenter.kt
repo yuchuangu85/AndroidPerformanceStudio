@@ -9,6 +9,7 @@ import dev.agentperf.protocol.UiNode
 
 data class TreeRowModel(
     val id: String,
+    val number: String,
     val label: String,
     val depth: Int,
     val selected: Boolean,
@@ -31,6 +32,7 @@ data class SeveritySummary(
 
 data class FindingRowModel(
     val title: String,
+    val nodeNumber: String,
     val nodeId: String,
     val message: String,
 )
@@ -55,11 +57,14 @@ data class InspectorScreenModel(
 
 object InspectorPresenter {
     fun present(state: InspectorState): InspectorScreenModel {
+        val nodeNumbers = mutableMapOf<String, String>()
         val rows = buildList {
             state.snapshot?.root?.appendRows(
                 target = this,
+                number = "1",
                 depth = 0,
                 selectedNodeId = state.selectedNodeId,
+                nodeNumbers = nodeNumbers,
             )
         }
         val selected = state.selectedNode
@@ -85,6 +90,7 @@ object InspectorPresenter {
             findings = findings.map { finding ->
                 FindingRowModel(
                     title = localizedFindingTitle(finding.ruleId),
+                    nodeNumber = nodeNumbers[finding.nodeId] ?: "—",
                     nodeId = finding.nodeId,
                     message = finding.message,
                 )
@@ -117,18 +123,28 @@ object InspectorPresenter {
 
     private fun UiNode.appendRows(
         target: MutableList<TreeRowModel>,
+        number: String,
         depth: Int,
         selectedNodeId: String?,
+        nodeNumbers: MutableMap<String, String>,
     ) {
+        nodeNumbers.putIfAbsent(id, number)
         target += TreeRowModel(
             id = id,
+            number = number,
             label = className.substringAfterLast('.'),
             depth = depth,
             selected = id == selectedNodeId,
             visible = visible && alpha > 0f,
         )
-        children.forEach { child ->
-            child.appendRows(target, depth + 1, selectedNodeId)
+        children.forEachIndexed { index, child ->
+            child.appendRows(
+                target = target,
+                number = "$number.${index + 1}",
+                depth = depth + 1,
+                selectedNodeId = selectedNodeId,
+                nodeNumbers = nodeNumbers,
+            )
         }
     }
 }

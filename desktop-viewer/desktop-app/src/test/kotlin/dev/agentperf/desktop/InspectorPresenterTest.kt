@@ -1,8 +1,12 @@
 package dev.agentperf.desktop
 
+import dev.agentperf.analysis.AnalysisReport
+import dev.agentperf.analysis.Finding
+import dev.agentperf.analysis.LayoutMetrics
+import dev.agentperf.analysis.Severity
+import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
-import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.fixtures.SampleSnapshots
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -17,6 +21,7 @@ class InspectorPresenterTest {
 
         assertEquals(listOf("root", "title", "cards", "score", "legacy-placeholder"), model.rows.map { it.id })
         assertEquals(listOf(0, 1, 1, 2, 2), model.rows.map { it.depth })
+        assertEquals(listOf("1", "1.1", "1.2", "1.2.1", "1.2.2"), model.rows.map { it.number })
     }
 
     @Test
@@ -34,6 +39,31 @@ class InspectorPresenterTest {
         assertEquals(1, model.severitySummary.info)
         assertEquals("不可见节点", model.findings.single().title)
         assertEquals("android.view.ViewStub 节点存在但当前不可见", model.findings.single().message)
+        assertEquals("1.2.2", model.findings.single().nodeNumber)
+        assertEquals(
+            model.rows.single { it.id == "legacy-placeholder" }.number,
+            model.findings.single().nodeNumber,
+        )
+    }
+
+    @Test
+    fun `uses a placeholder when a finding node is absent from the snapshot`() {
+        val state = InspectorState(
+            snapshot = SampleSnapshots.dashboard,
+            analysis = AnalysisReport(
+                metrics = LayoutMetrics(nodeCount = 5, maxDepth = 3, widestLevel = 2),
+                findings = listOf(
+                    Finding(
+                        ruleId = "layout.test",
+                        severity = Severity.INFO,
+                        nodeId = "missing",
+                        message = "测试问题",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals("—", InspectorPresenter.present(state).findings.single().nodeNumber)
     }
 
     @Test
