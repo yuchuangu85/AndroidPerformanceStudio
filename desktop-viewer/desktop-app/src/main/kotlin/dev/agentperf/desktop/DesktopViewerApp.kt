@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -116,6 +117,7 @@ fun DesktopViewerApp() {
     }
 
     var paneWidths by remember { mutableStateOf(PaneWidths()) }
+    var findingsHeightDp by remember { mutableStateOf(FindingsLayout.DEFAULT_HEIGHT_DP) }
 
     MaterialTheme {
         Surface(color = CanvasBackground, modifier = Modifier.fillMaxSize()) {
@@ -123,44 +125,64 @@ fun DesktopViewerApp() {
                 Header(state)
                 HorizontalDivider(color = Border)
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
-                    val availableWidthDp = maxWidth.value
-                    val normalizedPaneWidths = PaneLayout.fit(paneWidths, availableWidthDp)
+                    val availableHeightDp = maxHeight.value
+                    val normalizedFindingsHeight = FindingsLayout.fit(findingsHeightDp, availableHeightDp)
                     SideEffect {
-                        if (paneWidths != normalizedPaneWidths) {
-                            paneWidths = normalizedPaneWidths
+                        if (findingsHeightDp != normalizedFindingsHeight) {
+                            findingsHeightDp = normalizedFindingsHeight
                         }
                     }
-                    Row(modifier = Modifier.fillMaxSize()) {
-                        HierarchyPane(
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                            val availableWidthDp = maxWidth.value
+                            val normalizedPaneWidths = PaneLayout.fit(paneWidths, availableWidthDp)
+                            SideEffect {
+                                if (paneWidths != normalizedPaneWidths) {
+                                    paneWidths = normalizedPaneWidths
+                                }
+                            }
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                HierarchyPane(
+                                    state = state,
+                                    onSelect = { id ->
+                                        if (store.selectNode(id)) state = store.state
+                                    },
+                                    modifier = Modifier.width(normalizedPaneWidths.hierarchy.dp).fillMaxHeight(),
+                                )
+                                ResizableSeparator { deltaDp ->
+                                    paneWidths = PaneLayout.dragHierarchy(
+                                        widths = PaneLayout.fit(paneWidths, availableWidthDp),
+                                        deltaDp = deltaDp,
+                                        availableWidthDp = availableWidthDp,
+                                    )
+                                }
+                                PreviewPane(state, Modifier.weight(1f).fillMaxHeight())
+                                ResizableSeparator { deltaDp ->
+                                    paneWidths = PaneLayout.dragProperties(
+                                        widths = PaneLayout.fit(paneWidths, availableWidthDp),
+                                        deltaDp = deltaDp,
+                                        availableWidthDp = availableWidthDp,
+                                    )
+                                }
+                                DetailsPane(
+                                    state,
+                                    Modifier.width(normalizedPaneWidths.properties.dp).fillMaxHeight(),
+                                )
+                            }
+                        }
+                        FindingsResizeSeparator { deltaDp ->
+                            findingsHeightDp = FindingsLayout.drag(
+                                heightDp = FindingsLayout.fit(findingsHeightDp, availableHeightDp),
+                                deltaDp = deltaDp,
+                                availableHeightDp = availableHeightDp,
+                            )
+                        }
+                        FindingsPane(
                             state = state,
-                            onSelect = { id ->
-                                if (store.selectNode(id)) state = store.state
-                            },
-                            modifier = Modifier.width(normalizedPaneWidths.hierarchy.dp).fillMaxHeight(),
-                        )
-                        ResizableSeparator { deltaDp ->
-                            paneWidths = PaneLayout.dragHierarchy(
-                                widths = PaneLayout.fit(paneWidths, availableWidthDp),
-                                deltaDp = deltaDp,
-                                availableWidthDp = availableWidthDp,
-                            )
-                        }
-                        PreviewPane(state, Modifier.weight(1f).fillMaxHeight())
-                        ResizableSeparator { deltaDp ->
-                            paneWidths = PaneLayout.dragProperties(
-                                widths = PaneLayout.fit(paneWidths, availableWidthDp),
-                                deltaDp = deltaDp,
-                                availableWidthDp = availableWidthDp,
-                            )
-                        }
-                        DetailsPane(
-                            state,
-                            Modifier.width(normalizedPaneWidths.properties.dp).fillMaxHeight(),
+                            modifier = Modifier.fillMaxWidth().height(normalizedFindingsHeight.dp),
                         )
                     }
                 }
-                HorizontalDivider(color = Border)
-                FindingsPane(state, Modifier.fillMaxWidth().height(178.dp))
             }
         }
     }
@@ -172,7 +194,7 @@ internal fun createInitialInspectorStore(): InspectorStore = InspectorStore()
 private fun Header(state: InspectorState) {
     val model = InspectorPresenter.present(state)
     Row(
-        modifier = Modifier.fillMaxWidth().height(58.dp).background(Panel).padding(horizontal = 18.dp),
+        modifier = Modifier.fillMaxWidth().height(29.dp).background(Panel).padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("AgentPerf", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -385,14 +407,16 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
         if (model.findings.isEmpty()) {
             Text("No findings", color = Color(0xFF8490A3), modifier = Modifier.padding(16.dp))
         } else {
-            model.findings.forEach { finding ->
-                Text(
-                    "[${finding.nodeNumber}]  ${finding.title}  ·  ${finding.message}",
-                    color = Color(0xFFC7D0DE),
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
-                )
+            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                items(model.findings) { finding ->
+                    Text(
+                        "[${finding.nodeNumber}]  ${finding.title}  ·  ${finding.message}",
+                        color = Color(0xFFC7D0DE),
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+                    )
+                }
             }
         }
     }
@@ -465,6 +489,27 @@ private fun ResizableSeparator(onDrag: (Float) -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Box(Modifier.fillMaxHeight().width(1.dp).background(Border))
+    }
+}
+
+@Composable
+private fun FindingsResizeSeparator(onDrag: (Float) -> Unit) {
+    val density = LocalDensity.current
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(FindingsLayout.SPLITTER_HEIGHT_DP.dp)
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+            .pointerInput(density) {
+                detectVerticalDragGestures { change, dragAmount ->
+                    change.consume()
+                    currentOnDrag(dragAmount / density.density)
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Border))
     }
 }
 
