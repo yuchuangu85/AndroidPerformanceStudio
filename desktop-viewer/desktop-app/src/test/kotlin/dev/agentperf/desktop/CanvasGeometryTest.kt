@@ -110,4 +110,26 @@ class CanvasGeometryTest {
             ),
         )
     }
+
+    @Test
+    fun `preview sizing preserves portrait and landscape source ratios`() {
+        assertEquals(
+            FloatSize(width = 390f, height = 780f),
+            CanvasGeometry.previewSize(
+                source = CropRect(left = 0, top = 0, width = 800, height = 1600),
+                maxWidth = 1000f,
+                maxHeight = 1000f,
+                portraitMaxWidth = 390f,
+            ),
+        )
+        assertEquals(
+            FloatSize(width = 1000f, height = 500f),
+            CanvasGeometry.previewSize(
+                source = CropRect(left = 0, top = 0, width = 1600, height = 800),
+                maxWidth = 1000f,
+                maxHeight = 1000f,
+                portraitMaxWidth = 390f,
+            ),
+        )
+    }
 }

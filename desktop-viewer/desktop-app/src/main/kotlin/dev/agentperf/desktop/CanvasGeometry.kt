@@ -11,6 +11,11 @@ data class FloatRect(
     val height: Float,
 )
 
+data class FloatSize(
+    val width: Float,
+    val height: Float,
+)
+
 data class CropRect(
     val left: Int,
     val top: Int,
@@ -22,6 +27,28 @@ data class CropRect(
 }
 
 object CanvasGeometry {
+    fun previewSize(
+        source: CropRect,
+        maxWidth: Float,
+        maxHeight: Float,
+        portraitMaxWidth: Float,
+    ): FloatSize {
+        require(source.width > 0 && source.height > 0) { "Source dimensions must be positive" }
+        require(maxWidth > 0f && maxHeight > 0f && portraitMaxWidth > 0f) {
+            "Preview constraints must be positive"
+        }
+        val availableWidth = if (source.width <= source.height) {
+            min(maxWidth, portraitMaxWidth)
+        } else {
+            maxWidth
+        }
+        val scale = min(availableWidth / source.width, maxHeight / source.height)
+        return FloatSize(
+            width = source.width * scale,
+            height = source.height * scale,
+        )
+    }
+
     fun sourceRect(
         appBounds: Bounds?,
         displayWidth: Int,

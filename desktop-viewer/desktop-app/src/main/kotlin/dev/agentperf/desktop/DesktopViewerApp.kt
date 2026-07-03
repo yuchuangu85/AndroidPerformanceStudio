@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -174,7 +175,7 @@ private fun HierarchyPane(
                         .fillMaxWidth()
                         .background(if (row.selected) Color(0xFF253B5F) else Color.Transparent)
                         .clickable { onSelect(row.id) }
-                        .padding(start = (12 + row.depth * 16).dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
+                        .padding(start = (12 + row.depth * 16).dp, end = 8.dp, top = 3.dp, bottom = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(if (row.depth == 0) "◆" else "›", color = Accent, fontSize = 11.sp)
@@ -195,34 +196,67 @@ private fun HierarchyPane(
 private fun PreviewPane(state: InspectorState, modifier: Modifier) {
     val selectedBounds = state.selectedNode?.bounds
     val display = state.snapshot?.display
+    val appBounds = state.snapshot?.root?.bounds
     val screenshot = rememberScreenshot(state.screenshotPng)
-    Column(modifier.background(CanvasBackground)) {
-        PanelTitle(
-            "CANVAS",
-            display?.let { "${it.widthPx} × ${it.heightPx}" } ?: "No live frame",
+    var appOnly by remember { mutableStateOf(true) }
+    val source = display?.let {
+        CanvasGeometry.sourceRect(
+            appBounds = appBounds,
+            displayWidth = it.widthPx,
+            displayHeight = it.heightPx,
+            appOnly = appOnly,
         )
-        Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
+    }
+    Column(modifier.background(CanvasBackground)) {
+        PanelTitle("CANVAS") {
+            Text(
+                source?.let { "${it.width} × ${it.height}" } ?: "No live frame",
+                color = Color(0xFF687386),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+            Spacer(Modifier.width(12.dp))
+            CanvasModeToggle(
+                appOnly = appOnly,
+                onToggle = { appOnly = !appOnly },
+            )
+        }
+        BoxWithConstraints(
+            Modifier.fillMaxSize().padding(28.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val previewSize = source?.let {
+                CanvasGeometry.previewSize(
+                    source = it,
+                    maxWidth = maxWidth.value,
+                    maxHeight = maxHeight.value,
+                    portraitMaxWidth = 390f,
+                )
+            }
             Surface(
-                modifier = Modifier.fillMaxHeight().widthIn(max = 390.dp),
+                modifier = if (previewSize != null) {
+                    Modifier.size(previewSize.width.dp, previewSize.height.dp)
+                } else {
+                    Modifier.fillMaxHeight().widthIn(max = 390.dp)
+                },
                 shape = RoundedCornerShape(24.dp),
                 color = Color(0xFFEEF2F6),
                 shadowElevation = 8.dp,
             ) {
-                if (screenshot != null && display != null) {
+                if (screenshot != null && source != null) {
                     Canvas(Modifier.fillMaxSize()) {
                         drawRect(Color(0xFFF8FAFC))
-                        val destination = CanvasGeometry.contain(
-                            sourceWidth = display.widthPx,
-                            sourceHeight = display.heightPx,
-                            canvasWidth = size.width,
-                            canvasHeight = size.height,
+                        val destination = FloatRect(
+                            left = 0f,
+                            top = 0f,
+                            width = size.width,
+                            height = size.height,
                         )
                         drawImage(
                             image = screenshot,
-                            dstOffset = IntOffset(
-                                destination.left.roundToInt(),
-                                destination.top.roundToInt(),
-                            ),
+                            srcOffset = IntOffset(source.left, source.top),
+                            srcSize = IntSize(source.width, source.height),
+                            dstOffset = IntOffset.Zero,
                             dstSize = IntSize(
                                 destination.width.roundToInt(),
                                 destination.height.roundToInt(),
@@ -231,16 +265,17 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                         selectedBounds?.let { bounds ->
                             val overlay = CanvasGeometry.mapBounds(
                                 bounds = bounds,
-                                sourceWidth = display.widthPx,
-                                sourceHeight = display.heightPx,
+                                source = source,
                                 destination = destination,
                             )
-                            drawRect(
-                                color = Color(0xFFEF4444),
-                                topLeft = Offset(overlay.left, overlay.top),
-                                size = Size(overlay.width, overlay.height),
-                                style = Stroke(width = 2.dp.toPx()),
-                            )
+                            overlay?.let {
+                                drawRect(
+                                    color = Color(0xFFEF4444),
+                                    topLeft = Offset(it.left, it.top),
+                                    size = Size(it.width, it.height),
+                                    style = Stroke(width = 2.dp.toPx()),
+                                )
+                            }
                         }
                     }
                 } else {
@@ -251,6 +286,24 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
             }
         }
     }
+}
+
+@Composable
+private fun CanvasModeToggle(
+    appOnly: Boolean,
+    onToggle: () -> Unit,
+) {
+    val color = if (appOnly) Accent else Color(0xFF687386)
+    Text(
+        text = if (appOnly) "仅应用 ON" else "仅应用 OFF",
+        color = color,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.14f), RoundedCornerShape(4.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
 }
 
 @Composable
@@ -311,13 +364,23 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
 
 @Composable
 private fun PanelTitle(title: String, trailing: String) {
+    PanelTitle(title) {
+        Text(trailing, color = Color(0xFF687386), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+@Composable
+private fun PanelTitle(
+    title: String,
+    trailingContent: @Composable () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().height(43.dp).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, color = Color(0xFF95A2B6), fontWeight = FontWeight.Bold, fontSize = 11.sp)
         Spacer(Modifier.weight(1f))
-        Text(trailing, color = Color(0xFF687386), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        trailingContent()
     }
     HorizontalDivider(color = Border)
 }
