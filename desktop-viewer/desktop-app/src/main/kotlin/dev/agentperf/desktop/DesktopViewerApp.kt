@@ -215,7 +215,7 @@ private fun HierarchyPane(
                     Text(if (row.depth == 0) "◆" else "›", color = Accent, fontSize = 11.sp)
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        row.label,
+                        "${row.number}  ${row.label}",
                         color = if (row.visible) Color(0xFFD8E0ED) else Color(0xFF687386),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
@@ -387,7 +387,7 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
         } else {
             model.findings.forEach { finding ->
                 Text(
-                    "${finding.title}  ·  ${finding.nodeId}  ·  ${finding.message}",
+                    "[${finding.nodeNumber}]  ${finding.title}  ·  ${finding.message}",
                     color = Color(0xFFC7D0DE),
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
