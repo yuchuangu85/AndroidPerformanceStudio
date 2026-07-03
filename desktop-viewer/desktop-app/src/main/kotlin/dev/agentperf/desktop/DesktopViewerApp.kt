@@ -140,7 +140,7 @@ fun DesktopViewerApp() {
                         )
                         ResizableSeparator { deltaDp ->
                             paneWidths = PaneLayout.dragHierarchy(
-                                widths = normalizedPaneWidths,
+                                widths = PaneLayout.fit(paneWidths, availableWidthDp),
                                 deltaDp = deltaDp,
                                 availableWidthDp = availableWidthDp,
                             )
@@ -148,7 +148,7 @@ fun DesktopViewerApp() {
                         PreviewPane(state, Modifier.weight(1f).fillMaxHeight())
                         ResizableSeparator { deltaDp ->
                             paneWidths = PaneLayout.dragProperties(
-                                widths = normalizedPaneWidths,
+                                widths = PaneLayout.fit(paneWidths, availableWidthDp),
                                 deltaDp = deltaDp,
                                 availableWidthDp = availableWidthDp,
                             )
