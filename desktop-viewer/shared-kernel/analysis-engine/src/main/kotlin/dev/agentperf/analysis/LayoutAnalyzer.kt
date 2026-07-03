@@ -37,6 +37,18 @@ class LayoutAnalyzer(
                     message = "${node.children.size} direct children exceed ${config.maxChildrenPerNode}",
                 )
             }
+            val overlappingSiblings = substantiallyOverlappingSiblings(node.children)
+            if (overlappingSiblings >= config.minOverlappingSiblings) {
+                findings += Finding(
+                    ruleId = "layout.overlapping-siblings",
+                    severity = Severity.WARNING,
+                    nodeId = node.id,
+                    message =
+                        "$overlappingSiblings sibling bounds overlap by at least " +
+                            "${(config.minSiblingOverlapRatio * 100).toInt()}%; " +
+                            "verify this structural rendering risk with GPU tools",
+                )
+            }
             node.children.forEach { child ->
                 pending.addLast(NodeAtDepth(child, depth + 1))
             }
@@ -59,6 +71,31 @@ class LayoutAnalyzer(
             ),
             findings = findings,
         )
+    }
+
+    private fun substantiallyOverlappingSiblings(children: List<UiNode>): Int {
+        val overlappingIndexes = mutableSetOf<Int>()
+        for (firstIndex in children.indices) {
+            for (secondIndex in firstIndex + 1 until children.size) {
+                if (overlapRatio(children[firstIndex], children[secondIndex]) >= config.minSiblingOverlapRatio) {
+                    overlappingIndexes += firstIndex
+                    overlappingIndexes += secondIndex
+                }
+            }
+        }
+        return overlappingIndexes.size
+    }
+
+    private fun overlapRatio(first: UiNode, second: UiNode): Float {
+        val intersectionWidth =
+            (minOf(first.bounds.right, second.bounds.right) -
+                maxOf(first.bounds.left, second.bounds.left)).coerceAtLeast(0)
+        val intersectionHeight =
+            (minOf(first.bounds.bottom, second.bounds.bottom) -
+                maxOf(first.bounds.top, second.bounds.top)).coerceAtLeast(0)
+        val smallerArea = minOf(first.bounds.width * first.bounds.height, second.bounds.width * second.bounds.height)
+        if (smallerArea == 0) return 0f
+        return intersectionWidth.toFloat() * intersectionHeight / smallerArea
     }
 
     private data class NodeAtDepth(

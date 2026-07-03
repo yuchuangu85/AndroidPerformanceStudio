@@ -1,8 +1,10 @@
 package dev.agentperf.analysis
 
 data class AnalysisConfig(
-    val maxDepth: Int = 12,
-    val maxChildrenPerNode: Int = 20,
+    val maxDepth: Int = 10,
+    val maxChildrenPerNode: Int = 10,
+    val minOverlappingSiblings: Int = 3,
+    val minSiblingOverlapRatio: Float = 0.8f,
 )
 
 enum class Severity {
