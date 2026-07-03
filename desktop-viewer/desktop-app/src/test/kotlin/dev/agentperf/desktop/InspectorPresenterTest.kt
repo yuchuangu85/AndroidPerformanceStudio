@@ -32,6 +32,8 @@ class InspectorPresenterTest {
         assertEquals("Dashboard", model.details.text)
         assertEquals("title", model.rows.single { it.selected }.id)
         assertEquals(1, model.severitySummary.info)
+        assertEquals("不可见节点", model.findings.single().title)
+        assertEquals("android.view.ViewStub 节点存在但当前不可见", model.findings.single().message)
     }
 
     @Test

@@ -29,6 +29,12 @@ data class SeveritySummary(
     val error: Int,
 )
 
+data class FindingRowModel(
+    val title: String,
+    val nodeId: String,
+    val message: String,
+)
+
 enum class ConnectionTone {
     NEUTRAL,
     SUCCESS,
@@ -40,6 +46,7 @@ data class InspectorScreenModel(
     val rows: List<TreeRowModel>,
     val details: NodeDetailsModel,
     val severitySummary: SeveritySummary,
+    val findings: List<FindingRowModel>,
     val metricsText: String,
     val emptyMessage: String?,
     val connectionLabel: String,
@@ -75,6 +82,13 @@ object InspectorPresenter {
                 warning = findings.count { it.severity == Severity.WARNING },
                 error = findings.count { it.severity == Severity.ERROR },
             ),
+            findings = findings.map { finding ->
+                FindingRowModel(
+                    title = localizedFindingTitle(finding.ruleId),
+                    nodeId = finding.nodeId,
+                    message = finding.message,
+                )
+            },
             metricsText = "${metrics.nodeCount} nodes · depth ${metrics.maxDepth} · width ${metrics.widestLevel}",
             emptyMessage = if (state.snapshot == null) "No snapshot loaded" else null,
             connectionLabel = when (state.connectionStatus) {
@@ -91,6 +105,14 @@ object InspectorPresenter {
                 ConnectionStatus.ERROR -> ConnectionTone.ERROR
             },
         )
+    }
+
+    private fun localizedFindingTitle(ruleId: String): String = when (ruleId) {
+        "layout.invisible-node" -> "不可见节点"
+        "layout.excessive-children" -> "子节点过多"
+        "layout.overlapping-siblings" -> "兄弟节点区域重叠"
+        "layout.deep-hierarchy" -> "层级过深"
+        else -> ruleId
     }
 
     private fun UiNode.appendRows(

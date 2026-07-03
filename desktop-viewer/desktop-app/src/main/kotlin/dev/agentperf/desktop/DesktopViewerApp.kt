@@ -382,12 +382,12 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
             Text("TIMELINE  Live capture", color = Color(0xFF657086), fontSize = 11.sp)
         }
         HorizontalDivider(color = Border)
-        if (state.analysis.findings.isEmpty()) {
+        if (model.findings.isEmpty()) {
             Text("No findings", color = Color(0xFF8490A3), modifier = Modifier.padding(16.dp))
         } else {
-            state.analysis.findings.forEach { finding ->
+            model.findings.forEach { finding ->
                 Text(
-                    "${finding.ruleId}  ·  ${finding.nodeId}  ·  ${finding.message}",
+                    "${finding.title}  ·  ${finding.nodeId}  ·  ${finding.message}",
                     color = Color(0xFFC7D0DE),
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,

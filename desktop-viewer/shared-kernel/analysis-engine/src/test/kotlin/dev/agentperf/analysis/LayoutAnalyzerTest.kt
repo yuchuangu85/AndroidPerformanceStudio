@@ -30,7 +30,13 @@ class LayoutAnalyzerTest {
 
         val report = LayoutAnalyzer().analyze(root)
 
-        assertTrue(report.findings.any { it.ruleId == "layout.invisible-node" && it.nodeId == "hidden" })
+        assertTrue(
+            report.findings.any {
+                it.ruleId == "layout.invisible-node" &&
+                    it.nodeId == "hidden" &&
+                    it.message == "View 节点存在但当前不可见"
+            },
+        )
     }
 
     @Test
@@ -39,7 +45,13 @@ class LayoutAnalyzerTest {
 
         val report = LayoutAnalyzer(AnalysisConfig(maxDepth = 2)).analyze(root)
 
-        assertTrue(report.findings.any { it.ruleId == "layout.deep-hierarchy" && it.severity == Severity.WARNING })
+        assertTrue(
+            report.findings.any {
+                it.ruleId == "layout.deep-hierarchy" &&
+                    it.severity == Severity.WARNING &&
+                    it.message == "层级深度 3，超过阈值 2"
+            },
+        )
     }
 
     @Test
@@ -48,7 +60,13 @@ class LayoutAnalyzerTest {
 
         val report = LayoutAnalyzer(AnalysisConfig(maxChildrenPerNode = 2)).analyze(root)
 
-        assertTrue(report.findings.any { it.ruleId == "layout.excessive-children" && it.nodeId == "root" })
+        assertTrue(
+            report.findings.any {
+                it.ruleId == "layout.excessive-children" &&
+                    it.nodeId == "root" &&
+                    it.message == "直接子节点数量 3，超过阈值 2"
+            },
+        )
     }
 
     @Test
@@ -94,7 +112,8 @@ class LayoutAnalyzerTest {
             overlappingReport.findings.any {
                 it.ruleId == "layout.overlapping-siblings" &&
                     it.nodeId == "overlapping-root" &&
-                    it.severity == Severity.WARNING
+                    it.severity == Severity.WARNING &&
+                    it.message == "3 个兄弟节点的边界重叠比例至少为 80%；这是结构性渲染风险，请使用 GPU 工具进一步确认"
             },
         )
         assertTrue(adjacentReport.findings.none { it.ruleId == "layout.overlapping-siblings" })

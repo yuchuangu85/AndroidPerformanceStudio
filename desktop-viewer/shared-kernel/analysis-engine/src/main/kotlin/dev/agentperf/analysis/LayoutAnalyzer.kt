@@ -26,7 +26,7 @@ class LayoutAnalyzer(
                     ruleId = "layout.invisible-node",
                     severity = Severity.INFO,
                     nodeId = node.id,
-                    message = "${node.className} is present but not visible",
+                    message = "${node.className} 节点存在但当前不可见",
                 )
             }
             if (node.children.size > config.maxChildrenPerNode) {
@@ -34,7 +34,7 @@ class LayoutAnalyzer(
                     ruleId = "layout.excessive-children",
                     severity = Severity.WARNING,
                     nodeId = node.id,
-                    message = "${node.children.size} direct children exceed ${config.maxChildrenPerNode}",
+                    message = "直接子节点数量 ${node.children.size}，超过阈值 ${config.maxChildrenPerNode}",
                 )
             }
             val overlappingSiblings = substantiallyOverlappingSiblings(node.children)
@@ -44,9 +44,9 @@ class LayoutAnalyzer(
                     severity = Severity.WARNING,
                     nodeId = node.id,
                     message =
-                        "$overlappingSiblings sibling bounds overlap by at least " +
-                            "${(config.minSiblingOverlapRatio * 100).toInt()}%; " +
-                            "verify this structural rendering risk with GPU tools",
+                        "$overlappingSiblings 个兄弟节点的边界重叠比例至少为 " +
+                            "${(config.minSiblingOverlapRatio * 100).toInt()}%；" +
+                            "这是结构性渲染风险，请使用 GPU 工具进一步确认",
                 )
             }
             node.children.forEach { child ->
@@ -59,7 +59,7 @@ class LayoutAnalyzer(
                 ruleId = "layout.deep-hierarchy",
                 severity = Severity.WARNING,
                 nodeId = root.id,
-                message = "Hierarchy depth $maxDepth exceeds ${config.maxDepth}",
+                message = "层级深度 $maxDepth，超过阈值 ${config.maxDepth}",
             )
         }
 
