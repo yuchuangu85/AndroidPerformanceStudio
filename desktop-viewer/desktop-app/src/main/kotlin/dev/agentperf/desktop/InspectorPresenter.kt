@@ -58,13 +58,14 @@ data class InspectorScreenModel(
 object InspectorPresenter {
     fun present(state: InspectorState): InspectorScreenModel {
         val nodeNumbers = mutableMapOf<String, String>()
+        val nextIndexByDepth = mutableMapOf<Int, Int>()
         val rows = buildList {
             state.snapshot?.root?.appendRows(
                 target = this,
-                number = "1",
                 depth = 0,
                 selectedNodeId = state.selectedNodeId,
                 nodeNumbers = nodeNumbers,
+                nextIndexByDepth = nextIndexByDepth,
             )
         }
         val selected = state.selectedNode
@@ -123,11 +124,14 @@ object InspectorPresenter {
 
     private fun UiNode.appendRows(
         target: MutableList<TreeRowModel>,
-        number: String,
         depth: Int,
         selectedNodeId: String?,
         nodeNumbers: MutableMap<String, String>,
+        nextIndexByDepth: MutableMap<Int, Int>,
     ) {
+        val index = nextIndexByDepth.getOrDefault(depth, 0)
+        nextIndexByDepth[depth] = index + 1
+        val number = "$depth-$index"
         nodeNumbers.putIfAbsent(id, number)
         target += TreeRowModel(
             id = id,
@@ -137,13 +141,13 @@ object InspectorPresenter {
             selected = id == selectedNodeId,
             visible = visible && alpha > 0f,
         )
-        children.forEachIndexed { index, child ->
+        children.forEach { child ->
             child.appendRows(
                 target = target,
-                number = "$number.${index + 1}",
                 depth = depth + 1,
                 selectedNodeId = selectedNodeId,
                 nodeNumbers = nodeNumbers,
+                nextIndexByDepth = nextIndexByDepth,
             )
         }
     }

@@ -8,6 +8,7 @@ import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
 import dev.agentperf.fixtures.SampleSnapshots
+import dev.agentperf.protocol.ViewNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -21,7 +22,47 @@ class InspectorPresenterTest {
 
         assertEquals(listOf("root", "title", "cards", "score", "legacy-placeholder"), model.rows.map { it.id })
         assertEquals(listOf(0, 1, 1, 2, 2), model.rows.map { it.depth })
-        assertEquals(listOf("1", "1.1", "1.2", "1.2.1", "1.2.2"), model.rows.map { it.number })
+        assertEquals(
+            listOf("0-0", "1-0", "1-1", "2-0", "2-1"),
+            model.rows.map { it.number },
+        )
+    }
+
+    @Test
+    fun `uses one global index sequence for each depth`() {
+        val bounds = SampleSnapshots.dashboard.root.bounds
+        val snapshot = SampleSnapshots.dashboard.copy(
+            root = ViewNode(
+                id = "root",
+                className = "Root",
+                bounds = bounds,
+                children = listOf(
+                    ViewNode(
+                        id = "left",
+                        className = "Left",
+                        bounds = bounds,
+                        children = listOf(
+                            ViewNode(id = "left-leaf", className = "Leaf", bounds = bounds),
+                        ),
+                    ),
+                    ViewNode(
+                        id = "right",
+                        className = "Right",
+                        bounds = bounds,
+                        children = listOf(
+                            ViewNode(id = "right-leaf", className = "Leaf", bounds = bounds),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val model = InspectorPresenter.present(InspectorState(snapshot = snapshot))
+
+        assertEquals(
+            listOf("0-0", "1-0", "2-0", "1-1", "2-1"),
+            model.rows.map { it.number },
+        )
     }
 
     @Test
@@ -39,7 +80,7 @@ class InspectorPresenterTest {
         assertEquals(1, model.severitySummary.info)
         assertEquals("不可见节点", model.findings.single().title)
         assertEquals("android.view.ViewStub 节点存在但当前不可见", model.findings.single().message)
-        assertEquals("1.2.2", model.findings.single().nodeNumber)
+        assertEquals("2-1", model.findings.single().nodeNumber)
         assertEquals(
             model.rows.single { it.id == "legacy-placeholder" }.number,
             model.findings.single().nodeNumber,
