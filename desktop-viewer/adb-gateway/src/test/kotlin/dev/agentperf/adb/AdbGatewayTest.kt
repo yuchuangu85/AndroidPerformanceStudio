@@ -2,6 +2,7 @@ package dev.agentperf.adb
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AdbGatewayTest {
@@ -42,6 +43,17 @@ class AdbGatewayTest {
     }
 
     @Test
+    fun `foreground parser prefers the focused app in multi-window output`() {
+        val output = """
+            topResumedActivity=ActivityRecord{111 u0 org.chromium.home.pc/.HostActivity t2}
+            topResumedActivity=ActivityRecord{222 u0 com.codemx.anrdemo/.MainActivity t10}
+            mFocusedApp=ActivityRecord{222 u0 com.codemx.anrdemo/.MainActivity t10}
+        """.trimIndent()
+
+        assertEquals("com.codemx.anrdemo", AdbOutputParser.parseForegroundPackage(output))
+    }
+
+    @Test
     fun `builds a run-as session command for a valid package`() {
         val command = AdbCommandFactory.readSession("R3CN30ABC", "dev.agentperf.sample")
 
@@ -59,5 +71,20 @@ class AdbGatewayTest {
         assertThrows(IllegalArgumentException::class.java) {
             AdbCommandFactory.readSession("device", "dev.sample; rm -rf /")
         }
+    }
+
+    @Test
+    fun `terminates a command that exceeds its deadline`() {
+        val startedAt = System.nanoTime()
+
+        val result = AdbProcessRunner(
+            executable = "/bin/sleep",
+            timeoutMillis = 50,
+        ).run(listOf("5"))
+
+        val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
+        assertEquals(AdbProcessRunner.TIMEOUT_EXIT_CODE, result.exitCode)
+        assertTrue(result.stderr.contains("timed out"))
+        assertTrue(elapsedMillis < 1_000, "command took ${elapsedMillis}ms")
     }
 }

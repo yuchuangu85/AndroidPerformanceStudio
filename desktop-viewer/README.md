@@ -45,17 +45,17 @@ adb shell run-as dev.agentperf.sample cat files/agentperf/session.json
 
 The session file contains a random token and a `localabstract` socket name. No network permission, root, system signature, hidden API, or production-build integration is used.
 
-With exactly one authorized device connected and the sample Activity in the foreground, start the desktop application:
+With exactly one authorized device connected, start the desktop application:
 
 ```bash
 ./gradlew :desktop-app:run
 ```
 
-The viewer connects to `dev.agentperf.sample`, refreshes approximately once per second, and renders the captured window PNG with the selected View bounds overlaid. Connection failures remain visible in the header and are retried automatically.
+The viewer follows the foreground application and reconnects automatically when the user switches apps. AgentPerf-enabled debug builds use the Agent socket for high-fidelity capture. Other foreground applications fall back to `uiautomator dump` plus `screencap`, so newly installed debug apps appear without requiring AgentPerf integration. The selected View bounds are overlaid on the matching screenshot coordinate space. Connection failures remain visible in the header and are retried automatically.
 
 ## Current scope
 
-The live path currently targets one authorized device and the sample package. Traditional View hierarchy and screenshots are supported. Arbitrary package selection, multiple-device selection, Compose semantics, report persistence, and timeline diff remain future work.
+The live path currently targets one authorized device and its foreground application. Traditional View hierarchy and screenshots are supported. The ADB fallback is slower and only exposes nodes available through UI Automator. Multiple-device selection, Compose semantics, report persistence, and timeline diff remain future work.
 
 See:
 

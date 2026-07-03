@@ -77,9 +77,13 @@ fun DesktopViewerApp() {
                 store.connecting()
                 state = store.state
                 session = withContext(Dispatchers.IO) {
-                    deviceClient.connect(SAMPLE_PACKAGE)
+                    deviceClient.connectForegroundApp()
                 }
                 while (currentCoroutineContext().isActive) {
+                    val isCurrent = withContext(Dispatchers.IO) {
+                        session.isForegroundAppCurrent()
+                    }
+                    if (!isCurrent) break
                     val frame = withContext(Dispatchers.IO) { session.capture() }
                     store.loadCapture(
                         snapshot = protocolCodec.decodeSnapshot(frame.snapshotJson),
@@ -349,6 +353,5 @@ private fun Separator() {
     Box(Modifier.fillMaxHeight().width(1.dp).background(Border))
 }
 
-private const val SAMPLE_PACKAGE = "dev.agentperf.sample"
 private const val CAPTURE_INTERVAL_MILLIS = 1_000L
 private const val RECONNECT_INTERVAL_MILLIS = 1_000L

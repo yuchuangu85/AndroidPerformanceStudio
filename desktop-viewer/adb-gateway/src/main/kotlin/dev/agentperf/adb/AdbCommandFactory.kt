@@ -33,6 +33,29 @@ object AdbCommandFactory {
         )
     }
 
+    fun foregroundActivity(serial: String): List<String> =
+        devicePrefix(serial) + listOf(
+            "shell",
+            "dumpsys",
+            "activity",
+            "activities",
+        )
+
+    fun dumpHierarchy(serial: String): List<String> =
+        devicePrefix(serial) + listOf(
+            "exec-out",
+            "uiautomator",
+            "dump",
+            "/dev/tty",
+        )
+
+    fun captureScreenshot(serial: String): List<String> =
+        devicePrefix(serial) + listOf(
+            "exec-out",
+            "screencap",
+            "-p",
+        )
+
     fun removeForward(
         serial: String,
         hostPort: Int,

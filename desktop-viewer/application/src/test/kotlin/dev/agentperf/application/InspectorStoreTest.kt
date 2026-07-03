@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -69,5 +70,22 @@ class InspectorStoreTest {
         store.connectionFailed("Agent unavailable")
         assertEquals(ConnectionStatus.ERROR, store.state.connectionStatus)
         assertEquals("Agent unavailable", store.state.connectionError)
+    }
+
+    @Test
+    fun `reconnecting clears the previous application capture`() {
+        val store = InspectorStore().apply {
+            loadCapture(
+                snapshot = SampleSnapshots.dashboard,
+                screenshotPng = byteArrayOf(1, 2, 3),
+            )
+        }
+
+        store.connecting()
+
+        assertNull(store.state.snapshot)
+        assertNull(store.state.screenshotPng)
+        assertNull(store.state.selectedNodeId)
+        assertEquals(ConnectionStatus.CONNECTING, store.state.connectionStatus)
     }
 }

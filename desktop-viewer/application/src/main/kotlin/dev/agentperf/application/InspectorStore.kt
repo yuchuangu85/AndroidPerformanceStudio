@@ -33,9 +33,8 @@ class InspectorStore(
     }
 
     fun connecting() {
-        state = state.copy(
+        state = InspectorState(
             connectionStatus = ConnectionStatus.CONNECTING,
-            connectionError = null,
         )
     }
 

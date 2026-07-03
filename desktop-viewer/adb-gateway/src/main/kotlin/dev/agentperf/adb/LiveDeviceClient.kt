@@ -8,6 +8,11 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
 class DeviceSelectionException(message: String) : IllegalStateException(message)
+class ForegroundAppUnavailableException(message: String) : IllegalStateException(message)
+class AgentUnavailableException(
+    val packageName: String,
+    cause: Throwable,
+) : IllegalStateException("Foreground app $packageName is not AgentPerf-enabled", cause)
 
 class AdbCommandException(
     val arguments: List<String>,
@@ -26,7 +31,36 @@ class LiveDeviceClient(
         Socket(InetAddress.getLoopbackAddress(), port).apply { soTimeout = SOCKET_TIMEOUT_MILLIS }
     },
 ) {
-    fun connect(packageName: String): ConnectedDeviceSession {
+    fun connectForegroundApp(): ConnectedDeviceSession {
+        val device = selectDevice()
+        val packageName = foregroundPackageName(device.serial)
+        return try {
+            connect(device, packageName)
+        } catch (_: AgentUnavailableException) {
+            ConnectedDeviceSession(
+                serial = device.serial,
+                packageName = packageName,
+                processRunner = processRunner,
+                socketConnector = socketConnector,
+                fallbackCapture = AdbFallbackCapture(
+                    serial = device.serial,
+                    packageName = packageName,
+                    processRunner = processRunner,
+                )::capture,
+            )
+        }
+    }
+
+    fun connect(packageName: String): ConnectedDeviceSession =
+        connect(selectDevice(), packageName)
+
+    fun foregroundPackageName(serial: String): String =
+        checkedRun(AdbCommandFactory.foregroundActivity(serial))
+            .stdout
+            .let(AdbOutputParser::parseForegroundPackage)
+            ?: throw ForegroundAppUnavailableException("No foreground Android application found")
+
+    private fun selectDevice(): AdbDevice {
         val devices = checkedRun(listOf("devices", "-l")).stdout
             .let(AdbOutputParser::parseDevices)
             .filter { it.state == DeviceState.DEVICE }
@@ -41,13 +75,22 @@ class LiveDeviceClient(
                 "Expected exactly one authorized device, found ${devices.size}",
             )
         }
-        val descriptor = checkedRun(AdbCommandFactory.readSession(device.serial, packageName))
-            .stdout
+        return device
+    }
+
+    private fun connect(device: AdbDevice, packageName: String): ConnectedDeviceSession {
+        val sessionDocument = try {
+            checkedRun(AdbCommandFactory.readSession(device.serial, packageName)).stdout
+        } catch (error: AdbCommandException) {
+            throw AgentUnavailableException(packageName, error)
+        }
+        val descriptor = sessionDocument
             .let(AgentSessionDescriptor::parse)
         val port = portAllocator()
         checkedRun(AdbCommandFactory.forward(device.serial, port, descriptor.socketName))
         val session = ConnectedDeviceSession(
             serial = device.serial,
+            packageName = packageName,
             hostPort = port,
             token = descriptor.token,
             processRunner = processRunner,
@@ -75,17 +118,21 @@ class LiveDeviceClient(
 
 class ConnectedDeviceSession internal constructor(
     val serial: String,
-    private val hostPort: Int,
-    private val token: String,
+    val packageName: String,
+    private val hostPort: Int? = null,
+    private val token: String? = null,
     private val processRunner: ProcessRunner,
     private val socketConnector: (Int) -> Socket,
     private val captureFrameCodec: CaptureFrameCodec = CaptureFrameCodec(),
+    private val fallbackCapture: (() -> CaptureFrame)? = null,
 ) : AutoCloseable {
     private val closed = AtomicBoolean(false)
 
     internal fun authenticate() {
-        socketConnector(hostPort).use { socket ->
-            socket.getOutputStream().write("PING $token\n".toByteArray())
+        val agentPort = requireNotNull(hostPort)
+        val agentToken = requireNotNull(token)
+        socketConnector(agentPort).use { socket ->
+            socket.getOutputStream().write("PING $agentToken\n".toByteArray())
             socket.getOutputStream().flush()
             val response = socket.getInputStream().bufferedReader().readLine()
             check(response == "PONG 1.0") { "Agent authentication failed: ${response.orEmpty()}" }
@@ -94,15 +141,27 @@ class ConnectedDeviceSession internal constructor(
 
     fun capture(): CaptureFrame {
         check(!closed.get()) { "Device session is closed" }
-        return socketConnector(hostPort).use { socket ->
-            socket.getOutputStream().write("CAPTURE $token\n".toByteArray())
+        fallbackCapture?.let { return it() }
+        val agentPort = requireNotNull(hostPort)
+        val agentToken = requireNotNull(token)
+        return socketConnector(agentPort).use { socket ->
+            socket.getOutputStream().write("CAPTURE $agentToken\n".toByteArray())
             socket.getOutputStream().flush()
             captureFrameCodec.read(socket.getInputStream())
         }
     }
 
+    fun isForegroundAppCurrent(): Boolean {
+        val arguments = AdbCommandFactory.foregroundActivity(serial)
+        val result = processRunner.run(arguments)
+        if (result.exitCode != 0) throw AdbCommandException(arguments, result)
+        val currentPackage = AdbOutputParser.parseForegroundPackage(result.stdout)
+            ?: throw ForegroundAppUnavailableException("No foreground Android application found")
+        return currentPackage == packageName
+    }
+
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        processRunner.run(AdbCommandFactory.removeForward(serial, hostPort))
+        hostPort?.let { processRunner.run(AdbCommandFactory.removeForward(serial, it)) }
     }
 }
