@@ -3,6 +3,7 @@ package dev.agentperf.desktop
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -38,6 +39,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -57,6 +62,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image
+import java.awt.Cursor
 import kotlin.math.roundToInt
 
 private val Panel = Color(0xFF141820)
@@ -107,23 +113,40 @@ fun DesktopViewerApp() {
         }
     }
 
+    var paneWidths by remember { mutableStateOf(PaneWidths()) }
+
     MaterialTheme {
         Surface(color = CanvasBackground, modifier = Modifier.fillMaxSize()) {
             Column {
                 Header(state)
                 HorizontalDivider(color = Border)
-                Row(modifier = Modifier.weight(1f)) {
-                    HierarchyPane(
-                        state = state,
-                        onSelect = { id ->
-                            if (store.selectNode(id)) state = store.state
-                        },
-                        modifier = Modifier.width(300.dp).fillMaxHeight(),
-                    )
-                    Separator()
-                    PreviewPane(state, Modifier.weight(1f).fillMaxHeight())
-                    Separator()
-                    DetailsPane(state, Modifier.widthIn(min = 300.dp, max = 360.dp).fillMaxHeight())
+                BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                    val availableWidthDp = maxWidth.value
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        HierarchyPane(
+                            state = state,
+                            onSelect = { id ->
+                                if (store.selectNode(id)) state = store.state
+                            },
+                            modifier = Modifier.width(paneWidths.hierarchy.dp).fillMaxHeight(),
+                        )
+                        ResizableSeparator { deltaDp ->
+                            paneWidths = PaneLayout.dragHierarchy(
+                                widths = paneWidths,
+                                deltaDp = deltaDp,
+                                availableWidthDp = availableWidthDp,
+                            )
+                        }
+                        PreviewPane(state, Modifier.weight(1f).fillMaxHeight())
+                        ResizableSeparator { deltaDp ->
+                            paneWidths = PaneLayout.dragProperties(
+                                widths = paneWidths,
+                                deltaDp = deltaDp,
+                                availableWidthDp = availableWidthDp,
+                            )
+                        }
+                        DetailsPane(state, Modifier.width(paneWidths.properties.dp).fillMaxHeight())
+                    }
                 }
                 HorizontalDivider(color = Border)
                 FindingsPane(state, Modifier.fillMaxWidth().height(178.dp))
@@ -414,8 +437,23 @@ private fun StatusDot(color: Color) {
 }
 
 @Composable
-private fun Separator() {
-    Box(Modifier.fillMaxHeight().width(1.dp).background(Border))
+private fun ResizableSeparator(onDrag: (Float) -> Unit) {
+    val density = LocalDensity.current
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(PaneLayout.SPLITTER_WIDTH_DP.dp)
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+            .pointerInput(density) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    change.consume()
+                    onDrag(dragAmount / density.density)
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.fillMaxHeight().width(1.dp).background(Border))
+    }
 }
 
 private const val CAPTURE_INTERVAL_MILLIS = 1_000L
