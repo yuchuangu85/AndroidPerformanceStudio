@@ -27,9 +27,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -122,17 +124,23 @@ fun DesktopViewerApp() {
                 HorizontalDivider(color = Border)
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                     val availableWidthDp = maxWidth.value
+                    val normalizedPaneWidths = PaneLayout.fit(paneWidths, availableWidthDp)
+                    SideEffect {
+                        if (paneWidths != normalizedPaneWidths) {
+                            paneWidths = normalizedPaneWidths
+                        }
+                    }
                     Row(modifier = Modifier.fillMaxSize()) {
                         HierarchyPane(
                             state = state,
                             onSelect = { id ->
                                 if (store.selectNode(id)) state = store.state
                             },
-                            modifier = Modifier.width(paneWidths.hierarchy.dp).fillMaxHeight(),
+                            modifier = Modifier.width(normalizedPaneWidths.hierarchy.dp).fillMaxHeight(),
                         )
                         ResizableSeparator { deltaDp ->
                             paneWidths = PaneLayout.dragHierarchy(
-                                widths = paneWidths,
+                                widths = normalizedPaneWidths,
                                 deltaDp = deltaDp,
                                 availableWidthDp = availableWidthDp,
                             )
@@ -140,12 +148,15 @@ fun DesktopViewerApp() {
                         PreviewPane(state, Modifier.weight(1f).fillMaxHeight())
                         ResizableSeparator { deltaDp ->
                             paneWidths = PaneLayout.dragProperties(
-                                widths = paneWidths,
+                                widths = normalizedPaneWidths,
                                 deltaDp = deltaDp,
                                 availableWidthDp = availableWidthDp,
                             )
                         }
-                        DetailsPane(state, Modifier.width(paneWidths.properties.dp).fillMaxHeight())
+                        DetailsPane(
+                            state,
+                            Modifier.width(normalizedPaneWidths.properties.dp).fillMaxHeight(),
+                        )
                     }
                 }
                 HorizontalDivider(color = Border)
@@ -439,6 +450,7 @@ private fun StatusDot(color: Color) {
 @Composable
 private fun ResizableSeparator(onDrag: (Float) -> Unit) {
     val density = LocalDensity.current
+    val currentOnDrag by rememberUpdatedState(onDrag)
     Box(
         modifier = Modifier
             .fillMaxHeight()
@@ -447,7 +459,7 @@ private fun ResizableSeparator(onDrag: (Float) -> Unit) {
             .pointerInput(density) {
                 detectHorizontalDragGestures { change, dragAmount ->
                     change.consume()
-                    onDrag(dragAmount / density.density)
+                    currentOnDrag(dragAmount / density.density)
                 }
             },
         contentAlignment = Alignment.Center,

@@ -12,6 +12,21 @@ internal object PaneLayout {
     const val SPLITTER_WIDTH_DP = 7f
     private const val SPLITTER_COUNT = 2
 
+    fun fit(
+        widths: PaneWidths,
+        availableWidthDp: Float,
+    ): PaneWidths {
+        val sidePaneBudget =
+            availableWidthDp -
+                CANVAS_MIN_WIDTH_DP -
+                SPLITTER_WIDTH_DP * SPLITTER_COUNT
+        val hierarchyMaximum = maxOf(HIERARCHY_MIN_WIDTH_DP, sidePaneBudget - PROPERTIES_MIN_WIDTH_DP)
+        val hierarchy = widths.hierarchy.coerceIn(HIERARCHY_MIN_WIDTH_DP, hierarchyMaximum)
+        val propertiesMaximum = maxOf(PROPERTIES_MIN_WIDTH_DP, sidePaneBudget - hierarchy)
+        val properties = widths.properties.coerceIn(PROPERTIES_MIN_WIDTH_DP, propertiesMaximum)
+        return PaneWidths(hierarchy = hierarchy, properties = properties)
+    }
+
     fun dragHierarchy(
         widths: PaneWidths,
         deltaDp: Float,

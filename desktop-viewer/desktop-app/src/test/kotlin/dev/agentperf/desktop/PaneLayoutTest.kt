@@ -27,4 +27,21 @@ class PaneLayoutTest {
         val hierarchyMaximum = PaneLayout.dragHierarchy(initial, 1000f, 1100f)
         assertEquals(hierarchyMaximum, PaneLayout.dragHierarchy(hierarchyMaximum, 1000f, 1100f))
     }
+
+    @Test
+    fun `fitting remembered widths preserves canvas minimum after window shrinks`() {
+        val fitted = PaneLayout.fit(
+            widths = PaneWidths(hierarchy = 500f, properties = 500f),
+            availableWidthDp = 1100f,
+        )
+
+        assertEquals(PaneWidths(hierarchy = 500f, properties = 266f), fitted)
+        assertEquals(
+            PaneLayout.CANVAS_MIN_WIDTH_DP,
+            1100f -
+                fitted.hierarchy -
+                fitted.properties -
+                PaneLayout.SPLITTER_WIDTH_DP * 2,
+        )
+    }
 }
