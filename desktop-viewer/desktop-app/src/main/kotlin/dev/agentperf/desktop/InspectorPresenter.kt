@@ -39,6 +39,7 @@ enum class FindingTone {
 }
 
 data class FindingRowModel(
+    val key: String,
     val title: String,
     val nodeNumber: String,
     val nodeId: String,
@@ -64,8 +65,11 @@ data class InspectorScreenModel(
     val connectionTone: ConnectionTone,
 )
 
-object InspectorPresenter {
-    fun present(state: InspectorState): InspectorScreenModel {
+internal object InspectorPresenter {
+    fun present(
+        state: InspectorState,
+        strings: ViewerStrings = ViewerStrings.English,
+    ): InspectorScreenModel {
         val nodeNumbers = mutableMapOf<String, String>()
         val nextIndexByDepth = mutableMapOf<Int, Int>()
         val rows = buildList {
@@ -96,6 +100,7 @@ object InspectorPresenter {
                             ?.depth
                             ?.plus(1)
                             ?: 1,
+                        strings = strings,
                     ),
                 )
             } ?: NodeDetailsModel(),
@@ -104,12 +109,17 @@ object InspectorPresenter {
                 warning = findings.count { it.severity == Severity.WARNING },
                 error = findings.count { it.severity == Severity.ERROR },
             ),
-            findings = findings.map { finding ->
+            findings = findings.mapIndexed { index, finding ->
                 FindingRowModel(
-                    title = localizedFindingTitle(finding.ruleId),
+                    key = "${finding.ruleId}:${finding.nodeId}:$index",
+                    title = strings.findingTitle(finding.ruleId),
                     nodeNumber = nodeNumbers[finding.nodeId] ?: "—",
                     nodeId = finding.nodeId,
-                    message = finding.message,
+                    message = strings.findingMessage(
+                        ruleId = finding.ruleId,
+                        arguments = finding.arguments,
+                        fallback = finding.message,
+                    ),
                     tone = when (finding.severity) {
                         Severity.INFO -> FindingTone.INFO
                         Severity.WARNING -> FindingTone.WARNING
@@ -117,13 +127,13 @@ object InspectorPresenter {
                     },
                 )
             },
-            metricsText = "${metrics.nodeCount} nodes · depth ${metrics.maxDepth} · width ${metrics.widestLevel}",
-            emptyMessage = if (state.snapshot == null) "No snapshot loaded" else null,
+            metricsText = strings.metrics(metrics.nodeCount, metrics.maxDepth, metrics.widestLevel),
+            emptyMessage = if (state.snapshot == null) strings.noSnapshotLoaded else null,
             connectionLabel = when (state.connectionStatus) {
-                ConnectionStatus.DISCONNECTED -> "Disconnected"
-                ConnectionStatus.CONNECTING -> "Connecting"
-                ConnectionStatus.CONNECTED -> "Live"
-                ConnectionStatus.ERROR -> state.connectionError ?: "Connection failed"
+                ConnectionStatus.DISCONNECTED -> strings.disconnected
+                ConnectionStatus.CONNECTING -> strings.connecting
+                ConnectionStatus.CONNECTED -> strings.live
+                ConnectionStatus.ERROR -> state.connectionError ?: strings.connectionFailed
             },
             connectionTone = when (state.connectionStatus) {
                 ConnectionStatus.DISCONNECTED,
@@ -133,14 +143,6 @@ object InspectorPresenter {
                 ConnectionStatus.ERROR -> ConnectionTone.ERROR
             },
         )
-    }
-
-    private fun localizedFindingTitle(ruleId: String): String = when (ruleId) {
-        "layout.invisible-node" -> "不可见节点"
-        "layout.excessive-children" -> "子节点过多"
-        "layout.overlapping-siblings" -> "兄弟节点区域重叠"
-        "layout.deep-hierarchy" -> "层级过深"
-        else -> ruleId
     }
 
     private fun UiNode.appendRows(

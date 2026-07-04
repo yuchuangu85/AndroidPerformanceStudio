@@ -3,9 +3,11 @@ package dev.agentperf.desktop
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,13 +24,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -36,18 +42,33 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -68,12 +89,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image
 import java.awt.Cursor
+import java.awt.event.MouseEvent
+import java.util.Locale
 import kotlin.math.roundToInt
 
-private val Panel = Color(0xFF141820)
-private val CanvasBackground = Color(0xFF0D1016)
-private val Border = Color(0xFF2B3240)
-private val Accent = Color(0xFF70A5FF)
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 
 @Composable
@@ -81,6 +100,8 @@ fun DesktopViewerApp() {
     val store = remember { createInitialInspectorStore() }
     var state by remember { mutableStateOf(store.state) }
     var autoScanEnabled by remember { mutableStateOf(AUTO_SCAN_DEFAULT_ENABLED) }
+    var manualRefreshRequest by remember { mutableStateOf(0) }
+    var manualRefreshInProgress by remember { mutableStateOf(false) }
     val deviceClient = remember { LiveDeviceClient() }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
 
@@ -125,31 +146,136 @@ fun DesktopViewerApp() {
         }
     }
 
+    LaunchedEffect(manualRefreshRequest, autoScanEnabled) {
+        if (manualRefreshRequest == 0 || autoScanEnabled) {
+            manualRefreshInProgress = false
+            return@LaunchedEffect
+        }
+        var session: ConnectedDeviceSession? = null
+        manualRefreshInProgress = true
+        try {
+            store.connecting()
+            state = store.state
+            session = withContext(Dispatchers.IO) {
+                deviceClient.connectForegroundApp()
+            }
+            val frame = withContext(Dispatchers.IO) {
+                session.capture()
+            }
+            store.loadCapture(
+                snapshot = protocolCodec.decodeSnapshot(frame.snapshotJson),
+                screenshotPng = frame.screenshotPng,
+            )
+            state = store.state
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            store.connectionFailed(error.message ?: error.javaClass.simpleName)
+            state = store.state
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) {
+                session?.close()
+            }
+            manualRefreshInProgress = false
+        }
+    }
+
     var paneWidths by remember { mutableStateOf(PaneWidths()) }
     var findingsHeightDp by remember { mutableStateOf(FindingsLayout.DEFAULT_HEIGHT_DP) }
     var panelVisibility by remember { mutableStateOf(PanelVisibility()) }
+    var hierarchyTreeState by remember { mutableStateOf(HierarchyTreeState()) }
+    val themeStore = remember { ThemePreferenceStore.desktop() }
+    var themePreference by remember { mutableStateOf(themeStore.load()) }
+    val languageStore = remember { LanguagePreferenceStore.desktop() }
+    var languagePreference by remember { mutableStateOf(languageStore.load()) }
+    val viewerLanguage = languagePreference.resolve(Locale.getDefault().toLanguageTag())
+    val strings = remember(viewerLanguage) { ViewerStrings.forLanguage(viewerLanguage) }
+    var settingsVisible by remember { mutableStateOf(false) }
+    val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
+    val appFocusRequester = remember { FocusRequester() }
+    val selectNode: (String) -> Unit = { id ->
+        if (store.selectNode(id)) state = store.state
+    }
+    val performAction: (ViewerAction) -> Unit = { action ->
+        when (action) {
+            ViewerAction.TOGGLE_AUTO_SCAN -> autoScanEnabled = !autoScanEnabled
+            ViewerAction.PREVIOUS_NODE,
+            ViewerAction.NEXT_NODE,
+            -> {
+                val direction = if (action == ViewerAction.PREVIOUS_NODE) {
+                    HierarchyNavigationDirection.UP
+                } else {
+                    HierarchyNavigationDirection.DOWN
+                }
+                hierarchyTreeState.adjacentNodeId(
+                    rows = InspectorPresenter.present(state, strings).rows,
+                    selectedNodeId = state.selectedNodeId,
+                    direction = direction,
+                )?.let(selectNode)
+            }
+            ViewerAction.TOGGLE_SELECTED_NODE -> {
+                state.selectedNodeId?.let { selectedNodeId ->
+                    hierarchyTreeState = hierarchyTreeState.toggleExpandable(
+                        nodeId = selectedNodeId,
+                        rows = InspectorPresenter.present(state, strings).rows,
+                    )
+                }
+            }
+            ViewerAction.TOGGLE_HIERARCHY -> {
+                panelVisibility = panelVisibility.toggleHierarchy()
+            }
+            ViewerAction.TOGGLE_FINDINGS -> {
+                panelVisibility = panelVisibility.toggleFindings()
+            }
+            ViewerAction.TOGGLE_DETAILS -> {
+                panelVisibility = panelVisibility.toggleDetails()
+            }
+            ViewerAction.OPEN_SETTINGS -> settingsVisible = true
+        }
+    }
 
-    MaterialTheme {
-        Surface(color = CanvasBackground, modifier = Modifier.fillMaxSize()) {
+    LaunchedEffect(Unit) {
+        appFocusRequester.requestFocus()
+    }
+
+    CompositionLocalProvider(LocalViewerStrings provides strings) {
+        ViewerTheme(darkTheme = darkTheme) {
+            val colors = LocalViewerColors.current
+            Surface(
+            color = colors.canvasBackground,
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(appFocusRequester)
+                .onPreviewKeyEvent { event ->
+                    val action = if (event.type == KeyEventType.KeyDown) {
+                        viewerCommandAction(
+                            key = event.key,
+                            commandPressed = event.isMetaPressed || event.isCtrlPressed,
+                        )
+                    } else {
+                        null
+                    }
+                    action?.let {
+                        performAction(it)
+                        true
+                    } ?: false
+                }
+                .focusable(),
+        ) {
             Column {
                 Header(
                     state = state,
                     autoScanEnabled = autoScanEnabled,
-                    onToggleAutoScan = {
-                        autoScanEnabled = !autoScanEnabled
+                    manualRefreshInProgress = manualRefreshInProgress,
+                    onManualRefresh = {
+                        if (!autoScanEnabled && !manualRefreshInProgress) {
+                            manualRefreshRequest += 1
+                        }
                     },
                     panelVisibility = panelVisibility,
-                    onToggleHierarchy = {
-                        panelVisibility = panelVisibility.toggleHierarchy()
-                    },
-                    onToggleFindings = {
-                        panelVisibility = panelVisibility.toggleFindings()
-                    },
-                    onToggleDetails = {
-                        panelVisibility = panelVisibility.toggleDetails()
-                    },
+                    onAction = performAction,
                 )
-                HorizontalDivider(color = Border)
+                HorizontalDivider(color = colors.border)
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                     val availableHeightDp = maxHeight.value
                     val normalizedFindingsHeight = FindingsLayout.fit(findingsHeightDp, availableHeightDp)
@@ -171,9 +297,10 @@ fun DesktopViewerApp() {
                                 if (panelVisibility.showHierarchy) {
                                     HierarchyPane(
                                         state = state,
-                                        onSelect = { id ->
-                                            if (store.selectNode(id)) state = store.state
-                                        },
+                                        treeState = hierarchyTreeState,
+                                        onTreeStateChange = { hierarchyTreeState = it },
+                                        onSelect = selectNode,
+                                        onAction = performAction,
                                         modifier =
                                             Modifier
                                                 .width(normalizedPaneWidths.hierarchy.dp)
@@ -215,6 +342,7 @@ fun DesktopViewerApp() {
                             }
                             FindingsPane(
                                 state = state,
+                                onSelectNode = selectNode,
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
@@ -223,6 +351,24 @@ fun DesktopViewerApp() {
                         }
                     }
                 }
+            }
+        }
+            if (settingsVisible) {
+                SettingsDialog(
+                    selectedThemePreference = themePreference,
+                    onSelectThemePreference = { preference ->
+                        themePreference = preference
+                        themeStore.save(preference)
+                    },
+                    selectedLanguagePreference = languagePreference,
+                    onSelectLanguagePreference = { preference ->
+                        languagePreference = preference
+                        languageStore.save(preference)
+                    },
+                    onDismiss = {
+                        settingsVisible = false
+                    },
+                )
             }
         }
     }
@@ -234,62 +380,178 @@ internal fun createInitialInspectorStore(): InspectorStore = InspectorStore()
 private fun Header(
     state: InspectorState,
     autoScanEnabled: Boolean,
-    onToggleAutoScan: () -> Unit,
+    manualRefreshInProgress: Boolean,
+    onManualRefresh: () -> Unit,
     panelVisibility: PanelVisibility,
-    onToggleHierarchy: () -> Unit,
-    onToggleFindings: () -> Unit,
-    onToggleDetails: () -> Unit,
+    onAction: (ViewerAction) -> Unit,
 ) {
-    val model = InspectorPresenter.present(state)
-    val (packageName, separator, connectionLabel) = headerTextSegments(model)
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val model = InspectorPresenter.present(state, strings)
+    val (packageName, separator, connectionLabel) = headerTextSegments(model, strings)
     Row(
-        modifier = Modifier.fillMaxWidth().height(29.dp).background(Panel).padding(horizontal = 18.dp),
+        modifier = Modifier.fillMaxWidth().height(29.dp).background(colors.panel).padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(packageName, color = Color(0xFFDCE4F2), fontFamily = FontFamily.Monospace)
+        Text(packageName, color = colors.primaryText, fontFamily = FontFamily.Monospace)
         Spacer(Modifier.width(10.dp))
-        Text(separator, color = Color(0xFF687386))
+        Text(separator, color = colors.mutedText)
         Spacer(Modifier.width(10.dp))
         val connectionColor = when (model.connectionTone) {
-            ConnectionTone.NEUTRAL -> Color(0xFFF5A524)
-            ConnectionTone.SUCCESS -> Color(0xFF55D187)
-            ConnectionTone.ERROR -> Color(0xFFEF5350)
+            ConnectionTone.NEUTRAL -> colors.warning
+            ConnectionTone.SUCCESS -> colors.success
+            ConnectionTone.ERROR -> colors.error
         }
         StatusDot(connectionColor)
         Spacer(Modifier.width(6.dp))
         Text(connectionLabel, color = connectionColor, fontSize = 12.sp)
         Spacer(Modifier.weight(1f))
-        AutoScanSwitch(autoScanEnabled, onToggleAutoScan)
+        ViewerActionDropdown(
+            state = state,
+            autoScanEnabled = autoScanEnabled,
+            panelVisibility = panelVisibility,
+            onAction = onAction,
+        )
+        Spacer(Modifier.width(10.dp))
+        HeaderSeparator()
+        Spacer(Modifier.width(10.dp))
+        val scanControlState = ScanControlState(
+            autoScanEnabled = autoScanEnabled,
+            manualRefreshInProgress = manualRefreshInProgress,
+        )
+        AutoScanSwitch(autoScanEnabled) {
+            onAction(ViewerAction.TOGGLE_AUTO_SCAN)
+        }
+        if (scanControlState.showManualRefresh) {
+            Spacer(Modifier.width(6.dp))
+            ManualRefreshButton(
+                enabled = scanControlState.manualRefreshEnabled,
+                onClick = onManualRefresh,
+            )
+        }
         Spacer(Modifier.width(12.dp))
         HeaderSeparator()
         Spacer(Modifier.width(12.dp))
-        Text(model.metricsText, color = Color(0xFF8E9AAF), fontSize = 12.sp)
+        Text(model.metricsText, color = colors.subtleText, fontSize = 12.sp)
         Spacer(Modifier.width(12.dp))
         HeaderSeparator()
         Spacer(Modifier.width(10.dp))
-        PanelToggleButton(PanelPosition.LEFT, panelVisibility.showHierarchy, onToggleHierarchy)
+        PanelToggleButton(PanelPosition.LEFT, panelVisibility.showHierarchy) {
+            onAction(ViewerAction.TOGGLE_HIERARCHY)
+        }
         Spacer(Modifier.width(4.dp))
-        PanelToggleButton(PanelPosition.BOTTOM, panelVisibility.showFindings, onToggleFindings)
+        PanelToggleButton(PanelPosition.BOTTOM, panelVisibility.showFindings) {
+            onAction(ViewerAction.TOGGLE_FINDINGS)
+        }
         Spacer(Modifier.width(4.dp))
-        PanelToggleButton(PanelPosition.RIGHT, panelVisibility.showDetails, onToggleDetails)
+        PanelToggleButton(PanelPosition.RIGHT, panelVisibility.showDetails) {
+            onAction(ViewerAction.TOGGLE_DETAILS)
+        }
+        Spacer(Modifier.width(10.dp))
+        HeaderSeparator()
+        Spacer(Modifier.width(8.dp))
+        SettingsButton {
+            onAction(ViewerAction.OPEN_SETTINGS)
+        }
     }
 }
 
-internal fun headerTextSegments(model: InspectorScreenModel): List<String> =
-    listOf(model.packageName ?: "No app", "|", model.connectionLabel)
+internal fun headerTextSegments(
+    model: InspectorScreenModel,
+    strings: ViewerStrings = ViewerStrings.English,
+): List<String> =
+    listOf(model.packageName ?: strings.noApp, "|", model.connectionLabel)
+
+@Composable
+private fun ViewerActionDropdown(
+    state: InspectorState,
+    autoScanEnabled: Boolean,
+    panelVisibility: PanelVisibility,
+    onAction: (ViewerAction) -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    var expanded by remember { mutableStateOf(false) }
+    val menuItems = ViewerActionMenu.items(strings)
+    Box {
+        Row(
+            modifier = Modifier
+                .height(23.dp)
+                .clickable { expanded = true }
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(strings.actions, color = colors.secondaryText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(5.dp))
+            Text("▾", color = colors.mutedText, fontSize = 10.sp)
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(colors.panel).width(280.dp),
+        ) {
+            menuItems.forEachIndexed { index, item ->
+                if (index > 0 && menuItems[index - 1].group != item.group) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 3.dp),
+                        color = colors.border,
+                    )
+                }
+                val isTreeAction = item.action == ViewerAction.PREVIOUS_NODE ||
+                    item.action == ViewerAction.NEXT_NODE ||
+                    item.action == ViewerAction.TOGGLE_SELECTED_NODE
+                val active = when (item.action) {
+                    ViewerAction.TOGGLE_AUTO_SCAN -> autoScanEnabled
+                    ViewerAction.TOGGLE_HIERARCHY -> panelVisibility.showHierarchy
+                    ViewerAction.TOGGLE_FINDINGS -> panelVisibility.showFindings
+                    ViewerAction.TOGGLE_DETAILS -> panelVisibility.showDetails
+                    else -> false
+                }
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (active) "✓  ${item.label}" else "    ${item.label}",
+                                color = colors.primaryText,
+                                fontSize = 11.sp,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = item.shortcutLabel,
+                                color = colors.mutedText,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    },
+                    enabled = !isTreeAction || state.selectedNodeId != null,
+                    onClick = {
+                        expanded = false
+                        onAction(item.action)
+                    },
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun AutoScanSwitch(
     enabled: Boolean,
     onToggle: () -> Unit,
 ) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
     Row(
         modifier = Modifier.clickable(onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "自动扫描",
-            color = if (enabled) Color(0xFFDCE4F2) else Color(0xFF687386),
+            text = strings.autoScan,
+            color = if (enabled) colors.primaryText else colors.mutedText,
             fontSize = 11.sp,
         )
         Spacer(Modifier.width(6.dp))
@@ -299,7 +561,11 @@ private fun AutoScanSwitch(
                     .width(30.dp)
                     .height(16.dp)
                     .background(
-                        color = if (enabled) Accent.copy(alpha = 0.55f) else Color(0xFF353D4B),
+                        color = if (enabled) {
+                            colors.accent.copy(alpha = 0.55f)
+                        } else {
+                            colors.switchTrackOff
+                        },
                         shape = RoundedCornerShape(8.dp),
                     )
                     .padding(2.dp),
@@ -309,7 +575,7 @@ private fun AutoScanSwitch(
                 Modifier
                     .size(12.dp)
                     .background(
-                        color = if (enabled) Color.White else Color(0xFF8E9AAF),
+                        color = if (enabled) Color.White else colors.switchThumbOff,
                         shape = RoundedCornerShape(50),
                     ),
             )
@@ -318,8 +584,50 @@ private fun AutoScanSwitch(
 }
 
 @Composable
+private fun ManualRefreshButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val iconColor = if (enabled) colors.secondaryText else colors.mutedText.copy(alpha = 0.55f)
+    Box(
+        modifier = Modifier
+            .size(22.dp)
+            .semantics { contentDescription = strings.refreshOnce }
+            .let { base ->
+                if (enabled) base.clickable(onClick = onClick) else base
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(14.dp)) {
+            val strokeWidth = 1.4.dp.toPx()
+            drawArc(
+                color = iconColor,
+                startAngle = -55f,
+                sweepAngle = 285f,
+                useCenter = false,
+                style = Stroke(width = strokeWidth),
+            )
+            drawLine(
+                color = iconColor,
+                start = Offset(size.width * 0.78f, size.height * 0.1f),
+                end = Offset(size.width * 0.95f, size.height * 0.32f),
+                strokeWidth = strokeWidth,
+            )
+            drawLine(
+                color = iconColor,
+                start = Offset(size.width * 0.78f, size.height * 0.1f),
+                end = Offset(size.width * 0.59f, size.height * 0.29f),
+                strokeWidth = strokeWidth,
+            )
+        }
+    }
+}
+
+@Composable
 private fun HeaderSeparator() {
-    Box(Modifier.width(1.dp).height(14.dp).background(Border))
+    Box(Modifier.width(1.dp).height(14.dp).background(LocalViewerColors.current.border))
 }
 
 private enum class PanelPosition {
@@ -334,14 +642,15 @@ private fun PanelToggleButton(
     visible: Boolean,
     onClick: () -> Unit,
 ) {
-    val iconColor = if (visible) Accent else Color(0xFF687386)
+    val colors = LocalViewerColors.current
+    val iconColor = if (visible) colors.accent else colors.mutedText
     Box(
         modifier =
             Modifier
                 .width(26.dp)
                 .height(21.dp)
                 .background(
-                    color = if (visible) Accent.copy(alpha = 0.18f) else Color.Transparent,
+                    color = if (visible) colors.accent.copy(alpha = 0.18f) else Color.Transparent,
                     shape = RoundedCornerShape(3.dp),
                 )
                 .clickable(onClick = onClick),
@@ -382,17 +691,106 @@ private fun PanelToggleButton(
 }
 
 @Composable
+private fun SettingsButton(onClick: () -> Unit) {
+    val colors = LocalViewerColors.current
+    Box(
+        modifier = Modifier
+            .width(26.dp)
+            .height(21.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(15.dp)) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val strokeWidth = 1.2.dp.toPx()
+            val innerRadius = 2.2.dp.toPx()
+            val outerRadius = 5.2.dp.toPx()
+            drawCircle(
+                color = colors.mutedText,
+                radius = innerRadius,
+                center = center,
+                style = Stroke(width = strokeWidth),
+            )
+            drawCircle(
+                color = colors.mutedText,
+                radius = outerRadius,
+                center = center,
+                style = Stroke(width = strokeWidth),
+            )
+            repeat(8) { index ->
+                val angle = Math.toRadians((index * 45.0) - 90.0)
+                val start = Offset(
+                    x = center.x + kotlin.math.cos(angle).toFloat() * outerRadius,
+                    y = center.y + kotlin.math.sin(angle).toFloat() * outerRadius,
+                )
+                val endRadius = outerRadius + 2.dp.toPx()
+                val end = Offset(
+                    x = center.x + kotlin.math.cos(angle).toFloat() * endRadius,
+                    y = center.y + kotlin.math.sin(angle).toFloat() * endRadius,
+                )
+                drawLine(
+                    color = colors.mutedText,
+                    start = start,
+                    end = end,
+                    strokeWidth = strokeWidth,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun HierarchyPane(
     state: InspectorState,
+    treeState: HierarchyTreeState,
+    onTreeStateChange: (HierarchyTreeState) -> Unit,
     onSelect: (String) -> Unit,
+    onAction: (ViewerAction) -> Unit,
     modifier: Modifier,
 ) {
-    val model = InspectorPresenter.present(state)
-    var treeState by remember { mutableStateOf(HierarchyTreeState()) }
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val model = InspectorPresenter.present(state, strings)
     val horizontalScrollState = rememberScrollState()
+    val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
     val visibleRows = treeState.visibleRows(model.rows)
-    Column(modifier.background(Panel)) {
-        PanelTitle("HIERARCHY", "${model.rows.size}")
+    LaunchedEffect(state.selectedNodeId, visibleRows) {
+        val selectedIndex = visibleRows.indexOfFirst { it.id == state.selectedNodeId }
+        val visibleItems = listState.layoutInfo.visibleItemsInfo
+        HierarchySelectionScrollPolicy.targetIndex(
+            selectedIndex = selectedIndex,
+            firstVisibleIndex = visibleItems.firstOrNull()?.index,
+            lastVisibleIndex = visibleItems.lastOrNull()?.index,
+        )?.let { listState.scrollToItem(it) }
+    }
+    Column(
+        modifier
+            .background(colors.panel)
+            .focusRequester(focusRequester)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) {
+                    return@onPreviewKeyEvent false
+                }
+                when (event.key) {
+                    Key.DirectionUp -> {
+                        onAction(ViewerAction.PREVIOUS_NODE)
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        onAction(ViewerAction.NEXT_NODE)
+                        true
+                    }
+                    Key.Enter -> {
+                        onAction(ViewerAction.TOGGLE_SELECTED_NODE)
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable(),
+    ) {
+        PanelTitle(strings.hierarchy, "${model.rows.size}")
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val viewportWidth = maxWidth
             Box(
@@ -401,20 +799,24 @@ private fun HierarchyPane(
                     .horizontalScroll(horizontalScrollState),
             ) {
                 LazyColumn(
-                    Modifier
+                    state = listState,
+                    modifier = Modifier
                         .fillMaxHeight()
                         .widthIn(min = viewportWidth)
                         .padding(vertical = 6.dp),
                 ) {
                     items(visibleRows, key = { it.number }) { row ->
                         val expanded = treeState.isExpanded(row.id)
-                        val rowColor = if (row.selected) Color(0xFF253B5F) else Color.Transparent
+                        val rowColor = if (row.selected) colors.selectedRow else Color.Transparent
                         Row(
                             modifier = Modifier
                                 .widthIn(min = viewportWidth)
                                 .height(HierarchyRowLayout.HEIGHT_DP.dp)
                                 .background(rowColor)
-                                .clickable { onSelect(row.id) }
+                                .clickable {
+                                    focusRequester.requestFocus()
+                                    onSelect(row.id)
+                                }
                                 .padding(
                                     start = (8 + row.depth * HierarchyRowLayout.INDENT_DP).dp,
                                     end = 8.dp,
@@ -425,13 +827,15 @@ private fun HierarchyPane(
                                 hasChildren = row.hasChildren,
                                 expanded = expanded,
                                 onToggle = {
-                                    treeState = treeState.toggle(row.id)
+                                    focusRequester.requestFocus()
+                                    onSelect(row.id)
+                                    onTreeStateChange(treeState.toggleExpandable(row.id, model.rows))
                                 },
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 "${row.number}  ${row.label}",
-                                color = if (row.visible) Color(0xFFD8E0ED) else Color(0xFF687386),
+                                color = if (row.visible) colors.rowText else colors.mutedText,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
                                 lineHeight = 11.sp,
@@ -452,6 +856,7 @@ private fun HierarchyDisclosure(
     expanded: Boolean,
     onToggle: () -> Unit,
 ) {
+    val colors = LocalViewerColors.current
     Box(
         modifier = Modifier
             .width(12.dp)
@@ -466,26 +871,26 @@ private fun HierarchyDisclosure(
                 val strokeWidth = 1.2.dp.toPx()
                 if (expanded) {
                     drawLine(
-                        color = Accent,
+                        color = colors.accent,
                         start = Offset(0.5.dp.toPx(), 2.dp.toPx()),
                         end = Offset(4.dp.toPx(), 5.5.dp.toPx()),
                         strokeWidth = strokeWidth,
                     )
                     drawLine(
-                        color = Accent,
+                        color = colors.accent,
                         start = Offset(4.dp.toPx(), 5.5.dp.toPx()),
                         end = Offset(7.5.dp.toPx(), 2.dp.toPx()),
                         strokeWidth = strokeWidth,
                     )
                 } else {
                     drawLine(
-                        color = Accent,
+                        color = colors.accent,
                         start = Offset(2.dp.toPx(), 0.5.dp.toPx()),
                         end = Offset(5.5.dp.toPx(), 4.dp.toPx()),
                         strokeWidth = strokeWidth,
                     )
                     drawLine(
-                        color = Accent,
+                        color = colors.accent,
                         start = Offset(5.5.dp.toPx(), 4.dp.toPx()),
                         end = Offset(2.dp.toPx(), 7.5.dp.toPx()),
                         strokeWidth = strokeWidth,
@@ -498,6 +903,8 @@ private fun HierarchyDisclosure(
 
 @Composable
 private fun PreviewPane(state: InspectorState, modifier: Modifier) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
     val selectedBounds = state.selectedNode?.bounds
     val display = state.snapshot?.display
     val appBounds = state.snapshot?.root?.bounds
@@ -511,11 +918,11 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
             appOnly = appOnly,
         )
     }
-    Column(modifier.background(CanvasBackground)) {
-        PanelTitle("CANVAS") {
+    Column(modifier.background(colors.canvasBackground)) {
+        PanelTitle(strings.canvas) {
             Text(
-                source?.let { "${it.width} × ${it.height}" } ?: "No live frame",
-                color = Color(0xFF687386),
+                source?.let { "${it.width} × ${it.height}" } ?: strings.noLiveFrame,
+                color = colors.mutedText,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
             )
@@ -544,12 +951,12 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                     Modifier.fillMaxHeight().widthIn(max = 390.dp)
                 },
                 shape = RoundedCornerShape(canvasCornerRadiusDp(appOnly).dp),
-                color = Color(0xFFEEF2F6),
+                color = colors.previewSurface,
                 shadowElevation = 8.dp,
             ) {
                 if (screenshot != null && source != null) {
                     Canvas(Modifier.fillMaxSize()) {
-                        drawRect(Color(0xFFF8FAFC))
+                        drawRect(colors.previewCanvas)
                         val destination = FloatRect(
                             left = 0f,
                             top = 0f,
@@ -574,7 +981,7 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                             )
                             overlay?.let {
                                 drawRect(
-                                    color = Color(0xFFEF4444),
+                                    color = colors.error,
                                     topLeft = Offset(it.left, it.top),
                                     size = Size(it.width, it.height),
                                     style = Stroke(width = 2.dp.toPx()),
@@ -584,7 +991,7 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                     }
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Waiting for live device frame", color = Color(0xFF64748B), fontSize = 13.sp)
+                        Text(strings.waitingForFrame, color = colors.previewText, fontSize = 13.sp)
                     }
                 }
             }
@@ -599,9 +1006,11 @@ private fun CanvasModeToggle(
     appOnly: Boolean,
     onToggle: () -> Unit,
 ) {
-    val color = if (appOnly) Accent else Color(0xFF687386)
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val color = if (appOnly) colors.accent else colors.mutedText
     Text(
-        text = if (appOnly) "仅应用 ON" else "仅应用 OFF",
+        text = if (appOnly) strings.appOnlyOn else strings.appOnlyOff,
         color = color,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
@@ -622,10 +1031,12 @@ private fun rememberScreenshot(bytes: ByteArray?): ImageBitmap? =
 
 @Composable
 private fun DetailsPane(state: InspectorState, modifier: Modifier) {
-    val details = InspectorPresenter.present(state).details
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val details = InspectorPresenter.present(state, strings).details
     var expansionState by remember { mutableStateOf(DetailSectionExpansionState()) }
-    Column(modifier.background(Panel)) {
-        PanelTitle("PROPERTIES", details.id)
+    Column(modifier.background(colors.panel)) {
+        PanelTitle(strings.properties, details.id)
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(details.sections, key = { it.title }) { section ->
                 DetailSection(
@@ -646,13 +1057,14 @@ private fun DetailSection(
     expanded: Boolean,
     onToggle: () -> Unit,
 ) {
-    val riskSection = section.title == "RENDER RISKS"
-    val headerColor = if (riskSection) Color(0xFFFFB454) else Color(0xFF95A2B6)
+    val colors = LocalViewerColors.current
+    val riskSection = section.highlightsRenderingRisk
+    val headerColor = if (riskSection) colors.warning else colors.secondaryText
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(DetailSectionHeaderLayout.HEIGHT_DP.dp)
-            .background(if (riskSection) Color(0xFF241E17) else Color(0xFF181D26))
+            .background(if (riskSection) colors.riskSectionBackground else colors.sectionBackground)
             .clickable(onClick = onToggle)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -696,24 +1108,34 @@ private fun DetailSection(
         )
     }
     if (expanded) {
-        section.rows.forEach { row ->
-            DetailRow(row)
+        section.rows.forEachIndexed { index, row ->
+            DetailRow(row = row, index = index)
         }
     }
-    HorizontalDivider(color = Border)
+    HorizontalDivider(color = colors.border)
 }
 
 @Composable
-private fun DetailRow(row: DetailRowModel) {
+private fun DetailRow(
+    row: DetailRowModel,
+    index: Int,
+) {
+    val colors = LocalViewerColors.current
     val color = when (row.tone) {
-        DetailTone.NORMAL -> Color(0xFFD8E0ED)
-        DetailTone.INFO -> Color(0xFF70A5FF)
-        DetailTone.WARNING -> Color(0xFFFFB454)
-        DetailTone.ERROR -> Color(0xFFFF6B6B)
+        DetailTone.NORMAL -> colors.rowText
+        DetailTone.INFO -> colors.info
+        DetailTone.WARNING -> colors.warning
+        DetailTone.ERROR -> colors.error
+    }
+    val stripeColor = if (DetailRowStripe.usesDeepBackground(index)) {
+        colors.detailRowDeep
+    } else {
+        colors.detailRowLight
     }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(stripeColor)
             .background(
                 if (row.tone == DetailTone.NORMAL) {
                     Color.Transparent
@@ -726,7 +1148,7 @@ private fun DetailRow(row: DetailRowModel) {
     ) {
         Text(
             text = row.label,
-            color = Color(0xFF758197),
+            color = colors.detailLabel,
             fontSize = 9.sp,
             lineHeight = 11.sp,
             modifier = Modifier.width(108.dp),
@@ -743,9 +1165,16 @@ private fun DetailRow(row: DetailRowModel) {
 }
 
 @Composable
-private fun FindingsPane(state: InspectorState, modifier: Modifier) {
-    val model = InspectorPresenter.present(state)
-    Column(modifier.background(Panel)) {
+private fun FindingsPane(
+    state: InspectorState,
+    onSelectNode: (String) -> Unit,
+    modifier: Modifier,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val model = InspectorPresenter.present(state, strings)
+    var selectionState by remember { mutableStateOf(FindingSelectionState()) }
+    Column(modifier.background(colors.panel)) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -753,37 +1182,29 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("FINDINGS", color = Color(0xFF95A2B6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(strings.findings, color = colors.secondaryText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(18.dp))
-            Badge("INFO ${model.severitySummary.info}", Color(0xFF4BA3FF))
+            Badge(strings.infoBadge(model.severitySummary.info), colors.info)
             Spacer(Modifier.width(8.dp))
-            Badge("WARN ${model.severitySummary.warning}", Color(0xFFF5A524))
+            Badge(strings.warningBadge(model.severitySummary.warning), colors.warning)
             Spacer(Modifier.width(8.dp))
-            Badge("ERROR ${model.severitySummary.error}", Color(0xFFEF5350))
+            Badge(strings.errorBadge(model.severitySummary.error), colors.error)
             Spacer(Modifier.weight(1f))
-            Text("TIMELINE  Live capture", color = Color(0xFF657086), fontSize = 11.sp)
+            Text(strings.timelineLiveCapture, color = colors.mutedText, fontSize = 11.sp)
         }
-        HorizontalDivider(color = Border)
+        HorizontalDivider(color = colors.border)
         if (model.findings.isEmpty()) {
-            Text("No findings", color = Color(0xFF8490A3), modifier = Modifier.padding(16.dp))
+            Text(strings.noFindings, color = colors.subtleText, modifier = Modifier.padding(16.dp))
         } else {
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                items(model.findings) { finding ->
-                    val findingColor = when (finding.tone) {
-                        FindingTone.INFO -> Color(0xFF4BA3FF)
-                        FindingTone.WARNING -> Color(0xFFF5A524)
-                        FindingTone.ERROR -> Color(0xFFEF5350)
-                    }
-                    Text(
-                        "[${finding.nodeNumber}]  ${finding.title}  ·  ${finding.message}",
-                        color = findingColor,
-                        fontSize = FindingsTypography.TEXT_SIZE_SP.sp,
-                        lineHeight = FindingsTypography.LINE_HEIGHT_SP.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(
-                            horizontal = 16.dp,
-                            vertical = FindingsTypography.VERTICAL_PADDING_DP.dp,
-                        ),
+                items(model.findings, key = { it.key }) { finding ->
+                    FindingRow(
+                        finding = finding,
+                        selected = selectionState.isSelected(finding.key),
+                        onDoubleClick = {
+                            selectionState = selectionState.select(finding.key)
+                            onSelectNode(finding.nodeId)
+                        },
                     )
                 }
             }
@@ -791,10 +1212,56 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun FindingRow(
+    finding: FindingRowModel,
+    selected: Boolean,
+    onDoubleClick: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val findingColor = when (finding.tone) {
+        FindingTone.INFO -> colors.info
+        FindingTone.WARNING -> colors.warning
+        FindingTone.ERROR -> colors.error
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (selected) colors.selectedRow else Color.Transparent)
+            .onPointerEvent(
+                eventType = PointerEventType.Press,
+                pass = PointerEventPass.Initial,
+            ) { event ->
+                val mouseEvent = event.nativeEvent as? MouseEvent
+                if (mouseEvent?.button == MouseEvent.BUTTON1 && mouseEvent.clickCount == 2) {
+                    onDoubleClick()
+                }
+            },
+    ) {
+        SelectionContainer {
+            Text(
+                "[${finding.nodeNumber}]  ${finding.title}  ·  ${finding.message}",
+                color = findingColor,
+                fontSize = FindingsTypography.TEXT_SIZE_SP.sp,
+                lineHeight = FindingsTypography.LINE_HEIGHT_SP.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 16.dp,
+                        vertical = FindingsTypography.VERTICAL_PADDING_DP.dp,
+                    ),
+            )
+        }
+    }
+}
+
 @Composable
 private fun PanelTitle(title: String, trailing: String) {
+    val colors = LocalViewerColors.current
     PanelTitle(title) {
-        Text(trailing, color = Color(0xFF687386), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        Text(trailing, color = colors.mutedText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
     }
 }
 
@@ -803,6 +1270,7 @@ private fun PanelTitle(
     title: String,
     trailingContent: @Composable () -> Unit,
 ) {
+    val colors = LocalViewerColors.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -810,11 +1278,11 @@ private fun PanelTitle(
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, color = Color(0xFF95A2B6), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        Text(title, color = colors.secondaryText, fontWeight = FontWeight.Bold, fontSize = 11.sp)
         Spacer(Modifier.weight(1f))
         trailingContent()
     }
-    HorizontalDivider(color = Border)
+    HorizontalDivider(color = colors.border)
 }
 
 @Composable
@@ -836,6 +1304,7 @@ private fun StatusDot(color: Color) {
 
 @Composable
 private fun ResizableSeparator(onDrag: (Float) -> Unit) {
+    val colors = LocalViewerColors.current
     val density = LocalDensity.current
     val currentOnDrag by rememberUpdatedState(onDrag)
     Box(
@@ -851,12 +1320,13 @@ private fun ResizableSeparator(onDrag: (Float) -> Unit) {
             },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.fillMaxHeight().width(1.dp).background(Border))
+        Box(Modifier.fillMaxHeight().width(1.dp).background(colors.border))
     }
 }
 
 @Composable
 private fun FindingsResizeSeparator(onDrag: (Float) -> Unit) {
+    val colors = LocalViewerColors.current
     val density = LocalDensity.current
     val currentOnDrag by rememberUpdatedState(onDrag)
     Box(
@@ -872,7 +1342,7 @@ private fun FindingsResizeSeparator(onDrag: (Float) -> Unit) {
             },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Border))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
     }
 }
 

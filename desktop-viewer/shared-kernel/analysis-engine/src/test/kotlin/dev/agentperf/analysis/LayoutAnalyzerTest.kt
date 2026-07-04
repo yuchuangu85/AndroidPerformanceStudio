@@ -34,7 +34,8 @@ class LayoutAnalyzerTest {
             report.findings.any {
                 it.ruleId == "layout.invisible-node" &&
                     it.nodeId == "hidden" &&
-                    it.message == "View 节点存在但当前不可见"
+                    it.message == "View 节点存在但当前不可见" &&
+                    it.arguments == mapOf("className" to "View")
             },
         )
     }
@@ -49,7 +50,8 @@ class LayoutAnalyzerTest {
             report.findings.any {
                 it.ruleId == "layout.deep-hierarchy" &&
                     it.severity == Severity.WARNING &&
-                    it.message == "层级深度 3，超过阈值 2"
+                    it.message == "层级深度 3，超过阈值 2" &&
+                    it.arguments == mapOf("depth" to "3", "threshold" to "2")
             },
         )
     }

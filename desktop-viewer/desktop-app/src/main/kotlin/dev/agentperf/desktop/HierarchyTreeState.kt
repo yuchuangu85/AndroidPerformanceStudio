@@ -7,6 +7,23 @@ internal object HierarchyRowLayout {
     const val INDENT_DP = 14
 }
 
+internal enum class HierarchyNavigationDirection {
+    UP,
+    DOWN,
+}
+
+internal object HierarchySelectionScrollPolicy {
+    fun targetIndex(
+        selectedIndex: Int,
+        firstVisibleIndex: Int?,
+        lastVisibleIndex: Int?,
+    ): Int? {
+        if (selectedIndex < 0) return null
+        if (firstVisibleIndex == null || lastVisibleIndex == null) return selectedIndex
+        return selectedIndex.takeUnless { it in firstVisibleIndex..lastVisibleIndex }
+    }
+}
+
 internal data class HierarchyTreeState(
     private val collapsedNodeIds: Set<String> = emptySet(),
 ) {
@@ -20,6 +37,32 @@ internal data class HierarchyTreeState(
                 collapsedNodeIds + nodeId
             },
         )
+
+    fun toggleExpandable(
+        nodeId: String,
+        rows: List<TreeRowModel>,
+    ): HierarchyTreeState =
+        if (rows.any { it.id == nodeId && it.hasChildren }) {
+            toggle(nodeId)
+        } else {
+            this
+        }
+
+    fun adjacentNodeId(
+        rows: List<TreeRowModel>,
+        selectedNodeId: String?,
+        direction: HierarchyNavigationDirection,
+    ): String? {
+        val visibleRows = visibleRows(rows)
+        if (visibleRows.isEmpty()) return null
+        val selectedIndex = visibleRows.indexOfFirst { it.id == selectedNodeId }
+        if (selectedIndex == -1) return visibleRows.first().id
+        val nextIndex = when (direction) {
+            HierarchyNavigationDirection.UP -> (selectedIndex - 1).coerceAtLeast(0)
+            HierarchyNavigationDirection.DOWN -> (selectedIndex + 1).coerceAtMost(visibleRows.lastIndex)
+        }
+        return visibleRows[nextIndex].id
+    }
 
     fun visibleRows(rows: List<TreeRowModel>): List<TreeRowModel> = buildList {
         var collapsedAncestorDepth: Int? = null

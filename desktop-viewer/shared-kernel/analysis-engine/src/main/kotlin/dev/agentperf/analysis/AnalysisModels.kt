@@ -24,6 +24,7 @@ data class Finding(
     val severity: Severity,
     val nodeId: String,
     val message: String,
+    val arguments: Map<String, String> = emptyMap(),
 )
 
 data class AnalysisReport(

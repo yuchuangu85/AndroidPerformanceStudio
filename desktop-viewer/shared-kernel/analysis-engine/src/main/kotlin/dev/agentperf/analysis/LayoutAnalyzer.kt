@@ -27,6 +27,7 @@ class LayoutAnalyzer(
                     severity = Severity.INFO,
                     nodeId = node.id,
                     message = "${node.className} 节点存在但当前不可见",
+                    arguments = mapOf("className" to node.className),
                 )
             }
             if (node.children.size > config.maxChildrenPerNode) {
@@ -35,6 +36,10 @@ class LayoutAnalyzer(
                     severity = Severity.WARNING,
                     nodeId = node.id,
                     message = "直接子节点数量 ${node.children.size}，超过阈值 ${config.maxChildrenPerNode}",
+                    arguments = mapOf(
+                        "count" to node.children.size.toString(),
+                        "threshold" to config.maxChildrenPerNode.toString(),
+                    ),
                 )
             }
             val overlappingSiblings = substantiallyOverlappingSiblings(node.children)
@@ -47,6 +52,10 @@ class LayoutAnalyzer(
                         "$overlappingSiblings 个兄弟节点的边界重叠比例至少为 " +
                             "${(config.minSiblingOverlapRatio * 100).toInt()}%；" +
                             "这是结构性渲染风险，请使用 GPU 工具进一步确认",
+                    arguments = mapOf(
+                        "count" to overlappingSiblings.toString(),
+                        "ratioPercent" to (config.minSiblingOverlapRatio * 100).toInt().toString(),
+                    ),
                 )
             }
             node.children.forEach { child ->
@@ -60,6 +69,10 @@ class LayoutAnalyzer(
                 severity = Severity.WARNING,
                 nodeId = root.id,
                 message = "层级深度 $maxDepth，超过阈值 ${config.maxDepth}",
+                arguments = mapOf(
+                    "depth" to maxDepth.toString(),
+                    "threshold" to config.maxDepth.toString(),
+                ),
             )
         }
 

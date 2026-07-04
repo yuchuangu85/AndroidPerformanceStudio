@@ -5,7 +5,6 @@ import dev.agentperf.protocol.EdgeInsets
 import dev.agentperf.protocol.UiNode
 import dev.agentperf.protocol.ViewAttributes
 import dev.agentperf.protocol.ViewNode
-import kotlin.math.roundToInt
 
 enum class DetailTone {
     NORMAL,
@@ -23,73 +22,80 @@ data class DetailRowModel(
 data class DetailSectionModel(
     val title: String,
     val rows: List<DetailRowModel>,
+    val highlightsRenderingRisk: Boolean = false,
 )
 
 internal object NodeDetailsPresenter {
     fun present(
         node: UiNode,
         treeDepth: Int,
+        strings: ViewerStrings = ViewerStrings.English,
     ): List<DetailSectionModel> {
         val attributes = (node as? ViewNode)?.attributes ?: ViewAttributes()
         val complexity = node.complexity()
         val overlap = node.overlapStats()
         return listOf(
             DetailSectionModel(
-                title = "RENDER RISKS",
-                rows = riskRows(node, attributes, complexity, overlap),
+                title = strings.detailSection("RENDER RISKS"),
+                rows = riskRows(node, attributes, complexity, overlap, strings),
+                highlightsRenderingRisk = true,
             ),
             DetailSectionModel(
-                title = "IDENTITY",
+                title = strings.detailSection("IDENTITY"),
                 rows = listOf(
-                    row("Class", node.className),
-                    row("ID", node.id),
-                    row("Resource", (node as? ViewNode)?.resourceName),
-                    row("Text", (node as? ViewNode)?.text),
-                    row("Content description", attributes.contentDescription),
+                    row(strings, "Class", node.className),
+                    row(strings, "ID", node.id),
+                    row(strings, "Resource", (node as? ViewNode)?.resourceName),
+                    row(strings, "Text", (node as? ViewNode)?.text),
+                    row(strings, "Content description", attributes.contentDescription),
                 ),
             ),
             DetailSectionModel(
-                title = "LAYOUT",
+                title = strings.detailSection("LAYOUT"),
                 rows = listOf(
-                    row("Bounds", node.bounds.format()),
-                    row("Size", "${node.bounds.width} × ${node.bounds.height}"),
-                    row("Visibility", attributes.visibility ?: node.visible.toString()),
-                    row("Tree depth", treeDepth.toString()),
-                    row("Direct children", node.children.size.toString()),
-                    row("Descendants", complexity.descendants.toString()),
-                    row("Subtree depth", complexity.depth.toString()),
-                    row("Layout width", attributes.layoutWidth.formatDimension()),
-                    row("Layout height", attributes.layoutHeight.formatDimension()),
+                    row(strings, "Bounds", node.bounds.format()),
+                    row(strings, "Size", "${node.bounds.width} × ${node.bounds.height}"),
+                    row(strings, "Visibility", attributes.visibility ?: node.visible.toString()),
+                    row(strings, "Tree depth", treeDepth.toString()),
+                    row(strings, "Direct children", node.children.size.toString()),
+                    row(strings, "Descendants", complexity.descendants.toString()),
+                    row(strings, "Subtree depth", complexity.depth.toString()),
+                    row(strings, "Layout width", attributes.layoutWidth.formatDimension()),
+                    row(strings, "Layout height", attributes.layoutHeight.formatDimension()),
                     row(
+                        strings,
                         "Measured size",
                         attributes.measuredWidth?.let { width ->
                             attributes.measuredHeight?.let { height -> "$width × $height" }
                         },
                     ),
                     row(
+                        strings,
                         "Minimum size",
                         attributes.minWidth?.let { width ->
                             attributes.minHeight?.let { height -> "$width × $height" }
                         },
                     ),
-                    row("Padding", attributes.padding.format()),
-                    row("Margin", attributes.margin.format()),
+                    row(strings, "Padding", attributes.padding.format()),
+                    row(strings, "Margin", attributes.margin.format()),
                     row(
+                        strings,
                         "Scroll",
                         attributes.scrollX?.let { x ->
                             attributes.scrollY?.let { y -> "$x, $y" }
                         },
                     ),
-                    row("Layout requested", attributes.layoutRequested),
+                    row(strings, "Layout requested", attributes.layoutRequested),
                 ),
             ),
             DetailSectionModel(
-                title = "DRAWING",
+                title = strings.detailSection("DRAWING"),
                 rows = listOf(
-                    row("Alpha", node.alpha),
-                    row("Z", attributes.z),
-                    row("Elevation", attributes.elevation),
+                    row(strings, "Alpha", node.alpha),
+                    row(strings, "Z", attributes.z),
+                    row(strings, "Elevation", attributes.elevation),
                     row(
+                        strings,
                         "Translation",
                         attributes.translationX?.let { x ->
                             val y = attributes.translationY ?: 0f
@@ -98,40 +104,43 @@ internal object NodeDetailsPresenter {
                         },
                     ),
                     row(
+                        strings,
                         "Rotation",
                         attributes.rotation?.let { z ->
                             "${attributes.rotationX ?: 0f}, ${attributes.rotationY ?: 0f}, $z"
                         },
                     ),
                     row(
+                        strings,
                         "Scale",
                         attributes.scaleX?.let { x -> "$x, ${attributes.scaleY ?: 1f}" },
                     ),
                     row(
+                        strings,
                         "Pivot",
                         attributes.pivotX?.let { x -> "$x, ${attributes.pivotY ?: 0f}" },
                     ),
-                    row("Background", attributes.background),
-                    row("Background color", attributes.backgroundColor),
-                    row("Foreground", attributes.foreground),
-                    row("Clip bounds", attributes.clipBounds?.format()),
-                    row("Clip children", attributes.clipChildren),
-                    row("Clip to padding", attributes.clipToPadding),
-                    row("Opaque", attributes.opaque),
-                    row("Will not draw", attributes.willNotDraw),
-                    row("Hardware accelerated", attributes.hardwareAccelerated),
-                    row("Layer type", attributes.layerType),
+                    row(strings, "Background", attributes.background),
+                    row(strings, "Background color", attributes.backgroundColor),
+                    row(strings, "Foreground", attributes.foreground),
+                    row(strings, "Clip bounds", attributes.clipBounds?.format()),
+                    row(strings, "Clip children", attributes.clipChildren),
+                    row(strings, "Clip to padding", attributes.clipToPadding),
+                    row(strings, "Opaque", attributes.opaque),
+                    row(strings, "Will not draw", attributes.willNotDraw),
+                    row(strings, "Hardware accelerated", attributes.hardwareAccelerated),
+                    row(strings, "Layer type", attributes.layerType),
                 ),
             ),
             DetailSectionModel(
-                title = "INTERACTION",
+                title = strings.detailSection("INTERACTION"),
                 rows = listOf(
-                    row("Enabled", attributes.enabled),
-                    row("Clickable", attributes.clickable),
-                    row("Long clickable", attributes.longClickable),
-                    row("Focusable", attributes.focusable),
-                    row("Focused", attributes.focused),
-                    row("Selected", attributes.selected),
+                    row(strings, "Enabled", attributes.enabled),
+                    row(strings, "Clickable", attributes.clickable),
+                    row(strings, "Long clickable", attributes.longClickable),
+                    row(strings, "Focusable", attributes.focusable),
+                    row(strings, "Focused", attributes.focused),
+                    row(strings, "Selected", attributes.selected),
                 ),
             ),
         )
@@ -142,42 +151,38 @@ internal object NodeDetailsPresenter {
         attributes: ViewAttributes,
         complexity: Complexity,
         overlap: OverlapStats,
+        strings: ViewerStrings,
     ): List<DetailRowModel> {
         val complexityRisk = complexity.depth > COMPLEXITY_DEPTH_WARNING ||
             complexity.descendants > DESCENDANT_WARNING
         return listOf(
             DetailRowModel(
-                label = "Overdraw estimate",
+                label = strings.detailLabel("Overdraw estimate"),
                 value = if (overlap.pairs == 0) {
-                    "No high-overlap child pairs · structural"
+                    strings.noHighOverlapPairs()
                 } else {
-                    "${overlap.pairs} ${if (overlap.pairs == 1) "pair" else "pairs"} · " +
-                        "max ${(overlap.maxRatio * 100).roundToInt()}% · structural"
+                    strings.overlapPairs(overlap.pairs, overlap.maxRatio)
                 },
                 tone = if (overlap.pairs > 0) DetailTone.WARNING else DetailTone.NORMAL,
             ),
             DetailRowModel(
-                label = "Subtree complexity",
-                value = "${complexity.descendants} descendants · depth ${complexity.depth}",
+                label = strings.detailLabel("Subtree complexity"),
+                value = strings.subtreeComplexity(complexity.descendants, complexity.depth),
                 tone = if (complexityRisk) DetailTone.WARNING else DetailTone.NORMAL,
             ),
             DetailRowModel(
-                label = "Hidden descendants",
+                label = strings.detailLabel("Hidden descendants"),
                 value = complexity.hidden.toString(),
                 tone = if (complexity.hidden > 0) DetailTone.INFO else DetailTone.NORMAL,
             ),
             DetailRowModel(
-                label = "Blending",
-                value = if (node.alpha < 1f) {
-                    "Alpha ${node.alpha} requires blending"
-                } else {
-                    "Alpha 1.0"
-                },
+                label = strings.detailLabel("Blending"),
+                value = strings.blending(node.alpha),
                 tone = if (node.alpha < 1f) DetailTone.WARNING else DetailTone.NORMAL,
             ),
             DetailRowModel(
-                label = "Layer cost",
-                value = attributes.layerType ?: "Unavailable",
+                label = strings.detailLabel("Layer cost"),
+                value = attributes.layerType ?: strings.unavailable,
                 tone = if (attributes.layerType == "SOFTWARE") {
                     DetailTone.WARNING
                 } else {
@@ -227,9 +232,13 @@ internal object NodeDetailsPresenter {
     }
 
     private fun row(
+        strings: ViewerStrings,
         label: String,
         value: Any?,
-    ): DetailRowModel = DetailRowModel(label = label, value = value?.toString() ?: "—")
+    ): DetailRowModel = DetailRowModel(
+        label = strings.detailLabel(label),
+        value = value?.toString() ?: "—",
+    )
 
     private fun Bounds.format(): String = "$left, $top, $right, $bottom"
 

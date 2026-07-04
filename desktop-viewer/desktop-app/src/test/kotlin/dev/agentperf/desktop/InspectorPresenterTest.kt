@@ -76,7 +76,10 @@ class InspectorPresenterTest {
             selectNode("title")
         }
 
-        val model = InspectorPresenter.present(store.state)
+        val model = InspectorPresenter.present(
+            store.state,
+            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+        )
 
         assertEquals("android.widget.TextView", model.details.className)
         assertEquals("Dashboard", model.details.text)
@@ -151,6 +154,24 @@ class InspectorPresenterTest {
     }
 
     @Test
+    fun `localizes detail sections and fields`() {
+        val details = InspectorPresenter.present(
+            InspectorState(
+                snapshot = SampleSnapshots.dashboard,
+                selectedNodeId = "root",
+            ),
+            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+        ).details
+
+        assertEquals(
+            listOf("渲染风险", "标识", "布局", "绘制", "交互"),
+            details.sections.map { it.title },
+        )
+        assertEquals("过度绘制估算", details.sections.first().rows.first().label)
+        assertEquals("类", details.sections[1].rows.first().label)
+    }
+
+    @Test
     fun `uses a placeholder when a finding node is absent from the snapshot`() {
         val state = InspectorState(
             snapshot = SampleSnapshots.dashboard,
@@ -187,6 +208,10 @@ class InspectorPresenterTest {
         assertEquals(
             listOf(FindingTone.INFO, FindingTone.WARNING, FindingTone.ERROR),
             InspectorPresenter.present(state).findings.map { it.tone },
+        )
+        assertEquals(
+            listOf("info:root:0", "warning:root:1", "error:root:2"),
+            InspectorPresenter.present(state).findings.map { it.key },
         )
     }
 

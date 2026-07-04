@@ -1,0 +1,41 @@
+package dev.agentperf.desktop
+
+import androidx.compose.ui.input.key.Key
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Test
+
+class ViewerActionMenuTest {
+    @Test
+    fun `menu exposes operations with their shortcuts in stable groups`() {
+        val strings = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
+
+        assertEquals(
+            listOf(
+                Triple(ViewerAction.TOGGLE_AUTO_SCAN, "自动扫描", "⌘R / Ctrl+R"),
+                Triple(ViewerAction.PREVIOUS_NODE, "上一个节点", "↑"),
+                Triple(ViewerAction.NEXT_NODE, "下一个节点", "↓"),
+                Triple(ViewerAction.TOGGLE_SELECTED_NODE, "折叠/展开节点", "Enter"),
+                Triple(ViewerAction.TOGGLE_HIERARCHY, "显示/隐藏左侧栏", "⌘1 / Ctrl+1"),
+                Triple(ViewerAction.TOGGLE_FINDINGS, "显示/隐藏底部栏", "⌘2 / Ctrl+2"),
+                Triple(ViewerAction.TOGGLE_DETAILS, "显示/隐藏右侧栏", "⌘3 / Ctrl+3"),
+                Triple(ViewerAction.OPEN_SETTINGS, "设置", "⌘, / Ctrl+,"),
+            ),
+            ViewerActionMenu.items(strings).map { Triple(it.action, it.label, it.shortcutLabel) },
+        )
+        assertEquals(
+            listOf(0, 1, 1, 1, 2, 2, 2, 3),
+            ViewerActionMenu.items(strings).map { it.group },
+        )
+    }
+
+    @Test
+    fun `command shortcuts map to the same menu actions`() {
+        assertEquals(ViewerAction.TOGGLE_AUTO_SCAN, viewerCommandAction(Key.R, commandPressed = true))
+        assertEquals(ViewerAction.TOGGLE_HIERARCHY, viewerCommandAction(Key.One, commandPressed = true))
+        assertEquals(ViewerAction.TOGGLE_FINDINGS, viewerCommandAction(Key.Two, commandPressed = true))
+        assertEquals(ViewerAction.TOGGLE_DETAILS, viewerCommandAction(Key.Three, commandPressed = true))
+        assertEquals(ViewerAction.OPEN_SETTINGS, viewerCommandAction(Key.Comma, commandPressed = true))
+        assertNull(viewerCommandAction(Key.R, commandPressed = false))
+    }
+}
