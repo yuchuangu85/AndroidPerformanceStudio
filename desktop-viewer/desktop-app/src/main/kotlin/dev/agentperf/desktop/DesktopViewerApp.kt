@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.FrameWindowScope
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
 import dev.agentperf.adb.ConnectedDeviceSession
@@ -101,7 +102,7 @@ import kotlin.math.roundToInt
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 
 @Composable
-fun DesktopViewerApp() {
+fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     val store = remember { createInitialInspectorStore() }
     var state by remember { mutableStateOf(store.state) }
     var autoScanEnabled by remember { mutableStateOf(AUTO_SCAN_DEFAULT_ENABLED) }
@@ -207,6 +208,11 @@ fun DesktopViewerApp() {
     val viewerLanguage = languagePreference.resolve(Locale.getDefault().toLanguageTag())
     val strings = remember(viewerLanguage) { ViewerStrings.forLanguage(viewerLanguage) }
     var settingsVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(settingsRequest) {
+        if (shouldOpenSettingsForRequest(settingsRequest)) {
+            settingsVisible = true
+        }
+    }
     val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
     val appFocusRequester = remember { FocusRequester() }
     val exportVisibleWindowViews: () -> Unit = {
@@ -272,6 +278,20 @@ fun DesktopViewerApp() {
             ViewerAction.OPEN_SETTINGS -> settingsVisible = true
         }
     }
+
+    NativeViewerMenuBar(
+        model = NativeViewerMenuModel(
+            strings = strings,
+            selectedNodeId = state.selectedNodeId,
+            autoScanEnabled = autoScanEnabled,
+            panelVisibility = panelVisibility,
+            exportInProgress =
+                visibleWindowViewsExportState is VisibleWindowViewsExportUiState.Exporting,
+            isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
+        ),
+        onAction = performAction,
+        onExportVisibleWindowViews = exportVisibleWindowViews,
+    )
 
     LaunchedEffect(Unit) {
         appFocusRequester.requestFocus()
