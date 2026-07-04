@@ -57,6 +57,14 @@ class LanguagePreferenceTest {
         assertEquals("Settings", english.settings)
         assertEquals("操作", chinese.actions)
         assertEquals("Actions", english.actions)
+        assertEquals("高级", chinese.advanced)
+        assertEquals("Advanced", english.advanced)
+        assertEquals("导出 Visible Window Views…", chinese.exportVisibleWindowViews)
+        assertEquals("Export Visible Window Views…", english.exportVisibleWindowViews)
+        assertEquals("导出成功", chinese.visibleWindowViewsExportSucceededTitle)
+        assertEquals("Export succeeded", english.visibleWindowViewsExportSucceededTitle)
+        assertEquals("导出失败", chinese.visibleWindowViewsExportFailedTitle)
+        assertEquals("Export failed", english.visibleWindowViewsExportFailedTitle)
         assertEquals(
             "android.view.ViewStub 节点存在但当前不可见",
             chinese.findingMessage("layout.invisible-node", arguments, "fallback"),
