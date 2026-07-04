@@ -11,6 +11,7 @@ controls the complete desktop viewer theme.
 - Clicking it opens a modal settings panel.
 - The initial settings group is `主题`.
 - The available choices are `跟随系统`, `亮色主题`, and `暗色主题`.
+- All three theme choices are displayed as equal-width options in one horizontal row.
 - The selected choice applies immediately; the panel can be dismissed by its
   close action or by clicking outside.
 

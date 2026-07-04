@@ -16,10 +16,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -68,12 +74,18 @@ internal fun SettingsDialog(
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(4.dp))
-                ThemePreference.entries.forEach { preference ->
-                    SettingsPreferenceOption(
-                        label = strings.themePreferenceName(preference),
-                        selected = preference == selectedThemePreference,
-                        onClick = { onSelectThemePreference(preference) },
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ThemePreference.entries.forEach { preference ->
+                        ThemePreferenceOption(
+                            label = strings.themePreferenceName(preference),
+                            selected = preference == selectedThemePreference,
+                            onClick = { onSelectThemePreference(preference) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -83,13 +95,10 @@ internal fun SettingsDialog(
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(4.dp))
-                LanguagePreference.entries.forEach { preference ->
-                    SettingsPreferenceOption(
-                        label = strings.languagePreferenceName(preference),
-                        selected = preference == selectedLanguagePreference,
-                        onClick = { onSelectLanguagePreference(preference) },
-                    )
-                }
+                LanguagePreferenceDropdown(
+                    selectedPreference = selectedLanguagePreference,
+                    onSelectPreference = onSelectLanguagePreference,
+                )
             }
         },
         confirmButton = {},
@@ -97,15 +106,15 @@ internal fun SettingsDialog(
 }
 
 @Composable
-private fun SettingsPreferenceOption(
+private fun ThemePreferenceOption(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalViewerColors.current
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .background(
                 color = if (selected) {
                     colors.accent.copy(alpha = 0.12f)
@@ -118,23 +127,98 @@ private fun SettingsPreferenceOption(
                 selected = selected,
                 onClick = onClick,
             )
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(
             selected = selected,
             onClick = null,
+            modifier = Modifier.size(18.dp),
             colors = RadioButtonDefaults.colors(
                 selectedColor = colors.accent,
                 unselectedColor = colors.mutedText,
             ),
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(6.dp))
         Text(
             text = label,
             color = colors.primaryText,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
+            maxLines = 1,
+            softWrap = false,
         )
+    }
+}
+
+@Composable
+private fun LanguagePreferenceDropdown(
+    selectedPreference: LanguagePreference,
+    onSelectPreference: (LanguagePreference) -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    var dropdownState by remember { mutableStateOf(SettingsDropdownState()) }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(colors.sectionBackground, RoundedCornerShape(6.dp))
+                .clickable { dropdownState = dropdownState.toggle() }
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = strings.languagePreferenceName(selectedPreference),
+                color = colors.primaryText,
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.weight(1f))
+            Canvas(Modifier.size(9.dp)) {
+                val strokeWidth = 1.3.dp.toPx()
+                val top = if (dropdownState.expanded) size.height * 0.7f else size.height * 0.3f
+                val bottom = if (dropdownState.expanded) size.height * 0.3f else size.height * 0.7f
+                drawLine(
+                    color = colors.secondaryText,
+                    start = Offset(0f, top),
+                    end = Offset(size.width / 2f, bottom),
+                    strokeWidth = strokeWidth,
+                )
+                drawLine(
+                    color = colors.secondaryText,
+                    start = Offset(size.width / 2f, bottom),
+                    end = Offset(size.width, top),
+                    strokeWidth = strokeWidth,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = dropdownState.expanded,
+            onDismissRequest = { dropdownState = dropdownState.dismiss() },
+            modifier = Modifier
+                .width(360.dp)
+                .background(colors.panel),
+        ) {
+            LanguagePreference.entries.forEach { preference ->
+                val selected = preference == selectedPreference
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = if (selected) {
+                                "✓  ${strings.languagePreferenceName(preference)}"
+                            } else {
+                                "    ${strings.languagePreferenceName(preference)}"
+                            },
+                            color = if (selected) colors.accent else colors.primaryText,
+                            fontSize = 12.sp,
+                        )
+                    },
+                    onClick = {
+                        dropdownState = dropdownState.dismiss()
+                        onSelectPreference(preference)
+                    },
+                )
+            }
+        }
     }
 }
 

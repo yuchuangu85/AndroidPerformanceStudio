@@ -11,6 +11,7 @@ Support English and Simplified Chinese across the desktop viewer, with a persist
 - English
 
 Changing the preference updates the current UI immediately. The stored value is independent from the theme preference.
+The current language is shown in a single full-width dropdown; selecting an entry applies it and closes the menu.
 
 ## Localization Scope
 
