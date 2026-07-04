@@ -31,8 +31,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +42,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -79,6 +82,7 @@ import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
 import dev.agentperf.adb.ConnectedDeviceSession
 import dev.agentperf.adb.LiveDeviceClient
+import dev.agentperf.adb.VisibleWindowViewsTextRenderer
 import dev.agentperf.protocol.ProtocolCodec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +90,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image
 import java.awt.Cursor
@@ -104,6 +109,17 @@ fun DesktopViewerApp() {
     var manualRefreshInProgress by remember { mutableStateOf(false) }
     val deviceClient = remember { LiveDeviceClient() }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
+    val exportDirectoryChooser = remember { SwingExportDirectoryChooser() }
+    val visibleWindowViewsExporter = remember(deviceClient) {
+        VisibleWindowViewsExporter(
+            captureDump = deviceClient::dumpVisibleWindowViews,
+            renderText = VisibleWindowViewsTextRenderer::render,
+        )
+    }
+    var visibleWindowViewsExportState by remember {
+        mutableStateOf<VisibleWindowViewsExportUiState>(VisibleWindowViewsExportUiState.Idle)
+    }
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(autoScanEnabled) {
         if (!autoScanEnabled) {
@@ -193,6 +209,29 @@ fun DesktopViewerApp() {
     var settingsVisible by remember { mutableStateOf(false) }
     val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
     val appFocusRequester = remember { FocusRequester() }
+    val exportVisibleWindowViews: () -> Unit = {
+        if (visibleWindowViewsExportState !is VisibleWindowViewsExportUiState.Exporting) {
+            exportDirectoryChooser.chooseDirectory(strings.chooseExportDirectory)?.let { directory ->
+                visibleWindowViewsExportState = VisibleWindowViewsExportUiState.Exporting
+                coroutineScope.launch {
+                    visibleWindowViewsExportState = try {
+                        withContext(Dispatchers.IO) {
+                            visibleWindowViewsExporter.export(directory)
+                        }
+                        VisibleWindowViewsExportUiState.Success(directory)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        VisibleWindowViewsExportUiState.Failure(
+                            strings.connectionError(
+                                error.message ?: error.javaClass.simpleName,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
     val selectNode: (String) -> Unit = { id ->
         if (store.selectNode(id)) state = store.state
     }
@@ -274,6 +313,9 @@ fun DesktopViewerApp() {
                     },
                     panelVisibility = panelVisibility,
                     onAction = performAction,
+                    exportInProgress =
+                        visibleWindowViewsExportState is VisibleWindowViewsExportUiState.Exporting,
+                    onExportVisibleWindowViews = exportVisibleWindowViews,
                 )
                 HorizontalDivider(color = colors.border)
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
@@ -370,6 +412,33 @@ fun DesktopViewerApp() {
                     },
                 )
             }
+            when (val exportState = visibleWindowViewsExportState) {
+                VisibleWindowViewsExportUiState.Idle,
+                VisibleWindowViewsExportUiState.Exporting,
+                -> Unit
+                is VisibleWindowViewsExportUiState.Success -> {
+                    ExportResultDialog(
+                        title = strings.visibleWindowViewsExportSucceededTitle,
+                        message = strings.visibleWindowViewsExportSucceeded(
+                            exportState.directory.toAbsolutePath().toString(),
+                        ),
+                        dismissLabel = strings.dismiss,
+                        onDismiss = {
+                            visibleWindowViewsExportState = VisibleWindowViewsExportUiState.Idle
+                        },
+                    )
+                }
+                is VisibleWindowViewsExportUiState.Failure -> {
+                    ExportResultDialog(
+                        title = strings.visibleWindowViewsExportFailedTitle,
+                        message = strings.visibleWindowViewsExportFailed(exportState.message),
+                        dismissLabel = strings.dismiss,
+                        onDismiss = {
+                            visibleWindowViewsExportState = VisibleWindowViewsExportUiState.Idle
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -384,6 +453,8 @@ private fun Header(
     onManualRefresh: () -> Unit,
     panelVisibility: PanelVisibility,
     onAction: (ViewerAction) -> Unit,
+    exportInProgress: Boolean,
+    onExportVisibleWindowViews: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
@@ -411,6 +482,14 @@ private fun Header(
             autoScanEnabled = autoScanEnabled,
             panelVisibility = panelVisibility,
             onAction = onAction,
+        )
+        Spacer(Modifier.width(4.dp))
+        AdvancedMenu(
+            model = AdvancedMenuModel(
+                strings = strings,
+                exportInProgress = exportInProgress,
+            ),
+            onExport = onExportVisibleWindowViews,
         )
         Spacer(Modifier.width(10.dp))
         HeaderSeparator()
@@ -454,6 +533,25 @@ private fun Header(
             onAction(ViewerAction.OPEN_SETTINGS)
         }
     }
+}
+
+@Composable
+private fun ExportResultDialog(
+    title: String,
+    message: String,
+    dismissLabel: String,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(dismissLabel)
+            }
+        },
+    )
 }
 
 internal fun headerTextSegments(
