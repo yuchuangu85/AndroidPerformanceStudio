@@ -137,4 +137,19 @@ class InspectorPresenterTest {
         assertEquals("No resumed activity", failed.connectionLabel)
         assertEquals(ConnectionTone.ERROR, failed.connectionTone)
     }
+
+    @Test
+    fun `header starts with package name then separates connection status with a vertical bar`() {
+        val model = InspectorPresenter.present(
+            InspectorState(
+                snapshot = SampleSnapshots.dashboard,
+                connectionStatus = ConnectionStatus.CONNECTED,
+            ),
+        )
+
+        assertEquals(
+            listOf("dev.agentperf.sample", "|", "Live"),
+            headerTextSegments(model),
+        )
+    }
 }

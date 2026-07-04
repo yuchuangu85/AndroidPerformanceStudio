@@ -88,4 +88,21 @@ class InspectorStoreTest {
         assertNull(store.state.selectedNodeId)
         assertEquals(ConnectionStatus.CONNECTING, store.state.connectionStatus)
     }
+
+    @Test
+    fun `stopping automatic scanning publishes disconnected status and keeps the last capture`() {
+        val store = InspectorStore().apply {
+            loadCapture(
+                snapshot = SampleSnapshots.dashboard,
+                screenshotPng = byteArrayOf(1, 2, 3),
+            )
+            connectionFailed("Device unavailable")
+        }
+
+        store.disconnected()
+
+        assertEquals(ConnectionStatus.DISCONNECTED, store.state.connectionStatus)
+        assertNull(store.state.connectionError)
+        assertEquals(SampleSnapshots.dashboard, store.state.snapshot)
+    }
 }

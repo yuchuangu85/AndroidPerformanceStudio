@@ -45,6 +45,13 @@ class InspectorStore(
         )
     }
 
+    fun disconnected() {
+        state = state.copy(
+            connectionStatus = ConnectionStatus.DISCONNECTED,
+            connectionError = null,
+        )
+    }
+
     fun selectNode(nodeId: String): Boolean {
         val candidate = state.copy(selectedNodeId = nodeId)
         if (candidate.selectedNode == null) return false

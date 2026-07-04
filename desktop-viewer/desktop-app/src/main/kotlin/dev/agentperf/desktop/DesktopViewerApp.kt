@@ -72,15 +72,22 @@ private val Panel = Color(0xFF141820)
 private val CanvasBackground = Color(0xFF0D1016)
 private val Border = Color(0xFF2B3240)
 private val Accent = Color(0xFF70A5FF)
+internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 
 @Composable
 fun DesktopViewerApp() {
     val store = remember { createInitialInspectorStore() }
     var state by remember { mutableStateOf(store.state) }
+    var autoScanEnabled by remember { mutableStateOf(AUTO_SCAN_DEFAULT_ENABLED) }
     val deviceClient = remember { LiveDeviceClient() }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(autoScanEnabled) {
+        if (!autoScanEnabled) {
+            store.disconnected()
+            state = store.state
+            return@LaunchedEffect
+        }
         while (currentCoroutineContext().isActive) {
             var session: ConnectedDeviceSession? = null
             try {
@@ -118,11 +125,28 @@ fun DesktopViewerApp() {
 
     var paneWidths by remember { mutableStateOf(PaneWidths()) }
     var findingsHeightDp by remember { mutableStateOf(FindingsLayout.DEFAULT_HEIGHT_DP) }
+    var panelVisibility by remember { mutableStateOf(PanelVisibility()) }
 
     MaterialTheme {
         Surface(color = CanvasBackground, modifier = Modifier.fillMaxSize()) {
             Column {
-                Header(state)
+                Header(
+                    state = state,
+                    autoScanEnabled = autoScanEnabled,
+                    onToggleAutoScan = {
+                        autoScanEnabled = !autoScanEnabled
+                    },
+                    panelVisibility = panelVisibility,
+                    onToggleHierarchy = {
+                        panelVisibility = panelVisibility.toggleHierarchy()
+                    },
+                    onToggleFindings = {
+                        panelVisibility = panelVisibility.toggleFindings()
+                    },
+                    onToggleDetails = {
+                        panelVisibility = panelVisibility.toggleDetails()
+                    },
+                )
                 HorizontalDivider(color = Border)
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                     val availableHeightDp = maxHeight.value
@@ -142,45 +166,59 @@ fun DesktopViewerApp() {
                                 }
                             }
                             Row(modifier = Modifier.fillMaxSize()) {
-                                HierarchyPane(
-                                    state = state,
-                                    onSelect = { id ->
-                                        if (store.selectNode(id)) state = store.state
-                                    },
-                                    modifier = Modifier.width(normalizedPaneWidths.hierarchy.dp).fillMaxHeight(),
-                                )
-                                ResizableSeparator { deltaDp ->
-                                    paneWidths = PaneLayout.dragHierarchy(
-                                        widths = PaneLayout.fit(paneWidths, availableWidthDp),
-                                        deltaDp = deltaDp,
-                                        availableWidthDp = availableWidthDp,
+                                if (panelVisibility.showHierarchy) {
+                                    HierarchyPane(
+                                        state = state,
+                                        onSelect = { id ->
+                                            if (store.selectNode(id)) state = store.state
+                                        },
+                                        modifier =
+                                            Modifier
+                                                .width(normalizedPaneWidths.hierarchy.dp)
+                                                .fillMaxHeight(),
                                     )
+                                    ResizableSeparator { deltaDp ->
+                                        paneWidths = PaneLayout.dragHierarchy(
+                                            widths = PaneLayout.fit(paneWidths, availableWidthDp),
+                                            deltaDp = deltaDp,
+                                            availableWidthDp = availableWidthDp,
+                                        )
+                                    }
                                 }
                                 PreviewPane(state, Modifier.weight(1f).fillMaxHeight())
-                                ResizableSeparator { deltaDp ->
-                                    paneWidths = PaneLayout.dragProperties(
-                                        widths = PaneLayout.fit(paneWidths, availableWidthDp),
-                                        deltaDp = deltaDp,
-                                        availableWidthDp = availableWidthDp,
+                                if (panelVisibility.showDetails) {
+                                    ResizableSeparator { deltaDp ->
+                                        paneWidths = PaneLayout.dragProperties(
+                                            widths = PaneLayout.fit(paneWidths, availableWidthDp),
+                                            deltaDp = deltaDp,
+                                            availableWidthDp = availableWidthDp,
+                                        )
+                                    }
+                                    DetailsPane(
+                                        state,
+                                        Modifier
+                                            .width(normalizedPaneWidths.properties.dp)
+                                            .fillMaxHeight(),
                                     )
                                 }
-                                DetailsPane(
-                                    state,
-                                    Modifier.width(normalizedPaneWidths.properties.dp).fillMaxHeight(),
-                                )
                             }
                         }
-                        FindingsResizeSeparator { deltaDp ->
-                            findingsHeightDp = FindingsLayout.drag(
-                                heightDp = FindingsLayout.fit(findingsHeightDp, availableHeightDp),
-                                deltaDp = deltaDp,
-                                availableHeightDp = availableHeightDp,
+                        if (panelVisibility.showFindings) {
+                            FindingsResizeSeparator { deltaDp ->
+                                findingsHeightDp = FindingsLayout.drag(
+                                    heightDp = FindingsLayout.fit(findingsHeightDp, availableHeightDp),
+                                    deltaDp = deltaDp,
+                                    availableHeightDp = availableHeightDp,
+                                )
+                            }
+                            FindingsPane(
+                                state = state,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(normalizedFindingsHeight.dp),
                             )
                         }
-                        FindingsPane(
-                            state = state,
-                            modifier = Modifier.fillMaxWidth().height(normalizedFindingsHeight.dp),
-                        )
                     }
                 }
             }
@@ -191,27 +229,153 @@ fun DesktopViewerApp() {
 internal fun createInitialInspectorStore(): InspectorStore = InspectorStore()
 
 @Composable
-private fun Header(state: InspectorState) {
+private fun Header(
+    state: InspectorState,
+    autoScanEnabled: Boolean,
+    onToggleAutoScan: () -> Unit,
+    panelVisibility: PanelVisibility,
+    onToggleHierarchy: () -> Unit,
+    onToggleFindings: () -> Unit,
+    onToggleDetails: () -> Unit,
+) {
     val model = InspectorPresenter.present(state)
+    val (packageName, separator, connectionLabel) = headerTextSegments(model)
     Row(
         modifier = Modifier.fillMaxWidth().height(29.dp).background(Panel).padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("AgentPerf", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        Text("  Desktop Viewer", color = Color(0xFFAAB4C5))
-        Spacer(Modifier.weight(1f))
+        Text(packageName, color = Color(0xFFDCE4F2), fontFamily = FontFamily.Monospace)
+        Spacer(Modifier.width(10.dp))
+        Text(separator, color = Color(0xFF687386))
+        Spacer(Modifier.width(10.dp))
         val connectionColor = when (model.connectionTone) {
             ConnectionTone.NEUTRAL -> Color(0xFFF5A524)
             ConnectionTone.SUCCESS -> Color(0xFF55D187)
             ConnectionTone.ERROR -> Color(0xFFEF5350)
         }
         StatusDot(connectionColor)
-        Spacer(Modifier.width(8.dp))
-        Text(model.connectionLabel, color = connectionColor, fontSize = 12.sp)
+        Spacer(Modifier.width(6.dp))
+        Text(connectionLabel, color = connectionColor, fontSize = 12.sp)
+        Spacer(Modifier.weight(1f))
+        AutoScanSwitch(autoScanEnabled, onToggleAutoScan)
         Spacer(Modifier.width(12.dp))
-        Text(model.packageName ?: "No app", color = Color(0xFFDCE4F2), fontFamily = FontFamily.Monospace)
-        Spacer(Modifier.width(18.dp))
+        HeaderSeparator()
+        Spacer(Modifier.width(12.dp))
         Text(model.metricsText, color = Color(0xFF8E9AAF), fontSize = 12.sp)
+        Spacer(Modifier.width(12.dp))
+        HeaderSeparator()
+        Spacer(Modifier.width(10.dp))
+        PanelToggleButton(PanelPosition.LEFT, panelVisibility.showHierarchy, onToggleHierarchy)
+        Spacer(Modifier.width(4.dp))
+        PanelToggleButton(PanelPosition.BOTTOM, panelVisibility.showFindings, onToggleFindings)
+        Spacer(Modifier.width(4.dp))
+        PanelToggleButton(PanelPosition.RIGHT, panelVisibility.showDetails, onToggleDetails)
+    }
+}
+
+internal fun headerTextSegments(model: InspectorScreenModel): List<String> =
+    listOf(model.packageName ?: "No app", "|", model.connectionLabel)
+
+@Composable
+private fun AutoScanSwitch(
+    enabled: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.clickable(onClick = onToggle),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "自动扫描",
+            color = if (enabled) Color(0xFFDCE4F2) else Color(0xFF687386),
+            fontSize = 11.sp,
+        )
+        Spacer(Modifier.width(6.dp))
+        Box(
+            modifier =
+                Modifier
+                    .width(30.dp)
+                    .height(16.dp)
+                    .background(
+                        color = if (enabled) Accent.copy(alpha = 0.55f) else Color(0xFF353D4B),
+                        shape = RoundedCornerShape(8.dp),
+                    )
+                    .padding(2.dp),
+            contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Box(
+                Modifier
+                    .size(12.dp)
+                    .background(
+                        color = if (enabled) Color.White else Color(0xFF8E9AAF),
+                        shape = RoundedCornerShape(50),
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeaderSeparator() {
+    Box(Modifier.width(1.dp).height(14.dp).background(Border))
+}
+
+private enum class PanelPosition {
+    LEFT,
+    BOTTOM,
+    RIGHT,
+}
+
+@Composable
+private fun PanelToggleButton(
+    position: PanelPosition,
+    visible: Boolean,
+    onClick: () -> Unit,
+) {
+    val iconColor = if (visible) Accent else Color(0xFF687386)
+    Box(
+        modifier =
+            Modifier
+                .width(26.dp)
+                .height(21.dp)
+                .background(
+                    color = if (visible) Accent.copy(alpha = 0.18f) else Color.Transparent,
+                    shape = RoundedCornerShape(3.dp),
+                )
+                .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(15.dp)) {
+            val inset = 1.dp.toPx()
+            val strokeWidth = 1.dp.toPx()
+            val contentLeft = inset + strokeWidth
+            val contentTop = inset + strokeWidth
+            val contentWidth = size.width - contentLeft * 2
+            val contentHeight = size.height - contentTop * 2
+            drawRect(
+                color = iconColor,
+                topLeft = Offset(inset, inset),
+                size = Size(size.width - inset * 2, size.height - inset * 2),
+                style = Stroke(width = strokeWidth),
+            )
+            when (position) {
+                PanelPosition.LEFT -> drawRect(
+                    color = iconColor.copy(alpha = 0.8f),
+                    topLeft = Offset(contentLeft, contentTop),
+                    size = Size(4.dp.toPx(), contentHeight),
+                )
+                PanelPosition.BOTTOM -> drawRect(
+                    color = iconColor.copy(alpha = 0.8f),
+                    topLeft = Offset(contentLeft, size.height - contentTop - 4.dp.toPx()),
+                    size = Size(contentWidth, 4.dp.toPx()),
+                )
+                PanelPosition.RIGHT -> drawRect(
+                    color = iconColor.copy(alpha = 0.8f),
+                    topLeft = Offset(size.width - contentLeft - 4.dp.toPx(), contentTop),
+                    size = Size(4.dp.toPx(), contentHeight),
+                )
+            }
+        }
     }
 }
 
@@ -390,7 +554,10 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
     val model = InspectorPresenter.present(state)
     Column(modifier.background(Panel)) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
+            Modifier
+                .fillMaxWidth()
+                .height(PanelHeaderLayout.HEIGHT_DP.dp)
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("FINDINGS", color = Color(0xFF95A2B6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -435,7 +602,10 @@ private fun PanelTitle(
     trailingContent: @Composable () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(43.dp).padding(horizontal = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .height(PanelHeaderLayout.HEIGHT_DP.dp)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, color = Color(0xFF95A2B6), fontWeight = FontWeight.Bold, fontSize = 11.sp)
