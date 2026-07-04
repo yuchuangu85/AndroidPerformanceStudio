@@ -66,4 +66,18 @@ class LanguagePreferenceTest {
             english.findingMessage("layout.invisible-node", arguments, "fallback"),
         )
     }
+
+    @Test
+    fun `device selection errors follow the selected language`() {
+        val raw = "Expected exactly one authorized device, found 2"
+
+        assertEquals(
+            "需要且只能连接一台已授权设备，当前检测到 2 台",
+            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).connectionError(raw),
+        )
+        assertEquals(
+            raw,
+            ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).connectionError(raw),
+        )
+    }
 }

@@ -247,6 +247,22 @@ class InspectorPresenterTest {
     }
 
     @Test
+    fun `localizes the authorized device count error in the header`() {
+        val model = InspectorPresenter.present(
+            InspectorState(
+                connectionStatus = ConnectionStatus.ERROR,
+                connectionError = "Expected exactly one authorized device, found 0",
+            ),
+            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+        )
+
+        assertEquals(
+            "需要且只能连接一台已授权设备，当前检测到 0 台",
+            model.connectionLabel,
+        )
+    }
+
+    @Test
     fun `header starts with package name then separates connection status with a vertical bar`() {
         val model = InspectorPresenter.present(
             InspectorState(

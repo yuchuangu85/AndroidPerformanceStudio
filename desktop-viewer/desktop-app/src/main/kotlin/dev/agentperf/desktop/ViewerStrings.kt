@@ -45,6 +45,18 @@ internal class ViewerStrings private constructor(
         LanguagePreference.ENGLISH -> "English"
     }
 
+    fun connectionError(message: String): String {
+        val deviceCount = authorizedDeviceCountError
+            .matchEntire(message)
+            ?.groupValues
+            ?.get(1)
+            ?: return message
+        return text(
+            message,
+            "需要且只能连接一台已授权设备，当前检测到 $deviceCount 台",
+        )
+    }
+
     fun actionLabel(action: ViewerAction): String = when (action) {
         ViewerAction.TOGGLE_AUTO_SCAN -> autoScan
         ViewerAction.PREVIOUS_NODE -> text("Previous node", "上一个节点")
@@ -166,6 +178,9 @@ internal class ViewerStrings private constructor(
 }
 
 internal val LocalViewerStrings = staticCompositionLocalOf { ViewerStrings.English }
+
+private val authorizedDeviceCountError =
+    Regex("""Expected exactly one authorized device, found (\d+)""")
 
 private val detailSectionsChinese = mapOf(
     "RENDER RISKS" to "渲染风险",
