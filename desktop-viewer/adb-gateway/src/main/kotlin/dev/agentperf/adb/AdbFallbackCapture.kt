@@ -8,6 +8,7 @@ import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.ProtocolCodec
 import dev.agentperf.protocol.ProtocolVersion
 import dev.agentperf.protocol.UiNode
+import dev.agentperf.protocol.ViewAttributes
 import dev.agentperf.protocol.ViewNode
 import java.io.ByteArrayInputStream
 import javax.xml.parsers.DocumentBuilderFactory
@@ -25,10 +26,9 @@ internal class AdbFallbackCapture(
     private val protocolCodec: ProtocolCodec = ProtocolCodec(supportedMajor = 1),
 ) {
     fun capture(): CaptureFrame = try {
-        val hierarchy = checkedRun(AdbCommandFactory.dumpHierarchy(serial)).stdout
         val screenshot = checkedRun(AdbCommandFactory.captureScreenshot(serial)).stdoutBytes
         val (width, height) = PngDimensions.read(screenshot)
-        val root = UiAutomatorHierarchyParser.parse(hierarchy)
+        val root = captureHierarchy()
         val snapshot = LayoutSnapshot(
             protocolVersion = ProtocolVersion(major = 1, minor = 0),
             packageName = packageName,
@@ -46,6 +46,22 @@ internal class AdbFallbackCapture(
         )
     } catch (error: Throwable) {
         throw AdbFallbackUnavailableException(packageName, error)
+    }
+
+    private fun captureHierarchy(): UiNode {
+        val visibleWindows = processRunner.run(
+            AdbCommandFactory.dumpVisibleWindowViews(serial),
+        )
+        if (visibleWindows.exitCode == 0) {
+            runCatching {
+                VisibleWindowHierarchyParser.parse(
+                    zipBytes = visibleWindows.stdoutBytes,
+                    packageName = packageName,
+                )
+            }.getOrNull()?.let { return it }
+        }
+        val hierarchy = checkedRun(AdbCommandFactory.dumpHierarchy(serial)).stdout
+        return UiAutomatorHierarchyParser.parse(hierarchy)
     }
 
     private fun checkedRun(arguments: List<String>): ProcessResult =
@@ -80,21 +96,39 @@ internal object UiAutomatorHierarchyParser {
 
     private fun Element.toViewNode(path: String): ViewNode {
         val resourceName = getAttribute("resource-id").ifBlank { null }
+        val visibleToUser = booleanAttribute("visible-to-user")
         val children = childNodes.asElementSequence()
             .filter { it.tagName == "node" }
             .mapIndexed { index, child -> child.toViewNode("$path/$index") }
             .toList()
         return ViewNode(
-            id = resourceName ?: path,
+            id = path,
             className = getAttribute("class").ifBlank { "android.view.View" },
             bounds = parseBounds(getAttribute("bounds")),
-            visible = true,
+            visible = visibleToUser ?: true,
             alpha = 1f,
             children = children,
             resourceName = resourceName,
             text = getAttribute("text").ifBlank { null },
+            attributes = ViewAttributes(
+                visibility = visibleToUser?.let {
+                    if (it) "VISIBLE_TO_USER" else "NOT_VISIBLE_TO_USER"
+                },
+                enabled = booleanAttribute("enabled"),
+                clickable = booleanAttribute("clickable"),
+                longClickable = booleanAttribute("long-clickable"),
+                focusable = booleanAttribute("focusable"),
+                focused = booleanAttribute("focused"),
+                selected = booleanAttribute("selected"),
+                contentDescription = getAttribute("content-desc").ifBlank { null },
+            ),
         )
     }
+
+    private fun Element.booleanAttribute(name: String): Boolean? =
+        getAttribute(name)
+            .takeIf(String::isNotBlank)
+            ?.toBooleanStrictOrNull()
 
     private fun parseBounds(value: String): Bounds {
         val match = boundsPattern.matchEntire(value)

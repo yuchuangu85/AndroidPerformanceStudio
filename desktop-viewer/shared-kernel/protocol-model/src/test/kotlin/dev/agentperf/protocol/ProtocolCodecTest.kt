@@ -1,7 +1,9 @@
 package dev.agentperf.protocol
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ProtocolCodecTest {
@@ -19,6 +21,26 @@ class ProtocolCodecTest {
                 id = "root",
                 className = "android.widget.FrameLayout",
                 bounds = Bounds(0, 0, 1080, 2400),
+                attributes = ViewAttributes(
+                    visibility = "VISIBLE",
+                    elevation = 8f,
+                    z = 10f,
+                    translationX = 2f,
+                    translationY = 3f,
+                    rotation = 5f,
+                    scaleX = 1f,
+                    scaleY = 1f,
+                    padding = EdgeInsets(left = 16, top = 24, right = 16, bottom = 24),
+                    margin = EdgeInsets(left = 8, top = 8, right = 8, bottom = 8),
+                    clipChildren = true,
+                    clipToPadding = false,
+                    background = "android.graphics.drawable.ColorDrawable",
+                    backgroundColor = "#FF101820",
+                    layerType = "HARDWARE",
+                    hardwareAccelerated = true,
+                    clickable = true,
+                    enabled = true,
+                ),
                 children = listOf(
                     ComposeNode(
                         id = "compose-title",
@@ -30,7 +52,11 @@ class ProtocolCodecTest {
             ),
         )
 
-        assertEquals(snapshot, codec.decodeSnapshot(codec.encodeSnapshot(snapshot)))
+        val encoded = codec.encodeSnapshot(snapshot)
+
+        assertTrue(encoded.contains("\"elevation\": 8.0"))
+        assertFalse(encoded.contains("\"translationZ\""))
+        assertEquals(snapshot, codec.decodeSnapshot(encoded))
     }
 
     @Test
@@ -58,6 +84,7 @@ class ProtocolCodecTest {
 
         assertEquals(ProtocolVersion(1, 9), snapshot.protocolVersion)
         assertEquals("root", snapshot.root.id)
+        assertEquals(ViewAttributes(), (snapshot.root as ViewNode).attributes)
     }
 
     @Test

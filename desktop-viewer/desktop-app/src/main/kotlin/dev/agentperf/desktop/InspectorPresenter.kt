@@ -14,6 +14,7 @@ data class TreeRowModel(
     val depth: Int,
     val selected: Boolean,
     val visible: Boolean,
+    val hasChildren: Boolean,
 )
 
 data class NodeDetailsModel(
@@ -22,6 +23,7 @@ data class NodeDetailsModel(
     val text: String? = null,
     val bounds: Bounds? = null,
     val childCount: Int = 0,
+    val sections: List<DetailSectionModel> = emptyList(),
 )
 
 data class SeveritySummary(
@@ -30,11 +32,18 @@ data class SeveritySummary(
     val error: Int,
 )
 
+enum class FindingTone {
+    INFO,
+    WARNING,
+    ERROR,
+}
+
 data class FindingRowModel(
     val title: String,
     val nodeNumber: String,
     val nodeId: String,
     val message: String,
+    val tone: FindingTone,
 )
 
 enum class ConnectionTone {
@@ -81,6 +90,13 @@ object InspectorPresenter {
                     text = it.textContent,
                     bounds = it.bounds,
                     childCount = it.children.size,
+                    sections = NodeDetailsPresenter.present(
+                        node = it,
+                        treeDepth = rows.firstOrNull { row -> row.id == it.id }
+                            ?.depth
+                            ?.plus(1)
+                            ?: 1,
+                    ),
                 )
             } ?: NodeDetailsModel(),
             severitySummary = SeveritySummary(
@@ -94,6 +110,11 @@ object InspectorPresenter {
                     nodeNumber = nodeNumbers[finding.nodeId] ?: "—",
                     nodeId = finding.nodeId,
                     message = finding.message,
+                    tone = when (finding.severity) {
+                        Severity.INFO -> FindingTone.INFO
+                        Severity.WARNING -> FindingTone.WARNING
+                        Severity.ERROR -> FindingTone.ERROR
+                    },
                 )
             },
             metricsText = "${metrics.nodeCount} nodes · depth ${metrics.maxDepth} · width ${metrics.widestLevel}",
@@ -140,6 +161,7 @@ object InspectorPresenter {
             depth = depth,
             selected = id == selectedNodeId,
             visible = visible && alpha > 0f,
+            hasChildren = children.isNotEmpty(),
         )
         children.forEach { child ->
             child.appendRows(

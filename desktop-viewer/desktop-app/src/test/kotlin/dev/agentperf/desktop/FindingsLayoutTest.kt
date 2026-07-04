@@ -5,6 +5,13 @@ import org.junit.jupiter.api.Test
 
 class FindingsLayoutTest {
     @Test
+    fun `finding rows use compact typography to show more content`() {
+        assertEquals(10f, FindingsTypography.TEXT_SIZE_SP)
+        assertEquals(12f, FindingsTypography.LINE_HEIGHT_SP)
+        assertEquals(2f, FindingsTypography.VERTICAL_PADDING_DP)
+    }
+
+    @Test
     fun `default height is half the previous findings height`() {
         assertEquals(89f, FindingsLayout.DEFAULT_HEIGHT_DP)
         assertEquals(89f, FindingsLayout.fit(FindingsLayout.DEFAULT_HEIGHT_DP, 800f))

@@ -36,6 +36,59 @@ data class Bounds(
 }
 
 @Serializable
+data class EdgeInsets(
+    val left: Int = 0,
+    val top: Int = 0,
+    val right: Int = 0,
+    val bottom: Int = 0,
+)
+
+@Serializable
+data class ViewAttributes(
+    val visibility: String? = null,
+    val elevation: Float? = null,
+    val z: Float? = null,
+    val translationX: Float? = null,
+    val translationY: Float? = null,
+    val translationZ: Float? = null,
+    val rotation: Float? = null,
+    val rotationX: Float? = null,
+    val rotationY: Float? = null,
+    val scaleX: Float? = null,
+    val scaleY: Float? = null,
+    val pivotX: Float? = null,
+    val pivotY: Float? = null,
+    val padding: EdgeInsets? = null,
+    val margin: EdgeInsets? = null,
+    val layoutWidth: Int? = null,
+    val layoutHeight: Int? = null,
+    val measuredWidth: Int? = null,
+    val measuredHeight: Int? = null,
+    val minWidth: Int? = null,
+    val minHeight: Int? = null,
+    val scrollX: Int? = null,
+    val scrollY: Int? = null,
+    val clipBounds: Bounds? = null,
+    val clipChildren: Boolean? = null,
+    val clipToPadding: Boolean? = null,
+    val background: String? = null,
+    val backgroundColor: String? = null,
+    val foreground: String? = null,
+    val opaque: Boolean? = null,
+    val willNotDraw: Boolean? = null,
+    val hardwareAccelerated: Boolean? = null,
+    val layerType: String? = null,
+    val layoutRequested: Boolean? = null,
+    val enabled: Boolean? = null,
+    val clickable: Boolean? = null,
+    val longClickable: Boolean? = null,
+    val focusable: Boolean? = null,
+    val focused: Boolean? = null,
+    val selected: Boolean? = null,
+    val contentDescription: String? = null,
+)
+
+@Serializable
 sealed interface UiNode {
     val id: String
     val className: String
@@ -56,6 +109,7 @@ data class ViewNode(
     override val children: List<UiNode> = emptyList(),
     val resourceName: String? = null,
     val text: String? = null,
+    val attributes: ViewAttributes = ViewAttributes(),
 ) : UiNode
 
 @Serializable

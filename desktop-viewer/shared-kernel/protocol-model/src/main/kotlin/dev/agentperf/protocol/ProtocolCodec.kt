@@ -17,7 +17,7 @@ class ProtocolCodec(
 ) {
     private val json = Json {
         classDiscriminator = "type"
-        encodeDefaults = true
+        encodeDefaults = false
         ignoreUnknownKeys = true
         prettyPrint = true
     }

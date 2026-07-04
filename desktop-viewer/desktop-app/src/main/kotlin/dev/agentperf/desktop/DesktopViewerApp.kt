@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -386,25 +388,107 @@ private fun HierarchyPane(
     modifier: Modifier,
 ) {
     val model = InspectorPresenter.present(state)
+    var treeState by remember { mutableStateOf(HierarchyTreeState()) }
+    val horizontalScrollState = rememberScrollState()
+    val visibleRows = treeState.visibleRows(model.rows)
     Column(modifier.background(Panel)) {
         PanelTitle("HIERARCHY", "${model.rows.size}")
-        LazyColumn(Modifier.fillMaxSize().padding(vertical = 6.dp)) {
-            items(model.rows, key = { it.id }) { row ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(if (row.selected) Color(0xFF253B5F) else Color.Transparent)
-                        .clickable { onSelect(row.id) }
-                        .padding(start = (12 + row.depth * 16).dp, end = 8.dp, top = 3.dp, bottom = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val viewportWidth = maxWidth
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .horizontalScroll(horizontalScrollState),
+            ) {
+                LazyColumn(
+                    Modifier
+                        .fillMaxHeight()
+                        .widthIn(min = viewportWidth)
+                        .padding(vertical = 6.dp),
                 ) {
-                    Text(if (row.depth == 0) "◆" else "›", color = Accent, fontSize = 11.sp)
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        "${row.number}  ${row.label}",
-                        color = if (row.visible) Color(0xFFD8E0ED) else Color(0xFF687386),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
+                    items(visibleRows, key = { it.number }) { row ->
+                        val expanded = treeState.isExpanded(row.id)
+                        val rowColor = if (row.selected) Color(0xFF253B5F) else Color.Transparent
+                        Row(
+                            modifier = Modifier
+                                .widthIn(min = viewportWidth)
+                                .height(HierarchyRowLayout.HEIGHT_DP.dp)
+                                .background(rowColor)
+                                .clickable { onSelect(row.id) }
+                                .padding(
+                                    start = (8 + row.depth * HierarchyRowLayout.INDENT_DP).dp,
+                                    end = 8.dp,
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            HierarchyDisclosure(
+                                hasChildren = row.hasChildren,
+                                expanded = expanded,
+                                onToggle = {
+                                    treeState = treeState.toggle(row.id)
+                                },
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "${row.number}  ${row.label}",
+                                color = if (row.visible) Color(0xFFD8E0ED) else Color(0xFF687386),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
+                                lineHeight = 11.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HierarchyDisclosure(
+    hasChildren: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .width(12.dp)
+            .fillMaxHeight()
+            .let { base ->
+                if (hasChildren) base.clickable(onClick = onToggle) else base
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (hasChildren) {
+            Canvas(Modifier.size(8.dp)) {
+                val strokeWidth = 1.2.dp.toPx()
+                if (expanded) {
+                    drawLine(
+                        color = Accent,
+                        start = Offset(0.5.dp.toPx(), 2.dp.toPx()),
+                        end = Offset(4.dp.toPx(), 5.5.dp.toPx()),
+                        strokeWidth = strokeWidth,
+                    )
+                    drawLine(
+                        color = Accent,
+                        start = Offset(4.dp.toPx(), 5.5.dp.toPx()),
+                        end = Offset(7.5.dp.toPx(), 2.dp.toPx()),
+                        strokeWidth = strokeWidth,
+                    )
+                } else {
+                    drawLine(
+                        color = Accent,
+                        start = Offset(2.dp.toPx(), 0.5.dp.toPx()),
+                        end = Offset(5.5.dp.toPx(), 4.dp.toPx()),
+                        strokeWidth = strokeWidth,
+                    )
+                    drawLine(
+                        color = Accent,
+                        start = Offset(5.5.dp.toPx(), 4.dp.toPx()),
+                        end = Offset(2.dp.toPx(), 7.5.dp.toPx()),
+                        strokeWidth = strokeWidth,
                     )
                 }
             }
@@ -539,13 +623,122 @@ private fun rememberScreenshot(bytes: ByteArray?): ImageBitmap? =
 @Composable
 private fun DetailsPane(state: InspectorState, modifier: Modifier) {
     val details = InspectorPresenter.present(state).details
+    var expansionState by remember { mutableStateOf(DetailSectionExpansionState()) }
     Column(modifier.background(Panel)) {
         PanelTitle("PROPERTIES", details.id)
-        Property("Class", details.className)
-        Property("Text", details.text ?: "—")
-        Property("Bounds", details.bounds?.let { "${it.left}, ${it.top}, ${it.right}, ${it.bottom}" } ?: "—")
-        Property("Size", details.bounds?.let { "${it.width} × ${it.height}" } ?: "—")
-        Property("Children", details.childCount.toString())
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(details.sections, key = { it.title }) { section ->
+                DetailSection(
+                    section = section,
+                    expanded = expansionState.isExpanded(section.title),
+                    onToggle = {
+                        expansionState = expansionState.toggle(section.title)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailSection(
+    section: DetailSectionModel,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    val riskSection = section.title == "RENDER RISKS"
+    val headerColor = if (riskSection) Color(0xFFFFB454) else Color(0xFF95A2B6)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(DetailSectionHeaderLayout.HEIGHT_DP.dp)
+            .background(if (riskSection) Color(0xFF241E17) else Color(0xFF181D26))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Canvas(Modifier.size(10.dp)) {
+            val strokeWidth = 1.3.dp.toPx()
+            if (expanded) {
+                drawLine(
+                    color = headerColor,
+                    start = Offset(1.dp.toPx(), 3.dp.toPx()),
+                    end = Offset(5.dp.toPx(), 7.dp.toPx()),
+                    strokeWidth = strokeWidth,
+                )
+                drawLine(
+                    color = headerColor,
+                    start = Offset(5.dp.toPx(), 7.dp.toPx()),
+                    end = Offset(9.dp.toPx(), 3.dp.toPx()),
+                    strokeWidth = strokeWidth,
+                )
+            } else {
+                drawLine(
+                    color = headerColor,
+                    start = Offset(3.dp.toPx(), 1.dp.toPx()),
+                    end = Offset(7.dp.toPx(), 5.dp.toPx()),
+                    strokeWidth = strokeWidth,
+                )
+                drawLine(
+                    color = headerColor,
+                    start = Offset(7.dp.toPx(), 5.dp.toPx()),
+                    end = Offset(3.dp.toPx(), 9.dp.toPx()),
+                    strokeWidth = strokeWidth,
+                )
+            }
+        }
+        Spacer(Modifier.width(7.dp))
+        Text(
+            text = section.title,
+            color = headerColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+    if (expanded) {
+        section.rows.forEach { row ->
+            DetailRow(row)
+        }
+    }
+    HorizontalDivider(color = Border)
+}
+
+@Composable
+private fun DetailRow(row: DetailRowModel) {
+    val color = when (row.tone) {
+        DetailTone.NORMAL -> Color(0xFFD8E0ED)
+        DetailTone.INFO -> Color(0xFF70A5FF)
+        DetailTone.WARNING -> Color(0xFFFFB454)
+        DetailTone.ERROR -> Color(0xFFFF6B6B)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (row.tone == DetailTone.NORMAL) {
+                    Color.Transparent
+                } else {
+                    color.copy(alpha = 0.06f)
+                },
+            )
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = row.label,
+            color = Color(0xFF758197),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            modifier = Modifier.width(108.dp),
+        )
+        Text(
+            text = row.value,
+            color = color,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -576,12 +769,21 @@ private fun FindingsPane(state: InspectorState, modifier: Modifier) {
         } else {
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 items(model.findings) { finding ->
+                    val findingColor = when (finding.tone) {
+                        FindingTone.INFO -> Color(0xFF4BA3FF)
+                        FindingTone.WARNING -> Color(0xFFF5A524)
+                        FindingTone.ERROR -> Color(0xFFEF5350)
+                    }
                     Text(
                         "[${finding.nodeNumber}]  ${finding.title}  ·  ${finding.message}",
-                        color = Color(0xFFC7D0DE),
-                        fontSize = 12.sp,
+                        color = findingColor,
+                        fontSize = FindingsTypography.TEXT_SIZE_SP.sp,
+                        lineHeight = FindingsTypography.LINE_HEIGHT_SP.sp,
                         fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+                        modifier = Modifier.padding(
+                            horizontal = 16.dp,
+                            vertical = FindingsTypography.VERTICAL_PADDING_DP.dp,
+                        ),
                     )
                 }
             }
@@ -613,15 +815,6 @@ private fun PanelTitle(
         trailingContent()
     }
     HorizontalDivider(color = Border)
-}
-
-@Composable
-private fun Property(label: String, value: String) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp)) {
-        Text(label.uppercase(), color = Color(0xFF687386), fontSize = 10.sp)
-        Spacer(Modifier.height(3.dp))
-        Text(value, color = Color(0xFFD8E0ED), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-    }
 }
 
 @Composable

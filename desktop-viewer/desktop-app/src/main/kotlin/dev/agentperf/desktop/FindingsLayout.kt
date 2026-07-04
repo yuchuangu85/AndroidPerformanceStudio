@@ -1,5 +1,11 @@
 package dev.agentperf.desktop
 
+internal object FindingsTypography {
+    const val TEXT_SIZE_SP = 10f
+    const val LINE_HEIGHT_SP = 12f
+    const val VERTICAL_PADDING_DP = 2f
+}
+
 internal object FindingsLayout {
     const val DEFAULT_HEIGHT_DP = 89f
     const val MIN_HEIGHT_DP = 56f

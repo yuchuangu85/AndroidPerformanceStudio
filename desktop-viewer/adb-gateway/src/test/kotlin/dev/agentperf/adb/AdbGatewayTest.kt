@@ -1,5 +1,6 @@
 package dev.agentperf.adb
 
+import dev.agentperf.protocol.ViewNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -40,6 +41,43 @@ class AdbGatewayTest {
             ),
             command,
         )
+    }
+
+    @Test
+    fun `builds a visible window hierarchy command for runtime view classes`() {
+        assertEquals(
+            listOf(
+                "-s", "emulator-5554",
+                "exec-out", "cmd", "window", "dump-visible-window-views",
+            ),
+            AdbCommandFactory.dumpVisibleWindowViews("emulator-5554"),
+        )
+    }
+
+    @Test
+    fun `uiautomator compatibility parser keeps available interaction attributes`() {
+        val root = UiAutomatorHierarchyParser.parse(
+            """
+                <hierarchy rotation="0">
+                  <node text="Action" resource-id="dev.sample:id/action"
+                    class="android.widget.Button" bounds="[0,0][100,50]"
+                    enabled="true" clickable="true" long-clickable="false"
+                    focusable="true" focused="false" selected="true"
+                    content-desc="Submit" visible-to-user="true" />
+                </hierarchy>
+            """.trimIndent(),
+        ) as ViewNode
+
+        assertEquals("root", root.id)
+        assertEquals("dev.sample:id/action", root.resourceName)
+        assertEquals("VISIBLE_TO_USER", root.attributes.visibility)
+        assertEquals(true, root.attributes.enabled)
+        assertEquals(true, root.attributes.clickable)
+        assertEquals(false, root.attributes.longClickable)
+        assertEquals(true, root.attributes.focusable)
+        assertEquals(false, root.attributes.focused)
+        assertEquals(true, root.attributes.selected)
+        assertEquals("Submit", root.attributes.contentDescription)
     }
 
     @Test
