@@ -8,6 +8,8 @@ import java.io.DataOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class VisibleWindowHierarchyParserTest {
@@ -40,6 +42,29 @@ class VisibleWindowHierarchyParserTest {
         assertEquals("com.codemx.anrdemo:id/title", title.resourceName)
         assertEquals(Bounds(left = 50, top = 100, right = 610, bottom = 180), title.bounds)
     }
+
+    @Test
+    fun `text renderer includes every window and complete view properties`() {
+        val text = VisibleWindowViewsTextRenderer.render(
+            EncodedHierarchyFixture.multiWindowZip(),
+        )
+
+        assertTrue(text.contains("Window count: 3"))
+        assertTrue(text.contains("ImageWallpaper"))
+        assertTrue(text.contains("No hierarchy payload was supplied"))
+        assertTrue(text.contains("com.codemx.ui.RealRootLayout"))
+        assertTrue(text.contains("drawing:elevation: 8"))
+        assertTrue(text.contains("com.codemx.ui.RealTitleView"))
+        assertTrue(text.contains("Parse error:"))
+        assertTrue(text.contains("SUMMARY: parsed 1 of 3 windows"))
+    }
+
+    @Test
+    fun `text renderer rejects non zip input`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            VisibleWindowViewsTextRenderer.render("not a zip".toByteArray())
+        }
+    }
 }
 
 internal object EncodedHierarchyFixture {
@@ -48,6 +73,21 @@ internal object EncodedHierarchyFixture {
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry("$packageName/$packageName.MainActivity"))
             zip.write(hierarchy())
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
+
+    fun multiWindowZip(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("f714f6 com.android.systemui.wallpapers.ImageWallpaper"))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("42177c9 com.codemx.anrdemo/com.codemx.anrdemo.MainActivity"))
+            zip.write(hierarchy())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("a3db2af StatusBar"))
+            zip.write("broken hierarchy".toByteArray())
             zip.closeEntry()
         }
         return output.toByteArray()

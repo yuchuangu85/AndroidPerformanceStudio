@@ -23,7 +23,7 @@ internal object VisibleWindowHierarchyParser {
                     val entry = zip.nextEntry ?: break
                     if (!entry.isDirectory && entry.name.contains(packageName)) {
                         val encoded = zip.readEntryBytes()
-                        add(EncodedHierarchyDecoder(encoded).decode())
+                        add(EncodedHierarchyDecoder(encoded).decodeDocument().toViewNode())
                     }
                     zip.closeEntry()
                 }
@@ -48,13 +48,90 @@ internal object VisibleWindowHierarchyParser {
     private const val MAX_ENTRY_BYTES = 16 * 1024 * 1024
 }
 
+object VisibleWindowViewsTextRenderer {
+    fun render(zipBytes: ByteArray): String {
+        require(zipBytes.isZipArchive()) { "Visible-window hierarchy is not a ZIP archive" }
+        val entries = ZipInputStream(ByteArrayInputStream(zipBytes)).use { zip ->
+            buildList {
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (!entry.isDirectory) {
+                        add(entry.name to zip.readNBytes(MAX_TEXT_ENTRY_BYTES + 1).also { bytes ->
+                            require(bytes.size <= MAX_TEXT_ENTRY_BYTES) {
+                                "Visible-window hierarchy entry is too large: ${entry.name}"
+                            }
+                        })
+                    }
+                    zip.closeEntry()
+                }
+            }
+        }
+        require(entries.isNotEmpty()) { "Visible-window hierarchy ZIP has no window entries" }
+        return buildString {
+            appendLine("VISIBLE WINDOW VIEW DUMP")
+            appendLine("Window count: ${entries.size}")
+            appendLine()
+            var parsed = 0
+            entries.forEachIndexed { index, (name, bytes) ->
+                appendLine(TEXT_SECTION_SEPARATOR)
+                appendLine("WINDOW ${index + 1}/${entries.size}: $name")
+                appendLine("Encoded bytes: ${bytes.size}")
+                appendLine(TEXT_SECTION_SEPARATOR)
+                if (bytes.isEmpty()) {
+                    appendLine("No hierarchy payload was supplied for this window.")
+                    appendLine()
+                    return@forEachIndexed
+                }
+                runCatching {
+                    EncodedHierarchyDecoder(bytes).decodeDocument()
+                }.onSuccess { hierarchy ->
+                    parsed += 1
+                    appendLine("Property definitions: ${hierarchy.propertyNames.size}")
+                    if (hierarchy.prefix.isNotEmpty()) {
+                        appendLine()
+                        appendLine("WINDOW PROPERTIES")
+                        hierarchy.prefix.toSortedMap().forEach { (property, value) ->
+                            appendLine("  $property: ${value.renderValue()}")
+                        }
+                    }
+                    appendLine()
+                    appendLine("VIEW TREE AND PROPERTIES")
+                    hierarchy.root.appendTextTree(
+                        output = this,
+                        propertyNames = hierarchy.propertyNames,
+                        path = "root",
+                        indent = "",
+                    )
+                    appendLine()
+                }.onFailure { error ->
+                    appendLine("Parse error: ${error.message ?: error.javaClass.simpleName}")
+                    appendLine()
+                }
+            }
+            appendLine(TEXT_SECTION_SEPARATOR)
+            appendLine("SUMMARY: parsed $parsed of ${entries.size} windows.")
+        }
+    }
+
+    private const val MAX_TEXT_ENTRY_BYTES = 16 * 1024 * 1024
+    private const val TEXT_SECTION_SEPARATOR =
+        "========================================================================================================================"
+}
+
+private fun ByteArray.isZipArchive(): Boolean =
+    size >= 4 &&
+        this[0] == 'P'.code.toByte() &&
+        this[1] == 'K'.code.toByte() &&
+        this[2] in setOf(3.toByte(), 5.toByte(), 7.toByte()) &&
+        this[3] in setOf(4.toByte(), 6.toByte(), 8.toByte())
+
 private class EncodedHierarchyDecoder(
     bytes: ByteArray,
 ) {
     private val input = DataInputStream(ByteArrayInputStream(bytes))
     private var valueCount = 0
 
-    fun decode(): ViewNode {
+    fun decodeDocument(): DecodedHierarchy {
         val values = buildList {
             while (true) {
                 try {
@@ -78,17 +155,14 @@ private class EncodedHierarchyDecoder(
             .chunked(2)
             .mapNotNull { pair ->
                 val id = pair.getOrNull(0) as? Short ?: return@mapNotNull null
-                propertyNames[id]?.let { name -> name to pair.getOrNull(1) }
+                val value = pair.getOrNull(1) ?: return@mapNotNull null
+                propertyNames[id]?.let { name -> name to value }
             }
             .toMap()
-        return root.toViewNode(
+        return DecodedHierarchy(
+            prefix = prefix,
+            root = root,
             propertyNames = propertyNames,
-            path = "root",
-            parentLeft = (prefix["window:left"] as? Number)?.toInt() ?: 0,
-            parentTop = (prefix["window:top"] as? Number)?.toInt() ?: 0,
-            parentScrollX = 0,
-            parentScrollY = 0,
-            parentVisible = true,
         )
     }
 
@@ -140,6 +214,22 @@ private class EncodedHierarchyDecoder(
         const val MAX_STRING_BYTES = 32_767
         const val MAX_VALUES = 1_000_000
     }
+}
+
+private data class DecodedHierarchy(
+    val prefix: Map<String, Any>,
+    val root: EncodedMap,
+    val propertyNames: Map<Short, String>,
+) {
+    fun toViewNode(): ViewNode = root.toViewNode(
+        propertyNames = propertyNames,
+        path = "root",
+        parentLeft = (prefix["window:left"] as? Number)?.toInt() ?: 0,
+        parentTop = (prefix["window:top"] as? Number)?.toInt() ?: 0,
+        parentScrollX = 0,
+        parentScrollY = 0,
+        parentVisible = true,
+    )
 }
 
 private data class EncodedMap(
@@ -207,7 +297,7 @@ private data class EncodedMap(
         )
     }
 
-    private fun namedProperties(propertyNames: Map<Short, String>): Map<String, Any> =
+    fun namedProperties(propertyNames: Map<Short, String>): Map<String, Any> =
         values.mapNotNull { (id, value) ->
             propertyNames[id]?.let { name -> name to value }
         }.toMap()
@@ -297,6 +387,81 @@ private data class EncodedMap(
         const val VISIBLE = 0
     }
 }
+
+private fun EncodedMap.appendTextTree(
+    output: StringBuilder,
+    propertyNames: Map<Short, String>,
+    path: String,
+    indent: String,
+) {
+    val properties = namedProperties(propertyNames)
+    val className = properties["meta:__name__"] ?: "android.view.View"
+    val resourceId = properties["id"] ?: "NO_ID"
+    val visibility = properties["misc:visibility"] ?: "?"
+    val left = properties["layout:left"] ?: "?"
+    val top = properties["layout:top"] ?: "?"
+    val right = properties["layout:right"] ?: "?"
+    val bottom = properties["layout:bottom"] ?: "?"
+    output.appendLine(
+        "$indent- $className  path=$path  id=$resourceId  " +
+            "bounds=($left,$top)-($right,$bottom)  visibility=$visibility",
+    )
+    properties.toSortedMap().forEach { (name, value) ->
+        if (name.startsWith(CHILD_PROPERTY_PREFIX)) return@forEach
+        value.appendTextProperty(output, name, "$indent    ", propertyNames)
+    }
+    properties.entries
+        .asSequence()
+        .filter { (name, value) ->
+            name.startsWith(CHILD_PROPERTY_PREFIX) && value is EncodedMap
+        }
+        .sortedWith(
+            compareBy<Map.Entry<String, Any>> {
+                it.key.removePrefix(CHILD_PROPERTY_PREFIX).toIntOrNull() ?: Int.MAX_VALUE
+            }.thenBy { it.key },
+        )
+        .forEachIndexed { index, (_, value) ->
+            (value as EncodedMap).appendTextTree(
+                output = output,
+                propertyNames = propertyNames,
+                path = "$path/$index",
+                indent = "$indent  ",
+            )
+        }
+}
+
+private fun Any.appendTextProperty(
+    output: StringBuilder,
+    name: String,
+    indent: String,
+    propertyNames: Map<Short, String>,
+) {
+    if (this is EncodedMap) {
+        output.appendLine("$indent$name:")
+        namedProperties(propertyNames).toSortedMap().forEach { (nestedName, nestedValue) ->
+            if (!nestedName.startsWith(CHILD_PROPERTY_PREFIX)) {
+                nestedValue.appendTextProperty(
+                    output = output,
+                    name = nestedName,
+                    indent = "$indent  ",
+                    propertyNames = propertyNames,
+                )
+            }
+        }
+    } else {
+        output.appendLine("$indent$name: ${renderValue()}")
+    }
+}
+
+private fun Any.renderValue(): String = when (this) {
+    is Boolean -> toString()
+    is Float -> if (this % 1f == 0f) toInt().toString() else toString()
+    is Double -> if (this % 1.0 == 0.0) toLong().toString() else toString()
+    is String -> "'$this'"
+    else -> toString()
+}
+
+private const val CHILD_PROPERTY_PREFIX = "meta:__child__"
 
 private fun Int.toVisibilityLabel(): String = when (this) {
     0 -> "VISIBLE"
