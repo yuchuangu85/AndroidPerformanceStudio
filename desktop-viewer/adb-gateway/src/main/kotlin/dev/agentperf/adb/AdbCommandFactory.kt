@@ -49,14 +49,6 @@ object AdbCommandFactory {
             "/dev/tty",
         )
 
-    fun dumpVisibleWindowViews(serial: String): List<String> =
-        devicePrefix(serial) + listOf(
-            "exec-out",
-            "cmd",
-            "window",
-            "dump-visible-window-views",
-        )
-
     fun captureScreenshot(serial: String): List<String> =
         devicePrefix(serial) + listOf(
             "exec-out",

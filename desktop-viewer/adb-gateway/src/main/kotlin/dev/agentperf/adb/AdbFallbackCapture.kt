@@ -26,9 +26,10 @@ internal class AdbFallbackCapture(
     private val protocolCodec: ProtocolCodec = ProtocolCodec(supportedMajor = 1),
 ) {
     fun capture(): CaptureFrame = try {
+        val hierarchy = checkedRun(AdbCommandFactory.dumpHierarchy(serial)).stdout
         val screenshot = checkedRun(AdbCommandFactory.captureScreenshot(serial)).stdoutBytes
         val (width, height) = PngDimensions.read(screenshot)
-        val root = captureHierarchy()
+        val root = UiAutomatorHierarchyParser.parse(hierarchy)
         val snapshot = LayoutSnapshot(
             protocolVersion = ProtocolVersion(major = 1, minor = 0),
             packageName = packageName,
@@ -46,22 +47,6 @@ internal class AdbFallbackCapture(
         )
     } catch (error: Throwable) {
         throw AdbFallbackUnavailableException(packageName, error)
-    }
-
-    private fun captureHierarchy(): UiNode {
-        val visibleWindows = processRunner.run(
-            AdbCommandFactory.dumpVisibleWindowViews(serial),
-        )
-        if (visibleWindows.exitCode == 0) {
-            runCatching {
-                VisibleWindowHierarchyParser.parse(
-                    zipBytes = visibleWindows.stdoutBytes,
-                    packageName = packageName,
-                )
-            }.getOrNull()?.let { return it }
-        }
-        val hierarchy = checkedRun(AdbCommandFactory.dumpHierarchy(serial)).stdout
-        return UiAutomatorHierarchyParser.parse(hierarchy)
     }
 
     private fun checkedRun(arguments: List<String>): ProcessResult =
