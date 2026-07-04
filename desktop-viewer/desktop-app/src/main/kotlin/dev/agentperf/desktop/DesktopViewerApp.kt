@@ -835,7 +835,7 @@ private fun HierarchyPane(
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 "${row.number}  ${row.label}",
-                                color = if (row.visible) colors.rowText else colors.mutedText,
+                                color = if (row.visible) colors.rowText else colors.hiddenRowText,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
                                 lineHeight = 11.sp,
