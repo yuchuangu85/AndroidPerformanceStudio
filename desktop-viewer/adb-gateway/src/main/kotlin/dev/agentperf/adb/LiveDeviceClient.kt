@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class DeviceSelectionException(message: String) : IllegalStateException(message)
 class ForegroundAppUnavailableException(message: String) : IllegalStateException(message)
+class VisibleWindowViewsUnavailableException(message: String) : IllegalStateException(message)
 class AgentUnavailableException(
     val packageName: String,
     cause: Throwable,
@@ -53,6 +54,15 @@ class LiveDeviceClient(
 
     fun connect(packageName: String): ConnectedDeviceSession =
         connect(selectDevice(), packageName)
+
+    fun dumpVisibleWindowViews(): ByteArray {
+        val device = selectDevice()
+        val result = checkedRun(AdbCommandFactory.dumpVisibleWindowViews(device.serial))
+        if (result.stdoutBytes.isEmpty()) {
+            throw VisibleWindowViewsUnavailableException("Visible Window View dump is empty")
+        }
+        return result.stdoutBytes
+    }
 
     fun foregroundPackageName(serial: String): String =
         checkedRun(AdbCommandFactory.foregroundActivity(serial))

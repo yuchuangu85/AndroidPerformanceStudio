@@ -85,6 +85,54 @@ class LiveDeviceClientTest {
     }
 
     @Test
+    fun `visible window dump uses the selected physical device and preserves binary output`() {
+        val expected = byteArrayOf(0x50, 0x4b, 0x03, 0x04)
+        val runner = fakeRunner(
+            devices = """
+                List of devices attached
+                emulator-5554 device product:sdk_gphone model:sdk_gphone transport_id:1
+                physical-1 device product:sample model:Phone transport_id:2
+            """.trimIndent(),
+            visibleHierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = expected,
+            ),
+        )
+
+        val actual = LiveDeviceClient(runner).dumpVisibleWindowViews()
+
+        assertArrayEquals(expected, actual)
+        assertTrue(
+            runner.commands.contains(
+                listOf(
+                    "-s", "physical-1", "exec-out",
+                    "cmd", "window", "dump-visible-window-views",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `visible window dump rejects empty command output`() {
+        val runner = fakeRunner(
+            visibleHierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = byteArrayOf(),
+            ),
+        )
+
+        val error = assertThrows(VisibleWindowViewsUnavailableException::class.java) {
+            LiveDeviceClient(runner).dumpVisibleWindowViews()
+        }
+
+        assertEquals("Visible Window View dump is empty", error.message)
+    }
+
+    @Test
     fun `foreground connection targets the currently resumed application`() {
         val server = ServerSocket(0)
         val executor = Executors.newSingleThreadExecutor()
