@@ -44,6 +44,17 @@ class AdbGatewayTest {
     }
 
     @Test
+    fun `builds a visible window hierarchy command for runtime view classes`() {
+        assertEquals(
+            listOf(
+                "-s", "emulator-5554",
+                "exec-out", "cmd", "window", "dump-visible-window-views",
+            ),
+            AdbCommandFactory.dumpVisibleWindowViews("emulator-5554"),
+        )
+    }
+
+    @Test
     fun `uiautomator compatibility parser keeps available interaction attributes`() {
         val root = UiAutomatorHierarchyParser.parse(
             """

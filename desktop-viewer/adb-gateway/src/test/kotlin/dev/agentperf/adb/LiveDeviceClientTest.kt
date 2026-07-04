@@ -3,7 +3,6 @@ package dev.agentperf.adb
 import dev.agentperf.protocol.CaptureFrame
 import dev.agentperf.protocol.CaptureFrameCodec
 import dev.agentperf.protocol.ProtocolCodec
-import dev.agentperf.protocol.ViewNode
 import java.net.ServerSocket
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -181,7 +180,7 @@ class LiveDeviceClientTest {
     }
 
     @Test
-    fun `foreground application without Agent uses the UI Automator hierarchy`() {
+    fun `foreground application without Agent falls back to adb capture`() {
         val screenshot = pngHeader(width = 1080, height = 2400)
         val runner = fakeRunner(
             foreground = """
@@ -207,6 +206,12 @@ class LiveDeviceClientTest {
                 """.trimIndent(),
                 stderr = "",
             ),
+            visibleHierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = EncodedHierarchyFixture.zip("com.codemx.anrdemo"),
+            ),
             screenshotResult = ProcessResult(
                 exitCode = 0,
                 stdout = "",
@@ -223,17 +228,10 @@ class LiveDeviceClientTest {
         assertEquals("com.codemx.anrdemo", session.packageName)
         assertEquals(1080, snapshot.display.widthPx)
         assertEquals(2400, snapshot.display.heightPx)
-        assertEquals("android.widget.FrameLayout", snapshot.root.className)
-        assertEquals("android.widget.TextView", snapshot.root.children.single().className)
+        assertEquals("com.codemx.ui.RealRootLayout", snapshot.root.className)
         assertEquals(
-            "New application",
-            (snapshot.root.children.single() as ViewNode).text,
-        )
-        assertFalse(
-            runner.commands.any {
-                it.takeLast(4) ==
-                    listOf("exec-out", "cmd", "window", "dump-visible-window-views")
-            },
+            "com.codemx.ui.RealTitleView",
+            snapshot.root.children.single().className,
         )
         assertArrayEquals(screenshot, frame.screenshotPng)
     }
@@ -292,12 +290,15 @@ class LiveDeviceClientTest {
             topResumedActivity=ActivityRecord{abc u0 dev.agentperf.sample/.MainActivity t1}
         """.trimIndent(),
         sessionResult: ProcessResult = ProcessResult(0, SESSION_JSON, ""),
+        visibleHierarchyResult: ProcessResult =
+            ProcessResult(1, "", "visible-window hierarchy unavailable"),
         hierarchyResult: ProcessResult = ProcessResult(1, "", "unexpected hierarchy request"),
         screenshotResult: ProcessResult = ProcessResult(1, "", "unexpected screenshot request"),
     ) = RecordingProcessRunner(
         devices,
         foreground,
         sessionResult,
+        visibleHierarchyResult,
         hierarchyResult,
         screenshotResult,
     )
@@ -306,6 +307,7 @@ class LiveDeviceClientTest {
         private val devices: String,
         private val foreground: String,
         private val sessionResult: ProcessResult,
+        private val visibleHierarchyResult: ProcessResult,
         private val hierarchyResult: ProcessResult,
         private val screenshotResult: ProcessResult,
     ) : ProcessRunner {
@@ -318,6 +320,9 @@ class LiveDeviceClientTest {
                 arguments.takeLast(4) == listOf("shell", "dumpsys", "activity", "activities") ->
                     ProcessResult(0, foreground, "")
                 arguments.any { it.endsWith("session.json") } -> sessionResult
+                arguments.takeLast(4) ==
+                    listOf("exec-out", "cmd", "window", "dump-visible-window-views") ->
+                    visibleHierarchyResult
                 arguments.takeLast(4) == listOf("exec-out", "uiautomator", "dump", "/dev/tty") ->
                     hierarchyResult
                 arguments.takeLast(3) == listOf("exec-out", "screencap", "-p") -> screenshotResult
