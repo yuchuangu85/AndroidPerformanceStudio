@@ -595,16 +595,12 @@ private fun ViewerActionDropdown(
                         color = colors.border,
                     )
                 }
-                val isTreeAction = item.action == ViewerAction.PREVIOUS_NODE ||
-                    item.action == ViewerAction.NEXT_NODE ||
-                    item.action == ViewerAction.TOGGLE_SELECTED_NODE
-                val active = when (item.action) {
-                    ViewerAction.TOGGLE_AUTO_SCAN -> autoScanEnabled
-                    ViewerAction.TOGGLE_HIERARCHY -> panelVisibility.showHierarchy
-                    ViewerAction.TOGGLE_FINDINGS -> panelVisibility.showFindings
-                    ViewerAction.TOGGLE_DETAILS -> panelVisibility.showDetails
-                    else -> false
-                }
+                val actionState = viewerActionUiState(
+                    action = item.action,
+                    selectedNodeId = state.selectedNodeId,
+                    autoScanEnabled = autoScanEnabled,
+                    panelVisibility = panelVisibility,
+                )
                 DropdownMenuItem(
                     text = {
                         Row(
@@ -612,7 +608,11 @@ private fun ViewerActionDropdown(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = if (active) "✓  ${item.label}" else "    ${item.label}",
+                                text = if (actionState.checked) {
+                                    "✓  ${item.label}"
+                                } else {
+                                    "    ${item.label}"
+                                },
                                 color = colors.primaryText,
                                 fontSize = 11.sp,
                             )
@@ -625,7 +625,7 @@ private fun ViewerActionDropdown(
                             )
                         }
                     },
-                    enabled = !isTreeAction || state.selectedNodeId != null,
+                    enabled = actionState.enabled,
                     onClick = {
                         expanded = false
                         onAction(item.action)
