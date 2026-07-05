@@ -21,9 +21,17 @@ internal data class NativeActionMenuItem(
     val shortcut: NativeMenuShortcut?,
 )
 
+internal data class NativeViewMenuItem(
+    val option: ViewDisplayOption,
+    val label: String,
+    val checked: Boolean,
+)
+
 internal data class NativeViewerMenuModel(
     val actionsTitle: String,
     val actions: List<NativeActionMenuItem>,
+    val viewTitle: String,
+    val viewItems: List<NativeViewMenuItem>,
     val advancedTitle: String,
     val exportLabel: String,
     val exportEnabled: Boolean,
@@ -33,6 +41,7 @@ internal data class NativeViewerMenuModel(
         selectedNodeId: String?,
         autoScanEnabled: Boolean,
         panelVisibility: PanelVisibility,
+        viewDisplayOptions: ViewDisplayOptions = ViewDisplayOptions(),
         exportInProgress: Boolean,
         isMacOs: Boolean,
     ) : this(
@@ -51,6 +60,21 @@ internal data class NativeViewerMenuModel(
                 enabled = state.enabled,
                 checked = state.checked,
                 shortcut = viewerActionNativeShortcut(item.action, isMacOs),
+            )
+        },
+        viewTitle = strings.view,
+        viewItems = ViewDisplayOption.entries.map { option ->
+            NativeViewMenuItem(
+                option = option,
+                label = strings.viewOptionLabel(option),
+                checked = when (option) {
+                    ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS ->
+                        viewDisplayOptions.hideInvisibleHierarchyViews
+                    ViewDisplayOption.HIDE_INVISIBLE_FINDINGS ->
+                        viewDisplayOptions.hideInvisibleFindings
+                    ViewDisplayOption.HIDE_HIERARCHY_INDICES ->
+                        viewDisplayOptions.hideHierarchyIndices
+                },
             )
         },
         advancedTitle = strings.advanced,
@@ -85,6 +109,7 @@ internal fun viewerActionNativeShortcut(
 internal fun FrameWindowScope.NativeViewerMenuBar(
     model: NativeViewerMenuModel,
     onAction: (ViewerAction) -> Unit,
+    onViewOption: (ViewDisplayOption) -> Unit = {},
     onExportVisibleWindowViews: () -> Unit,
 ) {
     MenuBar {
@@ -116,6 +141,15 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                         onClick = { onAction(item.action) },
                     )
                 }
+            }
+        }
+        Menu(model.viewTitle) {
+            model.viewItems.forEach { item ->
+                CheckboxItem(
+                    text = item.label,
+                    checked = item.checked,
+                    onCheckedChange = { onViewOption(item.option) },
+                )
             }
         }
         Menu(model.advancedTitle) {

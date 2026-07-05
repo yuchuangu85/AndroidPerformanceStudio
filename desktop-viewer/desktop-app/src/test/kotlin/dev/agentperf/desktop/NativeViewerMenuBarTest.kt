@@ -16,6 +16,11 @@ class NativeViewerMenuBarTest {
             selectedNodeId = "root",
             autoScanEnabled = true,
             panelVisibility = PanelVisibility(showFindings = false),
+            viewDisplayOptions = ViewDisplayOptions(
+                hideInvisibleHierarchyViews = true,
+                hideInvisibleFindings = false,
+                hideHierarchyIndices = true,
+            ),
             exportInProgress = false,
             isMacOs = true,
         )
@@ -33,6 +38,24 @@ class NativeViewerMenuBarTest {
         assertFalse(
             model.actions.single { it.action == ViewerAction.TOGGLE_FINDINGS }.checked,
         )
+        assertEquals("视图", model.viewTitle)
+        assertEquals(
+            listOf(
+                ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS,
+                ViewDisplayOption.HIDE_INVISIBLE_FINDINGS,
+                ViewDisplayOption.HIDE_HIERARCHY_INDICES,
+            ),
+            model.viewItems.map { it.option },
+        )
+        assertEquals(
+            listOf(
+                "隐藏层级结构中的不可见视图",
+                "隐藏问题列表中的不可见视图内容",
+                "隐藏层级索引",
+            ),
+            model.viewItems.map { it.label },
+        )
+        assertEquals(listOf(true, false, true), model.viewItems.map { it.checked })
         assertEquals("高级", model.advancedTitle)
         assertEquals("导出 Visible Window Views…", model.exportLabel)
         assertTrue(model.exportEnabled)
@@ -60,6 +83,7 @@ class NativeViewerMenuBarTest {
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
             exportInProgress = true,
             isMacOs = false,
         )

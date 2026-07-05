@@ -13,6 +13,19 @@ internal class ViewerStrings private constructor(
     val theme: String get() = text("Theme", "主题")
     val languageSetting: String get() = text("Language", "语言")
     val actions: String get() = text("Actions", "操作")
+    val view: String get() = text("View", "视图")
+    val hideInvisibleHierarchyViews: String
+        get() = text(
+            "Hide invisible views in hierarchy",
+            "隐藏层级结构中的不可见视图",
+        )
+    val hideInvisibleFindings: String
+        get() = text(
+            "Hide invisible-view findings",
+            "隐藏问题列表中的不可见视图内容",
+        )
+    val hideHierarchyIndices: String
+        get() = text("Hide hierarchy indices", "隐藏层级索引")
     val advanced: String get() = text("Advanced", "高级")
     val exportVisibleWindowViews: String
         get() = text("Export Visible Window Views…", "导出 Visible Window Views…")
@@ -86,6 +99,12 @@ internal class ViewerStrings private constructor(
         ViewerAction.TOGGLE_FINDINGS -> text("Show/hide bottom panel", "显示/隐藏底部栏")
         ViewerAction.TOGGLE_DETAILS -> text("Show/hide right panel", "显示/隐藏右侧栏")
         ViewerAction.OPEN_SETTINGS -> settings
+    }
+
+    fun viewOptionLabel(option: ViewDisplayOption): String = when (option) {
+        ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS -> hideInvisibleHierarchyViews
+        ViewDisplayOption.HIDE_INVISIBLE_FINDINGS -> hideInvisibleFindings
+        ViewDisplayOption.HIDE_HIERARCHY_INDICES -> hideHierarchyIndices
     }
 
     fun metrics(nodeCount: Int, maxDepth: Int, widestLevel: Int): String =
