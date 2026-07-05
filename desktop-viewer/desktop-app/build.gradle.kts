@@ -42,7 +42,12 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "AgentPerf Inspector"
-            packageVersion = "1.0.0"
+            packageVersion = "0.1.1"
+            macOS {
+                // jpackage requires a positive first component for macOS app images.
+                packageVersion = "1.1" // 0.1.1 compatibility
+                packageBuildVersion = "1.1"
+            }
         }
     }
 }
