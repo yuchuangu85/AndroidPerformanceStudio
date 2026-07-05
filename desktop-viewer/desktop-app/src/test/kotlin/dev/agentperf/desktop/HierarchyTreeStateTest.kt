@@ -74,6 +74,37 @@ class HierarchyTreeStateTest {
     }
 
     @Test
+    fun `display rows filter invisible subtrees before navigation`() {
+        val rows = listOf(
+            row("root", depth = 0, hasChildren = true),
+            row("hidden", depth = 1, hasChildren = true, visible = false),
+            row("hidden-child", depth = 2),
+            row("visible-sibling", depth = 1),
+        )
+        val treeState = HierarchyTreeState()
+        val displayedRows = treeState.displayRows(rows, hideInvisible = true)
+
+        assertEquals(
+            listOf("root", "visible-sibling"),
+            displayedRows.map(TreeRowModel::id),
+        )
+        assertEquals(
+            "visible-sibling",
+            treeState.adjacentNodeId(
+                displayedRows,
+                selectedNodeId = "root",
+                direction = HierarchyNavigationDirection.DOWN,
+            ),
+        )
+        assertEquals(
+            listOf("root"),
+            treeState.toggle("root")
+                .displayRows(rows, hideInvisible = true)
+                .map(TreeRowModel::id),
+        )
+    }
+
+    @Test
     fun `enter toggles only rows with children`() {
         val rows = listOf(
             row("root", depth = 0, hasChildren = true),
@@ -113,6 +144,7 @@ class HierarchyTreeStateTest {
         id: String,
         depth: Int,
         hasChildren: Boolean = false,
+        visible: Boolean = true,
     ): TreeRowModel =
         TreeRowModel(
             id = id,
@@ -120,7 +152,7 @@ class HierarchyTreeStateTest {
             label = id,
             depth = depth,
             selected = false,
-            visible = true,
+            visible = visible,
             hasChildren = hasChildren,
         )
 }

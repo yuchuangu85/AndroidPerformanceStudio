@@ -64,6 +64,13 @@ internal data class HierarchyTreeState(
         return visibleRows[nextIndex].id
     }
 
+    fun displayRows(
+        rows: List<TreeRowModel>,
+        hideInvisible: Boolean,
+    ): List<TreeRowModel> = visibleRows(
+        ViewDisplayProjection.hierarchyRows(rows, hideInvisible),
+    )
+
     fun visibleRows(rows: List<TreeRowModel>): List<TreeRowModel> = buildList {
         var collapsedAncestorDepth: Int? = null
         rows.forEach { row ->

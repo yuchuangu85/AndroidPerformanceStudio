@@ -199,6 +199,10 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     var findingsHeightDp by remember { mutableStateOf(FindingsLayout.DEFAULT_HEIGHT_DP) }
     var panelVisibility by remember { mutableStateOf(PanelVisibility()) }
     var hierarchyTreeState by remember { mutableStateOf(HierarchyTreeState()) }
+    val viewDisplayOptionsStore = remember { ViewDisplayOptionsStore.desktop() }
+    var viewDisplayOptions by remember {
+        mutableStateOf(viewDisplayOptionsStore.load())
+    }
     val themeStore = remember { ThemePreferenceStore.desktop() }
     var themePreference by remember { mutableStateOf(themeStore.load()) }
     val languageStore = remember { LanguagePreferenceStore.desktop() }
@@ -250,8 +254,12 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 } else {
                     HierarchyNavigationDirection.DOWN
                 }
-                hierarchyTreeState.adjacentNodeId(
+                val rows = ViewDisplayProjection.hierarchyRows(
                     rows = InspectorPresenter.present(state, strings).rows,
+                    hideInvisible = viewDisplayOptions.hideInvisibleHierarchyViews,
+                )
+                hierarchyTreeState.adjacentNodeId(
+                    rows = rows,
                     selectedNodeId = state.selectedNodeId,
                     direction = direction,
                 )?.let(selectNode)
@@ -276,6 +284,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             ViewerAction.OPEN_SETTINGS -> settingsVisible = true
         }
     }
+    val toggleViewDisplayOption: (ViewDisplayOption) -> Unit = { option ->
+        val updatedOptions = viewDisplayOptions.toggle(option)
+        viewDisplayOptions = updatedOptions
+        viewDisplayOptionsStore.save(updatedOptions)
+    }
 
     NativeViewerMenuBar(
         model = NativeViewerMenuModel(
@@ -283,11 +296,13 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             selectedNodeId = state.selectedNodeId,
             autoScanEnabled = autoScanEnabled,
             panelVisibility = panelVisibility,
+            viewDisplayOptions = viewDisplayOptions,
             exportInProgress =
                 visibleWindowViewsExportState is VisibleWindowViewsExportUiState.Exporting,
             isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
         ),
         onAction = performAction,
+        onViewOption = toggleViewDisplayOption,
         onExportVisibleWindowViews = exportVisibleWindowViews,
     )
 
@@ -355,6 +370,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                     HierarchyPane(
                                         state = state,
                                         treeState = hierarchyTreeState,
+                                        viewDisplayOptions = viewDisplayOptions,
                                         onTreeStateChange = { hierarchyTreeState = it },
                                         onSelect = selectNode,
                                         onAction = performAction,
@@ -399,6 +415,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                             }
                             FindingsPane(
                                 state = state,
+                                viewDisplayOptions = viewDisplayOptions,
                                 onSelectNode = selectNode,
                                 modifier =
                                     Modifier
@@ -761,6 +778,7 @@ private fun SettingsButton(onClick: () -> Unit) {
 private fun HierarchyPane(
     state: InspectorState,
     treeState: HierarchyTreeState,
+    viewDisplayOptions: ViewDisplayOptions,
     onTreeStateChange: (HierarchyTreeState) -> Unit,
     onSelect: (String) -> Unit,
     onAction: (ViewerAction) -> Unit,
@@ -772,7 +790,10 @@ private fun HierarchyPane(
     val horizontalScrollState = rememberScrollState()
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
-    val visibleRows = treeState.visibleRows(model.rows)
+    val visibleRows = treeState.displayRows(
+        rows = model.rows,
+        hideInvisible = viewDisplayOptions.hideInvisibleHierarchyViews,
+    )
     LaunchedEffect(state.selectedNodeId, visibleRows) {
         val selectedIndex = visibleRows.indexOfFirst { it.id == state.selectedNodeId }
         val visibleItems = listState.layoutInfo.visibleItemsInfo
@@ -852,7 +873,10 @@ private fun HierarchyPane(
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                "${row.number}  ${row.label}",
+                                ViewDisplayProjection.hierarchyLabel(
+                                    row = row,
+                                    hideIndex = viewDisplayOptions.hideHierarchyIndices,
+                                ),
                                 color = if (row.visible) colors.rowText else colors.hiddenRowText,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
@@ -1185,12 +1209,19 @@ private fun DetailRow(
 @Composable
 private fun FindingsPane(
     state: InspectorState,
+    viewDisplayOptions: ViewDisplayOptions,
     onSelectNode: (String) -> Unit,
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
     val model = InspectorPresenter.present(state, strings)
+    val findings = ViewDisplayProjection.findings(
+        findings = model.findings,
+        rows = model.rows,
+        hideInvisible = viewDisplayOptions.hideInvisibleFindings,
+    )
+    val severitySummary = ViewDisplayProjection.severitySummary(findings)
     var selectionState by remember { mutableStateOf(FindingSelectionState()) }
     Column(modifier.background(colors.panel)) {
         Row(
@@ -1202,20 +1233,20 @@ private fun FindingsPane(
         ) {
             Text(strings.findings, color = colors.secondaryText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(18.dp))
-            Badge(strings.infoBadge(model.severitySummary.info), colors.info)
+            Badge(strings.infoBadge(severitySummary.info), colors.info)
             Spacer(Modifier.width(8.dp))
-            Badge(strings.warningBadge(model.severitySummary.warning), colors.warning)
+            Badge(strings.warningBadge(severitySummary.warning), colors.warning)
             Spacer(Modifier.width(8.dp))
-            Badge(strings.errorBadge(model.severitySummary.error), colors.error)
+            Badge(strings.errorBadge(severitySummary.error), colors.error)
             Spacer(Modifier.weight(1f))
             Text(strings.timelineLiveCapture, color = colors.mutedText, fontSize = 11.sp)
         }
         HorizontalDivider(color = colors.border)
-        if (model.findings.isEmpty()) {
+        if (findings.isEmpty()) {
             Text(strings.noFindings, color = colors.subtleText, modifier = Modifier.padding(16.dp))
         } else {
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                items(model.findings, key = { it.key }) { finding ->
+                items(findings, key = { it.key }) { finding ->
                     FindingRow(
                         finding = finding,
                         selected = selectionState.isSelected(finding.key),
