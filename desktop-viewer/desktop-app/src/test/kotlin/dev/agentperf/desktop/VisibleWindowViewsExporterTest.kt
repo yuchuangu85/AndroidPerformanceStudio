@@ -4,6 +4,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -92,5 +93,12 @@ class VisibleWindowViewsExporterTest {
         }
 
         assertEquals("Export destination is not a directory: $file", error.message)
+    }
+
+    @Test
+    fun `directory chooser cancellation returns no destination`() {
+        val chooser = ExportDirectoryChooser { null }
+
+        assertNull(chooser.chooseDirectory("Choose export directory"))
     }
 }

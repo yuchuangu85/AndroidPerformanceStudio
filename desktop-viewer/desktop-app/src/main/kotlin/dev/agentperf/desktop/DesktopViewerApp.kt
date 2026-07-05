@@ -28,8 +28,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
@@ -333,9 +331,6 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     },
                     panelVisibility = panelVisibility,
                     onAction = performAction,
-                    exportInProgress =
-                        visibleWindowViewsExportState is VisibleWindowViewsExportUiState.Exporting,
-                    onExportVisibleWindowViews = exportVisibleWindowViews,
                 )
                 HorizontalDivider(color = colors.border)
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
@@ -473,8 +468,6 @@ private fun Header(
     onManualRefresh: () -> Unit,
     panelVisibility: PanelVisibility,
     onAction: (ViewerAction) -> Unit,
-    exportInProgress: Boolean,
-    onExportVisibleWindowViews: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
@@ -497,23 +490,6 @@ private fun Header(
         Spacer(Modifier.width(6.dp))
         Text(connectionLabel, color = connectionColor, fontSize = 12.sp)
         Spacer(Modifier.weight(1f))
-        ViewerActionDropdown(
-            state = state,
-            autoScanEnabled = autoScanEnabled,
-            panelVisibility = panelVisibility,
-            onAction = onAction,
-        )
-        Spacer(Modifier.width(4.dp))
-        AdvancedMenu(
-            model = AdvancedMenuModel(
-                strings = strings,
-                exportInProgress = exportInProgress,
-            ),
-            onExport = onExportVisibleWindowViews,
-        )
-        Spacer(Modifier.width(10.dp))
-        HeaderSeparator()
-        Spacer(Modifier.width(10.dp))
         val scanControlState = ScanControlState(
             autoScanEnabled = autoScanEnabled,
             manualRefreshInProgress = manualRefreshInProgress,
@@ -579,82 +555,6 @@ internal fun headerTextSegments(
     strings: ViewerStrings = ViewerStrings.English,
 ): List<String> =
     listOf(model.packageName ?: strings.noApp, "|", model.connectionLabel)
-
-@Composable
-private fun ViewerActionDropdown(
-    state: InspectorState,
-    autoScanEnabled: Boolean,
-    panelVisibility: PanelVisibility,
-    onAction: (ViewerAction) -> Unit,
-) {
-    val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
-    var expanded by remember { mutableStateOf(false) }
-    val menuItems = ViewerActionMenu.items(strings)
-    Box {
-        Row(
-            modifier = Modifier
-                .height(23.dp)
-                .clickable { expanded = true }
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(strings.actions, color = colors.secondaryText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(5.dp))
-            Text("▾", color = colors.mutedText, fontSize = 10.sp)
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.background(colors.panel).width(280.dp),
-        ) {
-            menuItems.forEachIndexed { index, item ->
-                if (index > 0 && menuItems[index - 1].group != item.group) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 3.dp),
-                        color = colors.border,
-                    )
-                }
-                val actionState = viewerActionUiState(
-                    action = item.action,
-                    selectedNodeId = state.selectedNodeId,
-                    autoScanEnabled = autoScanEnabled,
-                    panelVisibility = panelVisibility,
-                )
-                DropdownMenuItem(
-                    text = {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = if (actionState.checked) {
-                                    "✓  ${item.label}"
-                                } else {
-                                    "    ${item.label}"
-                                },
-                                color = colors.primaryText,
-                                fontSize = 11.sp,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            Text(
-                                text = item.shortcutLabel,
-                                color = colors.mutedText,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                        }
-                    },
-                    enabled = actionState.enabled,
-                    onClick = {
-                        expanded = false
-                        onAction(item.action)
-                    },
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun AutoScanSwitch(
