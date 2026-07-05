@@ -1,0 +1,205 @@
+name: Release native installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version to publish, for example 0.1.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      manual: ${{ steps.release.outputs.manual }}
+    steps:
+      - name: Validate version
+        id: release
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            raw_version="${INPUT_VERSION}"
+            manual=true
+          else
+            raw_version="${GITHUB_REF_NAME}"
+            manual=false
+          fi
+
+          if [[ ! "${raw_version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must use numeric semantic version format, for example v0.1.1."
+            exit 1
+          fi
+
+          version="${raw_version#v}"
+          tag="v${version}"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" != "${tag}" ]]; then
+            echo "::error::Release tag does not match normalized version ${tag}."
+            exit 1
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "manual=${manual}" >> "${GITHUB_OUTPUT}"
+
+  test:
+    name: Test
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            desktop-viewer/*.gradle.kts
+            desktop-viewer/gradle/libs.versions.toml
+            desktop-viewer/gradle/wrapper/gradle-wrapper.properties
+            desktop-viewer/**/build.gradle.kts
+      - name: Run tests
+        run: ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
+
+  package-windows:
+    name: Package Windows MSI
+    needs: [resolve, test]
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            desktop-viewer/*.gradle.kts
+            desktop-viewer/gradle/libs.versions.toml
+            desktop-viewer/gradle/wrapper/gradle-wrapper.properties
+            desktop-viewer/**/build.gradle.kts
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $version = "${{ needs.resolve.outputs.version }}"
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" --no-daemon
+      - name: Prepare MSI asset
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          $packages = @(Get-ChildItem "desktop-viewer\desktop-app\build\compose\binaries\main\msi\*.msi")
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one MSI package, found $($packages.Count)."
+          }
+          $VERSION = $env:VERSION
+          New-Item -ItemType Directory -Force "release-assets" | Out-Null
+          Copy-Item $packages[0].FullName "release-assets\AgentPerf-Inspector-$VERSION-windows-x64.msi"
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-windows-x64.msi
+          if-no-files-found: error
+
+  package-macos:
+    name: Package macOS DMG
+    needs: [resolve, test]
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            desktop-viewer/*.gradle.kts
+            desktop-viewer/gradle/libs.versions.toml
+            desktop-viewer/gradle/wrapper/gradle-wrapper.properties
+            desktop-viewer/**/build.gradle.kts
+      - name: Build DMG
+        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg -PappVersion=${{ needs.resolve.outputs.version }} --no-daemon
+      - name: Prepare DMG asset
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          packages=(desktop-viewer/desktop-app/build/compose/binaries/main/dmg/*.dmg)
+          if [[ "${#packages[@]}" -ne 1 || ! -f "${packages[0]}" ]]; then
+            echo "::error::Expected exactly one DMG package."
+            exit 1
+          fi
+          mkdir -p release-assets
+          cp "${packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.dmg"
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-macos-x64.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [resolve, test, package-windows, package-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download installers
+        uses: actions/download-artifact@v5
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          MANUAL: ${{ needs.resolve.outputs.manual }}
+        run: |
+          set -euo pipefail
+          assets=(release-assets/*)
+          if [[ "${#assets[@]}" -ne 2 ]]; then
+            echo "::error::Expected exactly two native installer assets."
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          elif [[ "$MANUAL" == "true" ]]; then
+            gh release create "$TAG" "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "AgentPerf Inspector $VERSION" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${assets[@]}" \
+              --verify-tag \
+              --title "AgentPerf Inspector $VERSION" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          fi
