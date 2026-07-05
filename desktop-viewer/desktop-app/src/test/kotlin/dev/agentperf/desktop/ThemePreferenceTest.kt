@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import androidx.compose.ui.graphics.Color
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -46,6 +47,13 @@ class ThemePreferenceTest {
         assertTrue(dark.isDark)
         assertFalse(light.canvasBackground == dark.canvasBackground)
         assertFalse(light.primaryText == dark.primaryText)
+    }
+
+    @Test
+    fun `visible bounds use the approved light cyan in both themes`() {
+        listOf(ViewerPalettes.forDark(false), ViewerPalettes.forDark(true)).forEach { palette ->
+            assertEquals(Color(0xFF7DD3FC), palette.visibleViewBounds)
+        }
     }
 
     @Test

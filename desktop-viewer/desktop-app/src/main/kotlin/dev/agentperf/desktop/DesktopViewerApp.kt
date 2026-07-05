@@ -387,7 +387,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                         )
                                     }
                                 }
-                                PreviewPane(state, Modifier.weight(1f).fillMaxHeight())
+                                PreviewPane(
+                                    state = state,
+                                    showVisibleViewBounds = viewDisplayOptions.showVisibleViewBounds,
+                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                )
                                 if (panelVisibility.showDetails) {
                                     ResizableSeparator { deltaDp ->
                                         paneWidths = PaneLayout.dragProperties(
@@ -944,7 +948,11 @@ private fun HierarchyDisclosure(
 }
 
 @Composable
-private fun PreviewPane(state: InspectorState, modifier: Modifier) {
+private fun PreviewPane(
+    state: InspectorState,
+    showVisibleViewBounds: Boolean,
+    modifier: Modifier,
+) {
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
     val selectedBounds = state.selectedNode?.bounds
@@ -1015,6 +1023,23 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                                 destination.height.roundToInt(),
                             ),
                         )
+                        if (showVisibleViewBounds) {
+                            state.snapshot?.root?.let { root ->
+                                ViewBoundsOverlay.mappedVisibleBounds(
+                                    root = root,
+                                    selectedNodeId = state.selectedNodeId,
+                                    source = source,
+                                    destination = destination,
+                                ).forEach { overlay ->
+                                    drawRect(
+                                        color = colors.visibleViewBounds.copy(alpha = 0.62f),
+                                        topLeft = Offset(overlay.left, overlay.top),
+                                        size = Size(overlay.width, overlay.height),
+                                        style = Stroke(width = 1.dp.toPx()),
+                                    )
+                                }
+                            }
+                        }
                         selectedBounds?.let { bounds ->
                             val overlay = CanvasGeometry.mapBounds(
                                 bounds = bounds,
@@ -1026,7 +1051,7 @@ private fun PreviewPane(state: InspectorState, modifier: Modifier) {
                                     color = colors.error,
                                     topLeft = Offset(it.left, it.top),
                                     size = Size(it.width, it.height),
-                                    style = Stroke(width = 2.dp.toPx()),
+                                    style = Stroke(width = 3.dp.toPx()),
                                 )
                             }
                         }
