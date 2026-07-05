@@ -11,6 +11,7 @@ class ViewDisplayOptionsTest {
                 hideInvisibleHierarchyViews = false,
                 hideInvisibleFindings = false,
                 hideHierarchyIndices = false,
+                showVisibleViewBounds = false,
             ),
             ViewDisplayOptions(),
         )
@@ -33,6 +34,10 @@ class ViewDisplayOptionsTest {
                 option == ViewDisplayOption.HIDE_HIERARCHY_INDICES,
                 toggled.hideHierarchyIndices,
             )
+            assertEquals(
+                option == ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS,
+                toggled.showVisibleViewBounds,
+            )
         }
     }
 
@@ -49,10 +54,11 @@ class ViewDisplayOptionsTest {
             hideInvisibleHierarchyViews = true,
             hideInvisibleFindings = false,
             hideHierarchyIndices = true,
+            showVisibleViewBounds = true,
         )
         store.save(expected)
 
-        assertEquals(3, values.size)
+        assertEquals(4, values.size)
         assertEquals(expected, store.load())
     }
 }

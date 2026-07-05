@@ -24,6 +24,7 @@ internal data class NativeActionMenuItem(
 internal data class NativeViewMenuItem(
     val option: ViewDisplayOption,
     val label: String,
+    val group: Int,
     val checked: Boolean,
 )
 
@@ -67,6 +68,7 @@ internal data class NativeViewerMenuModel(
             NativeViewMenuItem(
                 option = option,
                 label = strings.viewOptionLabel(option),
+                group = if (option == ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS) 1 else 0,
                 checked = when (option) {
                     ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS ->
                         viewDisplayOptions.hideInvisibleHierarchyViews
@@ -74,6 +76,8 @@ internal data class NativeViewerMenuModel(
                         viewDisplayOptions.hideInvisibleFindings
                     ViewDisplayOption.HIDE_HIERARCHY_INDICES ->
                         viewDisplayOptions.hideHierarchyIndices
+                    ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS ->
+                        viewDisplayOptions.showVisibleViewBounds
                 },
             )
         },
@@ -144,7 +148,10 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
             }
         }
         Menu(model.viewTitle) {
-            model.viewItems.forEach { item ->
+            model.viewItems.forEachIndexed { index, item ->
+                if (index > 0 && model.viewItems[index - 1].group != item.group) {
+                    Separator()
+                }
                 CheckboxItem(
                     text = item.label,
                     checked = item.checked,

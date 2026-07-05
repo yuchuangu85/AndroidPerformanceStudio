@@ -6,12 +6,14 @@ internal enum class ViewDisplayOption {
     HIDE_INVISIBLE_HIERARCHY_VIEWS,
     HIDE_INVISIBLE_FINDINGS,
     HIDE_HIERARCHY_INDICES,
+    SHOW_VISIBLE_VIEW_BOUNDS,
 }
 
 internal data class ViewDisplayOptions(
     val hideInvisibleHierarchyViews: Boolean = false,
     val hideInvisibleFindings: Boolean = false,
     val hideHierarchyIndices: Boolean = false,
+    val showVisibleViewBounds: Boolean = false,
 ) {
     fun toggle(option: ViewDisplayOption): ViewDisplayOptions = when (option) {
         ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS ->
@@ -20,6 +22,8 @@ internal data class ViewDisplayOptions(
             copy(hideInvisibleFindings = !hideInvisibleFindings)
         ViewDisplayOption.HIDE_HIERARCHY_INDICES ->
             copy(hideHierarchyIndices = !hideHierarchyIndices)
+        ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS ->
+            copy(showVisibleViewBounds = !showVisibleViewBounds)
     }
 }
 
@@ -31,12 +35,14 @@ internal class ViewDisplayOptionsStore(
         hideInvisibleHierarchyViews = readBoolean(HIDE_INVISIBLE_HIERARCHY_VIEWS_KEY, false),
         hideInvisibleFindings = readBoolean(HIDE_INVISIBLE_FINDINGS_KEY, false),
         hideHierarchyIndices = readBoolean(HIDE_HIERARCHY_INDICES_KEY, false),
+        showVisibleViewBounds = readBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, false),
     )
 
     fun save(options: ViewDisplayOptions) {
         writeBoolean(HIDE_INVISIBLE_HIERARCHY_VIEWS_KEY, options.hideInvisibleHierarchyViews)
         writeBoolean(HIDE_INVISIBLE_FINDINGS_KEY, options.hideInvisibleFindings)
         writeBoolean(HIDE_HIERARCHY_INDICES_KEY, options.hideHierarchyIndices)
+        writeBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, options.showVisibleViewBounds)
     }
 
     companion object {
@@ -44,6 +50,7 @@ internal class ViewDisplayOptionsStore(
             "view.hideInvisibleHierarchyViews"
         private const val HIDE_INVISIBLE_FINDINGS_KEY = "view.hideInvisibleFindings"
         private const val HIDE_HIERARCHY_INDICES_KEY = "view.hideHierarchyIndices"
+        private const val SHOW_VISIBLE_VIEW_BOUNDS_KEY = "view.showVisibleViewBounds"
 
         fun desktop(): ViewDisplayOptionsStore {
             val preferences = runCatching {

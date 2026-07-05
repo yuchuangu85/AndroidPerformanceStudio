@@ -20,6 +20,7 @@ class NativeViewerMenuBarTest {
                 hideInvisibleHierarchyViews = true,
                 hideInvisibleFindings = false,
                 hideHierarchyIndices = true,
+                showVisibleViewBounds = true,
             ),
             exportInProgress = false,
             isMacOs = true,
@@ -44,6 +45,7 @@ class NativeViewerMenuBarTest {
                 ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS,
                 ViewDisplayOption.HIDE_INVISIBLE_FINDINGS,
                 ViewDisplayOption.HIDE_HIERARCHY_INDICES,
+                ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS,
             ),
             model.viewItems.map { it.option },
         )
@@ -52,10 +54,12 @@ class NativeViewerMenuBarTest {
                 "隐藏层级结构中的不可见视图",
                 "隐藏问题列表中的不可见视图内容",
                 "隐藏层级索引",
+                "显示全部可见视图边缘",
             ),
             model.viewItems.map { it.label },
         )
-        assertEquals(listOf(true, false, true), model.viewItems.map { it.checked })
+        assertEquals(listOf(0, 0, 0, 1), model.viewItems.map { it.group })
+        assertEquals(listOf(true, false, true, true), model.viewItems.map { it.checked })
         assertEquals("高级", model.advancedTitle)
         assertEquals("导出 Visible Window Views…", model.exportLabel)
         assertTrue(model.exportEnabled)
