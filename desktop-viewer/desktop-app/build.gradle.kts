@@ -38,9 +38,10 @@ tasks.test {
 compose.desktop {
     application {
         mainClass = "dev.agentperf.desktop.MainKt"
+        jvmArgs("-Dapple.awt.application.name=AgentPerf Inspector")
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "AgentPerfDesktopViewer"
+            packageName = "AgentPerf Inspector"
             packageVersion = "1.0.0"
         }
     }

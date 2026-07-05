@@ -9,10 +9,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 
+internal const val APP_DISPLAY_NAME = "AgentPerf Inspector"
+
 fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
-        title = "AgentPerf Desktop Viewer",
+        title = APP_DISPLAY_NAME,
     ) {
         var settingsRequest by remember { mutableStateOf(0L) }
         val settingsMenuInstaller = remember {
