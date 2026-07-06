@@ -7,6 +7,19 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
 }
 
+val appVersion = project.version.toString()
+
+fun macOsPackageVersion(version: String): String {
+    val numericComponents = version.split(".")
+    val firstPositiveIndex =
+        numericComponents.indexOfFirst { component -> component.toIntOrNull()?.let { it > 0 } == true }
+    return when (firstPositiveIndex) {
+        -1 -> "1"
+        0 -> version
+        else -> numericComponents.drop(firstPositiveIndex).joinToString(".")
+    }
+}
+
 kotlin {
     jvmToolchain(21)
     compilerOptions {
@@ -42,11 +55,12 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "AgentPerf Inspector"
-            packageVersion = "0.1.1"
+            packageVersion = appVersion
             macOS {
                 // jpackage requires a positive first component for macOS app images.
-                packageVersion = "1.1" // 0.1.1 compatibility
-                packageBuildVersion = "1.1"
+                val macVersion = macOsPackageVersion(appVersion)
+                packageVersion = macVersion
+                packageBuildVersion = macVersion
             }
         }
     }
