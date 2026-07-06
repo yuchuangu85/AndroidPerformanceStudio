@@ -123,6 +123,18 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
     onExportArchive: () -> Unit,
 ) {
     MenuBar {
+        Menu(model.fileTitle) {
+            Item(
+                text = model.importLabel,
+                enabled = model.importEnabled,
+                onClick = onImportArchive,
+            )
+            Item(
+                text = model.exportLabel,
+                enabled = model.exportEnabled,
+                onClick = onExportArchive,
+            )
+        }
         Menu(model.actionsTitle) {
             model.actions.forEachIndexed { index, item ->
                 if (index > 0 && model.actions[index - 1].group != item.group) {
@@ -164,18 +176,6 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                     onCheckedChange = { onViewOption(item.option) },
                 )
             }
-        }
-        Menu(model.fileTitle) {
-            Item(
-                text = model.importLabel,
-                enabled = model.importEnabled,
-                onClick = onImportArchive,
-            )
-            Item(
-                text = model.exportLabel,
-                enabled = model.exportEnabled,
-                onClick = onExportArchive,
-            )
         }
     }
 }

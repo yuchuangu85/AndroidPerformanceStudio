@@ -30,6 +30,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +62,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -216,6 +219,8 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     var themePreference by remember { mutableStateOf(themeStore.load()) }
     val languageStore = remember { LanguagePreferenceStore.desktop() }
     var languagePreference by remember { mutableStateOf(languageStore.load()) }
+    val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
+    var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
     val viewerLanguage = languagePreference.resolve(Locale.getDefault().toLanguageTag())
     val strings = remember(viewerLanguage) { ViewerStrings.forLanguage(viewerLanguage) }
     var settingsVisible by remember { mutableStateOf(false) }
@@ -433,6 +438,12 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     },
                     panelVisibility = panelVisibility,
                     onAction = performAction,
+                    onSelectWindow = { windowId ->
+                        if (store.selectWindow(windowId)) {
+                            hierarchyTreeState = HierarchyTreeState()
+                            state = store.state
+                        }
+                    },
                 )
                 HorizontalDivider(color = colors.border)
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
@@ -477,6 +488,18 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                 PreviewPane(
                                     state = state,
                                     showVisibleViewBounds = viewDisplayOptions.showVisibleViewBounds,
+                                    borderColors = canvasBorderColors,
+                                    onHoverNode = { nodeId ->
+                                        store.setHoveredNode(nodeId)
+                                        state = store.state
+                                    },
+                                    onSelectNode = { nodeId ->
+                                        hierarchyTreeState = hierarchyTreeState.reveal(
+                                            nodeId,
+                                            InspectorPresenter.present(state, strings).rows,
+                                        )
+                                        selectNode(nodeId)
+                                    },
                                     modifier = Modifier.weight(1f).fillMaxHeight(),
                                 )
                                 if (panelVisibility.showDetails) {
@@ -529,6 +552,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     onSelectLanguagePreference = { preference ->
                         languagePreference = preference
                         languageStore.save(preference)
+                    },
+                    canvasBorderColors = canvasBorderColors,
+                    onCanvasBorderColorsChanged = { updated ->
+                        canvasBorderColors = updated
+                        canvasBorderColorStore.save(updated)
                     },
                     onDismiss = {
                         settingsVisible = false
@@ -601,6 +629,7 @@ private fun Header(
     onManualRefresh: () -> Unit,
     panelVisibility: PanelVisibility,
     onAction: (ViewerAction) -> Unit,
+    onSelectWindow: (String) -> Unit,
 ) {
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
@@ -611,6 +640,12 @@ private fun Header(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(packageName, color = colors.primaryText, fontFamily = FontFamily.Monospace)
+        Spacer(Modifier.width(8.dp))
+        WindowSelector(
+            windows = model.windows,
+            selectedWindowId = model.selectedWindowId,
+            onSelectWindow = onSelectWindow,
+        )
         Spacer(Modifier.width(10.dp))
         Text(separator, color = colors.mutedText)
         Spacer(Modifier.width(10.dp))
@@ -660,6 +695,48 @@ private fun Header(
         Spacer(Modifier.width(8.dp))
         SettingsButton {
             onAction(ViewerAction.OPEN_SETTINGS)
+        }
+    }
+}
+
+@Composable
+private fun WindowSelector(
+    windows: List<WindowChoiceModel>,
+    selectedWindowId: String?,
+    onSelectWindow: (String) -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    var expanded by remember { mutableStateOf(false) }
+    val title = windows.firstOrNull { it.id == selectedWindowId }?.title
+        ?: strings.noAvailableWindows
+    Box {
+        Text(
+            text = "$title ▾",
+            color = if (windows.isEmpty()) colors.mutedText else colors.secondaryText,
+            fontSize = 11.sp,
+            maxLines = 1,
+            modifier = Modifier
+                .background(colors.sectionBackground, RoundedCornerShape(4.dp))
+                .let { base ->
+                    if (windows.size > 1) base.clickable { expanded = true } else base
+                }
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(colors.panel),
+        ) {
+            windows.forEach { window ->
+                DropdownMenuItem(
+                    text = { Text(window.title, fontSize = 12.sp) },
+                    onClick = {
+                        expanded = false
+                        onSelectWindow(window.id)
+                    },
+                )
+            }
         }
     }
 }
@@ -1059,18 +1136,25 @@ private fun HierarchyDisclosure(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun PreviewPane(
     state: InspectorState,
     showVisibleViewBounds: Boolean,
+    borderColors: CanvasBorderColors,
+    onHoverNode: (String?) -> Unit,
+    onSelectNode: (String) -> Unit,
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
     val selectedBounds = state.selectedNode?.bounds
+    val hoveredBounds = state.activeRoot?.findNodeBounds(state.hoveredNodeId)
     val display = state.snapshot?.display
-    val appBounds = state.snapshot?.root?.bounds
+    val appBounds = state.activeRoot?.bounds
     val screenshot = rememberScreenshot(state.screenshotPng)
+    val pointerSelection = remember { CanvasPointerSelection() }
+    var canvasPixelSize by remember { mutableStateOf(IntSize.Zero) }
     var appOnly by remember { mutableStateOf(true) }
     val source = display?.let {
         CanvasGeometry.sourceRect(
@@ -1117,7 +1201,33 @@ private fun PreviewPane(
                 shadowElevation = 8.dp,
             ) {
                 if (screenshot != null && source != null) {
-                    Canvas(Modifier.fillMaxSize()) {
+                    Canvas(
+                        Modifier
+                            .fillMaxSize()
+                            .onSizeChanged { canvasPixelSize = it }
+                            .onPointerEvent(PointerEventType.Move) { event ->
+                                val point = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                                val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
+                                val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
+                                val path = screenPoint?.let {
+                                    state.activeRoot?.let { root -> CanvasHitTester.hitPath(root, it) }
+                                }.orEmpty()
+                                onHoverNode(pointerSelection.move(point, path))
+                            }
+                            .onPointerEvent(PointerEventType.Exit) {
+                                pointerSelection.leave()
+                                onHoverNode(null)
+                            }
+                            .onPointerEvent(PointerEventType.Press) { event ->
+                                val point = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                                val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
+                                val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
+                                val path = screenPoint?.let {
+                                    state.activeRoot?.let { root -> CanvasHitTester.hitPath(root, it) }
+                                }.orEmpty()
+                                pointerSelection.click(point, path)?.let(onSelectNode)
+                            },
+                    ) {
                         drawRect(colors.previewCanvas)
                         val destination = FloatRect(
                             left = 0f,
@@ -1136,7 +1246,7 @@ private fun PreviewPane(
                             ),
                         )
                         if (showVisibleViewBounds) {
-                            state.snapshot?.root?.let { root ->
+                            state.activeRoot?.let { root ->
                                 ViewBoundsOverlay.mappedVisibleBounds(
                                     root = root,
                                     selectedNodeId = state.selectedNodeId,
@@ -1144,12 +1254,22 @@ private fun PreviewPane(
                                     destination = destination,
                                 ).forEach { overlay ->
                                     drawRect(
-                                        color = colors.visibleViewBounds.copy(alpha = 0.62f),
+                                        color = borderColors.normal.toComposeColor().copy(alpha = 0.62f),
                                         topLeft = Offset(overlay.left, overlay.top),
                                         size = Size(overlay.width, overlay.height),
                                         style = Stroke(width = 1.dp.toPx()),
                                     )
                                 }
+                            }
+                        }
+                        hoveredBounds?.takeIf { state.hoveredNodeId != state.selectedNodeId }?.let { bounds ->
+                            CanvasGeometry.mapBounds(bounds, source, destination)?.let {
+                                drawRect(
+                                    color = borderColors.hovered.toComposeColor(),
+                                    topLeft = Offset(it.left, it.top),
+                                    size = Size(it.width, it.height),
+                                    style = Stroke(width = 2.dp.toPx()),
+                                )
                             }
                         }
                         selectedBounds?.let { bounds ->
@@ -1160,7 +1280,7 @@ private fun PreviewPane(
                             )
                             overlay?.let {
                                 drawRect(
-                                    color = colors.error,
+                                    color = borderColors.selected.toComposeColor(),
                                     topLeft = Offset(it.left, it.top),
                                     size = Size(it.width, it.height),
                                     style = Stroke(width = 3.dp.toPx()),
@@ -1177,6 +1297,17 @@ private fun PreviewPane(
         }
     }
 }
+
+private fun dev.agentperf.protocol.UiNode.findNodeBounds(targetId: String?): dev.agentperf.protocol.Bounds? {
+    if (targetId == null) return null
+    if (id == targetId) return bounds
+    return children.firstNotNullOfOrNull { it.findNodeBounds(targetId) }
+}
+
+private fun IntSize.asDestination(): FloatRect? =
+    takeIf { width > 0 && height > 0 }?.let {
+        FloatRect(0f, 0f, it.width.toFloat(), it.height.toFloat())
+    }
 
 internal fun canvasCornerRadiusDp(appOnly: Boolean): Int = if (appOnly) 24 else 4
 

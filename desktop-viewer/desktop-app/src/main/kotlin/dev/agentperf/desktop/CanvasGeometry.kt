@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import androidx.compose.ui.geometry.Offset
 import dev.agentperf.protocol.Bounds
 import kotlin.math.max
 import kotlin.math.min
@@ -27,6 +28,21 @@ data class CropRect(
 }
 
 object CanvasGeometry {
+    fun unmapPoint(
+        point: Offset,
+        source: CropRect,
+        destination: FloatRect,
+    ): Offset? {
+        if (
+            point.x !in destination.left..(destination.left + destination.width) ||
+            point.y !in destination.top..(destination.top + destination.height)
+        ) return null
+        return Offset(
+            x = source.left + (point.x - destination.left) * source.width / destination.width,
+            y = source.top + (point.y - destination.top) * source.height / destination.height,
+        )
+    }
+
     fun previewSize(
         source: CropRect,
         maxWidth: Float,

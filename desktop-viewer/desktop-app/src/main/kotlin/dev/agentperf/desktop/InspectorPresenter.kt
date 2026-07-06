@@ -6,6 +6,7 @@ import dev.agentperf.application.InspectorState
 import dev.agentperf.application.textContent
 import dev.agentperf.protocol.Bounds
 import dev.agentperf.protocol.UiNode
+import dev.agentperf.protocol.ViewNode
 
 data class TreeRowModel(
     val id: String,
@@ -15,7 +16,10 @@ data class TreeRowModel(
     val selected: Boolean,
     val visible: Boolean,
     val hasChildren: Boolean,
+    val resourceLabel: String? = null,
 )
+
+data class WindowChoiceModel(val id: String, val title: String)
 
 data class NodeDetailsModel(
     val id: String = "—",
@@ -63,6 +67,8 @@ data class InspectorScreenModel(
     val emptyMessage: String?,
     val connectionLabel: String,
     val connectionTone: ConnectionTone,
+    val windows: List<WindowChoiceModel>,
+    val selectedWindowId: String?,
 )
 
 internal object InspectorPresenter {
@@ -73,7 +79,7 @@ internal object InspectorPresenter {
         val nodeNumbers = mutableMapOf<String, String>()
         val nextIndexByDepth = mutableMapOf<Int, Int>()
         val rows = buildList {
-            state.snapshot?.root?.appendRows(
+            state.activeRoot?.appendRows(
                 target = this,
                 depth = 0,
                 selectedNodeId = state.selectedNodeId,
@@ -146,6 +152,8 @@ internal object InspectorPresenter {
                 ConnectionStatus.CONNECTED -> ConnectionTone.SUCCESS
                 ConnectionStatus.ERROR -> ConnectionTone.ERROR
             },
+            windows = state.windows.map { WindowChoiceModel(it.id, it.title) },
+            selectedWindowId = state.activeWindow?.id,
         )
     }
 
@@ -168,6 +176,11 @@ internal object InspectorPresenter {
             selected = id == selectedNodeId,
             visible = visible && alpha > 0f,
             hasChildren = children.isNotEmpty(),
+            resourceLabel = (this as? ViewNode)
+                ?.resourceName
+                ?.substringAfterLast('/')
+                ?.takeIf(String::isNotBlank)
+                ?.let { "id/$it" },
         )
         children.forEach { child ->
             child.appendRows(
