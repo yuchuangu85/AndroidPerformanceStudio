@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test
 
 class HeaderMenuPlacementTest {
     @Test
-    fun `header leaves actions and advanced commands to the native menu bar`() {
+    fun `header leaves actions and file commands to the native menu bar`() {
         val source = Files.readString(
             Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
         )
@@ -16,6 +16,6 @@ class HeaderMenuPlacementTest {
             .substringBefore("private fun ExportResultDialog(")
 
         assertFalse(header.contains("ViewerActionDropdown("))
-        assertFalse(header.contains("AdvancedMenu("))
+        assertFalse(header.contains("FileMenu("))
     }
 }

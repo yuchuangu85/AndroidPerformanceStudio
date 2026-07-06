@@ -322,7 +322,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     }
     val performAction: (ViewerAction) -> Unit = { action ->
         when (action) {
-            ViewerAction.TOGGLE_AUTO_SCAN -> autoScanEnabled = !autoScanEnabled
+            ViewerAction.TOGGLE_AUTO_SCAN -> {
+                if (archiveUiState !is CaptureArchiveUiState.Working) {
+                    autoScanEnabled = !autoScanEnabled
+                }
+            }
             ViewerAction.PREVIOUS_NODE,
             ViewerAction.NEXT_NODE,
             -> {
@@ -420,7 +424,10 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     autoScanEnabled = autoScanEnabled,
                     manualRefreshInProgress = manualRefreshInProgress,
                     onManualRefresh = {
-                        if (!autoScanEnabled && !manualRefreshInProgress) {
+                        if (!autoScanEnabled &&
+                            !manualRefreshInProgress &&
+                            archiveUiState !is CaptureArchiveUiState.Working
+                        ) {
                             manualRefreshRequest += 1
                         }
                     },

@@ -43,15 +43,6 @@ internal class ViewerStrings private constructor(
         get() = text("Hide hierarchy indices", "隐藏层级索引")
     val showVisibleViewBounds: String
         get() = text("Show all visible view bounds", "显示全部可见视图边缘")
-    val advanced: String get() = text("Advanced", "高级")
-    val exportVisibleWindowViews: String
-        get() = text("Export Visible Window Views…", "导出 Visible Window Views…")
-    val chooseExportDirectory: String
-        get() = text("Choose export directory", "选择导出目录")
-    val visibleWindowViewsExportSucceededTitle: String
-        get() = text("Export succeeded", "导出成功")
-    val visibleWindowViewsExportFailedTitle: String
-        get() = text("Export failed", "导出失败")
     val dismiss: String get() = text("OK", "确定")
     val autoScan: String get() = text("Auto scan", "自动扫描")
     val refreshOnce: String get() = text("Refresh once", "刷新一次")
@@ -103,16 +94,6 @@ internal class ViewerStrings private constructor(
     fun archiveExportFailed(message: String): String = text(
         "Unable to export archive:\n$message",
         "无法导出归档：\n$message",
-    )
-
-    fun visibleWindowViewsExportSucceeded(directory: String): String = text(
-        "Saved visible-window-views.zip and visible-window-views.txt to:\n$directory",
-        "已将 visible-window-views.zip 和 visible-window-views.txt 保存到：\n$directory",
-    )
-
-    fun visibleWindowViewsExportFailed(message: String): String = text(
-        "Unable to export Visible Window Views:\n$message",
-        "无法导出 Visible Window Views：\n$message",
     )
 
     fun themePreferenceName(preference: ThemePreference): String = when (preference) {
