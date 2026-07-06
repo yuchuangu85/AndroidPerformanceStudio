@@ -2,6 +2,8 @@ package dev.agentperf.adb
 
 import dev.agentperf.protocol.CaptureFrame
 import dev.agentperf.protocol.CaptureFrameCodec
+import dev.agentperf.protocol.DisplayInfo
+import dev.agentperf.protocol.ProtocolCodec
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -134,6 +136,7 @@ class ConnectedDeviceSession internal constructor(
     private val processRunner: ProcessRunner,
     private val socketConnector: (Int) -> Socket,
     private val captureFrameCodec: CaptureFrameCodec = CaptureFrameCodec(),
+    private val protocolCodec: ProtocolCodec = ProtocolCodec(supportedMajor = 1),
     private val fallbackCapture: (() -> CaptureFrame)? = null,
 ) : AutoCloseable {
     private val closed = AtomicBoolean(false)
@@ -154,11 +157,29 @@ class ConnectedDeviceSession internal constructor(
         fallbackCapture?.let { return it() }
         val agentPort = requireNotNull(hostPort)
         val agentToken = requireNotNull(token)
-        return socketConnector(agentPort).use { socket ->
+        val agentFrame = socketConnector(agentPort).use { socket ->
             socket.getOutputStream().write("CAPTURE $agentToken\n".toByteArray())
             socket.getOutputStream().flush()
             captureFrameCodec.read(socket.getInputStream())
         }
+        return runCatching {
+            val result = processRunner.run(AdbCommandFactory.captureScreenshot(serial))
+            require(result.exitCode == 0 && result.stdoutBytes.isNotEmpty())
+            val (width, height) = PngDimensions.read(result.stdoutBytes)
+            val snapshot = protocolCodec.decodeSnapshot(agentFrame.snapshotJson)
+            CaptureFrame(
+                snapshotJson = protocolCodec.encodeSnapshot(
+                    snapshot.copy(
+                        display = DisplayInfo(
+                            widthPx = width,
+                            heightPx = height,
+                            density = snapshot.display.density,
+                        ),
+                    ),
+                ),
+                screenshotPng = result.stdoutBytes,
+            )
+        }.getOrDefault(agentFrame)
     }
 
     fun isForegroundAppCurrent(): Boolean {
