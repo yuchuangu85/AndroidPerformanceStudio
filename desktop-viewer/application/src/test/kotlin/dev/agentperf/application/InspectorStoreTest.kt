@@ -1,6 +1,10 @@
 package dev.agentperf.application
 
 import dev.agentperf.fixtures.SampleSnapshots
+import dev.agentperf.protocol.Bounds
+import dev.agentperf.protocol.ViewNode
+import dev.agentperf.protocol.WindowSnapshot
+import dev.agentperf.protocol.WindowType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -121,5 +125,58 @@ class InspectorStoreTest {
         assertEquals(ConnectionStatus.ARCHIVE, store.state.connectionStatus)
         assertEquals(importedSnapshot.root.id, store.state.selectedNodeId)
         assertTrue(store.state.analysis.metrics.nodeCount > 0)
+    }
+
+    @Test
+    fun `window switching restores each windows last selected node`() {
+        val mainRoot = ViewNode(
+            id = "window:main/root",
+            className = "DecorView",
+            bounds = Bounds(0, 0, 100, 200),
+            children = listOf(
+                ViewNode("window:main/title", "TextView", Bounds(0, 0, 100, 40)),
+            ),
+        )
+        val dialogRoot = ViewNode(
+            id = "window:dialog/root",
+            className = "Dialog",
+            bounds = Bounds(10, 20, 90, 180),
+            children = listOf(
+                ViewNode("window:dialog/message", "TextView", Bounds(20, 40, 80, 80)),
+            ),
+        )
+        val snapshot = SampleSnapshots.dashboard.copy(
+            root = mainRoot,
+            windows = listOf(
+                WindowSnapshot(
+                    "window:main",
+                    "MainActivity",
+                    WindowType.ACTIVITY,
+                    mainRoot.bounds,
+                    mainRoot,
+                ),
+                WindowSnapshot(
+                    "window:dialog",
+                    "Confirm",
+                    WindowType.DIALOG,
+                    dialogRoot.bounds,
+                    dialogRoot,
+                ),
+            ),
+            defaultWindowId = "window:main",
+        )
+        val store = InspectorStore()
+
+        store.loadCapture(snapshot, byteArrayOf(1))
+        assertEquals("window:main", store.state.selectedWindowId)
+        assertEquals(mainRoot, store.state.activeRoot)
+        assertTrue(store.selectNode("window:main/title"))
+        assertTrue(store.selectWindow("window:dialog"))
+        assertEquals("window:dialog/root", store.state.selectedNodeId)
+        assertTrue(store.selectNode("window:dialog/message"))
+        assertTrue(store.selectWindow("window:main"))
+        assertEquals("window:main/title", store.state.selectedNodeId)
+        assertTrue(store.selectWindow("window:dialog"))
+        assertEquals("window:dialog/message", store.state.selectedNodeId)
     }
 }
