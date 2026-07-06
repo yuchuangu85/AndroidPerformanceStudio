@@ -30,18 +30,18 @@ class CanvasOverlayWiringTest {
         )
 
         assertTrue(generalBounds.text.startsWith("if (showVisibleViewBounds) {"))
-        assertTrue(generalBounds.text.contains("state.snapshot?.root?.let"))
+        assertTrue(generalBounds.text.contains("state.activeRoot?.let"))
         assertTrue(generalBounds.text.contains("ViewBoundsOverlay.mappedVisibleBounds"))
-        assertTrue(generalBounds.text.contains("colors.visibleViewBounds.copy(alpha = 0.62f)"))
+        assertTrue(generalBounds.text.contains("borderColors.normal.toComposeColor().copy(alpha = 0.62f)"))
         assertTrue(generalBounds.text.contains("Stroke(width = 1.dp.toPx())"))
         assertFalse(generalBounds.text.contains("selectedBounds?.let"))
-        assertFalse(generalBounds.text.contains("color = colors.error"))
+        assertFalse(generalBounds.text.contains("borderColors.selected"))
         assertFalse(generalBounds.text.contains("Stroke(width = 3.dp.toPx())"))
 
         assertTrue(selectedBounds.startIndex > generalBounds.endExclusive)
-        assertTrue(selectedBounds.text.contains("color = colors.error"))
+        assertTrue(selectedBounds.text.contains("color = borderColors.selected.toComposeColor()"))
         assertTrue(selectedBounds.text.contains("Stroke(width = 3.dp.toPx())"))
-        assertFalse(selectedBounds.text.contains("colors.visibleViewBounds.copy(alpha = 0.62f)"))
+        assertFalse(selectedBounds.text.contains("borderColors.normal"))
         assertFalse(selectedBounds.text.contains("Stroke(width = 1.dp.toPx())"))
     }
 

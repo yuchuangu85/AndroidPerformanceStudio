@@ -5,6 +5,9 @@ import dev.agentperf.protocol.EdgeInsets
 import dev.agentperf.protocol.UiNode
 import dev.agentperf.protocol.ViewAttributes
 import dev.agentperf.protocol.ViewNode
+import dev.agentperf.protocol.ComposeNode
+import dev.agentperf.protocol.WindowSnapshot
+import dev.agentperf.protocol.WindowType
 import java.io.ByteArrayInputStream
 import java.io.DataInputStream
 import java.io.EOFException
@@ -12,30 +15,56 @@ import java.util.zip.ZipInputStream
 import kotlin.math.roundToInt
 
 internal object VisibleWindowHierarchyParser {
-    fun parse(
+    fun parseWindows(
         zipBytes: ByteArray,
         packageName: String,
-    ): ViewNode {
+    ): List<WindowSnapshot> {
         require(zipBytes.isNotEmpty()) { "Visible-window hierarchy is empty" }
-        val roots = ZipInputStream(ByteArrayInputStream(zipBytes)).use { zip ->
+        val windows = ZipInputStream(ByteArrayInputStream(zipBytes)).use { zip ->
             buildList {
                 while (true) {
                     val entry = zip.nextEntry ?: break
                     if (!entry.isDirectory && entry.name.contains(packageName)) {
+                        val name = entry.name
                         val encoded = zip.readEntryBytes()
-                        add(EncodedHierarchyDecoder(encoded).decodeDocument().toViewNode())
+                        runCatching {
+                            val windowId = windowId(name)
+                            val root = EncodedHierarchyDecoder(encoded)
+                                .decodeDocument()
+                                .toViewNode()
+                                .namespace(windowId)
+                            add(
+                                WindowSnapshot(
+                                    id = windowId,
+                                    title = windowTitle(name, packageName),
+                                    type = windowType(name),
+                                    bounds = root.bounds,
+                                    root = root,
+                                ),
+                            )
+                        }
                     }
                     zip.closeEntry()
                 }
             }
         }
-        return roots.maxWithOrNull(
+        require(windows.isNotEmpty()) {
+            "Visible-window hierarchy has no decodable window for $packageName"
+        }
+        return windows
+    }
+
+    fun parse(
+        zipBytes: ByteArray,
+        packageName: String,
+    ): ViewNode = parseWindows(zipBytes, packageName)
+        .map { window -> window.root.stripNamespace(window.id) as ViewNode }
+        .maxWithOrNull(
             compareBy<ViewNode> { it.nodeCount() }
                 .thenBy { it.bounds.width.toLong() * it.bounds.height },
         ) ?: throw IllegalArgumentException(
             "Visible-window hierarchy has no window for $packageName",
         )
-    }
 
     private fun ZipInputStream.readEntryBytes(): ByteArray {
         val bytes = readNBytes(MAX_ENTRY_BYTES + 1)
@@ -44,6 +73,50 @@ internal object VisibleWindowHierarchyParser {
     }
 
     private fun UiNode.nodeCount(): Int = 1 + children.sumOf { it.nodeCount() }
+
+    private fun windowId(entryName: String): String {
+        val token = entryName.substringBefore(' ').substringBefore('/')
+        val stable = token.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank {
+            entryName.hashCode().toUInt().toString(16)
+        }
+        return "window:$stable"
+    }
+
+    private fun windowTitle(entryName: String, packageName: String): String {
+        val component = entryName.substringAfterLast('/').substringAfterLast(' ')
+        return component
+            .removePrefix("$packageName.")
+            .removePrefix(packageName)
+            .trimStart('.', '/')
+            .substringAfterLast('.')
+            .ifBlank { "Window" }
+    }
+
+    private fun windowType(entryName: String): WindowType = when {
+        entryName.contains("Activity", ignoreCase = true) -> WindowType.ACTIVITY
+        entryName.contains("Popup", ignoreCase = true) -> WindowType.POPUP
+        entryName.contains("Dialog", ignoreCase = true) -> WindowType.DIALOG
+        else -> WindowType.OTHER
+    }
+
+    private fun UiNode.namespace(windowId: String): UiNode {
+        fun namespacedId(id: String): String =
+            if (id.startsWith("$windowId/")) id else "$windowId/$id"
+        val namespacedChildren = children.map { it.namespace(windowId) }
+        return when (this) {
+            is ViewNode -> copy(id = namespacedId(id), children = namespacedChildren)
+            is ComposeNode -> copy(id = namespacedId(id), children = namespacedChildren)
+        }
+    }
+
+    private fun UiNode.stripNamespace(windowId: String): UiNode {
+        val plainChildren = children.map { it.stripNamespace(windowId) }
+        val plainId = id.removePrefix("$windowId/")
+        return when (this) {
+            is ViewNode -> copy(id = plainId, children = plainChildren)
+            is ComposeNode -> copy(id = plainId, children = plainChildren)
+        }
+    }
 
     private const val MAX_ENTRY_BYTES = 16 * 1024 * 1024
 }

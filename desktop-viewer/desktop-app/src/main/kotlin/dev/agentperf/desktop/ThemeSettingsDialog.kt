@@ -10,10 +10,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -39,6 +43,8 @@ internal fun SettingsDialog(
     onSelectThemePreference: (ThemePreference) -> Unit,
     selectedLanguagePreference: LanguagePreference,
     onSelectLanguagePreference: (LanguagePreference) -> Unit,
+    canvasBorderColors: CanvasBorderColors,
+    onCanvasBorderColorsChanged: (CanvasBorderColors) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -64,7 +70,10 @@ internal fun SettingsDialog(
         },
         text = {
             Column(
-                modifier = Modifier.width(360.dp),
+                modifier = Modifier
+                    .width(520.dp)
+                    .heightIn(max = 620.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
@@ -99,10 +108,87 @@ internal fun SettingsDialog(
                     selectedPreference = selectedLanguagePreference,
                     onSelectPreference = onSelectLanguagePreference,
                 )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    strings.canvasBorderColors,
+                    color = colors.secondaryText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                CanvasColorSetting(
+                    strings.defaultViewBoundsColor,
+                    canvasBorderColors.normal,
+                    CanvasBorderColors().normal,
+                ) { onCanvasBorderColorsChanged(canvasBorderColors.copy(normal = it)) }
+                CanvasColorSetting(
+                    strings.hoveredViewBoundsColor,
+                    canvasBorderColors.hovered,
+                    CanvasBorderColors().hovered,
+                ) { onCanvasBorderColorsChanged(canvasBorderColors.copy(hovered = it)) }
+                CanvasColorSetting(
+                    strings.selectedViewBoundsColor,
+                    canvasBorderColors.selected,
+                    CanvasBorderColors().selected,
+                ) { onCanvasBorderColorsChanged(canvasBorderColors.copy(selected = it)) }
             }
         },
         confirmButton = {},
     )
+}
+
+@Composable
+private fun CanvasColorSetting(
+    label: String,
+    value: CanvasArgb,
+    defaultValue: CanvasArgb,
+    onValueChanged: (CanvasArgb) -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    var text by remember(value) { mutableStateOf(value.toHex()) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = colors.primaryText, fontSize = 11.sp, modifier = Modifier.width(120.dp))
+        canvasColorPresets.forEach { preset ->
+            Box(
+                Modifier
+                    .padding(start = 4.dp)
+                    .size(18.dp)
+                    .background(preset.toComposeColor(), RoundedCornerShape(9.dp))
+                    .clickable {
+                        text = preset.toHex()
+                        onValueChanged(preset)
+                    },
+            )
+        }
+        BasicTextField(
+            value = text,
+            onValueChange = { updated ->
+                text = updated
+                CanvasArgb.parse(updated)?.let(onValueChanged)
+            },
+            singleLine = true,
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = colors.primaryText,
+                fontSize = 11.sp,
+            ),
+            modifier = Modifier
+                .padding(start = 8.dp)
+                .width(86.dp)
+                .background(colors.sectionBackground, RoundedCornerShape(4.dp))
+                .padding(4.dp),
+        )
+        Text(
+            strings.reset,
+            color = colors.accent,
+            fontSize = 10.sp,
+            modifier = Modifier
+                .padding(start = 6.dp)
+                .clickable {
+                    text = defaultValue.toHex()
+                    onValueChanged(defaultValue)
+                },
+        )
+    }
 }
 
 @Composable

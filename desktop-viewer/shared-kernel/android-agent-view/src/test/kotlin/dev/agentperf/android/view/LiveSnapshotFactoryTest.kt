@@ -3,6 +3,8 @@ package dev.agentperf.android.view
 import dev.agentperf.protocol.Bounds
 import dev.agentperf.protocol.ProtocolVersion
 import dev.agentperf.protocol.ViewNode
+import dev.agentperf.protocol.WindowSnapshot
+import dev.agentperf.protocol.WindowType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -23,10 +25,19 @@ class LiveSnapshotFactoryTest {
             heightPx = 2772,
             density = 3.5f,
             capturedAtEpochMillis = 42,
-            root = root,
+            windows = listOf(
+                WindowSnapshot(
+                    id = "window:main",
+                    title = "Main",
+                    type = WindowType.ACTIVITY,
+                    bounds = root.bounds,
+                    root = root,
+                ),
+            ),
+            defaultWindowId = "window:main",
         )
 
-        assertEquals(ProtocolVersion(1, 0), snapshot.protocolVersion)
+        assertEquals(ProtocolVersion(1, 1), snapshot.protocolVersion)
         assertEquals("dev.agentperf.sample", snapshot.packageName)
         assertEquals(1240, snapshot.display.widthPx)
         assertEquals(2772, snapshot.display.heightPx)
@@ -38,14 +49,14 @@ class LiveSnapshotFactoryTest {
     }
 
     @Test
-    fun `live snapshot converts screen bounds into screenshot local coordinates`() {
+    fun `live snapshot preserves screen coordinates for every window`() {
         val child = ViewNode(
-            id = "title",
+            id = "window:main/root/0",
             className = "android.widget.TextView",
             bounds = Bounds(1640, 420, 2050, 500),
         )
         val root = ViewNode(
-            id = "root",
+            id = "window:main/root",
             className = "android.view.DecorView",
             bounds = Bounds(1508, 300, 2332, 1764),
             children = listOf(child),
@@ -53,14 +64,24 @@ class LiveSnapshotFactoryTest {
 
         val snapshot = LiveSnapshotFactory.create(
             packageName = "dev.agentperf.sample",
-            widthPx = 824,
-            heightPx = 1464,
+            widthPx = 3840,
+            heightPx = 2160,
             density = 2f,
             capturedAtEpochMillis = 42,
-            root = root,
+            windows = listOf(
+                WindowSnapshot(
+                    id = "window:main",
+                    title = "Main",
+                    type = WindowType.ACTIVITY,
+                    bounds = root.bounds,
+                    root = root,
+                ),
+            ),
+            defaultWindowId = "window:main",
         )
 
-        assertEquals(Bounds(0, 0, 824, 1464), snapshot.root.bounds)
-        assertEquals(Bounds(132, 120, 542, 200), snapshot.root.children.single().bounds)
+        assertEquals(Bounds(1508, 300, 2332, 1764), snapshot.root.bounds)
+        assertEquals(Bounds(1640, 420, 2050, 500), snapshot.root.children.single().bounds)
+        assertEquals("window:main", snapshot.defaultWindowId)
     }
 }

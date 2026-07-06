@@ -20,7 +20,9 @@ internal object HierarchySelectionScrollPolicy {
     ): Int? {
         if (selectedIndex < 0) return null
         if (firstVisibleIndex == null || lastVisibleIndex == null) return selectedIndex
-        return selectedIndex.takeUnless { it in firstVisibleIndex..lastVisibleIndex }
+        if (selectedIndex in firstVisibleIndex..lastVisibleIndex) return null
+        if (selectedIndex < firstVisibleIndex) return selectedIndex
+        return (selectedIndex - (lastVisibleIndex - firstVisibleIndex)).coerceAtLeast(0)
     }
 }
 
@@ -47,6 +49,23 @@ internal data class HierarchyTreeState(
         } else {
             this
         }
+
+    fun reveal(nodeId: String, rows: List<TreeRowModel>): HierarchyTreeState {
+        val targetIndex = rows.indexOfFirst { it.id == nodeId }
+        if (targetIndex < 0) return this
+        val targetDepth = rows[targetIndex].depth
+        var neededDepth = targetDepth - 1
+        val ancestors = mutableSetOf<String>()
+        for (index in targetIndex - 1 downTo 0) {
+            val row = rows[index]
+            if (row.depth == neededDepth) {
+                ancestors += row.id
+                neededDepth -= 1
+                if (neededDepth < 0) break
+            }
+        }
+        return copy(collapsedNodeIds = collapsedNodeIds - ancestors)
+    }
 
     fun adjacentNodeId(
         rows: List<TreeRowModel>,

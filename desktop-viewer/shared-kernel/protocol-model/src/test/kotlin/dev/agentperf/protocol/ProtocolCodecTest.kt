@@ -85,6 +85,50 @@ class ProtocolCodecTest {
         assertEquals(ProtocolVersion(1, 9), snapshot.protocolVersion)
         assertEquals("root", snapshot.root.id)
         assertEquals(ViewAttributes(), (snapshot.root as ViewNode).attributes)
+        assertEquals(LEGACY_WINDOW_ID, snapshot.effectiveDefaultWindowId)
+        assertEquals(listOf(snapshot.root), snapshot.effectiveWindows.map { it.root })
+    }
+
+    @Test
+    fun `multi window snapshot survives a JSON round trip`() {
+        val mainRoot = ViewNode(
+            id = "window:main/root",
+            className = "DecorView",
+            bounds = Bounds(0, 80, 1080, 2400),
+        )
+        val dialogRoot = ViewNode(
+            id = "window:dialog/root",
+            className = "DialogDecorView",
+            bounds = Bounds(120, 700, 960, 1500),
+        )
+        val snapshot = LayoutSnapshot(
+            protocolVersion = ProtocolVersion(1, 1),
+            packageName = "dev.agentperf.sample",
+            capturedAtEpochMillis = 42,
+            display = DisplayInfo(1080, 2400, 3f),
+            capabilities = AgentCapabilities(viewHierarchy = true, screenshots = true),
+            root = mainRoot,
+            windows = listOf(
+                WindowSnapshot(
+                    id = "window:main",
+                    title = "MainActivity",
+                    type = WindowType.ACTIVITY,
+                    bounds = mainRoot.bounds,
+                    root = mainRoot,
+                ),
+                WindowSnapshot(
+                    id = "window:dialog",
+                    title = "Confirm",
+                    type = WindowType.DIALOG,
+                    bounds = dialogRoot.bounds,
+                    root = dialogRoot,
+                ),
+            ),
+            defaultWindowId = "window:main",
+        )
+
+        assertEquals(snapshot, codec.decodeSnapshot(codec.encodeSnapshot(snapshot)))
+        assertEquals("window:main", snapshot.effectiveDefaultWindowId)
     }
 
     @Test

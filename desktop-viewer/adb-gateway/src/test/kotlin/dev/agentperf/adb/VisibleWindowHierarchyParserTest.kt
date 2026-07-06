@@ -65,6 +65,18 @@ class VisibleWindowHierarchyParserTest {
             VisibleWindowViewsTextRenderer.render("not a zip".toByteArray())
         }
     }
+
+    @Test
+    fun `parses every decodable window for the target package`() {
+        val windows = VisibleWindowHierarchyParser.parseWindows(
+            zipBytes = EncodedHierarchyFixture.twoAppWindowsZip(),
+            packageName = "com.codemx.anrdemo",
+        )
+
+        assertEquals(2, windows.size)
+        assertEquals(listOf("MainActivity", "ConfirmDialog"), windows.map { it.title })
+        assertTrue(windows.all { window -> window.root.id.startsWith("${window.id}/root") })
+    }
 }
 
 internal object EncodedHierarchyFixture {
@@ -88,6 +100,26 @@ internal object EncodedHierarchyFixture {
             zip.closeEntry()
             zip.putNextEntry(ZipEntry("a3db2af StatusBar"))
             zip.write("broken hierarchy".toByteArray())
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
+
+    fun twoAppWindowsZip(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(
+                ZipEntry("42177c9 com.codemx.anrdemo/com.codemx.anrdemo.MainActivity"),
+            )
+            zip.write(hierarchy())
+            zip.closeEntry()
+            zip.putNextEntry(
+                ZipEntry("51aa71 com.codemx.anrdemo/com.codemx.anrdemo.ConfirmDialog"),
+            )
+            zip.write(hierarchy())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("9911 other.app/other.app.MainActivity"))
+            zip.write(hierarchy())
             zip.closeEntry()
         }
         return output.toByteArray()

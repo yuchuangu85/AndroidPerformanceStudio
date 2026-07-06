@@ -6,6 +6,8 @@ import dev.agentperf.protocol.ComposeNode
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.UiNode
 import dev.agentperf.protocol.ViewNode
+import dev.agentperf.protocol.WindowSnapshot
+import dev.agentperf.protocol.effectiveWindows
 
 enum class ConnectionStatus {
     DISCONNECTED,
@@ -22,12 +24,24 @@ data class InspectorState(
         metrics = LayoutMetrics(nodeCount = 0, maxDepth = 0, widestLevel = 0),
         findings = emptyList(),
     ),
+    val selectedWindowId: String? = null,
+    val selectedNodeIdsByWindow: Map<String, String> = emptyMap(),
     val selectedNodeId: String? = null,
+    val hoveredNodeId: String? = null,
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val connectionError: String? = null,
 ) {
+    val windows: List<WindowSnapshot>
+        get() = snapshot?.effectiveWindows.orEmpty()
+
+    val activeWindow: WindowSnapshot?
+        get() = windows.firstOrNull { it.id == selectedWindowId } ?: windows.firstOrNull()
+
+    val activeRoot: UiNode?
+        get() = activeWindow?.root
+
     val selectedNode: UiNode?
-        get() = snapshot?.root?.findById(selectedNodeId)
+        get() = activeRoot?.findById(selectedNodeId)
 }
 
 val UiNode.textContent: String?
@@ -36,7 +50,7 @@ val UiNode.textContent: String?
         is ComposeNode -> text
     }
 
-private fun UiNode.findById(targetId: String?): UiNode? {
+internal fun UiNode.findById(targetId: String?): UiNode? {
     if (targetId == null) return null
     if (id == targetId) return this
     return children.firstNotNullOfOrNull { it.findById(targetId) }

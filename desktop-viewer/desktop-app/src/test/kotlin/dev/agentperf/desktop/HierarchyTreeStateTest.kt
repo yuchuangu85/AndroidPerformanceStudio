@@ -131,7 +131,7 @@ class HierarchyTreeStateTest {
             ),
         )
         assertEquals(
-            10,
+            4,
             HierarchySelectionScrollPolicy.targetIndex(
                 selectedIndex = 10,
                 firstVisibleIndex = 3,

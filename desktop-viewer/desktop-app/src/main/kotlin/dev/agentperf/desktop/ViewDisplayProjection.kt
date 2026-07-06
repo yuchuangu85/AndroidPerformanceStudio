@@ -49,9 +49,9 @@ internal object ViewDisplayProjection {
     fun hierarchyLabel(
         row: TreeRowModel,
         hideIndex: Boolean,
-    ): String = if (hideIndex) {
-        row.label
-    } else {
-        "${row.number}  ${row.label}"
-    }
+    ): String = listOfNotNull(
+        row.number.takeUnless { hideIndex },
+        row.resourceLabel,
+        row.label,
+    ).joinToString("  ")
 }

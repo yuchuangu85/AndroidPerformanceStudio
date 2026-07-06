@@ -10,6 +10,8 @@ import dev.agentperf.protocol.ProtocolVersion
 import dev.agentperf.protocol.UiNode
 import dev.agentperf.protocol.ViewAttributes
 import dev.agentperf.protocol.ViewNode
+import dev.agentperf.protocol.WindowSnapshot
+import dev.agentperf.protocol.WindowType
 import java.io.ByteArrayInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
@@ -28,9 +30,10 @@ internal class AdbFallbackCapture(
     fun capture(): CaptureFrame = try {
         val screenshot = checkedRun(AdbCommandFactory.captureScreenshot(serial)).stdoutBytes
         val (width, height) = PngDimensions.read(screenshot)
-        val root = captureHierarchy()
+        val windows = captureHierarchy()
+        val defaultWindow = windows.maxBy { it.root.nodeCount() }
         val snapshot = LayoutSnapshot(
-            protocolVersion = ProtocolVersion(major = 1, minor = 0),
+            protocolVersion = ProtocolVersion(major = 1, minor = 1),
             packageName = packageName,
             capturedAtEpochMillis = System.currentTimeMillis(),
             display = DisplayInfo(widthPx = width, heightPx = height, density = 1f),
@@ -38,7 +41,9 @@ internal class AdbFallbackCapture(
                 viewHierarchy = true,
                 screenshots = true,
             ),
-            root = root,
+            root = defaultWindow.root,
+            windows = windows,
+            defaultWindowId = defaultWindow.id,
         )
         CaptureFrame(
             snapshotJson = protocolCodec.encodeSnapshot(snapshot),
@@ -48,21 +53,32 @@ internal class AdbFallbackCapture(
         throw AdbFallbackUnavailableException(packageName, error)
     }
 
-    private fun captureHierarchy(): UiNode {
+    private fun captureHierarchy(): List<WindowSnapshot> {
         val visibleWindows = processRunner.run(
             AdbCommandFactory.dumpVisibleWindowViews(serial),
         )
         if (visibleWindows.exitCode == 0) {
             runCatching {
-                VisibleWindowHierarchyParser.parse(
+                VisibleWindowHierarchyParser.parseWindows(
                     zipBytes = visibleWindows.stdoutBytes,
                     packageName = packageName,
                 )
             }.getOrNull()?.let { return it }
         }
         val hierarchy = checkedRun(AdbCommandFactory.dumpHierarchy(serial)).stdout
-        return UiAutomatorHierarchyParser.parse(hierarchy)
+        val root = UiAutomatorHierarchyParser.parse(hierarchy)
+        return listOf(
+            WindowSnapshot(
+                id = "window:uiautomator",
+                title = packageName.substringAfterLast('.'),
+                type = WindowType.ACTIVITY,
+                bounds = root.bounds,
+                root = root,
+            ),
+        )
     }
+
+    private fun UiNode.nodeCount(): Int = 1 + children.sumOf { it.nodeCount() }
 
     private fun checkedRun(arguments: List<String>): ProcessResult =
         processRunner.run(arguments).also { result ->

@@ -13,14 +13,15 @@ import dev.agentperf.protocol.ViewNode
 import java.util.Locale
 
 class ViewTreeCollector {
-    fun collect(root: View): ViewNode = collect(root, "root")
+    fun collect(root: View, windowId: String = ""): ViewNode =
+        collectRecursive(root, if (windowId.isBlank()) "root" else "$windowId/root")
 
-    private fun collect(view: View, path: String): ViewNode {
+    private fun collectRecursive(view: View, path: String): ViewNode {
         val location = IntArray(2)
         view.getLocationOnScreen(location)
         val children: List<UiNode> = if (view is ViewGroup) {
             (0 until view.childCount).map { index ->
-                collect(view.getChildAt(index), "$path/$index")
+                collectRecursive(view.getChildAt(index), "$path/$index")
             }
         } else {
             emptyList()
