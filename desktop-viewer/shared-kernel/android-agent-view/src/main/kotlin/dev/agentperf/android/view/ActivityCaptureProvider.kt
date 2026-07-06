@@ -11,6 +11,7 @@ import dev.agentperf.android.core.CaptureProvider
 import dev.agentperf.android.core.CaptureUnavailableException
 import dev.agentperf.protocol.CaptureFrame
 import dev.agentperf.protocol.ProtocolCodec
+import dev.agentperf.protocol.WindowSnapshot
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
@@ -27,6 +28,7 @@ class ActivityCaptureProvider(
     private val activityTracker: ResumedActivityTracker,
     private val mainHandler: Handler = Handler(Looper.getMainLooper()),
     private val timeoutSeconds: Long = 5,
+    private val windowRootProvider: WindowRootProvider = AndroidWindowRootProvider,
 ) : CaptureProvider {
     private val protocolCodec = ProtocolCodec(supportedMajor = 1)
     private val viewTreeCollector = ViewTreeCollector()
@@ -113,13 +115,27 @@ class ActivityCaptureProvider(
     ) {
         try {
             val rootView = activity.window.decorView.rootView
+            val roots = windowRootProvider.roots(activity)
+            val windows = roots.map { window ->
+                val root = viewTreeCollector.collect(window.view, window.id)
+                WindowSnapshot(
+                    id = window.id,
+                    title = window.title,
+                    type = window.type,
+                    bounds = root.bounds,
+                    root = root,
+                )
+            }
+            val defaultWindowId = roots.firstOrNull { it.view === rootView }?.id
+                ?: windows.first().id
             val snapshot = LiveSnapshotFactory.create(
                 packageName = activity.packageName,
                 widthPx = bitmap.width,
                 heightPx = bitmap.height,
                 density = rootView.resources.displayMetrics.density,
                 capturedAtEpochMillis = System.currentTimeMillis(),
-                root = viewTreeCollector.collect(rootView),
+                windows = windows,
+                defaultWindowId = defaultWindowId,
             )
             val screenshot = ByteArrayOutputStream().use { output ->
                 if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
