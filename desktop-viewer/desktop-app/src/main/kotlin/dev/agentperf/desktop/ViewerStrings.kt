@@ -14,6 +14,13 @@ internal class ViewerStrings private constructor(
     val languageSetting: String get() = text("Language", "语言")
     val actions: String get() = text("Actions", "操作")
     val view: String get() = text("View", "视图")
+    val file: String get() = text("File", "文件")
+    val importArchive: String get() = text("Import", "导入")
+    val exportArchive: String get() = text("Export", "导出")
+    val chooseArchiveToImport: String
+        get() = text("Choose archive to import", "选择要导入的归档")
+    val chooseArchiveExportFile: String
+        get() = text("Choose export file", "选择导出文件")
     val hideInvisibleHierarchyViews: String
         get() = text(
             "Hide invisible views in hierarchy",

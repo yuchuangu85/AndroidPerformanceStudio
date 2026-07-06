@@ -22,7 +22,8 @@ class NativeViewerMenuBarTest {
                 hideHierarchyIndices = true,
                 showVisibleViewBounds = true,
             ),
-            exportInProgress = false,
+            archiveOperationInProgress = false,
+            canExportArchive = true,
             isMacOs = true,
         )
 
@@ -60,8 +61,10 @@ class NativeViewerMenuBarTest {
         )
         assertEquals(listOf(0, 0, 0, 1), model.viewItems.map { it.group })
         assertEquals(listOf(true, false, true, true), model.viewItems.map { it.checked })
-        assertEquals("高级", model.advancedTitle)
-        assertEquals("导出 Visible Window Views…", model.exportLabel)
+        assertEquals("文件", model.fileTitle)
+        assertEquals("导入", model.importLabel)
+        assertEquals("导出", model.exportLabel)
+        assertTrue(model.importEnabled)
         assertTrue(model.exportEnabled)
     }
 
@@ -81,17 +84,36 @@ class NativeViewerMenuBarTest {
     }
 
     @Test
-    fun `native advanced export is disabled while exporting`() {
+    fun `native file actions are disabled while an archive operation is active`() {
         val model = NativeViewerMenuModel(
             strings = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH),
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
             viewDisplayOptions = ViewDisplayOptions(),
-            exportInProgress = true,
+            archiveOperationInProgress = true,
+            canExportArchive = true,
             isMacOs = false,
         )
 
+        assertFalse(model.importEnabled)
+        assertFalse(model.exportEnabled)
+    }
+
+    @Test
+    fun `native export requires a loaded capture while import remains enabled`() {
+        val model = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = false,
+            canExportArchive = false,
+            isMacOs = false,
+        )
+
+        assertTrue(model.importEnabled)
         assertFalse(model.exportEnabled)
     }
 }

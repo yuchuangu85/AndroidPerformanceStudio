@@ -33,8 +33,10 @@ internal data class NativeViewerMenuModel(
     val actions: List<NativeActionMenuItem>,
     val viewTitle: String,
     val viewItems: List<NativeViewMenuItem>,
-    val advancedTitle: String,
+    val fileTitle: String,
+    val importLabel: String,
     val exportLabel: String,
+    val importEnabled: Boolean,
     val exportEnabled: Boolean,
 ) {
     constructor(
@@ -43,7 +45,8 @@ internal data class NativeViewerMenuModel(
         autoScanEnabled: Boolean,
         panelVisibility: PanelVisibility,
         viewDisplayOptions: ViewDisplayOptions = ViewDisplayOptions(),
-        exportInProgress: Boolean,
+        archiveOperationInProgress: Boolean,
+        canExportArchive: Boolean,
         isMacOs: Boolean,
     ) : this(
         actionsTitle = strings.actions,
@@ -81,9 +84,11 @@ internal data class NativeViewerMenuModel(
                 },
             )
         },
-        advancedTitle = strings.advanced,
-        exportLabel = strings.exportVisibleWindowViews,
-        exportEnabled = !exportInProgress,
+        fileTitle = strings.file,
+        importLabel = strings.importArchive,
+        exportLabel = strings.exportArchive,
+        importEnabled = !archiveOperationInProgress,
+        exportEnabled = !archiveOperationInProgress && canExportArchive,
     )
 }
 
@@ -114,7 +119,8 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
     model: NativeViewerMenuModel,
     onAction: (ViewerAction) -> Unit,
     onViewOption: (ViewDisplayOption) -> Unit = {},
-    onExportVisibleWindowViews: () -> Unit,
+    onImportArchive: () -> Unit,
+    onExportArchive: () -> Unit,
 ) {
     MenuBar {
         Menu(model.actionsTitle) {
@@ -159,11 +165,16 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                 )
             }
         }
-        Menu(model.advancedTitle) {
+        Menu(model.fileTitle) {
+            Item(
+                text = model.importLabel,
+                enabled = model.importEnabled,
+                onClick = onImportArchive,
+            )
             Item(
                 text = model.exportLabel,
                 enabled = model.exportEnabled,
-                onClick = onExportVisibleWindowViews,
+                onClick = onExportArchive,
             )
         }
     }

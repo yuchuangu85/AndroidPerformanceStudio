@@ -297,13 +297,15 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             autoScanEnabled = autoScanEnabled,
             panelVisibility = panelVisibility,
             viewDisplayOptions = viewDisplayOptions,
-            exportInProgress =
+            archiveOperationInProgress =
                 visibleWindowViewsExportState is VisibleWindowViewsExportUiState.Exporting,
+            canExportArchive = state.snapshot != null && state.screenshotPng != null,
             isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
         ),
         onAction = performAction,
         onViewOption = toggleViewDisplayOption,
-        onExportVisibleWindowViews = exportVisibleWindowViews,
+        onImportArchive = {},
+        onExportArchive = exportVisibleWindowViews,
     )
 
     LaunchedEffect(Unit) {

@@ -67,14 +67,14 @@ class LanguagePreferenceTest {
         assertEquals("Hide hierarchy indices", english.hideHierarchyIndices)
         assertEquals("显示全部可见视图边缘", chinese.showVisibleViewBounds)
         assertEquals("Show all visible view bounds", english.showVisibleViewBounds)
-        assertEquals("高级", chinese.advanced)
-        assertEquals("Advanced", english.advanced)
-        assertEquals("导出 Visible Window Views…", chinese.exportVisibleWindowViews)
-        assertEquals("Export Visible Window Views…", english.exportVisibleWindowViews)
-        assertEquals("导出成功", chinese.visibleWindowViewsExportSucceededTitle)
-        assertEquals("Export succeeded", english.visibleWindowViewsExportSucceededTitle)
-        assertEquals("导出失败", chinese.visibleWindowViewsExportFailedTitle)
-        assertEquals("Export failed", english.visibleWindowViewsExportFailedTitle)
+        assertEquals("文件", chinese.file)
+        assertEquals("File", english.file)
+        assertEquals("导入", chinese.importArchive)
+        assertEquals("Import", english.importArchive)
+        assertEquals("导出", chinese.exportArchive)
+        assertEquals("Export", english.exportArchive)
+        assertEquals("离线归档", chinese.offlineArchive)
+        assertEquals("Offline archive", english.offlineArchive)
         assertEquals(
             "android.view.ViewStub 节点存在但当前不可见",
             chinese.findingMessage("layout.invisible-node", arguments, "fallback"),
