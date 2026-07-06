@@ -29,6 +29,16 @@ class ApplicationVersionTest {
     }
 
     @Test
+    fun `desktop distributions enable every supported native installer format`() {
+        listOf("Deb", "Rpm", "Msi", "Exe", "Dmg", "Pkg").forEach { format ->
+            assertTrue(
+                desktopBuildScript.contains("TargetFormat.$format"),
+                "Missing TargetFormat.$format",
+            )
+        }
+    }
+
+    @Test
     fun `macOS package versions discard leading zero components`() {
         assertTrue(desktopBuildScript.contains("fun macOsPackageVersion(version: String): String"))
         assertTrue(

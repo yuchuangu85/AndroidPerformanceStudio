@@ -79,8 +79,68 @@ jobs:
       - name: Run tests
         run: ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
 
+  package-linux:
+    name: Package Linux DEB and RPM
+    needs: [resolve, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            desktop-viewer/*.gradle.kts
+            desktop-viewer/gradle/libs.versions.toml
+            desktop-viewer/gradle/wrapper/gradle-wrapper.properties
+            desktop-viewer/**/build.gradle.kts
+      - name: Install RPM packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes rpm
+      - name: Build DEB and RPM
+        run: |
+          ./desktop-viewer/gradlew -p desktop-viewer \
+            :desktop-app:packageDeb \
+            :desktop-app:packageRpm \
+            -PappVersion=${{ needs.resolve.outputs.version }} \
+            --no-daemon
+      - name: Prepare Linux assets
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+
+          prepare_asset() {
+            local format="$1"
+            local extension="$2"
+            local destination="$3"
+            local packages=(desktop-viewer/desktop-app/build/compose/binaries/main/"$format"/*."$extension")
+            if [[ "${#packages[@]}" -ne 1 || ! -f "${packages[0]}" ]]; then
+              echo "::error::Expected exactly one $extension package."
+              exit 1
+            fi
+            cp "${packages[0]}" "$destination"
+          }
+
+          prepare_asset deb deb "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.deb"
+          prepare_asset rpm rpm "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.rpm"
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: |
+            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-linux-x64.deb
+            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-linux-x64.rpm
+          if-no-files-found: error
+
   package-windows:
-    name: Package Windows MSI
+    name: Package Windows MSI and EXE
     needs: [resolve, test]
     runs-on: windows-latest
     steps:
@@ -97,34 +157,56 @@ jobs:
             desktop-viewer/gradle/libs.versions.toml
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
-      - name: Build MSI
+      - name: Build MSI and EXE
         shell: pwsh
         run: |
           $version = "${{ needs.resolve.outputs.version }}"
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" --no-daemon
-      - name: Prepare MSI asset
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer `
+            :desktop-app:packageMsi `
+            :desktop-app:packageExe `
+            "-PappVersion=$version" `
+            --no-daemon
+      - name: Prepare Windows assets
         shell: pwsh
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
-          $packages = @(Get-ChildItem "desktop-viewer\desktop-app\build\compose\binaries\main\msi\*.msi")
-          if ($packages.Count -ne 1) {
-            throw "Expected exactly one MSI package, found $($packages.Count)."
+          function Copy-SinglePackage {
+            param(
+              [string]$Pattern,
+              [string]$Format,
+              [string]$Destination
+            )
+
+            $packages = @(Get-ChildItem $Pattern)
+            if ($packages.Count -ne 1) {
+              throw "Expected exactly one $Format package, found $($packages.Count)."
+            }
+            Copy-Item $packages[0].FullName $Destination
           }
-          $VERSION = $env:VERSION
+
           New-Item -ItemType Directory -Force "release-assets" | Out-Null
-          Copy-Item $packages[0].FullName "release-assets\AgentPerf-Inspector-$VERSION-windows-x64.msi"
-      - name: Upload MSI
+          Copy-SinglePackage `
+            "desktop-viewer\desktop-app\build\compose\binaries\main\msi\*.msi" `
+            "MSI" `
+            "release-assets\AgentPerf-Inspector-$env:VERSION-windows-x64.msi"
+          Copy-SinglePackage `
+            "desktop-viewer\desktop-app\build\compose\binaries\main\exe\*.exe" `
+            "EXE" `
+            "release-assets\AgentPerf-Inspector-$env:VERSION-windows-x64.exe"
+      - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
-          path: release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-windows-x64.msi
+          name: windows-installers
+          path: |
+            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-windows-x64.msi
+            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-windows-x64.exe
           if-no-files-found: error
 
   package-macos:
-    name: Package macOS DMG
+    name: Package macOS DMG and PKG
     needs: [resolve, test]
-    runs-on: macos-14
+    runs-on: macos-15-intel
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -139,31 +221,47 @@ jobs:
             desktop-viewer/gradle/libs.versions.toml
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
-      - name: Build DMG
-        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg -PappVersion=${{ needs.resolve.outputs.version }} --no-daemon
-      - name: Prepare DMG asset
+      - name: Build DMG and PKG
+        run: |
+          ./desktop-viewer/gradlew -p desktop-viewer \
+            :desktop-app:packageDmg \
+            :desktop-app:packagePkg \
+            -PappVersion=${{ needs.resolve.outputs.version }} \
+            --no-daemon
+      - name: Prepare macOS assets
         shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          packages=(desktop-viewer/desktop-app/build/compose/binaries/main/dmg/*.dmg)
-          if [[ "${#packages[@]}" -ne 1 || ! -f "${packages[0]}" ]]; then
-            echo "::error::Expected exactly one DMG package."
-            exit 1
-          fi
           mkdir -p release-assets
-          cp "${packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.dmg"
-      - name: Upload DMG
+
+          prepare_asset() {
+            local format="$1"
+            local extension="$2"
+            local destination="$3"
+            local packages=(desktop-viewer/desktop-app/build/compose/binaries/main/"$format"/*."$extension")
+            if [[ "${#packages[@]}" -ne 1 || ! -f "${packages[0]}" ]]; then
+              echo "::error::Expected exactly one $extension package."
+              exit 1
+            fi
+            cp "${packages[0]}" "$destination"
+          }
+
+          prepare_asset dmg dmg "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.dmg"
+          prepare_asset pkg pkg "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.pkg"
+      - name: Upload macOS installers
         uses: actions/upload-artifact@v4
         with:
-          name: macos-installer
-          path: release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-macos-x64.dmg
+          name: macos-installers
+          path: |
+            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-macos-x64.dmg
+            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-macos-x64.pkg
           if-no-files-found: error
 
   publish:
     name: Publish GitHub Release
-    needs: [resolve, test, package-windows, package-macos]
+    needs: [resolve, test, package-linux, package-windows, package-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -183,10 +281,25 @@ jobs:
         run: |
           set -euo pipefail
           assets=(release-assets/*)
-          if [[ "${#assets[@]}" -ne 2 ]]; then
-            echo "::error::Expected exactly two native installer assets."
+          if [[ "${#assets[@]}" -ne 6 ]]; then
+            echo "::error::Expected exactly six native installer assets."
             exit 1
           fi
+
+          expected_assets=(
+            "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.deb"
+            "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.rpm"
+            "release-assets/AgentPerf-Inspector-$VERSION-windows-x64.msi"
+            "release-assets/AgentPerf-Inspector-$VERSION-windows-x64.exe"
+            "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.dmg"
+            "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.pkg"
+          )
+          for asset in "${expected_assets[@]}"; do
+            if [[ ! -f "$asset" ]]; then
+              echo "::error::Missing expected release asset: $asset"
+              exit 1
+            fi
+          done
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"

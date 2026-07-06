@@ -53,7 +53,14 @@ compose.desktop {
         mainClass = "dev.agentperf.desktop.MainKt"
         jvmArgs("-Dapple.awt.application.name=AgentPerf Inspector")
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(
+                TargetFormat.Deb,
+                TargetFormat.Rpm,
+                TargetFormat.Msi,
+                TargetFormat.Exe,
+                TargetFormat.Dmg,
+                TargetFormat.Pkg,
+            )
             packageName = "AgentPerf Inspector"
             packageVersion = appVersion
             macOS {
