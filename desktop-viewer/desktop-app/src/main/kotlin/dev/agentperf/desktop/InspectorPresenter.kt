@@ -133,6 +133,7 @@ internal object InspectorPresenter {
                 ConnectionStatus.DISCONNECTED -> strings.disconnected
                 ConnectionStatus.CONNECTING -> strings.connecting
                 ConnectionStatus.CONNECTED -> strings.live
+                ConnectionStatus.ARCHIVE -> strings.offlineArchive
                 ConnectionStatus.ERROR -> state.connectionError
                     ?.let(strings::connectionError)
                     ?: strings.connectionFailed
@@ -140,6 +141,7 @@ internal object InspectorPresenter {
             connectionTone = when (state.connectionStatus) {
                 ConnectionStatus.DISCONNECTED,
                 ConnectionStatus.CONNECTING,
+                ConnectionStatus.ARCHIVE,
                 -> ConnectionTone.NEUTRAL
                 ConnectionStatus.CONNECTED -> ConnectionTone.SUCCESS
                 ConnectionStatus.ERROR -> ConnectionTone.ERROR

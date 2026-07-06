@@ -247,6 +247,21 @@ class InspectorPresenterTest {
     }
 
     @Test
+    fun `offline archive has a neutral localized connection status`() {
+        val state = InspectorState(connectionStatus = ConnectionStatus.ARCHIVE)
+
+        val english = InspectorPresenter.present(state, ViewerStrings.English)
+        val chinese = InspectorPresenter.present(
+            state,
+            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+        )
+
+        assertEquals("Offline archive", english.connectionLabel)
+        assertEquals("离线归档", chinese.connectionLabel)
+        assertEquals(ConnectionTone.NEUTRAL, english.connectionTone)
+    }
+
+    @Test
     fun `localizes the authorized device count error in the header`() {
         val model = InspectorPresenter.present(
             InspectorState(

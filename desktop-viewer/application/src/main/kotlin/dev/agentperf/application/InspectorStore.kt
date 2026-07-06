@@ -18,12 +18,32 @@ class InspectorStore(
     }
 
     fun loadCapture(snapshot: LayoutSnapshot, screenshotPng: ByteArray) {
+        loadInspectedContent(
+            snapshot = snapshot,
+            screenshotPng = screenshotPng,
+            connectionStatus = ConnectionStatus.CONNECTED,
+        )
+    }
+
+    fun loadArchive(snapshot: LayoutSnapshot, screenshotPng: ByteArray) {
+        loadInspectedContent(
+            snapshot = snapshot,
+            screenshotPng = screenshotPng,
+            connectionStatus = ConnectionStatus.ARCHIVE,
+        )
+    }
+
+    private fun loadInspectedContent(
+        snapshot: LayoutSnapshot,
+        screenshotPng: ByteArray,
+        connectionStatus: ConnectionStatus,
+    ) {
         val next = InspectorState(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
             analysis = analyzer.analyze(snapshot.root),
             selectedNodeId = state.selectedNodeId,
-            connectionStatus = ConnectionStatus.CONNECTED,
+            connectionStatus = connectionStatus,
         )
         state = if (next.selectedNode == null) {
             next.copy(selectedNodeId = snapshot.root.id)

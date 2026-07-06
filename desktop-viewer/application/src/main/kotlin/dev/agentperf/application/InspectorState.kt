@@ -11,6 +11,7 @@ enum class ConnectionStatus {
     DISCONNECTED,
     CONNECTING,
     CONNECTED,
+    ARCHIVE,
     ERROR,
 }
 

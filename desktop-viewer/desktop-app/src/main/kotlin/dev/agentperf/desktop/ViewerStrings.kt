@@ -53,6 +53,7 @@ internal class ViewerStrings private constructor(
     val disconnected: String get() = text("Disconnected", "未连接")
     val connecting: String get() = text("Connecting", "连接中")
     val live: String get() = text("Live", "实时")
+    val offlineArchive: String get() = text("Offline archive", "离线归档")
     val connectionFailed: String get() = text("Connection failed", "连接失败")
     val unavailable: String get() = text("Unavailable", "不可用")
     val appOnlyOn: String get() = text("APP ONLY ON", "仅应用 开")

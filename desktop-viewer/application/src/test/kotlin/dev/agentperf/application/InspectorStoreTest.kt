@@ -105,4 +105,21 @@ class InspectorStoreTest {
         assertNull(store.state.connectionError)
         assertEquals(SampleSnapshots.dashboard, store.state.snapshot)
     }
+
+    @Test
+    fun `loading an archive publishes offline state and repairs selection`() {
+        val store = InspectorStore().apply {
+            load(SampleSnapshots.dashboard)
+            selectNode("title")
+        }
+        val importedSnapshot = SampleSnapshots.dashboard.copy(
+            root = SampleSnapshots.dashboard.root.children.last(),
+        )
+
+        store.loadArchive(importedSnapshot, byteArrayOf(1, 2, 3))
+
+        assertEquals(ConnectionStatus.ARCHIVE, store.state.connectionStatus)
+        assertEquals(importedSnapshot.root.id, store.state.selectedNodeId)
+        assertTrue(store.state.analysis.metrics.nodeCount > 0)
+    }
 }
