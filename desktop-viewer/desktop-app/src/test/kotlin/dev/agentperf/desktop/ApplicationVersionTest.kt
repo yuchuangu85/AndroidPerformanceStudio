@@ -11,8 +11,8 @@ class ApplicationVersionTest {
     private val desktopBuildScript = Files.readString(Path.of("build.gradle.kts"))
 
     @Test
-    fun `project version defaults to 0_1_1 and accepts the appVersion property`() {
-        assertTrue(projectBuildScript.contains("""val defaultAppVersion = "0.1.1""""))
+    fun `project version defaults to 0_1_2 and accepts the appVersion property`() {
+        assertTrue(projectBuildScript.contains("""val defaultAppVersion = "0.1.2""""))
         assertTrue(
             projectBuildScript.contains(
                 """providers.gradleProperty("appVersion").getOrElse(defaultAppVersion)""",
@@ -25,7 +25,7 @@ class ApplicationVersionTest {
     fun `desktop distributions use the resolved project version`() {
         assertTrue(desktopBuildScript.contains("val appVersion = project.version.toString()"))
         assertTrue(desktopBuildScript.contains("packageVersion = appVersion"))
-        assertFalse(desktopBuildScript.contains("""packageVersion = "0.1.1""""))
+        assertFalse(desktopBuildScript.contains("""packageVersion = "0.1.2""""))
     }
 
     @Test
