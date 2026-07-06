@@ -133,4 +133,42 @@ data class LayoutSnapshot(
     val display: DisplayInfo,
     val capabilities: AgentCapabilities,
     val root: UiNode,
+    val windows: List<WindowSnapshot> = emptyList(),
+    val defaultWindowId: String? = null,
 )
+
+@Serializable
+enum class WindowType {
+    ACTIVITY,
+    DIALOG,
+    POPUP,
+    OTHER,
+}
+
+@Serializable
+data class WindowSnapshot(
+    val id: String,
+    val title: String,
+    val type: WindowType = WindowType.OTHER,
+    val bounds: Bounds,
+    val root: UiNode,
+)
+
+const val LEGACY_WINDOW_ID = "window:legacy"
+
+val LayoutSnapshot.effectiveWindows: List<WindowSnapshot>
+    get() = windows.ifEmpty {
+        listOf(
+            WindowSnapshot(
+                id = LEGACY_WINDOW_ID,
+                title = packageName.substringAfterLast('.'),
+                bounds = root.bounds,
+                root = root,
+            ),
+        )
+    }
+
+val LayoutSnapshot.effectiveDefaultWindowId: String
+    get() = defaultWindowId
+        ?.takeIf { candidate -> effectiveWindows.any { it.id == candidate } }
+        ?: effectiveWindows.first().id
