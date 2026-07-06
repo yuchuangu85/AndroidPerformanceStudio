@@ -41,9 +41,9 @@ Compose Desktop 仍只会在当前宿主操作系统上执行对应格式的任�
 
 发布工作流采用“每个平台一个任务”的结构：
 
-- `package-linux` 在 `ubuntu-latest` 上依次执行 `packageDeb` 和 `packageRpm`。
+- `package-linux` 在 x64 `ubuntu-latest` 上安装 RPM 构建工具，再依次执行 `packageDeb` 和 `packageRpm`。
 - `package-windows` 在 `windows-latest` 上依次执行 `packageMsi` 和 `packageExe`。
-- `package-macos` 在 `macos-14` 上依次执行 `packageDmg` 和 `packagePkg`。
+- `package-macos` 在明确的 x64 `macos-15-intel` runner 上依次执行 `packageDmg` 和 `packagePkg`，避免 `macos-14` 当前映射到 ARM64 runner 后仍把产物错误标记为 x64。
 
 每个任务只检索自己对应格式的输出目录，并要求每种格式恰好存在一个文件。文件复制到 `release-assets` 后使用稳定名称：
 
@@ -68,6 +68,7 @@ Compose Desktop 仍只会在当前宿主操作系统上执行对应格式的任�
 ## 错误处理
 
 - 任一 Gradle 打包任务失败时，对应平台任务立即失败。
+- Linux runner 无法安装或调用 `rpmbuild` 时，Linux 打包任务立即失败。
 - 任一格式没有文件或出现多个候选文件时，准备资产步骤失败并输出格式名称及实际数量。
 - 发布前缺少任何预期文件、出现额外文件或总数不是六个时，发布任务失败。
 - 只有 `publish` 任务拥有 `contents: write`，其余任务保持只读权限。
