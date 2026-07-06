@@ -21,6 +21,14 @@ internal class ViewerStrings private constructor(
         get() = text("Choose archive to import", "选择要导入的归档")
     val chooseArchiveExportFile: String
         get() = text("Choose export file", "选择导出文件")
+    val importArchiveSucceededTitle: String
+        get() = text("Import succeeded", "导入成功")
+    val importArchiveFailedTitle: String
+        get() = text("Import failed", "导入失败")
+    val exportArchiveSucceededTitle: String
+        get() = text("Export succeeded", "导出成功")
+    val exportArchiveFailedTitle: String
+        get() = text("Export failed", "导出失败")
     val hideInvisibleHierarchyViews: String
         get() = text(
             "Hide invisible views in hierarchy",
@@ -65,6 +73,37 @@ internal class ViewerStrings private constructor(
     val unavailable: String get() = text("Unavailable", "不可用")
     val appOnlyOn: String get() = text("APP ONLY ON", "仅应用 开")
     val appOnlyOff: String get() = text("APP ONLY OFF", "仅应用 关")
+
+    fun archiveImportSucceeded(path: String): String = text(
+        "Archive imported:\n$path",
+        "归档已导入：\n$path",
+    )
+
+    fun archiveImportFailed(message: String): String = text(
+        "Unable to import archive:\n$message",
+        "无法导入归档：\n$message",
+    )
+
+    fun archiveExportSucceeded(
+        path: String,
+        rawArtifactsIncluded: Boolean,
+    ): String =
+        if (rawArtifactsIncluded) {
+            text(
+                "Archive exported:\n$path",
+                "归档已导出：\n$path",
+            )
+        } else {
+            text(
+                "Archive exported without raw Visible Window Views attachments:\n$path",
+                "归档已导出，但未包含原始 Visible Window Views 附件：\n$path",
+            )
+        }
+
+    fun archiveExportFailed(message: String): String = text(
+        "Unable to export archive:\n$message",
+        "无法导出归档：\n$message",
+    )
 
     fun visibleWindowViewsExportSucceeded(directory: String): String = text(
         "Saved visible-window-views.zip and visible-window-views.txt to:\n$directory",

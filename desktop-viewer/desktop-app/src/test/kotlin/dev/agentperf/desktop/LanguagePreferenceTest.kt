@@ -75,6 +75,21 @@ class LanguagePreferenceTest {
         assertEquals("Export", english.exportArchive)
         assertEquals("离线归档", chinese.offlineArchive)
         assertEquals("Offline archive", english.offlineArchive)
+        assertEquals("导入成功", chinese.importArchiveSucceededTitle)
+        assertEquals("Import succeeded", english.importArchiveSucceededTitle)
+        assertEquals("导出失败", chinese.exportArchiveFailedTitle)
+        assertEquals("Export failed", english.exportArchiveFailedTitle)
+        assertEquals(
+            "归档已导入：\n/tmp/capture.apinspect",
+            chinese.archiveImportSucceeded("/tmp/capture.apinspect"),
+        )
+        assertEquals(
+            "Archive exported without raw Visible Window Views attachments:\n/tmp/capture.apinspect",
+            english.archiveExportSucceeded(
+                path = "/tmp/capture.apinspect",
+                rawArtifactsIncluded = false,
+            ),
+        )
         assertEquals(
             "android.view.ViewStub 节点存在但当前不可见",
             chinese.findingMessage("layout.invisible-node", arguments, "fallback"),

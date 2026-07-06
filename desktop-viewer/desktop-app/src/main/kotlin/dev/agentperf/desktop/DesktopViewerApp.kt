@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
+import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
 import dev.agentperf.adb.ConnectedDeviceSession
@@ -108,24 +109,30 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     var manualRefreshInProgress by remember { mutableStateOf(false) }
     val deviceClient = remember { LiveDeviceClient() }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
-    val exportDirectoryChooser = remember { SwingExportDirectoryChooser() }
-    val visibleWindowViewsExporter = remember(deviceClient) {
-        VisibleWindowViewsExporter(
-            captureDump = deviceClient::dumpVisibleWindowViews,
-            renderText = VisibleWindowViewsTextRenderer::render,
+    val archiveFileChooser = remember { SwingCaptureArchiveFileChooser() }
+    val captureArchiveService = remember(protocolCodec) {
+        CaptureArchiveService(
+            archiveCodec = CaptureArchiveCodec(),
+            protocolCodec = protocolCodec,
         )
     }
-    var visibleWindowViewsExportState by remember {
-        mutableStateOf<VisibleWindowViewsExportUiState>(VisibleWindowViewsExportUiState.Idle)
+    var archiveUiState by remember {
+        mutableStateOf<CaptureArchiveUiState>(CaptureArchiveUiState.Idle)
+    }
+    var importedRawArtifacts by remember {
+        mutableStateOf<CaptureRawArtifacts?>(null)
     }
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(autoScanEnabled) {
         if (!autoScanEnabled) {
-            store.disconnected()
-            state = store.state
+            if (store.state.connectionStatus != ConnectionStatus.ARCHIVE) {
+                store.disconnected()
+                state = store.state
+            }
             return@LaunchedEffect
         }
+        importedRawArtifacts = null
         while (currentCoroutineContext().isActive) {
             var session: ConnectedDeviceSession? = null
             try {
@@ -144,6 +151,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         snapshot = protocolCodec.decodeSnapshot(frame.snapshotJson),
                         screenshotPng = frame.screenshotPng,
                     )
+                    importedRawArtifacts = null
                     state = store.state
                     delay(CAPTURE_INTERVAL_MILLIS)
                 }
@@ -181,6 +189,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 snapshot = protocolCodec.decodeSnapshot(frame.snapshotJson),
                 screenshotPng = frame.screenshotPng,
             )
+            importedRawArtifacts = null
             state = store.state
         } catch (error: CancellationException) {
             throw error
@@ -217,26 +226,94 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     }
     val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
     val appFocusRequester = remember { FocusRequester() }
-    val exportVisibleWindowViews: () -> Unit = {
-        if (visibleWindowViewsExportState !is VisibleWindowViewsExportUiState.Exporting) {
-            exportDirectoryChooser.chooseDirectory(strings.chooseExportDirectory)?.let { directory ->
-                visibleWindowViewsExportState = VisibleWindowViewsExportUiState.Exporting
-                coroutineScope.launch {
-                    visibleWindowViewsExportState = try {
-                        withContext(Dispatchers.IO) {
-                            visibleWindowViewsExporter.export(directory)
-                        }
-                        VisibleWindowViewsExportUiState.Success(directory)
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Throwable) {
-                        VisibleWindowViewsExportUiState.Failure(
-                            strings.connectionError(
-                                error.message ?: error.javaClass.simpleName,
-                            ),
-                        )
+    val exportCaptureArchive: () -> Unit = exportCaptureArchive@{
+        if (archiveUiState is CaptureArchiveUiState.Working) {
+            return@exportCaptureArchive
+        }
+        val snapshot = state.snapshot ?: return@exportCaptureArchive
+        val screenshot = state.screenshotPng?.copyOf() ?: return@exportCaptureArchive
+        val captureStatus = state.connectionStatus
+        val preservedRawArtifacts = importedRawArtifacts
+        val target = archiveFileChooser.chooseExport(
+            title = strings.chooseArchiveExportFile,
+            initialFileName = captureArchiveDefaultFileName(
+                packageName = snapshot.packageName,
+                capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
+            ),
+        ) ?: return@exportCaptureArchive
+        archiveUiState = CaptureArchiveUiState.Working(CaptureArchiveOperation.EXPORT)
+        coroutineScope.launch {
+            archiveUiState = try {
+                val rawArtifacts = withContext(Dispatchers.IO) {
+                    if (captureStatus == ConnectionStatus.ARCHIVE) {
+                        preservedRawArtifacts
+                    } else {
+                        runCatching {
+                            val zip = deviceClient.dumpVisibleWindowViews()
+                            CaptureRawArtifacts(
+                                zip = zip,
+                                text = VisibleWindowViewsTextRenderer.render(zip),
+                            )
+                        }.getOrNull()
                     }
                 }
+                val result = withContext(Dispatchers.IO) {
+                    captureArchiveService.export(
+                        target = target,
+                        producerVersion =
+                            System.getProperty("agentperf.version", "development"),
+                        snapshot = snapshot,
+                        screenshotPng = screenshot,
+                        rawArtifacts = rawArtifacts,
+                    )
+                }
+                CaptureArchiveUiState.Success(
+                    operation = CaptureArchiveOperation.EXPORT,
+                    path = result.path,
+                    rawArtifactsIncluded = result.rawArtifactsIncluded,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                CaptureArchiveUiState.Failure(
+                    operation = CaptureArchiveOperation.EXPORT,
+                    message = error.message ?: error.javaClass.simpleName,
+                )
+            }
+        }
+    }
+    val importCaptureArchive: () -> Unit = importCaptureArchive@{
+        if (archiveUiState is CaptureArchiveUiState.Working) {
+            return@importCaptureArchive
+        }
+        val source = archiveFileChooser.chooseImport(
+            strings.chooseArchiveToImport,
+        ) ?: return@importCaptureArchive
+        autoScanEnabled = false
+        archiveUiState = CaptureArchiveUiState.Working(CaptureArchiveOperation.IMPORT)
+        coroutineScope.launch {
+            try {
+                val imported = withContext(Dispatchers.IO) {
+                    captureArchiveService.import(source)
+                }
+                store.loadArchive(
+                    snapshot = imported.snapshot,
+                    screenshotPng = imported.screenshotPng,
+                )
+                state = store.state
+                importedRawArtifacts = imported.rawArtifacts
+                hierarchyTreeState = HierarchyTreeState()
+                archiveUiState = CaptureArchiveUiState.Success(
+                    operation = CaptureArchiveOperation.IMPORT,
+                    path = source,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                archiveUiState = CaptureArchiveUiState.Failure(
+                    operation = CaptureArchiveOperation.IMPORT,
+                    message = error.message ?: error.javaClass.simpleName,
+                )
             }
         }
     }
@@ -298,14 +375,15 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             panelVisibility = panelVisibility,
             viewDisplayOptions = viewDisplayOptions,
             archiveOperationInProgress =
-                visibleWindowViewsExportState is VisibleWindowViewsExportUiState.Exporting,
+                archiveUiState is CaptureArchiveUiState.Working ||
+                    manualRefreshInProgress,
             canExportArchive = state.snapshot != null && state.screenshotPng != null,
             isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
         ),
         onAction = performAction,
         onViewOption = toggleViewDisplayOption,
-        onImportArchive = {},
-        onExportArchive = exportVisibleWindowViews,
+        onImportArchive = importCaptureArchive,
+        onExportArchive = exportCaptureArchive,
     )
 
     LaunchedEffect(Unit) {
@@ -450,29 +528,54 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     },
                 )
             }
-            when (val exportState = visibleWindowViewsExportState) {
-                VisibleWindowViewsExportUiState.Idle,
-                VisibleWindowViewsExportUiState.Exporting,
+            when (val operationState = archiveUiState) {
+                CaptureArchiveUiState.Idle,
+                is CaptureArchiveUiState.Working,
                 -> Unit
-                is VisibleWindowViewsExportUiState.Success -> {
+                is CaptureArchiveUiState.Success -> {
+                    val path = operationState.path.toAbsolutePath().toString()
+                    val title = when (operationState.operation) {
+                        CaptureArchiveOperation.IMPORT ->
+                            strings.importArchiveSucceededTitle
+                        CaptureArchiveOperation.EXPORT ->
+                            strings.exportArchiveSucceededTitle
+                    }
+                    val message = when (operationState.operation) {
+                        CaptureArchiveOperation.IMPORT ->
+                            strings.archiveImportSucceeded(path)
+                        CaptureArchiveOperation.EXPORT ->
+                            strings.archiveExportSucceeded(
+                                path = path,
+                                rawArtifactsIncluded =
+                                    operationState.rawArtifactsIncluded,
+                            )
+                    }
                     ExportResultDialog(
-                        title = strings.visibleWindowViewsExportSucceededTitle,
-                        message = strings.visibleWindowViewsExportSucceeded(
-                            exportState.directory.toAbsolutePath().toString(),
-                        ),
+                        title = title,
+                        message = message,
                         dismissLabel = strings.dismiss,
                         onDismiss = {
-                            visibleWindowViewsExportState = VisibleWindowViewsExportUiState.Idle
+                            archiveUiState = CaptureArchiveUiState.Idle
                         },
                     )
                 }
-                is VisibleWindowViewsExportUiState.Failure -> {
+                is CaptureArchiveUiState.Failure -> {
+                    val title = when (operationState.operation) {
+                        CaptureArchiveOperation.IMPORT -> strings.importArchiveFailedTitle
+                        CaptureArchiveOperation.EXPORT -> strings.exportArchiveFailedTitle
+                    }
+                    val message = when (operationState.operation) {
+                        CaptureArchiveOperation.IMPORT ->
+                            strings.archiveImportFailed(operationState.message)
+                        CaptureArchiveOperation.EXPORT ->
+                            strings.archiveExportFailed(operationState.message)
+                    }
                     ExportResultDialog(
-                        title = strings.visibleWindowViewsExportFailedTitle,
-                        message = strings.visibleWindowViewsExportFailed(exportState.message),
+                        title = title,
+                        message = message,
                         dismissLabel = strings.dismiss,
                         onDismiss = {
-                            visibleWindowViewsExportState = VisibleWindowViewsExportUiState.Idle
+                            archiveUiState = CaptureArchiveUiState.Idle
                         },
                     )
                 }

@@ -54,6 +54,7 @@ compose.desktop {
     application {
         mainClass = "dev.agentperf.desktop.MainKt"
         jvmArgs("-Dapple.awt.application.name=AgentPerf Inspector")
+        jvmArgs("-Dagentperf.version=$appVersion")
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "AgentPerf Inspector"
