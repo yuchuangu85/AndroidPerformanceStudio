@@ -31,10 +31,13 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("package-macos:"))
         assertTrue(workflow.contains("runs-on: macos-14"))
         assertTrue(workflow.contains(":desktop-app:packageDmg"))
+        assertTrue(workflow.contains("package-linux:"))
+        assertTrue(workflow.contains("runs-on: ubuntu-latest"))
+        assertTrue(workflow.contains(":desktop-app:packageDeb"))
         assertTrue(workflow.contains("needs: [resolve, test]"))
         assertTrue(
             workflow.contains(
-                "needs: [resolve, test, package-windows, package-macos]",
+                "needs: [resolve, test, package-windows, package-macos, package-linux]",
             ),
         )
     }
@@ -47,6 +50,8 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("permissions:\n      contents: write"))
         assertTrue(workflow.contains("AgentPerf-Inspector-${'$'}VERSION-windows-x64.msi"))
         assertTrue(workflow.contains("AgentPerf-Inspector-${'$'}VERSION-macos-x64.dmg"))
+        assertTrue(workflow.contains("AgentPerf-Inspector-${'$'}VERSION-linux-x64.deb"))
+        assertTrue(workflow.contains("Expected exactly three native installer assets."))
         assertTrue(workflow.contains("gh release create"))
         assertTrue(workflow.contains("gh release upload"))
         assertTrue(workflow.contains("--clobber"))
