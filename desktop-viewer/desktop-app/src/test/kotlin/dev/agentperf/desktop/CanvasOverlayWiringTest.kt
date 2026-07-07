@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test
 
 class CanvasOverlayWiringTest {
     @Test
-    fun `general bounds are optional and selected bounds are drawn last`() {
+    fun `general bounds are optional and hover focus is drawn last`() {
         val source = Files.readString(
             Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
         )
@@ -18,6 +18,7 @@ class CanvasOverlayWiringTest {
             .substringBefore("internal fun canvasCornerRadiusDp")
         val previewCall = extractPreviewPaneCall(source)
         val generalBounds = extractBlock(preview, "if (showVisibleViewBounds)")
+        val hoveredBounds = extractBlock(preview, "hoveredBounds?.let")
         val selectedBounds = extractBlock(preview, "selectedBounds?.let")
 
         val visibleBoundsArguments = previewCall.text
@@ -43,6 +44,11 @@ class CanvasOverlayWiringTest {
         assertTrue(selectedBounds.text.contains("Stroke(width = 3.dp.toPx())"))
         assertFalse(selectedBounds.text.contains("borderColors.normal"))
         assertFalse(selectedBounds.text.contains("Stroke(width = 1.dp.toPx())"))
+
+        assertTrue(hoveredBounds.startIndex > selectedBounds.endExclusive)
+        assertTrue(hoveredBounds.text.contains("color = borderColors.hovered.toComposeColor()"))
+        assertTrue(hoveredBounds.text.contains("Stroke(width = 2.dp.toPx())"))
+        assertFalse(hoveredBounds.text.contains("state.hoveredNodeId != state.selectedNodeId"))
     }
 
     private fun extractPreviewPaneCall(source: String): SourceSlice {

@@ -69,6 +69,54 @@ class NativeViewerMenuBarTest {
     }
 
     @Test
+    fun `native file menu pads short localized labels to a minimum width`() {
+        val model = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = false,
+            canExportArchive = true,
+            isMacOs = false,
+        )
+
+        assertTrue(model.importMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
+        assertTrue(model.exportMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
+        assertTrue(model.importMenuText.startsWith(model.importLabel))
+        assertTrue(model.exportMenuText.startsWith(model.exportLabel))
+    }
+
+    @Test
+    fun `native file shortcuts use the host primary modifier`() {
+        val macModel = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = false,
+            canExportArchive = true,
+            isMacOs = true,
+        )
+        val windowsModel = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = false,
+            canExportArchive = true,
+            isMacOs = false,
+        )
+
+        assertEquals(NativeMenuShortcut(Key.I, ctrl = false, meta = true), macModel.importShortcut)
+        assertEquals(NativeMenuShortcut(Key.E, ctrl = false, meta = true), macModel.exportShortcut)
+        assertEquals(NativeMenuShortcut(Key.I, ctrl = true, meta = false), windowsModel.importShortcut)
+        assertEquals(NativeMenuShortcut(Key.E, ctrl = true, meta = false), windowsModel.exportShortcut)
+    }
+
+    @Test
     fun `native command shortcuts use the host primary modifier`() {
         assertEquals(
             NativeMenuShortcut(Key.R, ctrl = false, meta = true),

@@ -10,6 +10,15 @@ class ProtocolCodecTest {
     private val codec = ProtocolCodec(supportedMajor = 1)
 
     @Test
+    fun `declares named protocol versions for compatibility upgrades`() {
+        assertEquals(ProtocolVersion(1, 0), PROTOCOL_VERSION_1_0)
+        assertEquals(ProtocolVersion(1, 1), PROTOCOL_VERSION_1_1)
+        assertEquals(PROTOCOL_VERSION_1_1, CURRENT_PROTOCOL_VERSION)
+        assertEquals("1.0", PROTOCOL_VERSION_1_0.identifier)
+        assertEquals("1.1", CURRENT_PROTOCOL_VERSION.identifier)
+    }
+
+    @Test
     fun `snapshot survives a JSON round trip`() {
         val snapshot = LayoutSnapshot(
             protocolVersion = ProtocolVersion(1, 0),

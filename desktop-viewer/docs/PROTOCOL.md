@@ -1,5 +1,16 @@
 # AgentPerf Protocol v1
 
+## Protocol versions
+
+| Version | Identifier | Meaning | Export behavior |
+| --- | --- | --- | --- |
+| 1.0 | `1.0` | Legacy single-root snapshots. `windows` and `defaultWindowId` may be absent. | Accepted for import; normalized to the current protocol when exported again. |
+| 1.1 | `1.1` | Multi-window snapshots with explicit `windows` and `defaultWindowId`. | Current export version. |
+
+The code-level constants are `PROTOCOL_VERSION_1_0`, `PROTOCOL_VERSION_1_1`,
+and `CURRENT_PROTOCOL_VERSION`. Each `ProtocolVersion` also exposes an
+`identifier` such as `1.1` for display and diagnostics.
+
 ## Compatibility
 
 The wire document carries:

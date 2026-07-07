@@ -1,8 +1,11 @@
 package dev.agentperf.desktop
 
 import dev.agentperf.fixtures.SampleSnapshots
+import dev.agentperf.protocol.CURRENT_PROTOCOL_VERSION
+import dev.agentperf.protocol.LEGACY_WINDOW_ID
 import dev.agentperf.protocol.ProtocolCodec
 import dev.agentperf.protocol.ProtocolVersion
+import dev.agentperf.protocol.normalizedToCurrentProtocol
 import dev.agentperf.protocol.UnsupportedProtocolVersionException
 import java.nio.file.Path
 import java.util.Base64
@@ -34,10 +37,30 @@ class CaptureArchiveServiceTest {
         service.export(path, "0.1.2", snapshot, ONE_PIXEL_PNG, raw)
         val imported = service.import(path)
 
-        assertEquals(snapshot, imported.snapshot)
+        assertEquals(snapshot.normalizedToCurrentProtocol(), imported.snapshot)
         assertArrayEquals(ONE_PIXEL_PNG, imported.screenshotPng)
         assertArrayEquals(raw.zip, requireNotNull(imported.rawArtifacts).zip)
         assertEquals(raw.text, requireNotNull(imported.rawArtifacts).text)
+    }
+
+    @Test
+    fun `exports legacy snapshots with the current protocol version`() {
+        val path = tempDir.resolve("legacy-upgraded.apinspect")
+        val legacySnapshot = SampleSnapshots.dashboard.copy(
+            protocolVersion = ProtocolVersion(1, 0),
+            windows = emptyList(),
+            defaultWindowId = null,
+        )
+
+        service.export(path, "0.1.3", legacySnapshot, ONE_PIXEL_PNG, rawArtifacts = null)
+
+        val document = CaptureArchiveCodec().read(path)
+        val exported = protocolCodec.decodeSnapshot(document.payload.snapshotJson)
+        assertEquals(CURRENT_PROTOCOL_VERSION.major, document.metadata.protocolMajor)
+        assertEquals(CURRENT_PROTOCOL_VERSION.minor, document.metadata.protocolMinor)
+        assertEquals(CURRENT_PROTOCOL_VERSION, exported.protocolVersion)
+        assertEquals(listOf(LEGACY_WINDOW_ID), exported.windows.map { it.id })
+        assertEquals(LEGACY_WINDOW_ID, exported.defaultWindowId)
     }
 
     @Test

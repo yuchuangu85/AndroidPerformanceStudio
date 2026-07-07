@@ -36,6 +36,10 @@ internal data class NativeViewerMenuModel(
     val fileTitle: String,
     val importLabel: String,
     val exportLabel: String,
+    val importMenuText: String,
+    val exportMenuText: String,
+    val importShortcut: NativeMenuShortcut,
+    val exportShortcut: NativeMenuShortcut,
     val importEnabled: Boolean,
     val exportEnabled: Boolean,
 ) {
@@ -87,10 +91,28 @@ internal data class NativeViewerMenuModel(
         fileTitle = strings.file,
         importLabel = strings.importArchive,
         exportLabel = strings.exportArchive,
+        importMenuText = nativeMenuItemText(strings.importArchive),
+        exportMenuText = nativeMenuItemText(strings.exportArchive),
+        importShortcut = nativePrimaryShortcut(Key.I, isMacOs),
+        exportShortcut = nativePrimaryShortcut(Key.E, isMacOs),
         importEnabled = !archiveOperationInProgress,
         exportEnabled = !archiveOperationInProgress && canExportArchive,
     )
 }
+
+internal const val NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS = 8
+
+internal fun nativeMenuItemText(label: String): String {
+    if (label.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS) return label
+    return label + "\u2003".repeat(NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS - label.length)
+}
+
+internal fun nativePrimaryShortcut(key: Key, isMacOs: Boolean): NativeMenuShortcut =
+    NativeMenuShortcut(
+        key = key,
+        ctrl = !isMacOs,
+        meta = isMacOs,
+    )
 
 internal fun viewerActionNativeShortcut(
     action: ViewerAction,
@@ -107,12 +129,14 @@ internal fun viewerActionNativeShortcut(
         ViewerAction.TOGGLE_SELECTED_NODE,
         -> return null
     }
-    return NativeMenuShortcut(
-        key = key,
-        ctrl = !isMacOs,
-        meta = isMacOs,
-    )
+    return nativePrimaryShortcut(key, isMacOs)
 }
+
+private fun NativeMenuShortcut.toKeyShortcut(): KeyShortcut = KeyShortcut(
+    key = key,
+    ctrl = ctrl,
+    meta = meta,
+)
 
 @Composable
 internal fun FrameWindowScope.NativeViewerMenuBar(
@@ -125,13 +149,15 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
     MenuBar {
         Menu(model.fileTitle) {
             Item(
-                text = model.importLabel,
+                text = model.importMenuText,
                 enabled = model.importEnabled,
+                shortcut = model.importShortcut.toKeyShortcut(),
                 onClick = onImportArchive,
             )
             Item(
-                text = model.exportLabel,
+                text = model.exportMenuText,
                 enabled = model.exportEnabled,
+                shortcut = model.exportShortcut.toKeyShortcut(),
                 onClick = onExportArchive,
             )
         }
@@ -140,16 +166,10 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                 if (index > 0 && model.actions[index - 1].group != item.group) {
                     Separator()
                 }
-                val shortcut = item.shortcut?.let {
-                    KeyShortcut(
-                        key = it.key,
-                        ctrl = it.ctrl,
-                        meta = it.meta,
-                    )
-                }
+                val shortcut = item.shortcut?.toKeyShortcut()
                 if (item.action.isToggleAction()) {
                     CheckboxItem(
-                        text = item.label,
+                        text = nativeMenuItemText(item.label),
                         checked = item.checked,
                         enabled = item.enabled,
                         shortcut = shortcut,
@@ -157,7 +177,7 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                     )
                 } else {
                     Item(
-                        text = item.label,
+                        text = nativeMenuItemText(item.label),
                         enabled = item.enabled,
                         shortcut = shortcut,
                         onClick = { onAction(item.action) },
@@ -171,7 +191,7 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                     Separator()
                 }
                 CheckboxItem(
-                    text = item.label,
+                    text = nativeMenuItemText(item.label),
                     checked = item.checked,
                     onCheckedChange = { onViewOption(item.option) },
                 )

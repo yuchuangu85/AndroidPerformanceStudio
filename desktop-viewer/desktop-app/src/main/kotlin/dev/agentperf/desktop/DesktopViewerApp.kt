@@ -1262,16 +1262,6 @@ private fun PreviewPane(
                                 }
                             }
                         }
-                        hoveredBounds?.takeIf { state.hoveredNodeId != state.selectedNodeId }?.let { bounds ->
-                            CanvasGeometry.mapBounds(bounds, source, destination)?.let {
-                                drawRect(
-                                    color = borderColors.hovered.toComposeColor(),
-                                    topLeft = Offset(it.left, it.top),
-                                    size = Size(it.width, it.height),
-                                    style = Stroke(width = 2.dp.toPx()),
-                                )
-                            }
-                        }
                         selectedBounds?.let { bounds ->
                             val overlay = CanvasGeometry.mapBounds(
                                 bounds = bounds,
@@ -1284,6 +1274,16 @@ private fun PreviewPane(
                                     topLeft = Offset(it.left, it.top),
                                     size = Size(it.width, it.height),
                                     style = Stroke(width = 3.dp.toPx()),
+                                )
+                            }
+                        }
+                        hoveredBounds?.let { bounds ->
+                            CanvasGeometry.mapBounds(bounds, source, destination)?.let {
+                                drawRect(
+                                    color = borderColors.hovered.toComposeColor(),
+                                    topLeft = Offset(it.left, it.top),
+                                    size = Size(it.width, it.height),
+                                    style = Stroke(width = 2.dp.toPx()),
                                 )
                             }
                         }

@@ -6,7 +6,7 @@ import dev.agentperf.protocol.CaptureFrame
 import dev.agentperf.protocol.DisplayInfo
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.ProtocolCodec
-import dev.agentperf.protocol.ProtocolVersion
+import dev.agentperf.protocol.CURRENT_PROTOCOL_VERSION
 import dev.agentperf.protocol.UiNode
 import dev.agentperf.protocol.ViewAttributes
 import dev.agentperf.protocol.ViewNode
@@ -33,7 +33,7 @@ internal class AdbFallbackCapture(
         val windows = captureHierarchy()
         val defaultWindow = windows.maxBy { it.root.nodeCount() }
         val snapshot = LayoutSnapshot(
-            protocolVersion = ProtocolVersion(major = 1, minor = 1),
+            protocolVersion = CURRENT_PROTOCOL_VERSION,
             packageName = packageName,
             capturedAtEpochMillis = System.currentTimeMillis(),
             display = DisplayInfo(widthPx = width, heightPx = height, density = 1f),

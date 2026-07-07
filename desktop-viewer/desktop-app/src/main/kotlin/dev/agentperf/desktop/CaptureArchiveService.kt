@@ -2,6 +2,7 @@ package dev.agentperf.desktop
 
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.ProtocolCodec
+import dev.agentperf.protocol.normalizedToCurrentProtocol
 import java.nio.file.Path
 
 internal data class ImportedCapture(
@@ -22,17 +23,18 @@ internal class CaptureArchiveService(
         rawArtifacts: CaptureRawArtifacts?,
     ): CaptureArchiveWriteResult {
         validatePng(screenshotPng)
+        val exportSnapshot = snapshot.normalizedToCurrentProtocol()
         return archiveCodec.write(
             target = target,
             metadata = CaptureArchiveMetadata(
                 producerVersion = producerVersion,
-                packageName = snapshot.packageName,
-                capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
-                protocolMajor = snapshot.protocolVersion.major,
-                protocolMinor = snapshot.protocolVersion.minor,
+                packageName = exportSnapshot.packageName,
+                capturedAtEpochMillis = exportSnapshot.capturedAtEpochMillis,
+                protocolMajor = exportSnapshot.protocolVersion.major,
+                protocolMinor = exportSnapshot.protocolVersion.minor,
             ),
             payload = CaptureArchivePayload(
-                snapshotJson = protocolCodec.encodeSnapshot(snapshot),
+                snapshotJson = protocolCodec.encodeSnapshot(exportSnapshot),
                 screenshotPng = screenshotPng,
                 rawArtifacts = rawArtifacts,
             ),

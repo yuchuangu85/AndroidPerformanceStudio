@@ -7,7 +7,13 @@ import kotlinx.serialization.Serializable
 data class ProtocolVersion(
     val major: Int,
     val minor: Int,
-)
+) {
+    val identifier: String get() = "$major.$minor"
+}
+
+val PROTOCOL_VERSION_1_0 = ProtocolVersion(major = 1, minor = 0)
+val PROTOCOL_VERSION_1_1 = ProtocolVersion(major = 1, minor = 1)
+val CURRENT_PROTOCOL_VERSION = PROTOCOL_VERSION_1_1
 
 @Serializable
 data class AgentCapabilities(
@@ -172,3 +178,18 @@ val LayoutSnapshot.effectiveDefaultWindowId: String
     get() = defaultWindowId
         ?.takeIf { candidate -> effectiveWindows.any { it.id == candidate } }
         ?: effectiveWindows.first().id
+
+fun LayoutSnapshot.normalizedToCurrentProtocol(): LayoutSnapshot {
+    val normalizedWindows = effectiveWindows
+    val normalizedDefaultWindowId = effectiveDefaultWindowId
+    val normalizedRoot = normalizedWindows
+        .firstOrNull { it.id == normalizedDefaultWindowId }
+        ?.root
+        ?: root
+    return copy(
+        protocolVersion = CURRENT_PROTOCOL_VERSION,
+        root = normalizedRoot,
+        windows = normalizedWindows,
+        defaultWindowId = normalizedDefaultWindowId,
+    )
+}

@@ -3,7 +3,7 @@ package dev.agentperf.android.view
 import dev.agentperf.protocol.AgentCapabilities
 import dev.agentperf.protocol.DisplayInfo
 import dev.agentperf.protocol.LayoutSnapshot
-import dev.agentperf.protocol.ProtocolVersion
+import dev.agentperf.protocol.CURRENT_PROTOCOL_VERSION
 import dev.agentperf.protocol.WindowSnapshot
 
 object LiveSnapshotFactory {
@@ -16,7 +16,7 @@ object LiveSnapshotFactory {
         windows: List<WindowSnapshot>,
         defaultWindowId: String,
     ) = LayoutSnapshot(
-        protocolVersion = ProtocolVersion(major = 1, minor = 1),
+        protocolVersion = CURRENT_PROTOCOL_VERSION,
         packageName = packageName,
         capturedAtEpochMillis = capturedAtEpochMillis,
         display = DisplayInfo(widthPx = widthPx, heightPx = heightPx, density = density),
