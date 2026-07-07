@@ -26,12 +26,14 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       manual: ${{ steps.release.outputs.manual }}
+      checkout_ref: ${{ steps.release.outputs.checkout_ref }}
     steps:
       - name: Validate version
         id: release
         shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
@@ -54,9 +56,17 @@ jobs:
             exit 1
           fi
 
+          checkout_ref="${GITHUB_SHA}"
+          if [[ "$manual" == "false" ]]; then
+            checkout_ref="refs/tags/${tag}"
+          elif gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            checkout_ref="refs/tags/${tag}"
+          fi
+
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "manual=${manual}" >> "${GITHUB_OUTPUT}"
+          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
 
   test:
     name: Test
@@ -65,6 +75,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -86,6 +98,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -128,6 +142,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -161,9 +177,55 @@ jobs:
           path: release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-macos-x64.dmg
           if-no-files-found: error
 
+  package-linux:
+    name: Package Linux DEB
+    needs: [resolve, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            desktop-viewer/*.gradle.kts
+            desktop-viewer/gradle/libs.versions.toml
+            desktop-viewer/gradle/wrapper/gradle-wrapper.properties
+            desktop-viewer/**/build.gradle.kts
+      - name: Install Linux packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot
+      - name: Build DEB
+        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb -PappVersion=${{ needs.resolve.outputs.version }} --no-daemon
+      - name: Prepare DEB asset
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          packages=(desktop-viewer/desktop-app/build/compose/binaries/main/deb/*.deb)
+          if [[ "${#packages[@]}" -ne 1 || ! -f "${packages[0]}" ]]; then
+            echo "::error::Expected exactly one DEB package."
+            exit 1
+          fi
+          mkdir -p release-assets
+          cp "${packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.deb"
+      - name: Upload DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installer
+          path: release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-linux-x64.deb
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub Release
-    needs: [resolve, test, package-windows, package-macos]
+    needs: [resolve, test, package-windows, package-macos, package-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -183,8 +245,8 @@ jobs:
         run: |
           set -euo pipefail
           assets=(release-assets/*)
-          if [[ "${#assets[@]}" -ne 2 ]]; then
-            echo "::error::Expected exactly two native installer assets."
+          if [[ "${#assets[@]}" -ne 3 ]]; then
+            echo "::error::Expected exactly three native installer assets."
             exit 1
           fi
 
