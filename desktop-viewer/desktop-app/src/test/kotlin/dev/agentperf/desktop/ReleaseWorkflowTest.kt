@@ -68,7 +68,7 @@ class ReleaseWorkflowTest {
         val workflow = Files.readString(workflowPath)
 
         assertTrue(workflow.contains("uses: actions/checkout@v6"))
-        assertTrue(workflow.contains("uses: actions/setup-java@v4"))
+        assertTrue(workflow.contains("uses: actions/setup-java@v5"))
         assertTrue(workflow.contains("java-version: \"21\""))
         assertTrue(workflow.contains("cache: gradle"))
         assertTrue(workflow.contains("uses: actions/upload-artifact@v4"))
