@@ -11,8 +11,8 @@ class ApplicationVersionTest {
     private val desktopBuildScript = Files.readString(Path.of("build.gradle.kts"))
 
     @Test
-    fun `project version defaults to 0_1_6 and accepts the appVersion property`() {
-        assertTrue(projectBuildScript.contains("""val defaultAppVersion = "0.1.6""""))
+    fun `project version defaults to 0_1_7 and accepts the appVersion property`() {
+        assertTrue(projectBuildScript.contains("""val defaultAppVersion = "0.1.7""""))
         assertTrue(
             projectBuildScript.contains(
                 """providers.gradleProperty("appVersion").getOrElse(defaultAppVersion)""",
