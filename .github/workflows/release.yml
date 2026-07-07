@@ -135,7 +135,7 @@ jobs:
           Copy-Item $msiPackages[0].FullName "release-assets\AgentPerf-Inspector-$VERSION-windows-x64.msi"
           Copy-Item $exePackages[0].FullName "release-assets\AgentPerf-Inspector-$VERSION-windows-x64.exe"
       - name: Upload Windows installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-installers
           path: |
@@ -185,7 +185,7 @@ jobs:
           cp "${dmg_packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.dmg"
           cp "${pkg_packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.pkg"
       - name: Upload macOS installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: macos-installers
           path: |
@@ -239,7 +239,7 @@ jobs:
           cp "${deb_packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.deb"
           cp "${rpm_packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.rpm"
       - name: Upload Linux installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linux-installers
           path: |
