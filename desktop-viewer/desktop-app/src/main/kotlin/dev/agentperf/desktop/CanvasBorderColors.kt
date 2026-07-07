@@ -6,7 +6,7 @@ import java.util.prefs.Preferences
 
 @JvmInline
 internal value class CanvasArgb(val value: Long) {
-    fun toComposeColor(): Color = Color(value.toULong())
+    fun toComposeColor(): Color = Color(value)
     fun toHex(): String = String.format(Locale.US, "#%08X", value)
 
     companion object {
