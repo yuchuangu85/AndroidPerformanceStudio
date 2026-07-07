@@ -20,6 +20,7 @@ class NativeViewerMenuBarTest {
                 hideInvisibleHierarchyViews = true,
                 hideInvisibleFindings = false,
                 hideHierarchyIndices = true,
+                showHierarchyIds = false,
                 showVisibleViewBounds = true,
             ),
             archiveOperationInProgress = false,
@@ -37,8 +38,15 @@ class NativeViewerMenuBarTest {
             model.actions.map { it.group },
         )
         assertTrue(model.actions.first().checked)
-        assertFalse(
+        assertTrue(
             model.actions.single { it.action == ViewerAction.TOGGLE_FINDINGS }.checked,
+        )
+        assertFalse(
+            model.actions.single { it.action == ViewerAction.TOGGLE_HIERARCHY_IDS }.checked,
+        )
+        assertEquals(
+            "显示布局 ID",
+            model.actions.single { it.action == ViewerAction.TOGGLE_HIERARCHY_IDS }.label,
         )
         assertEquals("视图", model.viewTitle)
         assertEquals(

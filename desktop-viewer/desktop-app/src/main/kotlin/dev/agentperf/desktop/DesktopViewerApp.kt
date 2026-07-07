@@ -367,6 +367,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             ViewerAction.TOGGLE_DETAILS -> {
                 panelVisibility = panelVisibility.toggleDetails()
             }
+            ViewerAction.TOGGLE_HIERARCHY_IDS -> {
+                val updatedOptions = viewDisplayOptions.toggleHierarchyIds()
+                viewDisplayOptions = updatedOptions
+                viewDisplayOptionsStore.save(updatedOptions)
+            }
             ViewerAction.OPEN_SETTINGS -> settingsVisible = true
         }
     }
@@ -1069,6 +1074,7 @@ private fun HierarchyPane(
                                 ViewDisplayProjection.hierarchyLabel(
                                     row = row,
                                     hideIndex = viewDisplayOptions.hideHierarchyIndices,
+                                    showId = viewDisplayOptions.showHierarchyIds,
                                 ),
                                 color = if (row.visible) colors.rowText else colors.hiddenRowText,
                                 fontFamily = FontFamily.Monospace,

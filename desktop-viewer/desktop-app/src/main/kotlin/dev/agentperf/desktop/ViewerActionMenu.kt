@@ -10,6 +10,7 @@ internal enum class ViewerAction {
     TOGGLE_HIERARCHY,
     TOGGLE_FINDINGS,
     TOGGLE_DETAILS,
+    TOGGLE_HIERARCHY_IDS,
     OPEN_SETTINGS,
 }
 
@@ -65,10 +66,16 @@ internal object ViewerActionMenu {
             group = 2,
         ),
         ViewerActionItem(
+            ViewerAction.TOGGLE_HIERARCHY_IDS,
+            strings.actionLabel(ViewerAction.TOGGLE_HIERARCHY_IDS),
+            "",
+            group = 3,
+        ),
+        ViewerActionItem(
             ViewerAction.OPEN_SETTINGS,
             strings.actionLabel(ViewerAction.OPEN_SETTINGS),
             "⌘, / Ctrl+,",
-            group = 3,
+            group = 4,
         ),
     )
 }

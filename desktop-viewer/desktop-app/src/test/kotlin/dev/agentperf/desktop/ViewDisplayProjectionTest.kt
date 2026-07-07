@@ -57,11 +57,41 @@ class ViewDisplayProjectionTest {
 
         assertEquals(
             "1-1  Button",
-            ViewDisplayProjection.hierarchyLabel(row, hideIndex = false),
+            ViewDisplayProjection.hierarchyLabel(
+                row = row,
+                hideIndex = false,
+                showId = true,
+            ),
         )
         assertEquals(
             "Button",
-            ViewDisplayProjection.hierarchyLabel(row, hideIndex = true),
+            ViewDisplayProjection.hierarchyLabel(
+                row = row,
+                hideIndex = true,
+                showId = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `hierarchy label can hide resource id while keeping index and class`() {
+        val row = rows.last().copy(resourceLabel = "id/submit")
+
+        assertEquals(
+            "1-1  id/submit  Button",
+            ViewDisplayProjection.hierarchyLabel(
+                row = row,
+                hideIndex = false,
+                showId = true,
+            ),
+        )
+        assertEquals(
+            "1-1  Button",
+            ViewDisplayProjection.hierarchyLabel(
+                row = row,
+                hideIndex = false,
+                showId = false,
+            ),
         )
     }
 

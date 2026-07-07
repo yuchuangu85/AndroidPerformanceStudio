@@ -16,15 +16,16 @@ class ViewerActionMenuTest {
                 Triple(ViewerAction.PREVIOUS_NODE, "上一个节点", "↑"),
                 Triple(ViewerAction.NEXT_NODE, "下一个节点", "↓"),
                 Triple(ViewerAction.TOGGLE_SELECTED_NODE, "折叠/展开节点", "Enter"),
-                Triple(ViewerAction.TOGGLE_HIERARCHY, "显示/隐藏左侧栏", "⌘1 / Ctrl+1"),
-                Triple(ViewerAction.TOGGLE_FINDINGS, "显示/隐藏底部栏", "⌘2 / Ctrl+2"),
-                Triple(ViewerAction.TOGGLE_DETAILS, "显示/隐藏右侧栏", "⌘3 / Ctrl+3"),
+                Triple(ViewerAction.TOGGLE_HIERARCHY, "隐藏左侧栏", "⌘1 / Ctrl+1"),
+                Triple(ViewerAction.TOGGLE_FINDINGS, "隐藏底部栏", "⌘2 / Ctrl+2"),
+                Triple(ViewerAction.TOGGLE_DETAILS, "隐藏右侧栏", "⌘3 / Ctrl+3"),
+                Triple(ViewerAction.TOGGLE_HIERARCHY_IDS, "显示布局 ID", ""),
                 Triple(ViewerAction.OPEN_SETTINGS, "设置", "⌘, / Ctrl+,"),
             ),
             ViewerActionMenu.items(strings).map { Triple(it.action, it.label, it.shortcutLabel) },
         )
         assertEquals(
-            listOf(0, 1, 1, 1, 2, 2, 2, 3),
+            listOf(0, 1, 1, 1, 2, 2, 2, 3, 4),
             ViewerActionMenu.items(strings).map { it.group },
         )
     }

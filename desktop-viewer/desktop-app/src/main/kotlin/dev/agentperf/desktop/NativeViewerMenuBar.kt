@@ -60,6 +60,7 @@ internal data class NativeViewerMenuModel(
                 selectedNodeId = selectedNodeId,
                 autoScanEnabled = autoScanEnabled,
                 panelVisibility = panelVisibility,
+                viewDisplayOptions = viewDisplayOptions,
             )
             NativeActionMenuItem(
                 action = item.action,
@@ -124,6 +125,7 @@ internal fun viewerActionNativeShortcut(
         ViewerAction.TOGGLE_FINDINGS -> Key.Two
         ViewerAction.TOGGLE_DETAILS -> Key.Three
         ViewerAction.OPEN_SETTINGS -> Key.Comma
+        ViewerAction.TOGGLE_HIERARCHY_IDS,
         ViewerAction.PREVIOUS_NODE,
         ViewerAction.NEXT_NODE,
         ViewerAction.TOGGLE_SELECTED_NODE,
@@ -205,6 +207,7 @@ private fun ViewerAction.isToggleAction(): Boolean = when (this) {
     ViewerAction.TOGGLE_HIERARCHY,
     ViewerAction.TOGGLE_FINDINGS,
     ViewerAction.TOGGLE_DETAILS,
+    ViewerAction.TOGGLE_HIERARCHY_IDS,
     -> true
     ViewerAction.PREVIOUS_NODE,
     ViewerAction.NEXT_NODE,

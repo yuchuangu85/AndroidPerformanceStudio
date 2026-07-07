@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test
 
 class ViewerActionUiStateTest {
     @Test
-    fun `toggle actions reflect scan and panel state`() {
+    fun `toggle actions reflect scan and hidden panel state`() {
         val visibility = PanelVisibility(
             showHierarchy = true,
             showFindings = false,
@@ -24,9 +24,27 @@ class ViewerActionUiStateTest {
             ),
         )
         assertEquals(
-            ViewerActionUiState(enabled = true, checked = false),
+            ViewerActionUiState(enabled = true, checked = true),
             viewerActionUiState(
                 action = ViewerAction.TOGGLE_FINDINGS,
+                selectedNodeId = null,
+                autoScanEnabled = true,
+                panelVisibility = visibility,
+            ),
+        )
+        assertEquals(
+            ViewerActionUiState(enabled = true, checked = false),
+            viewerActionUiState(
+                action = ViewerAction.TOGGLE_HIERARCHY,
+                selectedNodeId = null,
+                autoScanEnabled = true,
+                panelVisibility = visibility,
+            ),
+        )
+        assertEquals(
+            ViewerActionUiState(enabled = true, checked = false),
+            viewerActionUiState(
+                action = ViewerAction.TOGGLE_DETAILS,
                 selectedNodeId = null,
                 autoScanEnabled = true,
                 panelVisibility = visibility,

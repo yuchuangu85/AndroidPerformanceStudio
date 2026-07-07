@@ -131,9 +131,10 @@ internal class ViewerStrings private constructor(
         ViewerAction.PREVIOUS_NODE -> text("Previous node", "上一个节点")
         ViewerAction.NEXT_NODE -> text("Next node", "下一个节点")
         ViewerAction.TOGGLE_SELECTED_NODE -> text("Collapse/expand node", "折叠/展开节点")
-        ViewerAction.TOGGLE_HIERARCHY -> text("Show/hide left panel", "显示/隐藏左侧栏")
-        ViewerAction.TOGGLE_FINDINGS -> text("Show/hide bottom panel", "显示/隐藏底部栏")
-        ViewerAction.TOGGLE_DETAILS -> text("Show/hide right panel", "显示/隐藏右侧栏")
+        ViewerAction.TOGGLE_HIERARCHY -> text("Hide left panel", "隐藏左侧栏")
+        ViewerAction.TOGGLE_FINDINGS -> text("Hide bottom panel", "隐藏底部栏")
+        ViewerAction.TOGGLE_DETAILS -> text("Hide right panel", "隐藏右侧栏")
+        ViewerAction.TOGGLE_HIERARCHY_IDS -> text("Show layout IDs", "显示布局 ID")
         ViewerAction.OPEN_SETTINGS -> settings
     }
 
