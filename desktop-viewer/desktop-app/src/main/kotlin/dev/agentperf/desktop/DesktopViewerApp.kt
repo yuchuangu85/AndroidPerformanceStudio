@@ -2,6 +2,7 @@ package dev.agentperf.desktop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -824,17 +825,38 @@ private fun ManualRefreshButton(
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
     val iconColor = if (enabled) colors.secondaryText else colors.mutedText.copy(alpha = 0.55f)
+    val buttonShape = RoundedCornerShape(ManualRefreshButtonStyle.CORNER_RADIUS_DP.dp)
+    val backgroundAlpha = if (enabled) {
+        ManualRefreshButtonStyle.BACKGROUND_ALPHA
+    } else {
+        ManualRefreshButtonStyle.DISABLED_BACKGROUND_ALPHA
+    }
+    val backgroundColor = if (colors.isDark) {
+        Color.White.copy(alpha = backgroundAlpha)
+    } else {
+        Color.White.copy(alpha = backgroundAlpha)
+    }
+    val borderColor = colors.border.copy(
+        alpha = if (enabled) {
+            ManualRefreshButtonStyle.BORDER_ALPHA
+        } else {
+            ManualRefreshButtonStyle.DISABLED_BORDER_ALPHA
+        },
+    )
     Box(
         modifier = Modifier
-            .size(22.dp)
+            .width(ManualRefreshButtonStyle.WIDTH_DP.dp)
+            .height(ManualRefreshButtonStyle.HEIGHT_DP.dp)
+            .background(backgroundColor, buttonShape)
+            .border(1.dp, borderColor, buttonShape)
             .semantics { contentDescription = strings.refreshOnce }
             .let { base ->
                 if (enabled) base.clickable(onClick = onClick) else base
             },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(14.dp)) {
-            val strokeWidth = 1.4.dp.toPx()
+        Canvas(Modifier.size(ManualRefreshButtonStyle.ICON_SIZE_DP.dp)) {
+            val strokeWidth = 1.25.dp.toPx()
             drawArc(
                 color = iconColor,
                 startAngle = -55f,
@@ -856,6 +878,17 @@ private fun ManualRefreshButton(
             )
         }
     }
+}
+
+internal object ManualRefreshButtonStyle {
+    const val WIDTH_DP = 28
+    const val HEIGHT_DP = 20
+    const val CORNER_RADIUS_DP = 7
+    const val ICON_SIZE_DP = 13
+    const val BACKGROUND_ALPHA = 0.62f
+    const val BORDER_ALPHA = 0.45f
+    const val DISABLED_BACKGROUND_ALPHA = 0.24f
+    const val DISABLED_BORDER_ALPHA = 0.18f
 }
 
 @Composable

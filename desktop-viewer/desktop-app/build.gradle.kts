@@ -56,10 +56,26 @@ compose.desktop {
         jvmArgs("-Dapple.awt.application.name=AgentPerf Inspector")
         jvmArgs("-Dagentperf.version=$appVersion")
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(
+                TargetFormat.Dmg,
+                TargetFormat.Pkg,
+                TargetFormat.Msi,
+                TargetFormat.Exe,
+                TargetFormat.Deb,
+                TargetFormat.Rpm,
+            )
             packageName = "AgentPerf Inspector"
             packageVersion = appVersion
+            windows {
+                iconFile.set(project.file("src/main/package/windows/app-icon.ico"))
+                shortcut = true
+            }
+            linux {
+                iconFile.set(project.file("src/main/package/linux/app-icon.png"))
+                shortcut = true
+            }
             macOS {
+                iconFile.set(project.file("src/main/package/macos/app-icon.icns"))
                 // jpackage requires a positive first component for macOS app images.
                 val macVersion = macOsPackageVersion(appVersion)
                 packageVersion = macVersion

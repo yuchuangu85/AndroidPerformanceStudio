@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -12,8 +13,10 @@ import androidx.compose.ui.window.application
 internal const val APP_DISPLAY_NAME = "AgentPerf Inspector"
 
 fun main() = application {
+    val appIcon = painterResource("icons/app-icon.png")
     Window(
         onCloseRequest = ::exitApplication,
+        icon = appIcon,
         title = APP_DISPLAY_NAME,
     ) {
         var settingsRequest by remember { mutableStateOf(0L) }
