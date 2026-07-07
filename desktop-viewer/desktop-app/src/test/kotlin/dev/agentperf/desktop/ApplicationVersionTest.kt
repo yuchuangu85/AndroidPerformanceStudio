@@ -11,8 +11,12 @@ class ApplicationVersionTest {
     private val desktopBuildScript = Files.readString(Path.of("build.gradle.kts"))
 
     @Test
-    fun `project version defaults to 0_1_7 and accepts the appVersion property`() {
-        assertTrue(projectBuildScript.contains("""val defaultAppVersion = "0.1.7""""))
+    fun `project version defaults to a semantic version and accepts the appVersion property`() {
+        val defaultVersion = Regex("""val defaultAppVersion = "(\d+\.\d+\.\d+)"""")
+        assertTrue(
+            defaultVersion.containsMatchIn(projectBuildScript),
+            "defaultAppVersion must be declared as a numeric semantic version",
+        )
         assertTrue(
             projectBuildScript.contains(
                 """providers.gradleProperty("appVersion").getOrElse(defaultAppVersion)""",
