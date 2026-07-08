@@ -93,7 +93,7 @@
 | v0.1.6 | 🚀 已发布 | 2026-07-07 14:23:54 +0800 | `8773202` | native packaging/app identity polish 后发布。 |
 | v0.1.7 | 🚀 已发布 | 2026-07-07 23:14:24 +0800 | `9e45e5e` | release workflow / version assertion 更新。 |
 | v0.1.8 | 🚀 已发布 | 2026-07-08 10:22:59 +0800 | `79349e2` | toolbar refresh/theme/language polish。 |
-| v0.1.9 | 🚀 待发布 | 2026-07-08 15:33:29 +0800 | `e293138` | canvas selection ordering and layer pass-through。 |
+| v0.1.9 | 🚀 已发布 | 2026-07-08 15:33:29 +0800 | `e293138` | canvas selection ordering and layer pass-through。 |
 
 ## 维护规则
 
