@@ -78,19 +78,19 @@ internal object ViewerActionMenu {
             group = 4,
         ),
     )
-}
 
-internal fun viewerCommandAction(
-    key: Key,
-    commandPressed: Boolean,
-): ViewerAction? {
-    if (!commandPressed) return null
-    return when (key) {
-        Key.R -> ViewerAction.TOGGLE_AUTO_SCAN
-        Key.One -> ViewerAction.TOGGLE_HIERARCHY
-        Key.Two -> ViewerAction.TOGGLE_FINDINGS
-        Key.Three -> ViewerAction.TOGGLE_DETAILS
-        Key.Comma -> ViewerAction.OPEN_SETTINGS
-        else -> null
+    fun commandAction(
+        key: Key,
+        commandPressed: Boolean,
+    ): ViewerAction? {
+        if (!commandPressed) return null
+        return when (key) {
+            Key.R -> ViewerAction.TOGGLE_AUTO_SCAN
+            Key.One -> ViewerAction.TOGGLE_HIERARCHY
+            Key.Two -> ViewerAction.TOGGLE_FINDINGS
+            Key.Three -> ViewerAction.TOGGLE_DETAILS
+            Key.Comma -> ViewerAction.OPEN_SETTINGS
+            else -> null
+        }
     }
 }

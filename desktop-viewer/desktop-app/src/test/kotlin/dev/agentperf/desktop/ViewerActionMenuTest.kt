@@ -32,11 +32,11 @@ class ViewerActionMenuTest {
 
     @Test
     fun `command shortcuts map to the same menu actions`() {
-        assertEquals(ViewerAction.TOGGLE_AUTO_SCAN, viewerCommandAction(Key.R, commandPressed = true))
-        assertEquals(ViewerAction.TOGGLE_HIERARCHY, viewerCommandAction(Key.One, commandPressed = true))
-        assertEquals(ViewerAction.TOGGLE_FINDINGS, viewerCommandAction(Key.Two, commandPressed = true))
-        assertEquals(ViewerAction.TOGGLE_DETAILS, viewerCommandAction(Key.Three, commandPressed = true))
-        assertEquals(ViewerAction.OPEN_SETTINGS, viewerCommandAction(Key.Comma, commandPressed = true))
-        assertNull(viewerCommandAction(Key.R, commandPressed = false))
+        assertEquals(ViewerAction.TOGGLE_AUTO_SCAN, ViewerActionMenu.commandAction(Key.R, commandPressed = true))
+        assertEquals(ViewerAction.TOGGLE_HIERARCHY, ViewerActionMenu.commandAction(Key.One, commandPressed = true))
+        assertEquals(ViewerAction.TOGGLE_FINDINGS, ViewerActionMenu.commandAction(Key.Two, commandPressed = true))
+        assertEquals(ViewerAction.TOGGLE_DETAILS, ViewerActionMenu.commandAction(Key.Three, commandPressed = true))
+        assertEquals(ViewerAction.OPEN_SETTINGS, ViewerActionMenu.commandAction(Key.Comma, commandPressed = true))
+        assertNull(ViewerActionMenu.commandAction(Key.R, commandPressed = false))
     }
 }

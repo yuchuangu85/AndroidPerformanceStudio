@@ -430,7 +430,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 .focusRequester(appFocusRequester)
                 .onPreviewKeyEvent { event ->
                     val action = if (event.type == KeyEventType.KeyDown) {
-                        viewerCommandAction(
+                        ViewerActionMenu.commandAction(
                             key = event.key,
                             commandPressed = event.isMetaPressed || event.isCtrlPressed,
                         )
