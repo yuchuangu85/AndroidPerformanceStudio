@@ -52,6 +52,7 @@ data class EdgeInsets(
 @Serializable
 data class ViewAttributes(
     val visibility: String? = null,
+    val layoutBounds: Bounds? = null,
     val elevation: Float? = null,
     val z: Float? = null,
     val translationX: Float? = null,
@@ -68,6 +69,7 @@ data class ViewAttributes(
     val margin: EdgeInsets? = null,
     val layoutWidth: Int? = null,
     val layoutHeight: Int? = null,
+    val layoutParamsClass: String? = null,
     val measuredWidth: Int? = null,
     val measuredHeight: Int? = null,
     val minWidth: Int? = null,
@@ -92,6 +94,7 @@ data class ViewAttributes(
     val focused: Boolean? = null,
     val selected: Boolean? = null,
     val contentDescription: String? = null,
+    val rawProperties: Map<String, String> = emptyMap(),
 )
 
 @Serializable

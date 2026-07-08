@@ -55,6 +55,11 @@ The wire document carries:
 
 Node discriminator values are `view` and `compose`. Bounds are physical display pixels. Node IDs need only remain stable within one snapshot until a later protocol version defines cross-frame identity.
 
+`view.attributes` is optional and defaults to an empty object for older payloads. It carries:
+
+- Curated Layout Inspector fields used by the desktop UI, including visibility, screen-independent local layout bounds (`layoutBounds`), layout params size/class, measurement, padding/margin, scroll offsets, drawing transforms, clipping, layer state, and interaction flags.
+- `rawProperties`, a sorted string map preserving decoded `ViewHierarchyEncoder` property names such as `layout:left`, `drawing:elevation`, and `layoutParams:width`. This mirrors LayoutInspectorV2's generic property table strategy so encoded ADB fallback captures can expose properties that are not yet promoted into first-class fields.
+
 ## Session bootstrap
 
 The debug Agent writes `files/agentperf/session.json`:

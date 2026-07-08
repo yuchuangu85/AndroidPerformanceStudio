@@ -365,7 +365,8 @@ private data class EncodedMap(
             alpha = alpha,
             children = children,
             resourceName = resourceName,
-            text = (properties["text:text"] as? String)?.takeIf(String::isNotBlank),
+            text = properties.stringOrNull("text:text")
+                ?: properties.stringOrNull("text:mText"),
             attributes = properties.toViewAttributes(propertyNames),
         )
     }
@@ -378,13 +379,22 @@ private data class EncodedMap(
     private fun Map<String, Any>.toViewAttributes(
         propertyNames: Map<Short, String>,
     ): ViewAttributes {
-        val layoutParams = (get("layoutParams") as? EncodedMap)
+        val encodedLayoutParams = get("layoutParams") as? EncodedMap
+        val layoutParams = encodedLayoutParams
             ?.namedProperties(propertyNames)
             .orEmpty()
+        val layoutParamsClass = (layoutParams["class"] as? String)
+            ?: (encodedLayoutParams?.values?.get(3.toShort()) as? String)
         val elevation = floatOrNull("drawing:elevation")
         val translationZ = floatOrNull("drawing:translationZ")
         return ViewAttributes(
             visibility = intOrNull("misc:visibility")?.toVisibilityLabel(),
+            layoutBounds = Bounds(
+                left = int("layout:left"),
+                top = int("layout:top"),
+                right = int("layout:right"),
+                bottom = int("layout:bottom"),
+            ),
             elevation = elevation,
             z = if (elevation != null || translationZ != null) {
                 (elevation ?: 0f) + (translationZ ?: 0f)
@@ -417,6 +427,7 @@ private data class EncodedMap(
             },
             layoutWidth = layoutParams.intOrNull("width"),
             layoutHeight = layoutParams.intOrNull("height"),
+            layoutParamsClass = layoutParamsClass?.takeIf(String::isNotBlank),
             measuredWidth = intOrNull("measurement:measuredWidth"),
             measuredHeight = intOrNull("measurement:measuredHeight"),
             minWidth = intOrNull("measurement:minWidth"),
@@ -432,11 +443,41 @@ private data class EncodedMap(
             layerType = intOrNull("drawing:layerType")?.toLayerTypeLabel(),
             enabled = booleanOrNull("misc:enabled"),
             clickable = booleanOrNull("misc:clickable"),
+            longClickable = booleanOrNull("misc:longClickable"),
             focusable = booleanOrNull("focus:isFocusable"),
             focused = booleanOrNull("focus:isFocused"),
             selected = booleanOrNull("misc:selected"),
+            contentDescription = stringOrNull("accessibility:getContentDescription()")
+                ?: stringOrNull("contentDescription"),
+            rawProperties = toRawProperties(propertyNames),
         )
     }
+
+    private fun Map<String, Any>.toRawProperties(
+        propertyNames: Map<Short, String>,
+    ): Map<String, String> =
+        buildMap<String, String> {
+            this@toRawProperties.entries.forEach { (name, value) ->
+                when {
+                    name == "layoutParams" && value is EncodedMap -> {
+                        val layoutParams = value.namedProperties(propertyNames)
+                        val classValue = layoutParams["class"]
+                            ?: value.values[3.toShort()]
+                        if (classValue != null) {
+                            put("layoutParams:class", classValue.toString())
+                        }
+                        layoutParams
+                            .filterValues { nestedValue -> nestedValue !is EncodedMap }
+                            .forEach { (layoutParamName, layoutParamValue) ->
+                                put("layoutParams:$layoutParamName", layoutParamValue.toString())
+                            }
+                    }
+                    name.startsWith("meta:") -> Unit
+                    value is EncodedMap -> Unit
+                    else -> put(name, value.toString())
+                }
+            }
+        }.toSortedMap()
 
     private fun Map<String, Any>.int(name: String): Int =
         (get(name) as? Number)?.toInt() ?: 0
@@ -449,6 +490,9 @@ private data class EncodedMap(
 
     private fun Map<String, Any>.booleanOrNull(name: String): Boolean? =
         get(name) as? Boolean
+
+    private fun Map<String, Any>.stringOrNull(name: String): String? =
+        (get(name) as? String)?.takeIf(String::isNotBlank)?.takeUnless { it == "null" }
 
     private fun Map<String, Any>.number(
         name: String,

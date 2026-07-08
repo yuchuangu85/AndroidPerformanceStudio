@@ -32,6 +32,7 @@ class ProtocolCodecTest {
                 bounds = Bounds(0, 0, 1080, 2400),
                 attributes = ViewAttributes(
                     visibility = "VISIBLE",
+                    layoutBounds = Bounds(0, 0, 1080, 2400),
                     elevation = 8f,
                     z = 10f,
                     translationX = 2f,
@@ -41,6 +42,7 @@ class ProtocolCodecTest {
                     scaleY = 1f,
                     padding = EdgeInsets(left = 16, top = 24, right = 16, bottom = 24),
                     margin = EdgeInsets(left = 8, top = 8, right = 8, bottom = 8),
+                    layoutParamsClass = "android.widget.FrameLayout.LayoutParams",
                     clipChildren = true,
                     clipToPadding = false,
                     background = "android.graphics.drawable.ColorDrawable",
@@ -49,6 +51,11 @@ class ProtocolCodecTest {
                     hardwareAccelerated = true,
                     clickable = true,
                     enabled = true,
+                    rawProperties = mapOf(
+                        "layout:left" to "0",
+                        "layout:right" to "1080",
+                        "layoutParams:class" to "android.widget.FrameLayout.LayoutParams",
+                    ),
                 ),
                 children = listOf(
                     ComposeNode(

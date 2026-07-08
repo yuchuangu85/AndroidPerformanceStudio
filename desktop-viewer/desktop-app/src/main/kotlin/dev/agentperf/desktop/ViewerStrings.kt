@@ -286,6 +286,7 @@ private val detailSectionsChinese = mapOf(
     "LAYOUT" to "布局",
     "DRAWING" to "绘制",
     "INTERACTION" to "交互",
+    "RAW PROPERTIES" to "原始属性",
 )
 
 private val detailLabelsChinese = mapOf(
@@ -296,6 +297,8 @@ private val detailLabelsChinese = mapOf(
     "Content description" to "内容描述",
     "Bounds" to "边界",
     "Size" to "尺寸",
+    "Local layout bounds" to "本地布局边界",
+    "Local layout size" to "本地布局尺寸",
     "Visibility" to "可见性",
     "Tree depth" to "树深度",
     "Direct children" to "直接子节点",
@@ -303,6 +306,7 @@ private val detailLabelsChinese = mapOf(
     "Subtree depth" to "子树深度",
     "Layout width" to "布局宽度",
     "Layout height" to "布局高度",
+    "Layout params class" to "布局参数类",
     "Measured size" to "测量尺寸",
     "Minimum size" to "最小尺寸",
     "Padding" to "内边距",

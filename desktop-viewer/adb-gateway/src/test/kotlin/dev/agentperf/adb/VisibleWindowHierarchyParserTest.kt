@@ -25,22 +25,35 @@ class VisibleWindowHierarchyParserTest {
         assertEquals("root", root.id)
         assertEquals(Bounds(left = 10, top = 20, right = 1090, bottom = 2420), root.bounds)
         assertEquals("VISIBLE", root.attributes.visibility)
+        assertEquals(Bounds(left = 0, top = 0, right = 1080, bottom = 2400), root.attributes.layoutBounds)
         assertEquals(8f, root.attributes.elevation)
         assertEquals(10f, root.attributes.z)
         assertEquals(EdgeInsets(16, 24, 16, 24), root.attributes.padding)
         assertEquals(EdgeInsets(8, 12, 8, 12), root.attributes.margin)
         assertEquals(-1, root.attributes.layoutWidth)
         assertEquals(-2, root.attributes.layoutHeight)
+        assertEquals("android.widget.FrameLayout.LayoutParams", root.attributes.layoutParamsClass)
         assertEquals(Bounds(0, 0, 1080, 2300), root.attributes.clipBounds)
         assertEquals(true, root.attributes.clipChildren)
         assertEquals(false, root.attributes.clipToPadding)
         assertEquals("HARDWARE", root.attributes.layerType)
         assertEquals(true, root.attributes.hardwareAccelerated)
         assertEquals(true, root.attributes.clickable)
+        assertEquals(true, root.attributes.longClickable)
+        assertEquals("Root container", root.attributes.contentDescription)
+        assertEquals("0", root.attributes.rawProperties["layout:left"])
+        assertEquals("1080", root.attributes.rawProperties["layout:right"])
+        assertEquals("8.0", root.attributes.rawProperties["drawing:elevation"])
+        assertEquals(
+            "android.widget.FrameLayout.LayoutParams",
+            root.attributes.rawProperties["layoutParams:class"],
+        )
         assertEquals("com.codemx.ui.RealTitleView", title.className)
         assertEquals("root/0", title.id)
         assertEquals("com.codemx.anrdemo:id/title", title.resourceName)
+        assertEquals("Title", title.text)
         assertEquals(Bounds(left = 50, top = 100, right = 610, bottom = 180), title.bounds)
+        assertEquals(Bounds(left = 40, top = 80, right = 600, bottom = 160), title.attributes.layoutBounds)
     }
 
     @Test
@@ -160,7 +173,9 @@ internal object EncodedHierarchyFixture {
             property("misc:visibility", 0)
             property("misc:enabled", true)
             property("misc:clickable", true)
+            property("misc:longClickable", true)
             property("misc:selected", false)
+            property("accessibility:getContentDescription()", "Root container")
             property("focus:isFocusable", true)
             property("focus:isFocused", false)
             property("padding:paddingLeft", 16)
@@ -174,6 +189,7 @@ internal object EncodedHierarchyFixture {
             property("drawing:clipChildren", true)
             property("drawing:clipToPadding", false)
             nestedMap("layoutParams") {
+                property("class", "android.widget.FrameLayout.LayoutParams")
                 property("width", -1)
                 property("height", -2)
                 property("leftMargin", 8)
@@ -185,6 +201,7 @@ internal object EncodedHierarchyFixture {
             nestedMap("meta:__child__0") {
                 property("meta:__name__", "com.codemx.ui.RealTitleView")
                 property("id", "com.codemx.anrdemo:id/title")
+                property("text:mText", "Title")
                 property("layout:left", 40)
                 property("layout:top", 80)
                 property("layout:right", 600)

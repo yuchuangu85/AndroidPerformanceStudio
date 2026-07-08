@@ -55,6 +55,12 @@ internal object NodeDetailsPresenter {
                 rows = listOf(
                     row(strings, "Bounds", node.bounds.format()),
                     row(strings, "Size", "${node.bounds.width} × ${node.bounds.height}"),
+                    row(strings, "Local layout bounds", attributes.layoutBounds?.format()),
+                    row(
+                        strings,
+                        "Local layout size",
+                        attributes.layoutBounds?.let { "${it.width} × ${it.height}" },
+                    ),
                     row(strings, "Visibility", attributes.visibility ?: node.visible.toString()),
                     row(strings, "Tree depth", treeDepth.toString()),
                     row(strings, "Direct children", node.children.size.toString()),
@@ -62,6 +68,7 @@ internal object NodeDetailsPresenter {
                     row(strings, "Subtree depth", complexity.depth.toString()),
                     row(strings, "Layout width", attributes.layoutWidth.formatDimension()),
                     row(strings, "Layout height", attributes.layoutHeight.formatDimension()),
+                    row(strings, "Layout params class", attributes.layoutParamsClass),
                     row(
                         strings,
                         "Measured size",
@@ -142,6 +149,21 @@ internal object NodeDetailsPresenter {
                     row(strings, "Focused", attributes.focused),
                     row(strings, "Selected", attributes.selected),
                 ),
+            ),
+        ) + rawPropertiesSection(attributes, strings)
+    }
+
+    private fun rawPropertiesSection(
+        attributes: ViewAttributes,
+        strings: ViewerStrings,
+    ): List<DetailSectionModel> {
+        if (attributes.rawProperties.isEmpty()) return emptyList()
+        return listOf(
+            DetailSectionModel(
+                title = strings.detailSection("RAW PROPERTIES"),
+                rows = attributes.rawProperties
+                    .toSortedMap()
+                    .map { (name, value) -> DetailRowModel(label = name, value = value) },
             ),
         )
     }

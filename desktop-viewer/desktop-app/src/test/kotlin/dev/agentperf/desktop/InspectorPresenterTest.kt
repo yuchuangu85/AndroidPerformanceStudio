@@ -103,9 +103,11 @@ class InspectorPresenterTest {
             alpha = 0.8f,
             attributes = ViewAttributes(
                 visibility = "VISIBLE",
+                layoutBounds = Bounds(0, 0, 100, 100),
                 elevation = 8f,
                 z = 10f,
                 padding = EdgeInsets(4, 8, 4, 8),
+                layoutParamsClass = "android.widget.FrameLayout.LayoutParams",
                 background = "android.graphics.drawable.ColorDrawable",
                 backgroundColor = "#FF101820",
                 clipChildren = true,
@@ -114,6 +116,11 @@ class InspectorPresenterTest {
                 hardwareAccelerated = true,
                 enabled = true,
                 clickable = true,
+                rawProperties = mapOf(
+                    "layout:left" to "0",
+                    "layout:right" to "100",
+                    "layoutParams:class" to "android.widget.FrameLayout.LayoutParams",
+                ),
             ),
             children = listOf(
                 ViewNode(
@@ -138,7 +145,7 @@ class InspectorPresenterTest {
         ).details
 
         assertEquals(
-            listOf("RENDER RISKS", "IDENTITY", "LAYOUT", "DRAWING", "INTERACTION"),
+            listOf("RENDER RISKS", "IDENTITY", "LAYOUT", "DRAWING", "INTERACTION", "RAW PROPERTIES"),
             details.sections.map { it.title },
         )
         assertEquals(
@@ -147,10 +154,15 @@ class InspectorPresenterTest {
         )
         assertEquals(DetailTone.WARNING, details.row("Overdraw estimate").tone)
         assertEquals("2 descendants · depth 2", details.row("Subtree complexity").value)
+        assertEquals("0, 0, 100, 100", details.row("Local layout bounds").value)
+        assertEquals("100 × 100", details.row("Local layout size").value)
+        assertEquals("android.widget.FrameLayout.LayoutParams", details.row("Layout params class").value)
         assertEquals("4, 8, 4, 8", details.row("Padding").value)
         assertEquals("8.0", details.row("Elevation").value)
         assertEquals("SOFTWARE", details.row("Layer type").value)
         assertEquals("true", details.row("Clickable").value)
+        assertEquals("0", details.row("layout:left").value)
+        assertEquals("android.widget.FrameLayout.LayoutParams", details.row("layoutParams:class").value)
     }
 
     @Test

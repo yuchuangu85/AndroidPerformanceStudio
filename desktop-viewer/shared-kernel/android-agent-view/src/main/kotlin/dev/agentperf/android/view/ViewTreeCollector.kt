@@ -49,8 +49,14 @@ class ViewTreeCollector {
         val layoutParams = view.layoutParams
         val margins = layoutParams as? ViewGroup.MarginLayoutParams
         val clipBounds = view.clipBounds
-        return ViewAttributes(
+        val attributes = ViewAttributes(
             visibility = ViewAttributeLabels.visibility(view.visibility),
+            layoutBounds = Bounds(
+                left = view.left,
+                top = view.top,
+                right = view.right,
+                bottom = view.bottom,
+            ),
             elevation = view.elevation,
             z = view.z,
             translationX = view.translationX,
@@ -79,6 +85,7 @@ class ViewTreeCollector {
             },
             layoutWidth = layoutParams?.width,
             layoutHeight = layoutParams?.height,
+            layoutParamsClass = layoutParams?.javaClass?.name,
             measuredWidth = view.measuredWidth,
             measuredHeight = view.measuredHeight,
             minWidth = view.minimumWidth,
@@ -110,6 +117,7 @@ class ViewTreeCollector {
             selected = view.isSelected,
             contentDescription = view.contentDescription?.toString(),
         )
+        return attributes.copy(rawProperties = attributes.toRawProperties(alpha = view.alpha))
     }
 
     private fun resourceName(view: View): String? {
@@ -123,4 +131,72 @@ class ViewTreeCollector {
 
     private fun Int.toArgbHex(): String =
         String.format(Locale.US, "#%08X", this)
+
+    private fun ViewAttributes.toRawProperties(alpha: Float): Map<String, String> =
+        buildMap<String, String> {
+            visibility?.let { put("misc:visibility", it) }
+            layoutBounds?.let {
+                put("layout:left", it.left.toString())
+                put("layout:top", it.top.toString())
+                put("layout:right", it.right.toString())
+                put("layout:bottom", it.bottom.toString())
+            }
+            elevation?.let { put("drawing:elevation", it.toString()) }
+            z?.let { put("drawing:z", it.toString()) }
+            put("drawing:alpha", alpha.toString())
+            translationX?.let { put("drawing:translationX", it.toString()) }
+            translationY?.let { put("drawing:translationY", it.toString()) }
+            translationZ?.let { put("drawing:translationZ", it.toString()) }
+            rotation?.let { put("drawing:rotation", it.toString()) }
+            rotationX?.let { put("drawing:rotationX", it.toString()) }
+            rotationY?.let { put("drawing:rotationY", it.toString()) }
+            scaleX?.let { put("drawing:scaleX", it.toString()) }
+            scaleY?.let { put("drawing:scaleY", it.toString()) }
+            pivotX?.let { put("drawing:pivotX", it.toString()) }
+            pivotY?.let { put("drawing:pivotY", it.toString()) }
+            padding?.let {
+                put("padding:paddingLeft", it.left.toString())
+                put("padding:paddingTop", it.top.toString())
+                put("padding:paddingRight", it.right.toString())
+                put("padding:paddingBottom", it.bottom.toString())
+            }
+            margin?.let {
+                put("layoutParams:leftMargin", it.left.toString())
+                put("layoutParams:topMargin", it.top.toString())
+                put("layoutParams:rightMargin", it.right.toString())
+                put("layoutParams:bottomMargin", it.bottom.toString())
+            }
+            layoutParamsClass?.let { put("layoutParams:class", it) }
+            layoutWidth?.let { put("layoutParams:width", it.toString()) }
+            layoutHeight?.let { put("layoutParams:height", it.toString()) }
+            measuredWidth?.let { put("measurement:measuredWidth", it.toString()) }
+            measuredHeight?.let { put("measurement:measuredHeight", it.toString()) }
+            minWidth?.let { put("measurement:minWidth", it.toString()) }
+            minHeight?.let { put("measurement:minHeight", it.toString()) }
+            scrollX?.let { put("scrolling:scrollX", it.toString()) }
+            scrollY?.let { put("scrolling:scrollY", it.toString()) }
+            clipBounds?.let {
+                put(
+                    "drawing:clipBounds",
+                    "Rect(${it.left}, ${it.top} - ${it.right}, ${it.bottom})",
+                )
+            }
+            clipChildren?.let { put("drawing:clipChildren", it.toString()) }
+            clipToPadding?.let { put("drawing:clipToPadding", it.toString()) }
+            background?.let { put("drawing:background", it) }
+            backgroundColor?.let { put("drawing:backgroundColor", it) }
+            foreground?.let { put("drawing:foreground", it) }
+            opaque?.let { put("drawing:opaque", it.toString()) }
+            willNotDraw?.let { put("drawing:willNotDraw", it.toString()) }
+            hardwareAccelerated?.let { put("drawing:hardwareAccelerated", it.toString()) }
+            layerType?.let { put("drawing:layerType", it) }
+            layoutRequested?.let { put("layout:layoutRequested", it.toString()) }
+            enabled?.let { put("misc:enabled", it.toString()) }
+            clickable?.let { put("misc:clickable", it.toString()) }
+            longClickable?.let { put("misc:longClickable", it.toString()) }
+            focusable?.let { put("focus:isFocusable", it.toString()) }
+            focused?.let { put("focus:isFocused", it.toString()) }
+            selected?.let { put("misc:selected", it.toString()) }
+            contentDescription?.let { put("accessibility:getContentDescription()", it) }
+        }.toSortedMap()
 }
