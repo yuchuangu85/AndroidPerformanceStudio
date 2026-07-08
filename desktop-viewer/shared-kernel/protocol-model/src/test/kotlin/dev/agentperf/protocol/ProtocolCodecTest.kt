@@ -63,6 +63,10 @@ class ProtocolCodecTest {
                         className = "Text",
                         bounds = Bounds(24, 40, 320, 96),
                         text = "AgentPerf",
+                        semanticProperties = mapOf(
+                            "Role" to "Button",
+                            "Text" to "AgentPerf",
+                        ),
                     ),
                 ),
             ),

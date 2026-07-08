@@ -1,5 +1,9 @@
 package dev.agentperf.application
 
+import dev.agentperf.analysis.AnalysisReport
+import dev.agentperf.analysis.Finding
+import dev.agentperf.analysis.LayoutMetrics
+import dev.agentperf.analysis.Severity
 import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.Bounds
 import dev.agentperf.protocol.ViewNode
@@ -125,6 +129,20 @@ class InspectorStoreTest {
         assertEquals(ConnectionStatus.ARCHIVE, store.state.connectionStatus)
         assertEquals(importedSnapshot.root.id, store.state.selectedNodeId)
         assertTrue(store.state.analysis.metrics.nodeCount > 0)
+    }
+
+    @Test
+    fun `loading an archive can preserve persisted analysis report`() {
+        val store = InspectorStore()
+        val report = AnalysisReport(
+            metrics = LayoutMetrics(nodeCount = 99, maxDepth = 9, widestLevel = 8),
+            findings = listOf(Finding("persisted", Severity.ERROR, "root", "from archive")),
+        )
+
+        store.loadArchive(SampleSnapshots.dashboard, byteArrayOf(1, 2, 3), analysis = report)
+
+        assertEquals(ConnectionStatus.ARCHIVE, store.state.connectionStatus)
+        assertEquals(report, store.state.analysis)
     }
 
     @Test

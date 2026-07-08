@@ -1,6 +1,7 @@
 package dev.agentperf.desktop
 
 import dev.agentperf.protocol.Bounds
+import dev.agentperf.protocol.ComposeNode
 import dev.agentperf.protocol.EdgeInsets
 import dev.agentperf.protocol.UiNode
 import dev.agentperf.protocol.ViewAttributes
@@ -31,7 +32,9 @@ internal object NodeDetailsPresenter {
         treeDepth: Int,
         strings: ViewerStrings = ViewerStrings.English,
     ): List<DetailSectionModel> {
-        val attributes = (node as? ViewNode)?.attributes ?: ViewAttributes()
+        val viewNode = node as? ViewNode
+        val composeNode = node as? ComposeNode
+        val attributes = viewNode?.attributes ?: ViewAttributes()
         val complexity = node.complexity()
         val overlap = node.overlapStats()
         return listOf(
@@ -45,9 +48,10 @@ internal object NodeDetailsPresenter {
                 rows = listOf(
                     row(strings, "Class", node.className),
                     row(strings, "ID", node.id),
-                    row(strings, "Resource", (node as? ViewNode)?.resourceName),
-                    row(strings, "Text", (node as? ViewNode)?.text),
+                    row(strings, "Resource", viewNode?.resourceName),
+                    row(strings, "Text", viewNode?.text ?: composeNode?.text),
                     row(strings, "Content description", attributes.contentDescription),
+                    row(strings, "Semantics role", composeNode?.semanticsRole),
                 ),
             ),
             DetailSectionModel(
@@ -150,18 +154,20 @@ internal object NodeDetailsPresenter {
                     row(strings, "Selected", attributes.selected),
                 ),
             ),
-        ) + rawPropertiesSection(attributes, strings)
+        ) + rawPropertiesSection(node, attributes, strings)
     }
 
     private fun rawPropertiesSection(
+        node: UiNode,
         attributes: ViewAttributes,
         strings: ViewerStrings,
     ): List<DetailSectionModel> {
-        if (attributes.rawProperties.isEmpty()) return emptyList()
+        val rawProperties = attributes.rawProperties + ((node as? ComposeNode)?.semanticProperties ?: emptyMap())
+        if (rawProperties.isEmpty()) return emptyList()
         return listOf(
             DetailSectionModel(
                 title = strings.detailSection("RAW PROPERTIES"),
-                rows = attributes.rawProperties
+                rows = rawProperties
                     .toSortedMap()
                     .map { (name, value) -> DetailRowModel(label = name, value = value) },
             ),

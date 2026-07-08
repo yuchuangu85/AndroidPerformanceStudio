@@ -1,5 +1,6 @@
 package dev.agentperf.android.view
 
+import android.annotation.TargetApi
 import android.app.Activity
 import android.os.Build
 import android.view.View
@@ -34,10 +35,7 @@ internal object AndroidWindowRootProvider : WindowRootProvider {
         val activityRoot = activity.window.decorView.rootView
         val roots = processWindowRoots(
             sdkInt = Build.VERSION.SDK_INT,
-            globalRoots = {
-                WindowInspector.getGlobalWindowViews()
-                    .filter { it.isAttachedToWindow && it.width > 0 && it.height > 0 }
-            },
+            globalRoots = { attachedGlobalWindowViews() },
             activityRoot = { activityRoot },
         )
         return roots.distinctBy { rootId(it) }.map { root ->
@@ -52,6 +50,11 @@ internal object AndroidWindowRootProvider : WindowRootProvider {
             )
         }
     }
+
+    @TargetApi(Build.VERSION_CODES.Q)
+    private fun attachedGlobalWindowViews(): List<View> =
+        WindowInspector.getGlobalWindowViews()
+            .filter { it.isAttachedToWindow && it.width > 0 && it.height > 0 }
 
     private fun rootId(view: View): String =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

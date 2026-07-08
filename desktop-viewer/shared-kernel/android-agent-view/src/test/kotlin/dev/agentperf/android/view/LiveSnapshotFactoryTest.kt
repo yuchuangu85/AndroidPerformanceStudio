@@ -1,6 +1,7 @@
 package dev.agentperf.android.view
 
 import dev.agentperf.protocol.Bounds
+import dev.agentperf.protocol.ComposeNode
 import dev.agentperf.protocol.ProtocolVersion
 import dev.agentperf.protocol.ViewNode
 import dev.agentperf.protocol.WindowSnapshot
@@ -46,6 +47,44 @@ class LiveSnapshotFactoryTest {
         assertTrue(snapshot.capabilities.screenshots)
         assertFalse(snapshot.capabilities.composeSemantics)
         assertEquals(root, snapshot.root)
+    }
+
+    @Test
+    fun `live snapshot advertises compose semantics when windows contain compose nodes`() {
+        val root = ViewNode(
+            id = "root",
+            className = "androidx.compose.ui.platform.AndroidComposeView",
+            bounds = Bounds(0, 0, 100, 100),
+            children = listOf(
+                ComposeNode(
+                    id = "compose:1",
+                    className = "Button",
+                    bounds = Bounds(0, 0, 100, 50),
+                    semanticsRole = "Button",
+                    text = "Save",
+                ),
+            ),
+        )
+
+        val snapshot = LiveSnapshotFactory.create(
+            packageName = "dev.agentperf.sample",
+            widthPx = 100,
+            heightPx = 100,
+            density = 1f,
+            capturedAtEpochMillis = 42,
+            windows = listOf(
+                WindowSnapshot(
+                    id = "window:main",
+                    title = "Main",
+                    type = WindowType.ACTIVITY,
+                    bounds = root.bounds,
+                    root = root,
+                ),
+            ),
+            defaultWindowId = "window:main",
+        )
+
+        assertTrue(snapshot.capabilities.composeSemantics)
     }
 
     @Test

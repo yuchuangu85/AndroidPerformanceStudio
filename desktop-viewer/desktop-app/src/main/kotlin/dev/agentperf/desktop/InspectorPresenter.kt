@@ -64,6 +64,7 @@ data class InspectorScreenModel(
     val severitySummary: SeveritySummary,
     val findings: List<FindingRowModel>,
     val metricsText: String,
+    val timelineText: String?,
     val emptyMessage: String?,
     val connectionLabel: String,
     val connectionTone: ConnectionTone,
@@ -134,6 +135,7 @@ internal object InspectorPresenter {
                 )
             },
             metricsText = strings.metrics(metrics.nodeCount, metrics.maxDepth, metrics.widestLevel),
+            timelineText = state.timelineDiff?.let { strings.timelineDiff(it.addedNodes, it.removedNodes, it.boundsChangedNodes) },
             emptyMessage = if (state.snapshot == null) strings.noSnapshotLoaded else null,
             connectionLabel = when (state.connectionStatus) {
                 ConnectionStatus.DISCONNECTED -> strings.disconnected

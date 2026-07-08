@@ -28,6 +28,7 @@ data class InspectorState(
     val selectedNodeIdsByWindow: Map<String, String> = emptyMap(),
     val selectedNodeId: String? = null,
     val hoveredNodeId: String? = null,
+    val timelineDiff: TimelineDiff? = null,
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val connectionError: String? = null,
 ) {

@@ -6,11 +6,14 @@ import dev.agentperf.analysis.LayoutMetrics
 import dev.agentperf.analysis.Severity
 import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.application.InspectorState
+import dev.agentperf.application.TimelineDiff
 import dev.agentperf.application.InspectorStore
 import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.Bounds
+import dev.agentperf.protocol.ComposeNode
 import dev.agentperf.protocol.EdgeInsets
 import dev.agentperf.protocol.ViewAttributes
+import dev.agentperf.protocol.WindowSnapshot
 import dev.agentperf.protocol.ViewNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -165,6 +168,52 @@ class InspectorPresenterTest {
         assertEquals("android.widget.FrameLayout.LayoutParams", details.row("layoutParams:class").value)
     }
 
+
+    @Test
+    fun `presents compose semantics properties in selected node details`() {
+        val composeNode = ComposeNode(
+            id = "compose-save",
+            className = "ComposeSemantics",
+            bounds = Bounds(10, 20, 110, 60),
+            semanticsRole = "Button",
+            text = "Save",
+            semanticProperties = mapOf(
+                "Role" to "Button",
+                "Text" to "Save",
+                "TestTag" to "save_button",
+            ),
+        )
+        val root = ViewNode(
+            id = "root",
+            className = "androidx.compose.ui.platform.AndroidComposeView",
+            bounds = Bounds(0, 0, 120, 80),
+            children = listOf(composeNode),
+        )
+
+        val details = InspectorPresenter.present(
+            InspectorState(
+                snapshot = SampleSnapshots.dashboard.copy(
+                    root = root,
+                    windows = listOf(
+                        WindowSnapshot(
+                            id = "window:main",
+                            title = "Main",
+                            bounds = root.bounds,
+                            root = root,
+                        ),
+                    ),
+                    defaultWindowId = "window:main",
+                ),
+                selectedNodeId = "compose-save",
+            ),
+        ).details
+
+        val identityRows = details.sections.single { it.title == "IDENTITY" }.rows
+        assertEquals("Button", identityRows.single { it.label == "Semantics role" }.value)
+        assertEquals("Save", identityRows.single { it.label == "Text" }.value)
+        assertEquals("save_button", details.row("TestTag").value)
+    }
+
     @Test
     fun `localizes detail sections and fields`() {
         val details = InspectorPresenter.present(
@@ -225,6 +274,24 @@ class InspectorPresenterTest {
             listOf("info:root:0", "warning:root:1", "error:root:2"),
             InspectorPresenter.present(state).findings.map { it.key },
         )
+    }
+
+    @Test
+    fun `presents timeline diff summary when available`() {
+        val model = InspectorPresenter.present(
+            InspectorState(
+                snapshot = SampleSnapshots.dashboard,
+                timelineDiff = TimelineDiff(
+                    previousCapturedAtEpochMillis = 1,
+                    currentCapturedAtEpochMillis = 2,
+                    addedNodes = 3,
+                    removedNodes = 1,
+                    boundsChangedNodes = 2,
+                ),
+            ),
+        )
+
+        assertEquals("Δ +3 -1 moved 2", model.timelineText)
     }
 
     @Test

@@ -10,6 +10,7 @@ internal object CaptureArchivePaths {
     const val MANIFEST = "manifest.json"
     const val SNAPSHOT = "capture/layout-snapshot.json"
     const val SCREENSHOT = "capture/screenshot.png"
+    const val ANALYSIS_REPORT = "report/analysis-report.json"
     const val RAW_ZIP = "raw/visible-window-views.zip"
     const val RAW_TEXT = "raw/visible-window-views.txt"
 }
@@ -23,6 +24,7 @@ internal data class CaptureArchivePayload(
     val snapshotJson: String,
     val screenshotPng: ByteArray,
     val rawArtifacts: CaptureRawArtifacts? = null,
+    val analysisReportJson: String? = null,
 )
 
 internal data class CaptureArchiveMetadata(

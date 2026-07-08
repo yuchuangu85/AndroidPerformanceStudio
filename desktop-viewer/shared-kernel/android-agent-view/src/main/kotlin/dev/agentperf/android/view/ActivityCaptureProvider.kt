@@ -13,7 +13,6 @@ import dev.agentperf.protocol.CaptureFrame
 import dev.agentperf.protocol.ProtocolCodec
 import dev.agentperf.protocol.WindowSnapshot
 import java.io.ByteArrayOutputStream
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -36,12 +35,12 @@ class ActivityCaptureProvider(
     override fun capture(): CaptureFrame {
         val activity = activityTracker.currentActivity()
             ?: throw CaptureUnavailableException("NO_ACTIVITY", "No resumed activity")
-        val future = CompletableFuture<CaptureFrame>()
+        val future = CaptureResultWaiter<CaptureFrame>()
         mainHandler.post {
             beginCapture(activity, future)
         }
         return try {
-            future.get(timeoutSeconds, TimeUnit.SECONDS)
+            future.await(timeoutSeconds, TimeUnit.SECONDS)
         } catch (error: TimeoutException) {
             throw CaptureUnavailableException("CAPTURE_TIMEOUT", "Timed out capturing the activity", error)
         } catch (error: ExecutionException) {
@@ -60,7 +59,7 @@ class ActivityCaptureProvider(
 
     private fun beginCapture(
         activity: Activity,
-        future: CompletableFuture<CaptureFrame>,
+        future: CaptureResultWaiter<CaptureFrame>,
     ) {
         try {
             val root = activity.window.decorView.rootView
@@ -98,7 +97,7 @@ class ActivityCaptureProvider(
     private fun drawViewFallback(
         activity: Activity,
         bitmap: Bitmap,
-        future: CompletableFuture<CaptureFrame>,
+        future: CaptureResultWaiter<CaptureFrame>,
     ) {
         try {
             activity.window.decorView.rootView.draw(Canvas(bitmap))
@@ -111,7 +110,7 @@ class ActivityCaptureProvider(
     private fun completeFrame(
         activity: Activity,
         bitmap: Bitmap,
-        future: CompletableFuture<CaptureFrame>,
+        future: CaptureResultWaiter<CaptureFrame>,
     ) {
         try {
             val rootView = activity.window.decorView.rootView

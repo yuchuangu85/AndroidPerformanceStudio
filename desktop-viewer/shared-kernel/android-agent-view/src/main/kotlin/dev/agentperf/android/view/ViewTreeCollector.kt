@@ -19,13 +19,20 @@ class ViewTreeCollector {
     private fun collectRecursive(view: View, path: String): ViewNode {
         val location = IntArray(2)
         view.getLocationOnScreen(location)
-        val children: List<UiNode> = if (view is ViewGroup) {
+        val viewChildren: List<UiNode> = if (view is ViewGroup) {
             (0 until view.childCount).map { index ->
                 collectRecursive(view.getChildAt(index), "$path/$index")
             }
         } else {
             emptyList()
         }
+        val composeSemantics = ComposeSemanticsCollector.collect(
+            composeView = view,
+            path = "$path/compose",
+            screenOffsetX = location[0],
+            screenOffsetY = location[1],
+        )
+        val children = listOfNotNull(composeSemantics) + viewChildren
         val resourceName = resourceName(view)
         return ViewNode(
             id = path,

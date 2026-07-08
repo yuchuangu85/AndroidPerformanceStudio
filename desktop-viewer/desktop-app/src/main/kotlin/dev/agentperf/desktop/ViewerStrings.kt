@@ -55,6 +55,7 @@ internal class ViewerStrings private constructor(
         get() = text("Show all visible view bounds", "显示全部可见视图边缘")
     val dismiss: String get() = text("OK", "确定")
     val autoScan: String get() = text("Auto scan", "自动扫描")
+    val autoDevice: String get() = text("Auto device", "自动设备")
     val refresh: String get() = text("Refresh", "刷新")
     val refreshOnce: String get() = text("Refresh once", "刷新一次")
     val hierarchy: String get() = text("HIERARCHY", "层级结构")
@@ -171,6 +172,13 @@ internal class ViewerStrings private constructor(
             "$nodeCount 个节点 · 深度 $maxDepth · 最大宽度 $widestLevel"
         } else {
             "$nodeCount nodes · depth $maxDepth · width $widestLevel"
+        }
+
+    fun timelineDiff(added: Int, removed: Int, moved: Int): String =
+        if (chinese) {
+            "Δ +$added -$removed 移动 $moved"
+        } else {
+            "Δ +$added -$removed moved $moved"
         }
 
     fun infoBadge(count: Int): String = text("INFO $count", "信息 $count")

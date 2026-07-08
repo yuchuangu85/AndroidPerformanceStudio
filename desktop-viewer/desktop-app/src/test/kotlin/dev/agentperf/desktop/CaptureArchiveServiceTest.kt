@@ -1,5 +1,9 @@
 package dev.agentperf.desktop
 
+import dev.agentperf.analysis.AnalysisReport
+import dev.agentperf.analysis.Finding
+import dev.agentperf.analysis.LayoutMetrics
+import dev.agentperf.analysis.Severity
 import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.CURRENT_PROTOCOL_VERSION
 import dev.agentperf.protocol.LEGACY_WINDOW_ID
@@ -61,6 +65,28 @@ class CaptureArchiveServiceTest {
         assertEquals(CURRENT_PROTOCOL_VERSION, exported.protocolVersion)
         assertEquals(listOf(LEGACY_WINDOW_ID), exported.windows.map { it.id })
         assertEquals(LEGACY_WINDOW_ID, exported.defaultWindowId)
+    }
+
+    @Test
+    fun `service export then import restores persisted analysis report`() {
+        val path = tempDir.resolve("report.apinspect")
+        val report = AnalysisReport(
+            metrics = LayoutMetrics(nodeCount = 5, maxDepth = 3, widestLevel = 2),
+            findings = listOf(
+                Finding(
+                    ruleId = "layout.deep-hierarchy",
+                    severity = Severity.WARNING,
+                    nodeId = "root",
+                    message = "deep",
+                    arguments = mapOf("depth" to "12"),
+                ),
+            ),
+        )
+
+        service.export(path, "0.2.0", SampleSnapshots.dashboard, ONE_PIXEL_PNG, rawArtifacts = null, analysis = report)
+        val imported = service.import(path)
+
+        assertEquals(report, imported.analysis)
     }
 
     @Test

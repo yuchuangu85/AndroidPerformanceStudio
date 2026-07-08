@@ -34,8 +34,8 @@ class LiveDeviceClient(
         Socket(InetAddress.getLoopbackAddress(), port).apply { soTimeout = SOCKET_TIMEOUT_MILLIS }
     },
 ) {
-    fun connectForegroundApp(): ConnectedDeviceSession {
-        val device = selectDevice()
+    fun connectForegroundApp(serial: String? = null): ConnectedDeviceSession {
+        val device = selectDevice(serial)
         val packageName = foregroundPackageName(device.serial)
         return try {
             connect(device, packageName)
@@ -54,11 +54,13 @@ class LiveDeviceClient(
         }
     }
 
-    fun connect(packageName: String): ConnectedDeviceSession =
-        connect(selectDevice(), packageName)
+    fun connect(packageName: String, serial: String? = null): ConnectedDeviceSession =
+        connect(selectDevice(serial), packageName)
 
-    fun dumpVisibleWindowViews(): ByteArray {
-        val device = selectDevice()
+    fun listAuthorizedDevices(): List<AdbDevice> = authorizedDevices()
+
+    fun dumpVisibleWindowViews(serial: String? = null): ByteArray {
+        val device = selectDevice(serial)
         val result = checkedRun(AdbCommandFactory.dumpVisibleWindowViews(device.serial))
         if (result.stdoutBytes.isEmpty()) {
             throw VisibleWindowViewsUnavailableException("Visible Window View dump is empty")
@@ -72,10 +74,12 @@ class LiveDeviceClient(
             .let(AdbOutputParser::parseForegroundPackage)
             ?: throw ForegroundAppUnavailableException("No foreground Android application found")
 
-    private fun selectDevice(): AdbDevice {
-        val devices = checkedRun(listOf("devices", "-l")).stdout
-            .let(AdbOutputParser::parseDevices)
-            .filter { it.state == DeviceState.DEVICE }
+    private fun selectDevice(serial: String? = null): AdbDevice {
+        val devices = authorizedDevices()
+        if (serial != null) {
+            return devices.firstOrNull { it.serial == serial }
+                ?: throw DeviceSelectionException("Device $serial is not authorized or not connected")
+        }
         val physicalDevices = devices.filterNot { it.serial.startsWith(EMULATOR_SERIAL_PREFIX) }
         val device = when {
             physicalDevices.size == 1 -> physicalDevices.single()
@@ -89,6 +93,11 @@ class LiveDeviceClient(
         }
         return device
     }
+
+    private fun authorizedDevices(): List<AdbDevice> =
+        checkedRun(listOf("devices", "-l")).stdout
+            .let(AdbOutputParser::parseDevices)
+            .filter { it.state == DeviceState.DEVICE }
 
     private fun connect(device: AdbDevice, packageName: String): ConnectedDeviceSession {
         val sessionDocument = try {

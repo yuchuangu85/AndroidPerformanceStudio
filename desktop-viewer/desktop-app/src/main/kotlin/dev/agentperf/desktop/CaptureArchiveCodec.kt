@@ -221,6 +221,7 @@ internal class CaptureArchiveCodec(
         val screenshot = content.getValue(CaptureArchivePaths.SCREENSHOT)
         val rawZip = content[CaptureArchivePaths.RAW_ZIP]
         val rawText = content[CaptureArchivePaths.RAW_TEXT]
+        val analysisReport = content[CaptureArchivePaths.ANALYSIS_REPORT]
         return CaptureArchiveDocument(
             metadata = CaptureArchiveMetadata(
                 producerVersion = producerVersion,
@@ -238,6 +239,7 @@ internal class CaptureArchiveCodec(
                         text = rawText!!.toString(StandardCharsets.UTF_8),
                     )
                 },
+                analysisReportJson = analysisReport?.toString(StandardCharsets.UTF_8),
             ),
         )
     }
@@ -248,6 +250,11 @@ internal class CaptureArchiveCodec(
                 snapshotJson.toByteArray(StandardCharsets.UTF_8),
             CaptureArchivePaths.SCREENSHOT to screenshotPng,
         )
+        val analysisEntries = analysisReportJson?.let { report ->
+            linkedMapOf(
+                CaptureArchivePaths.ANALYSIS_REPORT to report.toByteArray(StandardCharsets.UTF_8),
+            )
+        }
         val rawEntries = rawArtifacts?.let { raw ->
             linkedMapOf(
                 CaptureArchivePaths.RAW_ZIP to raw.zip,
@@ -256,7 +263,10 @@ internal class CaptureArchiveCodec(
             )
         }
         return required.apply {
-            if (rawEntries != null && optionalEntriesFit(required, rawEntries)) {
+            if (analysisEntries != null && optionalEntriesFit(required, analysisEntries)) {
+                putAll(analysisEntries)
+            }
+            if (rawEntries != null && optionalEntriesFit(this, rawEntries)) {
                 putAll(rawEntries)
             }
         }
@@ -309,6 +319,7 @@ internal class CaptureArchiveCodec(
             CaptureArchivePaths.SCREENSHOT -> MAX_SCREENSHOT_BYTES.toLong()
             CaptureArchivePaths.RAW_ZIP -> MAX_RAW_ZIP_BYTES.toLong()
             CaptureArchivePaths.RAW_TEXT -> MAX_RAW_TEXT_BYTES.toLong()
+            CaptureArchivePaths.ANALYSIS_REPORT -> MAX_ANALYSIS_REPORT_BYTES.toLong()
             else -> MAX_UNKNOWN_OPTIONAL_BYTES.toLong()
         }
 
@@ -360,6 +371,7 @@ internal class CaptureArchiveCodec(
         const val MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024
         const val MAX_RAW_ZIP_BYTES = 32 * 1024 * 1024
         const val MAX_RAW_TEXT_BYTES = 8 * 1024 * 1024
+        const val MAX_ANALYSIS_REPORT_BYTES = 4 * 1024 * 1024
         const val MAX_UNKNOWN_OPTIONAL_BYTES = 1024 * 1024
         const val MAX_TOTAL_UNCOMPRESSED_BYTES = 80L * 1024 * 1024
 
@@ -370,11 +382,12 @@ internal class CaptureArchiveCodec(
         val KNOWN_CONTENT_PATHS = REQUIRED_PATHS + setOf(
             CaptureArchivePaths.RAW_ZIP,
             CaptureArchivePaths.RAW_TEXT,
+            CaptureArchivePaths.ANALYSIS_REPORT,
         )
     }
 }
 
-private fun defaultArchiveJson(): Json = Json {
+internal fun defaultArchiveJson(): Json = Json {
     encodeDefaults = true
     ignoreUnknownKeys = true
     prettyPrint = true

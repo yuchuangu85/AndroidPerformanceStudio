@@ -25,6 +25,8 @@ class InspectorStore(
         screenshotPng: ByteArray?,
         connectionStatus: ConnectionStatus,
         previous: InspectorState,
+        analysisOverride: dev.agentperf.analysis.AnalysisReport? = null,
+        timelineDiff: TimelineDiff? = null,
     ): InspectorState {
         val windows = snapshot.effectiveWindows
         val windowId = previous.selectedWindowId
@@ -44,27 +46,35 @@ class InspectorStore(
         return InspectorState(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
-            analysis = analyzer.analyze(activeRoot),
+            analysis = analysisOverride ?: analyzer.analyze(activeRoot),
             selectedWindowId = windowId,
             selectedNodeIdsByWindow = selections,
             selectedNodeId = selectedNodeId,
+            timelineDiff = timelineDiff,
             connectionStatus = connectionStatus,
         )
     }
 
     fun loadCapture(snapshot: LayoutSnapshot, screenshotPng: ByteArray) {
+        val previousSnapshot = state.snapshot
         loadInspectedContent(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
             connectionStatus = ConnectionStatus.CONNECTED,
+            timelineDiff = previousSnapshot?.let { diffSnapshots(it, snapshot) },
         )
     }
 
-    fun loadArchive(snapshot: LayoutSnapshot, screenshotPng: ByteArray) {
+    fun loadArchive(
+        snapshot: LayoutSnapshot,
+        screenshotPng: ByteArray,
+        analysis: dev.agentperf.analysis.AnalysisReport? = null,
+    ) {
         loadInspectedContent(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
             connectionStatus = ConnectionStatus.ARCHIVE,
+            analysisOverride = analysis,
         )
     }
 
@@ -72,12 +82,16 @@ class InspectorStore(
         snapshot: LayoutSnapshot,
         screenshotPng: ByteArray,
         connectionStatus: ConnectionStatus,
+        analysisOverride: dev.agentperf.analysis.AnalysisReport? = null,
+        timelineDiff: TimelineDiff? = null,
     ) {
         state = inspectedState(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
             connectionStatus = connectionStatus,
             previous = state,
+            analysisOverride = analysisOverride,
+            timelineDiff = timelineDiff,
         )
     }
 
@@ -123,6 +137,7 @@ class InspectorStore(
             selectedNodeId = selectedNodeId,
             selectedNodeIdsByWindow = state.selectedNodeIdsByWindow + (windowId to selectedNodeId),
             hoveredNodeId = null,
+            timelineDiff = state.timelineDiff,
             analysis = analyzer.analyze(window.root),
         )
         return true

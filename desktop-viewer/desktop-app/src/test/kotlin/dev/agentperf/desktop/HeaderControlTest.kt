@@ -64,4 +64,25 @@ class HeaderControlTest {
         assertEquals("亮色主题", chinese.themePreferenceName(ThemePreference.LIGHT))
         assertEquals("暗色主题", chinese.themePreferenceName(ThemePreference.DARK))
     }
+    @Test
+    fun `device selector appears before window selector in the header`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+        )
+        val header = source
+            .substringAfter("private fun Header(")
+            .substringBefore("private fun DeviceSelector(")
+
+        assertTrue(
+            header.indexOf("DeviceSelector(") < header.indexOf("WindowSelector("),
+            "DeviceSelector should be rendered before WindowSelector",
+        )
+    }
+
+    @Test
+    fun `auto device label is localized`() {
+        assertEquals("Auto device", ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).autoDevice)
+        assertEquals("自动设备", ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).autoDevice)
+    }
+
 }

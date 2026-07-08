@@ -329,6 +329,109 @@ class LiveDeviceClientTest {
         )
     }
 
+    @Test
+    fun `lists authorized devices for explicit selection`() {
+        val runner = fakeRunner(
+            devices = """
+                List of devices attached
+                emulator-5554 device product:sdk_gphone model:sdk_gphone transport_id:1
+                physical-1 device product:sample model:Pixel_8 transport_id:2
+                offline-1 offline transport_id:3
+            """.trimIndent(),
+        )
+
+        val devices = LiveDeviceClient(runner).listAuthorizedDevices()
+
+        assertEquals(listOf("emulator-5554", "physical-1"), devices.map { it.serial })
+        assertEquals(listOf("sdk_gphone", "Pixel_8"), devices.map { it.model })
+    }
+
+    @Test
+    fun `foreground connection can target an explicit device serial`() {
+        val server = ServerSocket(0)
+        val executor = Executors.newSingleThreadExecutor()
+        val serverResult = executor.submit {
+            server.accept().use { socket ->
+                assertEquals("PING secret", socket.getInputStream().bufferedReader().readLine())
+                socket.getOutputStream().write("PONG 1.0\n".toByteArray())
+            }
+        }
+        val runner = fakeRunner(
+            devices = """
+                List of devices attached
+                emulator-5554 device product:sdk_gphone model:sdk_gphone transport_id:1
+                physical-1 device product:sample model:Phone transport_id:2
+            """.trimIndent(),
+        )
+
+        try {
+            val session = LiveDeviceClient(
+                processRunner = runner,
+                portAllocator = { server.localPort },
+            ).connectForegroundApp(serial = "emulator-5554")
+
+            assertEquals("emulator-5554", session.serial)
+            session.close()
+            serverResult.get(2, TimeUnit.SECONDS)
+            assertTrue(
+                runner.commands.any {
+                    it.take(2) == listOf("-s", "emulator-5554") &&
+                        it.any { argument -> argument.endsWith("session.json") }
+                },
+            )
+        } finally {
+            server.close()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `explicit device serial must be authorized`() {
+        val runner = fakeRunner(
+            devices = """
+                List of devices attached
+                physical-1 device product:sample model:Phone transport_id:1
+                offline-1 offline transport_id:2
+            """.trimIndent(),
+        )
+
+        val error = assertThrows(DeviceSelectionException::class.java) {
+            LiveDeviceClient(runner).connectForegroundApp(serial = "offline-1")
+        }
+
+        assertEquals("Device offline-1 is not authorized or not connected", error.message)
+    }
+
+    @Test
+    fun `visible window dump can target an explicit device serial`() {
+        val expected = byteArrayOf(0x50, 0x4b, 0x03, 0x04)
+        val runner = fakeRunner(
+            devices = """
+                List of devices attached
+                emulator-5554 device product:sdk_gphone model:sdk_gphone transport_id:1
+                physical-1 device product:sample model:Phone transport_id:2
+            """.trimIndent(),
+            visibleHierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = expected,
+            ),
+        )
+
+        val actual = LiveDeviceClient(runner).dumpVisibleWindowViews(serial = "emulator-5554")
+
+        assertArrayEquals(expected, actual)
+        assertTrue(
+            runner.commands.contains(
+                listOf(
+                    "-s", "emulator-5554", "exec-out",
+                    "cmd", "window", "dump-visible-window-views",
+                ),
+            ),
+        )
+    }
+
     private fun fakeRunner(
         devices: String = """
             List of devices attached

@@ -132,6 +132,7 @@ data class ComposeNode(
     override val children: List<UiNode> = emptyList(),
     val semanticsRole: String? = null,
     val text: String? = null,
+    val semanticProperties: Map<String, String> = emptyMap(),
 ) : UiNode
 
 @Serializable

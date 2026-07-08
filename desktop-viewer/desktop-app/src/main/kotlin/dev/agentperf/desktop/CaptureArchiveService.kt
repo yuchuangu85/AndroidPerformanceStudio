@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import dev.agentperf.analysis.AnalysisReport
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.ProtocolCodec
 import dev.agentperf.protocol.normalizedToCurrentProtocol
@@ -9,11 +10,13 @@ internal data class ImportedCapture(
     val snapshot: LayoutSnapshot,
     val screenshotPng: ByteArray,
     val rawArtifacts: CaptureRawArtifacts?,
+    val analysis: AnalysisReport?,
 )
 
 internal class CaptureArchiveService(
     private val archiveCodec: CaptureArchiveCodec,
     private val protocolCodec: ProtocolCodec,
+    private val analysisReportJson: AnalysisReportJson = AnalysisReportJson(),
 ) {
     fun export(
         target: Path,
@@ -21,6 +24,7 @@ internal class CaptureArchiveService(
         snapshot: LayoutSnapshot,
         screenshotPng: ByteArray,
         rawArtifacts: CaptureRawArtifacts?,
+        analysis: AnalysisReport? = null,
     ): CaptureArchiveWriteResult {
         validatePng(screenshotPng)
         val exportSnapshot = snapshot.normalizedToCurrentProtocol()
@@ -37,6 +41,7 @@ internal class CaptureArchiveService(
                 snapshotJson = protocolCodec.encodeSnapshot(exportSnapshot),
                 screenshotPng = screenshotPng,
                 rawArtifacts = rawArtifacts,
+                analysisReportJson = analysis?.let(analysisReportJson::encode),
             ),
         )
     }
@@ -66,6 +71,7 @@ internal class CaptureArchiveService(
             snapshot = snapshot,
             screenshotPng = document.payload.screenshotPng,
             rawArtifacts = document.payload.rawArtifacts,
+            analysis = document.payload.analysisReportJson?.let(analysisReportJson::decode),
         )
     }
 

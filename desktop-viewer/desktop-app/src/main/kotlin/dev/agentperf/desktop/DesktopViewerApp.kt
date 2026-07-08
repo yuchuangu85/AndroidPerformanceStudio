@@ -84,6 +84,7 @@ import androidx.compose.ui.window.FrameWindowScope
 import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
+import dev.agentperf.adb.AdbDevice
 import dev.agentperf.adb.ConnectedDeviceSession
 import dev.agentperf.adb.LiveDeviceClient
 import dev.agentperf.adb.VisibleWindowViewsTextRenderer
@@ -112,6 +113,9 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     var manualRefreshRequest by remember { mutableStateOf(0) }
     var manualRefreshInProgress by remember { mutableStateOf(false) }
     val deviceClient = remember { LiveDeviceClient() }
+    var availableDevices by remember { mutableStateOf<List<AdbDevice>>(emptyList()) }
+    var selectedDeviceSerial by remember { mutableStateOf<String?>(null) }
+    var deviceListRefreshRequest by remember { mutableStateOf(0) }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
     val archiveFileChooser = remember { SwingCaptureArchiveFileChooser() }
     val captureArchiveService = remember(protocolCodec) {
@@ -129,6 +133,14 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     val coroutineScope = rememberCoroutineScope()
     var hiddenLayerState by remember { mutableStateOf(HiddenLayerState()) }
 
+    LaunchedEffect(deviceListRefreshRequest) {
+        val devices = withContext(Dispatchers.IO) {
+            runCatching { deviceClient.listAuthorizedDevices() }.getOrDefault(emptyList())
+        }
+        availableDevices = devices
+        selectedDeviceSerial = sanitizeSelectedDeviceSerial(selectedDeviceSerial, devices)
+    }
+
     LaunchedEffect(autoScanEnabled) {
         if (!autoScanEnabled) {
             if (store.state.connectionStatus != ConnectionStatus.ARCHIVE) {
@@ -144,7 +156,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 store.connecting()
                 state = store.state
                 session = withContext(Dispatchers.IO) {
-                    deviceClient.connectForegroundApp()
+                    deviceClient.connectForegroundApp(selectedDeviceSerial)
                 }
                 while (currentCoroutineContext().isActive) {
                     val isCurrent = withContext(Dispatchers.IO) {
@@ -186,7 +198,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             store.connecting()
             state = store.state
             session = withContext(Dispatchers.IO) {
-                deviceClient.connectForegroundApp()
+                deviceClient.connectForegroundApp(selectedDeviceSerial)
             }
             val frame = withContext(Dispatchers.IO) {
                 session.capture()
@@ -258,7 +270,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         preservedRawArtifacts
                     } else {
                         runCatching {
-                            val zip = deviceClient.dumpVisibleWindowViews()
+                            val zip = deviceClient.dumpVisibleWindowViews(selectedDeviceSerial)
                             CaptureRawArtifacts(
                                 zip = zip,
                                 text = VisibleWindowViewsTextRenderer.render(zip),
@@ -274,6 +286,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         snapshot = snapshot,
                         screenshotPng = screenshot,
                         rawArtifacts = rawArtifacts,
+                        analysis = state.analysis,
                     )
                 }
                 CaptureArchiveUiState.Success(
@@ -308,6 +321,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 store.loadArchive(
                     snapshot = imported.snapshot,
                     screenshotPng = imported.screenshotPng,
+                    analysis = imported.analysis,
                 )
                 state = store.state
                 importedRawArtifacts = imported.rawArtifacts
@@ -459,6 +473,12 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     },
                     panelVisibility = panelVisibility,
                     onAction = performAction,
+                    deviceChoices = deviceChoices(availableDevices),
+                    selectedDeviceSerial = selectedDeviceSerial,
+                    onSelectDevice = { serial ->
+                        selectedDeviceSerial = serial
+                        deviceListRefreshRequest += 1
+                    },
                     onSelectWindow = { windowId ->
                         if (store.selectWindow(windowId)) {
                             hierarchyTreeState = HierarchyTreeState()
@@ -669,6 +689,9 @@ private fun Header(
     onManualRefresh: () -> Unit,
     panelVisibility: PanelVisibility,
     onAction: (ViewerAction) -> Unit,
+    deviceChoices: List<DeviceChoiceModel>,
+    selectedDeviceSerial: String?,
+    onSelectDevice: (String?) -> Unit,
     onSelectWindow: (String) -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -680,6 +703,12 @@ private fun Header(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(packageName, color = colors.primaryText, fontFamily = FontFamily.Monospace)
+        Spacer(Modifier.width(8.dp))
+        DeviceSelector(
+            devices = deviceChoices,
+            selectedSerial = selectedDeviceSerial,
+            onSelectDevice = onSelectDevice,
+        )
         Spacer(Modifier.width(8.dp))
         WindowSelector(
             windows = model.windows,
@@ -716,6 +745,10 @@ private fun Header(
         HeaderSeparator()
         Spacer(Modifier.width(12.dp))
         Text(model.metricsText, color = colors.subtleText, fontSize = 12.sp)
+        model.timelineText?.let { timelineText ->
+            Spacer(Modifier.width(10.dp))
+            Text(timelineText, color = colors.subtleText, fontSize = 12.sp)
+        }
         Spacer(Modifier.width(12.dp))
         HeaderSeparator()
         Spacer(Modifier.width(10.dp))
@@ -735,6 +768,53 @@ private fun Header(
         Spacer(Modifier.width(8.dp))
         SettingsButton {
             onAction(ViewerAction.OPEN_SETTINGS)
+        }
+    }
+}
+
+@Composable
+private fun DeviceSelector(
+    devices: List<DeviceChoiceModel>,
+    selectedSerial: String?,
+    onSelectDevice: (String?) -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = devices.firstOrNull { it.serial == selectedSerial }?.label
+        ?: strings.autoDevice
+    Box {
+        Text(
+            text = "$selectedLabel ▾",
+            color = colors.secondaryText,
+            fontSize = 11.sp,
+            maxLines = 1,
+            modifier = Modifier
+                .background(colors.sectionBackground, RoundedCornerShape(4.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(colors.panel),
+        ) {
+            DropdownMenuItem(
+                text = { Text(strings.autoDevice, fontSize = 12.sp) },
+                onClick = {
+                    expanded = false
+                    onSelectDevice(null)
+                },
+            )
+            devices.forEach { device ->
+                DropdownMenuItem(
+                    text = { Text(device.label, fontSize = 12.sp) },
+                    onClick = {
+                        expanded = false
+                        onSelectDevice(device.serial)
+                    },
+                )
+            }
         }
     }
 }
