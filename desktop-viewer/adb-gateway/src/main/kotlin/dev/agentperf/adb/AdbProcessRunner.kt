@@ -1,5 +1,6 @@
 package dev.agentperf.adb
 
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -16,11 +17,19 @@ fun interface ProcessRunner {
 }
 
 class AdbProcessRunner(
-    private val executable: String = "adb",
+    private val executable: String = AdbExecutableResolver.resolveDefault(),
     private val timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
 ) : ProcessRunner {
     override fun run(arguments: List<String>): ProcessResult {
-        val process = ProcessBuilder(listOf(executable) + arguments).start()
+        val process = try {
+            ProcessBuilder(listOf(executable) + arguments).start()
+        } catch (error: IOException) {
+            return ProcessResult(
+                exitCode = COMMAND_NOT_FOUND_EXIT_CODE,
+                stdout = "",
+                stderr = AdbExecutableResolver.missingExecutableMessage(executable, error.message),
+            )
+        }
         val stdout = CompletableFuture.supplyAsync { process.inputStream.readBytes() }
         val stderr = CompletableFuture.supplyAsync { process.errorStream.bufferedReader().readText() }
         val completed = process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
@@ -42,6 +51,7 @@ class AdbProcessRunner(
 
     companion object {
         const val TIMEOUT_EXIT_CODE = -1
+        const val COMMAND_NOT_FOUND_EXIT_CODE = 127
         private const val DEFAULT_TIMEOUT_MILLIS = 15_000L
     }
 }
