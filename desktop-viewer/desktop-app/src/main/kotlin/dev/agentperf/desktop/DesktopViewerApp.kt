@@ -822,19 +822,30 @@ private fun ManualRefreshButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
-    val iconColor = if (enabled) colors.secondaryText else colors.mutedText.copy(alpha = 0.55f)
-    val buttonShape = RoundedCornerShape(ManualRefreshButtonStyle.CORNER_RADIUS_DP.dp)
+    HeaderTextButton(
+        label = strings.refresh,
+        contentDescription = strings.refreshOnce,
+        enabled = enabled,
+        onClick = onClick,
+        widthDp = ManualRefreshButtonStyle.WIDTH_DP,
+    )
+}
+
+@Composable
+private fun HeaderTextButton(
+    label: String,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    widthDp: Int,
+) {
+    val colors = LocalViewerColors.current
+    val shape = RoundedCornerShape(ManualRefreshButtonStyle.CORNER_RADIUS_DP.dp)
     val backgroundAlpha = if (enabled) {
         ManualRefreshButtonStyle.BACKGROUND_ALPHA
     } else {
         ManualRefreshButtonStyle.DISABLED_BACKGROUND_ALPHA
-    }
-    val backgroundColor = if (colors.isDark) {
-        Color.White.copy(alpha = backgroundAlpha)
-    } else {
-        Color.White.copy(alpha = backgroundAlpha)
     }
     val borderColor = colors.border.copy(
         alpha = if (enabled) {
@@ -843,48 +854,32 @@ private fun ManualRefreshButton(
             ManualRefreshButtonStyle.DISABLED_BORDER_ALPHA
         },
     )
-    Box(
+    Row(
         modifier = Modifier
-            .width(ManualRefreshButtonStyle.WIDTH_DP.dp)
+            .width(widthDp.dp)
             .height(ManualRefreshButtonStyle.HEIGHT_DP.dp)
-            .background(backgroundColor, buttonShape)
-            .border(1.dp, borderColor, buttonShape)
-            .semantics { contentDescription = strings.refreshOnce }
-            .let { base ->
-                if (enabled) base.clickable(onClick = onClick) else base
-            },
-        contentAlignment = Alignment.Center,
+            .background(Color.White.copy(alpha = backgroundAlpha), shape)
+            .border(1.dp, borderColor, shape)
+            .semantics { this.contentDescription = contentDescription }
+            .let { base -> if (enabled) base.clickable(onClick = onClick) else base }
+            .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Canvas(Modifier.size(ManualRefreshButtonStyle.ICON_SIZE_DP.dp)) {
-            val strokeWidth = 1.25.dp.toPx()
-            drawArc(
-                color = iconColor,
-                startAngle = -55f,
-                sweepAngle = 285f,
-                useCenter = false,
-                style = Stroke(width = strokeWidth),
-            )
-            drawLine(
-                color = iconColor,
-                start = Offset(size.width * 0.78f, size.height * 0.1f),
-                end = Offset(size.width * 0.95f, size.height * 0.32f),
-                strokeWidth = strokeWidth,
-            )
-            drawLine(
-                color = iconColor,
-                start = Offset(size.width * 0.78f, size.height * 0.1f),
-                end = Offset(size.width * 0.59f, size.height * 0.29f),
-                strokeWidth = strokeWidth,
-            )
-        }
+        Text(
+            text = label,
+            color = if (enabled) colors.primaryText else colors.mutedText.copy(alpha = 0.55f),
+            fontSize = 11.sp,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 
 internal object ManualRefreshButtonStyle {
-    const val WIDTH_DP = 28
-    const val HEIGHT_DP = 20
+    const val WIDTH_DP = 56
+    const val HEIGHT_DP = 22
     const val CORNER_RADIUS_DP = 7
-    const val ICON_SIZE_DP = 13
     const val BACKGROUND_ALPHA = 0.62f
     const val BORDER_ALPHA = 0.45f
     const val DISABLED_BACKGROUND_ALPHA = 0.24f

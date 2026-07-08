@@ -50,6 +50,7 @@ internal class ViewerStrings private constructor(
         get() = text("Show all visible view bounds", "显示全部可见视图边缘")
     val dismiss: String get() = text("OK", "确定")
     val autoScan: String get() = text("Auto scan", "自动扫描")
+    val refresh: String get() = text("Refresh", "刷新")
     val refreshOnce: String get() = text("Refresh once", "刷新一次")
     val hierarchy: String get() = text("HIERARCHY", "层级结构")
     val canvas: String get() = text("CANVAS", "画布")
