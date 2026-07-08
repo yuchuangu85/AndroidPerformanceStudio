@@ -46,6 +46,11 @@ internal class ViewerStrings private constructor(
         )
     val hideHierarchyIndices: String
         get() = text("Hide hierarchy indices", "隐藏层级索引")
+    val showHierarchyLayerVisibilityButtons: String
+        get() = text(
+            "Show visibility buttons in hierarchy",
+            "显示层级结构中的显示按钮",
+        )
     val showVisibleViewBounds: String
         get() = text("Show all visible view bounds", "显示全部可见视图边缘")
     val dismiss: String get() = text("OK", "确定")
@@ -157,6 +162,7 @@ internal class ViewerStrings private constructor(
         ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS -> hideInvisibleHierarchyViews
         ViewDisplayOption.HIDE_INVISIBLE_FINDINGS -> hideInvisibleFindings
         ViewDisplayOption.HIDE_HIERARCHY_INDICES -> hideHierarchyIndices
+        ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS -> showHierarchyLayerVisibilityButtons
         ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS -> showVisibleViewBounds
     }
 

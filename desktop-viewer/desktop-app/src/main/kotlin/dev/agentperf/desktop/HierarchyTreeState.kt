@@ -5,8 +5,6 @@ internal object HierarchyRowLayout {
     const val HEIGHT_DP = 16
     const val FONT_SIZE_SP = 10
     const val INDENT_DP = 14
-    const val SHOW_INLINE_LAYER_VISIBILITY_BUTTON = false
-    const val INLINE_LAYER_VISIBILITY_BUTTON_WIDTH_DP = 0
 }
 
 internal enum class HierarchyNavigationDirection {

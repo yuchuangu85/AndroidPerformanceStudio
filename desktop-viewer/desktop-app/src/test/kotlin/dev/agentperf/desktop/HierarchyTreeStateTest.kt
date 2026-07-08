@@ -1,7 +1,6 @@
 package dev.agentperf.desktop
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 
 class HierarchyTreeStateTest {
@@ -13,12 +12,6 @@ class HierarchyTreeStateTest {
             HierarchyRowLayout.BASELINE_HEIGHT_DP * 2 / 3,
             HierarchyRowLayout.HEIGHT_DP,
         )
-    }
-
-    @Test
-    fun `hierarchy rows do not reserve inline layer visibility button space`() {
-        assertFalse(HierarchyRowLayout.SHOW_INLINE_LAYER_VISIBILITY_BUTTON)
-        assertEquals(0, HierarchyRowLayout.INLINE_LAYER_VISIBILITY_BUTTON_WIDTH_DP)
     }
 
     @Test

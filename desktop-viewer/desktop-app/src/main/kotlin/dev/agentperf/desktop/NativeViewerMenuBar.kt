@@ -76,7 +76,11 @@ internal data class NativeViewerMenuModel(
             NativeViewMenuItem(
                 option = option,
                 label = strings.viewOptionLabel(option),
-                group = if (option == ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS) 1 else 0,
+                group = when (option) {
+                    ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS -> 1
+                    ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS -> 2
+                    else -> 0
+                },
                 checked = when (option) {
                     ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS ->
                         viewDisplayOptions.hideInvisibleHierarchyViews
@@ -84,6 +88,8 @@ internal data class NativeViewerMenuModel(
                         viewDisplayOptions.hideInvisibleFindings
                     ViewDisplayOption.HIDE_HIERARCHY_INDICES ->
                         viewDisplayOptions.hideHierarchyIndices
+                    ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS ->
+                        viewDisplayOptions.showHierarchyLayerVisibilityButtons
                     ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS ->
                         viewDisplayOptions.showVisibleViewBounds
                 },

@@ -65,6 +65,8 @@ class LanguagePreferenceTest {
         assertEquals("Hide invisible-view findings", english.hideInvisibleFindings)
         assertEquals("隐藏层级索引", chinese.hideHierarchyIndices)
         assertEquals("Hide hierarchy indices", english.hideHierarchyIndices)
+        assertEquals("显示层级结构中的显示按钮", chinese.showHierarchyLayerVisibilityButtons)
+        assertEquals("Show visibility buttons in hierarchy", english.showHierarchyLayerVisibilityButtons)
         assertEquals("显示全部可见视图边缘", chinese.showVisibleViewBounds)
         assertEquals("Show all visible view bounds", english.showVisibleViewBounds)
         assertEquals("文件", chinese.file)

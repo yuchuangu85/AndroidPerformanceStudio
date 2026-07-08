@@ -588,6 +588,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         languagePreference = preference
                         languageStore.save(preference)
                     },
+                    viewDisplayOptions = viewDisplayOptions,
+                    onViewDisplayOptionsChanged = { updated ->
+                        viewDisplayOptions = updated
+                        viewDisplayOptionsStore.save(updated)
+                    },
                     canvasBorderColors = canvasBorderColors,
                     onCanvasBorderColorsChanged = { updated ->
                         canvasBorderColors = updated
@@ -1133,7 +1138,7 @@ private fun HierarchyPane(
                                 },
                             )
                             Spacer(Modifier.width(4.dp))
-                            if (HierarchyRowLayout.SHOW_INLINE_LAYER_VISIBILITY_BUTTON) {
+                            if (viewDisplayOptions.showHierarchyLayerVisibilityButtons) {
                                 LayerVisibilityButton(
                                     hidden = hiddenLayerState.isHidden(row.id),
                                     onToggle = {
@@ -1141,7 +1146,7 @@ private fun HierarchyPane(
                                         onToggleHiddenLayer(row.id)
                                     },
                                 )
-                                Spacer(Modifier.width(HierarchyRowLayout.INLINE_LAYER_VISIBILITY_BUTTON_WIDTH_DP.dp))
+                                Spacer(Modifier.width(4.dp))
                             }
                             Text(
                                 ViewDisplayProjection.hierarchyLabel(

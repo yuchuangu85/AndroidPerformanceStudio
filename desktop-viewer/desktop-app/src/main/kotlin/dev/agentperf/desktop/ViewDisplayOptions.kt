@@ -6,6 +6,7 @@ internal enum class ViewDisplayOption {
     HIDE_INVISIBLE_HIERARCHY_VIEWS,
     HIDE_INVISIBLE_FINDINGS,
     HIDE_HIERARCHY_INDICES,
+    SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS,
     SHOW_VISIBLE_VIEW_BOUNDS,
 }
 
@@ -14,6 +15,7 @@ internal data class ViewDisplayOptions(
     val hideInvisibleFindings: Boolean = false,
     val hideHierarchyIndices: Boolean = false,
     val showHierarchyIds: Boolean = true,
+    val showHierarchyLayerVisibilityButtons: Boolean = false,
     val showVisibleViewBounds: Boolean = false,
     val canvasHitTestOrder: CanvasHitTestOrder = CanvasHitTestOrder.SMALL_AREA_FIRST,
 ) {
@@ -24,12 +26,17 @@ internal data class ViewDisplayOptions(
             copy(hideInvisibleFindings = !hideInvisibleFindings)
         ViewDisplayOption.HIDE_HIERARCHY_INDICES ->
             copy(hideHierarchyIndices = !hideHierarchyIndices)
+        ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS ->
+            copy(showHierarchyLayerVisibilityButtons = !showHierarchyLayerVisibilityButtons)
         ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS ->
             copy(showVisibleViewBounds = !showVisibleViewBounds)
     }
 
     fun toggleHierarchyIds(): ViewDisplayOptions =
         copy(showHierarchyIds = !showHierarchyIds)
+
+    fun toggleHierarchyLayerVisibilityButtons(): ViewDisplayOptions =
+        copy(showHierarchyLayerVisibilityButtons = !showHierarchyLayerVisibilityButtons)
 
     fun toggleCanvasHitTestOrder(): ViewDisplayOptions =
         copy(
@@ -49,6 +56,10 @@ internal class ViewDisplayOptionsStore(
         hideInvisibleFindings = readBoolean(HIDE_INVISIBLE_FINDINGS_KEY, false),
         hideHierarchyIndices = readBoolean(HIDE_HIERARCHY_INDICES_KEY, false),
         showHierarchyIds = readBoolean(SHOW_HIERARCHY_IDS_KEY, true),
+        showHierarchyLayerVisibilityButtons = readBoolean(
+            SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS_KEY,
+            false,
+        ),
         showVisibleViewBounds = readBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, false),
         canvasHitTestOrder = if (readBoolean(CANVAS_HIT_TEST_ORDER_Z_KEY, false)) {
             CanvasHitTestOrder.Z_ORDER
@@ -62,6 +73,10 @@ internal class ViewDisplayOptionsStore(
         writeBoolean(HIDE_INVISIBLE_FINDINGS_KEY, options.hideInvisibleFindings)
         writeBoolean(HIDE_HIERARCHY_INDICES_KEY, options.hideHierarchyIndices)
         writeBoolean(SHOW_HIERARCHY_IDS_KEY, options.showHierarchyIds)
+        writeBoolean(
+            SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS_KEY,
+            options.showHierarchyLayerVisibilityButtons,
+        )
         writeBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, options.showVisibleViewBounds)
         writeBoolean(
             CANVAS_HIT_TEST_ORDER_Z_KEY,
@@ -75,6 +90,8 @@ internal class ViewDisplayOptionsStore(
         private const val HIDE_INVISIBLE_FINDINGS_KEY = "view.hideInvisibleFindings"
         private const val HIDE_HIERARCHY_INDICES_KEY = "view.hideHierarchyIndices"
         private const val SHOW_HIERARCHY_IDS_KEY = "view.showHierarchyIds"
+        private const val SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS_KEY =
+            "view.showHierarchyLayerVisibilityButtons"
         private const val SHOW_VISIBLE_VIEW_BOUNDS_KEY = "view.showVisibleViewBounds"
         private const val CANVAS_HIT_TEST_ORDER_Z_KEY = "view.canvasHitTestOrder.zOrder"
 

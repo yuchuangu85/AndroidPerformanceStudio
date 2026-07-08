@@ -12,6 +12,7 @@ class ViewDisplayOptionsTest {
                 hideInvisibleFindings = false,
                 hideHierarchyIndices = false,
                 showHierarchyIds = true,
+                showHierarchyLayerVisibilityButtons = false,
                 showVisibleViewBounds = false,
                 canvasHitTestOrder = CanvasHitTestOrder.SMALL_AREA_FIRST,
             ),
@@ -38,6 +39,10 @@ class ViewDisplayOptionsTest {
             )
             assertEquals(true, toggled.showHierarchyIds)
             assertEquals(
+                option == ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS,
+                toggled.showHierarchyLayerVisibilityButtons,
+            )
+            assertEquals(
                 option == ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS,
                 toggled.showVisibleViewBounds,
             )
@@ -48,6 +53,10 @@ class ViewDisplayOptionsTest {
         assertEquals(
             CanvasHitTestOrder.Z_ORDER,
             ViewDisplayOptions().toggleCanvasHitTestOrder().canvasHitTestOrder,
+        )
+        assertEquals(
+            true,
+            ViewDisplayOptions().toggleHierarchyLayerVisibilityButtons().showHierarchyLayerVisibilityButtons,
         )
     }
 
@@ -65,12 +74,13 @@ class ViewDisplayOptionsTest {
             hideInvisibleFindings = false,
             hideHierarchyIndices = true,
             showHierarchyIds = false,
+            showHierarchyLayerVisibilityButtons = true,
             showVisibleViewBounds = true,
             canvasHitTestOrder = CanvasHitTestOrder.Z_ORDER,
         )
         store.save(expected)
 
-        assertEquals(6, values.size)
+        assertEquals(7, values.size)
         assertEquals(expected, store.load())
     }
 }

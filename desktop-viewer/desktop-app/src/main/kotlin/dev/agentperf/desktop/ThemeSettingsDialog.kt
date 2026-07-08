@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,7 +42,7 @@ internal object SettingsDialogStyle {
     const val TITLE_FONT_SIZE_SP = 20
     const val SECTION_TITLE_FONT_SIZE_SP = 13
     const val CONTENT_FONT_SIZE_SP = 11
-    const val SECTION_SEPARATOR_COUNT = 2
+    const val SECTION_SEPARATOR_COUNT = 3
     const val SEPARATOR_HEIGHT_DP = 1
     const val SEPARATOR_VERTICAL_PADDING_DP = 12
 }
@@ -52,6 +53,8 @@ internal fun SettingsDialog(
     onSelectThemePreference: (ThemePreference) -> Unit,
     selectedLanguagePreference: LanguagePreference,
     onSelectLanguagePreference: (LanguagePreference) -> Unit,
+    viewDisplayOptions: ViewDisplayOptions,
+    onViewDisplayOptionsChanged: (ViewDisplayOptions) -> Unit,
     canvasBorderColors: CanvasBorderColors,
     onCanvasBorderColorsChanged: (CanvasBorderColors) -> Unit,
     onDismiss: () -> Unit,
@@ -107,6 +110,18 @@ internal fun SettingsDialog(
                     onSelectPreference = onSelectLanguagePreference,
                 )
                 SettingsMenuSeparator()
+                SettingsSectionTitle(strings.view)
+                Spacer(Modifier.height(8.dp))
+                SettingsToggleRow(
+                    label = strings.showHierarchyLayerVisibilityButtons,
+                    enabled = viewDisplayOptions.showHierarchyLayerVisibilityButtons,
+                    onToggle = {
+                        onViewDisplayOptionsChanged(
+                            viewDisplayOptions.toggleHierarchyLayerVisibilityButtons(),
+                        )
+                    },
+                )
+                SettingsMenuSeparator()
                 SettingsSectionTitle(strings.canvasBorderColors)
                 Spacer(Modifier.height(4.dp))
                 CanvasColorSetting(
@@ -128,6 +143,61 @@ internal fun SettingsDialog(
         },
         confirmButton = {},
     )
+}
+
+@Composable
+private fun SettingsToggleRow(
+    label: String,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.sectionBackground, RoundedCornerShape(6.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = colors.primaryText,
+            fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+        )
+        Spacer(Modifier.weight(1f))
+        SettingsToggleSwitch(enabled)
+    }
+}
+
+@Composable
+private fun SettingsToggleSwitch(enabled: Boolean) {
+    val colors = LocalViewerColors.current
+    Box(
+        modifier =
+            Modifier
+                .width(30.dp)
+                .height(16.dp)
+                .background(
+                    color = if (enabled) {
+                        colors.accent.copy(alpha = 0.55f)
+                    } else {
+                        colors.switchTrackOff
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                )
+                .padding(2.dp),
+        contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
+    ) {
+        Box(
+            Modifier
+                .size(12.dp)
+                .background(
+                    color = if (enabled) Color.White else colors.switchThumbOff,
+                    shape = RoundedCornerShape(50),
+                ),
+        )
+    }
 }
 
 @Composable
