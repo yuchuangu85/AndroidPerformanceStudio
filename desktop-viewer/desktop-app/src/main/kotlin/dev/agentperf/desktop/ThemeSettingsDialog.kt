@@ -37,6 +37,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+internal object SettingsDialogStyle {
+    const val TITLE_FONT_SIZE_SP = 20
+    const val SECTION_TITLE_FONT_SIZE_SP = 13
+    const val CONTENT_FONT_SIZE_SP = 11
+    const val SECTION_SEPARATOR_COUNT = 2
+    const val SEPARATOR_HEIGHT_DP = 1
+    const val SEPARATOR_VERTICAL_PADDING_DP = 12
+}
+
 @Composable
 internal fun SettingsDialog(
     selectedThemePreference: ThemePreference,
@@ -61,7 +70,7 @@ internal fun SettingsDialog(
             ) {
                 Text(
                     text = strings.settings,
-                    fontSize = 16.sp,
+                    fontSize = SettingsDialogStyle.TITLE_FONT_SIZE_SP.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.weight(1f))
@@ -74,15 +83,9 @@ internal fun SettingsDialog(
                     .width(520.dp)
                     .heightIn(max = 620.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    text = strings.theme,
-                    color = colors.secondaryText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.height(4.dp))
+                SettingsSectionTitle(strings.theme)
+                Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -96,25 +99,16 @@ internal fun SettingsDialog(
                         )
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = strings.languageSetting,
-                    color = colors.secondaryText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.height(4.dp))
+                SettingsMenuSeparator()
+                SettingsSectionTitle(strings.languageSetting)
+                Spacer(Modifier.height(8.dp))
                 LanguagePreferenceDropdown(
                     selectedPreference = selectedLanguagePreference,
                     onSelectPreference = onSelectLanguagePreference,
                 )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    strings.canvasBorderColors,
-                    color = colors.secondaryText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+                SettingsMenuSeparator()
+                SettingsSectionTitle(strings.canvasBorderColors)
+                Spacer(Modifier.height(4.dp))
                 CanvasColorSetting(
                     strings.defaultViewBoundsColor,
                     canvasBorderColors.normal,
@@ -137,6 +131,29 @@ internal fun SettingsDialog(
 }
 
 @Composable
+private fun SettingsSectionTitle(text: String) {
+    val colors = LocalViewerColors.current
+    Text(
+        text = text,
+        color = colors.secondaryText,
+        fontSize = SettingsDialogStyle.SECTION_TITLE_FONT_SIZE_SP.sp,
+        fontWeight = FontWeight.Bold,
+    )
+}
+
+@Composable
+private fun SettingsMenuSeparator() {
+    val colors = LocalViewerColors.current
+    Box(
+        modifier = Modifier
+            .padding(vertical = SettingsDialogStyle.SEPARATOR_VERTICAL_PADDING_DP.dp)
+            .fillMaxWidth()
+            .height(SettingsDialogStyle.SEPARATOR_HEIGHT_DP.dp)
+            .background(colors.border),
+    )
+}
+
+@Composable
 private fun CanvasColorSetting(
     label: String,
     value: CanvasArgb,
@@ -147,7 +164,12 @@ private fun CanvasColorSetting(
     val strings = LocalViewerStrings.current
     var text by remember(value) { mutableStateOf(value.toHex()) }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = colors.primaryText, fontSize = 11.sp, modifier = Modifier.width(120.dp))
+        Text(
+            label,
+            color = colors.primaryText,
+            fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+            modifier = Modifier.width(120.dp),
+        )
         canvasColorPresets.forEach { preset ->
             Box(
                 Modifier
@@ -169,7 +191,7 @@ private fun CanvasColorSetting(
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(
                 color = colors.primaryText,
-                fontSize = 11.sp,
+                fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
             ),
             modifier = Modifier
                 .padding(start = 8.dp)
@@ -229,7 +251,7 @@ private fun ThemePreferenceOption(
         Text(
             text = label,
             color = colors.primaryText,
-            fontSize = 12.sp,
+            fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
             maxLines = 1,
             softWrap = false,
         )
@@ -256,7 +278,7 @@ private fun LanguagePreferenceDropdown(
             Text(
                 text = strings.languagePreferenceName(selectedPreference),
                 color = colors.primaryText,
-                fontSize = 13.sp,
+                fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
             )
             Spacer(Modifier.weight(1f))
             Canvas(Modifier.size(9.dp)) {
@@ -295,7 +317,7 @@ private fun LanguagePreferenceDropdown(
                                 "    ${strings.languagePreferenceName(preference)}"
                             },
                             color = if (selected) colors.accent else colors.primaryText,
-                            fontSize = 12.sp,
+                            fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
                         )
                     },
                     onClick = {
