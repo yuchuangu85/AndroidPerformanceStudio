@@ -69,7 +69,7 @@
 | Package app 查找 adb 修复 | ✅ 已完成 | 2026-07-08 09:36:33 +0800 | `98459c8` | 打包 DMG 后也能解析/查找 adb，不依赖 shell PATH。 |
 | 刷新/自动扫描工具栏控制与主题/语言 | 🚀 已发布 | 2026-07-08 10:22:59 +0800 | `79349e2` | v0.1.8：刷新按钮、自动扫描顺序、主题切换、多语言等 toolbar polish。 |
 | Release artifact actions Node 24 支持 | ✅ 已完成 | 2026-07-08 10:39:14 +0800 | `afec040` | upload/download artifact actions 升级，避免 Node 20 deprecation warning。 |
-| Canvas 命中候选排序、同点轮选、隐藏层级穿透 | ✅ 已完成 | 2026-07-08 15:28:44 +0800 | `062fbf8` | 小面积优先/Z 序可切换；保留同点轮选；隐藏层级作为强制穿透手段。 |
+| Canvas 命中候选排序、同点轮选、隐藏层级穿透 | 🚀 待发布 v0.1.9 | 2026-07-08 15:28:44 +0800 | `062fbf8` | 小面积优先/Z 序可切换；保留同点轮选；隐藏层级作为强制穿透手段。 |
 
 ## 规划/未完成能力
 
@@ -93,6 +93,7 @@
 | v0.1.6 | 🚀 已发布 | 2026-07-07 14:23:54 +0800 | `8773202` | native packaging/app identity polish 后发布。 |
 | v0.1.7 | 🚀 已发布 | 2026-07-07 23:14:24 +0800 | `9e45e5e` | release workflow / version assertion 更新。 |
 | v0.1.8 | 🚀 已发布 | 2026-07-08 10:22:59 +0800 | `79349e2` | toolbar refresh/theme/language polish。 |
+| v0.1.9 | 🚀 待发布 | 2026-07-08 15:33:29 +0800 |  | canvas selection ordering and layer pass-through。 |
 
 ## 维护规则
 
