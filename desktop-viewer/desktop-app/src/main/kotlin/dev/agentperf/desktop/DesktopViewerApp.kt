@@ -1133,14 +1133,16 @@ private fun HierarchyPane(
                                 },
                             )
                             Spacer(Modifier.width(4.dp))
-                            LayerVisibilityButton(
-                                hidden = hiddenLayerState.isHidden(row.id),
-                                onToggle = {
-                                    focusRequester.requestFocus()
-                                    onToggleHiddenLayer(row.id)
-                                },
-                            )
-                            Spacer(Modifier.width(4.dp))
+                            if (HierarchyRowLayout.SHOW_INLINE_LAYER_VISIBILITY_BUTTON) {
+                                LayerVisibilityButton(
+                                    hidden = hiddenLayerState.isHidden(row.id),
+                                    onToggle = {
+                                        focusRequester.requestFocus()
+                                        onToggleHiddenLayer(row.id)
+                                    },
+                                )
+                                Spacer(Modifier.width(HierarchyRowLayout.INLINE_LAYER_VISIBILITY_BUTTON_WIDTH_DP.dp))
+                            }
                             Text(
                                 ViewDisplayProjection.hierarchyLabel(
                                     row = row,
