@@ -97,6 +97,46 @@ class ViewBoundsOverlayTest {
         )
     }
 
+    @Test
+    fun `hidden nodes and descendants are excluded from overlay`() {
+        val root = viewNode(
+            id = "root",
+            bounds = Bounds(left = 0, top = 0, right = 100, bottom = 100),
+            children = listOf(
+                viewNode(
+                    id = "hidden-parent",
+                    bounds = Bounds(left = 10, top = 10, right = 90, bottom = 90),
+                    children = listOf(
+                        viewNode(
+                            id = "hidden-child",
+                            bounds = Bounds(left = 20, top = 20, right = 30, bottom = 30),
+                        ),
+                    ),
+                ),
+                viewNode(
+                    id = "visible-sibling",
+                    bounds = Bounds(left = 40, top = 40, right = 60, bottom = 60),
+                ),
+            ),
+        )
+
+        val mapped = ViewBoundsOverlay.mappedVisibleBounds(
+            root = root,
+            selectedNodeId = null,
+            hiddenNodeIds = setOf("hidden-parent"),
+            source = CropRect(left = 0, top = 0, width = 100, height = 100),
+            destination = FloatRect(left = 0f, top = 0f, width = 200f, height = 200f),
+        )
+
+        assertEquals(
+            listOf(
+                FloatRect(left = 0f, top = 0f, width = 200f, height = 200f),
+                FloatRect(left = 80f, top = 80f, width = 40f, height = 40f),
+            ),
+            mapped,
+        )
+    }
+
     private fun viewNode(
         id: String,
         bounds: Bounds,

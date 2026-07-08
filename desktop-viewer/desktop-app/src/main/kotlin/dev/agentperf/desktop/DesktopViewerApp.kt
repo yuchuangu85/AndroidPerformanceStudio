@@ -127,6 +127,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
         mutableStateOf<CaptureRawArtifacts?>(null)
     }
     val coroutineScope = rememberCoroutineScope()
+    var hiddenLayerState by remember { mutableStateOf(HiddenLayerState()) }
 
     LaunchedEffect(autoScanEnabled) {
         if (!autoScanEnabled) {
@@ -156,6 +157,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         screenshotPng = frame.screenshotPng,
                     )
                     importedRawArtifacts = null
+                    hiddenLayerState = HiddenLayerState()
                     state = store.state
                     delay(CAPTURE_INTERVAL_MILLIS)
                 }
@@ -194,6 +196,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 screenshotPng = frame.screenshotPng,
             )
             importedRawArtifacts = null
+            hiddenLayerState = HiddenLayerState()
             state = store.state
         } catch (error: CancellationException) {
             throw error
@@ -309,6 +312,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 state = store.state
                 importedRawArtifacts = imported.rawArtifacts
                 hierarchyTreeState = HierarchyTreeState()
+                hiddenLayerState = HiddenLayerState()
                 archiveUiState = CaptureArchiveUiState.Success(
                     operation = CaptureArchiveOperation.IMPORT,
                     path = source,
@@ -375,6 +379,17 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             }
             ViewerAction.OPEN_SETTINGS -> settingsVisible = true
         }
+    }
+    val toggleCanvasHitTestOrder: () -> Unit = {
+        val updatedOptions = viewDisplayOptions.toggleCanvasHitTestOrder()
+        viewDisplayOptions = updatedOptions
+        viewDisplayOptionsStore.save(updatedOptions)
+    }
+    val toggleHiddenLayer: (String) -> Unit = { nodeId ->
+        hiddenLayerState = hiddenLayerState.toggle(nodeId)
+    }
+    val clearHiddenLayers: () -> Unit = {
+        hiddenLayerState = hiddenLayerState.clear()
     }
     val toggleViewDisplayOption: (ViewDisplayOption) -> Unit = { option ->
         val updatedOptions = viewDisplayOptions.toggle(option)
@@ -447,6 +462,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     onSelectWindow = { windowId ->
                         if (store.selectWindow(windowId)) {
                             hierarchyTreeState = HierarchyTreeState()
+                            hiddenLayerState = HiddenLayerState()
                             state = store.state
                         }
                     },
@@ -469,14 +485,23 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                     paneWidths = normalizedPaneWidths
                                 }
                             }
+                            SideEffect {
+                                val rows = InspectorPresenter.present(state, strings).rows
+                                val sanitizedHiddenLayerState = hiddenLayerState.sanitize(rows)
+                                if (hiddenLayerState != sanitizedHiddenLayerState) {
+                                    hiddenLayerState = sanitizedHiddenLayerState
+                                }
+                            }
                             Row(modifier = Modifier.fillMaxSize()) {
                                 if (panelVisibility.showHierarchy) {
                                     HierarchyPane(
                                         state = state,
                                         treeState = hierarchyTreeState,
                                         viewDisplayOptions = viewDisplayOptions,
+                                        hiddenLayerState = hiddenLayerState,
                                         onTreeStateChange = { hierarchyTreeState = it },
                                         onSelect = selectNode,
+                                        onToggleHiddenLayer = toggleHiddenLayer,
                                         onAction = performAction,
                                         modifier =
                                             Modifier
@@ -494,7 +519,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                 PreviewPane(
                                     state = state,
                                     showVisibleViewBounds = viewDisplayOptions.showVisibleViewBounds,
+                                    hitTestOrder = viewDisplayOptions.canvasHitTestOrder,
+                                    hiddenLayerState = hiddenLayerState,
                                     borderColors = canvasBorderColors,
+                                    onToggleHitTestOrder = toggleCanvasHitTestOrder,
+                                    onClearHiddenLayers = clearHiddenLayers,
                                     onHoverNode = { nodeId ->
                                         store.setHoveredNode(nodeId)
                                         state = store.state
@@ -1005,8 +1034,10 @@ private fun HierarchyPane(
     state: InspectorState,
     treeState: HierarchyTreeState,
     viewDisplayOptions: ViewDisplayOptions,
+    hiddenLayerState: HiddenLayerState,
     onTreeStateChange: (HierarchyTreeState) -> Unit,
     onSelect: (String) -> Unit,
+    onToggleHiddenLayer: (String) -> Unit,
     onAction: (ViewerAction) -> Unit,
     modifier: Modifier,
 ) {
@@ -1049,6 +1080,10 @@ private fun HierarchyPane(
                     Key.Enter -> {
                         onAction(ViewerAction.TOGGLE_SELECTED_NODE)
                         true
+                    }
+                    Key.H -> {
+                        state.selectedNodeId?.let(onToggleHiddenLayer)
+                        state.selectedNodeId != null
                     }
                     else -> false
                 }
@@ -1098,13 +1133,25 @@ private fun HierarchyPane(
                                 },
                             )
                             Spacer(Modifier.width(4.dp))
+                            LayerVisibilityButton(
+                                hidden = hiddenLayerState.isHidden(row.id),
+                                onToggle = {
+                                    focusRequester.requestFocus()
+                                    onToggleHiddenLayer(row.id)
+                                },
+                            )
+                            Spacer(Modifier.width(4.dp))
                             Text(
                                 ViewDisplayProjection.hierarchyLabel(
                                     row = row,
                                     hideIndex = viewDisplayOptions.hideHierarchyIndices,
                                     showId = viewDisplayOptions.showHierarchyIds,
                                 ),
-                                color = if (row.visible) colors.rowText else colors.hiddenRowText,
+                                color = when {
+                                    hiddenLayerState.isHidden(row.id) -> colors.hiddenRowText
+                                    row.visible -> colors.rowText
+                                    else -> colors.hiddenRowText
+                                },
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
                                 lineHeight = 11.sp,
@@ -1175,15 +1222,25 @@ private fun HierarchyDisclosure(
 private fun PreviewPane(
     state: InspectorState,
     showVisibleViewBounds: Boolean,
+    hitTestOrder: CanvasHitTestOrder,
+    hiddenLayerState: HiddenLayerState,
     borderColors: CanvasBorderColors,
+    onToggleHitTestOrder: () -> Unit,
+    onClearHiddenLayers: () -> Unit,
     onHoverNode: (String?) -> Unit,
     onSelectNode: (String) -> Unit,
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
-    val selectedBounds = state.selectedNode?.bounds
-    val hoveredBounds = state.activeRoot?.findNodeBounds(state.hoveredNodeId)
+    val selectedBounds = state.activeRoot?.findNodeBoundsSkippingHidden(
+        targetId = state.selectedNodeId,
+        hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
+    )
+    val hoveredBounds = state.activeRoot?.findNodeBoundsSkippingHidden(
+        targetId = state.hoveredNodeId,
+        hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
+    )
     val display = state.snapshot?.display
     val appBounds = state.activeRoot?.bounds
     val screenshot = rememberScreenshot(state.screenshotPng)
@@ -1211,6 +1268,18 @@ private fun PreviewPane(
                 appOnly = appOnly,
                 onToggle = { appOnly = !appOnly },
             )
+            Spacer(Modifier.width(8.dp))
+            HitTestOrderToggle(
+                order = hitTestOrder,
+                onToggle = onToggleHitTestOrder,
+            )
+            if (hiddenLayerState.count > 0) {
+                Spacer(Modifier.width(8.dp))
+                HiddenLayerSummary(
+                    count = hiddenLayerState.count,
+                    onClear = onClearHiddenLayers,
+                )
+            }
         }
         BoxWithConstraints(
             Modifier.fillMaxSize().padding(28.dp),
@@ -1243,10 +1312,17 @@ private fun PreviewPane(
                                 val point = event.changes.firstOrNull()?.position ?: return@onPointerEvent
                                 val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
                                 val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
-                                val path = screenPoint?.let {
-                                    state.activeRoot?.let { root -> CanvasHitTester.hitPath(root, it) }
+                                val candidates = screenPoint?.let {
+                                    state.activeRoot?.let { root ->
+                                        CanvasHitTester.hitCandidates(
+                                            root = root,
+                                            point = it,
+                                            hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
+                                            order = hitTestOrder,
+                                        )
+                                    }
                                 }.orEmpty()
-                                onHoverNode(pointerSelection.move(point, path))
+                                onHoverNode(pointerSelection.move(point, candidates))
                             }
                             .onPointerEvent(PointerEventType.Exit) {
                                 pointerSelection.leave()
@@ -1256,10 +1332,17 @@ private fun PreviewPane(
                                 val point = event.changes.firstOrNull()?.position ?: return@onPointerEvent
                                 val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
                                 val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
-                                val path = screenPoint?.let {
-                                    state.activeRoot?.let { root -> CanvasHitTester.hitPath(root, it) }
+                                val candidates = screenPoint?.let {
+                                    state.activeRoot?.let { root ->
+                                        CanvasHitTester.hitCandidates(
+                                            root = root,
+                                            point = it,
+                                            hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
+                                            order = hitTestOrder,
+                                        )
+                                    }
                                 }.orEmpty()
-                                pointerSelection.click(point, path)?.let(onSelectNode)
+                                pointerSelection.click(point, candidates)?.let(onSelectNode)
                             },
                     ) {
                         drawRect(colors.previewCanvas)
@@ -1286,6 +1369,7 @@ private fun PreviewPane(
                                     selectedNodeId = state.selectedNodeId,
                                     source = source,
                                     destination = destination,
+                                    hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
                                 ).forEach { overlay ->
                                     drawRect(
                                         color = borderColors.normal.toComposeColor().copy(alpha = 0.62f),
@@ -1338,12 +1422,94 @@ private fun dev.agentperf.protocol.UiNode.findNodeBounds(targetId: String?): dev
     return children.firstNotNullOfOrNull { it.findNodeBounds(targetId) }
 }
 
+private fun dev.agentperf.protocol.UiNode.findNodeBoundsSkippingHidden(
+    targetId: String?,
+    hiddenNodeIds: Set<String>,
+): dev.agentperf.protocol.Bounds? {
+    if (targetId == null || id in hiddenNodeIds) return null
+    if (id == targetId) return bounds
+    return children.firstNotNullOfOrNull { child ->
+        child.findNodeBoundsSkippingHidden(targetId, hiddenNodeIds)
+    }
+}
+
 private fun IntSize.asDestination(): FloatRect? =
     takeIf { width > 0 && height > 0 }?.let {
         FloatRect(0f, 0f, it.width.toFloat(), it.height.toFloat())
     }
 
 internal fun canvasCornerRadiusDp(appOnly: Boolean): Int = if (appOnly) 24 else 4
+
+@Composable
+private fun LayerVisibilityButton(
+    hidden: Boolean,
+    onToggle: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val label = if (hidden) strings.showLayer else strings.hideLayer
+    Box(
+        modifier = Modifier
+            .width(28.dp)
+            .height(14.dp)
+            .background(
+                color = if (hidden) colors.accent.copy(alpha = 0.14f) else Color.Transparent,
+                shape = RoundedCornerShape(3.dp),
+            )
+            .semantics { contentDescription = strings.toggleLayerVisibility }
+            .clickable(onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (hidden) colors.accent else colors.mutedText,
+            fontSize = 9.sp,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun HitTestOrderToggle(
+    order: CanvasHitTestOrder,
+    onToggle: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val label = when (order) {
+        CanvasHitTestOrder.SMALL_AREA_FIRST -> strings.smallAreaHitTesting
+        CanvasHitTestOrder.Z_ORDER -> strings.zOrderHitTesting
+    }
+    Text(
+        text = label,
+        color = colors.secondaryText,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .background(colors.sectionBackground, RoundedCornerShape(4.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun HiddenLayerSummary(
+    count: Int,
+    onClear: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    Text(
+        text = strings.hiddenLayerSummary(count),
+        color = colors.warning,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .background(colors.warning.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+            .clickable(onClick = onClear)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
 
 @Composable
 private fun CanvasModeToggle(

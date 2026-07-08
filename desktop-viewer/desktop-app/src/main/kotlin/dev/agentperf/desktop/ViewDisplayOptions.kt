@@ -15,6 +15,7 @@ internal data class ViewDisplayOptions(
     val hideHierarchyIndices: Boolean = false,
     val showHierarchyIds: Boolean = true,
     val showVisibleViewBounds: Boolean = false,
+    val canvasHitTestOrder: CanvasHitTestOrder = CanvasHitTestOrder.SMALL_AREA_FIRST,
 ) {
     fun toggle(option: ViewDisplayOption): ViewDisplayOptions = when (option) {
         ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS ->
@@ -29,6 +30,14 @@ internal data class ViewDisplayOptions(
 
     fun toggleHierarchyIds(): ViewDisplayOptions =
         copy(showHierarchyIds = !showHierarchyIds)
+
+    fun toggleCanvasHitTestOrder(): ViewDisplayOptions =
+        copy(
+            canvasHitTestOrder = when (canvasHitTestOrder) {
+                CanvasHitTestOrder.SMALL_AREA_FIRST -> CanvasHitTestOrder.Z_ORDER
+                CanvasHitTestOrder.Z_ORDER -> CanvasHitTestOrder.SMALL_AREA_FIRST
+            },
+        )
 }
 
 internal class ViewDisplayOptionsStore(
@@ -41,6 +50,11 @@ internal class ViewDisplayOptionsStore(
         hideHierarchyIndices = readBoolean(HIDE_HIERARCHY_INDICES_KEY, false),
         showHierarchyIds = readBoolean(SHOW_HIERARCHY_IDS_KEY, true),
         showVisibleViewBounds = readBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, false),
+        canvasHitTestOrder = if (readBoolean(CANVAS_HIT_TEST_ORDER_Z_KEY, false)) {
+            CanvasHitTestOrder.Z_ORDER
+        } else {
+            CanvasHitTestOrder.SMALL_AREA_FIRST
+        },
     )
 
     fun save(options: ViewDisplayOptions) {
@@ -49,6 +63,10 @@ internal class ViewDisplayOptionsStore(
         writeBoolean(HIDE_HIERARCHY_INDICES_KEY, options.hideHierarchyIndices)
         writeBoolean(SHOW_HIERARCHY_IDS_KEY, options.showHierarchyIds)
         writeBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, options.showVisibleViewBounds)
+        writeBoolean(
+            CANVAS_HIT_TEST_ORDER_Z_KEY,
+            options.canvasHitTestOrder == CanvasHitTestOrder.Z_ORDER,
+        )
     }
 
     companion object {
@@ -58,6 +76,7 @@ internal class ViewDisplayOptionsStore(
         private const val HIDE_HIERARCHY_INDICES_KEY = "view.hideHierarchyIndices"
         private const val SHOW_HIERARCHY_IDS_KEY = "view.showHierarchyIds"
         private const val SHOW_VISIBLE_VIEW_BOUNDS_KEY = "view.showVisibleViewBounds"
+        private const val CANVAS_HIT_TEST_ORDER_Z_KEY = "view.canvasHitTestOrder.zOrder"
 
         fun desktop(): ViewDisplayOptionsStore {
             val preferences = runCatching {

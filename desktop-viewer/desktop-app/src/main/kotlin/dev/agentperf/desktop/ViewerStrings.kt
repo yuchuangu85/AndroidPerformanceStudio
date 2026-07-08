@@ -71,6 +71,20 @@ internal class ViewerStrings private constructor(
     val unavailable: String get() = text("Unavailable", "不可用")
     val appOnlyOn: String get() = text("APP ONLY ON", "仅应用 开")
     val appOnlyOff: String get() = text("APP ONLY OFF", "仅应用 关")
+    val smallAreaHitTesting: String get() = text("SMALL HITS", "小面积优先")
+    val zOrderHitTesting: String get() = text("Z-ORDER HITS", "Z 序优先")
+    val hideLayer: String get() = text("Hide", "隐藏")
+    val showLayer: String get() = text("Show", "显示")
+    val toggleLayerVisibility: String
+        get() = text(
+            "Toggle this layer in canvas hit testing",
+            "切换此层级是否参与画布命中测试",
+        )
+
+    fun hiddenLayerSummary(count: Int): String = text(
+        "Hidden $count · Clear",
+        "已隐藏 $count · 清除",
+    )
 
     fun archiveImportSucceeded(path: String): String = text(
         "Archive imported:\n$path",

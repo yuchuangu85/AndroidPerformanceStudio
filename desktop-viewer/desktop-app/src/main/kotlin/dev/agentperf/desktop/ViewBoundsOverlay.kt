@@ -8,12 +8,14 @@ internal object ViewBoundsOverlay {
         selectedNodeId: String?,
         source: CropRect,
         destination: FloatRect,
+        hiddenNodeIds: Set<String> = emptySet(),
     ): List<FloatRect> = buildList {
         fun addNode(
             node: UiNode,
             ancestorsVisible: Boolean,
             ancestorAlpha: Float,
         ) {
+            if (node.id in hiddenNodeIds) return
             val effectivelyVisible = ancestorsVisible && node.visible
             val effectiveAlpha = ancestorAlpha * node.alpha
             if (!effectivelyVisible || !(effectiveAlpha > 0f)) return
