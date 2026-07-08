@@ -16,6 +16,17 @@ class HierarchyTreeStateTest {
     }
 
     @Test
+    fun `layer visibility button text fits within the hierarchy row`() {
+        assertEquals(16, LayerVisibilityButtonStyle.HEIGHT_DP)
+        assertEquals(9, LayerVisibilityButtonStyle.FONT_SIZE_SP)
+        assertEquals(LayerVisibilityButtonStyle.FONT_SIZE_SP, LayerVisibilityButtonStyle.LINE_HEIGHT_SP)
+        assertEquals(
+            2,
+            (HierarchyRowLayout.HEIGHT_DP - LayerVisibilityButtonStyle.HEIGHT_DP) / 2,
+        )
+    }
+
+    @Test
     fun `subtrees start expanded and collapse independently`() {
         val rows = listOf(
             row("root", depth = 0, hasChildren = true),

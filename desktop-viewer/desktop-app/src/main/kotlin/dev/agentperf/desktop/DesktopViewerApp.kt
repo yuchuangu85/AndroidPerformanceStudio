@@ -1457,8 +1457,8 @@ private fun LayerVisibilityButton(
     val label = if (hidden) strings.showLayer else strings.hideLayer
     Box(
         modifier = Modifier
-            .width(28.dp)
-            .height(14.dp)
+            .width(LayerVisibilityButtonStyle.WIDTH_DP.dp)
+            .height(LayerVisibilityButtonStyle.HEIGHT_DP.dp)
             .background(
                 color = if (hidden) colors.accent.copy(alpha = 0.14f) else Color.Transparent,
                 shape = RoundedCornerShape(3.dp),
@@ -1470,7 +1470,8 @@ private fun LayerVisibilityButton(
         Text(
             text = label,
             color = if (hidden) colors.accent else colors.mutedText,
-            fontSize = 9.sp,
+            fontSize = LayerVisibilityButtonStyle.FONT_SIZE_SP.sp,
+            lineHeight = LayerVisibilityButtonStyle.LINE_HEIGHT_SP.sp,
             maxLines = 1,
         )
     }
