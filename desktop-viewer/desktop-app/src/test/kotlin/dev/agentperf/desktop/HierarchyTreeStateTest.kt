@@ -5,11 +5,12 @@ import org.junit.jupiter.api.Test
 
 class HierarchyTreeStateTest {
     @Test
-    fun `row height is reduced by one third`() {
+    fun `row height is twenty five percent taller than compact height`() {
         assertEquals(24, HierarchyRowLayout.BASELINE_HEIGHT_DP)
-        assertEquals(16, HierarchyRowLayout.HEIGHT_DP)
+        assertEquals(16, HierarchyRowLayout.COMPACT_HEIGHT_DP)
+        assertEquals(20, HierarchyRowLayout.HEIGHT_DP)
         assertEquals(
-            HierarchyRowLayout.BASELINE_HEIGHT_DP * 2 / 3,
+            HierarchyRowLayout.COMPACT_HEIGHT_DP * 5 / 4,
             HierarchyRowLayout.HEIGHT_DP,
         )
     }

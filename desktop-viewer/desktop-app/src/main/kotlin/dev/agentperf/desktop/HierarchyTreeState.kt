@@ -2,7 +2,8 @@ package dev.agentperf.desktop
 
 internal object HierarchyRowLayout {
     const val BASELINE_HEIGHT_DP = 24
-    const val HEIGHT_DP = 16
+    const val COMPACT_HEIGHT_DP = 16
+    const val HEIGHT_DP = 20
     const val FONT_SIZE_SP = 10
     const val INDENT_DP = 14
 }
