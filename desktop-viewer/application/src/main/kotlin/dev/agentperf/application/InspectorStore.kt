@@ -27,6 +27,8 @@ class InspectorStore(
         previous: InspectorState,
         analysisOverride: dev.agentperf.analysis.AnalysisReport? = null,
         timelineDiff: TimelineDiff? = null,
+        timelineFrames: List<TimelineFrame> = previous.timelineFrames,
+        selectedTimelineFrameIndex: Int? = previous.selectedTimelineFrameIndex,
     ): InspectorState {
         val windows = snapshot.effectiveWindows
         val windowId = previous.selectedWindowId
@@ -51,17 +53,29 @@ class InspectorStore(
             selectedNodeIdsByWindow = selections,
             selectedNodeId = selectedNodeId,
             timelineDiff = timelineDiff,
+            timelineFrames = timelineFrames,
+            selectedTimelineFrameIndex = selectedTimelineFrameIndex,
             connectionStatus = connectionStatus,
         )
     }
 
     fun loadCapture(snapshot: LayoutSnapshot, screenshotPng: ByteArray) {
-        val previousSnapshot = state.snapshot
+        val previousSnapshot = state.timelineFrames.lastOrNull()?.snapshot ?: state.snapshot
+        val diff = previousSnapshot?.let { diffSnapshots(it, snapshot) }
+        val nextIndex = (state.timelineFrames.lastOrNull()?.index ?: -1) + 1
+        val nextFrames = (state.timelineFrames + TimelineFrame(
+            index = nextIndex,
+            snapshot = snapshot,
+            screenshotPng = screenshotPng,
+            diffFromPrevious = diff,
+        )).takeLast(MAX_TIMELINE_FRAMES)
         loadInspectedContent(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
             connectionStatus = ConnectionStatus.CONNECTED,
-            timelineDiff = previousSnapshot?.let { diffSnapshots(it, snapshot) },
+            timelineDiff = diff,
+            timelineFrames = nextFrames,
+            selectedTimelineFrameIndex = nextIndex,
         )
     }
 
@@ -69,12 +83,26 @@ class InspectorStore(
         snapshot: LayoutSnapshot,
         screenshotPng: ByteArray,
         analysis: dev.agentperf.analysis.AnalysisReport? = null,
+        timelineFrames: List<TimelineFrame> = emptyList(),
     ) {
+        val selectedTimelineFrameIndex = timelineFrames.lastOrNull {
+            it.capturedAtEpochMillis == snapshot.capturedAtEpochMillis
+        }?.index
+        val frames = timelineFrames.map { frame ->
+            if (frame.capturedAtEpochMillis == snapshot.capturedAtEpochMillis && frame.snapshot == null) {
+                frame.copy(snapshot = snapshot, screenshotPng = screenshotPng)
+            } else {
+                frame
+            }
+        }
         loadInspectedContent(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
             connectionStatus = ConnectionStatus.ARCHIVE,
             analysisOverride = analysis,
+            timelineDiff = frames.firstOrNull { it.index == selectedTimelineFrameIndex }?.diffFromPrevious,
+            timelineFrames = frames,
+            selectedTimelineFrameIndex = selectedTimelineFrameIndex,
         )
     }
 
@@ -84,6 +112,8 @@ class InspectorStore(
         connectionStatus: ConnectionStatus,
         analysisOverride: dev.agentperf.analysis.AnalysisReport? = null,
         timelineDiff: TimelineDiff? = null,
+        timelineFrames: List<TimelineFrame> = state.timelineFrames,
+        selectedTimelineFrameIndex: Int? = state.selectedTimelineFrameIndex,
     ) {
         state = inspectedState(
             snapshot = snapshot,
@@ -92,6 +122,8 @@ class InspectorStore(
             previous = state,
             analysisOverride = analysisOverride,
             timelineDiff = timelineDiff,
+            timelineFrames = timelineFrames,
+            selectedTimelineFrameIndex = selectedTimelineFrameIndex,
         )
     }
 
@@ -126,6 +158,20 @@ class InspectorStore(
         return true
     }
 
+    fun selectTimelineFrame(index: Int): Boolean {
+        val frame = state.timelineFrames.firstOrNull { it.index == index } ?: return false
+        val snapshot = frame.snapshot ?: return false
+        loadInspectedContent(
+            snapshot = snapshot,
+            screenshotPng = frame.screenshotPng ?: byteArrayOf(),
+            connectionStatus = state.connectionStatus,
+            timelineDiff = frame.diffFromPrevious,
+            timelineFrames = state.timelineFrames,
+            selectedTimelineFrameIndex = index,
+        )
+        return true
+    }
+
     fun selectWindow(windowId: String): Boolean {
         val window = state.windows.firstOrNull { it.id == windowId } ?: return false
         if (state.selectedWindowId == windowId) return true
@@ -141,6 +187,10 @@ class InspectorStore(
             analysis = analyzer.analyze(window.root),
         )
         return true
+    }
+
+    private companion object {
+        const val MAX_TIMELINE_FRAMES = 50
     }
 
     fun setHoveredNode(nodeId: String?) {

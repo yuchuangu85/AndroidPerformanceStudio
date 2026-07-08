@@ -11,6 +11,7 @@ internal object CaptureArchivePaths {
     const val SNAPSHOT = "capture/layout-snapshot.json"
     const val SCREENSHOT = "capture/screenshot.png"
     const val ANALYSIS_REPORT = "report/analysis-report.json"
+    const val TIMELINE_HISTORY = "timeline/history.json"
     const val RAW_ZIP = "raw/visible-window-views.zip"
     const val RAW_TEXT = "raw/visible-window-views.txt"
 }
@@ -25,6 +26,7 @@ internal data class CaptureArchivePayload(
     val screenshotPng: ByteArray,
     val rawArtifacts: CaptureRawArtifacts? = null,
     val analysisReportJson: String? = null,
+    val timelineHistoryJson: String? = null,
 )
 
 internal data class CaptureArchiveMetadata(

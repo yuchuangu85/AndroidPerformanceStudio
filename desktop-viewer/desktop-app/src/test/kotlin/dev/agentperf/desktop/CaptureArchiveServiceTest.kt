@@ -4,6 +4,10 @@ import dev.agentperf.analysis.AnalysisReport
 import dev.agentperf.analysis.Finding
 import dev.agentperf.analysis.LayoutMetrics
 import dev.agentperf.analysis.Severity
+import dev.agentperf.application.TimelineChangeType
+import dev.agentperf.application.TimelineDiff
+import dev.agentperf.application.TimelineFrame
+import dev.agentperf.application.TimelineNodeChange
 import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.CURRENT_PROTOCOL_VERSION
 import dev.agentperf.protocol.LEGACY_WINDOW_ID
@@ -87,6 +91,51 @@ class CaptureArchiveServiceTest {
         val imported = service.import(path)
 
         assertEquals(report, imported.analysis)
+    }
+
+
+    @Test
+    fun `service export then import restores timeline history summaries`() {
+        val path = tempDir.resolve("timeline.apinspect")
+        val frame = TimelineFrame(
+            index = 1,
+            snapshot = SampleSnapshots.dashboard,
+            screenshotPng = ONE_PIXEL_PNG,
+            diffFromPrevious = TimelineDiff(
+                previousCapturedAtEpochMillis = 1_000,
+                currentCapturedAtEpochMillis = SampleSnapshots.dashboard.capturedAtEpochMillis,
+                addedNodes = 1,
+                removedNodes = 0,
+                boundsChangedNodes = 2,
+                changes = listOf(
+                    TimelineNodeChange(
+                        type = TimelineChangeType.CHANGED,
+                        windowId = "window:main",
+                        nodeId = "title",
+                        nodeKey = "window:main:title",
+                        className = "TextView",
+                        changedProperties = listOf("bounds", "text"),
+                    ),
+                ),
+            ),
+        )
+
+        service.export(
+            target = path,
+            producerVersion = "0.3.0",
+            snapshot = SampleSnapshots.dashboard,
+            screenshotPng = ONE_PIXEL_PNG,
+            rawArtifacts = null,
+            timelineFrames = listOf(frame),
+        )
+        val imported = service.import(path)
+
+        assertEquals(1, imported.timelineFrames.size)
+        val restored = imported.timelineFrames.single()
+        assertEquals(1, restored.index)
+        assertEquals(SampleSnapshots.dashboard.capturedAtEpochMillis, restored.capturedAtEpochMillis)
+        assertEquals(1, restored.diffFromPrevious?.addedNodes)
+        assertEquals(listOf("bounds", "text"), restored.diffFromPrevious?.changes?.single()?.changedProperties)
     }
 
     @Test

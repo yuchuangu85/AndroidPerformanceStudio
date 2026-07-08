@@ -17,6 +17,27 @@ enum class ConnectionStatus {
     ERROR,
 }
 
+data class TimelineFrame(
+    val index: Int,
+    val capturedAtEpochMillis: Long,
+    val snapshot: LayoutSnapshot? = null,
+    val screenshotPng: ByteArray? = null,
+    val diffFromPrevious: TimelineDiff? = null,
+) {
+    constructor(
+        index: Int,
+        snapshot: LayoutSnapshot,
+        screenshotPng: ByteArray?,
+        diffFromPrevious: TimelineDiff? = null,
+    ) : this(
+        index = index,
+        capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
+        snapshot = snapshot,
+        screenshotPng = screenshotPng,
+        diffFromPrevious = diffFromPrevious,
+    )
+}
+
 data class InspectorState(
     val snapshot: LayoutSnapshot? = null,
     val screenshotPng: ByteArray? = null,
@@ -29,6 +50,8 @@ data class InspectorState(
     val selectedNodeId: String? = null,
     val hoveredNodeId: String? = null,
     val timelineDiff: TimelineDiff? = null,
+    val timelineFrames: List<TimelineFrame> = emptyList(),
+    val selectedTimelineFrameIndex: Int? = null,
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val connectionError: String? = null,
 ) {

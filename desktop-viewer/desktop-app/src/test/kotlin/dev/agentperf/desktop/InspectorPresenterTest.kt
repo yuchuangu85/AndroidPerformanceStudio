@@ -7,6 +7,7 @@ import dev.agentperf.analysis.Severity
 import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.TimelineDiff
+import dev.agentperf.application.TimelineFrame
 import dev.agentperf.application.InspectorStore
 import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.Bounds
@@ -292,6 +293,44 @@ class InspectorPresenterTest {
         )
 
         assertEquals("Δ +3 -1 moved 2", model.timelineText)
+    }
+
+
+    @Test
+    fun `presents timeline frame history with selected frame`() {
+        val first = SampleSnapshots.dashboard.copy(capturedAtEpochMillis = 1_000)
+        val second = first.copy(capturedAtEpochMillis = 2_000)
+        val model = InspectorPresenter.present(
+            InspectorState(
+                snapshot = second,
+                timelineFrames = listOf(
+                    TimelineFrame(
+                        index = 0,
+                        snapshot = first,
+                        screenshotPng = byteArrayOf(1),
+                        diffFromPrevious = null,
+                    ),
+                    TimelineFrame(
+                        index = 1,
+                        snapshot = second,
+                        screenshotPng = byteArrayOf(2),
+                        diffFromPrevious = TimelineDiff(
+                            previousCapturedAtEpochMillis = 1_000,
+                            currentCapturedAtEpochMillis = 2_000,
+                            addedNodes = 2,
+                            removedNodes = 1,
+                            boundsChangedNodes = 3,
+                        ),
+                    ),
+                ),
+                selectedTimelineFrameIndex = 1,
+            ),
+        )
+
+        assertEquals(listOf(0, 1), model.timelineFrames.map { it.index })
+        assertEquals(listOf("#0", "#1"), model.timelineFrames.map { it.label })
+        assertEquals(listOf("baseline", "+2 -1 moved 3"), model.timelineFrames.map { it.summary })
+        assertEquals(listOf(false, true), model.timelineFrames.map { it.selected })
     }
 
     @Test

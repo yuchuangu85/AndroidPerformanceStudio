@@ -1,6 +1,7 @@
 package dev.agentperf.desktop
 
 import dev.agentperf.analysis.AnalysisReport
+import dev.agentperf.application.TimelineFrame
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.ProtocolCodec
 import dev.agentperf.protocol.normalizedToCurrentProtocol
@@ -11,12 +12,14 @@ internal data class ImportedCapture(
     val screenshotPng: ByteArray,
     val rawArtifacts: CaptureRawArtifacts?,
     val analysis: AnalysisReport?,
+    val timelineFrames: List<TimelineFrame>,
 )
 
 internal class CaptureArchiveService(
     private val archiveCodec: CaptureArchiveCodec,
     private val protocolCodec: ProtocolCodec,
     private val analysisReportJson: AnalysisReportJson = AnalysisReportJson(),
+    private val timelineHistoryJson: TimelineHistoryJson = TimelineHistoryJson(),
 ) {
     fun export(
         target: Path,
@@ -25,6 +28,7 @@ internal class CaptureArchiveService(
         screenshotPng: ByteArray,
         rawArtifacts: CaptureRawArtifacts?,
         analysis: AnalysisReport? = null,
+        timelineFrames: List<TimelineFrame> = emptyList(),
     ): CaptureArchiveWriteResult {
         validatePng(screenshotPng)
         val exportSnapshot = snapshot.normalizedToCurrentProtocol()
@@ -42,6 +46,7 @@ internal class CaptureArchiveService(
                 screenshotPng = screenshotPng,
                 rawArtifacts = rawArtifacts,
                 analysisReportJson = analysis?.let(analysisReportJson::encode),
+                timelineHistoryJson = timelineFrames.takeIf { it.isNotEmpty() }?.let(timelineHistoryJson::encode),
             ),
         )
     }
@@ -72,6 +77,14 @@ internal class CaptureArchiveService(
             screenshotPng = document.payload.screenshotPng,
             rawArtifacts = document.payload.rawArtifacts,
             analysis = document.payload.analysisReportJson?.let(analysisReportJson::decode),
+            timelineFrames = document.payload.timelineHistoryJson?.let(timelineHistoryJson::decode).orEmpty()
+                .map { frame ->
+                    if (frame.capturedAtEpochMillis == snapshot.capturedAtEpochMillis) {
+                        frame.copy(snapshot = snapshot, screenshotPng = document.payload.screenshotPng)
+                    } else {
+                        frame
+                    }
+                },
         )
     }
 

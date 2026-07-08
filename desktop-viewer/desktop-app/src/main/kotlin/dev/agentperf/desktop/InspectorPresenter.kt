@@ -36,6 +36,13 @@ data class SeveritySummary(
     val error: Int,
 )
 
+data class TimelineFrameModel(
+    val index: Int,
+    val label: String,
+    val summary: String,
+    val selected: Boolean,
+)
+
 enum class FindingTone {
     INFO,
     WARNING,
@@ -65,6 +72,7 @@ data class InspectorScreenModel(
     val findings: List<FindingRowModel>,
     val metricsText: String,
     val timelineText: String?,
+    val timelineFrames: List<TimelineFrameModel>,
     val emptyMessage: String?,
     val connectionLabel: String,
     val connectionTone: ConnectionTone,
@@ -136,6 +144,16 @@ internal object InspectorPresenter {
             },
             metricsText = strings.metrics(metrics.nodeCount, metrics.maxDepth, metrics.widestLevel),
             timelineText = state.timelineDiff?.let { strings.timelineDiff(it.addedNodes, it.removedNodes, it.boundsChangedNodes) },
+            timelineFrames = state.timelineFrames.map { frame ->
+                TimelineFrameModel(
+                    index = frame.index,
+                    label = "#${frame.index}",
+                    summary = frame.diffFromPrevious?.let { diff ->
+                        strings.timelineFrameSummary(diff.addedNodes, diff.removedNodes, diff.boundsChangedNodes)
+                    } ?: strings.timelineBaseline,
+                    selected = frame.index == state.selectedTimelineFrameIndex,
+                )
+            },
             emptyMessage = if (state.snapshot == null) strings.noSnapshotLoaded else null,
             connectionLabel = when (state.connectionStatus) {
                 ConnectionStatus.DISCONNECTED -> strings.disconnected

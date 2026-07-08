@@ -181,6 +181,15 @@ internal class ViewerStrings private constructor(
             "Δ +$added -$removed moved $moved"
         }
 
+    val timelineBaseline: String get() = text("baseline", "基线")
+
+    fun timelineFrameSummary(added: Int, removed: Int, moved: Int): String =
+        if (chinese) {
+            "+$added -$removed 移动 $moved"
+        } else {
+            "+$added -$removed moved $moved"
+        }
+
     fun infoBadge(count: Int): String = text("INFO $count", "信息 $count")
     fun warningBadge(count: Int): String = text("WARN $count", "警告 $count")
     fun errorBadge(count: Int): String = text("ERROR $count", "错误 $count")

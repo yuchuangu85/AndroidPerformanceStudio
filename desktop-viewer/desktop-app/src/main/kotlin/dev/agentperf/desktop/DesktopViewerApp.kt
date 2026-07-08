@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -322,6 +323,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     snapshot = imported.snapshot,
                     screenshotPng = imported.screenshotPng,
                     analysis = imported.analysis,
+                    timelineFrames = imported.timelineFrames,
                 )
                 state = store.state
                 importedRawArtifacts = imported.rawArtifacts
@@ -586,6 +588,13 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                 state = state,
                                 viewDisplayOptions = viewDisplayOptions,
                                 onSelectNode = selectNode,
+                                onSelectTimelineFrame = { index ->
+                                    if (store.selectTimelineFrame(index)) {
+                                        hierarchyTreeState = HierarchyTreeState()
+                                        hiddenLayerState = HiddenLayerState()
+                                        state = store.state
+                                    }
+                                },
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
@@ -1767,6 +1776,7 @@ private fun FindingsPane(
     state: InspectorState,
     viewDisplayOptions: ViewDisplayOptions,
     onSelectNode: (String) -> Unit,
+    onSelectTimelineFrame: (Int) -> Unit,
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
@@ -1797,6 +1807,13 @@ private fun FindingsPane(
             Spacer(Modifier.weight(1f))
             Text(strings.timelineLiveCapture, color = colors.mutedText, fontSize = 11.sp)
         }
+        if (model.timelineFrames.isNotEmpty()) {
+            HorizontalDivider(color = colors.border)
+            TimelineStrip(
+                frames = model.timelineFrames,
+                onSelectTimelineFrame = onSelectTimelineFrame,
+            )
+        }
         HorizontalDivider(color = colors.border)
         if (findings.isEmpty()) {
             Text(strings.noFindings, color = colors.subtleText, modifier = Modifier.padding(16.dp))
@@ -1813,6 +1830,34 @@ private fun FindingsPane(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TimelineStrip(
+    frames: List<TimelineFrameModel>,
+    onSelectTimelineFrame: (Int) -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().height(34.dp).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(frames, key = { it.index }) { frame ->
+            val background = if (frame.selected) colors.selectedRow else colors.sectionBackground
+            val textColor = if (frame.selected) colors.primaryText else colors.secondaryText
+            Text(
+                text = "${frame.label} ${frame.summary}",
+                color = textColor,
+                fontSize = 11.sp,
+                maxLines = 1,
+                modifier = Modifier
+                    .background(background, RoundedCornerShape(4.dp))
+                    .clickable { onSelectTimelineFrame(frame.index) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
         }
     }
 }
