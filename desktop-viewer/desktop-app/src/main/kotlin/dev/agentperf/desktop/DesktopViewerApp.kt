@@ -668,15 +668,15 @@ private fun Header(
             autoScanEnabled = autoScanEnabled,
             manualRefreshInProgress = manualRefreshInProgress,
         )
-        AutoScanSwitch(autoScanEnabled) {
-            onAction(ViewerAction.TOGGLE_AUTO_SCAN)
-        }
         if (scanControlState.showManualRefresh) {
-            Spacer(Modifier.width(6.dp))
             ManualRefreshButton(
                 enabled = scanControlState.manualRefreshEnabled,
                 onClick = onManualRefresh,
             )
+            Spacer(Modifier.width(6.dp))
+        }
+        AutoScanSwitch(autoScanEnabled) {
+            onAction(ViewerAction.TOGGLE_AUTO_SCAN)
         }
         Spacer(Modifier.width(12.dp))
         HeaderSeparator()

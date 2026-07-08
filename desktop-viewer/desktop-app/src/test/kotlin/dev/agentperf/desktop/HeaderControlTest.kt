@@ -27,6 +27,21 @@ class HeaderControlTest {
     }
 
     @Test
+    fun `manual refresh appears before auto scan in the header`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+        )
+        val header = source
+            .substringAfter("private fun Header(")
+            .substringBefore("private fun WindowSelector(")
+
+        assertTrue(
+            header.indexOf("ManualRefreshButton(") < header.indexOf("AutoScanSwitch("),
+            "ManualRefreshButton should be rendered before AutoScanSwitch",
+        )
+    }
+
+    @Test
     fun `header does not show a theme shortcut after auto scan`() {
         val source = Files.readString(
             Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),

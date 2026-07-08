@@ -71,7 +71,9 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("uses: actions/setup-java@v5"))
         assertTrue(workflow.contains("java-version: \"21\""))
         assertTrue(workflow.contains("cache: gradle"))
-        assertTrue(workflow.contains("uses: actions/upload-artifact@v5"))
-        assertTrue(workflow.contains("uses: actions/download-artifact@v5"))
+        assertTrue(workflow.contains("uses: actions/upload-artifact@v7"))
+        assertTrue(workflow.contains("uses: actions/download-artifact@v8"))
+        assertTrue(!workflow.contains("uses: actions/upload-artifact@v5"))
+        assertTrue(!workflow.contains("uses: actions/download-artifact@v5"))
     }
 }
