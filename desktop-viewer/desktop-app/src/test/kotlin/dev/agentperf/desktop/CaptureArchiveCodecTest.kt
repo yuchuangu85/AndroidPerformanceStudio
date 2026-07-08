@@ -71,6 +71,40 @@ class CaptureArchiveCodecTest {
     }
 
     @Test
+    fun `write omits oversized optional raw attachments instead of failing export`() {
+        val target = tempDir.resolve("oversized-raw-text.apinspect")
+        val oversizedRawText = "x".repeat(8 * 1024 * 1024 + 1)
+
+        val result = CaptureArchiveCodec().write(
+            target = target,
+            metadata = validMetadata(),
+            payload = CaptureArchivePayload(
+                snapshotJson = "{}",
+                screenshotPng = byteArrayOf(1, 2, 3),
+                rawArtifacts = CaptureRawArtifacts(
+                    zip = byteArrayOf(0x50, 0x4b, 0x03, 0x04),
+                    text = oversizedRawText,
+                ),
+            ),
+        )
+        val output = CaptureArchiveCodec().read(target)
+
+        assertEquals(target, result.path)
+        assertEquals(false, result.rawArtifactsIncluded)
+        assertEquals(null, output.payload.rawArtifacts)
+        ZipFile(target.toFile()).use { zip ->
+            assertEquals(
+                setOf(
+                    "manifest.json",
+                    "capture/layout-snapshot.json",
+                    "capture/screenshot.png",
+                ),
+                zip.entries().asSequence().map { it.name }.toSet(),
+            )
+        }
+    }
+
+    @Test
     fun `read rejects an archive without a manifest`() {
         val archive = tempDir.resolve("missing-manifest.zip")
         writeZip(

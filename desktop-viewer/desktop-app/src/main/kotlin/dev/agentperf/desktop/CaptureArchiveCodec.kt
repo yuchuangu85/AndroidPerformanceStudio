@@ -64,7 +64,7 @@ internal class CaptureArchiveCodec(
             moveIntoPlace(temporary, target)
             return CaptureArchiveWriteResult(
                 path = target,
-                rawArtifactsIncluded = payload.rawArtifacts != null,
+                rawArtifactsIncluded = content.containsKey(CaptureArchivePaths.RAW_ZIP),
             )
         } finally {
             Files.deleteIfExists(temporary)
@@ -242,20 +242,45 @@ internal class CaptureArchiveCodec(
         )
     }
 
-    private fun CaptureArchivePayload.toEntries(): LinkedHashMap<String, ByteArray> =
-        linkedMapOf(
+    private fun CaptureArchivePayload.toEntries(): LinkedHashMap<String, ByteArray> {
+        val required = linkedMapOf(
             CaptureArchivePaths.SNAPSHOT to
                 snapshotJson.toByteArray(StandardCharsets.UTF_8),
             CaptureArchivePaths.SCREENSHOT to screenshotPng,
-        ).apply {
-            rawArtifacts?.let { raw ->
-                put(CaptureArchivePaths.RAW_ZIP, raw.zip)
-                put(
-                    CaptureArchivePaths.RAW_TEXT,
+        )
+        val rawEntries = rawArtifacts?.let { raw ->
+            linkedMapOf(
+                CaptureArchivePaths.RAW_ZIP to raw.zip,
+                CaptureArchivePaths.RAW_TEXT to
                     raw.text.toByteArray(StandardCharsets.UTF_8),
-                )
+            )
+        }
+        return required.apply {
+            if (rawEntries != null && optionalEntriesFit(required, rawEntries)) {
+                putAll(rawEntries)
             }
         }
+    }
+
+    private fun optionalEntriesFit(
+        required: Map<String, ByteArray>,
+        optional: Map<String, ByteArray>,
+    ): Boolean {
+        val entriesFit = optional.all { (path, bytes) ->
+            bytes.size.toLong() <= maximumEntryBytes(
+                CaptureArchiveManifestEntry(
+                    path = path,
+                    size = bytes.size.toLong(),
+                    sha256 = "",
+                    required = false,
+                ),
+            )
+        }
+        if (!entriesFit) return false
+
+        val total = (required.values + optional.values).sumOf { it.size.toLong() }
+        return total <= MAX_TOTAL_UNCOMPRESSED_BYTES
+    }
 
     private fun validateEntrySizes(content: Map<String, ByteArray>) {
         var total = 0L
