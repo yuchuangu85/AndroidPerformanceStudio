@@ -10,9 +10,12 @@ import dev.agentperf.application.TimelineFrame
 import dev.agentperf.application.TimelineNodeChange
 import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.CURRENT_PROTOCOL_VERSION
+import dev.agentperf.protocol.CaptureFrameCodec
 import dev.agentperf.protocol.LEGACY_WINDOW_ID
 import dev.agentperf.protocol.ProtocolCodec
 import dev.agentperf.protocol.ProtocolVersion
+import dev.agentperf.protocol.ViewAttributes
+import dev.agentperf.protocol.ViewNode
 import dev.agentperf.protocol.normalizedToCurrentProtocol
 import dev.agentperf.protocol.UnsupportedProtocolVersionException
 import java.nio.file.Path
@@ -20,6 +23,7 @@ import java.util.Base64
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -69,6 +73,30 @@ class CaptureArchiveServiceTest {
         assertEquals(CURRENT_PROTOCOL_VERSION, exported.protocolVersion)
         assertEquals(listOf(LEGACY_WINDOW_ID), exported.windows.map { it.id })
         assertEquals(LEGACY_WINDOW_ID, exported.defaultWindowId)
+    }
+
+    @Test
+    fun `exports complex legacy snapshot after normalization exceeds transport limit`() {
+        val path = tempDir.resolve("large-normalized-snapshot.apinspect")
+        val largeProperty = "x".repeat(CaptureFrameCodec.MAX_SNAPSHOT_BYTES / 2)
+        val root = (SampleSnapshots.dashboard.root as ViewNode).copy(
+            attributes = ViewAttributes(
+                rawProperties = mapOf("large-property" to largeProperty),
+            ),
+        )
+        val snapshot = SampleSnapshots.dashboard.copy(root = root)
+
+        service.export(path, "0.1.3", snapshot, ONE_PIXEL_PNG, rawArtifacts = null)
+
+        val archivedJson = CaptureArchiveCodec().read(path).payload.snapshotJson
+        assertTrue(
+            archivedJson.toByteArray().size > CaptureFrameCodec.MAX_SNAPSHOT_BYTES,
+        )
+        val imported = service.import(path)
+        assertEquals(
+            largeProperty,
+            (imported.snapshot.root as ViewNode).attributes.rawProperties["large-property"],
+        )
     }
 
     @Test

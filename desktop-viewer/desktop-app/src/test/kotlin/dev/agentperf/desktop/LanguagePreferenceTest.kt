@@ -75,6 +75,14 @@ class LanguagePreferenceTest {
         assertEquals("Import", english.importArchive)
         assertEquals("导出", chinese.exportArchive)
         assertEquals("Export", english.exportArchive)
+        assertEquals("捕获归档", chinese.captureArchive)
+        assertEquals("Capture archive", english.captureArchive)
+        assertEquals("布局快照大小上限", chinese.layoutSnapshotArchiveLimit)
+        assertEquals("Layout snapshot size limit", english.layoutSnapshotArchiveLimit)
+        assertEquals(
+            "320 MiB (10×)",
+            english.archiveLimitValue(CaptureArchiveLimits(snapshotSizeMultiplier = 10)),
+        )
         assertEquals("离线归档", chinese.offlineArchive)
         assertEquals("Offline archive", english.offlineArchive)
         assertEquals("导入成功", chinese.importArchiveSucceededTitle)

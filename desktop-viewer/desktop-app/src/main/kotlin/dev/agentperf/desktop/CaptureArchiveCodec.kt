@@ -20,6 +20,7 @@ import kotlinx.serialization.json.Json
 internal class CaptureArchiveCodec(
     private val json: Json = defaultArchiveJson(),
     private val moveIntoPlace: (Path, Path) -> Unit = ::moveReplacingArchive,
+    private val limits: CaptureArchiveLimits = CaptureArchiveLimits(),
 ) {
     fun write(
         target: Path,
@@ -75,7 +76,7 @@ internal class CaptureArchiveCodec(
         if (!Files.isRegularFile(source)) {
             throw CaptureArchiveFormatException("Archive is not a regular file")
         }
-        if (Files.size(source) > MAX_ARCHIVE_BYTES) {
+        if (Files.size(source) > limits.maxArchiveBytes) {
             throw CaptureArchiveFormatException("Archive file is too large")
         }
         return try {
@@ -151,7 +152,7 @@ internal class CaptureArchiveCodec(
                 )
             }
             totalBytes += declared.size
-            if (totalBytes > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+            if (totalBytes > limits.maxTotalUncompressedBytes) {
                 throw CaptureArchiveFormatException(
                     "Archive uncompressed content is too large",
                 )
@@ -299,7 +300,7 @@ internal class CaptureArchiveCodec(
         if (!entriesFit) return false
 
         val total = (required.values + optional.values).sumOf { it.size.toLong() }
-        return total <= MAX_TOTAL_UNCOMPRESSED_BYTES
+        return total <= limits.maxTotalUncompressedBytes
     }
 
     private fun validateEntrySizes(content: Map<String, ByteArray>) {
@@ -318,14 +319,14 @@ internal class CaptureArchiveCodec(
             }
             total += bytes.size
         }
-        require(total <= MAX_TOTAL_UNCOMPRESSED_BYTES) {
+        require(total <= limits.maxTotalUncompressedBytes) {
             "Archive uncompressed content is too large"
         }
     }
 
     private fun maximumEntryBytes(entry: CaptureArchiveManifestEntry): Long =
         when (entry.path) {
-            CaptureArchivePaths.SNAPSHOT -> MAX_SNAPSHOT_BYTES.toLong()
+            CaptureArchivePaths.SNAPSHOT -> limits.maxSnapshotBytes.toLong()
             CaptureArchivePaths.SCREENSHOT -> MAX_SCREENSHOT_BYTES.toLong()
             CaptureArchivePaths.RAW_ZIP -> MAX_RAW_ZIP_BYTES.toLong()
             CaptureArchivePaths.RAW_TEXT -> MAX_RAW_TEXT_BYTES.toLong()
@@ -375,18 +376,14 @@ internal class CaptureArchiveCodec(
     }
 
     private companion object {
-        const val MAX_ARCHIVE_BYTES = 96L * 1024 * 1024
         const val MAX_ENTRY_COUNT = 16
         const val MAX_MANIFEST_BYTES = 256 * 1024
-        const val MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024
         const val MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024
         const val MAX_RAW_ZIP_BYTES = 32 * 1024 * 1024
         const val MAX_RAW_TEXT_BYTES = 8 * 1024 * 1024
         const val MAX_ANALYSIS_REPORT_BYTES = 4 * 1024 * 1024
         const val MAX_TIMELINE_HISTORY_BYTES = 4 * 1024 * 1024
         const val MAX_UNKNOWN_OPTIONAL_BYTES = 1024 * 1024
-        const val MAX_TOTAL_UNCOMPRESSED_BYTES = 80L * 1024 * 1024
-
         val REQUIRED_PATHS = setOf(
             CaptureArchivePaths.SNAPSHOT,
             CaptureArchivePaths.SCREENSHOT,

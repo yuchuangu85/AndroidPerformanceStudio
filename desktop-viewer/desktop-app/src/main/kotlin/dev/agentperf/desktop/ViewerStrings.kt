@@ -16,6 +16,14 @@ internal class ViewerStrings private constructor(
     val defaultViewBoundsColor: String get() = text("Default view bounds", "默认视图边框")
     val hoveredViewBoundsColor: String get() = text("Hovered view bounds", "鼠标悬停边框")
     val selectedViewBoundsColor: String get() = text("Selected view bounds", "点击选中边框")
+    val captureArchive: String get() = text("Capture archive", "捕获归档")
+    val layoutSnapshotArchiveLimit: String
+        get() = text("Layout snapshot size limit", "布局快照大小上限")
+    val layoutSnapshotArchiveLimitHint: String
+        get() = text(
+            "Adjusts import and export limits from 32 to 320 MiB; higher limits may use more memory.",
+            "可将导入和导出上限从 32 MiB 调至 320 MiB；更高上限可能占用更多内存。",
+        )
     val reset: String get() = text("Reset", "恢复默认")
     val actions: String get() = text("Actions", "操作")
     val view: String get() = text("View", "视图")
@@ -56,6 +64,8 @@ internal class ViewerStrings private constructor(
     val dismiss: String get() = text("OK", "确定")
     val autoScan: String get() = text("Auto scan", "自动扫描")
     val autoDevice: String get() = text("Auto device", "自动设备")
+    val window: String get() = text("Window", "窗口")
+    val selectWindow: String get() = text("Select window", "选择窗口")
     val refresh: String get() = text("Refresh", "刷新")
     val refreshOnce: String get() = text("Refresh once", "刷新一次")
     val hierarchy: String get() = text("HIERARCHY", "层级结构")
@@ -122,6 +132,9 @@ internal class ViewerStrings private constructor(
         "Unable to export archive:\n$message",
         "无法导出归档：\n$message",
     )
+
+    fun archiveLimitValue(limits: CaptureArchiveLimits): String =
+        "${limits.maxSnapshotSizeMiB} MiB (${limits.snapshotSizeMultiplier}×)"
 
     fun themePreferenceName(preference: ThemePreference): String = when (preference) {
         ThemePreference.SYSTEM -> text("Follow system", "跟随系统")

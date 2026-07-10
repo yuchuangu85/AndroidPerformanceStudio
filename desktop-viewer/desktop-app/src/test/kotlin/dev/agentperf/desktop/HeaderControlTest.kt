@@ -85,4 +85,32 @@ class HeaderControlTest {
         assertEquals("自动设备", ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).autoDevice)
     }
 
+    @Test
+    fun `window selector is explicit and only shown for multiple windows`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+        )
+        val header = source
+            .substringAfter("private fun Header(")
+            .substringBefore("private fun DeviceSelector(")
+        val selector = source
+            .substringAfter("private fun WindowSelector(")
+            .substringBefore("private fun ExportResultDialog(")
+
+        assertTrue(header.contains("if (model.windows.size > 1)"))
+        assertTrue(selector.contains("strings.window"))
+        assertTrue(selector.contains("strings.selectWindow"))
+        assertTrue(selector.contains(".border("))
+        assertEquals("Window", ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).window)
+        assertEquals("窗口", ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).window)
+        assertEquals(
+            "Select window",
+            ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).selectWindow,
+        )
+        assertEquals(
+            "选择窗口",
+            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).selectWindow,
+        )
+    }
+
 }

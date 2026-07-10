@@ -24,6 +24,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,12 +38,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 internal object SettingsDialogStyle {
     const val TITLE_FONT_SIZE_SP = 20
     const val SECTION_TITLE_FONT_SIZE_SP = 13
     const val CONTENT_FONT_SIZE_SP = 11
-    const val SECTION_SEPARATOR_COUNT = 3
+    const val SECTION_SEPARATOR_COUNT = 4
     const val SEPARATOR_HEIGHT_DP = 1
     const val SEPARATOR_VERTICAL_PADDING_DP = 12
 }
@@ -55,6 +57,8 @@ internal fun SettingsDialog(
     onSelectLanguagePreference: (LanguagePreference) -> Unit,
     viewDisplayOptions: ViewDisplayOptions,
     onViewDisplayOptionsChanged: (ViewDisplayOptions) -> Unit,
+    archiveLimits: CaptureArchiveLimits,
+    onArchiveLimitsChanged: (CaptureArchiveLimits) -> Unit,
     canvasBorderColors: CanvasBorderColors,
     onCanvasBorderColorsChanged: (CanvasBorderColors) -> Unit,
     onDismiss: () -> Unit,
@@ -122,6 +126,13 @@ internal fun SettingsDialog(
                     },
                 )
                 SettingsMenuSeparator()
+                SettingsSectionTitle(strings.captureArchive)
+                Spacer(Modifier.height(8.dp))
+                ArchiveSnapshotLimitSetting(
+                    limits = archiveLimits,
+                    onLimitsChanged = onArchiveLimitsChanged,
+                )
+                SettingsMenuSeparator()
                 SettingsSectionTitle(strings.canvasBorderColors)
                 Spacer(Modifier.height(4.dp))
                 CanvasColorSetting(
@@ -143,6 +154,64 @@ internal fun SettingsDialog(
         },
         confirmButton = {},
     )
+}
+
+@Composable
+private fun ArchiveSnapshotLimitSetting(
+    limits: CaptureArchiveLimits,
+    onLimitsChanged: (CaptureArchiveLimits) -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.sectionBackground, RoundedCornerShape(6.dp))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = strings.layoutSnapshotArchiveLimit,
+                color = colors.primaryText,
+                fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = strings.archiveLimitValue(limits),
+                color = colors.accent,
+                fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Slider(
+            value = limits.snapshotSizeMultiplier.toFloat(),
+            onValueChange = { value ->
+                val multiplier = value.roundToInt().coerceIn(
+                    CaptureArchiveLimits.MIN_SNAPSHOT_SIZE_MULTIPLIER,
+                    CaptureArchiveLimits.MAX_SNAPSHOT_SIZE_MULTIPLIER,
+                )
+                if (multiplier != limits.snapshotSizeMultiplier) {
+                    onLimitsChanged(CaptureArchiveLimits(multiplier))
+                }
+            },
+            valueRange =
+                CaptureArchiveLimits.MIN_SNAPSHOT_SIZE_MULTIPLIER.toFloat()..
+                    CaptureArchiveLimits.MAX_SNAPSHOT_SIZE_MULTIPLIER.toFloat(),
+            steps = CaptureArchiveLimits.MAX_SNAPSHOT_SIZE_MULTIPLIER -
+                CaptureArchiveLimits.MIN_SNAPSHOT_SIZE_MULTIPLIER - 1,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(24.dp),
+        )
+        Text(
+            text = strings.layoutSnapshotArchiveLimitHint,
+            color = colors.mutedText,
+            fontSize = 10.sp,
+        )
+    }
 }
 
 @Composable
@@ -394,6 +463,7 @@ private fun LanguagePreferenceDropdown(
                         dropdownState = dropdownState.dismiss()
                         onSelectPreference(preference)
                     },
+                    modifier = Modifier.height(32.dp),
                 )
             }
         }

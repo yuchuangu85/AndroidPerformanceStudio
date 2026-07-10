@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import dev.agentperf.protocol.CaptureFrameCodec
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -102,6 +103,44 @@ class CaptureArchiveCodecTest {
                 zip.entries().asSequence().map { it.name }.toSet(),
             )
         }
+    }
+
+    @Test
+    fun `write and read support snapshots larger than the live transport limit`() {
+        val target = tempDir.resolve("large-snapshot.apinspect")
+        val snapshot = "x".repeat(CaptureFrameCodec.MAX_SNAPSHOT_BYTES + 1)
+
+        CaptureArchiveCodec().write(
+            target = target,
+            metadata = validMetadata(),
+            payload = CaptureArchivePayload(
+                snapshotJson = snapshot,
+                screenshotPng = byteArrayOf(1, 2, 3),
+            ),
+        )
+
+        assertEquals(snapshot, CaptureArchiveCodec().read(target).payload.snapshotJson)
+    }
+
+    @Test
+    fun `configured snapshot multiplier raises the write and read limit`() {
+        val target = tempDir.resolve("adjusted-large-snapshot.apinspect")
+        val limits = CaptureArchiveLimits(snapshotSizeMultiplier = 2)
+        val codec = CaptureArchiveCodec(limits = limits)
+        val snapshot = "x".repeat(
+            CaptureArchiveLimits.BASE_MAX_SNAPSHOT_SIZE_MIB * 1024 * 1024 + 1,
+        )
+
+        codec.write(
+            target = target,
+            metadata = validMetadata(),
+            payload = CaptureArchivePayload(
+                snapshotJson = snapshot,
+                screenshotPng = byteArrayOf(1, 2, 3),
+            ),
+        )
+
+        assertEquals(snapshot.length, codec.read(target).payload.snapshotJson.length)
     }
 
     @Test
@@ -227,13 +266,16 @@ class CaptureArchiveCodecTest {
     }
 
     @Test
-    fun `read rejects oversized snapshot before allocating unbounded content`() {
+    fun `read rejects snapshot declared above archive limit before reading content`() {
         val archive = tempDir.resolve("oversized.zip")
-        val snapshot = ByteArray(8 * 1024 * 1024 + 1)
+        val snapshot = byteArrayOf(1)
         val screenshot = byteArrayOf(1)
         val manifest = validManifest(
             entries = listOf(
-                manifestEntry(CaptureArchivePaths.SNAPSHOT, snapshot, required = true),
+                manifestEntry(CaptureArchivePaths.SNAPSHOT, snapshot, required = true).copy(
+                    size = CaptureArchiveLimits.BASE_MAX_SNAPSHOT_SIZE_MIB.toLong() *
+                        1024 * 1024 + 1,
+                ),
                 manifestEntry(CaptureArchivePaths.SCREENSHOT, screenshot, required = true),
             ),
         )

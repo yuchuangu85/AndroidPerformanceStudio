@@ -119,9 +119,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     var deviceListRefreshRequest by remember { mutableStateOf(0) }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
     val archiveFileChooser = remember { SwingCaptureArchiveFileChooser() }
-    val captureArchiveService = remember(protocolCodec) {
+    val archiveLimitsStore = remember { CaptureArchiveLimitsStore.desktop() }
+    var archiveLimits by remember { mutableStateOf(archiveLimitsStore.load()) }
+    val captureArchiveService = remember(protocolCodec, archiveLimits) {
         CaptureArchiveService(
-            archiveCodec = CaptureArchiveCodec(),
+            archiveCodec = CaptureArchiveCodec(limits = archiveLimits),
             protocolCodec = protocolCodec,
         )
     }
@@ -622,6 +624,11 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         viewDisplayOptions = updated
                         viewDisplayOptionsStore.save(updated)
                     },
+                    archiveLimits = archiveLimits,
+                    onArchiveLimitsChanged = { updated ->
+                        archiveLimits = updated
+                        archiveLimitsStore.save(updated)
+                    },
                     canvasBorderColors = canvasBorderColors,
                     onCanvasBorderColorsChanged = { updated ->
                         canvasBorderColors = updated
@@ -718,12 +725,14 @@ private fun Header(
             selectedSerial = selectedDeviceSerial,
             onSelectDevice = onSelectDevice,
         )
-        Spacer(Modifier.width(8.dp))
-        WindowSelector(
-            windows = model.windows,
-            selectedWindowId = model.selectedWindowId,
-            onSelectWindow = onSelectWindow,
-        )
+        if (model.windows.size > 1) {
+            Spacer(Modifier.width(8.dp))
+            WindowSelector(
+                windows = model.windows,
+                selectedWindowId = model.selectedWindowId,
+                onSelectWindow = onSelectWindow,
+            )
+        }
         Spacer(Modifier.width(10.dp))
         Text(separator, color = colors.mutedText)
         Spacer(Modifier.width(10.dp))
@@ -814,6 +823,7 @@ private fun DeviceSelector(
                     expanded = false
                     onSelectDevice(null)
                 },
+                modifier = Modifier.height(32.dp),
             )
             devices.forEach { device ->
                 DropdownMenuItem(
@@ -822,6 +832,7 @@ private fun DeviceSelector(
                         expanded = false
                         onSelectDevice(device.serial)
                     },
+                    modifier = Modifier.height(32.dp),
                 )
             }
         }
@@ -834,21 +845,27 @@ private fun WindowSelector(
     selectedWindowId: String?,
     onSelectWindow: (String) -> Unit,
 ) {
+    if (windows.size <= 1) return
+
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
     var expanded by remember { mutableStateOf(false) }
     val title = windows.firstOrNull { it.id == selectedWindowId }?.title
-        ?: strings.noAvailableWindows
+        ?: windows.first().title
+    val shape = RoundedCornerShape(4.dp)
     Box {
         Text(
-            text = "$title ▾",
-            color = if (windows.isEmpty()) colors.mutedText else colors.secondaryText,
+            text = "${strings.window}: $title  ▾",
+            color = colors.secondaryText,
             fontSize = 11.sp,
             maxLines = 1,
             modifier = Modifier
-                .background(colors.sectionBackground, RoundedCornerShape(4.dp))
-                .let { base ->
-                    if (windows.size > 1) base.clickable { expanded = true } else base
+                .widthIn(min = 140.dp, max = 240.dp)
+                .background(colors.sectionBackground, shape)
+                .border(1.dp, colors.border, shape)
+                .clickable { expanded = true }
+                .semantics {
+                    contentDescription = strings.selectWindow
                 }
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         )
@@ -864,6 +881,7 @@ private fun WindowSelector(
                         expanded = false
                         onSelectWindow(window.id)
                     },
+                    modifier = Modifier.height(32.dp),
                 )
             }
         }
