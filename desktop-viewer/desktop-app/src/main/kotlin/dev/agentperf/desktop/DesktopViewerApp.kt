@@ -452,7 +452,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             archiveOperationInProgress =
                 archiveUiState is CaptureArchiveUiState.Working ||
                     manualRefreshInProgress,
-            canExportArchive = state.snapshot != null && state.screenshotPng != null,
+            canExportArchive = state.snapshot != null && state.screenshotPng?.isNotEmpty() == true,
             isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
         ),
         onAction = performAction,
@@ -1668,7 +1668,7 @@ private fun CanvasModeToggle(
 @Composable
 private fun rememberScreenshot(bytes: ByteArray?): ImageBitmap? =
     remember(bytes) {
-        bytes?.let { encoded ->
+        bytes?.takeIf { it.isNotEmpty() }?.let { encoded ->
             runCatching { Image.makeFromEncoded(encoded).toComposeImageBitmap() }.getOrNull()
         }
     }
