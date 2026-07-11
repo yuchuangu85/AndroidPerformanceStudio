@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -114,6 +115,17 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
     var manualRefreshRequest by remember { mutableStateOf(0) }
     var manualRefreshInProgress by remember { mutableStateOf(false) }
     val deviceClient = remember { LiveDeviceClient() }
+    val refreshTimingSink = remember { ConsoleRefreshTimingSink }
+    val manualRefreshSession = remember(deviceClient) {
+        ReusableForegroundSession(
+            connect = deviceClient::connectForegroundApp,
+            isCurrent = ConnectedDeviceSession::isForegroundAppCurrent,
+            capture = ConnectedDeviceSession::capture,
+        )
+    }
+    DisposableEffect(manualRefreshSession) {
+        onDispose { manualRefreshSession.close() }
+    }
     var availableDevices by remember { mutableStateOf<List<AdbDevice>>(emptyList()) }
     var selectedDeviceSerial by remember { mutableStateOf<String?>(null) }
     var deviceListRefreshRequest by remember { mutableStateOf(0) }
@@ -153,27 +165,40 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             return@LaunchedEffect
         }
         importedRawArtifacts = null
+        manualRefreshSession.invalidate()
         while (currentCoroutineContext().isActive) {
+            val timer = RefreshTimer("auto", refreshTimingSink)
             var session: ConnectedDeviceSession? = null
             try {
                 store.connecting()
                 state = store.state
                 session = withContext(Dispatchers.IO) {
-                    deviceClient.connectForegroundApp(selectedDeviceSerial)
+                    timer.measure("connectForegroundApp") {
+                        deviceClient.connectForegroundApp(selectedDeviceSerial)
+                    }
                 }
                 while (currentCoroutineContext().isActive) {
                     val isCurrent = withContext(Dispatchers.IO) {
-                        session.isForegroundAppCurrent()
+                        timer.measure("isForegroundAppCurrent") {
+                            session.isForegroundAppCurrent()
+                        }
                     }
                     if (!isCurrent) break
-                    val frame = withContext(Dispatchers.IO) { session.capture() }
-                    store.loadCapture(
-                        snapshot = protocolCodec.decodeSnapshot(frame.snapshotJson),
-                        screenshotPng = frame.screenshotPng,
-                    )
-                    importedRawArtifacts = null
-                    hiddenLayerState = HiddenLayerState()
-                    state = store.state
+                    val frame = withContext(Dispatchers.IO) {
+                        timer.measure("capture") { session.capture() }
+                    }
+                    val snapshot = timer.measure("decodeSnapshot") {
+                        protocolCodec.decodeSnapshot(frame.snapshotJson)
+                    }
+                    timer.measure("publishCapture") {
+                        store.loadCapture(
+                            snapshot = snapshot,
+                            screenshotPng = frame.screenshotPng,
+                        )
+                        importedRawArtifacts = null
+                        hiddenLayerState = HiddenLayerState()
+                        state = store.state
+                    }
                     delay(CAPTURE_INTERVAL_MILLIS)
                 }
             } catch (error: CancellationException) {
@@ -195,33 +220,35 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             manualRefreshInProgress = false
             return@LaunchedEffect
         }
-        var session: ConnectedDeviceSession? = null
+        val timer = RefreshTimer("manual", refreshTimingSink)
         manualRefreshInProgress = true
         try {
             store.connecting()
             state = store.state
-            session = withContext(Dispatchers.IO) {
-                deviceClient.connectForegroundApp(selectedDeviceSerial)
-            }
             val frame = withContext(Dispatchers.IO) {
-                session.capture()
+                timer.measure("captureForegroundApp") {
+                    manualRefreshSession.capture(selectedDeviceSerial)
+                }
             }
-            store.loadCapture(
-                snapshot = protocolCodec.decodeSnapshot(frame.snapshotJson),
-                screenshotPng = frame.screenshotPng,
-            )
-            importedRawArtifacts = null
-            hiddenLayerState = HiddenLayerState()
-            state = store.state
+            val snapshot = timer.measure("decodeSnapshot") {
+                protocolCodec.decodeSnapshot(frame.snapshotJson)
+            }
+            timer.measure("publishCapture") {
+                store.loadCapture(
+                    snapshot = snapshot,
+                    screenshotPng = frame.screenshotPng,
+                )
+                importedRawArtifacts = null
+                hiddenLayerState = HiddenLayerState()
+                state = store.state
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
+            manualRefreshSession.invalidate()
             store.connectionFailed(error.message ?: error.javaClass.simpleName)
             state = store.state
         } finally {
-            withContext(NonCancellable + Dispatchers.IO) {
-                session?.close()
-            }
             manualRefreshInProgress = false
         }
     }
@@ -480,6 +507,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     deviceChoices = deviceChoices(availableDevices),
                     selectedDeviceSerial = selectedDeviceSerial,
                     onSelectDevice = { serial ->
+                        manualRefreshSession.invalidate()
                         selectedDeviceSerial = serial
                         deviceListRefreshRequest += 1
                     },
