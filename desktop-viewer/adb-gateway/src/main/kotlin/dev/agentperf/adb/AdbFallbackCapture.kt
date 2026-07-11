@@ -28,18 +28,18 @@ internal class AdbFallbackCapture(
     private val protocolCodec: ProtocolCodec = ProtocolCodec(supportedMajor = 1),
 ) {
     fun capture(): CaptureFrame = try {
-        val screenshot = checkedRun(AdbCommandFactory.captureScreenshot(serial)).stdoutBytes
-        val (width, height) = PngDimensions.read(screenshot)
         val windows = captureHierarchy()
         val defaultWindow = windows.maxBy { it.root.nodeCount() }
+        val screenshotCapture = captureScreenshotOrNull()
+        val display = screenshotCapture?.display ?: inferDisplay(windows)
         val snapshot = LayoutSnapshot(
             protocolVersion = CURRENT_PROTOCOL_VERSION,
             packageName = packageName,
             capturedAtEpochMillis = System.currentTimeMillis(),
-            display = DisplayInfo(widthPx = width, heightPx = height, density = 1f),
+            display = display,
             capabilities = AgentCapabilities(
                 viewHierarchy = true,
-                screenshots = true,
+                screenshots = screenshotCapture != null,
             ),
             root = defaultWindow.root,
             windows = windows,
@@ -47,11 +47,32 @@ internal class AdbFallbackCapture(
         )
         CaptureFrame(
             snapshotJson = protocolCodec.encodeSnapshot(snapshot),
-            screenshotPng = screenshot,
+            screenshotPng = screenshotCapture?.png ?: byteArrayOf(),
         )
     } catch (error: Throwable) {
         throw AdbFallbackUnavailableException(packageName, error)
     }
+
+    private fun captureScreenshotOrNull(): ScreenshotCapture? =
+        runCatching {
+            val png = checkedRun(AdbCommandFactory.captureScreenshot(serial)).stdoutBytes
+            val (width, height) = PngDimensions.read(png)
+            ScreenshotCapture(
+                png = png,
+                display = DisplayInfo(widthPx = width, heightPx = height, density = 1f),
+            )
+        }.getOrNull()
+
+    private fun inferDisplay(windows: List<WindowSnapshot>): DisplayInfo =
+        DisplayInfo(
+            widthPx = windows.maxOfOrNull { window ->
+                maxOf(window.bounds.right, window.root.bounds.right)
+            }?.coerceAtLeast(1) ?: 1,
+            heightPx = windows.maxOfOrNull { window ->
+                maxOf(window.bounds.bottom, window.root.bounds.bottom)
+            }?.coerceAtLeast(1) ?: 1,
+            density = 1f,
+        )
 
     private fun captureHierarchy(): List<WindowSnapshot> {
         val visibleWindows = processRunner.run(
@@ -84,6 +105,11 @@ internal class AdbFallbackCapture(
         processRunner.run(arguments).also { result ->
             if (result.exitCode != 0) throw AdbCommandException(arguments, result)
         }
+
+    private data class ScreenshotCapture(
+        val png: ByteArray,
+        val display: DisplayInfo,
+    )
 }
 
 internal object UiAutomatorHierarchyParser {

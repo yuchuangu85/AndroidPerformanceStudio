@@ -285,6 +285,54 @@ class LiveDeviceClientTest {
     }
 
     @Test
+    fun `foreground application without Agent falls back to layout only when adb screencap is blocked`() {
+        val runner = fakeRunner(
+            foreground = """
+                topResumedActivity=ActivityRecord{a16e8a3 u0 com.codemx.anrdemo/.MainActivity t9}
+            """.trimIndent(),
+            sessionResult = ProcessResult(
+                exitCode = 1,
+                stdout = "",
+                stderr = "cat: files/agentperf/session.json: No such file or directory",
+            ),
+            visibleHierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = EncodedHierarchyFixture.zip("com.codemx.anrdemo"),
+            ),
+            screenshotResult = ProcessResult(
+                exitCode = 1,
+                stdout = "",
+                stderr = "screencap: Permission denied",
+                stdoutBytes = byteArrayOf(),
+            ),
+        )
+
+        val session = LiveDeviceClient(runner).connectForegroundApp()
+        val frame = session.capture()
+        session.close()
+        val snapshot = ProtocolCodec(supportedMajor = 1).decodeSnapshot(frame.snapshotJson)
+
+        assertEquals("com.codemx.anrdemo", session.packageName)
+        assertEquals(1090, snapshot.display.widthPx)
+        assertEquals(2420, snapshot.display.heightPx)
+        assertTrue(snapshot.capabilities.viewHierarchy)
+        assertFalse(snapshot.capabilities.screenshots)
+        assertEquals("com.codemx.ui.RealRootLayout", snapshot.root.className)
+        assertEquals(
+            "com.codemx.ui.RealTitleView",
+            snapshot.root.children.single().className,
+        )
+        assertTrue(frame.screenshotPng.isEmpty())
+        assertTrue(
+            runner.commands.any {
+                it.takeLast(3) == listOf("exec-out", "screencap", "-p")
+            },
+        )
+    }
+
+    @Test
     fun `connected session authenticates and decodes capture frames`() {
         val expected = CaptureFrame("""{"packageName":"dev.agentperf.sample"}""", byteArrayOf(1, 2, 3, 4))
         val server = ServerSocket(0)
