@@ -1384,19 +1384,11 @@ private fun PreviewPane(
         hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
     )
     val display = state.snapshot?.display
-    val appBounds = state.activeRoot?.bounds
     val screenshot = rememberScreenshot(state.screenshotPng)
     val pointerSelection = remember { CanvasPointerSelection() }
     var canvasPixelSize by remember { mutableStateOf(IntSize.Zero) }
     var appOnly by remember { mutableStateOf(true) }
-    val source = display?.let {
-        CanvasGeometry.sourceRect(
-            appBounds = appBounds,
-            displayWidth = it.widthPx,
-            displayHeight = it.heightPx,
-            appOnly = appOnly,
-        )
-    }
+    val source = CanvasWindowSource.sourceRect(state, appOnly)
     Column(modifier.background(colors.canvasBackground)) {
         PanelTitle(strings.canvas) {
             Text(
