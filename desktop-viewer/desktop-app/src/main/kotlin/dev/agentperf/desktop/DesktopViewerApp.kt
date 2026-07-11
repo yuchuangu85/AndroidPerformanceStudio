@@ -1388,6 +1388,10 @@ private fun PreviewPane(
     var canvasPixelSize by remember { mutableStateOf(IntSize.Zero) }
     var appOnly by remember { mutableStateOf(true) }
     val source = CanvasWindowSource.sourceRect(state, appOnly)
+    val canvasMode = previewCanvasMode(
+        hasSource = source != null,
+        hasScreenshot = screenshot != null,
+    )
     Column(modifier.background(colors.canvasBackground)) {
         PanelTitle(strings.canvas) {
             Text(
@@ -1436,7 +1440,7 @@ private fun PreviewPane(
                 color = colors.previewSurface,
                 shadowElevation = 8.dp,
             ) {
-                if (screenshot != null && source != null) {
+                if (canvasMode != PreviewCanvasMode.WAITING && source != null) {
                     Canvas(
                         Modifier
                             .fillMaxSize()
@@ -1485,16 +1489,18 @@ private fun PreviewPane(
                             width = size.width,
                             height = size.height,
                         )
-                        drawImage(
-                            image = screenshot,
-                            srcOffset = IntOffset(source.left, source.top),
-                            srcSize = IntSize(source.width, source.height),
-                            dstOffset = IntOffset.Zero,
-                            dstSize = IntSize(
-                                destination.width.roundToInt(),
-                                destination.height.roundToInt(),
-                            ),
-                        )
+                        if (canvasMode == PreviewCanvasMode.SCREENSHOT && screenshot != null) {
+                            drawImage(
+                                image = screenshot,
+                                srcOffset = IntOffset(source.left, source.top),
+                                srcSize = IntSize(source.width, source.height),
+                                dstOffset = IntOffset.Zero,
+                                dstSize = IntSize(
+                                    destination.width.roundToInt(),
+                                    destination.height.roundToInt(),
+                                ),
+                            )
+                        }
                         if (showVisibleViewBounds) {
                             state.activeRoot?.let { root ->
                                 ViewBoundsOverlay.mappedVisibleBounds(
@@ -1547,6 +1553,21 @@ private fun PreviewPane(
             }
         }
     }
+}
+
+internal enum class PreviewCanvasMode {
+    WAITING,
+    LAYOUT_ONLY,
+    SCREENSHOT,
+}
+
+internal fun previewCanvasMode(
+    hasSource: Boolean,
+    hasScreenshot: Boolean,
+): PreviewCanvasMode = when {
+    !hasSource -> PreviewCanvasMode.WAITING
+    hasScreenshot -> PreviewCanvasMode.SCREENSHOT
+    else -> PreviewCanvasMode.LAYOUT_ONLY
 }
 
 private fun dev.agentperf.protocol.UiNode.findNodeBounds(targetId: String?): dev.agentperf.protocol.Bounds? {
