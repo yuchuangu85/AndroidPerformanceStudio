@@ -113,3 +113,5 @@ ERROR <stableCode> <message>\n
 Current stable codes include `UNAUTHORIZED`, `NO_ACTIVITY`, `NO_CONTENT`, `CAPTURE_TIMEOUT`, `CAPTURE_INTERRUPTED`, `CAPTURE_FAILED`, and `SCREENSHOT_FAILED`.
 
 The screenshot dimensions match `display.widthPx` and `display.heightPx`. View bounds use the same physical-pixel coordinate system so the desktop can apply one contain-fit transform to both the PNG and selected-node overlay.
+
+For multi-window captures, each `WindowSnapshot.bounds` value also uses this display-pixel coordinate system. The desktop treats the active window bounds as the app-only canvas crop, while node overlays and hit-testing continue to use the active window root's node bounds in the same coordinate space. Switching selected windows therefore changes the crop over the captured full-display PNG; it does not require a new screenshot when the existing PNG already covers the full display.

@@ -1383,7 +1383,6 @@ private fun PreviewPane(
         targetId = state.hoveredNodeId,
         hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
     )
-    val display = state.snapshot?.display
     val screenshot = rememberScreenshot(state.screenshotPng)
     val pointerSelection = remember { CanvasPointerSelection() }
     var canvasPixelSize by remember { mutableStateOf(IntSize.Zero) }
