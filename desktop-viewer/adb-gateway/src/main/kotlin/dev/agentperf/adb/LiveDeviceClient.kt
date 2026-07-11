@@ -3,6 +3,8 @@ package dev.agentperf.adb
 import dev.agentperf.protocol.CaptureFrame
 import dev.agentperf.protocol.CaptureFrameCodec
 import dev.agentperf.protocol.DisplayInfo
+import dev.agentperf.protocol.LayoutSnapshot
+import dev.agentperf.protocol.effectiveWindows
 import dev.agentperf.protocol.ProtocolCodec
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -171,11 +173,14 @@ class ConnectedDeviceSession internal constructor(
             socket.getOutputStream().flush()
             captureFrameCodec.read(socket.getInputStream())
         }
+        val snapshot = runCatching { protocolCodec.decodeSnapshot(agentFrame.snapshotJson) }
+            .getOrNull()
+            ?: return agentFrame
+        if (!snapshot.requiresFullDisplayScreenshot()) return agentFrame
         return runCatching {
             val result = processRunner.run(AdbCommandFactory.captureScreenshot(serial))
             require(result.exitCode == 0 && result.stdoutBytes.isNotEmpty())
             val (width, height) = PngDimensions.read(result.stdoutBytes)
-            val snapshot = protocolCodec.decodeSnapshot(agentFrame.snapshotJson)
             CaptureFrame(
                 snapshotJson = protocolCodec.encodeSnapshot(
                     snapshot.copy(
@@ -190,6 +195,9 @@ class ConnectedDeviceSession internal constructor(
             )
         }.getOrDefault(agentFrame)
     }
+
+    private fun LayoutSnapshot.requiresFullDisplayScreenshot(): Boolean =
+        effectiveWindows.size > 1
 
     fun isForegroundAppCurrent(): Boolean {
         val arguments = AdbCommandFactory.foregroundActivity(serial)

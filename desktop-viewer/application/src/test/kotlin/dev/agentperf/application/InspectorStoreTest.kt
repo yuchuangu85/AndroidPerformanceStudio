@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -81,20 +82,25 @@ class InspectorStoreTest {
     }
 
     @Test
-    fun `reconnecting clears the previous application capture`() {
+    fun `reconnecting keeps the previous application capture visible while status updates`() {
+        val png = byteArrayOf(1, 2, 3)
         val store = InspectorStore().apply {
             loadCapture(
                 snapshot = SampleSnapshots.dashboard,
-                screenshotPng = byteArrayOf(1, 2, 3),
+                screenshotPng = png,
             )
+            selectNode("title")
         }
+        val previousAnalysis = store.state.analysis
 
         store.connecting()
 
-        assertNull(store.state.snapshot)
-        assertNull(store.state.screenshotPng)
-        assertNull(store.state.selectedNodeId)
+        assertEquals(SampleSnapshots.dashboard, store.state.snapshot)
+        assertArrayEquals(png, store.state.screenshotPng)
+        assertEquals("title", store.state.selectedNodeId)
+        assertSame(previousAnalysis, store.state.analysis)
         assertEquals(ConnectionStatus.CONNECTING, store.state.connectionStatus)
+        assertNull(store.state.connectionError)
     }
 
     @Test

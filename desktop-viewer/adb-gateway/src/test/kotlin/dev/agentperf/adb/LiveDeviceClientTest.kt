@@ -329,6 +329,50 @@ class LiveDeviceClientTest {
         )
     }
 
+
+    @Test
+    fun `connected session keeps single window agent screenshot without adb screencap`() {
+        val agentScreenshot = pngHeader(320, 640)
+        val adbScreenshot = pngHeader(1080, 1920)
+        val expected = CaptureFrame(
+            snapshotJson = singleWindowSnapshot(width = 320, height = 640),
+            screenshotPng = agentScreenshot,
+        )
+        val server = ServerSocket(0)
+        val executor = Executors.newSingleThreadExecutor()
+        val serverResult = executor.submit {
+            server.accept().use { socket ->
+                assertEquals("PING secret", socket.getInputStream().bufferedReader().readLine())
+                socket.getOutputStream().write("PONG 1.0\n".toByteArray())
+            }
+            server.accept().use { socket ->
+                assertEquals("CAPTURE secret", socket.getInputStream().bufferedReader().readLine())
+                CaptureFrameCodec().write(expected, socket.getOutputStream())
+            }
+        }
+        val runner = fakeRunner(
+            screenshotResult = ProcessResult(0, "", "", stdoutBytes = adbScreenshot),
+        )
+        val client = LiveDeviceClient(
+            processRunner = runner,
+            portAllocator = { server.localPort },
+        )
+
+        val session = client.connect("dev.agentperf.sample")
+        val actual = session.capture()
+        session.close()
+        serverResult.get(2, TimeUnit.SECONDS)
+        server.close()
+        executor.shutdownNow()
+
+        assertEquals(expected.snapshotJson, actual.snapshotJson)
+        assertArrayEquals(agentScreenshot, actual.screenshotPng)
+        assertFalse(
+            runner.commands.any { it.takeLast(3) == listOf("exec-out", "screencap", "-p") },
+            "Single-window Agent capture should not run an extra ADB screencap",
+        )
+    }
+
     @Test
     fun `lists authorized devices for explicit selection`() {
         val runner = fakeRunner(
@@ -499,6 +543,38 @@ class LiveDeviceClientTest {
         this[offset + 2] = (value ushr 8).toByte()
         this[offset + 3] = value.toByte()
     }
+
+
+    private fun singleWindowSnapshot(width: Int, height: Int): String = """
+        {
+          "protocolVersion": { "major": 1, "minor": 1 },
+          "packageName": "dev.agentperf.sample",
+          "capturedAtEpochMillis": 1,
+          "display": { "widthPx": $width, "heightPx": $height, "density": 1.0 },
+          "capabilities": { "viewHierarchy": true, "screenshots": true },
+          "root": {
+            "type": "view",
+            "id": "window:activity/root",
+            "className": "android.view.View",
+            "bounds": { "left": 0, "top": 0, "right": $width, "bottom": $height }
+          },
+          "windows": [
+            {
+              "id": "window:activity",
+              "title": "MainActivity",
+              "type": "ACTIVITY",
+              "bounds": { "left": 0, "top": 0, "right": $width, "bottom": $height },
+              "root": {
+                "type": "view",
+                "id": "window:activity/root",
+                "className": "android.view.View",
+                "bounds": { "left": 0, "top": 0, "right": $width, "bottom": $height }
+              }
+            }
+          ],
+          "defaultWindowId": "window:activity"
+        }
+    """.trimIndent()
 
     private companion object {
         val SESSION_JSON = """
