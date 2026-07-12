@@ -1,7 +1,7 @@
 package dev.agentperf.desktop
 
 internal data class PaneWidths(
-    val hierarchy: Float = 300f,
+    val hierarchy: Float = 375f,
     val properties: Float = 300f,
 )
 
