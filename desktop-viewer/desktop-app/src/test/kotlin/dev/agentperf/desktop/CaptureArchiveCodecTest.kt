@@ -71,6 +71,31 @@ class CaptureArchiveCodecTest {
         }
     }
 
+
+    @Test
+    fun `archive round trip supports layout-only captures without screenshot entry`() {
+        val target = tempDir.resolve("layout-only.apinspect")
+        val input = CaptureArchivePayload(
+            snapshotJson = "{}",
+            screenshotPng = null,
+        )
+
+        CaptureArchiveCodec().write(target, validMetadata(), input)
+        val output = CaptureArchiveCodec().read(target)
+
+        assertEquals(input.snapshotJson, output.payload.snapshotJson)
+        assertEquals(null, output.payload.screenshotPng)
+        ZipFile(target.toFile()).use { zip ->
+            assertEquals(
+                setOf(
+                    "manifest.json",
+                    "capture/layout-snapshot.json",
+                ),
+                zip.entries().asSequence().map { it.name }.toSet(),
+            )
+        }
+    }
+
     @Test
     fun `write omits oversized optional raw attachments instead of failing export`() {
         val target = tempDir.resolve("oversized-raw-text.apinspect")

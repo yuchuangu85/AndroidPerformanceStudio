@@ -90,7 +90,6 @@ import dev.agentperf.adb.AdbDevice
 import dev.agentperf.adb.ConnectedDeviceSession
 import dev.agentperf.adb.LiveDeviceClient
 import dev.agentperf.adb.VisibleWindowViewsTextRenderer
-import dev.agentperf.protocol.DisplayInfo
 import dev.agentperf.protocol.ProtocolCodec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -283,7 +282,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             return@exportCaptureArchive
         }
         val snapshot = state.snapshot ?: return@exportCaptureArchive
-        val screenshot = state.screenshotPng?.copyOf() ?: return@exportCaptureArchive
+        val screenshot = state.screenshotPng?.copyOf()?.takeIf { it.isNotEmpty() }
         val analysis = state.analysis
         val timelineFrames = state.timelineFrames
         val captureStatus = state.connectionStatus
@@ -383,6 +382,8 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
         if (state.snapshot == null) {
             return@importScreenshot
         }
+        val target = store.manualScreenshotTarget() ?: return@importScreenshot
+        val expectedDisplay = state.snapshot?.display ?: return@importScreenshot
         val source = archiveFileChooser.chooseScreenshotImport(
             strings.chooseScreenshotToImport,
         ) ?: return@importScreenshot
@@ -391,19 +392,18 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
         coroutineScope.launch {
             try {
                 val screenshot = withContext(Dispatchers.IO) {
-                    captureArchiveService.importScreenshot(source)
+                    captureArchiveService.importScreenshot(
+                        source = source,
+                        expectedWidthPx = expectedDisplay.widthPx,
+                        expectedHeightPx = expectedDisplay.heightPx,
+                    )
                 }
-                val density = state.snapshot?.display?.density ?: 1f
                 val loaded = store.loadManualScreenshot(
+                    target = target,
                     screenshotPng = screenshot.png,
-                    display = DisplayInfo(
-                        widthPx = screenshot.widthPx,
-                        heightPx = screenshot.heightPx,
-                        density = density,
-                    ),
                 )
                 if (!loaded) {
-                    throw IllegalStateException("No layout snapshot is loaded")
+                    throw IllegalStateException("The selected layout changed while importing the screenshot")
                 }
                 state = store.state
                 archiveUiState = CaptureArchiveUiState.Success(
@@ -500,7 +500,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             archiveOperationInProgress =
                 archiveUiState is CaptureArchiveUiState.Working ||
                     manualRefreshInProgress,
-            canExportArchive = state.snapshot != null && state.screenshotPng?.isNotEmpty() == true,
+            canExportArchive = state.snapshot != null,
             canImportScreenshot = state.snapshot != null,
             isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
         ),
@@ -669,7 +669,9 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                 viewDisplayOptions = viewDisplayOptions,
                                 onSelectNode = selectNode,
                                 onSelectTimelineFrame = { index ->
-                                    if (store.selectTimelineFrame(index)) {
+                                    if (archiveUiState !is CaptureArchiveUiState.Working &&
+                                        store.selectTimelineFrame(index)
+                                    ) {
                                         hierarchyTreeState = HierarchyTreeState()
                                         hiddenLayerState = HiddenLayerState()
                                         state = store.state

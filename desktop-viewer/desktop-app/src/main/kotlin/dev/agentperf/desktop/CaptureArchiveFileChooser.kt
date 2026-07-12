@@ -30,7 +30,7 @@ internal class SwingCaptureArchiveFileChooser : CaptureArchiveFileChooser {
             dialogTitle = title
             fileSelectionMode = JFileChooser.FILES_ONLY
             isAcceptAllFileFilterUsed = false
-            fileFilter = pngFilter
+            fileFilter = imageFilter
         }
         return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
             chooser.selectedFile.toPath()
@@ -76,9 +76,18 @@ internal class SwingCaptureArchiveFileChooser : CaptureArchiveFileChooser {
             "ZIP Archive (*.zip)",
             ZIP_EXTENSION,
         )
-        val pngFilter = FileNameExtensionFilter(
-            "PNG Screenshot (*.png)",
+        val imageFilter = FileNameExtensionFilter(
+            "Image files (*.png, *.jpg, *.jpeg, *.webp, *.bmp, *.gif, *.heic, *.heif, *.ico, *.wbmp)",
             PNG_EXTENSION,
+            "jpg",
+            "jpeg",
+            "webp",
+            "bmp",
+            "gif",
+            "heic",
+            "heif",
+            "ico",
+            "wbmp",
         )
     }
 }

@@ -219,7 +219,7 @@ internal class CaptureArchiveCodec(
         content: Map<String, ByteArray>,
     ): CaptureArchiveDocument {
         val snapshot = content.getValue(CaptureArchivePaths.SNAPSHOT)
-        val screenshot = content.getValue(CaptureArchivePaths.SCREENSHOT)
+        val screenshot = content[CaptureArchivePaths.SCREENSHOT]
         val rawZip = content[CaptureArchivePaths.RAW_ZIP]
         val rawText = content[CaptureArchivePaths.RAW_TEXT]
         val analysisReport = content[CaptureArchivePaths.ANALYSIS_REPORT]
@@ -251,8 +251,8 @@ internal class CaptureArchiveCodec(
         val required = linkedMapOf(
             CaptureArchivePaths.SNAPSHOT to
                 snapshotJson.toByteArray(StandardCharsets.UTF_8),
-            CaptureArchivePaths.SCREENSHOT to screenshotPng,
         )
+        screenshotPng?.let { required[CaptureArchivePaths.SCREENSHOT] = it }
         val analysisEntries = analysisReportJson?.let { report ->
             linkedMapOf(
                 CaptureArchivePaths.ANALYSIS_REPORT to report.toByteArray(StandardCharsets.UTF_8),
@@ -386,9 +386,9 @@ internal class CaptureArchiveCodec(
         const val MAX_UNKNOWN_OPTIONAL_BYTES = 1024 * 1024
         val REQUIRED_PATHS = setOf(
             CaptureArchivePaths.SNAPSHOT,
-            CaptureArchivePaths.SCREENSHOT,
         )
         val KNOWN_CONTENT_PATHS = REQUIRED_PATHS + setOf(
+            CaptureArchivePaths.SCREENSHOT,
             CaptureArchivePaths.RAW_ZIP,
             CaptureArchivePaths.RAW_TEXT,
             CaptureArchivePaths.ANALYSIS_REPORT,

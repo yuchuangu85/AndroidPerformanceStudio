@@ -6,7 +6,6 @@ import dev.agentperf.analysis.LayoutMetrics
 import dev.agentperf.analysis.Severity
 import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.DisplayInfo
 import dev.agentperf.protocol.ViewNode
 import dev.agentperf.protocol.WindowSnapshot
 import dev.agentperf.protocol.WindowType
@@ -77,19 +76,17 @@ class InspectorStoreTest {
         }
         val screenshot = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47)
 
-        val changed = store.loadManualScreenshot(
-            screenshotPng = screenshot,
-            display = DisplayInfo(widthPx = 1080, heightPx = 2400, density = 2f),
-        )
+        val target = requireNotNull(store.manualScreenshotTarget())
+        val changed = store.loadManualScreenshot(target, screenshot)
 
         assertTrue(changed)
         assertEquals("title", store.state.selectedNodeId)
         assertArrayEquals(screenshot, store.state.screenshotPng)
-        assertEquals(DisplayInfo(widthPx = 1080, heightPx = 2400, density = 2f), store.state.snapshot?.display)
+        assertEquals(SampleSnapshots.dashboard.display, store.state.snapshot?.display)
         assertEquals(true, store.state.snapshot?.capabilities?.screenshots)
         assertEquals(ConnectionStatus.CONNECTED, store.state.connectionStatus)
         val timelineFrame = store.state.timelineFrames.single()
-        assertEquals(DisplayInfo(widthPx = 1080, heightPx = 2400, density = 2f), timelineFrame.snapshot?.display)
+        assertEquals(SampleSnapshots.dashboard.display, timelineFrame.snapshot?.display)
         assertArrayEquals(screenshot, timelineFrame.screenshotPng)
     }
 
@@ -97,10 +94,46 @@ class InspectorStoreTest {
     fun `manual screenshot import requires an existing layout snapshot`() {
         val store = InspectorStore()
 
-        val changed = store.loadManualScreenshot(byteArrayOf(1, 2, 3))
+        assertNull(store.manualScreenshotTarget())
+        assertNull(store.state.screenshotPng)
+    }
+
+    @Test
+    fun `manual screenshot import rejects a target after timeline selection changes`() {
+        val first = SampleSnapshots.dashboard
+        val second = first.copy(capturedAtEpochMillis = first.capturedAtEpochMillis + 1)
+        val store = InspectorStore().apply {
+            loadCapture(first, byteArrayOf())
+            loadCapture(second, byteArrayOf())
+            selectTimelineFrame(0)
+        }
+        val target = requireNotNull(store.manualScreenshotTarget())
+
+        assertTrue(store.selectTimelineFrame(1))
+        val changed = store.loadManualScreenshot(target, byteArrayOf(1, 2, 3))
 
         assertFalse(changed)
-        assertNull(store.state.screenshotPng)
+        assertEquals(1, store.state.selectedTimelineFrameIndex)
+        assertTrue(store.state.screenshotPng?.isEmpty() == true)
+        assertTrue(store.state.timelineFrames.all { it.screenshotPng?.isEmpty() == true })
+    }
+
+    @Test
+    fun `manual screenshot import updates only the selected frame when timestamps repeat`() {
+        val snapshot = SampleSnapshots.dashboard
+        val store = InspectorStore().apply {
+            loadCapture(snapshot, byteArrayOf())
+            loadCapture(snapshot, byteArrayOf())
+            selectTimelineFrame(0)
+        }
+        val target = requireNotNull(store.manualScreenshotTarget())
+        val screenshot = byteArrayOf(1, 2, 3)
+
+        val changed = store.loadManualScreenshot(target, screenshot)
+
+        assertTrue(changed)
+        assertArrayEquals(screenshot, store.state.timelineFrames[0].screenshotPng)
+        assertTrue(store.state.timelineFrames[1].screenshotPng?.isEmpty() == true)
     }
 
     @Test

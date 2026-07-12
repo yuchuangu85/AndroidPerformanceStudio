@@ -23,7 +23,7 @@ internal data class CaptureRawArtifacts(
 
 internal data class CaptureArchivePayload(
     val snapshotJson: String,
-    val screenshotPng: ByteArray,
+    val screenshotPng: ByteArray? = null,
     val rawArtifacts: CaptureRawArtifacts? = null,
     val analysisReportJson: String? = null,
     val timelineHistoryJson: String? = null,

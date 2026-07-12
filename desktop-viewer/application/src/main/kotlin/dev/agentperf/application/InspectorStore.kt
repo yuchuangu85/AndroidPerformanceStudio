@@ -1,10 +1,14 @@
 package dev.agentperf.application
 
 import dev.agentperf.analysis.LayoutAnalyzer
-import dev.agentperf.protocol.DisplayInfo
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.effectiveDefaultWindowId
 import dev.agentperf.protocol.effectiveWindows
+
+data class ManualScreenshotTarget(
+    val capturedAtEpochMillis: Long,
+    val timelineFrameIndex: Int?,
+)
 
 class InspectorStore(
     private val analyzer: LayoutAnalyzer = LayoutAnalyzer(),
@@ -80,19 +84,26 @@ class InspectorStore(
         )
     }
 
+    fun manualScreenshotTarget(): ManualScreenshotTarget? = state.snapshot?.let { snapshot ->
+        ManualScreenshotTarget(
+            capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
+            timelineFrameIndex = state.selectedTimelineFrameIndex,
+        )
+    }
+
     fun loadManualScreenshot(
+        target: ManualScreenshotTarget,
         screenshotPng: ByteArray,
-        display: DisplayInfo? = null,
     ): Boolean {
         val snapshot = state.snapshot ?: return false
-        val updatedSnapshot = display?.let {
-            snapshot.copy(
-                display = it,
-                capabilities = snapshot.capabilities.copy(screenshots = true),
-            )
-        } ?: snapshot
+        if (snapshot.capturedAtEpochMillis != target.capturedAtEpochMillis ||
+            state.selectedTimelineFrameIndex != target.timelineFrameIndex
+        ) return false
+        val updatedSnapshot = snapshot.copy(
+            capabilities = snapshot.capabilities.copy(screenshots = true),
+        )
         val updatedFrames = state.timelineFrames.map { frame ->
-            if (frame.capturedAtEpochMillis == snapshot.capturedAtEpochMillis) {
+            if (target.timelineFrameIndex != null && frame.index == target.timelineFrameIndex) {
                 frame.copy(
                     snapshot = frame.snapshot?.let { updatedSnapshot },
                     screenshotPng = screenshotPng,
@@ -111,7 +122,7 @@ class InspectorStore(
 
     fun loadArchive(
         snapshot: LayoutSnapshot,
-        screenshotPng: ByteArray,
+        screenshotPng: ByteArray?,
         analysis: dev.agentperf.analysis.AnalysisReport? = null,
         timelineFrames: List<TimelineFrame> = emptyList(),
     ) {
@@ -138,7 +149,7 @@ class InspectorStore(
 
     private fun loadInspectedContent(
         snapshot: LayoutSnapshot,
-        screenshotPng: ByteArray,
+        screenshotPng: ByteArray?,
         connectionStatus: ConnectionStatus,
         analysisOverride: dev.agentperf.analysis.AnalysisReport? = null,
         timelineDiff: TimelineDiff? = null,
@@ -194,7 +205,7 @@ class InspectorStore(
         val snapshot = frame.snapshot ?: return false
         loadInspectedContent(
             snapshot = snapshot,
-            screenshotPng = frame.screenshotPng ?: byteArrayOf(),
+            screenshotPng = frame.screenshotPng,
             connectionStatus = state.connectionStatus,
             timelineDiff = frame.diffFromPrevious,
             timelineFrames = state.timelineFrames,

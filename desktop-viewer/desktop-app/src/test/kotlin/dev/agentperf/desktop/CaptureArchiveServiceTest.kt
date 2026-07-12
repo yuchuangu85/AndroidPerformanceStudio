@@ -25,6 +25,8 @@ import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.jetbrains.skia.EncodedImageFormat
+import org.jetbrains.skia.Image
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -167,12 +169,45 @@ class CaptureArchiveServiceTest {
         assertEquals(listOf("bounds", "text"), restored.diffFromPrevious?.changes?.single()?.changedProperties)
     }
 
+
+    @Test
+    fun `service export then import supports a layout-only capture without screenshot`() {
+        val path = tempDir.resolve("layout-only.apinspect")
+        val snapshot = SampleSnapshots.dashboard
+
+        service.export(path, "0.3.1", snapshot, screenshotPng = null, rawArtifacts = null)
+        val imported = service.import(path)
+
+        assertEquals(snapshot.normalizedToCurrentProtocol(), imported.snapshot)
+        assertEquals(null, imported.screenshotPng)
+    }
+
+    @Test
+    fun `service imports a standalone jpeg screenshot as png bytes`() {
+        val path = tempDir.resolve("manual.jpg")
+        Files.write(path, encodedImage(ONE_PIXEL_PNG, org.jetbrains.skia.EncodedImageFormat.JPEG))
+
+        val imported = service.importScreenshot(
+            source = path,
+            expectedWidthPx = 1,
+            expectedHeightPx = 1,
+        )
+
+        assertArrayEquals(PNG_SIGNATURE, imported.png.copyOf(PNG_SIGNATURE.size))
+        assertEquals(1, imported.widthPx)
+        assertEquals(1, imported.heightPx)
+    }
+
     @Test
     fun `service imports a standalone screenshot png`() {
         val path = tempDir.resolve("manual.png")
         Files.write(path, ONE_PIXEL_PNG)
 
-        val imported = service.importScreenshot(path)
+        val imported = service.importScreenshot(
+            source = path,
+            expectedWidthPx = 1,
+            expectedHeightPx = 1,
+        )
 
         assertArrayEquals(ONE_PIXEL_PNG, imported.png)
         assertEquals(1, imported.widthPx)
@@ -184,7 +219,11 @@ class CaptureArchiveServiceTest {
         val screenshotPath = tempDir.resolve("manual.png")
         val archivePath = tempDir.resolve("manual-image.apinspect")
         Files.write(screenshotPath, TWO_BY_ONE_PNG)
-        val screenshot = service.importScreenshot(screenshotPath)
+        val screenshot = service.importScreenshot(
+            source = screenshotPath,
+            expectedWidthPx = 2,
+            expectedHeightPx = 1,
+        )
 
         service.export(
             target = archivePath,
@@ -204,8 +243,59 @@ class CaptureArchiveServiceTest {
         Files.write(path, byteArrayOf(1, 2, 3))
 
         assertThrows(CaptureArchiveFormatException::class.java) {
-            service.importScreenshot(path)
+            service.importScreenshot(
+                source = path,
+                expectedWidthPx = 1,
+                expectedHeightPx = 1,
+            )
         }
+    }
+
+    @Test
+    fun `service rejects a truncated png with a valid header`() {
+        val path = tempDir.resolve("truncated.png")
+        Files.write(path, pngHeader(widthPx = 1, heightPx = 1))
+
+        assertThrows(CaptureArchiveFormatException::class.java) {
+            service.importScreenshot(
+                source = path,
+                expectedWidthPx = 1,
+                expectedHeightPx = 1,
+            )
+        }
+    }
+
+    @Test
+    fun `service rejects a screenshot whose dimensions do not match the layout`() {
+        val path = tempDir.resolve("resized.png")
+        Files.write(path, TWO_BY_ONE_PNG)
+
+        val error = assertThrows(CaptureArchiveFormatException::class.java) {
+            service.importScreenshot(
+                source = path,
+                expectedWidthPx = 1,
+                expectedHeightPx = 1,
+            )
+        }
+
+        assertTrue(error.message.orEmpty().contains("2x1"))
+        assertTrue(error.message.orEmpty().contains("1x1"))
+    }
+
+    @Test
+    fun `service rejects png dimensions that exceed the decoded pixel limit`() {
+        val path = tempDir.resolve("pixel-bomb.png")
+        Files.write(path, pngHeader(widthPx = 9_000, heightPx = 9_000))
+
+        val error = assertThrows(CaptureArchiveFormatException::class.java) {
+            service.importScreenshot(
+                source = path,
+                expectedWidthPx = 9_000,
+                expectedHeightPx = 9_000,
+            )
+        }
+
+        assertTrue(error.message.orEmpty().contains("dimensions"))
     }
 
     @Test
@@ -254,6 +344,28 @@ class CaptureArchiveServiceTest {
     )
 
     private companion object {
+        fun encodedImage(source: ByteArray, format: EncodedImageFormat): ByteArray =
+            Image.makeFromEncoded(source).use { image ->
+                requireNotNull(image.encodeToData(format, 100)).use { data -> data.bytes }
+            }
+
+        fun pngHeader(widthPx: Int, heightPx: Int): ByteArray = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+            0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+            (widthPx ushr 24).toByte(),
+            (widthPx ushr 16).toByte(),
+            (widthPx ushr 8).toByte(),
+            widthPx.toByte(),
+            (heightPx ushr 24).toByte(),
+            (heightPx ushr 16).toByte(),
+            (heightPx ushr 8).toByte(),
+            heightPx.toByte(),
+        )
+
+        val PNG_SIGNATURE = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        )
+
         val ONE_PIXEL_PNG: ByteArray = Base64.getDecoder().decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         )
