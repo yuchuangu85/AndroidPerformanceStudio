@@ -6,6 +6,7 @@ import dev.agentperf.analysis.LayoutMetrics
 import dev.agentperf.analysis.Severity
 import dev.agentperf.fixtures.SampleSnapshots
 import dev.agentperf.protocol.Bounds
+import dev.agentperf.protocol.DisplayInfo
 import dev.agentperf.protocol.ViewNode
 import dev.agentperf.protocol.WindowSnapshot
 import dev.agentperf.protocol.WindowType
@@ -66,6 +67,40 @@ class InspectorStoreTest {
         assertEquals("title", store.state.selectedNodeId)
         assertArrayEquals(png, store.state.screenshotPng)
         assertEquals(ConnectionStatus.CONNECTED, store.state.connectionStatus)
+    }
+
+    @Test
+    fun `manual screenshot import fills a layout-only capture and preserves selection`() {
+        val store = InspectorStore().apply {
+            loadCapture(SampleSnapshots.dashboard, byteArrayOf())
+            selectNode("title")
+        }
+        val screenshot = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47)
+
+        val changed = store.loadManualScreenshot(
+            screenshotPng = screenshot,
+            display = DisplayInfo(widthPx = 1080, heightPx = 2400, density = 2f),
+        )
+
+        assertTrue(changed)
+        assertEquals("title", store.state.selectedNodeId)
+        assertArrayEquals(screenshot, store.state.screenshotPng)
+        assertEquals(DisplayInfo(widthPx = 1080, heightPx = 2400, density = 2f), store.state.snapshot?.display)
+        assertEquals(true, store.state.snapshot?.capabilities?.screenshots)
+        assertEquals(ConnectionStatus.CONNECTED, store.state.connectionStatus)
+        val timelineFrame = store.state.timelineFrames.single()
+        assertEquals(DisplayInfo(widthPx = 1080, heightPx = 2400, density = 2f), timelineFrame.snapshot?.display)
+        assertArrayEquals(screenshot, timelineFrame.screenshotPng)
+    }
+
+    @Test
+    fun `manual screenshot import requires an existing layout snapshot`() {
+        val store = InspectorStore()
+
+        val changed = store.loadManualScreenshot(byteArrayOf(1, 2, 3))
+
+        assertFalse(changed)
+        assertNull(store.state.screenshotPng)
     }
 
     @Test

@@ -2,9 +2,11 @@ package dev.agentperf.desktop
 
 import dev.agentperf.analysis.AnalysisReport
 import dev.agentperf.application.TimelineFrame
+import dev.agentperf.protocol.CaptureFrameCodec
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.ProtocolCodec
 import dev.agentperf.protocol.normalizedToCurrentProtocol
+import java.nio.file.Files
 import java.nio.file.Path
 
 internal data class ImportedCapture(
@@ -13,6 +15,12 @@ internal data class ImportedCapture(
     val rawArtifacts: CaptureRawArtifacts?,
     val analysis: AnalysisReport?,
     val timelineFrames: List<TimelineFrame>,
+)
+
+internal data class ImportedScreenshot(
+    val png: ByteArray,
+    val widthPx: Int,
+    val heightPx: Int,
 )
 
 internal class CaptureArchiveService(
@@ -48,6 +56,22 @@ internal class CaptureArchiveService(
                 analysisReportJson = analysis?.let(analysisReportJson::encode),
                 timelineHistoryJson = timelineFrames.takeIf { it.isNotEmpty() }?.let(timelineHistoryJson::encode),
             ),
+        )
+    }
+
+    fun importScreenshot(source: Path): ImportedScreenshot {
+        if (!Files.isRegularFile(source)) {
+            throw CaptureArchiveFormatException("Screenshot is not a regular file")
+        }
+        if (Files.size(source) > CaptureFrameCodec.MAX_SCREENSHOT_BYTES) {
+            throw CaptureArchiveFormatException("Screenshot file is too large")
+        }
+        val png = Files.readAllBytes(source)
+        val dimensions = validatePng(png)
+        return ImportedScreenshot(
+            png = png,
+            widthPx = dimensions.widthPx,
+            heightPx = dimensions.heightPx,
         )
     }
 
@@ -88,15 +112,19 @@ internal class CaptureArchiveService(
         )
     }
 
-    private fun validatePng(bytes: ByteArray) {
-        val valid = bytes.size >= PNG_HEADER_BYTES &&
+    private fun validatePng(bytes: ByteArray): PngDimensions {
+        val validHeader = bytes.size >= PNG_HEADER_BYTES &&
             bytes.copyOfRange(0, PNG_SIGNATURE.size).contentEquals(PNG_SIGNATURE) &&
-            bytes.copyOfRange(12, 16).contentEquals(PNG_IHDR) &&
-            readBigEndianInt(bytes, 16) > 0 &&
-            readBigEndianInt(bytes, 20) > 0
-        if (!valid) {
+            bytes.copyOfRange(12, 16).contentEquals(PNG_IHDR)
+        if (!validHeader) {
             throw CaptureArchiveFormatException("Screenshot is not a valid PNG")
         }
+        val width = readBigEndianInt(bytes, 16)
+        val height = readBigEndianInt(bytes, 20)
+        if (width <= 0 || height <= 0) {
+            throw CaptureArchiveFormatException("Screenshot is not a valid PNG")
+        }
+        return PngDimensions(widthPx = width, heightPx = height)
     }
 
     private fun readBigEndianInt(
@@ -107,6 +135,11 @@ internal class CaptureArchiveService(
             ((bytes[offset + 1].toInt() and 0xff) shl 16) or
             ((bytes[offset + 2].toInt() and 0xff) shl 8) or
             (bytes[offset + 3].toInt() and 0xff)
+
+    private data class PngDimensions(
+        val widthPx: Int,
+        val heightPx: Int,
+    )
 
     private companion object {
         const val PNG_HEADER_BYTES = 24

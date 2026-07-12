@@ -1,6 +1,7 @@
 package dev.agentperf.application
 
 import dev.agentperf.analysis.LayoutAnalyzer
+import dev.agentperf.protocol.DisplayInfo
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.effectiveDefaultWindowId
 import dev.agentperf.protocol.effectiveWindows
@@ -77,6 +78,35 @@ class InspectorStore(
             timelineFrames = nextFrames,
             selectedTimelineFrameIndex = nextIndex,
         )
+    }
+
+    fun loadManualScreenshot(
+        screenshotPng: ByteArray,
+        display: DisplayInfo? = null,
+    ): Boolean {
+        val snapshot = state.snapshot ?: return false
+        val updatedSnapshot = display?.let {
+            snapshot.copy(
+                display = it,
+                capabilities = snapshot.capabilities.copy(screenshots = true),
+            )
+        } ?: snapshot
+        val updatedFrames = state.timelineFrames.map { frame ->
+            if (frame.capturedAtEpochMillis == snapshot.capturedAtEpochMillis) {
+                frame.copy(
+                    snapshot = frame.snapshot?.let { updatedSnapshot },
+                    screenshotPng = screenshotPng,
+                )
+            } else {
+                frame
+            }
+        }
+        state = state.copy(
+            snapshot = updatedSnapshot,
+            screenshotPng = screenshotPng,
+            timelineFrames = updatedFrames,
+        )
+        return true
     }
 
     fun loadArchive(

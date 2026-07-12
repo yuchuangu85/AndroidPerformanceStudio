@@ -26,6 +26,7 @@ class NativeViewerMenuBarTest {
             ),
             archiveOperationInProgress = false,
             canExportArchive = true,
+            canImportScreenshot = true,
             isMacOs = true,
         )
 
@@ -73,9 +74,11 @@ class NativeViewerMenuBarTest {
         assertEquals(listOf(0, 0, 0, 1, 2), model.viewItems.map { it.group })
         assertEquals(listOf(true, false, true, true, true), model.viewItems.map { it.checked })
         assertEquals("文件", model.fileTitle)
-        assertEquals("导入", model.importLabel)
+        assertEquals("导入归档", model.importLabel)
+        assertEquals("导入截图", model.importScreenshotLabel)
         assertEquals("导出", model.exportLabel)
         assertTrue(model.importEnabled)
+        assertTrue(model.importScreenshotEnabled)
         assertTrue(model.exportEnabled)
     }
 
@@ -89,12 +92,15 @@ class NativeViewerMenuBarTest {
             viewDisplayOptions = ViewDisplayOptions(),
             archiveOperationInProgress = false,
             canExportArchive = true,
+            canImportScreenshot = true,
             isMacOs = false,
         )
 
         assertTrue(model.importMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
+        assertTrue(model.importScreenshotMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
         assertTrue(model.exportMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
         assertTrue(model.importMenuText.startsWith(model.importLabel))
+        assertTrue(model.importScreenshotMenuText.startsWith(model.importScreenshotLabel))
         assertTrue(model.exportMenuText.startsWith(model.exportLabel))
     }
 
@@ -108,6 +114,7 @@ class NativeViewerMenuBarTest {
             viewDisplayOptions = ViewDisplayOptions(),
             archiveOperationInProgress = false,
             canExportArchive = true,
+            canImportScreenshot = true,
             isMacOs = true,
         )
         val windowsModel = NativeViewerMenuModel(
@@ -118,12 +125,15 @@ class NativeViewerMenuBarTest {
             viewDisplayOptions = ViewDisplayOptions(),
             archiveOperationInProgress = false,
             canExportArchive = true,
+            canImportScreenshot = true,
             isMacOs = false,
         )
 
         assertEquals(NativeMenuShortcut(Key.I, ctrl = false, meta = true), macModel.importShortcut)
+        assertNull(macModel.importScreenshotShortcut)
         assertEquals(NativeMenuShortcut(Key.E, ctrl = false, meta = true), macModel.exportShortcut)
         assertEquals(NativeMenuShortcut(Key.I, ctrl = true, meta = false), windowsModel.importShortcut)
+        assertNull(windowsModel.importScreenshotShortcut)
         assertEquals(NativeMenuShortcut(Key.E, ctrl = true, meta = false), windowsModel.exportShortcut)
     }
 
@@ -152,10 +162,12 @@ class NativeViewerMenuBarTest {
             viewDisplayOptions = ViewDisplayOptions(),
             archiveOperationInProgress = true,
             canExportArchive = true,
+            canImportScreenshot = true,
             isMacOs = false,
         )
 
         assertFalse(model.importEnabled)
+        assertFalse(model.importScreenshotEnabled)
         assertFalse(model.exportEnabled)
     }
 
@@ -169,10 +181,12 @@ class NativeViewerMenuBarTest {
             viewDisplayOptions = ViewDisplayOptions(),
             archiveOperationInProgress = false,
             canExportArchive = false,
+            canImportScreenshot = false,
             isMacOs = false,
         )
 
         assertTrue(model.importEnabled)
+        assertFalse(model.importScreenshotEnabled)
         assertFalse(model.exportEnabled)
     }
 }

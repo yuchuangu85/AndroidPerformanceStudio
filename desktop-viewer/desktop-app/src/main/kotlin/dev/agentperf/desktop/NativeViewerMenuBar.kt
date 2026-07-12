@@ -35,12 +35,16 @@ internal data class NativeViewerMenuModel(
     val viewItems: List<NativeViewMenuItem>,
     val fileTitle: String,
     val importLabel: String,
+    val importScreenshotLabel: String,
     val exportLabel: String,
     val importMenuText: String,
+    val importScreenshotMenuText: String,
     val exportMenuText: String,
     val importShortcut: NativeMenuShortcut,
+    val importScreenshotShortcut: NativeMenuShortcut?,
     val exportShortcut: NativeMenuShortcut,
     val importEnabled: Boolean,
+    val importScreenshotEnabled: Boolean,
     val exportEnabled: Boolean,
 ) {
     constructor(
@@ -51,6 +55,7 @@ internal data class NativeViewerMenuModel(
         viewDisplayOptions: ViewDisplayOptions = ViewDisplayOptions(),
         archiveOperationInProgress: Boolean,
         canExportArchive: Boolean,
+        canImportScreenshot: Boolean,
         isMacOs: Boolean,
     ) : this(
         actionsTitle = strings.actions,
@@ -97,12 +102,16 @@ internal data class NativeViewerMenuModel(
         },
         fileTitle = strings.file,
         importLabel = strings.importArchive,
+        importScreenshotLabel = strings.importScreenshot,
         exportLabel = strings.exportArchive,
         importMenuText = nativeMenuItemText(strings.importArchive),
+        importScreenshotMenuText = nativeMenuItemText(strings.importScreenshot),
         exportMenuText = nativeMenuItemText(strings.exportArchive),
         importShortcut = nativePrimaryShortcut(Key.I, isMacOs),
+        importScreenshotShortcut = null,
         exportShortcut = nativePrimaryShortcut(Key.E, isMacOs),
         importEnabled = !archiveOperationInProgress,
+        importScreenshotEnabled = !archiveOperationInProgress && canImportScreenshot,
         exportEnabled = !archiveOperationInProgress && canExportArchive,
     )
 }
@@ -152,6 +161,7 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
     onAction: (ViewerAction) -> Unit,
     onViewOption: (ViewDisplayOption) -> Unit = {},
     onImportArchive: () -> Unit,
+    onImportScreenshot: () -> Unit,
     onExportArchive: () -> Unit,
 ) {
     MenuBar {
@@ -162,6 +172,13 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                 shortcut = model.importShortcut.toKeyShortcut(),
                 onClick = onImportArchive,
             )
+            Item(
+                text = model.importScreenshotMenuText,
+                enabled = model.importScreenshotEnabled,
+                shortcut = model.importScreenshotShortcut?.toKeyShortcut(),
+                onClick = onImportScreenshot,
+            )
+            Separator()
             Item(
                 text = model.exportMenuText,
                 enabled = model.exportEnabled,

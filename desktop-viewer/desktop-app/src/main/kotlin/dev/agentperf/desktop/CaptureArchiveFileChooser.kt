@@ -7,6 +7,8 @@ import javax.swing.filechooser.FileNameExtensionFilter
 internal interface CaptureArchiveFileChooser {
     fun chooseImport(title: String): Path?
 
+    fun chooseScreenshotImport(title: String): Path?
+
     fun chooseExport(
         title: String,
         initialFileName: String,
@@ -16,6 +18,20 @@ internal interface CaptureArchiveFileChooser {
 internal class SwingCaptureArchiveFileChooser : CaptureArchiveFileChooser {
     override fun chooseImport(title: String): Path? {
         val chooser = archiveChooser(title)
+        return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+            chooser.selectedFile.toPath()
+        } else {
+            null
+        }
+    }
+
+    override fun chooseScreenshotImport(title: String): Path? {
+        val chooser = JFileChooser().apply {
+            dialogTitle = title
+            fileSelectionMode = JFileChooser.FILES_ONLY
+            isAcceptAllFileFilterUsed = false
+            fileFilter = pngFilter
+        }
         return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
             chooser.selectedFile.toPath()
         } else {
@@ -60,6 +76,10 @@ internal class SwingCaptureArchiveFileChooser : CaptureArchiveFileChooser {
             "ZIP Archive (*.zip)",
             ZIP_EXTENSION,
         )
+        val pngFilter = FileNameExtensionFilter(
+            "PNG Screenshot (*.png)",
+            PNG_EXTENSION,
+        )
     }
 }
 
@@ -79,6 +99,7 @@ internal fun normalizeCaptureArchiveExportPath(
 
 private const val APINSPECT_EXTENSION = "apinspect"
 private const val ZIP_EXTENSION = "zip"
+private const val PNG_EXTENSION = "png"
 private val SUPPORTED_ARCHIVE_SUFFIXES = listOf(
     ".$APINSPECT_EXTENSION",
     ".$ZIP_EXTENSION",

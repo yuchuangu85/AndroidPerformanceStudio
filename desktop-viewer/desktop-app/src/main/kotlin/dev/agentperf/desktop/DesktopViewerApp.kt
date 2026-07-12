@@ -90,6 +90,7 @@ import dev.agentperf.adb.AdbDevice
 import dev.agentperf.adb.ConnectedDeviceSession
 import dev.agentperf.adb.LiveDeviceClient
 import dev.agentperf.adb.VisibleWindowViewsTextRenderer
+import dev.agentperf.protocol.DisplayInfo
 import dev.agentperf.protocol.ProtocolCodec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -283,6 +284,8 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
         }
         val snapshot = state.snapshot ?: return@exportCaptureArchive
         val screenshot = state.screenshotPng?.copyOf() ?: return@exportCaptureArchive
+        val analysis = state.analysis
+        val timelineFrames = state.timelineFrames
         val captureStatus = state.connectionStatus
         val preservedRawArtifacts = importedRawArtifacts
         val target = archiveFileChooser.chooseExport(
@@ -316,7 +319,8 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         snapshot = snapshot,
                         screenshotPng = screenshot,
                         rawArtifacts = rawArtifacts,
-                        analysis = state.analysis,
+                        analysis = analysis,
+                        timelineFrames = timelineFrames,
                     )
                 }
                 CaptureArchiveUiState.Success(
@@ -367,6 +371,50 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             } catch (error: Throwable) {
                 archiveUiState = CaptureArchiveUiState.Failure(
                     operation = CaptureArchiveOperation.IMPORT,
+                    message = error.message ?: error.javaClass.simpleName,
+                )
+            }
+        }
+    }
+    val importScreenshot: () -> Unit = importScreenshot@{
+        if (archiveUiState is CaptureArchiveUiState.Working) {
+            return@importScreenshot
+        }
+        if (state.snapshot == null) {
+            return@importScreenshot
+        }
+        val source = archiveFileChooser.chooseScreenshotImport(
+            strings.chooseScreenshotToImport,
+        ) ?: return@importScreenshot
+        autoScanEnabled = false
+        archiveUiState = CaptureArchiveUiState.Working(CaptureArchiveOperation.IMPORT_SCREENSHOT)
+        coroutineScope.launch {
+            try {
+                val screenshot = withContext(Dispatchers.IO) {
+                    captureArchiveService.importScreenshot(source)
+                }
+                val density = state.snapshot?.display?.density ?: 1f
+                val loaded = store.loadManualScreenshot(
+                    screenshotPng = screenshot.png,
+                    display = DisplayInfo(
+                        widthPx = screenshot.widthPx,
+                        heightPx = screenshot.heightPx,
+                        density = density,
+                    ),
+                )
+                if (!loaded) {
+                    throw IllegalStateException("No layout snapshot is loaded")
+                }
+                state = store.state
+                archiveUiState = CaptureArchiveUiState.Success(
+                    operation = CaptureArchiveOperation.IMPORT_SCREENSHOT,
+                    path = source,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                archiveUiState = CaptureArchiveUiState.Failure(
+                    operation = CaptureArchiveOperation.IMPORT_SCREENSHOT,
                     message = error.message ?: error.javaClass.simpleName,
                 )
             }
@@ -453,11 +501,13 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 archiveUiState is CaptureArchiveUiState.Working ||
                     manualRefreshInProgress,
             canExportArchive = state.snapshot != null && state.screenshotPng?.isNotEmpty() == true,
+            canImportScreenshot = state.snapshot != null,
             isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
         ),
         onAction = performAction,
         onViewOption = toggleViewDisplayOption,
         onImportArchive = importCaptureArchive,
+        onImportScreenshot = importScreenshot,
         onExportArchive = exportCaptureArchive,
     )
 
@@ -676,12 +726,16 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     val title = when (operationState.operation) {
                         CaptureArchiveOperation.IMPORT ->
                             strings.importArchiveSucceededTitle
+                        CaptureArchiveOperation.IMPORT_SCREENSHOT ->
+                            strings.importScreenshotSucceededTitle
                         CaptureArchiveOperation.EXPORT ->
                             strings.exportArchiveSucceededTitle
                     }
                     val message = when (operationState.operation) {
                         CaptureArchiveOperation.IMPORT ->
                             strings.archiveImportSucceeded(path)
+                        CaptureArchiveOperation.IMPORT_SCREENSHOT ->
+                            strings.screenshotImportSucceeded(path)
                         CaptureArchiveOperation.EXPORT ->
                             strings.archiveExportSucceeded(
                                 path = path,
@@ -701,11 +755,14 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 is CaptureArchiveUiState.Failure -> {
                     val title = when (operationState.operation) {
                         CaptureArchiveOperation.IMPORT -> strings.importArchiveFailedTitle
+                        CaptureArchiveOperation.IMPORT_SCREENSHOT -> strings.importScreenshotFailedTitle
                         CaptureArchiveOperation.EXPORT -> strings.exportArchiveFailedTitle
                     }
                     val message = when (operationState.operation) {
                         CaptureArchiveOperation.IMPORT ->
                             strings.archiveImportFailed(operationState.message)
+                        CaptureArchiveOperation.IMPORT_SCREENSHOT ->
+                            strings.screenshotImportFailed(operationState.message)
                         CaptureArchiveOperation.EXPORT ->
                             strings.archiveExportFailed(operationState.message)
                     }

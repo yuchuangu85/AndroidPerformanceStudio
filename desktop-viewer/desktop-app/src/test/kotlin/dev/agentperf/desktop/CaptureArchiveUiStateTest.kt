@@ -17,15 +17,16 @@ class CaptureArchiveUiStateTest {
             rawArtifactsIncluded = false,
         )
         val failure = CaptureArchiveUiState.Failure(
-            operation = CaptureArchiveOperation.IMPORT,
-            message = "invalid archive",
+            operation = CaptureArchiveOperation.IMPORT_SCREENSHOT,
+            message = "invalid screenshot",
         )
 
         assertEquals(CaptureArchiveOperation.IMPORT, working.operation)
         assertEquals(CaptureArchiveOperation.EXPORT, success.operation)
         assertEquals(Path.of("/tmp/capture.apinspect"), success.path)
         assertFalse(success.rawArtifactsIncluded)
-        assertEquals("invalid archive", failure.message)
+        assertEquals(CaptureArchiveOperation.IMPORT_SCREENSHOT, failure.operation)
+        assertEquals("invalid screenshot", failure.message)
         assertSame(CaptureArchiveUiState.Idle, CaptureArchiveUiState.Idle)
     }
 

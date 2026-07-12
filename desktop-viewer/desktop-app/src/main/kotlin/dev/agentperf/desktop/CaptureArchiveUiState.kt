@@ -7,6 +7,7 @@ import java.time.format.DateTimeFormatter
 
 internal enum class CaptureArchiveOperation {
     IMPORT,
+    IMPORT_SCREENSHOT,
     EXPORT,
 }
 

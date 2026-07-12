@@ -71,8 +71,10 @@ class LanguagePreferenceTest {
         assertEquals("Show all visible view bounds", english.showVisibleViewBounds)
         assertEquals("文件", chinese.file)
         assertEquals("File", english.file)
-        assertEquals("导入", chinese.importArchive)
-        assertEquals("Import", english.importArchive)
+        assertEquals("导入归档", chinese.importArchive)
+        assertEquals("Import archive", english.importArchive)
+        assertEquals("导入截图", chinese.importScreenshot)
+        assertEquals("Import screenshot", english.importScreenshot)
         assertEquals("导出", chinese.exportArchive)
         assertEquals("Export", english.exportArchive)
         assertEquals("捕获归档", chinese.captureArchive)
@@ -87,11 +89,17 @@ class LanguagePreferenceTest {
         assertEquals("Offline archive", english.offlineArchive)
         assertEquals("导入成功", chinese.importArchiveSucceededTitle)
         assertEquals("Import succeeded", english.importArchiveSucceededTitle)
+        assertEquals("截图已导入", chinese.importScreenshotSucceededTitle)
+        assertEquals("Screenshot imported", english.importScreenshotSucceededTitle)
         assertEquals("导出失败", chinese.exportArchiveFailedTitle)
         assertEquals("Export failed", english.exportArchiveFailedTitle)
         assertEquals(
             "归档已导入：\n/tmp/capture.apinspect",
             chinese.archiveImportSucceeded("/tmp/capture.apinspect"),
+        )
+        assertEquals(
+            "已为当前布局导入截图：\n/tmp/manual.png",
+            chinese.screenshotImportSucceeded("/tmp/manual.png"),
         )
         assertEquals(
             "Archive exported without raw Visible Window Views attachments:\n/tmp/capture.apinspect",

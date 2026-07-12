@@ -18,6 +18,7 @@ import dev.agentperf.protocol.ViewAttributes
 import dev.agentperf.protocol.ViewNode
 import dev.agentperf.protocol.normalizedToCurrentProtocol
 import dev.agentperf.protocol.UnsupportedProtocolVersionException
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
 import org.junit.jupiter.api.Assertions.assertArrayEquals
@@ -167,6 +168,47 @@ class CaptureArchiveServiceTest {
     }
 
     @Test
+    fun `service imports a standalone screenshot png`() {
+        val path = tempDir.resolve("manual.png")
+        Files.write(path, ONE_PIXEL_PNG)
+
+        val imported = service.importScreenshot(path)
+
+        assertArrayEquals(ONE_PIXEL_PNG, imported.png)
+        assertEquals(1, imported.widthPx)
+        assertEquals(1, imported.heightPx)
+    }
+
+    @Test
+    fun `standalone imported screenshot is exported as archive screenshot`() {
+        val screenshotPath = tempDir.resolve("manual.png")
+        val archivePath = tempDir.resolve("manual-image.apinspect")
+        Files.write(screenshotPath, TWO_BY_ONE_PNG)
+        val screenshot = service.importScreenshot(screenshotPath)
+
+        service.export(
+            target = archivePath,
+            producerVersion = "0.3.0",
+            snapshot = SampleSnapshots.dashboard,
+            screenshotPng = screenshot.png,
+            rawArtifacts = null,
+        )
+
+        val importedArchive = service.import(archivePath)
+        assertArrayEquals(TWO_BY_ONE_PNG, importedArchive.screenshotPng)
+    }
+
+    @Test
+    fun `service rejects an invalid standalone screenshot`() {
+        val path = tempDir.resolve("manual.png")
+        Files.write(path, byteArrayOf(1, 2, 3))
+
+        assertThrows(CaptureArchiveFormatException::class.java) {
+            service.importScreenshot(path)
+        }
+    }
+
+    @Test
     fun `service rejects an invalid screenshot`() {
         val path = tempDir.resolve("invalid-png.apinspect")
         CaptureArchiveCodec().write(
@@ -214,6 +256,9 @@ class CaptureArchiveServiceTest {
     private companion object {
         val ONE_PIXEL_PNG: ByteArray = Base64.getDecoder().decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        )
+        val TWO_BY_ONE_PNG: ByteArray = Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8DwH4QBEfcD/ePF9e8AAAAASUVORK5CYII=",
         )
     }
 }

@@ -28,16 +28,23 @@ internal class ViewerStrings private constructor(
     val actions: String get() = text("Actions", "操作")
     val view: String get() = text("View", "视图")
     val file: String get() = text("File", "文件")
-    val importArchive: String get() = text("Import", "导入")
+    val importArchive: String get() = text("Import archive", "导入归档")
+    val importScreenshot: String get() = text("Import screenshot", "导入截图")
     val exportArchive: String get() = text("Export", "导出")
     val chooseArchiveToImport: String
         get() = text("Choose archive to import", "选择要导入的归档")
     val chooseArchiveExportFile: String
         get() = text("Choose export file", "选择导出文件")
+    val chooseScreenshotToImport: String
+        get() = text("Choose screenshot to import", "选择要导入的截图")
     val importArchiveSucceededTitle: String
         get() = text("Import succeeded", "导入成功")
     val importArchiveFailedTitle: String
         get() = text("Import failed", "导入失败")
+    val importScreenshotSucceededTitle: String
+        get() = text("Screenshot imported", "截图已导入")
+    val importScreenshotFailedTitle: String
+        get() = text("Screenshot import failed", "截图导入失败")
     val exportArchiveSucceededTitle: String
         get() = text("Export succeeded", "导出成功")
     val exportArchiveFailedTitle: String
@@ -110,6 +117,16 @@ internal class ViewerStrings private constructor(
     fun archiveImportFailed(message: String): String = text(
         "Unable to import archive:\n$message",
         "无法导入归档：\n$message",
+    )
+
+    fun screenshotImportSucceeded(path: String): String = text(
+        "Screenshot imported for the current layout:\n$path",
+        "已为当前布局导入截图：\n$path",
+    )
+
+    fun screenshotImportFailed(message: String): String = text(
+        "Unable to import screenshot:\n$message",
+        "无法导入截图：\n$message",
     )
 
     fun archiveExportSucceeded(
