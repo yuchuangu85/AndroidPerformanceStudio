@@ -8,17 +8,17 @@ import org.junit.jupiter.api.Test
 
 class ApplicationDisplayNameTest {
     @Test
-    fun `runtime and distribution use AgentPerf Inspector`() {
-        assertEquals("AgentPerf Inspector", APP_DISPLAY_NAME)
+    fun `runtime and distribution use AndroidPerfermanceStudio`() {
+        assertEquals("AndroidPerfermanceStudio", APP_DISPLAY_NAME)
 
         val buildScript = Files.readString(Path.of("build.gradle.kts"))
         assertTrue(
             buildScript.contains(
-                """jvmArgs("-Dapple.awt.application.name=AgentPerf Inspector")""",
+                """jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")""",
             ),
         )
         assertTrue(
-            buildScript.contains("""packageName = "AgentPerf Inspector""""),
+            buildScript.contains("""packageName = "AndroidPerfermanceStudio""""),
         )
     }
 }

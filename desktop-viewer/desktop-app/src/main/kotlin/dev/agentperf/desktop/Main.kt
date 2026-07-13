@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 
-internal const val APP_DISPLAY_NAME = "AgentPerf Inspector"
+internal const val APP_DISPLAY_NAME = "AndroidPerfermanceStudio"
 
 fun main() = application {
     val appIcon = painterResource("icons/app-icon.png")

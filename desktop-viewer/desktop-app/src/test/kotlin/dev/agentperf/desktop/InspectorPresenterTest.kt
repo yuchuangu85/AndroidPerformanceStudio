@@ -412,4 +412,37 @@ class InspectorPresenterTest {
 
     private fun NodeDetailsModel.row(label: String): DetailRowModel =
         sections.flatMap { it.rows }.single { it.label == label }
+    @Test
+    fun `presents ai findings after deterministic findings`() {
+        val state = InspectorState(
+            snapshot = SampleSnapshots.dashboard,
+            analysis = AnalysisReport(
+                metrics = LayoutMetrics(nodeCount = 5, maxDepth = 3, widestLevel = 2),
+                findings = listOf(Finding("rule", Severity.INFO, "root", "rule finding")),
+            ),
+            aiAnalysis = dev.agentperf.analysis.AiAnalysisReport(
+                model = "gpt-test",
+                summary = "summary",
+                findings = listOf(
+                    dev.agentperf.analysis.AiFinding(
+                        ruleId = "ai.layout",
+                        severity = Severity.WARNING,
+                        nodeId = "title",
+                        title = "AI layout risk",
+                        message = "Possible risky layout",
+                        recommendation = "Simplify this node",
+                        confidence = 0.9f,
+                    ),
+                ),
+            ),
+        )
+
+        val findings = InspectorPresenter.present(state).findings
+
+        assertEquals(listOf("rule", "AI · AI layout risk"), findings.map { it.title })
+        assertEquals(listOf(FindingTone.INFO, FindingTone.WARNING), findings.map { it.tone })
+        assertEquals("Possible risky layout · Simplify this node", findings.last().message)
+        assertEquals("ai:ai.layout:title:0", findings.last().key)
+    }
+
 }

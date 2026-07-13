@@ -97,6 +97,25 @@ class CaptureArchiveCodecTest {
     }
 
     @Test
+    fun `archive round trip preserves optional ai analysis report`() {
+        val target = tempDir.resolve("ai-report.apinspect")
+        val input = CaptureArchivePayload(
+            snapshotJson = "{}",
+            screenshotPng = null,
+            aiAnalysisReportJson = """{"summary":"ai"}""",
+        )
+
+        CaptureArchiveCodec().write(target, validMetadata(), input)
+        val output = CaptureArchiveCodec().read(target)
+
+        assertEquals(input.aiAnalysisReportJson, output.payload.aiAnalysisReportJson)
+        ZipFile(target.toFile()).use { zip ->
+            assertTrue(zip.entries().asSequence().any { it.name == CaptureArchivePaths.AI_ANALYSIS_REPORT })
+        }
+    }
+
+
+    @Test
     fun `write omits oversized optional raw attachments instead of failing export`() {
         val target = tempDir.resolve("oversized-raw-text.apinspect")
         val oversizedRawText = "x".repeat(8 * 1024 * 1024 + 1)

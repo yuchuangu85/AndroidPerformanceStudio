@@ -13,7 +13,7 @@ internal fun interface RefreshTimingSink {
 internal object ConsoleRefreshTimingSink : RefreshTimingSink {
     override fun record(event: RefreshTimingEvent) {
         println(
-            "AgentPerf refresh kind=${event.refreshKind} " +
+            "AndroidPerfermanceStudio refresh kind=${event.refreshKind} " +
                 "stage=${event.stage} elapsedMs=${event.elapsedMillis}",
         )
     }

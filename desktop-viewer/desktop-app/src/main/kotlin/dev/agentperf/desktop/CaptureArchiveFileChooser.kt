@@ -69,7 +69,7 @@ internal class SwingCaptureArchiveFileChooser : CaptureArchiveFileChooser {
 
     private companion object {
         val apinspectFilter = FileNameExtensionFilter(
-            "AgentPerf Inspector Capture (*.apinspect)",
+            "AndroidPerfermanceStudio Capture (*.apinspect)",
             APINSPECT_EXTENSION,
         )
         val zipFilter = FileNameExtensionFilter(

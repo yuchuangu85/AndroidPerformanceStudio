@@ -1,4 +1,4 @@
-# AgentPerf Protocol v1
+# AndroidPerfermanceStudio Protocol v1
 
 ## Protocol versions
 

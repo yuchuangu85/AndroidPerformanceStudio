@@ -1,5 +1,7 @@
 package dev.agentperf.application
 
+import dev.agentperf.analysis.AiAnalysisReport
+import dev.agentperf.analysis.AnalysisReport
 import dev.agentperf.analysis.LayoutAnalyzer
 import dev.agentperf.protocol.LayoutSnapshot
 import dev.agentperf.protocol.effectiveDefaultWindowId
@@ -30,7 +32,7 @@ class InspectorStore(
         screenshotPng: ByteArray?,
         connectionStatus: ConnectionStatus,
         previous: InspectorState,
-        analysisOverride: dev.agentperf.analysis.AnalysisReport? = null,
+        analysisOverride: AnalysisReport? = null,
         timelineDiff: TimelineDiff? = null,
         timelineFrames: List<TimelineFrame> = previous.timelineFrames,
         selectedTimelineFrameIndex: Int? = previous.selectedTimelineFrameIndex,
@@ -116,6 +118,7 @@ class InspectorStore(
             snapshot = updatedSnapshot,
             screenshotPng = screenshotPng,
             timelineFrames = updatedFrames,
+            aiAnalysis = null,
         )
         return true
     }
@@ -123,7 +126,8 @@ class InspectorStore(
     fun loadArchive(
         snapshot: LayoutSnapshot,
         screenshotPng: ByteArray?,
-        analysis: dev.agentperf.analysis.AnalysisReport? = null,
+        analysis: AnalysisReport? = null,
+        aiAnalysis: AiAnalysisReport? = null,
         timelineFrames: List<TimelineFrame> = emptyList(),
     ) {
         val selectedTimelineFrameIndex = timelineFrames.lastOrNull {
@@ -145,13 +149,20 @@ class InspectorStore(
             timelineFrames = frames,
             selectedTimelineFrameIndex = selectedTimelineFrameIndex,
         )
+        if (aiAnalysis != null) {
+            state = state.copy(aiAnalysis = aiAnalysis)
+        }
+    }
+
+    fun loadAiAnalysis(report: AiAnalysisReport) {
+        state = state.copy(aiAnalysis = report)
     }
 
     private fun loadInspectedContent(
         snapshot: LayoutSnapshot,
         screenshotPng: ByteArray?,
         connectionStatus: ConnectionStatus,
-        analysisOverride: dev.agentperf.analysis.AnalysisReport? = null,
+        analysisOverride: AnalysisReport? = null,
         timelineDiff: TimelineDiff? = null,
         timelineFrames: List<TimelineFrame> = state.timelineFrames,
         selectedTimelineFrameIndex: Int? = state.selectedTimelineFrameIndex,
@@ -227,6 +238,7 @@ class InspectorStore(
             hoveredNodeId = null,
             timelineDiff = state.timelineDiff,
             analysis = analyzer.analyze(window.root),
+            aiAnalysis = null,
         )
         return true
     }

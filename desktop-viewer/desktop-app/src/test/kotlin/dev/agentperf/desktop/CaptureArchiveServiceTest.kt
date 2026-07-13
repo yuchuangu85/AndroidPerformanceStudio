@@ -126,6 +126,39 @@ class CaptureArchiveServiceTest {
 
 
     @Test
+    fun `service export then import restores persisted ai analysis report`() {
+        val path = tempDir.resolve("ai-report.apinspect")
+        val report = dev.agentperf.analysis.AiAnalysisReport(
+            model = "gpt-test",
+            summary = "summary",
+            findings = listOf(
+                dev.agentperf.analysis.AiFinding(
+                    ruleId = "ai.layout",
+                    severity = Severity.WARNING,
+                    nodeId = "root",
+                    title = "AI layout risk",
+                    message = "Possible risky layout",
+                    recommendation = "Simplify hierarchy",
+                    confidence = 0.75f,
+                ),
+            ),
+        )
+
+        service.export(
+            target = path,
+            producerVersion = "0.2.5",
+            snapshot = SampleSnapshots.dashboard,
+            screenshotPng = ONE_PIXEL_PNG,
+            rawArtifacts = null,
+            aiAnalysis = report,
+        )
+        val imported = service.import(path)
+
+        assertEquals(report, imported.aiAnalysis)
+    }
+
+
+    @Test
     fun `service export then import restores timeline history summaries`() {
         val path = tempDir.resolve("timeline.apinspect")
         val frame = TimelineFrame(

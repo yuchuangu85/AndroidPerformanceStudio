@@ -132,15 +132,15 @@ jobs:
           }
           $VERSION = $env:VERSION
           New-Item -ItemType Directory -Force "release-assets" | Out-Null
-          Copy-Item $msiPackages[0].FullName "release-assets\AgentPerf-Inspector-$VERSION-windows-x64.msi"
-          Copy-Item $exePackages[0].FullName "release-assets\AgentPerf-Inspector-$VERSION-windows-x64.exe"
+          Copy-Item $msiPackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.msi"
+          Copy-Item $exePackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.exe"
       - name: Upload Windows installers
         uses: actions/upload-artifact@v7
         with:
           name: windows-installers
           path: |
-            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-windows-x64.msi
-            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-windows-x64.exe
+            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-windows-x64.msi
+            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-windows-x64.exe
           if-no-files-found: error
 
   package-macos:
@@ -182,15 +182,15 @@ jobs:
             exit 1
           fi
           mkdir -p release-assets
-          cp "${dmg_packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.dmg"
-          cp "${pkg_packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-macos-x64.pkg"
+          cp "${dmg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-x64.dmg"
+          cp "${pkg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-x64.pkg"
       - name: Upload macOS installers
         uses: actions/upload-artifact@v7
         with:
           name: macos-installers
           path: |
-            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-macos-x64.dmg
-            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-macos-x64.pkg
+            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-macos-x64.dmg
+            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-macos-x64.pkg
           if-no-files-found: error
 
   package-linux:
@@ -236,15 +236,15 @@ jobs:
             exit 1
           fi
           mkdir -p release-assets
-          cp "${deb_packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.deb"
-          cp "${rpm_packages[0]}" "release-assets/AgentPerf-Inspector-$VERSION-linux-x64.rpm"
+          cp "${deb_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-x64.deb"
+          cp "${rpm_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-x64.rpm"
       - name: Upload Linux installers
         uses: actions/upload-artifact@v7
         with:
           name: linux-installers
           path: |
-            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-linux-x64.deb
-            release-assets/AgentPerf-Inspector-${{ needs.resolve.outputs.version }}-linux-x64.rpm
+            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-linux-x64.deb
+            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-linux-x64.rpm
           if-no-files-found: error
 
   publish:
@@ -279,13 +279,13 @@ jobs:
           elif [[ "$MANUAL" == "true" ]]; then
             gh release create "$TAG" "${assets[@]}" \
               --target "$GITHUB_SHA" \
-              --title "AgentPerf Inspector $VERSION" \
+              --title "AndroidPerfermanceStudio $VERSION" \
               --generate-notes \
               --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$TAG" "${assets[@]}" \
               --verify-tag \
-              --title "AgentPerf Inspector $VERSION" \
+              --title "AndroidPerfermanceStudio $VERSION" \
               --generate-notes \
               --repo "$GITHUB_REPOSITORY"
           fi

@@ -17,7 +17,7 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER_HORIZONTAL
                 setPadding(48, 96, 48, 48)
                 setBackgroundColor(Color.rgb(248, 250, 252))
-                addView(label("AgentPerf Sample", 28f))
+                addView(label("AndroidPerfermanceStudio Sample", 28f))
                 addView(label("Zero-code debug Agent is active.", 16f))
                 addView(
                     label("Inspect this hierarchy from Desktop Viewer.", 14f).apply {

@@ -17,7 +17,7 @@ class VisibleWindowViewsUnavailableException(message: String) : IllegalStateExce
 class AgentUnavailableException(
     val packageName: String,
     cause: Throwable,
-) : IllegalStateException("Foreground app $packageName is not AgentPerf-enabled", cause)
+) : IllegalStateException("Foreground app $packageName is not AndroidPerfermanceStudio-enabled", cause)
 
 class AdbCommandException(
     val arguments: List<String>,

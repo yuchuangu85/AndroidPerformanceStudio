@@ -106,6 +106,9 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
+// Keep the implementation available while the user-facing flow is deferred.
+// Re-enable only after completing docs/ai-analysis-roadmap.md.
+internal const val AI_ANALYSIS_ENTRY_VISIBLE = false
 
 @Composable
 fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
@@ -139,6 +142,9 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             protocolCodec = protocolCodec,
         )
     }
+    val aiAnalysisInputBuilder = remember { AiAnalysisInputBuilder() }
+    val aiAnalysisClient = remember { OpenAiResponsesAnalysisClient.fromEnvironment() }
+    var aiAnalysisUiState by remember { mutableStateOf<AiAnalysisUiState>(AiAnalysisUiState.Idle) }
     var archiveUiState by remember {
         mutableStateOf<CaptureArchiveUiState>(CaptureArchiveUiState.Idle)
     }
@@ -161,6 +167,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             if (store.state.connectionStatus != ConnectionStatus.ARCHIVE) {
                 store.disconnected()
                 state = store.state
+                aiAnalysisUiState = AiAnalysisUiState.Idle
             }
             return@LaunchedEffect
         }
@@ -198,6 +205,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         importedRawArtifacts = null
                         hiddenLayerState = HiddenLayerState()
                         state = store.state
+                        aiAnalysisUiState = AiAnalysisUiState.Idle
                     }
                     delay(CAPTURE_INTERVAL_MILLIS)
                 }
@@ -241,6 +249,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 importedRawArtifacts = null
                 hiddenLayerState = HiddenLayerState()
                 state = store.state
+                aiAnalysisUiState = AiAnalysisUiState.Idle
             }
         } catch (error: CancellationException) {
             throw error
@@ -284,6 +293,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
         val snapshot = state.snapshot ?: return@exportCaptureArchive
         val screenshot = state.screenshotPng?.copyOf()?.takeIf { it.isNotEmpty() }
         val analysis = state.analysis
+        val aiAnalysis = state.aiAnalysis
         val timelineFrames = state.timelineFrames
         val captureStatus = state.connectionStatus
         val preservedRawArtifacts = importedRawArtifacts
@@ -319,6 +329,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                         screenshotPng = screenshot,
                         rawArtifacts = rawArtifacts,
                         analysis = analysis,
+                        aiAnalysis = aiAnalysis,
                         timelineFrames = timelineFrames,
                     )
                 }
@@ -355,10 +366,12 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     snapshot = imported.snapshot,
                     screenshotPng = imported.screenshotPng,
                     analysis = imported.analysis,
+                    aiAnalysis = imported.aiAnalysis,
                     timelineFrames = imported.timelineFrames,
                 )
                 state = store.state
                 importedRawArtifacts = imported.rawArtifacts
+                aiAnalysisUiState = AiAnalysisUiState.Idle
                 hierarchyTreeState = HierarchyTreeState()
                 hiddenLayerState = HiddenLayerState()
                 archiveUiState = CaptureArchiveUiState.Success(
@@ -406,6 +419,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                     throw IllegalStateException("The selected layout changed while importing the screenshot")
                 }
                 state = store.state
+                aiAnalysisUiState = AiAnalysisUiState.Idle
                 archiveUiState = CaptureArchiveUiState.Success(
                     operation = CaptureArchiveOperation.IMPORT_SCREENSHOT,
                     path = source,
@@ -420,6 +434,35 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
             }
         }
     }
+    val runAiAnalysis: () -> Unit = runAiAnalysis@{
+        if (aiAnalysisUiState is AiAnalysisUiState.Working) return@runAiAnalysis
+        val snapshot = state.snapshot ?: return@runAiAnalysis
+        val activeRoot = state.activeRoot ?: return@runAiAnalysis
+        val input = aiAnalysisInputBuilder.build(
+            snapshot = snapshot,
+            activeRoot = activeRoot,
+            analysis = state.analysis,
+            screenshotAvailable = state.screenshotPng?.isNotEmpty() == true,
+        )
+        aiAnalysisUiState = AiAnalysisUiState.Working
+        coroutineScope.launch {
+            try {
+                val report = withContext(Dispatchers.IO) {
+                    aiAnalysisClient.analyze(input)
+                }
+                store.loadAiAnalysis(report)
+                state = store.state
+                aiAnalysisUiState = AiAnalysisUiState.Idle
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                aiAnalysisUiState = AiAnalysisUiState.Failure(
+                    error.message ?: error.javaClass.simpleName,
+                )
+            }
+        }
+    }
+
     val selectNode: (String) -> Unit = { id ->
         if (store.selectNode(id)) state = store.state
     }
@@ -566,6 +609,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                             hierarchyTreeState = HierarchyTreeState()
                             hiddenLayerState = HiddenLayerState()
                             state = store.state
+                            aiAnalysisUiState = AiAnalysisUiState.Idle
                         }
                     },
                 )
@@ -668,6 +712,8 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                 state = state,
                                 viewDisplayOptions = viewDisplayOptions,
                                 onSelectNode = selectNode,
+                                aiAnalysisUiState = aiAnalysisUiState,
+                                onRunAiAnalysis = runAiAnalysis,
                                 onSelectTimelineFrame = { index ->
                                     if (archiveUiState !is CaptureArchiveUiState.Working &&
                                         store.selectTimelineFrame(index)
@@ -675,6 +721,7 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                                         hierarchyTreeState = HierarchyTreeState()
                                         hiddenLayerState = HiddenLayerState()
                                         state = store.state
+                                        aiAnalysisUiState = AiAnalysisUiState.Idle
                                     }
                                 },
                                 modifier =
@@ -1892,6 +1939,8 @@ private fun DetailRow(
 private fun FindingsPane(
     state: InspectorState,
     viewDisplayOptions: ViewDisplayOptions,
+    aiAnalysisUiState: AiAnalysisUiState,
+    onRunAiAnalysis: () -> Unit,
     onSelectNode: (String) -> Unit,
     onSelectTimelineFrame: (Int) -> Unit,
     modifier: Modifier,
@@ -1922,6 +1971,24 @@ private fun FindingsPane(
             Spacer(Modifier.width(8.dp))
             Badge(strings.errorBadge(severitySummary.error), colors.error)
             Spacer(Modifier.weight(1f))
+            if (AI_ANALYSIS_ENTRY_VISIBLE) {
+                val aiStatus = when (aiAnalysisUiState) {
+                    AiAnalysisUiState.Idle -> state.aiAnalysis?.summary?.let(strings::aiAnalysisSummary)
+                    AiAnalysisUiState.Working -> strings.aiAnalysisRunning
+                    is AiAnalysisUiState.Failure -> strings.aiAnalysisFailed(aiAnalysisUiState.message)
+                }
+                if (aiStatus != null) {
+                    Text(aiStatus, color = colors.mutedText, fontSize = 11.sp, maxLines = 1)
+                    Spacer(Modifier.width(12.dp))
+                }
+                TextButton(
+                    onClick = onRunAiAnalysis,
+                    enabled = state.snapshot != null && aiAnalysisUiState !is AiAnalysisUiState.Working,
+                ) {
+                    Text(strings.runAiAnalysis, fontSize = 11.sp)
+                }
+                Spacer(Modifier.width(12.dp))
+            }
             Text(strings.timelineLiveCapture, color = colors.mutedText, fontSize = 11.sp)
         }
         if (model.timelineFrames.isNotEmpty()) {

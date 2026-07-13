@@ -223,6 +223,7 @@ internal class CaptureArchiveCodec(
         val rawZip = content[CaptureArchivePaths.RAW_ZIP]
         val rawText = content[CaptureArchivePaths.RAW_TEXT]
         val analysisReport = content[CaptureArchivePaths.ANALYSIS_REPORT]
+        val aiAnalysisReport = content[CaptureArchivePaths.AI_ANALYSIS_REPORT]
         val timelineHistory = content[CaptureArchivePaths.TIMELINE_HISTORY]
         return CaptureArchiveDocument(
             metadata = CaptureArchiveMetadata(
@@ -242,6 +243,7 @@ internal class CaptureArchiveCodec(
                     )
                 },
                 analysisReportJson = analysisReport?.toString(StandardCharsets.UTF_8),
+                aiAnalysisReportJson = aiAnalysisReport?.toString(StandardCharsets.UTF_8),
                 timelineHistoryJson = timelineHistory?.toString(StandardCharsets.UTF_8),
             ),
         )
@@ -256,6 +258,11 @@ internal class CaptureArchiveCodec(
         val analysisEntries = analysisReportJson?.let { report ->
             linkedMapOf(
                 CaptureArchivePaths.ANALYSIS_REPORT to report.toByteArray(StandardCharsets.UTF_8),
+            )
+        }
+        val aiAnalysisEntries = aiAnalysisReportJson?.let { report ->
+            linkedMapOf(
+                CaptureArchivePaths.AI_ANALYSIS_REPORT to report.toByteArray(StandardCharsets.UTF_8),
             )
         }
         val timelineEntries = timelineHistoryJson?.let { history ->
@@ -273,6 +280,9 @@ internal class CaptureArchiveCodec(
         return required.apply {
             if (analysisEntries != null && optionalEntriesFit(required, analysisEntries)) {
                 putAll(analysisEntries)
+            }
+            if (aiAnalysisEntries != null && optionalEntriesFit(this, aiAnalysisEntries)) {
+                putAll(aiAnalysisEntries)
             }
             if (timelineEntries != null && optionalEntriesFit(this, timelineEntries)) {
                 putAll(timelineEntries)
@@ -331,6 +341,7 @@ internal class CaptureArchiveCodec(
             CaptureArchivePaths.RAW_ZIP -> MAX_RAW_ZIP_BYTES.toLong()
             CaptureArchivePaths.RAW_TEXT -> MAX_RAW_TEXT_BYTES.toLong()
             CaptureArchivePaths.ANALYSIS_REPORT -> MAX_ANALYSIS_REPORT_BYTES.toLong()
+            CaptureArchivePaths.AI_ANALYSIS_REPORT -> MAX_ANALYSIS_REPORT_BYTES.toLong()
             CaptureArchivePaths.TIMELINE_HISTORY -> MAX_TIMELINE_HISTORY_BYTES.toLong()
             else -> MAX_UNKNOWN_OPTIONAL_BYTES.toLong()
         }
@@ -392,6 +403,7 @@ internal class CaptureArchiveCodec(
             CaptureArchivePaths.RAW_ZIP,
             CaptureArchivePaths.RAW_TEXT,
             CaptureArchivePaths.ANALYSIS_REPORT,
+            CaptureArchivePaths.AI_ANALYSIS_REPORT,
             CaptureArchivePaths.TIMELINE_HISTORY,
         )
     }

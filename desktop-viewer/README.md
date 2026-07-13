@@ -1,6 +1,6 @@
-# AgentPerf Desktop Viewer
+# AndroidPerfermanceStudio
 
-AgentPerf Desktop Viewer is a Compose Desktop inspector for Android layout snapshots. The current foundation release includes:
+AndroidPerfermanceStudio is a Compose Desktop inspector for Android layout snapshots. The current foundation release includes:
 
 - a versioned JSON snapshot protocol;
 - deterministic hierarchy metrics and findings;
@@ -51,7 +51,7 @@ With exactly one authorized device connected, start the desktop application:
 ./gradlew :desktop-app:run
 ```
 
-The viewer follows the foreground application and reconnects automatically when the user switches apps. AgentPerf-enabled debug builds use the Agent socket for high-fidelity capture. Other foreground applications fall back to `uiautomator dump` plus `screencap`, so newly installed debug apps appear without requiring AgentPerf integration. CANVAS defaults to `仅应用 ON`, which crops to the real application bounds and maximizes that content at its native aspect ratio; switch it off to inspect the complete device or emulator display. The selected View bounds are overlaid on the matching screenshot coordinate space. Connection failures remain visible in the header and are retried automatically. The two vertical separators can be dragged to resize HIERARCHY and PROPERTIES for the current session; CANVAS uses the remaining width.
+The viewer follows the foreground application and reconnects automatically when the user switches apps. AndroidPerfermanceStudio-enabled debug builds use the Agent socket for high-fidelity capture. Other foreground applications fall back to `uiautomator dump` plus `screencap`, so newly installed debug apps appear without requiring AndroidPerfermanceStudio integration. CANVAS defaults to `仅应用 ON`, which crops to the real application bounds and maximizes that content at its native aspect ratio; switch it off to inspect the complete device or emulator display. The selected View bounds are overlaid on the matching screenshot coordinate space. Connection failures remain visible in the header and are retried automatically. The two vertical separators can be dragged to resize HIERARCHY and PROPERTIES for the current session; CANVAS uses the remaining width.
 
 ## Current scope
 
@@ -62,3 +62,4 @@ See:
 - [Architecture and product design](docs/2026-07-02-desktop-viewer-design.md)
 - [Development guide](docs/DEVELOPMENT.md)
 - [Protocol contract](docs/PROTOCOL.md)
+- [Deferred AI analysis work](docs/ai-analysis-roadmap.md)

@@ -98,7 +98,31 @@ internal object InspectorPresenter {
         }
         val selected = state.selectedNode
         val findings = state.analysis.findings
+        val aiFindings = state.aiAnalysis?.findings.orEmpty()
         val metrics = state.analysis.metrics
+        val findingRows = findings.mapIndexed { index, finding ->
+            FindingRowModel(
+                key = "${finding.ruleId}:${finding.nodeId}:$index",
+                title = strings.findingTitle(finding.ruleId),
+                nodeNumber = nodeNumbers[finding.nodeId] ?: "—",
+                nodeId = finding.nodeId,
+                message = strings.findingMessage(
+                    ruleId = finding.ruleId,
+                    arguments = finding.arguments,
+                    fallback = finding.message,
+                ),
+                tone = finding.severity.toTone(),
+            )
+        } + aiFindings.mapIndexed { index, finding ->
+            FindingRowModel(
+                key = "ai:${finding.ruleId}:${finding.nodeId}:$index",
+                title = "AI · ${finding.title}",
+                nodeNumber = nodeNumbers[finding.nodeId] ?: "—",
+                nodeId = finding.nodeId,
+                message = "${finding.message} · ${finding.recommendation}",
+                tone = finding.severity.toTone(),
+            )
+        }
         return InspectorScreenModel(
             packageName = state.snapshot?.packageName,
             rows = rows,
@@ -120,28 +144,11 @@ internal object InspectorPresenter {
                 )
             } ?: NodeDetailsModel(),
             severitySummary = SeveritySummary(
-                info = findings.count { it.severity == Severity.INFO },
-                warning = findings.count { it.severity == Severity.WARNING },
-                error = findings.count { it.severity == Severity.ERROR },
+                info = findingRows.count { it.tone == FindingTone.INFO },
+                warning = findingRows.count { it.tone == FindingTone.WARNING },
+                error = findingRows.count { it.tone == FindingTone.ERROR },
             ),
-            findings = findings.mapIndexed { index, finding ->
-                FindingRowModel(
-                    key = "${finding.ruleId}:${finding.nodeId}:$index",
-                    title = strings.findingTitle(finding.ruleId),
-                    nodeNumber = nodeNumbers[finding.nodeId] ?: "—",
-                    nodeId = finding.nodeId,
-                    message = strings.findingMessage(
-                        ruleId = finding.ruleId,
-                        arguments = finding.arguments,
-                        fallback = finding.message,
-                    ),
-                    tone = when (finding.severity) {
-                        Severity.INFO -> FindingTone.INFO
-                        Severity.WARNING -> FindingTone.WARNING
-                        Severity.ERROR -> FindingTone.ERROR
-                    },
-                )
-            },
+            findings = findingRows,
             metricsText = strings.metrics(metrics.nodeCount, metrics.maxDepth, metrics.widestLevel),
             timelineText = state.timelineDiff?.let { strings.timelineDiff(it.addedNodes, it.removedNodes, it.boundsChangedNodes) },
             timelineFrames = state.timelineFrames.map { frame ->
@@ -175,6 +182,12 @@ internal object InspectorPresenter {
             windows = state.windows.map { WindowChoiceModel(it.id, it.title) },
             selectedWindowId = state.activeWindow?.id,
         )
+    }
+
+    private fun Severity.toTone(): FindingTone = when (this) {
+        Severity.INFO -> FindingTone.INFO
+        Severity.WARNING -> FindingTone.WARNING
+        Severity.ERROR -> FindingTone.ERROR
     }
 
     private fun UiNode.appendRows(

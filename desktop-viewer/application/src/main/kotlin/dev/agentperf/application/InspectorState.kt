@@ -1,5 +1,6 @@
 package dev.agentperf.application
 
+import dev.agentperf.analysis.AiAnalysisReport
 import dev.agentperf.analysis.AnalysisReport
 import dev.agentperf.analysis.LayoutMetrics
 import dev.agentperf.protocol.ComposeNode
@@ -45,6 +46,7 @@ data class InspectorState(
         metrics = LayoutMetrics(nodeCount = 0, maxDepth = 0, widestLevel = 0),
         findings = emptyList(),
     ),
+    val aiAnalysis: AiAnalysisReport? = null,
     val selectedWindowId: String? = null,
     val selectedNodeIdsByWindow: Map<String, String> = emptyMap(),
     val selectedNodeId: String? = null,

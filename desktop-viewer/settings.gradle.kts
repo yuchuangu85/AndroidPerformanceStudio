@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "agent-perf-desktop-viewer"
+rootProject.name = "AndroidPerfermanceStudio"
 
 include(
     ":shared-kernel:protocol-model",

@@ -31,3 +31,19 @@ data class AnalysisReport(
     val metrics: LayoutMetrics,
     val findings: List<Finding>,
 )
+
+data class AiFinding(
+    val ruleId: String,
+    val severity: Severity,
+    val nodeId: String,
+    val title: String,
+    val message: String,
+    val recommendation: String,
+    val confidence: Float,
+)
+
+data class AiAnalysisReport(
+    val model: String,
+    val summary: String,
+    val findings: List<AiFinding> = emptyList(),
+)

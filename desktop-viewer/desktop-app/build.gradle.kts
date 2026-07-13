@@ -53,7 +53,7 @@ tasks.test {
 compose.desktop {
     application {
         mainClass = "dev.agentperf.desktop.MainKt"
-        jvmArgs("-Dapple.awt.application.name=AgentPerf Inspector")
+        jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")
         jvmArgs("-Dagentperf.version=$appVersion")
         nativeDistributions {
             targetFormats(
@@ -64,7 +64,7 @@ compose.desktop {
                 TargetFormat.Deb,
                 TargetFormat.Rpm,
             )
-            packageName = "AgentPerf Inspector"
+            packageName = "AndroidPerfermanceStudio"
             packageVersion = appVersion
             windows {
                 iconFile.set(project.file("src/main/package/windows/app-icon.ico"))
