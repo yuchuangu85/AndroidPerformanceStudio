@@ -67,7 +67,7 @@ internal fun SettingsDialog(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = strings.settings,
+                    text = strings.layoutInspectorSettings,
                     fontSize = SettingsDialogStyle.TITLE_FONT_SIZE_SP.sp,
                     fontWeight = FontWeight.Bold,
                 )

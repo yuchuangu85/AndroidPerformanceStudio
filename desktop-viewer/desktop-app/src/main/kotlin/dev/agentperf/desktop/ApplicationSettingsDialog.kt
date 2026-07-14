@@ -20,6 +20,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
+internal object ApplicationSettingsDialogStyle {
+    const val CONTENT_WIDTH_DP = 420
+    const val DROPDOWN_WIDTH_DP = 420
+}
+
 @Composable
 internal fun ApplicationSettingsDialog(
     settings: ApplicationUiSettings,
@@ -32,7 +37,10 @@ internal fun ApplicationSettingsDialog(
         title = { Text(if (chinese) "通用设置" else "General Settings") },
         text = {
             Column(
-                modifier = Modifier.width(420.dp).padding(top = 8.dp),
+                modifier =
+                    Modifier
+                        .width(ApplicationSettingsDialogStyle.CONTENT_WIDTH_DP.dp)
+                        .padding(top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 PreferenceDropdown(
@@ -78,7 +86,7 @@ private fun <T> PreferenceDropdown(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.width(ApplicationSettingsDialogStyle.DROPDOWN_WIDTH_DP.dp),
         ) {
             options.forEach { option ->
                 DropdownMenuItem(

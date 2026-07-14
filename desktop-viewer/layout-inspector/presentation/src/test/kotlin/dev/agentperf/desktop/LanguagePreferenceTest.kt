@@ -39,6 +39,8 @@ class LanguagePreferenceTest {
 
         assertEquals("设置", chinese.settings)
         assertEquals("Settings", english.settings)
+        assertEquals("布局检查器设置", chinese.layoutInspectorSettings)
+        assertEquals("Layout Inspector Settings", english.layoutInspectorSettings)
         assertEquals("操作", chinese.actions)
         assertEquals("Actions", english.actions)
         assertEquals("视图", chinese.view)
