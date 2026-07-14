@@ -1,5 +1,6 @@
 package com.androidperformancestudio.fixtures
 
+import com.androidperformancestudio.application.ProfileProjectionLoader
 import com.androidperformancestudio.application.ProfileWorkspaceController
 import com.androidperformancestudio.application.ProfileWorkspaceLoadState
 import com.androidperformancestudio.application.sqliteProjectionLoader
@@ -11,12 +12,18 @@ import com.androidperformancestudio.visualization.FlameGraphProjector
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineDensityIndex
 import com.androidperformancestudio.visualization.WeightViewport
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
@@ -40,6 +47,8 @@ private const val FRAME_COUNT = 240
 private const val FIRST_THREAD_ID = 20_000
 private const val SECOND_THREAD_ID = 20_001
 private const val PROJECTION_TIMEOUT_MILLIS = 120_000L
+private const val PROJECTION_CLEANUP_TIMEOUT_MILLIS = 10_000L
+private const val HEAP_SAMPLER_CLOSE_TIMEOUT_MILLIS = 5_000L
 
 fun main(args: Array<String>) {
     require(args.size == 1) { "Expected the report directory as the only argument" }
@@ -48,6 +57,24 @@ fun main(args: Array<String>) {
     val sessionDirectory = Files.createTempDirectory("aps-million-record-")
     val database = sessionDirectory.resolve("profile.sqlite")
     val heapSampler = PeakHeapSampler()
+    try {
+        runP0(reportDirectory, platform, sessionDirectory, database, heapSampler)
+    } finally {
+        try {
+            heapSampler.close()
+        } finally {
+            deleteRecursively(sessionDirectory)
+        }
+    }
+}
+
+private fun runP0(
+    reportDirectory: Path,
+    platform: String,
+    sessionDirectory: Path,
+    database: Path,
+    heapSampler: PeakHeapSampler,
+) {
     forceGarbageCollection()
     val heapBeforeBytes = usedHeapBytes()
     heapSampler.start()
@@ -120,33 +147,59 @@ fun main(args: Array<String>) {
         )
     val reportFile = reportDirectory.resolve("p0-performance-$platform.json")
     reportFile.writeText(report)
-    deleteRecursively(sessionDirectory)
     println("P0 performance report: $reportFile")
     println(report)
 }
 
 private fun verifyLatestMillionSampleProjection(sessionDirectory: Path) {
+    val firstLoadEntered = CompletableDeferred<Int>()
+    val firstLoadMayComplete = CompletableDeferred<Unit>()
+    val productionLoader = sqliteProjectionLoader()
+    val observedProductionLoader =
+        ProfileProjectionLoader { session, query ->
+            if (query.threadIds == setOf(FIRST_THREAD_ID)) {
+                coroutineScope {
+                    val delegate =
+                        async(start = CoroutineStart.UNDISPATCHED) {
+                            productionLoader.load(session, query)
+                        }
+                    check(firstLoadEntered.complete(query.threadIds.single()))
+                    firstLoadMayComplete.await()
+                    delegate.await()
+                }
+            } else {
+                productionLoader.load(session, query)
+            }
+        }
     val scopeJob = SupervisorJob()
     val scope = CoroutineScope(scopeJob + Dispatchers.Default)
-    val controller = ProfileWorkspaceController(scope, sqliteProjectionLoader())
-    try {
-        controller.openSession(sessionDirectory)
-        controller.updateQuery(ProfileQuery(threadIds = setOf(FIRST_THREAD_ID)))
-        controller.updateQuery(ProfileQuery(threadIds = setOf(SECOND_THREAD_ID)))
-        val terminalState =
-            runBlocking {
+    val controller = ProfileWorkspaceController(scope, observedProductionLoader)
+    runBlocking {
+        try {
+            val terminalState =
                 withTimeout(PROJECTION_TIMEOUT_MILLIS) {
+                    controller.openSession(sessionDirectory)
+                    check(!firstLoadEntered.isCompleted)
+                    controller.updateQuery(ProfileQuery(threadIds = setOf(FIRST_THREAD_ID)))
+                    check(firstLoadEntered.await() == FIRST_THREAD_ID)
+                    controller.updateQuery(ProfileQuery(threadIds = setOf(SECOND_THREAD_ID)))
+                    check(firstLoadMayComplete.complete(Unit))
                     controller.state.first { state ->
                         state.loadState is ProfileWorkspaceLoadState.Ready ||
                             state.loadState is ProfileWorkspaceLoadState.Failed
                     }
                 }
+            check(terminalState.snapshot?.query?.threadIds == setOf(SECOND_THREAD_ID))
+            check(terminalState.loadState is ProfileWorkspaceLoadState.Ready)
+        } finally {
+            firstLoadMayComplete.complete(Unit)
+            controller.close()
+            withContext(NonCancellable) {
+                withTimeout(PROJECTION_CLEANUP_TIMEOUT_MILLIS) {
+                    scopeJob.cancelAndJoin()
+                }
             }
-        check(terminalState.snapshot?.query?.threadIds == setOf(SECOND_THREAD_ID))
-        check(terminalState.loadState is ProfileWorkspaceLoadState.Ready)
-    } finally {
-        controller.close()
-        runBlocking { scopeJob.cancelAndJoin() }
+        }
     }
 }
 
@@ -201,7 +254,10 @@ private class PeakHeapSampler : AutoCloseable {
 
     override fun close() {
         running.set(false)
-        samplerThread?.join()
+        samplerThread?.let { thread ->
+            thread.join(HEAP_SAMPLER_CLOSE_TIMEOUT_MILLIS)
+            check(!thread.isAlive) { "P0 heap sampler did not stop" }
+        }
     }
 }
 
