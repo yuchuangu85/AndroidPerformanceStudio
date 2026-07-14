@@ -38,10 +38,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
@@ -262,6 +265,7 @@ private fun TimelineReport(
             state.filter.endNanosExclusive ?: bounds.endNanosExclusive,
         )
     val frame = TimelineFrame(report.timeline.map { TimelineColumn(it.eventWeight) })
+    val shortcutFocusRequester = remember { FocusRequester() }
     var widthPixels by remember { mutableIntStateOf(1) }
     var dragStart by remember { mutableFloatStateOf(0f) }
     var dragEnd by remember { mutableFloatStateOf(0f) }
@@ -270,7 +274,15 @@ private fun TimelineReport(
         val next = viewport.navigate(action, bounds)
         actions.onTimeRange(next.startNanos, next.endNanosExclusive)
     }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LaunchedEffect(shortcutFocusRequester) { shortcutFocusRequester.requestFocus() }
+    Column(
+        modifier =
+            Modifier
+                .focusRequester(shortcutFocusRequester)
+                .onPreviewKeyEvent { event -> handleKey(event, ::navigate) }
+                .focusable(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             NavigationButtons(::navigate)
             OutlinedButton(onClick = { actions.onTimeRange(null, null) }) { Text("Reset range") }
@@ -283,8 +295,6 @@ private fun TimelineReport(
                     .fillMaxWidth()
                     .height(220.dp)
                     .onSizeChanged { widthPixels = it.width.coerceAtLeast(1) }
-                    .focusable()
-                    .onKeyEvent { event -> handleKey(event, ::navigate) }
                     .onPointerEvent(PointerEventType.Scroll) { event ->
                         val change = event.changes.firstOrNull() ?: return@onPointerEvent
                         PerfettoNavigationBindings
@@ -731,14 +741,7 @@ private fun handleKey(
     onAction: (NavigationAction) -> Unit,
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
-    val action =
-        when (event.key) {
-            Key.W -> NavigationAction.ZOOM_IN
-            Key.S -> NavigationAction.ZOOM_OUT
-            Key.A -> NavigationAction.PAN_LEFT
-            Key.D -> NavigationAction.PAN_RIGHT
-            else -> null
-        }
+    val action = simpleperfNavigationAction(event.key)
     return if (action == null) {
         false
     } else {
@@ -746,6 +749,15 @@ private fun handleKey(
         true
     }
 }
+
+internal fun simpleperfNavigationAction(key: Key): NavigationAction? =
+    when (key) {
+        Key.W -> NavigationAction.ZOOM_IN
+        Key.S -> NavigationAction.ZOOM_OUT
+        Key.A -> NavigationAction.PAN_LEFT
+        Key.D -> NavigationAction.PAN_RIGHT
+        else -> null
+    }
 
 private fun Long.safeIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1
 
