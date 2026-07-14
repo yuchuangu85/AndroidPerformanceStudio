@@ -8,9 +8,11 @@ val poc by sourceSets.creating
 val sampleGenerator by sourceSets.creating
 
 dependencies {
+    add(poc.implementationConfigurationName, project(":application"))
     add(poc.implementationConfigurationName, project(":profile-model"))
     add(poc.implementationConfigurationName, project(":storage-sqlite"))
     add(poc.implementationConfigurationName, project(":visualization"))
+    add(poc.implementationConfigurationName, "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     add(sampleGenerator.implementationConfigurationName, project(":export-adapters"))
     add(sampleGenerator.implementationConfigurationName, project(":profile-model"))
     add(sampleGenerator.implementationConfigurationName, project(":storage-sqlite"))

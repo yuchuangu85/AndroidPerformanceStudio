@@ -33,6 +33,14 @@ Home 的 Open 支持：
 
 演示包位于 `test-fixtures/src/main/resources/sessions/golden.apsession.zip`，可直接从 Home 打开。
 
+### 3.1 Profile database migration
+
+- Migration works on a copy; `profile.sqlite` is replaced only after the migrated candidate and retained evidence pass verification.
+- The first successful migration retains `profile.v1.sqlite` and its SHA-256 in `migration.properties`.
+- Backup and metadata publication uses fail-closed hard links; if publication, verification, or migration fails, the application opens the original database in legacy read-only mode.
+- Availability is reported as exactly one of: Available, Empty, Not collected, Unavailable, Unauthorized, Failed, or Not applicable.
+- Users must copy the complete session directory before attempting manual SQLite repair.
+
 ## 4. 阅读报告
 
 - **Overview**：会话时长、样本数、event 权重、线程和数据质量摘要。

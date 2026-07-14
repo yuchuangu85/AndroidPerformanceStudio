@@ -12,6 +12,14 @@
 - [x] GitHub Actions [run 29274136077](https://github.com/yuchuangu85/AndroidPerfermaceStudio/actions/runs/29274136077) 的 macOS/Windows/Linux clean runner 构建与打包全绿。
 - [ ] GitHub Actions 上传 DMG/MSI/DEB/RPM/portable artifacts；上传为非阻断步骤，额度耗尽时仍须在发布前补齐。
 
+## Profile database migration
+
+- [x] Migration works on a copy; `profile.sqlite` is replaced only after the migrated candidate and retained evidence pass verification.
+- [x] The first successful migration retains `profile.v1.sqlite` and its SHA-256 in `migration.properties`.
+- [x] Backup and metadata publication uses fail-closed hard links; if publication, verification, or migration fails, the application opens the original database in legacy read-only mode.
+- [x] Availability is reported as exactly one of: Available, Empty, Not collected, Unavailable, Unauthorized, Failed, or Not applicable.
+- [x] Users must copy the complete session directory before attempting manual SQLite repair.
+
 ## 人工/硬件门禁
 
 - [ ] profileable 真机执行一次 Start → Stop → pull → report。

@@ -152,6 +152,14 @@ Simpleperf protobuf schema 来自 AOSP `refs/tags/android-17.0.0_r1`，来源和
 
 离线导入链路通过同步 Record callback 直接写入有界 SQLite writer，不在 application 层缓存完整 protobuf 或 sample 列表。解析失败或取消时删除可重建的 SQLite/WAL/SHM，保留原始文件与失败元数据用于复盘。
 
+### 4.2 Profile database migration
+
+- Migration works on a copy; `profile.sqlite` is replaced only after the migrated candidate and retained evidence pass verification.
+- The first successful migration retains `profile.v1.sqlite` and its SHA-256 in `migration.properties`.
+- Backup and metadata publication uses fail-closed hard links; if publication, verification, or migration fails, the application opens the original database in legacy read-only mode.
+- Availability is reported as exactly one of: Available, Empty, Not collected, Unavailable, Unauthorized, Failed, or Not applicable.
+- Users must copy the complete session directory before attempting manual SQLite repair.
+
 ## 5. 详细 WBS
 
 ### 5.1 P0 项目启动与基线

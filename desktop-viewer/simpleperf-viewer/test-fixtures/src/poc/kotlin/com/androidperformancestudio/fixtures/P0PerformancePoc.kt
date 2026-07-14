@@ -1,12 +1,23 @@
 package com.androidperformancestudio.fixtures
 
+import com.androidperformancestudio.application.ProfileWorkspaceController
+import com.androidperformancestudio.application.ProfileWorkspaceLoadState
+import com.androidperformancestudio.application.sqliteProjectionLoader
 import com.androidperformancestudio.model.ProfileSample
+import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import com.androidperformancestudio.visualization.FlameGraphNode
 import com.androidperformancestudio.visualization.FlameGraphProjector
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineDensityIndex
 import com.androidperformancestudio.visualization.WeightViewport
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -26,12 +37,16 @@ private const val RECORD_COUNT = 1_000_000
 private const val TIMELINE_BUCKET_COUNT = 100_000
 private const val FLAME_NODE_COUNT = 100_000
 private const val FRAME_COUNT = 240
+private const val FIRST_THREAD_ID = 20_000
+private const val SECOND_THREAD_ID = 20_001
+private const val PROJECTION_TIMEOUT_MILLIS = 120_000L
 
 fun main(args: Array<String>) {
     require(args.size == 1) { "Expected the report directory as the only argument" }
     val reportDirectory = Path.of(args.single()).createDirectories()
     val platform = platformId()
-    val database = Files.createTempFile("aps-million-record-", ".sqlite")
+    val sessionDirectory = Files.createTempDirectory("aps-million-record-")
+    val database = sessionDirectory.resolve("profile.sqlite")
     val heapSampler = PeakHeapSampler()
     forceGarbageCollection()
     val heapBeforeBytes = usedHeapBytes()
@@ -51,6 +66,7 @@ fun main(args: Array<String>) {
         topQueryNanos = measureNanoTime { check(store.topSymbols(20).size == 20) }
     }
     databaseBytes = database.fileSize()
+    verifyLatestMillionSampleProjection(sessionDirectory)
 
     lateinit var timelineIndex: TimelineDensityIndex
     val timelineBuildNanos =
@@ -104,11 +120,34 @@ fun main(args: Array<String>) {
         )
     val reportFile = reportDirectory.resolve("p0-performance-$platform.json")
     reportFile.writeText(report)
-    database.deleteIfExists()
-    database.resolveSibling(database.fileName.toString() + "-shm").deleteIfExists()
-    database.resolveSibling(database.fileName.toString() + "-wal").deleteIfExists()
+    deleteRecursively(sessionDirectory)
     println("P0 performance report: $reportFile")
     println(report)
+}
+
+private fun verifyLatestMillionSampleProjection(sessionDirectory: Path) {
+    val scopeJob = SupervisorJob()
+    val scope = CoroutineScope(scopeJob + Dispatchers.Default)
+    val controller = ProfileWorkspaceController(scope, sqliteProjectionLoader())
+    try {
+        controller.openSession(sessionDirectory)
+        controller.updateQuery(ProfileQuery(threadIds = setOf(FIRST_THREAD_ID)))
+        controller.updateQuery(ProfileQuery(threadIds = setOf(SECOND_THREAD_ID)))
+        val terminalState =
+            runBlocking {
+                withTimeout(PROJECTION_TIMEOUT_MILLIS) {
+                    controller.state.first { state ->
+                        state.loadState is ProfileWorkspaceLoadState.Ready ||
+                            state.loadState is ProfileWorkspaceLoadState.Failed
+                    }
+                }
+            }
+        check(terminalState.snapshot?.query?.threadIds == setOf(SECOND_THREAD_ID))
+        check(terminalState.loadState is ProfileWorkspaceLoadState.Ready)
+    } finally {
+        controller.close()
+        runBlocking { scopeJob.cancelAndJoin() }
+    }
 }
 
 private fun syntheticSamples(count: Int): Sequence<ProfileSample> =
@@ -236,6 +275,17 @@ private fun forceGarbageCollection() {
     repeat(3) {
         System.gc()
         Thread.sleep(50)
+    }
+}
+
+private fun deleteRecursively(directory: Path) {
+    Files.walk(directory).use { paths ->
+        paths
+            .sorted(Comparator.reverseOrder())
+            .forEach { path ->
+                path.toFile().setWritable(true)
+                path.deleteIfExists()
+            }
     }
 }
 

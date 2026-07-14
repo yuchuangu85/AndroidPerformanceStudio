@@ -206,6 +206,14 @@ ProfileSession
 
 关键原则：不能在导入时只保存 folded stacks 或聚合火焰图，否则会丢失 Timeline、时间范围过滤、多线程过滤和后续 Perfetto 联合分析能力。
 
+### 7.1 Profile database migration
+
+- Migration works on a copy; `profile.sqlite` is replaced only after the migrated candidate and retained evidence pass verification.
+- The first successful migration retains `profile.v1.sqlite` and its SHA-256 in `migration.properties`.
+- Backup and metadata publication uses fail-closed hard links; if publication, verification, or migration fails, the application opens the original database in legacy read-only mode.
+- Availability is reported as exactly one of: Available, Empty, Not collected, Unavailable, Unauthorized, Failed, or Not applicable.
+- Users must copy the complete session directory before attempting manual SQLite repair.
+
 ## 8. 非功能需求
 
 | 类别 | 要求 |
