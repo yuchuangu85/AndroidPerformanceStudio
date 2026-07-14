@@ -16,6 +16,7 @@ import com.androidperformancestudio.storage.ThreadSummary
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -245,12 +246,13 @@ class ReportController(
     private suspend fun awaitTerminal(generation: ProfileGeneration) {
         val terminal =
             workspace.state.first { state ->
-                state.generation == generation &&
-                    (
-                        state.loadState is ProfileWorkspaceLoadState.Ready ||
-                            state.loadState is ProfileWorkspaceLoadState.Failed
-                    )
+                state.generation != generation ||
+                    state.loadState is ProfileWorkspaceLoadState.Ready ||
+                    state.loadState is ProfileWorkspaceLoadState.Failed
             }
+        if (terminal.generation != generation) {
+            throw CancellationException("Report projection generation $generation was superseded")
+        }
         publishWorkspaceState(terminal)
     }
 

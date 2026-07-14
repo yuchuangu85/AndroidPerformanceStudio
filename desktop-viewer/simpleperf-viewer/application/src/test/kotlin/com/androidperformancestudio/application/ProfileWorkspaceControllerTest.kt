@@ -226,7 +226,7 @@ class ProfileWorkspaceControllerTest {
         val wasCancelled = CompletableDeferred<Boolean>()
 
         fun succeed() {
-            completion.complete(snapshot(query))
+            completion.complete(workspaceSnapshot(query))
         }
 
         fun fail(error: Throwable) {
@@ -235,7 +235,7 @@ class ProfileWorkspaceControllerTest {
     }
 }
 
-private fun snapshot(query: ProfileQuery): ProfileProjectionSnapshot =
+internal fun workspaceSnapshot(query: ProfileQuery): ProfileProjectionSnapshot =
     ProfileProjectionSnapshot(
         query = query,
         overview =

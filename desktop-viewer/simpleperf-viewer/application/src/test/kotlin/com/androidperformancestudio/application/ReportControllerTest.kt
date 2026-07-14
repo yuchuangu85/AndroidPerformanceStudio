@@ -11,9 +11,15 @@ import com.androidperformancestudio.model.ProfileMetadata
 import com.androidperformancestudio.model.ProfileThread
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.storage.ProfileProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import com.androidperformancestudio.storage.TopFunctionSort
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.io.path.writeText
@@ -23,6 +29,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ReportControllerTest {
     @Test
     fun `opens indexed session into overview timeline tree and flame report`() =
@@ -225,6 +232,35 @@ class ReportControllerTest {
             assertIs<ReportLoadState.Closed>(controller.state.value.loadState)
             assertFailsWith<IllegalStateException> { controller.openSession(indexedSession()) }
         }
+
+    @Test
+    fun `superseded suspending load returns by cancellation while the newest load completes`() =
+        runTest {
+            val started = Channel<PendingProjection>(Channel.UNLIMITED)
+            val loader =
+                ProfileProjectionLoader { _, query ->
+                    PendingProjection(query).also { started.send(it) }.result.await()
+                }
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+
+            val first = backgroundScope.async { controller.openSession(Files.createTempDirectory("aps-first-")) }
+            started.receive()
+            val second = backgroundScope.async { controller.openSession(Files.createTempDirectory("aps-second-")) }
+            val newest = started.receive()
+            runCurrent()
+
+            assertTrue(first.isCancelled, "the superseded suspend call must not wait forever")
+            newest.result.complete(workspaceSnapshot(newest.query))
+            runCurrent()
+            second.await()
+            assertIs<ReportLoadState.Ready>(controller.state.value.loadState)
+        }
+
+    private data class PendingProjection(
+        val query: ProfileQuery,
+        val result: CompletableDeferred<ProfileProjectionSnapshot> = CompletableDeferred(),
+    )
 
     private fun indexedSession(): java.nio.file.Path {
         val session = Files.createTempDirectory("aps-report-")
