@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -208,7 +209,10 @@ private fun OverviewReport(
             Text("${thread.name} · TID ${thread.threadId} · weight ${thread.totalEventCount}")
         }
         item { SectionTitle("Top functions") }
-        items(report.topFunctions.take(OVERVIEW_ITEM_LIMIT), key = { "${it.filePath}:${it.symbolName}" }) { function ->
+        itemsIndexed(
+            report.topFunctions.take(OVERVIEW_ITEM_LIMIT),
+            key = ::topFunctionItemKey,
+        ) { _, function ->
             Row(
                 modifier =
                     Modifier
@@ -363,7 +367,7 @@ private fun TopFunctionsReport(
         }
         TopFunctionHeader()
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(report.topFunctions, key = { "${it.filePath}:${it.symbolName}" }) { function ->
+            itemsIndexed(report.topFunctions, key = ::topFunctionItemKey) { _, function ->
                 TopFunctionRow(function, actions.onFocusCallTreeFunction, actions.onFocusFunction)
             }
         }
@@ -703,6 +707,11 @@ private fun SectionTitle(title: String) {
 private fun ReportTab.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
 private fun TopFunctionSort.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
+
+internal fun topFunctionItemKey(
+    index: Int,
+    function: TopFunction,
+): String = "$index:${function.filePath}:${function.symbolName}"
 
 private fun List<CallTreeNode>.visibleNodes(expandedIds: Set<Long>): List<CallTreeNode> {
     val children = groupBy(CallTreeNode::parentId)
