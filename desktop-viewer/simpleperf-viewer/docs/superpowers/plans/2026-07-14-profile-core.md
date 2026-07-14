@@ -164,7 +164,7 @@ class CanonicalProfileRecordTest {
 
     @Test fun `interval facts reject reversed ranges`() {
         assertFailsWith<IllegalArgumentException> {
-            ProfileSliceFact(threadFixture(), time(20), time(10), "Binder", null)
+            ProfileSliceFact(ProfileSourceId("perfetto"), threadFixture(), time(20), time(10), "Binder", null)
         }
     }
 }
