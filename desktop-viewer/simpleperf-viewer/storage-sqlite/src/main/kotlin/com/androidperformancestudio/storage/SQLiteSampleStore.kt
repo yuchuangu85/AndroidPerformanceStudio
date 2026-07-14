@@ -1,5 +1,6 @@
 package com.androidperformancestudio.storage
 
+import com.androidperformancestudio.model.CanonicalProfileRecord
 import com.androidperformancestudio.model.NormalizedProfileRecord
 import com.androidperformancestudio.model.NormalizedSample
 import com.androidperformancestudio.model.ProfileExecutionType
@@ -57,6 +58,16 @@ class SQLiteSampleStore private constructor(
     ): ProfileImportResult {
         beginRecordImport(batchSize).use { writer ->
             records.forEach(writer::add)
+            return writer.finish()
+        }
+    }
+
+    fun importCanonicalRecords(
+        records: Sequence<CanonicalProfileRecord>,
+        batchSize: Int = DEFAULT_BATCH_SIZE,
+    ): ProfileImportResult {
+        beginRecordImport(batchSize).use { writer ->
+            records.forEach(writer::addCanonical)
             return writer.finish()
         }
     }

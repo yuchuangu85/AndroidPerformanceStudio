@@ -1,11 +1,23 @@
 package com.androidperformancestudio.storage
 
+import com.androidperformancestudio.model.CanonicalProfileRecord
 import com.androidperformancestudio.model.NormalizedProfileRecord
 import com.androidperformancestudio.model.NormalizedSample
+import com.androidperformancestudio.model.ProfileCategory
+import com.androidperformancestudio.model.ProfileCounterFact
 import com.androidperformancestudio.model.ProfileFile
 import com.androidperformancestudio.model.ProfileFrame
+import com.androidperformancestudio.model.ProfileMarkerFact
 import com.androidperformancestudio.model.ProfileMetadata
+import com.androidperformancestudio.model.ProfileProcessFact
+import com.androidperformancestudio.model.ProfileProcessKey
+import com.androidperformancestudio.model.ProfileSampleFact
+import com.androidperformancestudio.model.ProfileScreenshotFact
+import com.androidperformancestudio.model.ProfileSliceFact
+import com.androidperformancestudio.model.ProfileSourceFact
 import com.androidperformancestudio.model.ProfileThread
+import com.androidperformancestudio.model.ProfileThreadFact
+import com.androidperformancestudio.model.ProfileThreadKey
 import java.io.Closeable
 import java.sql.Connection
 
@@ -15,6 +27,7 @@ class SQLiteProfileRecordWriter internal constructor(
     private val batchSize: Int,
 ) : Closeable {
     private val processIds = mutableSetOf<Int>()
+    private val canonicalProcessIds = mutableSetOf<Int>()
     private val threads = mutableMapOf<Int, ProfileThread>()
     private val eventIds = mutableMapOf<String, Long>()
     private val files = mutableMapOf<Int, String>()
@@ -25,7 +38,8 @@ class SQLiteProfileRecordWriter internal constructor(
         connection.prepareStatement(
             "INSERT INTO sample(timestamp_nanos, process_id, thread_id, event_id, event_count, " +
                 "leaf_callsite_id, has_unknown_symbol, empty_stack, unwind_error_code, unwind_raw_code, " +
-                "unwind_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "unwind_address, cpu_core, on_cpu, category_name, subcategory_name) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
     private var importedRecords = 0L
     private var importedSamples = 0L
@@ -54,6 +68,31 @@ class SQLiteProfileRecordWriter internal constructor(
         }
     }
 
+    fun addCanonical(record: CanonicalProfileRecord) {
+        check(!finished) { "Record writer is already finished" }
+        when (record) {
+            is CanonicalProfileRecord.Source -> insertSource(record.value)
+            is CanonicalProfileRecord.Process -> insertProcess(record.value)
+            is CanonicalProfileRecord.Thread -> insertCanonicalThread(record.value)
+            is CanonicalProfileRecord.Sample -> insertCanonicalSample(record.value)
+            is CanonicalProfileRecord.Marker -> insertMarker(record.value)
+            is CanonicalProfileRecord.Counter -> insertCounter(record.value)
+            is CanonicalProfileRecord.Slice -> insertSlice(record.value)
+            is CanonicalProfileRecord.Screenshot -> insertScreenshot(record.value)
+            is CanonicalProfileRecord.Legacy -> {
+                add(record.value)
+                return
+            }
+        }
+        importedRecords++
+        pendingRecords++
+        if (record is CanonicalProfileRecord.Sample) {
+            importedSamples++
+            pendingSamples++
+            if (pendingSamples == batchSize) commitBatch()
+        }
+    }
+
     fun finish(): ProfileImportResult {
         check(!finished) { "Record writer is already finished" }
         if (pendingRecords > 0) commitBatch()
@@ -75,6 +114,41 @@ class SQLiteProfileRecordWriter internal constructor(
     private fun insertSample(sample: NormalizedSample) {
         upsertProcess(sample.processId)
         upsertThread(ProfileThread(sample.processId, sample.threadId, sample.threadName))
+        enqueueSample(
+            sample = sample,
+            cpuCore = null,
+            onCpu = null,
+            category = null,
+        )
+    }
+
+    private fun insertCanonicalSample(sample: ProfileSampleFact) {
+        ensureCanonicalProcess(sample.thread.process)
+        ensureCanonicalThread(sample.thread)
+        enqueueSample(
+            sample =
+                NormalizedSample(
+                    timestampNanos = sample.time.timestampNanos,
+                    processId = sample.thread.process.processId,
+                    threadId = sample.thread.threadId,
+                    threadName = "<unknown-thread:${sample.thread.threadId}>",
+                    eventType = sample.eventType,
+                    eventCount = sample.eventCount,
+                    frames = sample.frames,
+                    unwindError = sample.unwindError,
+                ),
+            cpuCore = sample.cpuCore,
+            onCpu = sample.onCpu,
+            category = sample.category,
+        )
+    }
+
+    private fun enqueueSample(
+        sample: NormalizedSample,
+        cpuCore: Int?,
+        onCpu: Boolean?,
+        category: ProfileCategory?,
+    ) {
         val eventId = eventId(sample.eventType)
         val leafCallsite = callsiteId(sample.frames)
         insertSample.setLong(1, sample.timestampNanos)
@@ -88,6 +162,10 @@ class SQLiteProfileRecordWriter internal constructor(
         insertSample.setString(9, sample.unwindError?.code)
         insertSample.setObject(10, sample.unwindError?.rawCode)
         insertSample.setObject(11, sample.unwindError?.address)
+        insertSample.setObject(12, cpuCore)
+        insertSample.setObject(13, onCpu?.let { if (it) 1 else 0 })
+        insertSample.setString(14, category?.name)
+        insertSample.setString(15, category?.subcategory)
         insertSample.addBatch()
     }
 
@@ -200,6 +278,159 @@ class SQLiteProfileRecordWriter internal constructor(
                 }
         symbolIds[key] = id
         return id
+    }
+
+    private fun insertSource(source: ProfileSourceFact) {
+        connection
+            .prepareStatement(
+                "INSERT INTO profile_source(source_id, kind, clock_domain, valid_from_nanos, valid_until_nanos) " +
+                    "VALUES (?, ?, ?, ?, ?) ON CONFLICT(source_id) DO UPDATE SET kind=excluded.kind, " +
+                    "clock_domain=excluded.clock_domain, valid_from_nanos=excluded.valid_from_nanos, " +
+                    "valid_until_nanos=excluded.valid_until_nanos",
+            ).use { statement ->
+                statement.setString(1, source.id.value)
+                statement.setString(2, source.kind.name)
+                statement.setString(3, source.clockDomain.value)
+                statement.setObject(4, source.validFromNanos)
+                statement.setObject(5, source.validUntilNanosExclusive)
+                statement.executeUpdate()
+            }
+    }
+
+    private fun insertProcess(process: ProfileProcessFact) {
+        connection
+            .prepareStatement(
+                "INSERT INTO process(process_id, name, source_id, start_nanos, end_nanos) VALUES (?, ?, ?, ?, ?) " +
+                    "ON CONFLICT(process_id) DO UPDATE SET name=excluded.name, source_id=excluded.source_id, " +
+                    "start_nanos=excluded.start_nanos, end_nanos=excluded.end_nanos",
+            ).use { statement ->
+                statement.setInt(1, process.key.processId)
+                statement.setString(2, process.name)
+                statement.setString(3, process.key.sourceId.value)
+                statement.setObject(4, process.start?.timestampNanos)
+                statement.setObject(5, process.end?.timestampNanos)
+                statement.executeUpdate()
+            }
+        processIds.add(process.key.processId)
+        canonicalProcessIds.add(process.key.processId)
+    }
+
+    private fun insertCanonicalThread(thread: ProfileThreadFact) {
+        ensureCanonicalProcess(thread.key.process)
+        connection
+            .prepareStatement(
+                "INSERT INTO thread(thread_id, process_id, name, start_nanos, end_nanos) VALUES (?, ?, ?, ?, ?) " +
+                    "ON CONFLICT(thread_id) DO UPDATE SET process_id=excluded.process_id, name=excluded.name, " +
+                    "start_nanos=excluded.start_nanos, end_nanos=excluded.end_nanos",
+            ).use { statement ->
+                statement.setInt(1, thread.key.threadId)
+                statement.setInt(2, thread.key.process.processId)
+                statement.setString(3, thread.name)
+                statement.setObject(4, thread.start?.timestampNanos)
+                statement.setObject(5, thread.end?.timestampNanos)
+                statement.executeUpdate()
+            }
+        threads[thread.key.threadId] =
+            ProfileThread(
+                processId = thread.key.process.processId,
+                threadId = thread.key.threadId,
+                name = thread.name,
+            )
+    }
+
+    private fun ensureCanonicalProcess(process: ProfileProcessKey) {
+        processIds.add(process.processId)
+        if (!canonicalProcessIds.add(process.processId)) return
+        connection
+            .prepareStatement(
+                "INSERT INTO process(process_id, source_id) VALUES (?, ?) " +
+                    "ON CONFLICT(process_id) DO UPDATE SET source_id=excluded.source_id",
+            ).use { statement ->
+                statement.setInt(1, process.processId)
+                statement.setString(2, process.sourceId.value)
+                statement.executeUpdate()
+            }
+    }
+
+    private fun ensureCanonicalThread(thread: ProfileThreadKey) {
+        ensureCanonicalProcess(thread.process)
+        if (threads.containsKey(thread.threadId)) return
+        val placeholder =
+            ProfileThread(
+                thread.process.processId,
+                thread.threadId,
+                "<unknown-thread:${thread.threadId}>",
+            )
+        connection
+            .prepareStatement(
+                "INSERT OR IGNORE INTO thread(thread_id, process_id, name) VALUES (?, ?, ?)",
+            ).use { statement ->
+                statement.setInt(1, placeholder.threadId)
+                statement.setInt(2, placeholder.processId)
+                statement.setString(3, placeholder.name)
+                statement.executeUpdate()
+            }
+        threads[thread.threadId] = placeholder
+    }
+
+    private fun insertMarker(marker: ProfileMarkerFact) {
+        connection
+            .prepareStatement(
+                "INSERT INTO profile_marker(source_id, thread_id, start_nanos, end_nanos, schema_name, name, " +
+                    "payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ).use { statement ->
+                statement.setString(1, marker.sourceId.value)
+                statement.setObject(2, marker.thread?.threadId)
+                statement.setLong(3, marker.start.timestampNanos)
+                statement.setObject(4, marker.end?.timestampNanos)
+                statement.setString(5, marker.schema)
+                statement.setString(6, marker.name)
+                statement.setString(7, marker.payloadJson)
+                statement.executeUpdate()
+            }
+    }
+
+    private fun insertCounter(counter: ProfileCounterFact) {
+        connection
+            .prepareStatement(
+                "INSERT INTO profile_counter(source_id, timestamp_nanos, name, unit, value) VALUES (?, ?, ?, ?, ?)",
+            ).use { statement ->
+                statement.setString(1, counter.sourceId.value)
+                statement.setLong(2, counter.time.timestampNanos)
+                statement.setString(3, counter.name)
+                statement.setString(4, counter.unit)
+                statement.setDouble(5, counter.value)
+                statement.executeUpdate()
+            }
+    }
+
+    private fun insertSlice(slice: ProfileSliceFact) {
+        connection
+            .prepareStatement(
+                "INSERT INTO profile_slice(source_id, thread_id, start_nanos, end_nanos, name, category_name, " +
+                    "subcategory_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ).use { statement ->
+                statement.setString(1, slice.sourceId.value)
+                statement.setObject(2, slice.thread?.threadId)
+                statement.setLong(3, slice.start.timestampNanos)
+                statement.setLong(4, slice.end.timestampNanos)
+                statement.setString(5, slice.name)
+                statement.setString(6, slice.category?.name)
+                statement.setString(7, slice.category?.subcategory)
+                statement.executeUpdate()
+            }
+    }
+
+    private fun insertScreenshot(screenshot: ProfileScreenshotFact) {
+        connection
+            .prepareStatement(
+                "INSERT INTO profile_screenshot(source_id, timestamp_nanos, artifact_path) VALUES (?, ?, ?)",
+            ).use { statement ->
+                statement.setString(1, screenshot.sourceId.value)
+                statement.setLong(2, screenshot.time.timestampNanos)
+                statement.setString(3, screenshot.artifactPath)
+                statement.executeUpdate()
+            }
     }
 
     private fun insertThread(thread: ProfileThread) {
