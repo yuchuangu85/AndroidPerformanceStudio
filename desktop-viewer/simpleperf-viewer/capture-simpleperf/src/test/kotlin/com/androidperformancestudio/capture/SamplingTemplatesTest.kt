@@ -27,14 +27,19 @@ class SamplingTemplatesTest {
         assertEquals(SamplingRate.Frequency(1000), parameters.rate)
         assertEquals(10.0, parameters.durationSeconds)
         assertEquals(CallGraphMode.DWARF, parameters.callGraph)
+        assertEquals(EventScope.USER, parameters.scope)
     }
 
     @Test
     fun `ui thread template retains the selected thread`() {
-        val parameters = SamplingTemplate.UI_THREAD_FOCUS.create(SimpleperfTarget.Thread(333))
+        val parameters =
+            SamplingTemplate.UI_THREAD_FOCUS.create(
+                SimpleperfTarget.Thread(333, appPackage = "com.example.app"),
+            )
 
         assertIs<SimpleperfTarget.Thread>(parameters.target)
         assertEquals(SamplingRate.Frequency(1000), parameters.rate)
+        assertEquals(EventScope.USER, parameters.scope)
     }
 
     @Test

@@ -87,6 +87,7 @@ interface CaptureSession {
     fun cancel()
 }
 
+@Suppress("TooManyFunctions")
 class SimpleperfCaptureSession(
     private val adbExecutable: Path,
     private val simpleperfPreparer: DeviceSimpleperfPreparer,
@@ -158,7 +159,34 @@ class SimpleperfCaptureSession(
         updateState(CaptureState.Preparing(artifacts.sessionDirectory))
         return when (val prepared = simpleperfPreparer.prepare(request.serial, request.availability, cancellation)) {
             is StudioResult.Failure -> artifacts.finishFailure(prepared.error)
-            is StudioResult.Success -> record(request, prepared.value, artifacts, cancellation)
+            is StudioResult.Success ->
+                when (val outputReady = prepareRemoteOutput(request, artifacts, cancellation)) {
+                    is StudioResult.Failure -> artifacts.finishFailure(outputReady.error, prepared.value)
+                    is StudioResult.Success -> record(request, prepared.value, artifacts, cancellation)
+                }
+        }
+    }
+
+    private suspend fun prepareRemoteOutput(
+        request: CaptureRequest,
+        artifacts: CaptureArtifacts,
+        cancellation: ProcessCancellationSignal,
+    ): StudioResult<Unit> {
+        val directory = request.parameters.outputPath.substringBeforeLast('/', missingDelimiterValue = "")
+        if (directory.isBlank()) return StudioResult.Success(Unit)
+        val result =
+            processInvocation(
+                ProcessRequest(
+                    executable = adbExecutable,
+                    arguments = listOf("-s", request.serial, "shell", "mkdir", "-p", directory),
+                    timeout = 30.seconds,
+                ),
+                cancellation,
+            )
+        artifacts.writeProcessOutput("prepare-output", result.outputOrNull())
+        return when (result) {
+            is ProcessRunResult.Completed -> StudioResult.Success(Unit)
+            is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
         }
     }
 

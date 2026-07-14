@@ -41,9 +41,11 @@ sealed interface SimpleperfTarget {
 
     data class Process(
         val pid: Int,
+        val appPackage: String? = null,
     ) : SimpleperfTarget {
         init {
             require(pid > 0) { "pid must be positive" }
+            appPackage?.let { requireCommandToken(it, "appPackage") }
         }
     }
 
@@ -57,9 +59,11 @@ sealed interface SimpleperfTarget {
 
     data class Thread(
         val tid: Int,
+        val appPackage: String? = null,
     ) : SimpleperfTarget {
         init {
             require(tid > 0) { "tid must be positive" }
+            appPackage?.let { requireCommandToken(it, "appPackage") }
         }
     }
 
@@ -145,11 +149,23 @@ private fun CallGraphMode.arguments(): List<String> =
 private fun SimpleperfTarget.arguments(): List<String> =
     when (this) {
         is SimpleperfTarget.App -> listOf("--app", packageName)
-        is SimpleperfTarget.Process -> listOf("-p", pid.toString())
+        is SimpleperfTarget.Process -> appArguments(appPackage) + listOf("-p", pid.toString())
         is SimpleperfTarget.ProcessName -> listOf("-p", name)
-        is SimpleperfTarget.Thread -> listOf("-t", tid.toString())
+        is SimpleperfTarget.Thread -> appArguments(appPackage) + listOf("-t", tid.toString())
         SimpleperfTarget.SystemWide -> listOf("-a")
     }
+
+internal fun SimpleperfTarget.isAppScoped(): Boolean =
+    when (this) {
+        is SimpleperfTarget.App -> true
+        is SimpleperfTarget.Process -> appPackage != null
+        is SimpleperfTarget.Thread -> appPackage != null
+        is SimpleperfTarget.ProcessName,
+        SimpleperfTarget.SystemWide,
+        -> false
+    }
+
+private fun appArguments(appPackage: String?): List<String> = appPackage?.let { listOf("--app", it) }.orEmpty()
 
 private fun Double.toCommandNumber(): String = if (this % 1.0 == 0.0) toLong().toString() else toString()
 

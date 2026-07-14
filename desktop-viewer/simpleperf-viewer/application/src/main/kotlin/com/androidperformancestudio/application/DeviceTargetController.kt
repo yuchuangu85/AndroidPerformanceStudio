@@ -284,7 +284,7 @@ private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): Ca
     if (selectedSerial == null) {
         return null
     }
-    return selectedTarget?.toSimpleperfTarget()?.let { target ->
+    return selectedTarget?.toSimpleperfTarget(selection)?.let { target ->
         CaptureSetup(
             template = template,
             parameters = template.create(target),
@@ -292,9 +292,22 @@ private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): Ca
     }
 }
 
-private fun CaptureTarget.toSimpleperfTarget(): SimpleperfTarget =
+private fun CaptureTarget.toSimpleperfTarget(selection: DeviceSelection?): SimpleperfTarget =
     when (this) {
         is CaptureTarget.App -> SimpleperfTarget.App(packageName)
-        is CaptureTarget.Process -> SimpleperfTarget.Process(pid)
-        is CaptureTarget.Thread -> SimpleperfTarget.Thread(tid)
+        is CaptureTarget.Process -> SimpleperfTarget.Process(pid, selection.findAppPackage(name))
+        is CaptureTarget.Thread ->
+            SimpleperfTarget.Thread(
+                tid,
+                selection.findAppPackage(selection?.processes?.firstOrNull { it.pid == pid }?.name),
+            )
     }
+
+private fun DeviceSelection?.findAppPackage(processName: String?): String? {
+    if (this == null || processName == null) return null
+    return packages
+        .asSequence()
+        .map(PackageOption::packageName)
+        .filter { processName == it || processName.startsWith("$it:") }
+        .maxByOrNull(String::length)
+}

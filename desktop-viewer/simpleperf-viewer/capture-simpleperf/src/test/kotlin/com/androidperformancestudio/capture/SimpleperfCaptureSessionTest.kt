@@ -24,6 +24,36 @@ import kotlin.test.assertTrue
 
 class SimpleperfCaptureSessionTest {
     @Test
+    fun `creates the remote output directory before recording`() =
+        runBlocking {
+            val root = Files.createTempDirectory("aps-capture-output-dir-")
+            val requests = mutableListOf<ProcessRequest>()
+            val session =
+                SimpleperfCaptureSession(
+                    adbExecutable = Path.of("adb"),
+                    simpleperfPreparer = preparedDeviceSimpleperf(),
+                    processInvocation = { request, _ ->
+                        requests += request
+                        when {
+                            "pull" in request.arguments -> {
+                                Files.writeString(Path.of(request.arguments.last()), "perf-data")
+                                completed(request, stdout = "pulled")
+                            }
+                            else -> completed(request, stdout = "ok")
+                        }
+                    },
+                )
+
+            assertIs<CaptureState.Completed>(session.capture(captureRequest(root)))
+
+            assertEquals(
+                listOf("-s", "serial-1", "shell", "mkdir", "-p", "/data/local/tmp/aps"),
+                requests.first().arguments,
+            )
+            assertTrue("record" in requests[1].arguments)
+        }
+
+    @Test
     fun `records pulls and persists a reproducible session`() =
         runBlocking {
             val root = Files.createTempDirectory("aps-capture-test-")
@@ -34,9 +64,10 @@ class SimpleperfCaptureSessionTest {
                     simpleperfPreparer = preparedDeviceSimpleperf(),
                     processInvocation = { request, _ ->
                         requests += request
-                        when (requests.size) {
-                            1 -> completed(request, stdout = "recorded", stderr = "record warning")
-                            2 -> {
+                        when {
+                            "record" in request.arguments ->
+                                completed(request, stdout = "recorded", stderr = "record warning")
+                            "pull" in request.arguments -> {
                                 Files.writeString(Path.of(request.arguments.last()), "perf-data")
                                 completed(request, stdout = "pulled")
                             }
@@ -51,10 +82,10 @@ class SimpleperfCaptureSessionTest {
             val completed = assertIs<CaptureState.Completed>(result)
             assertEquals(root.resolve("session-1"), completed.sessionDirectory)
             assertEquals(completed.sessionDirectory.resolve("perf.data"), completed.perfData)
-            assertEquals(3, requests.size)
+            assertEquals(4, requests.size)
             assertEquals(
                 SimpleperfRecordCommand("serial-1", "simpleperf", request.parameters).adbArguments,
-                requests.first().arguments,
+                requests.first { "record" in it.arguments }.arguments,
             )
             assertEquals(
                 listOf(
@@ -64,7 +95,7 @@ class SimpleperfCaptureSessionTest {
                     "/data/local/tmp/aps/perf.data",
                     completed.perfData.toString(),
                 ),
-                requests[1].arguments,
+                requests.first { "pull" in it.arguments }.arguments,
             )
             assertEquals(remoteCleanupArguments(), requests.last().arguments)
             assertTrue(completed.sessionDirectory.resolve("capture-command.txt").exists())
@@ -102,7 +133,7 @@ class SimpleperfCaptureSessionTest {
                     simpleperfPreparer = preparedDeviceSimpleperf(),
                     processInvocation = { request, _ ->
                         requests += request
-                        if (requests.size == 1) {
+                        if ("record" in request.arguments) {
                             failed(
                                 request = request,
                                 error = expected,
@@ -146,7 +177,7 @@ class SimpleperfCaptureSessionTest {
                     simpleperfPreparer = preparedDeviceSimpleperf(),
                     processInvocation = { request, signal ->
                         requests += request
-                        if (requests.size == 1) {
+                        if ("record" in request.arguments) {
                             while (!signal.isCancelled) delay(10)
                             failed(
                                 request = request,

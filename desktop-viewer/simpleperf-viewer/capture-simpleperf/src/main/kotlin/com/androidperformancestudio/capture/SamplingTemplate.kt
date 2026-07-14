@@ -47,7 +47,11 @@ enum class SamplingTemplate(
                 )
         }
 
-    private fun defaults(target: SimpleperfTarget): SamplingParameters = SamplingParameters(target = target)
+    private fun defaults(target: SimpleperfTarget): SamplingParameters =
+        SamplingParameters(
+            target = target,
+            scope = if (target.isAppScoped()) EventScope.USER else EventScope.BOTH,
+        )
 
     companion object {
         private const val NATIVE_FREQUENCY_HERTZ = 1000

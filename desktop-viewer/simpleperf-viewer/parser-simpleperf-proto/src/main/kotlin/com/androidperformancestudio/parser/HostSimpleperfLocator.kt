@@ -106,6 +106,7 @@ class HostSimpleperfLocator(
             is ProcessRunResult.Completed -> {
                 val version =
                     result.output.stdout.text
+                        .ifBlank { result.output.stderr.text }
                         .trim()
                 if (version.isBlank()) {
                     StudioResult.Failure(

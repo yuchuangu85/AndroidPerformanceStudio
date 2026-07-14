@@ -80,6 +80,41 @@ class SamplingParametersTest {
     }
 
     @Test
+    fun `adds app profiling permission context for a selected app thread`() {
+        val parameters =
+            SamplingParameters(
+                target = SimpleperfTarget.Thread(333, appPackage = "com.example.camera"),
+                scope = EventScope.USER,
+            )
+
+        val arguments = SimpleperfRecordCommand("serial-1", "simpleperf", parameters).adbArguments
+
+        assertEquals(
+            listOf(
+                "-s",
+                "serial-1",
+                "shell",
+                "simpleperf",
+                "record",
+                "-e",
+                "cpu-clock:u",
+                "-f",
+                "1000",
+                "--duration",
+                "10",
+                "-g",
+                "--app",
+                "com.example.camera",
+                "-t",
+                "333",
+                "-o",
+                "/data/local/tmp/aps/perf.data",
+            ),
+            arguments,
+        )
+    }
+
+    @Test
     fun `validates command tokens at model boundaries`() {
         assertFailsWith<IllegalArgumentException> {
             SamplingParameters(

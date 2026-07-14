@@ -100,10 +100,41 @@ class DeviceTargetControllerTest {
                     ?.template,
             )
             assertEquals(
-                SimpleperfTarget.Process(321),
+                SimpleperfTarget.Process(321, appPackage = "com.example.camera"),
                 controller.state.value.captureSetup
                     ?.parameters
                     ?.target,
+            )
+            assertEquals(
+                EventScope.USER,
+                controller.state.value.captureSetup
+                    ?.parameters
+                    ?.scope,
+            )
+        }
+
+    @Test
+    fun `uses parent app profiling context when a thread is selected on a non-root device`() =
+        runBlocking {
+            val controller = DeviceTargetController(FakeDeviceTargetGateway())
+            controller.refreshDevices()
+            controller.selectDevice("serial-1")
+            controller.selectProcess(321)
+            controller.selectThread(ThreadOption(pid = 321, tid = 333, name = "RenderThread"))
+
+            assertTrue(controller.enterCapture())
+
+            assertEquals(
+                SimpleperfTarget.Thread(333, appPackage = "com.example.camera"),
+                controller.state.value.captureSetup
+                    ?.parameters
+                    ?.target,
+            )
+            assertEquals(
+                EventScope.USER,
+                controller.state.value.captureSetup
+                    ?.parameters
+                    ?.scope,
             )
         }
 

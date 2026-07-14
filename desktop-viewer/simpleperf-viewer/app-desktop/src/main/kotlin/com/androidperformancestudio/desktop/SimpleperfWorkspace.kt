@@ -151,7 +151,7 @@ private fun createOfflineImporter(configuredSimpleperf: Path? = null): OfflinePr
             .map(Path::of)
     return OfflineProfileImporter(
         HostSimpleperfLocator(
-            configuredExecutable = configuredSimpleperf,
+            configuredExecutable = configuredSimpleperf ?: findAndroidNdkSimpleperf(),
             bundledExecutable = null,
             pathDirectories = pathDirectories,
         ),

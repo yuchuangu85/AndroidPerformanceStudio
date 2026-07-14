@@ -43,6 +43,26 @@ class HostSimpleperfLocatorTest {
         }
 
     @Test
+    fun `accepts ndk simpleperf version written to stderr`() =
+        runBlocking {
+            val executable = Files.createTempFile("simpleperf-ndk-", "")
+            executable.writeText("ndk")
+            val locator =
+                HostSimpleperfLocator(
+                    configuredExecutable = executable,
+                    bundledExecutable = null,
+                    pathDirectories = emptyList(),
+                    processInvocation = { request, _ ->
+                        completed(request, stdout = "", stderr = "simpleperf version 1.build.11421629")
+                    },
+                )
+
+            val result = assertIs<StudioResult.Success<HostSimpleperf>>(locator.locate())
+
+            assertEquals("simpleperf version 1.build.11421629", result.value.version)
+        }
+
+    @Test
     fun `rejects a bundled executable when its manifest digest differs`() =
         runBlocking {
             val executable = Files.createTempFile("simpleperf-bundled-", "")
@@ -100,19 +120,21 @@ class HostSimpleperfLocatorTest {
     private fun completed(
         request: ProcessRequest,
         stdout: String,
-    ): ProcessRunResult.Completed = ProcessRunResult.Completed(output(request, 0, stdout))
+        stderr: String = "",
+    ): ProcessRunResult.Completed = ProcessRunResult.Completed(output(request, 0, stdout, stderr))
 
     private fun output(
         request: ProcessRequest,
         exitCode: Int,
         stdout: String,
+        stderr: String = "",
     ): ProcessOutput =
         ProcessOutput(
             pid = 1,
             command = request.command,
             exitCode = exitCode,
             stdout = CapturedProcessText(stdout, false),
-            stderr = CapturedProcessText("", false),
+            stderr = CapturedProcessText(stderr, false),
             startedAt = Instant.EPOCH,
             finishedAt = Instant.EPOCH,
         )
