@@ -26,6 +26,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.sql.SQLException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -56,6 +57,8 @@ internal class ProfileProjectionLoadException(
 ) : IOException(error.message, error.cause)
 
 internal interface InterruptibleProjectionStore : Closeable {
+    fun installCancellationHandler(cancellationRequested: () -> Boolean): AutoCloseable
+
     fun projectCore(request: ProfileProjectionRequest): ProfileProjectionSnapshot
 
     fun interrupt()
@@ -210,13 +213,17 @@ private suspend fun loadInterruptibly(
         val cancellation = ProjectionCancellation()
         continuation.invokeOnCancellation { cancellation.cancel() }
         var store: InterruptibleProjectionStore? = null
+        var cancellationHandler: AutoCloseable? = null
         var snapshot: ProfileProjectionSnapshot? = null
         var failure: Throwable? = null
         try {
             if (continuation.isActive) {
                 store = storeOpener.open(session)
-                if (cancellation.install(store) && continuation.isActive) {
-                    snapshot = store.projectCore(request)
+                if (cancellation.install(store)) {
+                    cancellationHandler = store.installCancellationHandler(cancellation::isCancelled)
+                    if (continuation.isActive) {
+                        snapshot = store.projectCore(request)
+                    }
                 }
             }
         } catch (caught: Throwable) {
@@ -224,9 +231,14 @@ private suspend fun loadInterruptibly(
         } finally {
             cancellation.remove(store)
             try {
+                cancellationHandler?.close()
+            } catch (handlerCloseFailure: Throwable) {
+                failure = failure.withSuppressed(handlerCloseFailure)
+            }
+            try {
                 store?.close()
             } catch (closeFailure: Throwable) {
-                failure?.addSuppressed(closeFailure) ?: run { failure = closeFailure }
+                failure = failure.withSuppressed(closeFailure)
             }
         }
         if (continuation.isActive) {
@@ -237,12 +249,12 @@ private suspend fun loadInterruptibly(
 
 private class ProjectionCancellation {
     private val lock = Any()
-    private var cancelled: Boolean = false
+    private val cancelled = AtomicBoolean()
     private var store: InterruptibleProjectionStore? = null
 
     fun install(openedStore: InterruptibleProjectionStore): Boolean =
         synchronized(lock) {
-            if (cancelled) {
+            if (cancelled.get()) {
                 openedStore.interruptQuietly()
                 false
             } else {
@@ -252,11 +264,13 @@ private class ProjectionCancellation {
         }
 
     fun cancel() {
+        cancelled.set(true)
         synchronized(lock) {
-            cancelled = true
             store?.interruptQuietly()
         }
     }
+
+    fun isCancelled(): Boolean = cancelled.get()
 
     fun remove(openedStore: InterruptibleProjectionStore?) {
         synchronized(lock) {
@@ -264,6 +278,9 @@ private class ProjectionCancellation {
         }
     }
 }
+
+private fun Throwable?.withSuppressed(cleanupFailure: Throwable): Throwable =
+    this?.also { it.addSuppressed(cleanupFailure) } ?: cleanupFailure
 
 private fun InterruptibleProjectionStore.interruptQuietly() {
     try {
@@ -297,6 +314,9 @@ private val DEFAULT_PROJECTION_STORE_OPENER =
                 }
             }
         object : InterruptibleProjectionStore {
+            override fun installCancellationHandler(cancellationRequested: () -> Boolean): AutoCloseable =
+                store.installCancellationHandler(cancellationRequested)
+
             override fun projectCore(request: ProfileProjectionRequest) = store.projectCore(request)
 
             override fun interrupt() = store.interrupt()

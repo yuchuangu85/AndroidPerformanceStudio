@@ -5,6 +5,7 @@ import java.nio.file.Files
 import java.sql.SQLException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.test.Test
@@ -44,6 +45,42 @@ class SQLiteSampleStoreInterruptTest {
 
             assertFalse(queryThread.isAlive, "interrupted native SQLite query did not terminate")
             assertIs<SQLException>(failure.get())
+        }
+    }
+
+    @Test
+    @Suppress("NestedBlockDepth")
+    fun `persistent cancellation aborts a statement that starts after interrupt`() {
+        val database = Files.createTempDirectory("aps-sqlite-persistent-cancel-").resolve("profile.sqlite")
+        SQLiteSampleStore.open(database).use { store ->
+            val cancelled = AtomicBoolean()
+            store.installCancellationHandler(cancelled::get).use {
+                store.connection.createStatement().use { statement ->
+                    statement.executeQuery("SELECT 1").use { result -> assertTrue(result.next()) }
+                }
+                cancelled.set(true)
+                store.interrupt()
+                val failure = AtomicReference<Throwable?>()
+                val queryThread =
+                    thread(name = "sqlite-post-cancel-query") {
+                        runCatching {
+                            store.connection.createStatement().use { statement ->
+                                statement.executeQuery(LONG_RUNNING_QUERY).use { result -> result.next() }
+                            }
+                        }.exceptionOrNull()?.let(failure::set)
+                    }
+
+                queryThread.join(2_000)
+                val persistentCancellationStoppedQuery = !queryThread.isAlive
+                if (queryThread.isAlive) {
+                    store.interrupt()
+                    queryThread.join(2_000)
+                }
+
+                assertTrue(persistentCancellationStoppedQuery, "post-cancellation statement was not aborted")
+                assertFalse(queryThread.isAlive, "fallback interrupt did not stop the test query")
+                assertIs<SQLException>(failure.get())
+            }
         }
     }
 

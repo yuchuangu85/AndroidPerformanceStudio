@@ -6,6 +6,7 @@ import com.androidperformancestudio.model.NormalizedSample
 import com.androidperformancestudio.model.ProfileExecutionType
 import com.androidperformancestudio.model.ProfileFrame
 import com.androidperformancestudio.model.ProfileSample
+import org.sqlite.ProgressHandler
 import org.sqlite.SQLiteConnection
 import java.io.Closeable
 import java.nio.file.Path
@@ -116,6 +117,17 @@ class SQLiteSampleStore private constructor(
             connection as? SQLiteConnection
                 ?: throw SQLException("SQLite interruption requires an SQLiteConnection")
         sqliteConnection.database.interrupt()
+    }
+
+    fun installCancellationHandler(cancellationRequested: () -> Boolean): AutoCloseable {
+        ProgressHandler.setHandler(
+            connection,
+            CANCELLATION_PROGRESS_INTERVAL,
+            object : ProgressHandler() {
+                override fun progress(): Int = if (cancellationRequested()) 1 else 0
+            },
+        )
+        return AutoCloseable { ProgressHandler.clearHandler(connection) }
     }
 
     fun threads(query: ProfileQuery = ProfileQuery()): List<ThreadSummary> = queryThreads(connection, query)
@@ -334,6 +346,7 @@ class SQLiteSampleStore private constructor(
 
         private val DEFAULT_CONNECTION_PROVIDER = ConnectionProvider(DriverManager::getConnection)
         private const val EXPECTED_WRITABLE_VERSION = 2
+        private const val CANCELLATION_PROGRESS_INTERVAL = 4_096
     }
 }
 

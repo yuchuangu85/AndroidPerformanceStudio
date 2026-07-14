@@ -25,6 +25,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.SQLException
@@ -38,6 +39,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -271,6 +273,32 @@ class ProfileQueryCoordinatorTest {
             assertEquals(0, store.projectCount.get(), "cancelled open must not start a projection")
         }
 
+    @Test
+    fun `sqlite cancellation before first statement remains visible to the projection`() =
+        assertPersistentCancellationAt(ProjectionRacePoint.BEFORE_FIRST_STATEMENT)
+
+    @Test
+    fun `sqlite cancellation between statements aborts the next projection statement`() =
+        assertPersistentCancellationAt(ProjectionRacePoint.BETWEEN_STATEMENTS)
+
+    @Test
+    fun `sqlite projection failure retains handler and store cleanup failures as suppressed`() =
+        runTest {
+            val loader = sqliteProjectionLoader(Dispatchers.Unconfined) { CleanupFailingProjectionStore() }
+
+            val failure =
+                assertFailsWith<ProfileProjectionLoadException> {
+                    loader.load(PREPARED_SESSION, ProfileQuery(threadIds = setOf(1)))
+                }
+
+            assertEquals("REPORT_QUERY_FAILED", failure.error.code)
+            val queryFailure = assertIs<SQLException>(failure.cause)
+            assertEquals(
+                listOf("handler clear failure", "store close failure"),
+                queryFailure.suppressedExceptions.map(Throwable::message),
+            )
+        }
+
     private class ControllableProjectionLoader(
         private val ignoreCancellationFor: Set<Int> = emptySet(),
     ) : ProfileProjectionLoader {
@@ -341,6 +369,8 @@ class ProfileQueryCoordinatorTest {
         val closed = CountDownLatch(1)
         val interruptCount = AtomicInteger()
 
+        override fun installCancellationHandler(cancellationRequested: () -> Boolean): AutoCloseable = AutoCloseable { }
+
         override fun projectCore(request: ProfileProjectionRequest): ProfileProjectionSnapshot {
             started.countDown()
             check(interrupted.await(1, SECONDS)) { "projection was not interrupted" }
@@ -361,6 +391,8 @@ class ProfileQueryCoordinatorTest {
         val projectCount = AtomicInteger()
         val closed = CountDownLatch(1)
 
+        override fun installCancellationHandler(cancellationRequested: () -> Boolean): AutoCloseable = AutoCloseable { }
+
         override fun projectCore(request: ProfileProjectionRequest): ProfileProjectionSnapshot {
             projectCount.incrementAndGet()
             return snapshotFor(request.query)
@@ -371,6 +403,65 @@ class ProfileQueryCoordinatorTest {
         override fun close() {
             closed.countDown()
         }
+    }
+
+    private class StatementRaceProjectionStore(
+        private val racePoint: ProjectionRacePoint,
+    ) : InterruptibleProjectionStore {
+        val raceReached = CountDownLatch(1)
+        val releaseRace = CountDownLatch(1)
+        val cancellationObserved = CountDownLatch(1)
+        val handlerCleared = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val interruptCount = AtomicInteger()
+        val statementCount = AtomicInteger()
+        private val cancellationRequested = AtomicReference<() -> Boolean>()
+
+        override fun installCancellationHandler(cancellationRequested: () -> Boolean): AutoCloseable {
+            this.cancellationRequested.set(cancellationRequested)
+            return AutoCloseable { handlerCleared.countDown() }
+        }
+
+        override fun projectCore(request: ProfileProjectionRequest): ProfileProjectionSnapshot {
+            if (racePoint == ProjectionRacePoint.BEFORE_FIRST_STATEMENT) awaitRace()
+            executeStatement()
+            if (racePoint == ProjectionRacePoint.BETWEEN_STATEMENTS) awaitRace()
+            executeStatement()
+            return snapshotFor(request.query)
+        }
+
+        override fun interrupt() {
+            interruptCount.incrementAndGet()
+        }
+
+        override fun close() {
+            check(handlerCleared.count == 0L) { "cancellation handler must clear before store close" }
+            closed.countDown()
+        }
+
+        private fun awaitRace() {
+            raceReached.countDown()
+            check(releaseRace.await(1, SECONDS)) { "test did not release projection race" }
+        }
+
+        private fun executeStatement() {
+            if (checkNotNull(cancellationRequested.get()).invoke()) {
+                cancellationObserved.countDown()
+                throw SQLException("persistent cancellation")
+            }
+            statementCount.incrementAndGet()
+        }
+    }
+
+    private class CleanupFailingProjectionStore : InterruptibleProjectionStore {
+        override fun installCancellationHandler(cancellationRequested: () -> Boolean): AutoCloseable =
+            AutoCloseable { throw IOException("handler clear failure") }
+
+        override fun projectCore(request: ProfileProjectionRequest) = throw SQLException("query failure")
+
+        override fun interrupt() = Unit
+
+        override fun close() = throw IOException("store close failure")
     }
 
     private fun assertLifecycleResponsive(
@@ -422,6 +513,29 @@ class ProfileQueryCoordinatorTest {
         actionFailure.get()?.let { throw it }
     }
 
+    private fun assertPersistentCancellationAt(racePoint: ProjectionRacePoint) =
+        runTest {
+            val store = StatementRaceProjectionStore(racePoint)
+            val loader = sqliteProjectionLoader(Dispatchers.IO) { store }
+            val load =
+                backgroundScope.async {
+                    loader.load(PREPARED_SESSION, ProfileQuery(threadIds = setOf(1)))
+                }
+            runCurrent()
+            assertTrue(store.raceReached.await(1, SECONDS), "projection did not reach $racePoint")
+
+            load.cancel()
+            store.releaseRace.countDown()
+            load.cancelAndJoin()
+
+            assertTrue(store.cancellationObserved.await(1, SECONDS), "persistent cancellation was not observed")
+            assertTrue(store.handlerCleared.await(1, SECONDS), "cancellation handler was not cleared")
+            assertTrue(store.closed.await(1, SECONDS), "cancelled store was not closed")
+            assertEquals(1, store.interruptCount.get())
+            val expectedStatements = if (racePoint == ProjectionRacePoint.BETWEEN_STATEMENTS) 1 else 0
+            assertEquals(expectedStatements, store.statementCount.get())
+        }
+
     private companion object {
         val SESSION: Path = Path.of("session")
         val PREPARED_SESSION =
@@ -431,6 +545,11 @@ class ProfileQueryCoordinatorTest {
                 mode = ProfileSessionMode.READ_WRITE_V2,
                 schemaVersion = 2,
             )
+    }
+
+    private enum class ProjectionRacePoint {
+        BEFORE_FIRST_STATEMENT,
+        BETWEEN_STATEMENTS,
     }
 }
 
