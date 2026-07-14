@@ -85,3 +85,5 @@ sealed interface NormalizedProfileRecord {
 
     data object Unknown : NormalizedProfileRecord
 }
+
+fun NormalizedProfileRecord.asCanonical(): CanonicalProfileRecord = CanonicalProfileRecord.Legacy(this)
