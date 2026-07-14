@@ -257,6 +257,71 @@ class ReportControllerTest {
             assertIs<ReportLoadState.Ready>(controller.state.value.loadState)
         }
 
+    @Test
+    fun `delayed obsolete terminal mapping cannot overwrite the newest report`() =
+        runTest {
+            val firstSession = Files.createTempDirectory("aps-delayed-first-").toAbsolutePath().normalize()
+            val newestSession = Files.createTempDirectory("aps-delayed-newest-").toAbsolutePath().normalize()
+            val mappingStarted = CompletableDeferred<Unit>()
+            val releaseMapping = CompletableDeferred<Unit>()
+            val summaries =
+                ReportSessionSummaryLoader { directory ->
+                    if (directory == firstSession) {
+                        mappingStarted.complete(Unit)
+                        releaseMapping.await()
+                    }
+                    ReportSessionSummary(directory.fileName.toString(), directory, emptyMap(), emptyList())
+                }
+            val started = Channel<PendingProjection>(Channel.UNLIMITED)
+            val loader =
+                ProfileProjectionLoader { _, query ->
+                    PendingProjection(query).also { started.send(it) }.result.await()
+                }
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller =
+                ReportController(
+                    scope = backgroundScope,
+                    workspaceController = workspace,
+                    sessionSummaryLoader = summaries,
+                )
+
+            val obsolete = backgroundScope.async { controller.openSession(firstSession) }
+            started.receive().result.complete(workspaceSnapshot(ProfileQuery()))
+            runCurrent()
+            mappingStarted.await()
+
+            val newest = backgroundScope.async { controller.openSession(newestSession) }
+            started.receive().result.complete(workspaceSnapshot(ProfileQuery()))
+            runCurrent()
+            releaseMapping.complete(Unit)
+            runCurrent()
+
+            assertTrue(obsolete.isCancelled)
+            newest.await()
+            val report = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            assertEquals(newestSession, report.session.directory)
+        }
+
+    @Test
+    fun `malformed metadata fails refresh without losing last ready report or killing collection`() =
+        runTest {
+            val session = indexedSession()
+            val controller = ReportController()
+            controller.openSession(session)
+            val lastReady = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            Files.write(session.resolve("session.properties"), byteArrayOf(0xc3.toByte(), 0x28))
+
+            controller.updateThreads(setOf(101))
+
+            val failed = assertIs<ReportLoadState.Failed>(controller.state.value.loadState)
+            assertEquals("REPORT_SESSION_READ_FAILED", failed.error.code)
+            assertEquals(lastReady, controller.state.value.lastReadyReport)
+
+            session.resolve("session.properties").writeText("status=COMPLETED\n")
+            controller.updateThreads(emptySet())
+            assertIs<ReportLoadState.Ready>(controller.state.value.loadState)
+        }
+
     private data class PendingProjection(
         val query: ProfileQuery,
         val result: CompletableDeferred<ProfileProjectionSnapshot> = CompletableDeferred(),
