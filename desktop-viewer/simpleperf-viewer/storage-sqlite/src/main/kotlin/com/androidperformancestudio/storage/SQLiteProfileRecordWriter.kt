@@ -381,13 +381,7 @@ class SQLiteProfileRecordWriter internal constructor(
         validateThreadKey(thread)
         return canonicalThreadRows.getOrPut(thread) {
             val processRowId = ensureCanonicalProcess(thread.process)
-            upsertThread(
-                ProfileThread(
-                    thread.process.processId,
-                    thread.threadId,
-                    "<unknown-thread:${thread.threadId}>",
-                ),
-            )
+            insertLegacyThreadPlaceholder(thread)
             connection
                 .prepareStatement(
                     "INSERT OR IGNORE INTO profile_thread(source_id, process_row_id, thread_id, name) " +
@@ -413,6 +407,18 @@ class SQLiteProfileRecordWriter internal constructor(
                     }
                 }
         }
+    }
+
+    private fun insertLegacyThreadPlaceholder(thread: ProfileThreadKey) {
+        connection
+            .prepareStatement(
+                "INSERT OR IGNORE INTO thread(thread_id, process_id, name) VALUES (?, ?, ?)",
+            ).use { statement ->
+                statement.setInt(1, thread.threadId)
+                statement.setInt(2, thread.process.processId)
+                statement.setString(3, "<unknown-thread:${thread.threadId}>")
+                statement.executeUpdate()
+            }
     }
 
     private fun insertMarker(marker: ProfileMarkerFact) {

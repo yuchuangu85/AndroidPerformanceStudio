@@ -27,6 +27,9 @@ internal object SQLiteProfileQueries {
         query: ProfileQuery,
     ): List<ThreadSummary> {
         val filter = query.toSqlFilter("s", "e")
+        val threadKey =
+            "CASE WHEN pt.thread_row_id IS NULL THEN 'legacy:' || s.thread_id " +
+                "ELSE 'canonical:' || pt.thread_row_id END"
         val sql =
             "SELECT COALESCE(pp.process_id, t.process_id), COALESCE(pt.thread_id, t.thread_id), " +
                 "COALESCE(pt.name, t.name), COUNT(*), SUM(s.event_count) FROM sample s " +
@@ -34,10 +37,9 @@ internal object SQLiteProfileQueries {
                 "LEFT JOIN profile_process pp ON pp.process_row_id=pt.process_row_id " +
                 "LEFT JOIN thread t ON t.thread_id=s.thread_id " +
                 "JOIN event e ON e.event_id=s.event_id ${filter.whereClause} " +
-                "GROUP BY CASE WHEN pt.thread_row_id IS NULL THEN 'legacy:' || s.thread_id " +
-                "ELSE 'canonical:' || pt.thread_row_id END, COALESCE(pp.process_id, t.process_id), " +
+                "GROUP BY $threadKey, COALESCE(pp.process_id, t.process_id), " +
                 "COALESCE(pt.thread_id, t.thread_id), COALESCE(pt.name, t.name) " +
-                "ORDER BY SUM(s.event_count) DESC, COALESCE(pt.thread_id, t.thread_id)"
+                "ORDER BY SUM(s.event_count) DESC, COALESCE(pt.thread_id, t.thread_id), $threadKey"
         return connection.prepareStatement(sql).use { statement ->
             statement.bind(filter.parameters)
             statement.executeQuery().use { result ->

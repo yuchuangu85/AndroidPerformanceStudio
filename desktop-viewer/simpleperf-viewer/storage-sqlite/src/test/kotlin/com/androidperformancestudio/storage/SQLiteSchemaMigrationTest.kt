@@ -1,5 +1,14 @@
 package com.androidperformancestudio.storage
 
+import com.androidperformancestudio.model.CanonicalProfileRecord
+import com.androidperformancestudio.model.ProfileClockDomain
+import com.androidperformancestudio.model.ProfileProcessFact
+import com.androidperformancestudio.model.ProfileProcessKey
+import com.androidperformancestudio.model.ProfileSourceFact
+import com.androidperformancestudio.model.ProfileSourceId
+import com.androidperformancestudio.model.ProfileSourceKind
+import com.androidperformancestudio.model.ProfileThreadFact
+import com.androidperformancestudio.model.ProfileThreadKey
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
@@ -22,6 +31,40 @@ class SQLiteSchemaMigrationTest {
                 assertEquals(2, store.schemaVersion())
             }
             assertEquals(2, pragmaUserVersion(path))
+        }
+
+    @Test
+    fun `colliding canonical thread does not rewrite migrated v1 thread summaries`() =
+        withVersionOneDatabase { path ->
+            SQLiteSampleStore.open(path).use { store ->
+                val before = store.threads()
+                val sourceId = ProfileSourceId("perfetto")
+                val process = ProfileProcessKey(sourceId, 200)
+                val thread = ProfileThreadKey(sourceId, process, 101)
+
+                store.importCanonicalRecords(
+                    sequenceOf(
+                        CanonicalProfileRecord.Source(
+                            ProfileSourceFact(
+                                sourceId,
+                                ProfileSourceKind.PERFETTO,
+                                ProfileClockDomain("boottime"),
+                                null,
+                                null,
+                            ),
+                        ),
+                        CanonicalProfileRecord.Process(
+                            ProfileProcessFact(process, "canonical-process", null, null),
+                        ),
+                        CanonicalProfileRecord.Thread(
+                            ProfileThreadFact(thread, "canonical-thread", null, null),
+                        ),
+                    ),
+                )
+
+                assertEquals(before, store.threads())
+                assertEquals(listOf(ThreadSummary(100, 101, "main", 2, 8)), store.threads())
+            }
         }
 
     @Test
