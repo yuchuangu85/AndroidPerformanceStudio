@@ -55,6 +55,7 @@ internal fun SettingsDialog(
     onSelectThemePreference: (ThemePreference) -> Unit,
     selectedLanguagePreference: LanguagePreference,
     onSelectLanguagePreference: (LanguagePreference) -> Unit,
+    showCommonPreferences: Boolean = true,
     viewDisplayOptions: ViewDisplayOptions,
     onViewDisplayOptionsChanged: (ViewDisplayOptions) -> Unit,
     archiveLimits: CaptureArchiveLimits,
@@ -91,29 +92,31 @@ internal fun SettingsDialog(
                     .heightIn(max = 620.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
-                SettingsSectionTitle(strings.theme)
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ThemePreference.entries.forEach { preference ->
-                        ThemePreferenceOption(
-                            label = strings.themePreferenceName(preference),
-                            selected = preference == selectedThemePreference,
-                            onClick = { onSelectThemePreference(preference) },
-                            modifier = Modifier.weight(1f),
-                        )
+                if (showCommonPreferences) {
+                    SettingsSectionTitle(strings.theme)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemePreference.entries.forEach { preference ->
+                            ThemePreferenceOption(
+                                label = strings.themePreferenceName(preference),
+                                selected = preference == selectedThemePreference,
+                                onClick = { onSelectThemePreference(preference) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
+                    SettingsMenuSeparator()
+                    SettingsSectionTitle(strings.languageSetting)
+                    Spacer(Modifier.height(8.dp))
+                    LanguagePreferenceDropdown(
+                        selectedPreference = selectedLanguagePreference,
+                        onSelectPreference = onSelectLanguagePreference,
+                    )
+                    SettingsMenuSeparator()
                 }
-                SettingsMenuSeparator()
-                SettingsSectionTitle(strings.languageSetting)
-                Spacer(Modifier.height(8.dp))
-                LanguagePreferenceDropdown(
-                    selectedPreference = selectedLanguagePreference,
-                    onSelectPreference = onSelectLanguagePreference,
-                )
-                SettingsMenuSeparator()
                 SettingsSectionTitle(strings.view)
                 Spacer(Modifier.height(8.dp))
                 SettingsToggleRow(

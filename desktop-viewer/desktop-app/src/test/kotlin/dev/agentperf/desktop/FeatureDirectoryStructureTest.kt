@@ -45,6 +45,18 @@ class FeatureDirectoryStructureTest {
     }
 
     @Test
+    fun `root desktop app owns the unified home shell`() {
+        val shellSource = root.resolve("desktop-app/src/main/kotlin/dev/agentperf/desktop")
+
+        assertTrue(Files.isRegularFile(shellSource.resolve("AppHomePage.kt")))
+        assertTrue(Files.isRegularFile(shellSource.resolve("ApplicationUiSettings.kt")))
+        assertTrue(Files.isRegularFile(shellSource.resolve("GlobalSettingsBar.kt")))
+        assertTrue(Files.isRegularFile(shellSource.resolve("UnifiedDesktopApp.kt")))
+        assertFalse(Files.exists(root.resolve("layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/AppHomePage.kt")))
+        assertFalse(Files.exists(root.resolve("simpleperf-viewer/app-desktop/src/main/kotlin/dev/agentperf/desktop/AppHomePage.kt")))
+    }
+
+    @Test
     fun `Simpleperf code has one feature owner directory`() {
         val feature = root.resolve("simpleperf-viewer")
 

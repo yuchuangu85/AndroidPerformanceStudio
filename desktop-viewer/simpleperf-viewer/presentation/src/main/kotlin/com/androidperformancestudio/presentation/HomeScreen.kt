@@ -1,8 +1,11 @@
+@file:Suppress("TooManyFunctions")
+
 package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,13 +20,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -38,35 +48,115 @@ import com.androidperformancestudio.application.WorkspacePage
 import com.androidperformancestudio.capture.CaptureState
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 fun HomeScreen(
     state: DeviceTargetState,
     captureState: CaptureState,
     reportState: ReportState,
     actions: DeviceTargetActions,
     reportActions: ReportActions,
+    darkTheme: Boolean = false,
+    language: SimpleperfLanguage = SimpleperfLanguage.ENGLISH,
+    themePreference: String = SYSTEM_PREFERENCE,
+    languagePreference: String = SYSTEM_PREFERENCE,
+    onThemePreferenceChanged: (String) -> Unit = {},
+    onLanguagePreferenceChanged: (String) -> Unit = {},
+    showCommonSettings: Boolean = true,
 ) {
-    MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            if (reportState.loadState != ReportLoadState.Closed) {
-                ReportPage(reportState, reportActions)
-            } else {
-                when (state.page) {
-                    WorkspacePage.DEVICE_TARGET ->
-                        DeviceTargetPage(state, actions, reportActions.onOpenSession)
-                    WorkspacePage.CAPTURE ->
-                        CapturePage(
-                            target = state.selectedTarget,
-                            setup = state.captureSetup,
-                            availableEvents =
-                                state.selection
-                                    ?.capabilities
-                                    ?.eventNames
-                                    .orEmpty(),
-                            captureState = captureState,
-                            actions = actions,
+    SimpleperfLocalization(language) {
+        MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize()) {
+                    if (showCommonSettings) {
+                        SimpleperfSettingsBar(
+                            themePreference = themePreference,
+                            languagePreference = languagePreference,
+                            onThemePreferenceChanged = onThemePreferenceChanged,
+                            onLanguagePreferenceChanged = onLanguagePreferenceChanged,
                         )
+                    }
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        if (reportState.loadState != ReportLoadState.Closed) {
+                            ReportPage(reportState, reportActions)
+                        } else {
+                            when (state.page) {
+                                WorkspacePage.DEVICE_TARGET ->
+                                    DeviceTargetPage(state, actions, reportActions.onOpenSession)
+                                WorkspacePage.CAPTURE ->
+                                    CapturePage(
+                                        target = state.selectedTarget,
+                                        setup = state.captureSetup,
+                                        availableEvents =
+                                            state.selection
+                                                ?.capabilities
+                                                ?.eventNames
+                                                .orEmpty(),
+                                        captureState = captureState,
+                                        actions = actions,
+                                    )
+                            }
+                        }
+                    }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun SimpleperfSettingsBar(
+    themePreference: String,
+    languagePreference: String,
+    onThemePreferenceChanged: (String) -> Unit,
+    onLanguagePreferenceChanged: (String) -> Unit,
+) {
+    Surface(tonalElevation = 2.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PreferenceMenu(
+                title = "Language",
+                selectedValue = languagePreference,
+                options = LANGUAGE_OPTIONS,
+                onSelected = onLanguagePreferenceChanged,
+            )
+            Spacer(Modifier.width(8.dp))
+            PreferenceMenu(
+                title = "Theme",
+                selectedValue = themePreference,
+                options = THEME_OPTIONS,
+                onSelected = onThemePreferenceChanged,
+            )
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun PreferenceMenu(
+    title: String,
+    selectedValue: String,
+    options: List<Pair<String, String>>,
+    onSelected: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) {
+            val selectedLabel = options.firstOrNull { it.first == selectedValue }?.second ?: options.first().second
+            Text("$title: $selectedLabel")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (value, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        expanded = false
+                        onSelected(value)
+                    },
+                )
             }
         }
     }
@@ -319,3 +409,16 @@ private fun TargetRow(
 }
 
 private const val MAX_VISIBLE_EVENTS = 8
+private const val SYSTEM_PREFERENCE = "system"
+private val THEME_OPTIONS =
+    listOf(
+        SYSTEM_PREFERENCE to "System",
+        "light" to "Light",
+        "dark" to "Dark",
+    )
+private val LANGUAGE_OPTIONS =
+    listOf(
+        SYSTEM_PREFERENCE to "System",
+        "simplified_chinese" to "Simplified Chinese",
+        "english" to "English",
+    )

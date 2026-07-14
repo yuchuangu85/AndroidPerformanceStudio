@@ -5,7 +5,8 @@ feature implementations:
 
 - **Layout Inspector** — the Android layout snapshot inspector under `layout-inspector/`;
   its embeddable desktop UI is the `presentation/` module.
-- **Simpleperf CPU Profiler** — an independently built capture and CPU profile analyzer under `simpleperf-viewer/`.
+- **Simpleperf CPU Profiler** — an isolated capture and CPU profile analyzer under `simpleperf-viewer/`,
+  embedded into the root shell through its public desktop workspace.
 
 The Layout Inspector foundation includes:
 
@@ -22,13 +23,20 @@ The Layout Inspector foundation includes:
 Prerequisites:
 
 - macOS 13+, Windows 10 22H2/11, or Ubuntu 22.04/24.04;
-- JDK 17 or newer (the repository currently builds with JDK 21 and emits Java 17 bytecode).
+- JDK 21.
 
 ```bash
 ./gradlew :desktop-app:run
 ```
 
-Run the independently isolated Simpleperf CPU Profiler:
+The root application opens on a two-entry home page. Selecting Layout Inspector or Simpleperf
+replaces the home page with that feature's original full-window interface.
+The persistent top settings bar owns application-wide language (`System`, `简体中文`, `English`)
+and theme (`System`, `Light`, `Dark`) selection on every page. Feature settings stay inside their
+own interfaces: Layout Inspector keeps only view, capture archive, and canvas border settings in
+its dialog, while Simpleperf keeps profiling-specific configuration in its workflow.
+
+Run only the isolated Simpleperf CPU Profiler during feature development:
 
 ```bash
 ./gradlew simpleperfRun
@@ -41,9 +49,10 @@ Run its checks or create its native application image without changing the Layou
 ./gradlew simpleperfCreateDistributable
 ```
 
-Directory ownership is explicit: `desktop-app/` owns the root executable, `layout-inspector/` owns
-all layout inspection implementation, and `simpleperf-viewer/` owns the isolated CPU profiler
-build. Layout Inspector and Simpleperf do not declare project dependencies on each other.
+Directory ownership is explicit: `desktop-app/` owns the unified application shell,
+`layout-inspector/` owns all layout inspection implementation, and `simpleperf-viewer/` owns the
+isolated CPU profiler build. The shell consumes each feature's public UI entry; Layout Inspector
+and Simpleperf do not depend on each other's implementation.
 
 Create the native application image for the current OS:
 

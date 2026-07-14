@@ -30,6 +30,8 @@ fun main() = application {
             onDispose(registration::close)
         }
         window.minimumSize = java.awt.Dimension(1100, 720)
-        DesktopViewerApp(settingsRequest = settingsRequest)
+        UnifiedDesktopApp(settingsRequest = settingsRequest)
     }
 }
+
+internal fun shouldOpenSettingsForRequest(request: Long): Boolean = request > 0L

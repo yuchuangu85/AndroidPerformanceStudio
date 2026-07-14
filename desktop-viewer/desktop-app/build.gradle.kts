@@ -23,18 +23,20 @@ fun macOsPackageVersion(version: String): String {
 kotlin {
     jvmToolchain(21)
     compilerOptions {
-        jvmTarget = JvmTarget.JVM_17
+        jvmTarget = JvmTarget.JVM_21
     }
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 dependencies {
     implementation(project(":layout-inspector:presentation"))
+    implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
     implementation(compose.desktop.currentOs)
+    implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
@@ -52,6 +54,7 @@ compose.desktop {
         nativeDistributions {
             // The minimized jpackage runtime cannot infer JdkAiHttpTransport's reflective HTTP usage.
             modules("java.net.http")
+            modules("java.sql")
             targetFormats(
                 TargetFormat.Dmg,
                 TargetFormat.Pkg,

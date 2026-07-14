@@ -1,0 +1,77 @@
+package dev.agentperf.desktop
+
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
+import com.androidperformancestudio.desktop.SimpleperfThemePreference
+import com.androidperformancestudio.desktop.SimpleperfUiSettings
+import com.androidperformancestudio.desktop.SimpleperfWorkspace
+import java.util.Locale
+
+@Composable
+fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
+    val navigator = remember { AppNavigator() }
+    val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
+    var applicationSettings by remember { mutableStateOf(applicationSettingsStore.load()) }
+    val updateApplicationSettings: (ApplicationUiSettings) -> Unit = { updated ->
+        applicationSettings = updated
+        applicationSettingsStore.save(updated)
+    }
+    val chinese =
+        applicationSettings.language.resolve(Locale.getDefault()) == ApplicationLanguage.SIMPLIFIED_CHINESE
+    val darkTheme = applicationSettings.theme.resolveDark(isSystemInDarkTheme())
+    val simpleperfSettings =
+        SimpleperfUiSettings(
+            theme = SimpleperfThemePreference.parse(applicationSettings.theme.storageValue),
+            language = SimpleperfLanguagePreference.parse(applicationSettings.language.storageValue),
+        )
+
+    MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
+        Column(Modifier.fillMaxSize()) {
+            GlobalSettingsBar(
+                settings = applicationSettings,
+                chinese = chinese,
+                onSettingsChanged = updateApplicationSettings,
+            )
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                when (navigator.destination) {
+                    AppDestination.HOME ->
+                        AppHomePage(
+                            chinese = chinese,
+                            onOpenLayoutInspector = {
+                                navigator.open(AppDestination.LAYOUT_INSPECTOR)
+                            },
+                            onOpenSimpleperf = {
+                                navigator.open(AppDestination.SIMPLEPERF)
+                            },
+                        )
+                    AppDestination.LAYOUT_INSPECTOR ->
+                        DesktopViewerApp(
+                            settingsRequest = settingsRequest,
+                            commonThemePreference = applicationSettings.theme.storageValue,
+                            commonLanguagePreference = applicationSettings.language.storageValue,
+                        )
+                    AppDestination.SIMPLEPERF ->
+                        SimpleperfWorkspace(
+                            window = window,
+                            settings = simpleperfSettings,
+                            showCommonSettings = false,
+                        )
+                }
+            }
+        }
+    }
+}

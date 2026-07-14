@@ -14,5 +14,9 @@ class PackagedRuntimeModulesTest {
             buildScript.contains("""modules("java.net.http")"""),
             "The minimized runtime must include java.net.http for JdkAiHttpTransport.",
         )
+        assertTrue(
+            buildScript.contains("""modules("java.sql")"""),
+            "The minimized runtime must include java.sql for Simpleperf SQLite storage.",
+        )
     }
 }

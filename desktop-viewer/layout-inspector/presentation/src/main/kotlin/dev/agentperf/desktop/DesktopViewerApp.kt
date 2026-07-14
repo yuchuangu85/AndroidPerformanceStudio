@@ -111,7 +111,11 @@ internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = false
 
 @Composable
-fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
+fun FrameWindowScope.DesktopViewerApp(
+    settingsRequest: Long = 0L,
+    commonThemePreference: String? = null,
+    commonLanguagePreference: String? = null,
+) {
     val store = remember { createInitialInspectorStore() }
     var state by remember { mutableStateOf(store.state) }
     var autoScanEnabled by remember { mutableStateOf(AUTO_SCAN_DEFAULT_ENABLED) }
@@ -271,9 +275,14 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
         mutableStateOf(viewDisplayOptionsStore.load())
     }
     val themeStore = remember { ThemePreferenceStore.desktop() }
-    var themePreference by remember { mutableStateOf(themeStore.load()) }
+    var storedThemePreference by remember { mutableStateOf(themeStore.load()) }
     val languageStore = remember { LanguagePreferenceStore.desktop() }
-    var languagePreference by remember { mutableStateOf(languageStore.load()) }
+    var storedLanguagePreference by remember { mutableStateOf(languageStore.load()) }
+    val commonSettingsManagedExternally = commonThemePreference != null || commonLanguagePreference != null
+    val themePreference =
+        commonThemePreference?.let(ThemePreference::fromStorage) ?: storedThemePreference
+    val languagePreference =
+        commonLanguagePreference?.let(LanguagePreference::fromStorage) ?: storedLanguagePreference
     val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
     var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
     val viewerLanguage = languagePreference.resolve(Locale.getDefault().toLanguageTag())
@@ -738,14 +747,15 @@ fun FrameWindowScope.DesktopViewerApp(settingsRequest: Long = 0L) {
                 SettingsDialog(
                     selectedThemePreference = themePreference,
                     onSelectThemePreference = { preference ->
-                        themePreference = preference
+                        storedThemePreference = preference
                         themeStore.save(preference)
                     },
                     selectedLanguagePreference = languagePreference,
                     onSelectLanguagePreference = { preference ->
-                        languagePreference = preference
+                        storedLanguagePreference = preference
                         languageStore.save(preference)
                     },
+                    showCommonPreferences = commonSettingsManagedExternally.not(),
                     viewDisplayOptions = viewDisplayOptions,
                     onViewDisplayOptionsChanged = { updated ->
                         viewDisplayOptions = updated
