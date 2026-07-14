@@ -33,5 +33,3 @@ fun main() = application {
         DesktopViewerApp(settingsRequest = settingsRequest)
     }
 }
-
-internal fun shouldOpenSettingsForRequest(request: Long): Boolean = request > 0L

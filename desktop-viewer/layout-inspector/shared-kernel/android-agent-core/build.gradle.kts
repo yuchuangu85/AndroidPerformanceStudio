@@ -3,12 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.agentperf.android.startup"
+    namespace = "dev.agentperf.android.core"
     compileSdk = 37
 
     defaultConfig {
         minSdk = 21
-        consumerProguardFiles("consumer-rules.pro")
     }
 
     compileOptions {
@@ -18,9 +17,7 @@ android {
 }
 
 dependencies {
-    api(project(":shared-kernel:android-agent-core"))
-    implementation(project(":shared-kernel:android-agent-view"))
-    implementation(libs.androidx.startup)
+    api(project(":layout-inspector:shared-kernel:protocol-model"))
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

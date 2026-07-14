@@ -1,10 +1,16 @@
 # Unified Desktop Home Implementation Plan
 
+> **Directory-boundary update (2026-07-14):** The neutral executable shell now lives at root
+> `desktop-app/`; Layout Inspector UI is `:layout-inspector:presentation`, and its remaining
+> modules are namespaced below `:layout-inspector:*`. Root `desktop-app` references below
+> remain valid, but unqualified Layout Inspector `application`, `adb-gateway`, and `shared-kernel`
+> paths must be translated to their feature namespace before executing later tasks.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Deliver one Compose Desktop application that opens on a home page and navigates in-window to the existing Layout Inspector or Simpleperf CPU Profiler, with a fixed return-home action.
 
-**Architecture:** Replace the Simpleperf composite build with namespaced projects in the root Gradle build while retaining its physical `features/simpleperf-viewer/` directory. Convert the former Simpleperf executable into an embeddable `SimpleperfWorkspace`, then make `desktop-app` the sole application shell and native package owner.
+**Architecture:** Replace the Simpleperf composite build with namespaced projects in the root Gradle build while retaining its physical `simpleperf-viewer/` directory. Convert the former Simpleperf executable into an embeddable `SimpleperfWorkspace`, then make `desktop-app` the sole application shell and native package owner.
 
 **Tech Stack:** Kotlin/JVM 2.3.21, Compose Multiplatform 1.11.1, Material 3, Gradle 9.4.1, JUnit 5, kotlinx.coroutines, protobuf, SQLite JDBC, ktlint, detekt.
 
@@ -14,7 +20,7 @@
 - The initial application route is `HOME`.
 - Both features render in the same window and expose a fixed `返回主页` action.
 - Feature workspaces retain their remembered state after returning home during the same process session.
-- Simpleperf implementation stays under `features/simpleperf-viewer/` and uses `com.androidperformancestudio` packages.
+- Simpleperf implementation stays under `simpleperf-viewer/` and uses `com.androidperformancestudio` packages.
 - Layout Inspector and Simpleperf implementation modules must not depend on each other.
 - The unified package includes both `java.net.http` and `java.sql` runtime modules.
 - Do not redesign the existing Layout Inspector or Simpleperf workflows.
@@ -24,8 +30,8 @@
 - `settings.gradle.kts` — registers namespaced Simpleperf projects in the root build.
 - `gradle/libs.versions.toml` — owns unified plugin and library versions.
 - `build.gradle.kts` — configures Kotlin, lint, static analysis, and tests for Simpleperf projects.
-- `features/simpleperf-viewer/*/build.gradle.kts` — declares namespaced feature dependencies.
-- `features/simpleperf-viewer/app-desktop/.../SimpleperfWorkspace.kt` — embeds Simpleperf controllers and UI without owning a process or window.
+- `simpleperf-viewer/*/build.gradle.kts` — declares namespaced feature dependencies.
+- `simpleperf-viewer/app-desktop/.../SimpleperfWorkspace.kt` — embeds Simpleperf controllers and UI without owning a process or window.
 - `desktop-app/.../AppDestination.kt` — application navigation state and visited-workspace tracking.
 - `desktop-app/.../AppHomePage.kt` — two-card home page.
 - `desktop-app/.../UnifiedDesktopApp.kt` — retained feature layers and shared return-home frame.
@@ -139,9 +145,9 @@ Use Lore intent `Establish explicit navigation for the unified desktop shell` an
 **Files:**
 - Create: `desktop-app/src/test/kotlin/dev/agentperf/desktop/UnifiedBuildStructureTest.kt`
 - Modify: `settings.gradle.kts`, `gradle/libs.versions.toml`, `build.gradle.kts`
-- Modify: every `features/simpleperf-viewer/*/build.gradle.kts`
-- Replace: `features/simpleperf-viewer/build.gradle.kts`
-- Delete: `features/simpleperf-viewer/settings.gradle.kts`, `gradle.properties`, `gradlew`, `gradlew.bat`, and `gradle/wrapper/`
+- Modify: every `simpleperf-viewer/*/build.gradle.kts`
+- Replace: `simpleperf-viewer/build.gradle.kts`
+- Delete: `simpleperf-viewer/settings.gradle.kts`, `gradle.properties`, `gradlew`, `gradlew.bat`, and `gradle/wrapper/`
 
 **Interfaces:**
 - Consumes: root wrapper and version catalog.
@@ -164,7 +170,7 @@ class UnifiedBuildStructureTest {
     @Test
     fun `Simpleperf modules belong to the root build`() {
         val settings = Files.readString(root.resolve("settings.gradle.kts"))
-        assertFalse(settings.contains("includeBuild(\"features/simpleperf-viewer\")"))
+        assertFalse(settings.contains("includeBuild(\"simpleperf-viewer\")"))
         assertTrue(settings.contains("\":features:simpleperf-viewer:app-desktop\""))
         assertTrue(settings.contains("\":features:simpleperf-viewer:presentation\""))
         assertTrue(settings.contains("\":features:simpleperf-viewer:profile-model\""))
@@ -172,7 +178,7 @@ class UnifiedBuildStructureTest {
 
     @Test
     fun `Simpleperf has no nested Gradle root`() {
-        val feature = root.resolve("features/simpleperf-viewer")
+        val feature = root.resolve("simpleperf-viewer")
         assertFalse(Files.exists(feature.resolve("settings.gradle.kts")))
         assertFalse(Files.exists(feature.resolve("gradlew")))
         assertFalse(Files.exists(feature.resolve("gradle/wrapper/gradle-wrapper.properties")))
@@ -180,7 +186,7 @@ class UnifiedBuildStructureTest {
 
     @Test
     fun `Simpleperf project dependencies are namespaced`() {
-        Files.walk(root.resolve("features/simpleperf-viewer")).use { paths ->
+        Files.walk(root.resolve("simpleperf-viewer")).use { paths ->
             val invalid = paths
                 .filter { it.fileName.toString() == "build.gradle.kts" }
                 .filter {
@@ -214,7 +220,7 @@ include(":features:simpleperf-viewer")
 simpleperfModules.forEach { module ->
     val path = ":features:simpleperf-viewer:$module"
     include(path)
-    project(path).projectDir = file("features/simpleperf-viewer/$module")
+    project(path).projectDir = file("simpleperf-viewer/$module")
 }
 ```
 
@@ -252,7 +258,7 @@ configure(subprojects.filter { it.path.startsWith(":features:simpleperf-viewer:"
     extensions.configure<DetektExtension> {
         buildUponDefaultConfig = true
         allRules = false
-        config.setFrom(rootProject.files("features/simpleperf-viewer/config/detekt/detekt.yml"))
+        config.setFrom(rootProject.files("simpleperf-viewer/config/detekt/detekt.yml"))
     }
     dependencies.add("testImplementation", kotlin("test"))
     tasks.withType<Test>().configureEach { useJUnitPlatform() }
@@ -267,7 +273,7 @@ Run this exact transformation, then replace literal third-party coordinates with
 
 ```python
 from pathlib import Path
-root = Path("features/simpleperf-viewer")
+root = Path("simpleperf-viewer")
 modules = {p.name for p in root.iterdir() if p.is_dir() and (p / "build.gradle.kts").exists()}
 for script in root.glob("*/build.gradle.kts"):
     text = script.read_text()
@@ -300,10 +306,10 @@ Use Lore intent `Compile both performance tools under one dependency boundary`, 
 ### Task 3: Convert Simpleperf into an embeddable workspace
 
 **Files:**
-- Create: `features/simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfWorkspace.kt`
+- Create: `simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfWorkspace.kt`
 - Create: `desktop-app/src/test/kotlin/dev/agentperf/desktop/SimpleperfEmbeddingTest.kt`
-- Modify: `features/simpleperf-viewer/app-desktop/build.gradle.kts`
-- Delete: `features/simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/Main.kt`
+- Modify: `simpleperf-viewer/app-desktop/build.gradle.kts`
+- Delete: `simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/Main.kt`
 
 **Interfaces:**
 - Consumes: `ComposeWindow` and existing Simpleperf controllers.
@@ -321,7 +327,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class SimpleperfEmbeddingTest {
-    private val module = Path.of("../features/simpleperf-viewer/app-desktop")
+    private val module = Path.of("../simpleperf-viewer/app-desktop")
 
     @Test
     fun `Simpleperf exposes a workspace instead of a second application`() {
@@ -503,7 +509,7 @@ Use Lore intent `Give both performance workflows one navigable home`.
 **Files:**
 - Modify: `desktop-app/src/test/kotlin/dev/agentperf/desktop/PackagedRuntimeModulesTest.kt`
 - Modify: `desktop-app/src/test/kotlin/dev/agentperf/desktop/ReleaseWorkflowTest.kt`
-- Modify: `desktop-app/build.gradle.kts`, `README.md`, `features/README.md`
+- Modify: `desktop-app/build.gradle.kts`, `README.md`
 - Modify: `../.github/workflows/release.yml`
 
 **Interfaces:**
@@ -535,7 +541,7 @@ Change native modules to `modules("java.net.http", "java.sql")`. Change the work
 
 - [ ] **Step 4: Update docs**
 
-`README.md` must describe one application, the two-entry home, `./gradlew :desktop-app:run`, and one `createDistributable` command. Remove all three `simpleperf*` commands. `features/README.md` must state that `desktop-app` is the only executable and `features/simpleperf-viewer/app-desktop` is an embedded workspace module.
+`README.md` must describe one application, the two-entry home, `./gradlew :desktop-app:run`, one `createDistributable` command, the root shell boundary, and both direct feature directories. Remove all three `simpleperf*` commands.
 
 - [ ] **Step 5: Verify GREEN**
 
@@ -586,9 +592,9 @@ Expected: process stays alive and the log is empty.
 
 ```bash
 git diff --check
-test ! -e features/simpleperf-viewer/settings.gradle.kts
-test ! -e features/simpleperf-viewer/gradlew
-! grep -R --line-number --exclude-dir=build 'dev\.agentperf' features/simpleperf-viewer/*/src
+test ! -e simpleperf-viewer/settings.gradle.kts
+test ! -e simpleperf-viewer/gradlew
+! grep -R --line-number --exclude-dir=build 'dev\.agentperf' simpleperf-viewer/*/src
 ! grep -R --line-number --exclude-dir=build 'com\.androidperformancestudio' application adb-gateway shared-kernel
 git status --short
 ```

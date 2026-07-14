@@ -14,7 +14,11 @@ Android 布局复杂度检测工具的多形态仓库。
 
 ## 当前工程边界
 
-现有代码只实现 **Desktop 方案**。协议模型、分析引擎和 Android Debug Agent 虽然按可复用边界设计，但目前只由 Desktop 方案消费，因此与其 Gradle 工程一起放在 `desktop-viewer/` 中。
+现有代码只实现 **Desktop 方案**。Desktop 工程按功能收拢代码：Layout Inspector 位于
+`desktop-viewer/layout-inspector/`，Simpleperf CPU Profiler 位于
+`desktop-viewer/simpleperf-viewer/`。`desktop-viewer/desktop-app/` 只负责主入口、原生窗口和
+打包，不承载 Layout Inspector 业务实现。协议模型、分析引擎和 Android Debug Agent 目前只由 Layout
+Inspector 消费，因此保留在该功能目录内。
 
 当 Android Studio 插件或 Web 方案开始实际复用这些模块后，再将稳定公共模块提升为仓库级独立构建，避免提前制造名义上的“共享内核”。
 

@@ -17,5 +17,12 @@ java {
 }
 
 dependencies {
-    api(project(":shared-kernel:protocol-model"))
+    api(project(":layout-inspector:shared-kernel:protocol-model"))
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

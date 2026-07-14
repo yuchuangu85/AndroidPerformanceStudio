@@ -17,7 +17,7 @@ java {
 }
 
 dependencies {
-    implementation(project(":shared-kernel:protocol-model"))
+    implementation(project(":layout-inspector:shared-kernel:protocol-model"))
     implementation(libs.kotlinx.serialization.json)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

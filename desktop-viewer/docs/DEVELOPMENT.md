@@ -16,19 +16,21 @@ AGP 9.2 uses built-in Kotlin for Android modules. Do not re-add `org.jetbrains.k
 ## Module boundaries
 
 ```text
-shared-kernel/
-  protocol-model/         transport-neutral snapshot contract and codec
-  analysis-engine/        deterministic metrics and findings
-  test-fixtures/          reusable snapshot fixtures
-  android-agent-core/     debug gate and authenticated local socket
-  android-agent-view/     traditional View hierarchy collection
-  android-agent-startup/  zero-code AndroidX Startup integration
-
-adb-gateway/              pure ADB parsing and argument-vector construction
-application/              inspector state and selection use cases
-desktop-app/              Compose Desktop presentation and native packaging
-samples/
-  android-view-app/       API 21+ zero-code Agent integration sample
+layout-inspector/
+  shared-kernel/
+    protocol-model/         transport-neutral snapshot contract and codec
+    analysis-engine/        deterministic metrics and findings
+    test-fixtures/          reusable snapshot fixtures
+    android-agent-core/     debug gate and authenticated local socket
+    android-agent-view/     traditional View hierarchy collection
+    android-agent-startup/  zero-code AndroidX Startup integration
+  adb-gateway/              pure ADB parsing and argument-vector construction
+  application/              inspector state and selection use cases
+  presentation/             embeddable Compose Desktop inspector workspace
+  samples/
+    android-view-app/       API 21+ zero-code Agent integration sample
+simpleperf-viewer/          isolated Simpleperf CPU profiler build
+desktop-app/                  process entry, native window, and packaging
 ```
 
 Dependencies flow inward: UI and platform adapters depend on application/domain modules; protocol and analysis modules do not depend on Android or Compose.
@@ -40,7 +42,7 @@ Dependencies flow inward: UI and platform adapters depend on application/domain 
 ./gradlew test
 
 # Android sample
-./gradlew :samples:android-view-app:assembleDebug
+./gradlew :layout-inspector:samples:android-view-app:assembleDebug
 
 # Desktop app image for this OS
 ./gradlew :desktop-app:createDistributable

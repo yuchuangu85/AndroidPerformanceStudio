@@ -1,5 +1,13 @@
 # Unified Desktop Home Design
 
+> **Directory-boundary amendment (2026-07-14):** Layout Inspector code now belongs to
+> `layout-inspector/` and uses the `:layout-inspector:*` Gradle namespace.
+> Simpleperf remains under `simpleperf-viewer/`. The application shell now lives at root
+> `desktop-app/`, outside both feature directories, and Layout Inspector exposes the explicit
+> `:layout-inspector:presentation` entry module.
+> References below to the former root Layout Inspector modules describe the pre-move design and
+> must not be used to recreate scattered root modules.
+
 ## Goal
 
 Turn the Layout Inspector and Simpleperf CPU Profiler into one Compose Desktop application with one Gradle build, one native package, and one window. The application opens on a home page with two feature entries. Selecting an entry opens that feature in the current window, and every feature page provides a persistent way back to the home page.
@@ -12,7 +20,7 @@ Turn the Layout Inspector and Simpleperf CPU Profiler into one Compose Desktop a
 - Selecting either entry renders the existing feature UI in the same window.
 - A fixed top navigation bar returns from either feature to the home page.
 - Returning to the home page does not discard an already-created feature workspace during the same application session.
-- Simpleperf implementation remains visibly owned by `features/simpleperf-viewer/`.
+- Simpleperf implementation remains visibly owned by `simpleperf-viewer/`.
 - Layout Inspector and Simpleperf modules do not depend on each other's implementation modules.
 - Root tests, checks, and native packaging cover the unified application.
 
@@ -27,7 +35,7 @@ The root `settings.gradle.kts` will include every Simpleperf module with a names
 - `:features:simpleperf-viewer:presentation`
 - `:features:simpleperf-viewer:app-desktop`
 
-The physical directories remain under `features/simpleperf-viewer/`, so ownership is visible in both the filesystem and Gradle project paths.
+The physical directories remain under `simpleperf-viewer/`, so ownership is visible in both the filesystem and Gradle project paths.
 
 The nested Simpleperf Gradle root files and wrapper will be removed after their configuration is migrated to the root build. Plugin and dependency versions will be resolved by the root version catalog. Kotlin, Compose, test, lint, and static-analysis configuration will use one compatible version set.
 

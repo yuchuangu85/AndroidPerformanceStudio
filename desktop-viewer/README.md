@@ -1,9 +1,11 @@
 # AndroidPerfermanceStudio
 
-AndroidPerfermanceStudio contains two deliberately isolated Compose Desktop tools:
+AndroidPerfermanceStudio contains one root desktop application shell and two deliberately isolated
+feature implementations:
 
-- **Layout Inspector** — the existing Android layout snapshot inspector in the root Gradle build.
-- **Simpleperf CPU Profiler** — an independently built capture and CPU profile analyzer under `features/simpleperf-viewer/`.
+- **Layout Inspector** — the Android layout snapshot inspector under `layout-inspector/`;
+  its embeddable desktop UI is the `presentation/` module.
+- **Simpleperf CPU Profiler** — an independently built capture and CPU profile analyzer under `simpleperf-viewer/`.
 
 The Layout Inspector foundation includes:
 
@@ -39,7 +41,9 @@ Run its checks or create its native application image without changing the Layou
 ./gradlew simpleperfCreateDistributable
 ```
 
-See [`features/README.md`](features/README.md) for the ownership and dependency boundaries between both tools.
+Directory ownership is explicit: `desktop-app/` owns the root executable, `layout-inspector/` owns
+all layout inspection implementation, and `simpleperf-viewer/` owns the isolated CPU profiler
+build. Layout Inspector and Simpleperf do not declare project dependencies on each other.
 
 Create the native application image for the current OS:
 
@@ -52,13 +56,13 @@ Create the native application image for the current OS:
 Set `ANDROID_HOME`, then build:
 
 ```bash
-./gradlew :samples:android-view-app:assembleDebug
+./gradlew :layout-inspector:samples:android-view-app:assembleDebug
 ```
 
 The sample declares the Agent only through `debugImplementation`. AndroidX Startup initializes it without changes to the sample `Application` or `Activity`.
 
 ```bash
-adb install -r samples/android-view-app/build/outputs/apk/debug/android-view-app-debug.apk
+adb install -r layout-inspector/samples/android-view-app/build/outputs/apk/debug/android-view-app-debug.apk
 adb shell am start -n dev.agentperf.sample/.MainActivity
 adb shell run-as dev.agentperf.sample cat files/agentperf/session.json
 ```
