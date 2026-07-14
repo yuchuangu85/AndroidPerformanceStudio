@@ -124,6 +124,12 @@ class SQLiteSampleStore private constructor(
             query = query,
         )
 
+    fun projectCore(request: ProfileProjectionRequest): ProfileProjectionSnapshot =
+        SQLiteProfileProjectionQueries.project(
+            store = this,
+            request = request,
+        )
+
     override fun close() {
         connection.close()
     }

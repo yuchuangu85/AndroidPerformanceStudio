@@ -11,6 +11,7 @@ import com.androidperformancestudio.model.ProfileMetadata
 import com.androidperformancestudio.model.ProfileThread
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import com.androidperformancestudio.storage.TopFunctionSort
 import kotlinx.coroutines.test.runTest
@@ -18,6 +19,7 @@ import java.nio.file.Files
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -108,6 +110,121 @@ class ReportControllerTest {
         assertEquals(session, failed.sessionDirectory)
         assertEquals(error, failed.error)
     }
+
+    @Test
+    fun `suspending report operations return after their corresponding terminal state`() =
+        runTest {
+            val controller = ReportController()
+            val session = indexedSession()
+
+            controller.openSession(session)
+            assertIs<ReportLoadState.Ready>(controller.state.value.loadState)
+
+            controller.updateThreads(setOf(101))
+            assertIs<ReportLoadState.Ready>(controller.state.value.loadState)
+
+            controller.updateEvents(setOf("cpu-cycles"))
+            assertIs<ReportLoadState.Ready>(controller.state.value.loadState)
+
+            val missing = Files.createTempDirectory("aps-report-missing-")
+            controller.openSession(missing)
+            val failed = assertIs<ReportLoadState.Failed>(controller.state.value.loadState)
+            assertEquals(missing, failed.sessionDirectory)
+            assertEquals("REPORT_DATABASE_NOT_FOUND", failed.error.code)
+        }
+
+    @Test
+    fun `session aggregates stay unfiltered while linked aggregates follow the active query`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+
+            controller.updateThreads(setOf(101))
+            controller.updateTimeRange(15, 30)
+
+            val report = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            assertEquals(3L, report.sessionOverview.sampleCount)
+            assertEquals(15L, report.sessionOverview.totalEventWeight)
+            assertEquals(listOf(101, 102), report.sessionThreads.map { it.threadId }.sorted())
+            assertEquals(1L, report.overview.sampleCount)
+            assertEquals(5L, report.overview.totalEventWeight)
+            assertEquals(listOf(101), report.topThreads.map { it.threadId })
+        }
+
+    @Test
+    fun `top function search sort direction and limit match the storage query`() =
+        runTest {
+            val session = indexedSession()
+            val controller = ReportController(topFunctionLimit = 1)
+            controller.openSession(session)
+
+            controller.updateTopFunctions(
+                search = "r",
+                sort = TopFunctionSort.EXCLUSIVE_WEIGHT,
+                descending = false,
+            )
+
+            val expected =
+                SQLiteSampleStore.open(session.resolve("profile.sqlite")).use { store ->
+                    store.topFunctions(
+                        query = ProfileQuery(),
+                        limit = 1,
+                        search = "r",
+                        sort = TopFunctionSort.EXCLUSIVE_WEIGHT,
+                        descending = false,
+                    )
+                }
+            val report = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            assertEquals(expected, report.topFunctions)
+        }
+
+    @Test
+    fun `reverse call tree remains selectable while flame graph remains forward`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+            controller.updateThreads(setOf(101))
+
+            controller.updateCallTreeDirection(CallTreeDirection.REVERSE)
+
+            val report = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            assertEquals("renderFrame", report.callTree.single { it.parentId == null }.symbolName)
+            assertEquals("runLoop", report.flameGraph.single { it.parentId == null }.symbolName)
+            assertEquals(CallTreeDirection.REVERSE, controller.state.value.callTreeDirection)
+        }
+
+    @Test
+    fun `selection searches and flame highlights survive report refreshes`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+            controller.focusFunction("renderFrame")
+            val highlighted = controller.state.value.highlightedFlameNodeIds
+            controller.focusCallTreeFunction("renderFrame")
+            controller.selectTab(ReportTab.FLAME_GRAPH)
+
+            controller.updateTimeRange(0, 40)
+            controller.updateTopFunctions("render", TopFunctionSort.SAMPLE_COUNT, descending = true)
+
+            val state = controller.state.value
+            assertIs<ReportLoadState.Ready>(state.loadState)
+            assertEquals(ReportTab.FLAME_GRAPH, state.selectedTab)
+            assertEquals("renderFrame", state.flameSearch)
+            assertEquals("renderFrame", state.callTreeSearch)
+            assertEquals(highlighted, state.highlightedFlameNodeIds)
+        }
+
+    @Test
+    fun `close releases the owned workspace and rejects later use`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+
+            controller.close()
+
+            assertIs<ReportLoadState.Closed>(controller.state.value.loadState)
+            assertFailsWith<IllegalStateException> { controller.openSession(indexedSession()) }
+        }
 
     private fun indexedSession(): java.nio.file.Path {
         val session = Files.createTempDirectory("aps-report-")

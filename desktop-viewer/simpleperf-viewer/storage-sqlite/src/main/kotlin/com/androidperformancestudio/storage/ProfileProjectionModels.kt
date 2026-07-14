@@ -29,6 +29,21 @@ data class ProfileTrackSnapshot(
     val endNanosExclusive: Long?,
 )
 
+data class ProfileProjectionRequest(
+    val query: ProfileQuery = ProfileQuery(),
+    val timelineBucketCount: Int = 600,
+    val topFunctionLimit: Int = 200,
+    val topSearch: String = "",
+    val topSort: TopFunctionSort = TopFunctionSort.INCLUSIVE_WEIGHT,
+    val topDescending: Boolean = true,
+    val callTreeDirection: CallTreeDirection = CallTreeDirection.FORWARD,
+) {
+    init {
+        require(timelineBucketCount > 0) { "timelineBucketCount must be positive" }
+        require(topFunctionLimit > 0) { "topFunctionLimit must be positive" }
+    }
+}
+
 data class ProfileProjectionSnapshot(
     val query: ProfileQuery,
     val overview: ProfileOverview,
@@ -38,4 +53,7 @@ data class ProfileProjectionSnapshot(
     val timeline: List<TimelineBucket>,
     val topFunctions: List<TopFunction>,
     val forwardCallTree: List<CallTreeNode>,
+    val sessionOverview: ProfileOverview = overview,
+    val sessionThreads: List<ThreadSummary> = threads,
+    val callTree: List<CallTreeNode> = forwardCallTree,
 )

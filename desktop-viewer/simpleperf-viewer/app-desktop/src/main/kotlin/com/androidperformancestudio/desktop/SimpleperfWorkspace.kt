@@ -2,6 +2,7 @@ package com.androidperformancestudio.desktop
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +49,9 @@ fun SimpleperfWorkspace(
             DeviceTargetController(dependencies.deviceGateway, dependencies.captureSession)
         }
     val reportController = remember { ReportController() }
+    DisposableEffect(reportController) {
+        onDispose(reportController::close)
+    }
     val sessionPackages = remember { SessionPackageService() }
     val reportExports = remember { ReportExportService() }
     val offlineImporter = remember { createOfflineImporter() }

@@ -11,6 +11,32 @@ import kotlin.test.assertTrue
 
 class SQLiteProfileProjectionQueriesTest {
     @Test
+    fun `projection request keeps session aggregates unfiltered from the panel query`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.execute("INSERT INTO thread(thread_id, process_id, name) VALUES (102, 100, 'worker')")
+            store.execute(
+                "INSERT INTO sample(timestamp_nanos, process_id, thread_id, event_id, event_count) " +
+                    "VALUES (20, 100, 102, 1, 7)",
+            )
+
+            val snapshot =
+                store.projectCore(
+                    ProfileProjectionRequest(
+                        query = ProfileQuery(threadIds = setOf(101)),
+                        timelineBucketCount = 3,
+                        topFunctionLimit = 1,
+                        callTreeDirection = CallTreeDirection.REVERSE,
+                    ),
+                )
+
+            assertEquals(2L, snapshot.sessionOverview.sampleCount)
+            assertEquals(1L, snapshot.overview.sampleCount)
+            assertEquals(listOf(101, 102), snapshot.sessionThreads.map(ThreadSummary::threadId).sorted())
+            assertEquals(listOf(101), snapshot.threads.map(ThreadSummary::threadId))
+        }
+
+    @Test
     fun `core projection groups tracks and preserves availability`() =
         withStore { store ->
             store.seedLegacyProfile(traceOffCpu = true, contextSwitchNanos = 11)

@@ -9,29 +9,42 @@ internal object SQLiteProfileProjectionQueries {
     fun project(
         store: SQLiteSampleStore,
         query: ProfileQuery,
+    ): ProfileProjectionSnapshot = project(store, ProfileProjectionRequest(query = query))
+
+    fun project(
+        store: SQLiteSampleStore,
+        request: ProfileProjectionRequest,
     ): ProfileProjectionSnapshot {
-        val frozenQuery = query.freeze()
+        val frozenQuery = request.query.freeze()
         return store.readTransaction {
             val overview = overview(frozenQuery)
+            val sessionOverview = overview()
             val quality = dataQuality()
+            val forwardCallTree = callTree(frozenQuery, CallTreeDirection.FORWARD).sortedCallTree()
             ProfileProjectionSnapshot(
                 query = frozenQuery,
                 overview = overview.copy(eventTypes = overview.eventTypes.sorted()),
                 quality = quality.sorted(),
                 tracks = coreTracks(connection, frozenQuery),
                 threads = threads(frozenQuery).sortedThreads(),
-                timeline = timelineBuckets(frozenQuery, PROJECTION_BUCKET_COUNT).sortedTimeline(),
-                topFunctions = topFunctions(frozenQuery, PROJECTION_FUNCTION_LIMIT).sortedTopFunctions(),
-                forwardCallTree =
-                    callTree(frozenQuery, CallTreeDirection.FORWARD).sortedWith(
-                        compareBy(
-                            CallTreeNode::id,
-                            { it.parentId ?: Long.MIN_VALUE },
-                            CallTreeNode::depth,
-                            CallTreeNode::symbolName,
-                            CallTreeNode::filePath,
-                        ),
+                timeline = timelineBuckets(frozenQuery, request.timelineBucketCount).sortedTimeline(),
+                topFunctions =
+                    topFunctions(
+                        query = frozenQuery,
+                        limit = request.topFunctionLimit,
+                        search = request.topSearch,
+                        sort = request.topSort,
+                        descending = request.topDescending,
                     ),
+                forwardCallTree = forwardCallTree,
+                sessionOverview = sessionOverview.copy(eventTypes = sessionOverview.eventTypes.sorted()),
+                sessionThreads = threads().sortedThreads(),
+                callTree =
+                    if (request.callTreeDirection == CallTreeDirection.FORWARD) {
+                        forwardCallTree
+                    } else {
+                        callTree(frozenQuery, CallTreeDirection.REVERSE).sortedCallTree()
+                    },
             )
         }
     }
@@ -346,9 +359,6 @@ internal object SQLiteProfileProjectionQueries {
     private const val CPU_BOUNDS_SQL =
         "SELECT $CPU_TRACK_KEY, MIN(s.timestamp_nanos), MAX(s.timestamp_nanos) FROM sample s " +
             "JOIN event e ON e.event_id=s.event_id /*FILTER*/ GROUP BY $CPU_TRACK_KEY"
-
-    private const val PROJECTION_BUCKET_COUNT = 600
-    private const val PROJECTION_FUNCTION_LIMIT = 200
 }
 
 private inline fun <T> SQLiteSampleStore.readTransaction(block: SQLiteSampleStore.() -> T): T {
@@ -395,14 +405,15 @@ private fun List<TimelineBucket>.sortedTimeline(): List<TimelineBucket> =
         ),
     )
 
-private fun List<TopFunction>.sortedTopFunctions(): List<TopFunction> =
+private fun List<CallTreeNode>.sortedCallTree(): List<CallTreeNode> =
     sortedWith(
-        compareByDescending<TopFunction> { it.inclusiveWeight }
-            .thenBy(TopFunction::symbolName)
-            .thenBy(TopFunction::filePath)
-            .thenByDescending(TopFunction::exclusiveWeight)
-            .thenByDescending(TopFunction::sampleCount)
-            .thenByDescending(TopFunction::threadCount),
+        compareBy(
+            CallTreeNode::id,
+            { it.parentId ?: Long.MIN_VALUE },
+            CallTreeNode::depth,
+            CallTreeNode::symbolName,
+            CallTreeNode::filePath,
+        ),
     )
 
 private data class CpuTrack(

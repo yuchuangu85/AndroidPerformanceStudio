@@ -4,28 +4,33 @@ import com.androidperformancestudio.analysis.AnalysisSnapshot
 import com.androidperformancestudio.analysis.DefaultDiagnosticRules
 import com.androidperformancestudio.analysis.DiagnosticEngine
 import com.androidperformancestudio.analysis.DiagnosticFinding
-import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.storage.CallTreeDirection
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.DataQualitySummary
 import com.androidperformancestudio.storage.ProfileOverview
+import com.androidperformancestudio.storage.ProfileProjectionRequest
+import com.androidperformancestudio.storage.ProfileProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
-import com.androidperformancestudio.storage.SQLiteSampleStore
 import com.androidperformancestudio.storage.ThreadSummary
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.withContext
-import java.io.IOException
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.io.Closeable
 import java.nio.file.Files
 import java.nio.file.Path
-import java.sql.SQLException
 import kotlin.io.path.isRegularFile
 
 enum class ReportTab {
@@ -111,11 +116,23 @@ data class ReportState(
 class ReportController(
     private val timelineBucketCount: Int = DEFAULT_TIMELINE_BUCKET_COUNT,
     private val topFunctionLimit: Int = DEFAULT_TOP_FUNCTION_LIMIT,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val diagnosticEngine: DiagnosticEngine = DefaultDiagnosticRules.engine(),
-) {
+    scope: CoroutineScope? = null,
+    workspaceController: ProfileWorkspaceController? = null,
+) : Closeable {
+    private val ownsScope = scope == null
+    private val controllerScope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val ownsWorkspace = workspaceController == null
+    private val workspace =
+        workspaceController ?: ProfileWorkspaceController(controllerScope, sqliteProjectionLoader(ioDispatcher))
     private val mutableState = MutableStateFlow(ReportState())
-    private var sessionDirectory: Path? = null
+    private val workspaceCollection =
+        controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            workspace.state.collect(::publishWorkspaceState)
+        }
+    private var closed = false
+
     val state: StateFlow<ReportState> = mutableState.asStateFlow()
 
     init {
@@ -124,13 +141,15 @@ class ReportController(
     }
 
     suspend fun openSession(directory: Path) {
-        sessionDirectory = directory.toAbsolutePath().normalize()
-        mutableState.value = ReportState(loadState = ReportLoadState.Loading(checkNotNull(sessionDirectory)))
-        reload()
+        check(!closed) { "ReportController is closed" }
+        val session = directory.toAbsolutePath().normalize()
+        mutableState.value = ReportState(loadState = ReportLoadState.Loading(session))
+        workspace.openSession(session, mutableState.value.projectionRequest())
+        awaitTerminal(workspace.state.value.generation)
     }
 
     fun closeSession() {
-        sessionDirectory = null
+        workspace.closeSession()
         mutableState.value = ReportState()
     }
 
@@ -138,8 +157,9 @@ class ReportController(
         directory: Path,
         error: StudioError,
     ) {
-        sessionDirectory = directory.toAbsolutePath().normalize()
-        mutableState.value = ReportState(loadState = ReportLoadState.Failed(checkNotNull(sessionDirectory), error))
+        workspace.closeSession()
+        val session = directory.toAbsolutePath().normalize()
+        mutableState.value = ReportState(loadState = ReportLoadState.Failed(session, error))
     }
 
     fun selectTab(tab: ReportTab) {
@@ -206,111 +226,98 @@ class ReportController(
             )
     }
 
+    override fun close() {
+        if (closed) return
+        closed = true
+        workspace.closeSession()
+        workspaceCollection.cancel()
+        if (ownsWorkspace) workspace.close()
+        if (ownsScope) controllerScope.cancel()
+        mutableState.value = ReportState()
+    }
+
     private suspend fun reload() {
-        val session = sessionDirectory ?: return
-        val current = mutableState.value
-        val result = withContext(ioDispatcher) { loadReport(session, current) }
-        mutableState.value =
-            when (result) {
-                is ReportLoadResult.Success -> {
+        if (workspace.state.value.sessionDirectory == null) return
+        workspace.updateProjection(mutableState.value.projectionRequest())
+        awaitTerminal(workspace.state.value.generation)
+    }
+
+    private suspend fun awaitTerminal(generation: ProfileGeneration) {
+        val terminal =
+            workspace.state.first { state ->
+                state.generation == generation &&
+                    (
+                        state.loadState is ProfileWorkspaceLoadState.Ready ||
+                            state.loadState is ProfileWorkspaceLoadState.Failed
+                    )
+            }
+        publishWorkspaceState(terminal)
+    }
+
+    private fun publishWorkspaceState(workspaceState: ProfileWorkspaceState) {
+        when (val loadState = workspaceState.loadState) {
+            is ProfileWorkspaceLoadState.Ready -> {
+                val snapshot = checkNotNull(workspaceState.snapshot)
+                val report = snapshot.toReportData(sessionSummary(loadState.sessionDirectory))
+                mutableState.update { current ->
                     val highlighted =
-                        result.report.flameGraph
+                        report.flameGraph
                             .filter {
                                 current.flameSearch.isNotBlank() &&
                                     it.symbolName.contains(current.flameSearch, ignoreCase = true)
                             }.mapTo(mutableSetOf(), ReportFlameNode::id)
                     current.copy(
-                        loadState = ReportLoadState.Ready(result.report),
+                        loadState = ReportLoadState.Ready(report),
                         highlightedFlameNodeIds = highlighted,
                     )
                 }
-                is ReportLoadResult.Failure ->
-                    current.copy(loadState = ReportLoadState.Failed(session, result.error))
             }
+            is ProfileWorkspaceLoadState.Failed ->
+                mutableState.update { current ->
+                    current.copy(loadState = ReportLoadState.Failed(loadState.sessionDirectory, loadState.error))
+                }
+            ProfileWorkspaceLoadState.Closed,
+            is ProfileWorkspaceLoadState.Loading,
+            is ProfileWorkspaceLoadState.Refreshing,
+            -> Unit
+        }
     }
 
-    @Suppress("LongMethod")
-    private fun loadReport(
-        session: Path,
-        state: ReportState,
-    ): ReportLoadResult {
-        val database = session.resolve(DATABASE_FILE)
-        if (!database.isRegularFile()) {
-            return ReportLoadResult.Failure(
-                StudioError(ErrorCategory.IO, "REPORT_DATABASE_NOT_FOUND", "Session profile.sqlite does not exist"),
-            )
-        }
-        return try {
-            SQLiteSampleStore.open(database).use { store ->
-                val forwardTree = store.callTree(state.filter, CallTreeDirection.FORWARD)
-                val overview = store.overview(state.filter)
-                val quality = store.dataQuality()
-                val topThreads = store.threads(state.filter)
-                val topFunctions =
-                    store.topFunctions(
-                        query = state.filter,
-                        limit = topFunctionLimit,
-                        search = state.topSearch,
-                        sort = state.topSort,
-                        descending = state.topDescending,
-                    )
-                ReportLoadResult.Success(
-                    ReportData(
-                        session = sessionSummary(session),
-                        sessionOverview = store.overview(),
-                        overview = overview,
-                        quality = quality,
-                        sessionThreads = store.threads(),
-                        topThreads = topThreads,
-                        topFunctions = topFunctions,
-                        timeline = store.timelineBuckets(state.filter, timelineBucketCount),
-                        callTree =
-                            if (state.callTreeDirection == CallTreeDirection.FORWARD) {
-                                forwardTree
-                            } else {
-                                store.callTree(state.filter, CallTreeDirection.REVERSE)
-                            },
-                        flameGraph = forwardTree.toFlameGraph(),
-                        diagnostics =
-                            diagnosticEngine.analyze(
-                                AnalysisSnapshot(overview, quality, topThreads, topFunctions),
-                            ),
-                    ),
-                )
-            }
-        } catch (exception: SQLException) {
-            ReportLoadResult.Failure(
-                StudioError(
-                    ErrorCategory.DATA_VALIDATION,
-                    "REPORT_QUERY_FAILED",
-                    "Failed to query report database",
-                    exception,
+    private fun ProfileProjectionSnapshot.toReportData(session: ReportSessionSummary): ReportData =
+        ReportData(
+            session = session,
+            sessionOverview = sessionOverview,
+            overview = overview,
+            quality = quality,
+            sessionThreads = sessionThreads,
+            topThreads = threads,
+            topFunctions = topFunctions,
+            timeline = timeline,
+            callTree = callTree,
+            flameGraph = forwardCallTree.toFlameGraph(),
+            diagnostics =
+                diagnosticEngine.analyze(
+                    AnalysisSnapshot(overview, quality, threads, topFunctions),
                 ),
-            )
-        } catch (exception: IOException) {
-            ReportLoadResult.Failure(
-                StudioError(ErrorCategory.IO, "REPORT_SESSION_READ_FAILED", "Failed to read report session", exception),
-            )
-        }
-    }
+        )
+
+    private fun ReportState.projectionRequest(): ProfileProjectionRequest =
+        ProfileProjectionRequest(
+            query = filter,
+            timelineBucketCount = timelineBucketCount,
+            topFunctionLimit = topFunctionLimit,
+            topSearch = topSearch,
+            topSort = topSort,
+            topDescending = topDescending,
+            callTreeDirection = callTreeDirection,
+        )
 
     companion object {
         const val WEIGHT_SEMANTICS =
             "Widths and percentages are sample/event weights; they are not exact wall-clock durations."
-        private const val DATABASE_FILE = "profile.sqlite"
         private const val DEFAULT_TIMELINE_BUCKET_COUNT = 600
         private const val DEFAULT_TOP_FUNCTION_LIMIT = 200
     }
-}
-
-private sealed interface ReportLoadResult {
-    data class Success(
-        val report: ReportData,
-    ) : ReportLoadResult
-
-    data class Failure(
-        val error: StudioError,
-    ) : ReportLoadResult
 }
 
 private fun sessionSummary(directory: Path): ReportSessionSummary =
