@@ -21,11 +21,13 @@ import java.util.concurrent.atomic.AtomicLong
 class ProfileWorkspaceController(
     scope: CoroutineScope,
     loader: ProfileProjectionLoader = sqliteProjectionLoader(),
+    private val migrator: ProfileSessionMigrator = ProfileSessionMigrator(),
 ) : Closeable {
     private val mutableState = MutableStateFlow(ProfileWorkspaceState())
     private val coordinator = ProfileQueryCoordinator(scope, loader)
     private val collectionJobs: List<Job>
     private var closed = false
+    private var databaseLocation: Path? = null
     private val lastGeneration = AtomicLong()
 
     val state: StateFlow<ProfileWorkspaceState> = mutableState.asStateFlow()
@@ -53,16 +55,19 @@ class ProfileWorkspaceController(
     ) {
         check(!closed) { "ProfileWorkspaceController is closed" }
         val session = directory.toAbsolutePath().normalize()
+        val prepared = migrator.prepare(session)
+        databaseLocation = prepared.database
         val query = request.query.freeze()
         val generation = nextGeneration()
         mutableState.value =
             ProfileWorkspaceState(
                 generation = generation,
                 sessionDirectory = session,
+                sessionMode = prepared.mode,
                 query = query,
                 loadState = ProfileWorkspaceLoadState.Loading(session),
             )
-        coordinator.submit(session, generation, request.copy(query = query))
+        coordinator.submit(prepared.database, generation, request.copy(query = query))
     }
 
     fun updateQuery(query: ProfileQuery) {
@@ -72,16 +77,18 @@ class ProfileWorkspaceController(
     @Synchronized
     fun updateProjection(request: ProfileProjectionRequest) {
         check(!closed) { "ProfileWorkspaceController is closed" }
-        val session = checkNotNull(mutableState.value.sessionDirectory) { "No profile session is open" }
+        checkNotNull(mutableState.value.sessionDirectory) { "No profile session is open" }
+        val database = checkNotNull(databaseLocation) { "No profile database is open" }
         val frozenRequest = request.copy(query = request.query.freeze())
         val next = mutableState.value.request(frozenRequest.query).copy(generation = nextGeneration())
         mutableState.value = next
-        coordinator.submit(session, next.generation, frozenRequest)
+        coordinator.submit(database, next.generation, frozenRequest)
     }
 
     @Synchronized
     fun closeSession() {
         coordinator.cancel()
+        databaseLocation = null
         mutableState.value = ProfileWorkspaceState()
     }
 
@@ -91,6 +98,7 @@ class ProfileWorkspaceController(
         closed = true
         coordinator.close()
         collectionJobs.forEach(Job::cancel)
+        databaseLocation = null
         mutableState.value = ProfileWorkspaceState()
     }
 

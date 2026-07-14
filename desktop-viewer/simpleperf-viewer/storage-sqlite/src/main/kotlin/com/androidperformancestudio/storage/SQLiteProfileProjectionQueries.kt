@@ -54,22 +54,27 @@ internal object SQLiteProfileProjectionQueries {
         query: ProfileQuery,
     ): List<ProfileTrackSnapshot> =
         buildList {
-            val cpuTracks = cpuTracks(connection, query)
+            val legacy = connection.isLegacySchema()
+            val cpuTracks = cpuTracks(connection, query, legacy)
             addAll(cpuTracks.map(CpuTrack::snapshot))
             addAll(contextSwitchTracks(connection, query, cpuTracks))
-            addAll(threadFactTracks(connection, query, ThreadFactKind.MARKER))
-            addAll(globalFactTracks(connection, query, GlobalFactKind.COUNTER))
-            addAll(threadFactTracks(connection, query, ThreadFactKind.SLICE))
-            addAll(globalFactTracks(connection, query, GlobalFactKind.SCREENSHOT))
+            if (!legacy) {
+                addAll(threadFactTracks(connection, query, ThreadFactKind.MARKER))
+                addAll(globalFactTracks(connection, query, GlobalFactKind.COUNTER))
+                addAll(threadFactTracks(connection, query, ThreadFactKind.SLICE))
+                addAll(globalFactTracks(connection, query, GlobalFactKind.SCREENSHOT))
+            }
         }.sortedWith(compareBy<ProfileTrackSnapshot>({ it.kind.ordinal }, ProfileTrackSnapshot::id))
 
     private fun cpuTracks(
         connection: Connection,
         query: ProfileQuery,
+        legacy: Boolean,
     ): List<CpuTrack> {
         val baseFilter = threadFilter(query, "s.thread_id")
+        val tracksSql = if (legacy) LEGACY_CPU_TRACKS_SQL else CPU_TRACKS_SQL
         val base =
-            connection.prepareStatement(CPU_TRACKS_SQL.replace("/*FILTER*/", baseFilter.whereClause)).use { statement ->
+            connection.prepareStatement(tracksSql.replace("/*FILTER*/", baseFilter.whereClause)).use { statement ->
                 statement.bind(baseFilter.parameters)
                 statement.executeQuery().use { result ->
                     buildList {
@@ -77,7 +82,7 @@ internal object SQLiteProfileProjectionQueries {
                     }
                 }
             }
-        val filtered = sampleBounds(connection, query)
+        val filtered = sampleBounds(connection, query, legacy)
         return base.map { track ->
             val bounds = filtered[track.key]
             track.copy(
@@ -92,10 +97,12 @@ internal object SQLiteProfileProjectionQueries {
     private fun sampleBounds(
         connection: Connection,
         query: ProfileQuery,
+        legacy: Boolean,
     ): Map<String, Pair<Long, Long>> {
         val filter = query.toSqlFilter("s", "e")
+        val boundsSql = if (legacy) LEGACY_CPU_BOUNDS_SQL else CPU_BOUNDS_SQL
         return connection
-            .prepareStatement(CPU_BOUNDS_SQL.replace("/*FILTER*/", filter.whereClause))
+            .prepareStatement(boundsSql.replace("/*FILTER*/", filter.whereClause))
             .use { statement ->
                 statement.bind(filter.parameters)
                 statement.executeQuery().use { result ->
@@ -359,6 +366,15 @@ internal object SQLiteProfileProjectionQueries {
     private const val CPU_BOUNDS_SQL =
         "SELECT $CPU_TRACK_KEY, MIN(s.timestamp_nanos), MAX(s.timestamp_nanos) FROM sample s " +
             "JOIN event e ON e.event_id=s.event_id /*FILTER*/ GROUP BY $CPU_TRACK_KEY"
+
+    private const val LEGACY_CPU_TRACKS_SQL =
+        "SELECT 'legacy:' || s.thread_id, NULL, t.process_id, t.thread_id FROM sample s " +
+            "JOIN thread t ON t.thread_id=s.thread_id /*FILTER*/ " +
+            "GROUP BY s.thread_id, t.process_id, t.thread_id"
+
+    private const val LEGACY_CPU_BOUNDS_SQL =
+        "SELECT 'legacy:' || s.thread_id, MIN(s.timestamp_nanos), MAX(s.timestamp_nanos) FROM sample s " +
+            "JOIN event e ON e.event_id=s.event_id /*FILTER*/ GROUP BY s.thread_id"
 }
 
 private inline fun <T> SQLiteSampleStore.readTransaction(block: SQLiteSampleStore.() -> T): T {

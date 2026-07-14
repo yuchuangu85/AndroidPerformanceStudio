@@ -12,7 +12,8 @@ internal object SQLiteCallTreeQueries {
         val filter = query.toSqlFilter("s", "e")
         val ordering = if (direction == CallTreeDirection.FORWARD) "DESC" else "ASC"
         val sql =
-            STACK_ROWS_SQL.replace("/*FILTER*/", filter.whereClause) +
+            (if (connection.isLegacySchema()) LEGACY_STACK_ROWS_SQL else STACK_ROWS_SQL)
+                .replace("/*FILTER*/", filter.whereClause) +
                 " ORDER BY st.sample_id, st.depth $ordering"
         val builder = CallTreeBuilder()
         connection.prepareStatement(sql).use { statement ->
@@ -41,6 +42,20 @@ internal object SQLiteCallTreeQueries {
             "SELECT s.sample_id, s.event_count, " +
             "CASE WHEN s.thread_row_id IS NULL THEN 'legacy:' || s.thread_id " +
             "ELSE 'canonical:' || s.thread_row_id END, s.leaf_callsite_id " +
+            "FROM sample s JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
+            "), stack(sample_id, event_count, thread_key, callsite_id, depth) AS (" +
+            "SELECT sample_id, event_count, thread_key, callsite_id, 0 FROM filtered_samples " +
+            "WHERE callsite_id IS NOT NULL UNION ALL " +
+            "SELECT st.sample_id, st.event_count, st.thread_key, c.parent_id, st.depth + 1 FROM stack st " +
+            "JOIN callsite c ON c.callsite_id=st.callsite_id WHERE c.parent_id IS NOT NULL" +
+            ") SELECT st.sample_id, st.event_count, st.thread_key, st.depth, c.frame_id, sy.name, fi.path " +
+            "FROM stack st JOIN callsite c ON c.callsite_id=st.callsite_id " +
+            "JOIN frame f ON f.frame_id=c.frame_id JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
+            "JOIN file fi ON fi.file_id=f.file_id"
+
+    private const val LEGACY_STACK_ROWS_SQL =
+        "WITH RECURSIVE filtered_samples(sample_id, event_count, thread_key, callsite_id) AS (" +
+            "SELECT s.sample_id, s.event_count, 'legacy:' || s.thread_id, s.leaf_callsite_id " +
             "FROM sample s JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
             "), stack(sample_id, event_count, thread_key, callsite_id, depth) AS (" +
             "SELECT sample_id, event_count, thread_key, callsite_id, 0 FROM filtered_samples " +

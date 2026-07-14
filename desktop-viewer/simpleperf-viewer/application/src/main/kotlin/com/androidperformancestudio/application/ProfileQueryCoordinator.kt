@@ -153,7 +153,12 @@ fun sqliteProjectionLoader(ioDispatcher: CoroutineDispatcher = Dispatchers.IO): 
             request: ProfileProjectionRequest,
         ): ProfileProjectionSnapshot =
             withContext(ioDispatcher) {
-                val database = sessionDirectory.resolve("profile.sqlite")
+                val database =
+                    if (sessionDirectory.isRegularFile()) {
+                        sessionDirectory
+                    } else {
+                        sessionDirectory.resolve("profile.sqlite")
+                    }
                 if (!database.isRegularFile()) {
                     throw ProfileProjectionLoadException(
                         StudioError(
@@ -164,7 +169,14 @@ fun sqliteProjectionLoader(ioDispatcher: CoroutineDispatcher = Dispatchers.IO): 
                     )
                 }
                 try {
-                    SQLiteSampleStore.open(database).use { store -> store.projectCore(request) }
+                    val version = SQLiteSampleStore.schemaVersion(database)
+                    val store =
+                        if (version < 2) {
+                            SQLiteSampleStore.openReadOnly(database)
+                        } else {
+                            SQLiteSampleStore.open(database)
+                        }
+                    store.use { it.projectCore(request) }
                 } catch (failure: SQLException) {
                     throw ProfileProjectionLoadException(
                         StudioError(

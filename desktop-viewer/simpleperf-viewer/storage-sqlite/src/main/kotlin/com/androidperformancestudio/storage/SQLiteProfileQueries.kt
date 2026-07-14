@@ -27,6 +27,31 @@ internal object SQLiteProfileQueries {
         query: ProfileQuery,
     ): List<ThreadSummary> {
         val filter = query.toSqlFilter("s", "e")
+        if (connection.isLegacySchema()) {
+            val sql =
+                "SELECT t.process_id, t.thread_id, t.name, COUNT(*), SUM(s.event_count) FROM sample s " +
+                    "JOIN thread t ON t.thread_id=s.thread_id JOIN event e ON e.event_id=s.event_id " +
+                    "${filter.whereClause} GROUP BY t.process_id, t.thread_id, t.name " +
+                    "ORDER BY SUM(s.event_count) DESC, t.thread_id"
+            return connection.prepareStatement(sql).use { statement ->
+                statement.bind(filter.parameters)
+                statement.executeQuery().use { result ->
+                    buildList {
+                        while (result.next()) {
+                            add(
+                                ThreadSummary(
+                                    result.getInt(1),
+                                    result.getInt(2),
+                                    result.getString(3),
+                                    result.getLong(4),
+                                    result.getLong(5),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
         val threadKey =
             "CASE WHEN pt.thread_row_id IS NULL THEN 'legacy:' || s.thread_id " +
                 "ELSE 'canonical:' || pt.thread_row_id END"
@@ -76,7 +101,7 @@ internal object SQLiteProfileQueries {
         val direction = if (options.descending) "DESC" else "ASC"
         val order = options.sort.sqlColumn()
         val sql =
-            TOP_FUNCTIONS_SQL
+            (if (connection.isLegacySchema()) LEGACY_TOP_FUNCTIONS_SQL else TOP_FUNCTIONS_SQL)
                 .replace("/*FILTER*/", filter.whereClause) +
                 " $searchClause ORDER BY $order $direction, sy.name ASC, fi.path ASC, " +
                 "i.weight DESC, COALESCE(x.weight, 0) DESC, i.samples DESC, i.threads DESC LIMIT ?"
@@ -113,6 +138,27 @@ internal object SQLiteProfileQueries {
         query: ProfileQuery,
     ): ProfileOverview {
         val filter = query.toSqlFilter("s", "e")
+        if (connection.isLegacySchema()) {
+            val sql =
+                "SELECT MIN(s.timestamp_nanos), MAX(s.timestamp_nanos), COUNT(*), " +
+                    "COALESCE(SUM(s.event_count), 0), COUNT(DISTINCT s.process_id), COUNT(DISTINCT s.thread_id) " +
+                    "FROM sample s JOIN event e ON e.event_id=s.event_id ${filter.whereClause}"
+            return connection.prepareStatement(sql).use { statement ->
+                statement.bind(filter.parameters)
+                statement.executeQuery().use { result ->
+                    check(result.next())
+                    ProfileOverview(
+                        startNanos = result.getNullableLong(1),
+                        endNanosInclusive = result.getNullableLong(2),
+                        sampleCount = result.getLong(3),
+                        totalEventWeight = result.getLong(4),
+                        processCount = result.getLong(5),
+                        threadCount = result.getLong(6),
+                        eventTypes = eventTypes(connection, query),
+                    )
+                }
+            }
+        }
         val sql =
             "SELECT MIN(s.timestamp_nanos), MAX(s.timestamp_nanos), COUNT(*), " +
                 "COALESCE(SUM(s.event_count), 0), " +
@@ -245,7 +291,30 @@ internal object SQLiteProfileQueries {
             "FROM inclusive i JOIN frame f ON f.frame_id=i.frame_id " +
             "JOIN symbol sy ON sy.symbol_id=f.symbol_id JOIN file fi ON fi.file_id=f.file_id " +
             "LEFT JOIN exclusive x ON x.frame_id=i.frame_id"
+
+    private const val LEGACY_TOP_FUNCTIONS_SQL =
+        "WITH RECURSIVE filtered_samples(sample_id, event_count, thread_key, callsite_id) AS (" +
+            "SELECT s.sample_id, s.event_count, 'legacy:' || s.thread_id, s.leaf_callsite_id " +
+            "FROM sample s JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
+            "), stack(sample_id, event_count, thread_key, callsite_id) AS (" +
+            "SELECT sample_id, event_count, thread_key, callsite_id FROM filtered_samples " +
+            "WHERE callsite_id IS NOT NULL UNION ALL " +
+            "SELECT st.sample_id, st.event_count, st.thread_key, c.parent_id FROM stack st " +
+            "JOIN callsite c ON c.callsite_id=st.callsite_id WHERE c.parent_id IS NOT NULL" +
+            "), inclusive AS (" +
+            "SELECT c.frame_id, SUM(st.event_count) weight, COUNT(DISTINCT st.sample_id) samples, " +
+            "COUNT(DISTINCT st.thread_key) threads FROM stack st " +
+            "JOIN callsite c ON c.callsite_id=st.callsite_id GROUP BY c.frame_id" +
+            "), exclusive AS (" +
+            "SELECT c.frame_id, SUM(fs.event_count) weight FROM filtered_samples fs " +
+            "JOIN callsite c ON c.callsite_id=fs.callsite_id GROUP BY c.frame_id" +
+            ") SELECT sy.name, fi.path, i.weight, COALESCE(x.weight, 0), i.samples, i.threads " +
+            "FROM inclusive i JOIN frame f ON f.frame_id=i.frame_id " +
+            "JOIN symbol sy ON sy.symbol_id=f.symbol_id JOIN file fi ON fi.file_id=f.file_id " +
+            "LEFT JOIN exclusive x ON x.frame_id=i.frame_id"
 }
+
+internal fun Connection.isLegacySchema(): Boolean = singleInt("PRAGMA user_version") < 2
 
 internal data class SqlFilter(
     val whereClause: String,

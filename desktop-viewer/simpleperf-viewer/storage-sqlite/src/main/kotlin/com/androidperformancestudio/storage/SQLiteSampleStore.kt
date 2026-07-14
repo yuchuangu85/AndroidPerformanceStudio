@@ -10,6 +10,7 @@ import java.io.Closeable
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.SQLException
 
 @Suppress("TooManyFunctions")
 class SQLiteSampleStore private constructor(
@@ -76,7 +77,16 @@ class SQLiteSampleStore private constructor(
         require(batchSize > 0) { "batchSize must be positive" }
         check(connection.autoCommit) { "A record import is already active" }
         connection.autoCommit = false
-        return SQLiteProfileRecordWriter(connection, batchSize)
+        return try {
+            SQLiteProfileRecordWriter(connection, batchSize)
+        } catch (failure: SQLException) {
+            try {
+                connection.rollback()
+            } finally {
+                connection.autoCommit = true
+            }
+            throw failure
+        }
     }
 
     fun sampleCount(query: ProfileQuery = ProfileQuery()): Long = SQLiteProfileQueries.sampleCount(connection, query)
@@ -86,6 +96,15 @@ class SQLiteSampleStore private constructor(
     fun callsiteCount(): Long = connection.singleLong("SELECT COUNT(*) FROM callsite")
 
     fun journalMode(): String = connection.singleString("PRAGMA journal_mode")
+
+    fun checkpointWal() {
+        connection.createStatement().use { statement ->
+            statement.executeQuery("PRAGMA wal_checkpoint(TRUNCATE)").use { result ->
+                check(result.next())
+                check(result.getInt(1) == 0) { "SQLite WAL checkpoint was busy" }
+            }
+        }
+    }
 
     fun threads(query: ProfileQuery = ProfileQuery()): List<ThreadSummary> = queryThreads(connection, query)
 
@@ -152,6 +171,22 @@ class SQLiteSampleStore private constructor(
             SQLiteSchema.migrate(connection)
             return SQLiteSampleStore(connection)
         }
+
+        fun openReadOnly(databasePath: Path): SQLiteSampleStore {
+            Class.forName("org.sqlite.JDBC")
+            val connection = DriverManager.getConnection(readOnlyJdbcUrl(databasePath))
+            connection.createStatement().use { statement ->
+                statement.execute("PRAGMA query_only=ON")
+                statement.execute("PRAGMA foreign_keys=ON")
+                statement.execute("PRAGMA temp_store=MEMORY")
+            }
+            return SQLiteSampleStore(connection)
+        }
+
+        fun schemaVersion(databasePath: Path): Int = openReadOnly(databasePath).use(SQLiteSampleStore::schemaVersion)
+
+        private fun readOnlyJdbcUrl(databasePath: Path): String =
+            "jdbc:sqlite:${databasePath.toAbsolutePath().toUri().toASCIIString()}?mode=ro"
 
         private fun configure(connection: Connection) {
             connection.createStatement().use { statement ->
