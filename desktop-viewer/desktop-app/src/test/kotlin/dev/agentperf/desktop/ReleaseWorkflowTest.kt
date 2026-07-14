@@ -24,7 +24,11 @@ class ReleaseWorkflowTest {
         val workflow = Files.readString(workflowPath)
 
         assertTrue(workflow.contains("test:"))
-        assertTrue(workflow.contains("./desktop-viewer/gradlew -p desktop-viewer test --no-daemon"))
+        assertTrue(
+            workflow.contains(
+                "./desktop-viewer/gradlew -p desktop-viewer test simpleperfCheck --no-daemon",
+            ),
+        )
         assertTrue(workflow.contains("package-windows:"))
         assertTrue(workflow.contains("runs-on: windows-latest"))
         assertTrue(workflow.contains(":desktop-app:packageMsi"))

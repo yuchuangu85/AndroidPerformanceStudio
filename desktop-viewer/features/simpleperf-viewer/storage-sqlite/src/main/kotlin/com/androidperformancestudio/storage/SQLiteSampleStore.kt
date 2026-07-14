@@ -1,0 +1,172 @@
+package com.androidperformancestudio.storage
+
+import com.androidperformancestudio.model.NormalizedProfileRecord
+import com.androidperformancestudio.model.NormalizedSample
+import com.androidperformancestudio.model.ProfileExecutionType
+import com.androidperformancestudio.model.ProfileFrame
+import com.androidperformancestudio.model.ProfileSample
+import java.io.Closeable
+import java.nio.file.Path
+import java.sql.Connection
+import java.sql.DriverManager
+
+@Suppress("TooManyFunctions")
+class SQLiteSampleStore private constructor(
+    internal val connection: Connection,
+) : Closeable {
+    fun schemaVersion(): Int = connection.singleInt("PRAGMA user_version")
+
+    fun importSamples(
+        samples: Sequence<ProfileSample>,
+        batchSize: Int = DEFAULT_BATCH_SIZE,
+    ): SampleImportResult {
+        val result =
+            importRecords(
+                samples.map { sample ->
+                    NormalizedProfileRecord.Sample(
+                        NormalizedSample(
+                            timestampNanos = sample.timestampNanos,
+                            processId = sample.processId,
+                            threadId = sample.threadId,
+                            threadName = "<unknown-thread:${sample.threadId}>",
+                            eventType = sample.eventType,
+                            eventCount = sample.eventCount,
+                            frames =
+                                listOf(
+                                    ProfileFrame(
+                                        virtualAddress = 0,
+                                        fileId = LEGACY_FILE_ID,
+                                        symbolId = LEGACY_SYMBOL_ID,
+                                        filePath = LEGACY_FILE_PATH,
+                                        symbolName = sample.symbolName,
+                                        executionType = ProfileExecutionType.NATIVE,
+                                    ),
+                                ),
+                            unwindError = null,
+                        ),
+                    )
+                },
+                batchSize,
+            )
+        return SampleImportResult(result.importedSamples, result.committedBatches)
+    }
+
+    fun importRecords(
+        records: Sequence<NormalizedProfileRecord>,
+        batchSize: Int = DEFAULT_BATCH_SIZE,
+    ): ProfileImportResult {
+        beginRecordImport(batchSize).use { writer ->
+            records.forEach(writer::add)
+            return writer.finish()
+        }
+    }
+
+    fun beginRecordImport(batchSize: Int = DEFAULT_BATCH_SIZE): SQLiteProfileRecordWriter {
+        require(batchSize > 0) { "batchSize must be positive" }
+        check(connection.autoCommit) { "A record import is already active" }
+        connection.autoCommit = false
+        return SQLiteProfileRecordWriter(connection, batchSize)
+    }
+
+    fun sampleCount(query: ProfileQuery = ProfileQuery()): Long = SQLiteProfileQueries.sampleCount(connection, query)
+
+    fun frameCount(): Long = connection.singleLong("SELECT COUNT(*) FROM frame")
+
+    fun callsiteCount(): Long = connection.singleLong("SELECT COUNT(*) FROM callsite")
+
+    fun journalMode(): String = connection.singleString("PRAGMA journal_mode")
+
+    fun threads(query: ProfileQuery = ProfileQuery()): List<ThreadSummary> = queryThreads(connection, query)
+
+    fun topFunctions(
+        query: ProfileQuery = ProfileQuery(),
+        limit: Int,
+        search: String = "",
+        sort: TopFunctionSort = TopFunctionSort.INCLUSIVE_WEIGHT,
+        descending: Boolean = true,
+    ): List<TopFunction> =
+        SQLiteProfileQueries.topFunctions(
+            connection,
+            query,
+            TopFunctionOptions(limit, search, sort, descending),
+        )
+
+    fun topSymbols(limit: Int): List<SymbolWeight> = topFunctions(limit = limit).weights()
+
+    fun dataQuality(): DataQualitySummary = SQLiteProfileQueries.dataQuality(connection)
+
+    fun overview(query: ProfileQuery = ProfileQuery()): ProfileOverview = queryOverview(connection, query)
+
+    fun timelineBuckets(
+        query: ProfileQuery = ProfileQuery(),
+        bucketCount: Int,
+    ): List<TimelineBucket> = SQLiteProfileQueries.timelineBuckets(connection, query, bucketCount)
+
+    fun callTree(
+        query: ProfileQuery = ProfileQuery(),
+        direction: CallTreeDirection,
+    ): List<CallTreeNode> = SQLiteCallTreeQueries.aggregate(connection, query, direction)
+
+    override fun close() {
+        connection.close()
+    }
+
+    companion object {
+        const val DEFAULT_BATCH_SIZE = 10_000
+        private const val LEGACY_FILE_ID = -1
+        private const val LEGACY_SYMBOL_ID = -1
+        private const val LEGACY_FILE_PATH = "<legacy>"
+
+        fun open(databasePath: Path): SQLiteSampleStore {
+            Class.forName("org.sqlite.JDBC")
+            databasePath
+                .toAbsolutePath()
+                .parent
+                ?.toFile()
+                ?.mkdirs()
+            val connection = DriverManager.getConnection("jdbc:sqlite:${databasePath.toAbsolutePath()}")
+            configure(connection)
+            SQLiteSchema.migrate(connection)
+            return SQLiteSampleStore(connection)
+        }
+
+        private fun configure(connection: Connection) {
+            connection.createStatement().use { statement ->
+                statement.execute("PRAGMA foreign_keys=ON")
+                statement.execute("PRAGMA journal_mode=WAL")
+                statement.execute("PRAGMA synchronous=NORMAL")
+                statement.execute("PRAGMA temp_store=MEMORY")
+            }
+        }
+    }
+}
+
+internal fun Connection.singleLong(sql: String): Long =
+    createStatement().use { statement ->
+        statement.executeQuery(sql).use { result ->
+            check(result.next())
+            result.getLong(1)
+        }
+    }
+
+internal fun Connection.singleInt(sql: String): Int = singleLong(sql).toInt()
+
+internal fun Connection.singleString(sql: String): String =
+    createStatement().use { statement ->
+        statement.executeQuery(sql).use { result ->
+            check(result.next())
+            result.getString(1)
+        }
+    }
+
+private fun queryThreads(
+    connection: Connection,
+    query: ProfileQuery,
+): List<ThreadSummary> = SQLiteProfileQueries.threads(connection, query)
+
+private fun queryOverview(
+    connection: Connection,
+    query: ProfileQuery,
+): ProfileOverview = SQLiteProfileQueries.overview(connection, query)
+
+private fun List<TopFunction>.weights(): List<SymbolWeight> = map { SymbolWeight(it.symbolName, it.inclusiveWeight) }

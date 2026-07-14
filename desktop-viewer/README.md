@@ -1,6 +1,11 @@
 # AndroidPerfermanceStudio
 
-AndroidPerfermanceStudio is a Compose Desktop inspector for Android layout snapshots. The current foundation release includes:
+AndroidPerfermanceStudio contains two deliberately isolated Compose Desktop tools:
+
+- **Layout Inspector** — the existing Android layout snapshot inspector in the root Gradle build.
+- **Simpleperf CPU Profiler** — an independently built capture and CPU profile analyzer under `features/simpleperf-viewer/`.
+
+The Layout Inspector foundation includes:
 
 - a versioned JSON snapshot protocol;
 - deterministic hierarchy metrics and findings;
@@ -20,6 +25,21 @@ Prerequisites:
 ```bash
 ./gradlew :desktop-app:run
 ```
+
+Run the independently isolated Simpleperf CPU Profiler:
+
+```bash
+./gradlew simpleperfRun
+```
+
+Run its checks or create its native application image without changing the Layout Inspector build:
+
+```bash
+./gradlew simpleperfCheck
+./gradlew simpleperfCreateDistributable
+```
+
+See [`features/README.md`](features/README.md) for the ownership and dependency boundaries between both tools.
 
 Create the native application image for the current OS:
 

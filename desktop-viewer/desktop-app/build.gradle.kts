@@ -56,6 +56,8 @@ compose.desktop {
         jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")
         jvmArgs("-Dagentperf.version=$appVersion")
         nativeDistributions {
+            // The minimized jpackage runtime cannot infer JdkAiHttpTransport's reflective HTTP usage.
+            modules("java.net.http")
             targetFormats(
                 TargetFormat.Dmg,
                 TargetFormat.Pkg,

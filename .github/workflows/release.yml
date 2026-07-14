@@ -89,7 +89,7 @@ jobs:
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
       - name: Run tests
-        run: ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
+        run: ./desktop-viewer/gradlew -p desktop-viewer test simpleperfCheck --no-daemon
 
   package-windows:
     name: Package Windows MSI and EXE

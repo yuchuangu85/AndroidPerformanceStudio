@@ -28,3 +28,9 @@ include(
     ":desktop-app",
     ":samples:android-view-app",
 )
+
+// CPU profiling is intentionally kept as an isolated composite build. Its plugin versions,
+// dependencies, packages, tests, and native application lifecycle do not leak into the layout viewer.
+includeBuild("features/simpleperf-viewer") {
+    name = "simpleperf-viewer"
+}

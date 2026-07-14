@@ -1,0 +1,168 @@
+package com.androidperformancestudio.application
+
+import com.androidperformancestudio.analysis.DiagnosticTarget
+import com.androidperformancestudio.model.ErrorCategory
+import com.androidperformancestudio.model.NormalizedProfileRecord
+import com.androidperformancestudio.model.NormalizedSample
+import com.androidperformancestudio.model.ProfileExecutionType
+import com.androidperformancestudio.model.ProfileFile
+import com.androidperformancestudio.model.ProfileFrame
+import com.androidperformancestudio.model.ProfileMetadata
+import com.androidperformancestudio.model.ProfileThread
+import com.androidperformancestudio.model.StudioError
+import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.storage.SQLiteSampleStore
+import com.androidperformancestudio.storage.TopFunctionSort
+import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
+import kotlin.io.path.writeText
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+
+class ReportControllerTest {
+    @Test
+    fun `opens indexed session into overview timeline tree and flame report`() =
+        runTest {
+            val session = indexedSession()
+            val controller = ReportController(timelineBucketCount = 3)
+
+            controller.openSession(session)
+
+            val ready = assertIs<ReportLoadState.Ready>(controller.state.value.loadState)
+            assertEquals(session, ready.report.session.directory)
+            assertEquals(3L, ready.report.overview.sampleCount)
+            assertEquals(15L, ready.report.overview.totalEventWeight)
+            assertEquals(2, ready.report.topThreads.size)
+            assertEquals(listOf(3L, 5L, 7L), ready.report.timeline.map { it.eventWeight })
+            assertEquals(
+                "runLoop",
+                ready.report.callTree
+                    .single { it.parentId == null }
+                    .symbolName,
+            )
+            assertEquals(
+                15L,
+                ready.report.flameGraph
+                    .single { it.parentId == null }
+                    .inclusiveWeight,
+            )
+            assertTrue(
+                ready.report.session.artifacts
+                    .any { it.name == "perf.data" && it.exists },
+            )
+            assertTrue(ready.report.diagnostics.any { it.ruleId == "data-quality" })
+            assertIs<DiagnosticTarget.Function>(
+                ready.report.diagnostics
+                    .first { it.ruleId == "cpu-hotspot" }
+                    .target,
+            )
+            assertEquals(ReportTab.OVERVIEW, controller.state.value.selectedTab)
+        }
+
+    @Test
+    fun `time thread top search and tree direction filters recompute linked report`() =
+        runTest {
+            val controller = ReportController(timelineBucketCount = 2)
+            controller.openSession(indexedSession())
+
+            controller.updateTimeRange(15, 30)
+            controller.updateThreads(setOf(101))
+            controller.updateTopFunctions("render", TopFunctionSort.EXCLUSIVE_WEIGHT, descending = true)
+            controller.updateCallTreeDirection(CallTreeDirection.REVERSE)
+
+            val state = controller.state.value
+            val report = assertIs<ReportLoadState.Ready>(state.loadState).report
+            assertEquals(1L, report.overview.sampleCount)
+            assertEquals(5L, report.overview.totalEventWeight)
+            assertEquals(listOf("renderFrame"), report.topFunctions.map { it.symbolName })
+            assertEquals("renderFrame", report.callTree.single { it.parentId == null }.symbolName)
+            assertEquals(5L, report.flameGraph.single { it.parentId == null }.inclusiveWeight)
+            assertEquals(15L, state.filter.startNanosInclusive)
+            assertEquals(setOf(101), state.filter.threadIds)
+
+            controller.focusFunction("renderFrame")
+
+            assertEquals(ReportTab.FLAME_GRAPH, controller.state.value.selectedTab)
+            assertTrue(
+                controller.state.value.highlightedFlameNodeIds
+                    .isNotEmpty(),
+            )
+
+            controller.focusCallTreeFunction("renderFrame")
+
+            assertEquals(ReportTab.CALL_TREE, controller.state.value.selectedTab)
+            assertEquals("renderFrame", controller.state.value.callTreeSearch)
+        }
+
+    @Test
+    fun `shows preprocessing failures while retaining the session path`() {
+        val controller = ReportController()
+        val session = Files.createTempDirectory("aps-report-failure-")
+        val error = StudioError(ErrorCategory.CONFIGURATION, "HOST_SIMPLEPERF_NOT_FOUND", "missing")
+
+        controller.showFailure(session, error)
+
+        val failed = assertIs<ReportLoadState.Failed>(controller.state.value.loadState)
+        assertEquals(session, failed.sessionDirectory)
+        assertEquals(error, failed.error)
+    }
+
+    private fun indexedSession(): java.nio.file.Path {
+        val session = Files.createTempDirectory("aps-report-")
+        session.resolve("perf.data").writeText("raw")
+        session.resolve("simpleperf.protobuf").writeText("protobuf")
+        session.resolve("session.properties").writeText("status=COMPLETED\nserial=device-1\n")
+        SQLiteSampleStore.open(session.resolve("profile.sqlite")).use { store ->
+            store.importRecords(
+                sequenceOf(
+                    NormalizedProfileRecord.Metadata(
+                        ProfileMetadata(
+                            eventTypes = listOf("cpu-cycles"),
+                            appPackageName = "com.example.app",
+                            appType = "profileable",
+                            androidSdkVersion = "36",
+                            androidBuildType = "userdebug",
+                            traceOffCpu = false,
+                        ),
+                    ),
+                    NormalizedProfileRecord.File(
+                        ProfileFile(7, "/system/lib64/libui.so", listOf("runLoop", "renderFrame"), emptyList()),
+                    ),
+                    NormalizedProfileRecord.Thread(ProfileThread(100, 101, "RenderThread")),
+                    NormalizedProfileRecord.Thread(ProfileThread(100, 102, "worker")),
+                    sample(10, 101, 3, listOf(frame(1, "renderFrame", 0x20), frame(0, "runLoop", 0x10))),
+                    sample(20, 101, 5, listOf(frame(1, "renderFrame", 0x20), frame(0, "runLoop", 0x10))),
+                    sample(30, 102, 7, listOf(frame(0, "runLoop", 0x10))),
+                ),
+            )
+        }
+        return session
+    }
+
+    private fun sample(
+        timestamp: Long,
+        threadId: Int,
+        weight: Long,
+        frames: List<ProfileFrame>,
+    ): NormalizedProfileRecord.Sample =
+        NormalizedProfileRecord.Sample(
+            NormalizedSample(
+                timestamp,
+                100,
+                threadId,
+                if (threadId == 101) "RenderThread" else "worker",
+                "cpu-cycles",
+                weight,
+                frames,
+                null,
+            ),
+        )
+
+    private fun frame(
+        symbolId: Int,
+        name: String,
+        address: Long,
+    ): ProfileFrame = ProfileFrame(address, 7, symbolId, "/system/lib64/libui.so", name, ProfileExecutionType.NATIVE)
+}
