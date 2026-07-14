@@ -5,6 +5,7 @@ import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
@@ -52,12 +53,14 @@ class ProfileQueryCoordinator(
         query: ProfileQuery,
     ) {
         val frozenQuery = query.freeze()
+        val previousJob: Job?
+        val nextJob: Job
         synchronized(lock) {
             check(!closed) { "ProfileQueryCoordinator is closed" }
             val currentSubmission = ++submissionId
-            activeJob?.cancel()
-            activeJob =
-                scope.launch {
+            previousJob = activeJob
+            nextJob =
+                scope.launch(start = CoroutineStart.LAZY) {
                     val snapshot = loader.load(sessionDirectory, frozenQuery)
                     val job = checkNotNull(currentCoroutineContext()[Job])
                     job.ensureActive()
@@ -67,25 +70,30 @@ class ProfileQueryCoordinator(
                         }
                     }
                 }
+            activeJob = nextJob
         }
+        previousJob?.cancel()
+        nextJob.start()
     }
 
     fun cancel() {
-        synchronized(lock) {
-            submissionId++
-            activeJob?.cancel()
-            activeJob = null
-        }
+        val cancelledJob =
+            synchronized(lock) {
+                submissionId++
+                activeJob.also { activeJob = null }
+            }
+        cancelledJob?.cancel()
     }
 
     override fun close() {
-        synchronized(lock) {
-            if (closed) return
-            closed = true
-            submissionId++
-            activeJob?.cancel()
-            activeJob = null
-        }
+        val cancelledJob =
+            synchronized(lock) {
+                if (closed) return
+                closed = true
+                submissionId++
+                activeJob.also { activeJob = null }
+            }
+        cancelledJob?.cancel()
     }
 }
 

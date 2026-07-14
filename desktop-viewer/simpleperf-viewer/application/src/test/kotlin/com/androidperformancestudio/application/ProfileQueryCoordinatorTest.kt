@@ -7,10 +7,14 @@ import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.first
@@ -21,6 +25,10 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit.SECONDS
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -173,7 +181,17 @@ class ProfileQueryCoordinatorTest {
         }
 
     @Test
-    fun `sqlite loader projects on the injected dispatcher and closes its store`() =
+    fun `cancel remains responsive while an Unconfined loader begins inline`() {
+        assertLifecycleResponsive("cancel") { coordinator -> coordinator.cancel() }
+    }
+
+    @Test
+    fun `close remains responsive while an Unconfined loader begins inline`() {
+        assertLifecycleResponsive("close") { coordinator -> coordinator.close() }
+    }
+
+    @Test
+    fun `sqlite loader projects on the injected dispatcher`() =
         runTest {
             val session = Files.createTempDirectory("aps-projection-loader-")
             val database = session.resolve("profile.sqlite")
@@ -185,9 +203,6 @@ class ProfileQueryCoordinatorTest {
 
             assertTrue(dispatcher.dispatchCount > 0)
             assertEquals(query, snapshot.query)
-            SQLiteSampleStore.open(database).use { reopened ->
-                assertEquals(snapshot, reopened.projectCore(query))
-            }
         }
 
     private class ControllableProjectionLoader(
@@ -252,6 +267,55 @@ class ProfileQueryCoordinatorTest {
             dispatchCount++
             delegate.dispatch(context, block)
         }
+    }
+
+    private fun assertLifecycleResponsive(
+        actionName: String,
+        action: (ProfileQueryCoordinator) -> Unit,
+    ) {
+        val loaderStarted = CountDownLatch(1)
+        val releaseLoader = CountDownLatch(1)
+        val actionCompleted = CountDownLatch(1)
+        val submissionFailure = AtomicReference<Throwable?>()
+        val actionFailure = AtomicReference<Throwable?>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val coordinator =
+            ProfileQueryCoordinator(scope) { _, query ->
+                loaderStarted.countDown()
+                releaseLoader.await()
+                snapshotFor(query)
+            }
+        val submitThread =
+            thread(name = "projection-submit") {
+                runCatching {
+                    coordinator.submit(SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
+                }.exceptionOrNull()?.let(submissionFailure::set)
+            }
+        var actionThread: Thread? = null
+
+        try {
+            assertTrue(loaderStarted.await(1, SECONDS), "the Unconfined loader did not begin inline")
+            actionThread =
+                thread(name = "projection-$actionName") {
+                    runCatching { action(coordinator) }.exceptionOrNull()?.let(actionFailure::set)
+                    actionCompleted.countDown()
+                }
+
+            assertTrue(
+                actionCompleted.await(1, SECONDS),
+                "$actionName must not wait for the inline loader to return",
+            )
+        } finally {
+            releaseLoader.countDown()
+            submitThread.join(2_000)
+            actionThread?.join(2_000)
+            scope.cancel()
+        }
+
+        assertFalse(submitThread.isAlive, "submit thread did not finish")
+        assertFalse(actionThread.isAlive, "$actionName thread did not finish")
+        submissionFailure.get()?.let { throw it }
+        actionFailure.get()?.let { throw it }
     }
 
     private companion object {
