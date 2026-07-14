@@ -218,12 +218,12 @@ class SQLiteSampleStore private constructor(
             provider: ConnectionProvider,
         ): SQLiteSampleStore = openReadOnlyExpected(databasePath, expectedVersion as Int?, provider)
 
-        fun <T> withExclusiveSnapshot(
+        fun createStableSnapshot(
             databasePath: Path,
             snapshotPath: Path,
             expectedVersion: Int,
-            block: () -> T,
-        ): T {
+            verifySource: () -> Unit,
+        ) {
             Class.forName("org.sqlite.JDBC")
             val connection = DEFAULT_CONNECTION_PROVIDER.connect(writableJdbcUrl(databasePath))
             var transactionStarted = false
@@ -241,7 +241,7 @@ class SQLiteSampleStore private constructor(
                 connection.createStatement().use { it.execute("BEGIN EXCLUSIVE") }
                 transactionStarted = true
                 requireSchemaVersion(connection, expectedVersion)
-                return block()
+                verifySource()
             } finally {
                 if (transactionStarted) {
                     runCatching { connection.createStatement().use { it.execute("ROLLBACK") } }

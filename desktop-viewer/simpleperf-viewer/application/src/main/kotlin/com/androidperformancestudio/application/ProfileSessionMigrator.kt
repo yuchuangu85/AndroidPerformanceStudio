@@ -4,10 +4,13 @@ package com.androidperformancestudio.application
 
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.channels.FileChannel
-import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.channels.FileLock
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.OpenOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
@@ -46,10 +49,33 @@ internal fun interface CandidateDatabaseMigrator {
 }
 
 internal enum class ProfileMigrationCheckpoint {
+    AFTER_SQLITE_HANDOFF,
     AFTER_BACKUP_PUBLISHED,
     AFTER_METADATA_PUBLISHED,
     BEFORE_FINAL_MOVE,
     AFTER_FINAL_MOVE,
+}
+
+internal fun interface ArtifactPublisher {
+    fun publish(
+        source: Path,
+        target: Path,
+    )
+
+    companion object {
+        val HARD_LINK = ArtifactPublisher { source, target -> Files.createLink(target, source) }
+    }
+}
+
+internal fun interface CommitChannelProvider {
+    fun open(
+        path: Path,
+        options: Set<OpenOption>,
+    ): FileChannel
+
+    companion object {
+        val DEFAULT = CommitChannelProvider(FileChannel::open)
+    }
 }
 
 internal fun interface MigrationCheckpoint {
@@ -83,6 +109,8 @@ class ProfileSessionMigrator internal constructor(
     private val candidateMigrator: CandidateDatabaseMigrator,
     private val checkpoint: MigrationCheckpoint = MigrationCheckpoint.NONE,
     private val finalDatabaseMover: FinalDatabaseMover = FinalDatabaseMover.ATOMIC,
+    private val artifactPublisher: ArtifactPublisher = ArtifactPublisher.HARD_LINK,
+    private val commitChannelProvider: CommitChannelProvider = CommitChannelProvider.DEFAULT,
 ) {
     constructor() : this(CandidateDatabaseMigrator.default())
 
@@ -127,62 +155,62 @@ class ProfileSessionMigrator internal constructor(
         if (initialIdentity == null || sourceSidecars(original).any(Path::exists)) {
             return ProfileSessionMode.LEGACY_READ_ONLY
         }
-        var createdBackup = false
-        var createdProperties = false
+        var createdBackup: PublishedArtifact? = null
+        var createdProperties: PublishedArtifact? = null
         return try {
             cleanupRequired(paths.scratchFiles)
-            SQLiteSampleStore.withExclusiveSnapshot(
+            SQLiteSampleStore.createStableSnapshot(
                 databasePath = original,
                 snapshotPath = paths.candidate,
                 expectedVersion = LEGACY_SCHEMA_VERSION,
             ) {
                 requireStableSource(original, initialIdentity)
-                val sourceHash = initialIdentity.sha256
-                if (paths.backup.exists() || paths.properties.exists()) {
-                    validatePublishedBackup(paths, sourceHash)
-                } else {
-                    publishBackup(paths)
-                    createdBackup = true
-                    checkpoint.reached(ProfileMigrationCheckpoint.AFTER_BACKUP_PUBLISHED)
-                    publishMetadata(paths, sourceHash)
-                    createdProperties = true
-                    checkpoint.reached(ProfileMigrationCheckpoint.AFTER_METADATA_PUBLISHED)
-                }
-
-                candidateMigrator.migrate(paths.candidate)
-                check(SQLiteSampleStore.schemaVersion(paths.candidate) == CURRENT_SCHEMA_VERSION)
-                forceFile(paths.candidate)
-                cleanupRequired(candidateArtifacts(paths.candidate).drop(1))
-                checkpoint.reached(ProfileMigrationCheckpoint.BEFORE_FINAL_MOVE)
-                requireStableSource(original, initialIdentity)
-
-                finalDatabaseMover.replace(paths.candidate, original)
-                forceDirectory(session)
-                runCatching { checkpoint.reached(ProfileMigrationCheckpoint.AFTER_FINAL_MOVE) }
             }
+            checkpoint.reached(ProfileMigrationCheckpoint.AFTER_SQLITE_HANDOFF)
+            val sourceHash = initialIdentity.sha256
+            if (paths.backup.exists() || paths.properties.exists()) {
+                validatePublishedBackup(paths, sourceHash)
+            } else {
+                createdBackup = publishBackup(paths)
+                cleanupRequired(listOf(paths.backupCandidate))
+                checkpoint.reached(ProfileMigrationCheckpoint.AFTER_BACKUP_PUBLISHED)
+                createdProperties = publishMetadata(paths, sourceHash)
+                cleanupRequired(listOf(paths.propertiesCandidate))
+                checkpoint.reached(ProfileMigrationCheckpoint.AFTER_METADATA_PUBLISHED)
+            }
+
+            candidateMigrator.migrate(paths.candidate)
+            check(SQLiteSampleStore.schemaVersion(paths.candidate) == CURRENT_SCHEMA_VERSION)
+            forceFile(paths.candidate)
+            cleanupRequired(candidateArtifacts(paths.candidate).drop(1))
+            checkpoint.reached(ProfileMigrationCheckpoint.BEFORE_FINAL_MOVE)
+            replaceOriginal(paths.candidate, original, initialIdentity)
+            forceDirectory(session)
+            runCatching { checkpoint.reached(ProfileMigrationCheckpoint.AFTER_FINAL_MOVE) }
             ProfileSessionMode.READ_WRITE_V2
         } catch (_: Exception) {
             cleanupQuietly(paths.scratchFiles)
-            if (createdProperties) deleteQuietly(paths.properties)
-            if (createdBackup) deleteQuietly(paths.backup)
+            createdProperties?.let(::deletePublishedQuietly)
+            createdBackup?.let(::deletePublishedQuietly)
             ProfileSessionMode.LEGACY_READ_ONLY
         }
     }
 
-    private fun publishBackup(paths: MigrationPaths) {
+    private fun publishBackup(paths: MigrationPaths): PublishedArtifact {
         Files.copy(paths.candidate, paths.backupCandidate, StandardCopyOption.COPY_ATTRIBUTES)
         check(SQLiteSampleStore.schemaVersion(paths.backupCandidate) == LEGACY_SCHEMA_VERSION)
         forceFile(paths.backupCandidate)
         check(paths.backupCandidate.toFile().setReadOnly()) { "Could not make legacy backup immutable" }
         check(!paths.backupCandidate.isWritable()) { "Legacy backup candidate remains writable" }
-        moveNewFileAtomically(paths.backupCandidate, paths.backup)
+        val published = publishNewArtifact(paths.backupCandidate, paths.backup)
         forceDirectory(paths.session)
+        return published
     }
 
     private fun publishMetadata(
         paths: MigrationPaths,
         sourceHash: String,
-    ) {
+    ): PublishedArtifact {
         Files.writeString(
             paths.propertiesCandidate,
             "$PROFILE_BACKUP_SHA256=${sha256(paths.backup)}\n" +
@@ -193,8 +221,40 @@ class ProfileSessionMigrator internal constructor(
         )
         forceFile(paths.propertiesCandidate)
         check(paths.propertiesCandidate.toFile().setReadOnly()) { "Could not make migration metadata immutable" }
-        moveNewFileAtomically(paths.propertiesCandidate, paths.properties)
+        check(!paths.propertiesCandidate.isWritable()) { "Migration metadata candidate remains writable" }
+        val published = publishNewArtifact(paths.propertiesCandidate, paths.properties)
         forceDirectory(paths.session)
+        return published
+    }
+
+    private fun publishNewArtifact(
+        source: Path,
+        target: Path,
+    ): PublishedArtifact {
+        val identity = sourceIdentity(source)
+        artifactPublisher.publish(source, target)
+        check(sourceIdentity(target) == identity) { "Published migration artifact identity changed" }
+        check(!target.isWritable()) { "Published migration artifact is writable" }
+        return PublishedArtifact(target, identity)
+    }
+
+    private fun replaceOriginal(
+        candidate: Path,
+        original: Path,
+        expectedIdentity: SourceIdentity,
+    ) {
+        val options = setOf<OpenOption>(StandardOpenOption.READ, StandardOpenOption.WRITE)
+        val channel = commitChannelProvider.open(original, options)
+        var lock: FileLock? = null
+        try {
+            lock = channel.tryLock() ?: throw IOException("Could not acquire exclusive profile commit lock")
+            check(lock.isValid) { "Profile commit lock is not valid" }
+            requireStableSourceUnderLock(original, expectedIdentity, channel)
+            finalDatabaseMover.replace(candidate, original)
+        } finally {
+            closeQuietly(lock)
+            closeQuietly(channel)
+        }
     }
 
     private fun validatePublishedBackup(
@@ -237,6 +297,11 @@ private data class SourceIdentity(
     val sha256: String,
 )
 
+private data class PublishedArtifact(
+    val path: Path,
+    val identity: SourceIdentity,
+)
+
 private fun sourceIdentity(path: Path): SourceIdentity {
     val attributes = Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
     check(attributes.isRegularFile && !attributes.isSymbolicLink)
@@ -249,6 +314,18 @@ private fun requireStableSource(
 ) {
     check(sourceSidecars(original).none(Path::exists)) { "Source database has active or stale sidecars" }
     check(sourceIdentity(original) == expected) { "Source database changed during migration" }
+}
+
+private fun requireStableSourceUnderLock(
+    original: Path,
+    expected: SourceIdentity,
+    channel: FileChannel,
+) {
+    requireStableSource(original, expected)
+    check(channel.size() == expected.size) { "Locked source size changed during migration" }
+    check(sha256(channel) == expected.sha256) { "Locked source content changed during migration" }
+    check(schemaVersion(channel) == LEGACY_SCHEMA_VERSION) { "Locked source schema changed during migration" }
+    check(sourceSidecars(original).none(Path::exists)) { "Source sidecar appeared during migration" }
 }
 
 private fun sourceSidecars(database: Path): List<Path> = sidecars(database)
@@ -279,6 +356,35 @@ private fun sha256(path: Path): String {
     return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
 }
 
+private fun sha256(channel: FileChannel): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val buffer = ByteBuffer.allocate(HASH_BUFFER_SIZE)
+    var position = 0L
+    while (position < channel.size()) {
+        buffer.clear()
+        val count = channel.read(buffer, position)
+        check(count > 0) { "Could not read locked source database" }
+        position += count
+        buffer.flip()
+        digest.update(buffer)
+    }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+}
+
+private fun schemaVersion(channel: FileChannel): Int {
+    val header = ByteBuffer.allocate(SQLITE_HEADER_SIZE).order(ByteOrder.BIG_ENDIAN)
+    var position = 0L
+    while (header.hasRemaining()) {
+        val count = channel.read(header, position)
+        check(count > 0) { "Could not read SQLite header" }
+        position += count
+    }
+    check(header.array().copyOfRange(0, SQLITE_MAGIC.size).contentEquals(SQLITE_MAGIC)) {
+        "Locked source is not a SQLite database"
+    }
+    return header.getInt(SQLITE_USER_VERSION_OFFSET)
+}
+
 private fun cleanupRequired(scratchFiles: List<Path>) {
     val failures = deleteIndependently(scratchFiles.flatMap(::candidateArtifacts))
     if (failures.isNotEmpty()) throw IOException("Could not clean migration scratch files", failures.first())
@@ -300,8 +406,12 @@ private fun deleteIndependently(paths: List<Path>): List<Exception> =
         }
     }
 
-private fun deleteQuietly(path: Path) {
-    deleteIndependently(listOf(path))
+private fun deletePublishedQuietly(artifact: PublishedArtifact) {
+    runCatching {
+        if (sourceIdentity(artifact.path) == artifact.identity) {
+            Files.deleteIfExists(artifact.path)
+        }
+    }
 }
 
 private fun forceFile(path: Path) {
@@ -317,14 +427,12 @@ private fun forceDirectory(directory: Path) {
     }
 }
 
-private fun moveNewFileAtomically(
-    source: Path,
-    target: Path,
-) {
+@Suppress("TooGenericExceptionCaught")
+private fun closeQuietly(closeable: AutoCloseable?) {
     try {
-        Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
-    } catch (unsupported: AtomicMoveNotSupportedException) {
-        throw IOException("Atomic migration artifact publication is not supported", unsupported)
+        closeable?.close()
+    } catch (_: Exception) {
+        // A close failure must not turn a completed atomic replacement into a reported migration failure.
     }
 }
 
@@ -340,3 +448,6 @@ private const val CANDIDATE_DATABASE = "profile.sqlite.migrating"
 private const val BACKUP_CANDIDATE = "profile.v1.sqlite.creating"
 private const val PROPERTIES_CANDIDATE = "migration.properties.creating"
 private const val HASH_BUFFER_SIZE = 64 * 1024
+private const val SQLITE_HEADER_SIZE = 64
+private const val SQLITE_USER_VERSION_OFFSET = 60
+private val SQLITE_MAGIC = "SQLite format 3\u0000".encodeToByteArray()

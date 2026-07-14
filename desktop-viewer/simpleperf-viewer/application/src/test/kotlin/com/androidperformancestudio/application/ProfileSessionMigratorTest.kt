@@ -10,9 +10,13 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.io.IOException
+import java.nio.channels.FileChannel
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
+import java.nio.file.OpenOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.sql.Connection
 import java.sql.DriverManager
@@ -28,6 +32,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LargeClass")
 class ProfileSessionMigratorTest {
     @Test
     fun `successful migration replaces only a copied database and records immutable backup hash`() {
@@ -110,6 +115,53 @@ class ProfileSessionMigratorTest {
         assertEquals(before, sha256(original))
         assertContentEquals(sentinel, Files.readAllBytes(backup))
         assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
+    }
+
+    @Test
+    fun `artifact appearing at publication is never overwritten`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val before = Files.readAllBytes(original)
+        val sentinel = "racing publisher evidence".encodeToByteArray()
+        val publisher =
+            ArtifactPublisher { source, target ->
+                if (target.fileName.toString() == PROFILE_BACKUP) {
+                    Files.write(target, sentinel, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+                }
+                ArtifactPublisher.HARD_LINK.publish(source, target)
+            }
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                artifactPublisher = publisher,
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertContentEquals(before, Files.readAllBytes(original))
+        assertContentEquals(sentinel, Files.readAllBytes(session.resolve(PROFILE_BACKUP)))
+        assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
+    }
+
+    @Test
+    fun `unsupported no overwrite publication refuses migration`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val before = Files.readAllBytes(original)
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                artifactPublisher = ArtifactPublisher { _, _ -> throw UnsupportedOperationException("no hard links") },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertContentEquals(before, Files.readAllBytes(original))
+        assertFalse(session.resolve(PROFILE_BACKUP).exists())
+        assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
+        assertNoMigrationScratchFiles(session)
     }
 
     @Test
@@ -249,6 +301,109 @@ class ProfileSessionMigratorTest {
         assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
         assertEquals(1, userVersion(original))
         assertEquals(991, applicationId(original))
+    }
+
+    @Test
+    fun `sqlite snapshot connection is closed before commit handoff`() {
+        val session = versionOneSession()
+        var handoffObserved = false
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                MigrationCheckpoint { point ->
+                    if (point == ProfileMigrationCheckpoint.AFTER_SQLITE_HANDOFF) {
+                        DriverManager.getConnection("jdbc:sqlite:${session.resolve(PROFILE_DATABASE)}").use { connection ->
+                            connection.createStatement().use { statement ->
+                                statement.execute("BEGIN EXCLUSIVE")
+                                statement.execute("ROLLBACK")
+                            }
+                        }
+                        handoffObserved = true
+                    }
+                },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertTrue(handoffObserved)
+        assertEquals(ProfileSessionMode.READ_WRITE_V2, prepared.mode)
+    }
+
+    @Test
+    fun `supported writer mutation during sqlite to file lock handoff is never overwritten`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                MigrationCheckpoint { point ->
+                    if (point == ProfileMigrationCheckpoint.AFTER_SQLITE_HANDOFF) {
+                        DriverManager.getConnection("jdbc:sqlite:${original.toAbsolutePath()}").use { connection ->
+                            connection.createStatement().use { statement ->
+                                statement.execute("PRAGMA application_id=991")
+                            }
+                        }
+                    }
+                },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertEquals(1, userVersion(original))
+        assertEquals(991, applicationId(original))
+    }
+
+    @Test
+    fun `commit channel uses default share delete options and remains locked through replacement`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        var observedOptions: Set<OpenOption>? = null
+        var lockObserved = false
+        val channelProvider =
+            CommitChannelProvider { path, options ->
+                observedOptions = options
+                FileChannel.open(path, options)
+            }
+        val mover =
+            FinalDatabaseMover { candidate, source ->
+                FileChannel.open(source, StandardOpenOption.READ, StandardOpenOption.WRITE).use { second ->
+                    assertFailsWith<OverlappingFileLockException> { second.tryLock() }
+                }
+                lockObserved = true
+                FinalDatabaseMover.ATOMIC.replace(candidate, source)
+            }
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                finalDatabaseMover = mover,
+                commitChannelProvider = channelProvider,
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.READ_WRITE_V2, prepared.mode)
+        assertEquals(setOf(StandardOpenOption.READ, StandardOpenOption.WRITE), observedOptions)
+        assertTrue(lockObserved)
+        assertEquals(2, userVersion(original))
+    }
+
+    @Test
+    fun `commit lock acquisition failure refuses migration without source mutation`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val before = Files.readAllBytes(original)
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                commitChannelProvider = CommitChannelProvider { _, _ -> throw IOException("injected lock failure") },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertContentEquals(before, Files.readAllBytes(original))
+        assertEquals(1, userVersion(original))
     }
 
     @Test
