@@ -9,20 +9,21 @@ internal object SQLiteProfileProjectionQueries {
     fun project(
         store: SQLiteSampleStore,
         query: ProfileQuery,
-    ): ProfileProjectionSnapshot =
-        store.readTransaction {
-            val overview = overview(query)
+    ): ProfileProjectionSnapshot {
+        val frozenQuery = query.freeze()
+        return store.readTransaction {
+            val overview = overview(frozenQuery)
             val quality = dataQuality()
             ProfileProjectionSnapshot(
-                query = query,
+                query = frozenQuery,
                 overview = overview.copy(eventTypes = overview.eventTypes.sorted()),
                 quality = quality.sorted(),
-                tracks = coreTracks(connection, query),
-                threads = threads(query).sortedThreads(),
-                timeline = timelineBuckets(query, PROJECTION_BUCKET_COUNT).sortedTimeline(),
-                topFunctions = topFunctions(query, PROJECTION_FUNCTION_LIMIT).sortedTopFunctions(),
+                tracks = coreTracks(connection, frozenQuery),
+                threads = threads(frozenQuery).sortedThreads(),
+                timeline = timelineBuckets(frozenQuery, PROJECTION_BUCKET_COUNT).sortedTimeline(),
+                topFunctions = topFunctions(frozenQuery, PROJECTION_FUNCTION_LIMIT).sortedTopFunctions(),
                 forwardCallTree =
-                    callTree(query, CallTreeDirection.FORWARD).sortedWith(
+                    callTree(frozenQuery, CallTreeDirection.FORWARD).sortedWith(
                         compareBy(
                             CallTreeNode::id,
                             { it.parentId ?: Long.MIN_VALUE },
@@ -33,6 +34,7 @@ internal object SQLiteProfileProjectionQueries {
                     ),
             )
         }
+    }
 
     fun coreTracks(
         connection: Connection,
@@ -204,10 +206,10 @@ internal object SQLiteProfileProjectionQueries {
         query: ProfileQuery,
         kind: ThreadFactKind,
     ): Map<String, Pair<Long, Long>> {
-        val filter = timestampFilter(query, "f.start_nanos", "pt.thread_id")
+        val filter = factFilter(query, kind)
         val sql =
             "SELECT f.source_id, f.thread_row_id, MIN(f.start_nanos), " +
-                "MAX(COALESCE(f.${kind.endColumn}, f.start_nanos)) FROM ${kind.table} f " +
+                "MAX(${kind.exclusiveEndSql}) FROM ${kind.table} f " +
                 "LEFT JOIN profile_thread pt ON pt.thread_row_id=f.thread_row_id " +
                 "${filter.whereClause} GROUP BY f.source_id, f.thread_row_id"
         return connection.prepareStatement(sql).use { statement ->
@@ -216,8 +218,7 @@ internal object SQLiteProfileProjectionQueries {
                 buildMap {
                     while (result.next()) {
                         val start = result.getLong(3)
-                        val rawEnd = result.getLong(4)
-                        val end = if (rawEnd > start) rawEnd else rawEnd.exclusiveEnd()
+                        val end = result.getLong(4)
                         put(factKey(result.getString(1), result.getNullableLong(2)), start to end)
                     }
                 }
@@ -297,6 +298,30 @@ internal object SQLiteProfileProjectionQueries {
         }
         if (threadColumn != null && query.threadIds.isNotEmpty()) {
             predicates += "$threadColumn IN (${query.threadIds.joinToString { "?" }})"
+            parameters.addAll(query.threadIds.sorted())
+        }
+        return SqlFilter(
+            if (predicates.isEmpty()) "" else "WHERE ${predicates.joinToString(" AND ")}",
+            parameters,
+        )
+    }
+
+    private fun factFilter(
+        query: ProfileQuery,
+        kind: ThreadFactKind,
+    ): SqlFilter {
+        val predicates = mutableListOf<String>()
+        val parameters = mutableListOf<Any>()
+        query.startNanosInclusive?.let { start ->
+            predicates += kind.lowerBoundSql
+            repeat(kind.lowerBoundParameterCount) { parameters += start }
+        }
+        query.endNanosExclusive?.let { end ->
+            predicates += "f.start_nanos < ?"
+            parameters += end
+        }
+        if (query.threadIds.isNotEmpty()) {
+            predicates += "pt.thread_id IN (${query.threadIds.joinToString { "?" }})"
             parameters.addAll(query.threadIds.sorted())
         }
         return SqlFilter(
@@ -422,12 +447,32 @@ private data class FactTrack(
 
 private enum class ThreadFactKind(
     val table: String,
-    val endColumn: String,
     val idPrefix: String,
     val trackKind: ProfileTrackKind,
+    val exclusiveEndSql: String,
+    val lowerBoundSql: String,
+    val lowerBoundParameterCount: Int,
 ) {
-    MARKER("profile_marker", "end_nanos", "markers", ProfileTrackKind.MARKERS),
-    SLICE("profile_slice", "end_nanos", "slices", ProfileTrackKind.SLICES),
+    MARKER(
+        table = "profile_marker",
+        idPrefix = "markers",
+        trackKind = ProfileTrackKind.MARKERS,
+        exclusiveEndSql =
+            "CASE WHEN f.end_nanos IS NOT NULL THEN f.end_nanos " +
+                "WHEN f.start_nanos = 9223372036854775807 THEN f.start_nanos ELSE f.start_nanos + 1 END",
+        lowerBoundSql =
+            "((f.end_nanos IS NULL AND f.start_nanos >= ?) OR " +
+                "(f.end_nanos IS NOT NULL AND f.end_nanos > ?))",
+        lowerBoundParameterCount = 2,
+    ),
+    SLICE(
+        table = "profile_slice",
+        idPrefix = "slices",
+        trackKind = ProfileTrackKind.SLICES,
+        exclusiveEndSql = "f.end_nanos",
+        lowerBoundSql = "f.end_nanos > ?",
+        lowerBoundParameterCount = 1,
+    ),
 }
 
 private enum class GlobalFactKind(
@@ -466,3 +511,9 @@ private fun Pair<Long, Long>?.availability(): ProfileDataAvailability =
     if (this == null) ProfileDataAvailability.EMPTY else ProfileDataAvailability.AVAILABLE
 
 private fun Long.exclusiveEnd(): Long = if (this == Long.MAX_VALUE) this else this + 1
+
+private fun ProfileQuery.freeze(): ProfileQuery =
+    copy(
+        threadIds = threadIds.toSet(),
+        eventTypes = eventTypes.toSet(),
+    )

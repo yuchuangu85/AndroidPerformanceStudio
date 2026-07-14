@@ -78,7 +78,8 @@ internal object SQLiteProfileQueries {
         val sql =
             TOP_FUNCTIONS_SQL
                 .replace("/*FILTER*/", filter.whereClause) +
-                " $searchClause ORDER BY $order $direction, sy.name ASC LIMIT ?"
+                " $searchClause ORDER BY $order $direction, sy.name ASC, fi.path ASC, " +
+                "i.weight DESC, COALESCE(x.weight, 0) DESC, i.samples DESC, i.threads DESC LIMIT ?"
         val parameters = filter.parameters.toMutableList()
         if (options.search.isNotBlank()) {
             val pattern = "%${options.search.escapeLike()}%"
