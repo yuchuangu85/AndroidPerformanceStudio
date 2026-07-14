@@ -155,8 +155,6 @@ class ProfileSessionMigrator internal constructor(
         if (initialIdentity == null || sourceSidecars(original).any(Path::exists)) {
             return ProfileSessionMode.LEGACY_READ_ONLY
         }
-        var createdBackup: PublishedArtifact? = null
-        var createdProperties: PublishedArtifact? = null
         return try {
             cleanupRequired(paths.scratchFiles)
             SQLiteSampleStore.createStableSnapshot(
@@ -168,35 +166,38 @@ class ProfileSessionMigrator internal constructor(
             }
             checkpoint.reached(ProfileMigrationCheckpoint.AFTER_SQLITE_HANDOFF)
             val sourceHash = initialIdentity.sha256
-            if (paths.backup.exists() || paths.properties.exists()) {
-                validatePublishedBackup(paths, sourceHash)
-            } else {
-                createdBackup = publishBackup(paths)
-                cleanupRequired(listOf(paths.backupCandidate))
-                checkpoint.reached(ProfileMigrationCheckpoint.AFTER_BACKUP_PUBLISHED)
-                createdProperties = publishMetadata(paths, sourceHash)
-                cleanupRequired(listOf(paths.propertiesCandidate))
-                checkpoint.reached(ProfileMigrationCheckpoint.AFTER_METADATA_PUBLISHED)
-            }
+            val snapshotHash = sha256(paths.candidate)
+            val evidence =
+                if (paths.backup.exists() || paths.properties.exists()) {
+                    validatePublishedEvidence(paths, sourceHash, snapshotHash)
+                } else {
+                    val backup = publishBackup(paths)
+                    cleanupRequired(listOf(paths.backupCandidate))
+                    checkpoint.reached(ProfileMigrationCheckpoint.AFTER_BACKUP_PUBLISHED)
+                    val properties = publishMetadata(paths, sourceHash, backup.sha256)
+                    cleanupRequired(listOf(paths.propertiesCandidate))
+                    checkpoint.reached(ProfileMigrationCheckpoint.AFTER_METADATA_PUBLISHED)
+                    PublishedEvidence(backup, properties)
+                }
 
             candidateMigrator.migrate(paths.candidate)
             check(SQLiteSampleStore.schemaVersion(paths.candidate) == CURRENT_SCHEMA_VERSION)
             forceFile(paths.candidate)
             cleanupRequired(candidateArtifacts(paths.candidate).drop(1))
             checkpoint.reached(ProfileMigrationCheckpoint.BEFORE_FINAL_MOVE)
-            replaceOriginal(paths.candidate, original, initialIdentity)
+            replaceOriginal(paths.candidate, original, initialIdentity) {
+                validatePublishedEvidence(paths, sourceHash, snapshotHash, evidence)
+            }
             forceDirectory(session)
             runCatching { checkpoint.reached(ProfileMigrationCheckpoint.AFTER_FINAL_MOVE) }
             ProfileSessionMode.READ_WRITE_V2
         } catch (_: Exception) {
             cleanupQuietly(paths.scratchFiles)
-            createdProperties?.let(::deletePublishedQuietly)
-            createdBackup?.let(::deletePublishedQuietly)
             ProfileSessionMode.LEGACY_READ_ONLY
         }
     }
 
-    private fun publishBackup(paths: MigrationPaths): PublishedArtifact {
+    private fun publishBackup(paths: MigrationPaths): SourceIdentity {
         Files.copy(paths.candidate, paths.backupCandidate, StandardCopyOption.COPY_ATTRIBUTES)
         check(SQLiteSampleStore.schemaVersion(paths.backupCandidate) == LEGACY_SCHEMA_VERSION)
         forceFile(paths.backupCandidate)
@@ -210,10 +211,11 @@ class ProfileSessionMigrator internal constructor(
     private fun publishMetadata(
         paths: MigrationPaths,
         sourceHash: String,
-    ): PublishedArtifact {
+        backupHash: String,
+    ): SourceIdentity {
         Files.writeString(
             paths.propertiesCandidate,
-            "$PROFILE_BACKUP_SHA256=${sha256(paths.backup)}\n" +
+            "$PROFILE_BACKUP_SHA256=$backupHash\n" +
                 "$PROFILE_SOURCE_SHA256=$sourceHash\n" +
                 "$PROFILE_SOURCE_SCHEMA=$LEGACY_SCHEMA_VERSION\n",
             StandardOpenOption.CREATE_NEW,
@@ -230,18 +232,19 @@ class ProfileSessionMigrator internal constructor(
     private fun publishNewArtifact(
         source: Path,
         target: Path,
-    ): PublishedArtifact {
+    ): SourceIdentity {
         val identity = sourceIdentity(source)
         artifactPublisher.publish(source, target)
         check(sourceIdentity(target) == identity) { "Published migration artifact identity changed" }
         check(!target.isWritable()) { "Published migration artifact is writable" }
-        return PublishedArtifact(target, identity)
+        return identity
     }
 
     private fun replaceOriginal(
         candidate: Path,
         original: Path,
         expectedIdentity: SourceIdentity,
+        validateEvidence: () -> Unit,
     ) {
         val options = setOf<OpenOption>(StandardOpenOption.READ, StandardOpenOption.WRITE)
         val channel = commitChannelProvider.open(original, options)
@@ -250,6 +253,7 @@ class ProfileSessionMigrator internal constructor(
             lock = channel.tryLock() ?: throw IOException("Could not acquire exclusive profile commit lock")
             check(lock.isValid) { "Profile commit lock is not valid" }
             requireStableSourceUnderLock(original, expectedIdentity, channel)
+            validateEvidence()
             finalDatabaseMover.replace(candidate, original)
         } finally {
             closeQuietly(lock)
@@ -257,26 +261,34 @@ class ProfileSessionMigrator internal constructor(
         }
     }
 
-    private fun validatePublishedBackup(
+    private fun validatePublishedEvidence(
         paths: MigrationPaths,
         sourceHash: String,
-    ) {
-        check(
-            Files.isRegularFile(paths.backup, LinkOption.NOFOLLOW_LINKS) &&
-                !Files.isSymbolicLink(paths.backup),
-        )
-        check(
-            Files.isRegularFile(paths.properties, LinkOption.NOFOLLOW_LINKS) &&
-                !Files.isSymbolicLink(paths.properties),
-        )
-        check(!paths.backup.isWritable()) { "Existing legacy backup is writable" }
-        check(!paths.properties.isWritable()) { "Existing migration metadata is writable" }
+        snapshotHash: String,
+        expected: PublishedEvidence? = null,
+    ): PublishedEvidence {
+        requireImmutableRegularFile(paths.backup)
+        requireImmutableRegularFile(paths.properties)
+        val backupIdentity = sourceIdentity(paths.backup)
+        val propertiesIdentity = sourceIdentity(paths.properties)
+        expected?.let { captured ->
+            check(backupIdentity == captured.backup) { "Published backup identity changed" }
+            check(propertiesIdentity == captured.properties) { "Published metadata identity changed" }
+        }
         check(SQLiteSampleStore.schemaVersion(paths.backup) == LEGACY_SCHEMA_VERSION)
         val metadata = readMetadata(paths.properties)
         check(metadata[PROFILE_SOURCE_SCHEMA] == LEGACY_SCHEMA_VERSION.toString())
         check(metadata[PROFILE_SOURCE_SHA256] == sourceHash)
-        check(metadata[PROFILE_BACKUP_SHA256] == sha256(paths.backup))
-        check(metadata[PROFILE_BACKUP_SHA256] == sha256(paths.candidate))
+        check(metadata[PROFILE_BACKUP_SHA256] == backupIdentity.sha256)
+        check(backupIdentity.sha256 == snapshotHash)
+        check(sourceIdentity(paths.backup) == backupIdentity) { "Published backup changed during validation" }
+        check(sourceIdentity(paths.properties) == propertiesIdentity) { "Published metadata changed during validation" }
+        return PublishedEvidence(backupIdentity, propertiesIdentity)
+    }
+
+    private fun requireImmutableRegularFile(path: Path) {
+        check(Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path))
+        check(!path.isWritable()) { "Published migration artifact is writable" }
     }
 }
 
@@ -297,9 +309,9 @@ private data class SourceIdentity(
     val sha256: String,
 )
 
-private data class PublishedArtifact(
-    val path: Path,
-    val identity: SourceIdentity,
+private data class PublishedEvidence(
+    val backup: SourceIdentity,
+    val properties: SourceIdentity,
 )
 
 private fun sourceIdentity(path: Path): SourceIdentity {
@@ -405,14 +417,6 @@ private fun deleteIndependently(paths: List<Path>): List<Exception> =
             }
         }
     }
-
-private fun deletePublishedQuietly(artifact: PublishedArtifact) {
-    runCatching {
-        if (sourceIdentity(artifact.path) == artifact.identity) {
-            Files.deleteIfExists(artifact.path)
-        }
-    }
-}
 
 private fun forceFile(path: Path) {
     FileChannel.open(path, StandardOpenOption.WRITE).use { channel -> channel.force(true) }

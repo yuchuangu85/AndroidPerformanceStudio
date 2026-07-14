@@ -165,6 +165,59 @@ class ProfileSessionMigratorTest {
     }
 
     @Test
+    fun `foreign backup replacement after publication is retained and never legitimized`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val before = Files.readAllBytes(original)
+        val foreign = "foreign backup replacement".encodeToByteArray()
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                MigrationCheckpoint { point ->
+                    if (point == ProfileMigrationCheckpoint.AFTER_BACKUP_PUBLISHED) {
+                        replacePublicArtifact(session.resolve(PROFILE_BACKUP), foreign)
+                    }
+                },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertContentEquals(before, Files.readAllBytes(original))
+        assertEquals(1, userVersion(original))
+        val backup = session.resolve(PROFILE_BACKUP)
+        assertContentEquals(foreign, Files.readAllBytes(backup))
+        assertTrue(migrationProperties(session)[PROFILE_BACKUP_SHA256] != sha256(backup))
+        assertNoMigrationScratchFiles(session)
+    }
+
+    @Test
+    fun `foreign metadata replacement after publication is retained and blocks commit`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val before = Files.readAllBytes(original)
+        val foreign = "foreign metadata replacement".encodeToByteArray()
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                MigrationCheckpoint { point ->
+                    if (point == ProfileMigrationCheckpoint.AFTER_METADATA_PUBLISHED) {
+                        replacePublicArtifact(session.resolve(MIGRATION_PROPERTIES), foreign)
+                    }
+                },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertContentEquals(before, Files.readAllBytes(original))
+        assertEquals(1, userVersion(original))
+        assertContentEquals(foreign, Files.readAllBytes(session.resolve(MIGRATION_PROPERTIES)))
+        assertTrue(session.resolve(PROFILE_BACKUP).exists())
+        assertNoMigrationScratchFiles(session)
+    }
+
+    @Test
     fun `mismatched migration metadata refuses backup reuse and preserves source`() {
         val session = versionOneSession()
         val original = session.resolve(PROFILE_DATABASE)
@@ -407,7 +460,7 @@ class ProfileSessionMigratorTest {
     }
 
     @Test
-    fun `failed migration preserves original bytes cleans candidate sidecars and returns legacy read only`() {
+    fun `failed migration preserves original bytes and published evidence while cleaning scratch files`() {
         val session = versionOneSession()
         val original = session.resolve(PROFILE_DATABASE)
         val before = Files.readAllBytes(original)
@@ -426,8 +479,7 @@ class ProfileSessionMigratorTest {
         assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
         assertContentEquals(before, Files.readAllBytes(original))
         assertEquals(1, userVersion(original))
-        assertFalse(session.resolve(PROFILE_BACKUP).exists())
-        assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
+        assertPublishedEvidence(session, sha256(original))
         assertNoMigrationScratchFiles(session)
     }
 
@@ -470,14 +522,32 @@ class ProfileSessionMigratorTest {
                 assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode, failurePoint.name)
                 assertContentEquals(before, Files.readAllBytes(original), failurePoint.name)
                 assertEquals(1, userVersion(original), failurePoint.name)
-                assertFalse(session.resolve(PROFILE_BACKUP).exists(), failurePoint.name)
-                assertFalse(session.resolve(MIGRATION_PROPERTIES).exists(), failurePoint.name)
+                when (failurePoint) {
+                    ProfileMigrationCheckpoint.AFTER_SQLITE_HANDOFF -> {
+                        assertFalse(session.resolve(PROFILE_BACKUP).exists(), failurePoint.name)
+                        assertFalse(session.resolve(MIGRATION_PROPERTIES).exists(), failurePoint.name)
+                    }
+
+                    ProfileMigrationCheckpoint.AFTER_BACKUP_PUBLISHED -> {
+                        val backup = session.resolve(PROFILE_BACKUP)
+                        assertTrue(backup.exists(), failurePoint.name)
+                        assertFalse(Files.isWritable(backup), failurePoint.name)
+                        assertEquals(1, userVersion(backup), failurePoint.name)
+                        assertFalse(session.resolve(MIGRATION_PROPERTIES).exists(), failurePoint.name)
+                    }
+
+                    ProfileMigrationCheckpoint.AFTER_METADATA_PUBLISHED,
+                    ProfileMigrationCheckpoint.BEFORE_FINAL_MOVE,
+                    -> assertPublishedEvidence(session, sha256(original))
+
+                    ProfileMigrationCheckpoint.AFTER_FINAL_MOVE -> error("filtered above")
+                }
                 assertNoMigrationScratchFiles(session)
             }
     }
 
     @Test
-    fun `final move failure preserves original and removes newly published artifacts`() {
+    fun `final move failure preserves original and retains newly published evidence`() {
         val session = versionOneSession()
         val original = session.resolve(PROFILE_DATABASE)
         val before = Files.readAllBytes(original)
@@ -495,8 +565,7 @@ class ProfileSessionMigratorTest {
         assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
         assertContentEquals(before, Files.readAllBytes(original))
         assertEquals(1, userVersion(original))
-        assertFalse(session.resolve(PROFILE_BACKUP).exists())
-        assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
+        assertPublishedEvidence(session, sha256(original))
         assertNoMigrationScratchFiles(session)
     }
 
@@ -704,6 +773,23 @@ class ProfileSessionMigratorTest {
             .filter { it.isNotBlank() && !it.startsWith('#') }
             .associate { line -> line.substringBefore('=') to line.substringAfter('=') }
 
+    private fun assertPublishedEvidence(
+        session: Path,
+        expectedSourceHash: String,
+    ) {
+        val backup = session.resolve(PROFILE_BACKUP)
+        val properties = session.resolve(MIGRATION_PROPERTIES)
+        assertTrue(backup.exists())
+        assertTrue(properties.exists())
+        assertFalse(Files.isWritable(backup))
+        assertFalse(Files.isWritable(properties))
+        assertEquals(1, userVersion(backup))
+        val metadata = migrationProperties(session)
+        assertEquals(expectedSourceHash, metadata[PROFILE_SOURCE_SHA256])
+        assertEquals("1", metadata[PROFILE_SOURCE_SCHEMA])
+        assertEquals(sha256(backup), metadata[PROFILE_BACKUP_SHA256])
+    }
+
     private fun assertNoMigrationScratchFiles(session: Path) {
         Files.list(session).use { children ->
             assertFalse(
@@ -745,6 +831,15 @@ class ProfileSessionMigratorTest {
         listOf("-wal", "-shm", "-journal").forEach { suffix ->
             Files.deleteIfExists(database.resolveSibling(database.fileName.toString() + suffix))
         }
+    }
+
+    private fun replacePublicArtifact(
+        target: Path,
+        bytes: ByteArray,
+    ) {
+        assertTrue(target.toFile().setWritable(true))
+        Files.delete(target)
+        Files.write(target, bytes, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
     }
 
     private fun sha256(path: Path): String =
