@@ -5,12 +5,16 @@ package com.androidperformancestudio.storage
 import com.androidperformancestudio.model.ProfileSample
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
+import java.sql.Statement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class SQLiteLegacyReadOnlyProjectionTest {
     @Test
@@ -37,6 +41,94 @@ class SQLiteLegacyReadOnlyProjectionTest {
         assertEquals(before, sha256(database))
         assertEquals(false, Files.exists(database.resolveSibling(database.fileName.toString() + "-wal")))
         assertEquals(false, Files.exists(database.resolveSibling(database.fileName.toString() + "-shm")))
+    }
+
+    @Test
+    fun `legacy filtered reverse report matches migrated v2 projection`() {
+        val legacy = versionOneDatabase()
+        DriverManager.getConnection("jdbc:sqlite:${legacy.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute("INSERT INTO symbol VALUES (2, 1, 2, 'root', NULL)")
+                statement.execute("INSERT INTO frame VALUES (2, 2048, 1, 2, 'NATIVE')")
+                statement.execute("UPDATE callsite SET frame_id=2 WHERE callsite_id=1")
+                statement.execute("INSERT INTO callsite VALUES (2, 1, 1)")
+                statement.execute("UPDATE sample SET leaf_callsite_id=2")
+            }
+        }
+        val migrated = Files.createTempFile("aps-legacy-parity-v2-", ".sqlite")
+        Files.copy(legacy, migrated, StandardCopyOption.REPLACE_EXISTING)
+        SQLiteSampleStore.open(migrated).use { }
+        val request =
+            ProfileProjectionRequest(
+                query =
+                    ProfileQuery(
+                        startNanosInclusive = 15,
+                        endNanosExclusive = 25,
+                        threadIds = setOf(101),
+                        eventTypes = setOf("cpu-cycles"),
+                    ),
+                timelineBucketCount = 3,
+                topFunctionLimit = 5,
+                topSearch = "leaf",
+                topSort = TopFunctionSort.SYMBOL_NAME,
+                topDescending = false,
+                callTreeDirection = CallTreeDirection.REVERSE,
+            )
+
+        val legacyProjection = SQLiteSampleStore.openReadOnlyExpected(legacy, 1).use { it.projectCore(request) }
+        val migratedProjection = SQLiteSampleStore.openV2(migrated).use { it.projectCore(request) }
+
+        assertEquals(migratedProjection, legacyProjection)
+    }
+
+    @Test
+    fun `all store opens close connection when setup fails`() {
+        val database = versionOneDatabase()
+        val opens =
+            listOf<(ConnectionProvider) -> Unit>(
+                { provider -> SQLiteSampleStore.open(database, provider).close() },
+                { provider -> SQLiteSampleStore.openV2(database, provider).close() },
+                { provider -> SQLiteSampleStore.openReadOnlyExpected(database, 1, provider).close() },
+            )
+        opens.forEach { open ->
+            val delegate = DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}")
+            val tracking = FailingSetupConnection(delegate)
+
+            assertFailsWith<SQLException> {
+                open(ConnectionProvider { tracking })
+            }
+            assertTrue(tracking.wasClosed)
+        }
+    }
+
+    private fun versionOneDatabase(): Path {
+        Class.forName("org.sqlite.JDBC")
+        val database = Files.createTempFile("aps-legacy-read-only-", ".sqlite")
+        DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement -> VERSION_ONE_STATEMENTS.forEach(statement::execute) }
+        }
+        return database
+    }
+
+    private class FailingSetupConnection(
+        private val delegate: Connection,
+    ) : Connection by delegate {
+        var wasClosed = false
+
+        override fun createStatement(): Statement = FailingSetupStatement(delegate.createStatement())
+
+        override fun close() {
+            wasClosed = true
+            delegate.close()
+        }
+    }
+
+    private class FailingSetupStatement(
+        private val delegate: Statement,
+    ) : Statement by delegate {
+        override fun execute(sql: String): Boolean = throw SQLException("injected setup failure: $sql")
+
+        override fun executeQuery(sql: String): java.sql.ResultSet = throw SQLException("injected setup failure: $sql")
     }
 
     private fun sha256(path: Path): String =

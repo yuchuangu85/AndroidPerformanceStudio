@@ -35,6 +35,7 @@ data class ProfileWorkspaceState(
     val generation: ProfileGeneration = ProfileGeneration(0),
     val sessionDirectory: Path? = null,
     val sessionMode: ProfileSessionMode? = null,
+    val preparedSession: PreparedProfileSession? = null,
     val query: ProfileQuery = ProfileQuery(),
     val snapshot: ProfileProjectionSnapshot? = null,
     val loadState: ProfileWorkspaceLoadState = ProfileWorkspaceLoadState.Closed,

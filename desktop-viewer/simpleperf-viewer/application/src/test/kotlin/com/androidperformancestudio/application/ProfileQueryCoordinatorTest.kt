@@ -48,11 +48,11 @@ class ProfileQueryCoordinatorTest {
                     coordinator.results.first()
                 }
 
-            coordinator.submit(SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
             runCurrent()
             loader.awaitStarted(1)
 
-            coordinator.submit(SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
             runCurrent()
             loader.awaitCancelled(1)
             loader.awaitStarted(2)
@@ -80,10 +80,10 @@ class ProfileQueryCoordinatorTest {
                     coordinator.results.first()
                 }
 
-            coordinator.submit(SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
             runCurrent()
             loader.awaitStarted(1)
-            coordinator.submit(SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
             runCurrent()
             loader.awaitStarted(2)
 
@@ -111,7 +111,7 @@ class ProfileQueryCoordinatorTest {
                 }
 
             coordinator.submit(
-                SESSION,
+                PREPARED_SESSION,
                 ProfileGeneration(1),
                 ProfileQuery(threadIds = threadIds, eventTypes = eventTypes),
             )
@@ -138,7 +138,7 @@ class ProfileQueryCoordinatorTest {
                     coordinator.results.first()
                 }
 
-            coordinator.submit(SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
             runCurrent()
             loader.awaitStarted(1)
             coordinator.cancel()
@@ -147,7 +147,7 @@ class ProfileQueryCoordinatorTest {
             loader.awaitCancelled(1)
             assertFalse(result.isCompleted)
 
-            coordinator.submit(SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
             runCurrent()
             loader.awaitStarted(2)
             loader.complete(2, snapshotFor(2))
@@ -166,7 +166,7 @@ class ProfileQueryCoordinatorTest {
                     coordinator.results.first()
                 }
 
-            coordinator.submit(SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
             runCurrent()
             loader.awaitStarted(1)
             coordinator.close()
@@ -176,7 +176,7 @@ class ProfileQueryCoordinatorTest {
 
             assertFalse(result.isCompleted)
             assertFailsWith<IllegalStateException> {
-                coordinator.submit(SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
+                coordinator.submit(PREPARED_SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
             }
         }
 
@@ -199,7 +199,14 @@ class ProfileQueryCoordinatorTest {
             val dispatcher = RecordingDispatcher(StandardTestDispatcher(testScheduler))
             val query = ProfileQuery(threadIds = setOf(42))
 
-            val snapshot = sqliteProjectionLoader(dispatcher).load(session, query)
+            val prepared =
+                PreparedProfileSession(
+                    database,
+                    database,
+                    ProfileSessionMode.READ_WRITE_V2,
+                    schemaVersion = 2,
+                )
+            val snapshot = sqliteProjectionLoader(dispatcher).load(prepared, query)
 
             assertTrue(dispatcher.dispatchCount > 0)
             assertEquals(query, snapshot.query)
@@ -219,7 +226,7 @@ class ProfileQueryCoordinatorTest {
         private val requests = mutableMapOf<Int, Request>()
 
         override suspend fun load(
-            sessionDirectory: Path,
+            session: PreparedProfileSession,
             query: ProfileQuery,
         ): ProfileProjectionSnapshot {
             val id = query.threadIds.single()
@@ -288,7 +295,7 @@ class ProfileQueryCoordinatorTest {
         val submitThread =
             thread(name = "projection-submit") {
                 runCatching {
-                    coordinator.submit(SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
+                    coordinator.submit(PREPARED_SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
                 }.exceptionOrNull()?.let(submissionFailure::set)
             }
         var actionThread: Thread? = null
@@ -320,6 +327,13 @@ class ProfileQueryCoordinatorTest {
 
     private companion object {
         val SESSION: Path = Path.of("session")
+        val PREPARED_SESSION =
+            PreparedProfileSession(
+                database = SESSION,
+                originalDatabase = SESSION,
+                mode = ProfileSessionMode.READ_WRITE_V2,
+                schemaVersion = 2,
+            )
     }
 }
 

@@ -27,7 +27,7 @@ class ProfileWorkspaceController(
     private val coordinator = ProfileQueryCoordinator(scope, loader)
     private val collectionJobs: List<Job>
     private var closed = false
-    private var databaseLocation: Path? = null
+    private var preparedSession: PreparedProfileSession? = null
     private val lastGeneration = AtomicLong()
 
     val state: StateFlow<ProfileWorkspaceState> = mutableState.asStateFlow()
@@ -56,7 +56,7 @@ class ProfileWorkspaceController(
         check(!closed) { "ProfileWorkspaceController is closed" }
         val session = directory.toAbsolutePath().normalize()
         val prepared = migrator.prepare(session)
-        databaseLocation = prepared.database
+        preparedSession = prepared
         val query = request.query.freeze()
         val generation = nextGeneration()
         mutableState.value =
@@ -64,10 +64,11 @@ class ProfileWorkspaceController(
                 generation = generation,
                 sessionDirectory = session,
                 sessionMode = prepared.mode,
+                preparedSession = prepared,
                 query = query,
                 loadState = ProfileWorkspaceLoadState.Loading(session),
             )
-        coordinator.submit(prepared.database, generation, request.copy(query = query))
+        coordinator.submit(prepared, generation, request.copy(query = query))
     }
 
     fun updateQuery(query: ProfileQuery) {
@@ -78,17 +79,17 @@ class ProfileWorkspaceController(
     fun updateProjection(request: ProfileProjectionRequest) {
         check(!closed) { "ProfileWorkspaceController is closed" }
         checkNotNull(mutableState.value.sessionDirectory) { "No profile session is open" }
-        val database = checkNotNull(databaseLocation) { "No profile database is open" }
+        val prepared = checkNotNull(preparedSession) { "No profile database is open" }
         val frozenRequest = request.copy(query = request.query.freeze())
         val next = mutableState.value.request(frozenRequest.query).copy(generation = nextGeneration())
         mutableState.value = next
-        coordinator.submit(database, next.generation, frozenRequest)
+        coordinator.submit(prepared, next.generation, frozenRequest)
     }
 
     @Synchronized
     fun closeSession() {
         coordinator.cancel()
-        databaseLocation = null
+        preparedSession = null
         mutableState.value = ProfileWorkspaceState()
     }
 
@@ -98,7 +99,7 @@ class ProfileWorkspaceController(
         closed = true
         coordinator.close()
         collectionJobs.forEach(Job::cancel)
-        databaseLocation = null
+        preparedSession = null
         mutableState.value = ProfileWorkspaceState()
     }
 

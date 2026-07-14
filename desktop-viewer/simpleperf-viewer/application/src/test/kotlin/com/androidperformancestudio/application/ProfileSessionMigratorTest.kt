@@ -4,6 +4,7 @@ package com.androidperformancestudio.application
 
 import com.androidperformancestudio.storage.ProfileProjectionRequest
 import com.androidperformancestudio.storage.ProfileTrackKind
+import com.androidperformancestudio.storage.SQLiteSampleStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
@@ -11,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.sql.Connection
 import java.sql.DriverManager
@@ -20,6 +22,7 @@ import kotlin.io.path.writeBytes
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -30,22 +33,25 @@ class ProfileSessionMigratorTest {
     fun `successful migration replaces only a copied database and records immutable backup hash`() {
         val session = versionOneSession()
         val original = session.resolve(PROFILE_DATABASE)
-        val before = Files.readAllBytes(original)
+        val beforeHash = sha256(original)
 
         val prepared = ProfileSessionMigrator().prepare(session)
 
         assertEquals(ProfileSessionMode.READ_WRITE_V2, prepared.mode)
+        assertEquals(2, prepared.schemaVersion)
         assertEquals(original, prepared.database)
         assertEquals(original, prepared.originalDatabase)
         assertEquals(2, userVersion(original))
         val backup = session.resolve(PROFILE_BACKUP)
-        assertContentEquals(before, Files.readAllBytes(backup))
+        assertTrue(Files.size(backup) > 0)
         assertFalse(Files.isWritable(backup))
         assertEquals(1, userVersion(backup))
+        assertEquals(2, sampleCount(backup))
         assertEquals(
             sha256(backup),
             migrationProperties(session)[PROFILE_BACKUP_SHA256],
         )
+        assertEquals(beforeHash, migrationProperties(session)[PROFILE_SOURCE_SHA256])
         assertNoMigrationScratchFiles(session)
     }
 
@@ -81,6 +87,7 @@ class ProfileSessionMigratorTest {
         val prepared = ProfileSessionMigrator().prepare(session)
 
         assertEquals(ProfileSessionMode.READ_WRITE_V2, prepared.mode)
+        assertEquals(2, prepared.schemaVersion)
         assertEquals(before, sha256(original))
         assertFalse(session.resolve(PROFILE_BACKUP).exists())
         assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
@@ -88,17 +95,160 @@ class ProfileSessionMigratorTest {
     }
 
     @Test
-    fun `preexisting backup is never overwritten`() {
+    fun `mismatched preexisting backup is preserved but migration is refused`() {
         val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val before = sha256(original)
         val backup = session.resolve(PROFILE_BACKUP)
         val sentinel = "preexisting immutable evidence".encodeToByteArray()
         backup.writeBytes(sentinel)
 
         val prepared = ProfileSessionMigrator().prepare(session)
 
-        assertEquals(ProfileSessionMode.READ_WRITE_V2, prepared.mode)
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertEquals(1, prepared.schemaVersion)
+        assertEquals(before, sha256(original))
         assertContentEquals(sentinel, Files.readAllBytes(backup))
-        assertEquals(sha256(backup), migrationProperties(session)[PROFILE_BACKUP_SHA256])
+        assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
+    }
+
+    @Test
+    fun `mismatched migration metadata refuses backup reuse and preserves source`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val originalBytes = Files.readAllBytes(original)
+        ProfileSessionMigrator().prepare(session)
+        Files.write(original, originalBytes)
+        deleteSidecars(original)
+        session.resolve(MIGRATION_PROPERTIES).toFile().setWritable(true)
+        Files.writeString(
+            session.resolve(MIGRATION_PROPERTIES),
+            "$PROFILE_BACKUP_SHA256=${sha256(session.resolve(PROFILE_BACKUP))}\n" +
+                "$PROFILE_SOURCE_SHA256=${"0".repeat(64)}\n",
+        )
+
+        val prepared = ProfileSessionMigrator().prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertEquals(1, userVersion(original))
+        assertContentEquals(originalBytes, Files.readAllBytes(original))
+    }
+
+    @Test
+    fun `self consistent metadata cannot authorize an unrelated v1 backup`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val before = Files.readAllBytes(original)
+        val unrelatedSession = versionOneSession()
+        val unrelated = unrelatedSession.resolve(PROFILE_DATABASE)
+        DriverManager.getConnection("jdbc:sqlite:${unrelated.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { it.execute("PRAGMA application_id=991") }
+        }
+        val backup = session.resolve(PROFILE_BACKUP)
+        Files.copy(unrelated, backup)
+        val properties = session.resolve(MIGRATION_PROPERTIES)
+        Files.writeString(
+            properties,
+            "$PROFILE_BACKUP_SHA256=${sha256(backup)}\n" +
+                "$PROFILE_SOURCE_SHA256=${sha256(original)}\n" +
+                "$PROFILE_SOURCE_SCHEMA=1\n",
+        )
+        assertTrue(backup.toFile().setReadOnly())
+        assertTrue(properties.toFile().setReadOnly())
+
+        val prepared = ProfileSessionMigrator().prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertContentEquals(before, Files.readAllBytes(original))
+        assertEquals(1, userVersion(original))
+        assertEquals(991, applicationId(backup))
+    }
+
+    @Test
+    fun `validated backup and metadata can resume an interrupted v1 migration`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val originalBytes = Files.readAllBytes(original)
+        val first = ProfileSessionMigrator().prepare(session)
+        assertEquals(ProfileSessionMode.READ_WRITE_V2, first.mode)
+        Files.write(original, originalBytes)
+        deleteSidecars(original)
+
+        val resumed = ProfileSessionMigrator().prepare(session)
+
+        assertEquals(ProfileSessionMode.READ_WRITE_V2, resumed.mode)
+        assertEquals(2, userVersion(original))
+        assertFalse(Files.isWritable(session.resolve(PROFILE_BACKUP)))
+    }
+
+    @Test
+    fun `source WAL causes conservative refusal without changing database or sidecars`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val connection = DriverManager.getConnection("jdbc:sqlite:${original.toAbsolutePath()}")
+        try {
+            connection.createStatement().use { statement ->
+                statement.execute("PRAGMA journal_mode=WAL")
+                statement.execute("INSERT INTO sample VALUES (3, 30, 100, 101, 1, 7, 1, 0, 0, NULL, NULL, NULL)")
+            }
+            val wal = original.resolveSibling("$PROFILE_DATABASE-wal")
+            val shm = original.resolveSibling("$PROFILE_DATABASE-shm")
+            assertTrue(wal.exists())
+            val databaseHash = sha256(original)
+            val walHash = sha256(wal)
+            val shmHash = sha256(shm)
+
+            val prepared = ProfileSessionMigrator().prepare(session)
+
+            assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+            assertEquals(databaseHash, sha256(original))
+            assertEquals(walHash, sha256(wal))
+            assertEquals(shmHash, sha256(shm))
+            assertFalse(session.resolve(PROFILE_BACKUP).exists())
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun `source rollback journal causes conservative refusal`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val journal = original.resolveSibling("$PROFILE_DATABASE-journal")
+        journal.writeBytes(byteArrayOf(1, 2, 3))
+        val before = sha256(original)
+
+        val prepared = ProfileSessionMigrator().prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertEquals(before, sha256(original))
+        assertContentEquals(byteArrayOf(1, 2, 3), Files.readAllBytes(journal))
+    }
+
+    @Test
+    fun `concurrent source replacement before final move is detected and never overwritten`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val replacementSession = versionOneSession()
+        val replacement = replacementSession.resolve(PROFILE_DATABASE)
+        DriverManager.getConnection("jdbc:sqlite:${replacement.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { it.execute("PRAGMA application_id=991") }
+        }
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                MigrationCheckpoint { point ->
+                    if (point == ProfileMigrationCheckpoint.BEFORE_FINAL_MOVE) {
+                        Files.copy(replacement, original, StandardCopyOption.REPLACE_EXISTING)
+                    }
+                },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertEquals(1, userVersion(original))
+        assertEquals(991, applicationId(original))
     }
 
     @Test
@@ -124,6 +274,176 @@ class ProfileSessionMigratorTest {
         assertFalse(session.resolve(PROFILE_BACKUP).exists())
         assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
         assertNoMigrationScratchFiles(session)
+    }
+
+    @Test
+    fun `cleanup continues across independent scratch deletion failures`() {
+        val session = versionOneSession()
+        val stuckCandidate = session.resolve("profile.sqlite.migrating")
+        Files.createDirectory(stuckCandidate)
+        stuckCandidate.resolve("child").writeBytes(byteArrayOf(1))
+        stuckCandidate.resolveSibling("profile.sqlite.migrating-wal").writeBytes(byteArrayOf(2))
+        session.resolve("profile.v1.sqlite.creating").writeBytes(byteArrayOf(3))
+        session.resolve("migration.properties.creating").writeBytes(byteArrayOf(4))
+
+        val prepared = ProfileSessionMigrator().prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertFalse(session.resolve("profile.sqlite.migrating-wal").exists())
+        assertFalse(session.resolve("profile.v1.sqlite.creating").exists())
+        assertFalse(session.resolve("migration.properties.creating").exists())
+    }
+
+    @Test
+    fun `failures at precommit checkpoints never replace original`() {
+        ProfileMigrationCheckpoint.entries
+            .filter { it != ProfileMigrationCheckpoint.AFTER_FINAL_MOVE }
+            .forEach { failurePoint ->
+                val session = versionOneSession()
+                val original = session.resolve(PROFILE_DATABASE)
+                val before = Files.readAllBytes(original)
+                val migrator =
+                    ProfileSessionMigrator(
+                        CandidateDatabaseMigrator.default(),
+                        MigrationCheckpoint { point ->
+                            if (point == failurePoint) throw IOException("injected $failurePoint")
+                        },
+                    )
+
+                val prepared = migrator.prepare(session)
+
+                assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode, failurePoint.name)
+                assertContentEquals(before, Files.readAllBytes(original), failurePoint.name)
+                assertEquals(1, userVersion(original), failurePoint.name)
+                assertFalse(session.resolve(PROFILE_BACKUP).exists(), failurePoint.name)
+                assertFalse(session.resolve(MIGRATION_PROPERTIES).exists(), failurePoint.name)
+                assertNoMigrationScratchFiles(session)
+            }
+    }
+
+    @Test
+    fun `final move failure preserves original and removes newly published artifacts`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val before = Files.readAllBytes(original)
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                finalDatabaseMover =
+                    FinalDatabaseMover { _, _ ->
+                        throw IOException("injected final move failure")
+                    },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, prepared.mode)
+        assertContentEquals(before, Files.readAllBytes(original))
+        assertEquals(1, userVersion(original))
+        assertFalse(session.resolve(PROFILE_BACKUP).exists())
+        assertFalse(session.resolve(MIGRATION_PROPERTIES).exists())
+        assertNoMigrationScratchFiles(session)
+    }
+
+    @Test
+    fun `postcommit checkpoint failure cannot downgrade a completed atomic move`() {
+        val session = versionOneSession()
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                MigrationCheckpoint { point ->
+                    if (point == ProfileMigrationCheckpoint.AFTER_FINAL_MOVE) {
+                        throw IOException("injected postcommit failure")
+                    }
+                },
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.READ_WRITE_V2, prepared.mode)
+        assertEquals(2, userVersion(session.resolve(PROFILE_DATABASE)))
+    }
+
+    @Test
+    fun `newer schema stays read only through actual workspace load`() =
+        runTest {
+            val session = versionOneSession()
+            val original = session.resolve(PROFILE_DATABASE)
+            SQLiteSampleStore
+                .open(original)
+                .use { }
+            DriverManager.getConnection("jdbc:sqlite:${original.toAbsolutePath()}").use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.execute("PRAGMA user_version=3")
+                    statement.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    statement.execute("PRAGMA journal_mode=DELETE")
+                }
+            }
+            deleteSidecars(original)
+            val before = sha256(original)
+            val controller =
+                ProfileWorkspaceController(
+                    backgroundScope,
+                    sqliteProjectionLoader(UnconfinedTestDispatcher(testScheduler)),
+                )
+
+            controller.openSession(session, ProfileProjectionRequest(timelineBucketCount = 2, topFunctionLimit = 10))
+            runCurrent()
+
+            assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, controller.state.value.sessionMode)
+            assertEquals(
+                3,
+                controller.state.value.preparedSession
+                    ?.schemaVersion,
+            )
+            assertIs<ProfileWorkspaceLoadState.Ready>(controller.state.value.loadState)
+            assertEquals(before, sha256(original))
+            assertFalse(original.resolveSibling("$PROFILE_DATABASE-wal").exists())
+            assertFalse(original.resolveSibling("$PROFILE_DATABASE-shm").exists())
+        }
+
+    @Test
+    fun `prepared writable v2 fails closed if database is replaced with v1 before load`() =
+        runTest {
+            val v2Session = versionOneSession()
+            val v2 = v2Session.resolve(PROFILE_DATABASE)
+            SQLiteSampleStore
+                .open(v2)
+                .use { }
+            val prepared = ProfileSessionMigrator().prepare(v2Session)
+            val v1Session = versionOneSession()
+            val v1 = v1Session.resolve(PROFILE_DATABASE)
+            val v1Bytes = Files.readAllBytes(v1)
+            Files.copy(v1, v2, StandardCopyOption.REPLACE_EXISTING)
+
+            assertFailsWith<ProfileProjectionLoadException> {
+                sqliteProjectionLoader(UnconfinedTestDispatcher(testScheduler))
+                    .load(prepared, ProfileProjectionRequest(timelineBucketCount = 2))
+            }
+            assertContentEquals(v1Bytes, Files.readAllBytes(v2))
+            assertEquals(1, userVersion(v2))
+        }
+
+    @Test
+    fun `missing database and symlink database are never migrated`() {
+        val missingSession = Files.createTempDirectory("aps-missing-session-")
+        val missing = ProfileSessionMigrator().prepare(missingSession)
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, missing.mode)
+        assertEquals(null, missing.schemaVersion)
+        assertFalse(missingSession.resolve(PROFILE_DATABASE).exists())
+
+        val targetSession = versionOneSession()
+        val target = targetSession.resolve(PROFILE_DATABASE)
+        val before = sha256(target)
+        val linkSession = Files.createTempDirectory("aps-link-session-")
+        Files.createSymbolicLink(linkSession.resolve(PROFILE_DATABASE), target)
+
+        val linked = ProfileSessionMigrator().prepare(linkSession)
+
+        assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, linked.mode)
+        assertEquals(null, linked.schemaVersion)
+        assertEquals(before, sha256(target))
+        assertFalse(linkSession.resolve(PROFILE_BACKUP).exists())
     }
 
     @Test
@@ -246,6 +566,32 @@ class ProfileSessionMigratorTest {
             connection.userVersion()
         }
 
+    private fun applicationId(database: Path): Int =
+        DriverManager.getConnection("jdbc:sqlite:file:${database.toAbsolutePath()}?mode=ro").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA application_id").use { result ->
+                    check(result.next())
+                    result.getInt(1)
+                }
+            }
+        }
+
+    private fun sampleCount(database: Path): Int =
+        DriverManager.getConnection("jdbc:sqlite:file:${database.toAbsolutePath()}?mode=ro").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT COUNT(*) FROM sample").use { result ->
+                    check(result.next())
+                    result.getInt(1)
+                }
+            }
+        }
+
+    private fun deleteSidecars(database: Path) {
+        listOf("-wal", "-shm", "-journal").forEach { suffix ->
+            Files.deleteIfExists(database.resolveSibling(database.fileName.toString() + suffix))
+        }
+    }
+
     private fun sha256(path: Path): String =
         MessageDigest
             .getInstance("SHA-256")
@@ -265,6 +611,8 @@ class ProfileSessionMigratorTest {
         const val PROFILE_BACKUP = "profile.v1.sqlite"
         const val MIGRATION_PROPERTIES = "migration.properties"
         const val PROFILE_BACKUP_SHA256 = "profile.v1.sqlite.sha256"
+        const val PROFILE_SOURCE_SHA256 = "profile.sqlite.source.sha256"
+        const val PROFILE_SOURCE_SCHEMA = "profile.sqlite.source.schema"
 
         val VERSION_ONE_STATEMENTS =
             listOf(

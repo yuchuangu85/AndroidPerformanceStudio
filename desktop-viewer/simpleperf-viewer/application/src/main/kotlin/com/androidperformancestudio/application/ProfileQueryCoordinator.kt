@@ -22,20 +22,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.IOException
-import java.nio.file.Path
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.sql.SQLException
-import kotlin.io.path.isRegularFile
 
 fun interface ProfileProjectionLoader {
     suspend fun load(
-        sessionDirectory: Path,
+        session: PreparedProfileSession,
         query: ProfileQuery,
     ): ProfileProjectionSnapshot
 
     suspend fun load(
-        sessionDirectory: Path,
+        session: PreparedProfileSession,
         request: ProfileProjectionRequest,
-    ): ProfileProjectionSnapshot = load(sessionDirectory, request.query)
+    ): ProfileProjectionSnapshot = load(session, request.query)
 }
 
 data class GeneratedProjection(
@@ -76,13 +76,13 @@ class ProfileQueryCoordinator(
     val failures: SharedFlow<GeneratedProjectionFailure> = mutableFailures.asSharedFlow()
 
     fun submit(
-        sessionDirectory: Path,
+        session: PreparedProfileSession,
         generation: ProfileGeneration,
         query: ProfileQuery,
-    ) = submit(sessionDirectory, generation, ProfileProjectionRequest(query = query))
+    ) = submit(session, generation, ProfileProjectionRequest(query = query))
 
     fun submit(
-        sessionDirectory: Path,
+        session: PreparedProfileSession,
         generation: ProfileGeneration,
         request: ProfileProjectionRequest,
     ) {
@@ -97,7 +97,7 @@ class ProfileQueryCoordinator(
                 scope.launch(start = CoroutineStart.LAZY) {
                     val job = checkNotNull(currentCoroutineContext()[Job])
                     try {
-                        val snapshot = loader.load(sessionDirectory, frozenRequest)
+                        val snapshot = loader.load(session, frozenRequest)
                         job.ensureActive()
                         synchronized(lock) {
                             if (!closed && currentSubmission == submissionId && job.isActive) {
@@ -144,22 +144,17 @@ class ProfileQueryCoordinator(
 fun sqliteProjectionLoader(ioDispatcher: CoroutineDispatcher = Dispatchers.IO): ProfileProjectionLoader =
     object : ProfileProjectionLoader {
         override suspend fun load(
-            sessionDirectory: Path,
+            session: PreparedProfileSession,
             query: ProfileQuery,
-        ): ProfileProjectionSnapshot = load(sessionDirectory, ProfileProjectionRequest(query = query))
+        ): ProfileProjectionSnapshot = load(session, ProfileProjectionRequest(query = query))
 
         override suspend fun load(
-            sessionDirectory: Path,
+            session: PreparedProfileSession,
             request: ProfileProjectionRequest,
         ): ProfileProjectionSnapshot =
             withContext(ioDispatcher) {
-                val database =
-                    if (sessionDirectory.isRegularFile()) {
-                        sessionDirectory
-                    } else {
-                        sessionDirectory.resolve("profile.sqlite")
-                    }
-                if (!database.isRegularFile()) {
+                val database = session.database
+                if (Files.isSymbolicLink(database) || !Files.isRegularFile(database, LinkOption.NOFOLLOW_LINKS)) {
                     throw ProfileProjectionLoadException(
                         StudioError(
                             ErrorCategory.IO,
@@ -169,12 +164,16 @@ fun sqliteProjectionLoader(ioDispatcher: CoroutineDispatcher = Dispatchers.IO): 
                     )
                 }
                 try {
-                    val version = SQLiteSampleStore.schemaVersion(database)
                     val store =
-                        if (version < 2) {
-                            SQLiteSampleStore.openReadOnly(database)
-                        } else {
-                            SQLiteSampleStore.open(database)
+                        when (session.mode) {
+                            ProfileSessionMode.READ_WRITE_V2 -> {
+                                check(session.schemaVersion == 2) { "Writable session is not prepared as schema v2" }
+                                SQLiteSampleStore.openV2(database)
+                            }
+                            ProfileSessionMode.LEGACY_READ_ONLY -> {
+                                val expectedVersion = checkNotNull(session.schemaVersion) { "Unknown read-only schema" }
+                                SQLiteSampleStore.openReadOnlyExpected(database, expectedVersion)
+                            }
                         }
                     store.use { it.projectCore(request) }
                 } catch (failure: SQLException) {

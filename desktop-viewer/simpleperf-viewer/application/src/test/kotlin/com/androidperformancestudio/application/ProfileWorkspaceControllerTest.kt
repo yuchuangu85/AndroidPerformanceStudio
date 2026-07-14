@@ -202,7 +202,7 @@ class ProfileWorkspaceControllerTest {
         val started = Channel<Request>(Channel.UNLIMITED)
 
         override suspend fun load(
-            sessionDirectory: Path,
+            session: PreparedProfileSession,
             query: ProfileQuery,
         ): ProfileProjectionSnapshot {
             val request = Request(query)

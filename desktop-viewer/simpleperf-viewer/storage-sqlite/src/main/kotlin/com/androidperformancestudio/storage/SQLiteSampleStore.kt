@@ -6,11 +6,16 @@ import com.androidperformancestudio.model.NormalizedSample
 import com.androidperformancestudio.model.ProfileExecutionType
 import com.androidperformancestudio.model.ProfileFrame
 import com.androidperformancestudio.model.ProfileSample
+import org.sqlite.SQLiteConnection
 import java.io.Closeable
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
+
+internal fun interface ConnectionProvider {
+    fun connect(url: String): Connection
+}
 
 @Suppress("TooManyFunctions")
 class SQLiteSampleStore private constructor(
@@ -166,27 +171,150 @@ class SQLiteSampleStore private constructor(
                 .parent
                 ?.toFile()
                 ?.mkdirs()
-            val connection = DriverManager.getConnection("jdbc:sqlite:${databasePath.toAbsolutePath()}")
-            configure(connection)
-            SQLiteSchema.migrate(connection)
-            return SQLiteSampleStore(connection)
+            return open(databasePath, DEFAULT_CONNECTION_PROVIDER)
         }
 
         fun openReadOnly(databasePath: Path): SQLiteSampleStore {
             Class.forName("org.sqlite.JDBC")
-            val connection = DriverManager.getConnection(readOnlyJdbcUrl(databasePath))
-            connection.createStatement().use { statement ->
-                statement.execute("PRAGMA query_only=ON")
-                statement.execute("PRAGMA foreign_keys=ON")
-                statement.execute("PRAGMA temp_store=MEMORY")
-            }
-            return SQLiteSampleStore(connection)
+            return openReadOnlyExpected(databasePath, null, DEFAULT_CONNECTION_PROVIDER)
         }
 
         fun schemaVersion(databasePath: Path): Int = openReadOnly(databasePath).use(SQLiteSampleStore::schemaVersion)
 
+        fun openV2(databasePath: Path): SQLiteSampleStore {
+            Class.forName("org.sqlite.JDBC")
+            return openV2(databasePath, DEFAULT_CONNECTION_PROVIDER)
+        }
+
+        fun openReadOnlyExpected(
+            databasePath: Path,
+            expectedVersion: Int,
+        ): SQLiteSampleStore {
+            Class.forName("org.sqlite.JDBC")
+            return openReadOnlyExpected(databasePath, expectedVersion, DEFAULT_CONNECTION_PROVIDER)
+        }
+
+        internal fun open(
+            databasePath: Path,
+            provider: ConnectionProvider,
+        ): SQLiteSampleStore =
+            createStore(provider.connect("jdbc:sqlite:${databasePath.toAbsolutePath()}")) { connection ->
+                configure(connection)
+                SQLiteSchema.migrate(connection)
+            }
+
+        internal fun openV2(
+            databasePath: Path,
+            provider: ConnectionProvider,
+        ): SQLiteSampleStore =
+            createStore(provider.connect(writableJdbcUrl(databasePath))) { connection ->
+                requireSchemaVersion(connection, EXPECTED_WRITABLE_VERSION)
+                configure(connection)
+            }
+
+        internal fun openReadOnlyExpected(
+            databasePath: Path,
+            expectedVersion: Int,
+            provider: ConnectionProvider,
+        ): SQLiteSampleStore = openReadOnlyExpected(databasePath, expectedVersion as Int?, provider)
+
+        fun <T> withExclusiveSnapshot(
+            databasePath: Path,
+            snapshotPath: Path,
+            expectedVersion: Int,
+            block: () -> T,
+        ): T {
+            Class.forName("org.sqlite.JDBC")
+            val connection = DEFAULT_CONNECTION_PROVIDER.connect(writableJdbcUrl(databasePath))
+            var transactionStarted = false
+            try {
+                requireSchemaVersion(connection, expectedVersion)
+                requireRollbackJournal(connection)
+                val sqliteConnection = requireSQLiteConnection(connection)
+                val result =
+                    sqliteConnection.database.backup(
+                        "main",
+                        snapshotPath.toAbsolutePath().toString(),
+                        null,
+                    )
+                requireSuccessfulBackup(result)
+                connection.createStatement().use { it.execute("BEGIN EXCLUSIVE") }
+                transactionStarted = true
+                requireSchemaVersion(connection, expectedVersion)
+                return block()
+            } finally {
+                if (transactionStarted) {
+                    runCatching { connection.createStatement().use { it.execute("ROLLBACK") } }
+                }
+                closeQuietly(connection)
+            }
+        }
+
+        @Suppress("TooGenericExceptionCaught")
+        private fun createStore(
+            connection: Connection,
+            setup: (Connection) -> Unit,
+        ): SQLiteSampleStore =
+            try {
+                setup(connection)
+                SQLiteSampleStore(connection)
+            } catch (failure: Throwable) {
+                closeQuietly(connection)
+                throw failure
+            }
+
+        private fun openReadOnlyExpected(
+            databasePath: Path,
+            expectedVersion: Int?,
+            provider: ConnectionProvider,
+        ): SQLiteSampleStore =
+            createStore(provider.connect(readOnlyJdbcUrl(databasePath))) { connection ->
+                connection.createStatement().use { statement ->
+                    statement.execute("PRAGMA query_only=ON")
+                    statement.execute("PRAGMA foreign_keys=ON")
+                    statement.execute("PRAGMA temp_store=MEMORY")
+                }
+                expectedVersion?.let { requireSchemaVersion(connection, it) }
+            }
+
+        private fun requireSchemaVersion(
+            connection: Connection,
+            expectedVersion: Int,
+        ) {
+            val actual = connection.singleInt("PRAGMA user_version")
+            if (actual != expectedVersion) {
+                throw SQLException("Expected schema version $expectedVersion but found $actual")
+            }
+        }
+
+        private fun requireRollbackJournal(connection: Connection) {
+            if (connection.singleString("PRAGMA journal_mode").equals("wal", ignoreCase = true)) {
+                throw SQLException("WAL-mode source cannot be replaced safely")
+            }
+        }
+
+        private fun requireSQLiteConnection(connection: Connection): SQLiteConnection =
+            connection as? SQLiteConnection
+                ?: throw SQLException("SQLite online backup requires an SQLiteConnection")
+
+        private fun requireSuccessfulBackup(result: Int) {
+            if (result != 0) throw SQLException("SQLite online backup failed with result $result")
+        }
+
+        private fun writableJdbcUrl(databasePath: Path): String =
+            "jdbc:sqlite:${databasePath.toAbsolutePath().toUri().toASCIIString()}?mode=rw"
+
         private fun readOnlyJdbcUrl(databasePath: Path): String =
             "jdbc:sqlite:${databasePath.toAbsolutePath().toUri().toASCIIString()}?mode=ro"
+
+        @Suppress("TooGenericExceptionCaught")
+        private fun closeQuietly(connection: Connection) {
+            try {
+                connection.close()
+            } catch (_: Throwable) {
+                // Preserve the setup failure; there is no usable store to return.
+            }
+        }
 
         private fun configure(connection: Connection) {
             connection.createStatement().use { statement ->
@@ -196,6 +324,9 @@ class SQLiteSampleStore private constructor(
                 statement.execute("PRAGMA temp_store=MEMORY")
             }
         }
+
+        private val DEFAULT_CONNECTION_PROVIDER = ConnectionProvider(DriverManager::getConnection)
+        private const val EXPECTED_WRITABLE_VERSION = 2
     }
 }
 
