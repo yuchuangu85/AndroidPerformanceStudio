@@ -23,22 +23,6 @@ class ThemePreferenceTest {
     }
 
     @Test
-    fun `store persists and restores explicit preference`() {
-        var storedValue: String? = null
-        val store = ThemePreferenceStore(
-            readValue = { storedValue },
-            writeValue = { storedValue = it },
-        )
-
-        assertEquals(ThemePreference.SYSTEM, store.load())
-
-        store.save(ThemePreference.DARK)
-
-        assertEquals("dark", storedValue)
-        assertEquals(ThemePreference.DARK, store.load())
-    }
-
-    @Test
     fun `viewer palette follows resolved darkness`() {
         val light = ViewerPalettes.forDark(false)
         val dark = ViewerPalettes.forDark(true)
@@ -56,13 +40,4 @@ class ThemePreferenceTest {
         }
     }
 
-    @Test
-    fun `settings present system light and dark choices in order`() {
-        val strings = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
-
-        assertEquals(
-            listOf("跟随系统", "亮色主题", "暗色主题"),
-            ThemePreference.entries.map(strings::themePreferenceName),
-        )
-    }
 }

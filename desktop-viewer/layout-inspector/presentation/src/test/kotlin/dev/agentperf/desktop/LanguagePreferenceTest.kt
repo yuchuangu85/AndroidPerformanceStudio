@@ -32,22 +32,6 @@ class LanguagePreferenceTest {
     }
 
     @Test
-    fun `store persists and restores explicit language`() {
-        var storedValue: String? = null
-        val store = LanguagePreferenceStore(
-            readValue = { storedValue },
-            writeValue = { storedValue = it },
-        )
-
-        assertEquals(LanguagePreference.SYSTEM, store.load())
-
-        store.save(LanguagePreference.ENGLISH)
-
-        assertEquals("english", storedValue)
-        assertEquals(LanguagePreference.ENGLISH, store.load())
-    }
-
-    @Test
     fun `strings cover settings menu and known finding messages`() {
         val chinese = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
         val english = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH)

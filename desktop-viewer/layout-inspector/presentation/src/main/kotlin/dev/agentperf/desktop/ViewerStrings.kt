@@ -10,8 +10,6 @@ internal class ViewerStrings private constructor(
         get() = language == ViewerLanguage.SIMPLIFIED_CHINESE
 
     val settings: String get() = text("Settings", "设置")
-    val theme: String get() = text("Theme", "主题")
-    val languageSetting: String get() = text("Language", "语言")
     val canvasBorderColors: String get() = text("Canvas border colors", "画布边框颜色")
     val defaultViewBoundsColor: String get() = text("Default view bounds", "默认视图边框")
     val hoveredViewBoundsColor: String get() = text("Hovered view bounds", "鼠标悬停边框")
@@ -156,18 +154,6 @@ internal class ViewerStrings private constructor(
 
     fun archiveLimitValue(limits: CaptureArchiveLimits): String =
         "${limits.maxSnapshotSizeMiB} MiB (${limits.snapshotSizeMultiplier}×)"
-
-    fun themePreferenceName(preference: ThemePreference): String = when (preference) {
-        ThemePreference.SYSTEM -> text("Follow system", "跟随系统")
-        ThemePreference.LIGHT -> text("Light", "亮色主题")
-        ThemePreference.DARK -> text("Dark", "暗色主题")
-    }
-
-    fun languagePreferenceName(preference: LanguagePreference): String = when (preference) {
-        LanguagePreference.SYSTEM -> text("Follow system", "跟随系统")
-        LanguagePreference.SIMPLIFIED_CHINESE -> "简体中文"
-        LanguagePreference.ENGLISH -> "English"
-    }
 
     fun connectionError(message: String): String {
         val deviceCount = authorizedDeviceCountError

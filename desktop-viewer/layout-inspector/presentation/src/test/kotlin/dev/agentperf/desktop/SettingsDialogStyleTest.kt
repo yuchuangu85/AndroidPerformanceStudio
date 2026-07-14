@@ -13,7 +13,7 @@ class SettingsDialogStyleTest {
 
     @Test
     fun `settings menu groups are separated by visible dividers`() {
-        assertEquals(4, SettingsDialogStyle.SECTION_SEPARATOR_COUNT)
+        assertEquals(2, SettingsDialogStyle.SECTION_SEPARATOR_COUNT)
         assertEquals(1, SettingsDialogStyle.SEPARATOR_HEIGHT_DP)
         assertTrue(SettingsDialogStyle.SEPARATOR_VERTICAL_PADDING_DP >= 10)
     }

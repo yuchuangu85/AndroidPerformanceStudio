@@ -54,16 +54,7 @@ class HeaderControlTest {
         assertFalse(header.contains("onToggleTheme"))
     }
 
-    @Test
-    fun `settings theme labels remain localized`() {
-        val english = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH)
-        val chinese = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
 
-        assertEquals("Light", english.themePreferenceName(ThemePreference.LIGHT))
-        assertEquals("Dark", english.themePreferenceName(ThemePreference.DARK))
-        assertEquals("亮色主题", chinese.themePreferenceName(ThemePreference.LIGHT))
-        assertEquals("暗色主题", chinese.themePreferenceName(ThemePreference.DARK))
-    }
     @Test
     fun `device selector appears before window selector in the header`() {
         val source = Files.readString(

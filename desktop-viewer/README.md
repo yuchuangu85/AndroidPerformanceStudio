@@ -31,10 +31,11 @@ Prerequisites:
 
 The root application opens on a two-entry home page. Selecting Layout Inspector or Simpleperf
 replaces the home page with that feature's original full-window interface.
-The persistent top settings bar owns application-wide language (`System`, `简体中文`, `English`)
-and theme (`System`, `Light`, `Dark`) selection on every page. Feature settings stay inside their
-own interfaces: Layout Inspector keeps only view, capture archive, and canvas border settings in
-its dialog, while Simpleperf keeps profiling-specific configuration in its workflow.
+Application-wide language (`System`, `简体中文`, `English`) and theme (`System`, `Light`, `Dark`)
+are available only from the operating system's application Settings/Preferences command; the
+home page and feature pages do not render language or theme controls. Feature settings stay inside
+their own interfaces: Layout Inspector keeps only view, capture archive, and canvas border settings
+in its dialog, while Simpleperf keeps profiling-specific configuration in its workflow.
 
 Run only the isolated Simpleperf CPU Profiler during feature development:
 

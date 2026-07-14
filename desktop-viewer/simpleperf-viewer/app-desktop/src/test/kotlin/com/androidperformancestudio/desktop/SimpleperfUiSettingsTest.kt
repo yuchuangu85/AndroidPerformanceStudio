@@ -26,23 +26,4 @@ class SimpleperfUiSettingsTest {
             SimpleperfLanguagePreference.SYSTEM.resolve(Locale.ENGLISH),
         )
     }
-
-    @Test
-    fun `settings store persists both selections`() {
-        val values = mutableMapOf<String, String>()
-        val store =
-            SimpleperfUiSettingsStore(
-                readValue = values::get,
-                writeValue = values::put,
-            )
-        val settings =
-            SimpleperfUiSettings(
-                theme = SimpleperfThemePreference.DARK,
-                language = SimpleperfLanguagePreference.SIMPLIFIED_CHINESE,
-            )
-
-        store.save(settings)
-
-        assertEquals(settings, store.load())
-    }
 }

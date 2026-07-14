@@ -18,7 +18,7 @@ V0.1 release candidate 功能已实现，等待 GitHub Actions 三平台安装�
 - root/userdebug、profileable、device simpleperf 版本和事件列表探测，聚合 Ready/Limited/Blocked；
 - App 包名、运行进程/PID 和线程列表查询，支持刷新与本地搜索；
 - Device & Target 桌面界面，支持设备能力、App/进程/线程选择并进入采集配置；
-- 独立运行时，主界面和完整报告工作区支持系统/简体中文/英文以及系统/浅色/深色主题切换并持久化选择；嵌入根应用时由根应用顶部设置栏统一管理这些通用属性；
+- 嵌入根应用时，主界面和完整报告工作区跟随根应用的语言与主题；页面本身不显示语言和主题设置控件；
 - Simpleperf 参数模型、五类模板、event/frequency/period/duration/callgraph/scope 高级编辑与同步命令预览；
 - 可取消的采集状态机、标准 session 目录、`perf.data` 拉取和命令/stdout/stderr/退出码持久化；
 - 桌面 Start/Stop-and-analyze/Cancel 控制与 Preparing/Recording/Stopping/Pulling/结果状态；

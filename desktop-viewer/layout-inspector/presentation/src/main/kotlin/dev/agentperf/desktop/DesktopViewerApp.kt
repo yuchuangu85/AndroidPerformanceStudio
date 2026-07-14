@@ -112,7 +112,6 @@ internal const val AI_ANALYSIS_ENTRY_VISIBLE = false
 
 @Composable
 fun FrameWindowScope.DesktopViewerApp(
-    settingsRequest: Long = 0L,
     commonThemePreference: String? = null,
     commonLanguagePreference: String? = null,
 ) {
@@ -274,25 +273,15 @@ fun FrameWindowScope.DesktopViewerApp(
     var viewDisplayOptions by remember {
         mutableStateOf(viewDisplayOptionsStore.load())
     }
-    val themeStore = remember { ThemePreferenceStore.desktop() }
-    var storedThemePreference by remember { mutableStateOf(themeStore.load()) }
-    val languageStore = remember { LanguagePreferenceStore.desktop() }
-    var storedLanguagePreference by remember { mutableStateOf(languageStore.load()) }
-    val commonSettingsManagedExternally = commonThemePreference != null || commonLanguagePreference != null
     val themePreference =
-        commonThemePreference?.let(ThemePreference::fromStorage) ?: storedThemePreference
+        commonThemePreference?.let(ThemePreference::fromStorage) ?: ThemePreference.SYSTEM
     val languagePreference =
-        commonLanguagePreference?.let(LanguagePreference::fromStorage) ?: storedLanguagePreference
+        commonLanguagePreference?.let(LanguagePreference::fromStorage) ?: LanguagePreference.SYSTEM
     val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
     var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
     val viewerLanguage = languagePreference.resolve(Locale.getDefault().toLanguageTag())
     val strings = remember(viewerLanguage) { ViewerStrings.forLanguage(viewerLanguage) }
     var settingsVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(settingsRequest) {
-        if (shouldOpenSettingsForRequest(settingsRequest)) {
-            settingsVisible = true
-        }
-    }
     val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
     val appFocusRequester = remember { FocusRequester() }
     val exportCaptureArchive: () -> Unit = exportCaptureArchive@{
@@ -745,17 +734,6 @@ fun FrameWindowScope.DesktopViewerApp(
         }
             if (settingsVisible) {
                 SettingsDialog(
-                    selectedThemePreference = themePreference,
-                    onSelectThemePreference = { preference ->
-                        storedThemePreference = preference
-                        themeStore.save(preference)
-                    },
-                    selectedLanguagePreference = languagePreference,
-                    onSelectLanguagePreference = { preference ->
-                        storedLanguagePreference = preference
-                        languageStore.save(preference)
-                    },
-                    showCommonPreferences = commonSettingsManagedExternally.not(),
                     viewDisplayOptions = viewDisplayOptions,
                     onViewDisplayOptionsChanged = { updated ->
                         viewDisplayOptions = updated

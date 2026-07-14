@@ -4,7 +4,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 class SimpleperfLocalizationTest {
     @Test
@@ -32,13 +32,14 @@ class SimpleperfLocalizationTest {
     }
 
     @Test
-    fun `embedded workspace can hide its duplicate common settings bar`() {
+    fun `workspace pages do not expose language or theme controls`() {
         val homeScreen =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/presentation/HomeScreen.kt"),
             )
 
-        assertTrue(homeScreen.contains("showCommonSettings: Boolean = true"))
-        assertTrue(homeScreen.contains("if (showCommonSettings)"))
+        assertFalse(homeScreen.contains("SimpleperfSettingsBar"))
+        assertFalse(homeScreen.contains("onThemePreferenceChanged"))
+        assertFalse(homeScreen.contains("onLanguagePreferenceChanged"))
     }
 }

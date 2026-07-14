@@ -41,8 +41,6 @@ import com.androidperformancestudio.presentation.SimpleperfLanguage as Presentat
 fun SimpleperfWorkspace(
     window: ComposeWindow,
     settings: SimpleperfUiSettings = SimpleperfUiSettings(),
-    onSettingsChanged: (SimpleperfUiSettings) -> Unit = {},
-    showCommonSettings: Boolean = true,
 ) {
     val dependencies = remember { createWorkspaceDependencies() }
     val controller =
@@ -77,15 +75,6 @@ fun SimpleperfWorkspace(
         reportActions = reportActionFactory.create(reportState),
         darkTheme = settings.theme.resolveDark(isSystemInDarkTheme()),
         language = settings.language.resolve(Locale.getDefault()).toPresentationLanguage(),
-        themePreference = settings.theme.storageValue,
-        languagePreference = settings.language.storageValue,
-        onThemePreferenceChanged = { value ->
-            onSettingsChanged(settings.copy(theme = SimpleperfThemePreference.parse(value)))
-        },
-        onLanguagePreferenceChanged = { value ->
-            onSettingsChanged(settings.copy(language = SimpleperfLanguagePreference.parse(value)))
-        },
-        showCommonSettings = showCommonSettings,
     )
 }
 

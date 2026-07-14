@@ -2,41 +2,39 @@ package dev.agentperf.desktop
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun GlobalSettingsBar(
+internal fun ApplicationSettingsDialog(
     settings: ApplicationUiSettings,
     chinese: Boolean,
     onSettingsChanged: (ApplicationUiSettings) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    Surface(tonalElevation = 2.dp, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Android Performance Studio", fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (chinese) "通用设置" else "General Settings") },
+        text = {
+            Column(
+                modifier = Modifier.width(420.dp).padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 PreferenceDropdown(
                     label = if (chinese) "语言" else "Language",
                     selected = settings.language,
@@ -52,8 +50,13 @@ internal fun GlobalSettingsBar(
                     onSelected = { onSettingsChanged(settings.copy(theme = it)) },
                 )
             }
-        }
-    }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(if (chinese) "完成" else "Done")
+            }
+        },
+    )
 }
 
 @Composable
@@ -65,11 +68,18 @@ private fun <T> PreferenceDropdown(
     onSelected: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.width(180.dp)) {
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("$label: ${optionLabel(selected)}")
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(optionLabel(option)) },

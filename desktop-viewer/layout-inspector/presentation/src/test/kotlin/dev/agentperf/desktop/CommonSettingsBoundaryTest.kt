@@ -2,12 +2,13 @@ package dev.agentperf.desktop
 
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class CommonSettingsBoundaryTest {
     @Test
-    fun `embedded viewer accepts common settings and hides them from feature dialog`() {
+    fun `viewer accepts common settings without exposing them in feature dialog`() {
         val viewer = Files.readString(
             Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
         )
@@ -17,8 +18,10 @@ class CommonSettingsBoundaryTest {
 
         assertTrue(viewer.contains("commonThemePreference: String? = null"))
         assertTrue(viewer.contains("commonLanguagePreference: String? = null"))
-        assertTrue(viewer.contains("showCommonPreferences = commonSettingsManagedExternally.not()"))
-        assertTrue(dialog.contains("showCommonPreferences: Boolean = true"))
-        assertTrue(dialog.contains("if (showCommonPreferences)"))
+        assertTrue(dialog.contains("viewDisplayOptions: ViewDisplayOptions"))
+        assertTrue(dialog.contains("archiveLimits: CaptureArchiveLimits"))
+        assertTrue(dialog.contains("canvasBorderColors: CanvasBorderColors"))
+        assertFalse(dialog.contains("selectedThemePreference"))
+        assertFalse(dialog.contains("selectedLanguagePreference"))
     }
 }

@@ -3,7 +3,6 @@
 package com.androidperformancestudio.desktop
 
 import java.util.Locale
-import java.util.prefs.Preferences
 
 enum class SimpleperfThemePreference(
     val storageValue: String,
@@ -62,37 +61,3 @@ data class SimpleperfUiSettings(
     val theme: SimpleperfThemePreference = SimpleperfThemePreference.SYSTEM,
     val language: SimpleperfLanguagePreference = SimpleperfLanguagePreference.SYSTEM,
 )
-
-class SimpleperfUiSettingsStore(
-    private val readValue: (String) -> String?,
-    private val writeValue: (String, String) -> Unit,
-) {
-    fun load(): SimpleperfUiSettings =
-        SimpleperfUiSettings(
-            theme = SimpleperfThemePreference.parse(readValue(THEME_KEY)),
-            language = SimpleperfLanguagePreference.parse(readValue(LANGUAGE_KEY)),
-        )
-
-    fun save(settings: SimpleperfUiSettings) {
-        writeValue(THEME_KEY, settings.theme.storageValue)
-        writeValue(LANGUAGE_KEY, settings.language.storageValue)
-    }
-
-    companion object {
-        private const val THEME_KEY = "simpleperf.theme"
-        private const val LANGUAGE_KEY = "simpleperf.language"
-
-        fun desktop(): SimpleperfUiSettingsStore {
-            val preferences =
-                runCatching {
-                    Preferences.userNodeForPackage(SimpleperfUiSettingsStore::class.java)
-                }.getOrNull()
-            return SimpleperfUiSettingsStore(
-                readValue = { key -> runCatching { preferences?.get(key, null) }.getOrNull() },
-                writeValue = { key, value ->
-                    runCatching { preferences?.put(key, value) }.getOrNull()
-                },
-            )
-        }
-    }
-}
