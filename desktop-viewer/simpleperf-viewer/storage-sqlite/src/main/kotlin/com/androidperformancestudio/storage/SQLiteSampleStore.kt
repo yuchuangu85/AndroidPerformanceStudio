@@ -118,6 +118,12 @@ class SQLiteSampleStore private constructor(
         direction: CallTreeDirection,
     ): List<CallTreeNode> = SQLiteCallTreeQueries.aggregate(connection, query, direction)
 
+    fun projectCore(query: ProfileQuery = ProfileQuery()): ProfileProjectionSnapshot =
+        SQLiteProfileProjectionQueries.project(
+            store = this,
+            query = query,
+        )
+
     override fun close() {
         connection.close()
     }
