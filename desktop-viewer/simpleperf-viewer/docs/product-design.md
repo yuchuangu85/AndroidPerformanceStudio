@@ -143,20 +143,12 @@ Android Performance Studio
 - Buffer：kernel buffer、user buffer。
 - Symbol inputs：ProGuard mapping、unstripped native libs、binary cache。
 
-#### 4.3.3 命令预览
+#### 4.3.3 一键获取数据
 
-展示最终命令：
-
-```bash
-adb -s <serial> shell simpleperf record ...
-simpleperf report-sample --show-callchain --protobuf -i perf.data -o perf.trace
-```
-
-命令预览必须标注：
-
-- 哪些参数来自模板。
-- 哪些参数来自用户编辑。
-- 哪些参数因设备能力被禁用或替换。
+- 采集页上部始终展示 **Get data / 获取数据** 主操作。
+- 用户选择目标后可直接点击获取数据；采样模板已提供可执行默认参数。
+- 客户端根据模板、用户可选的高级参数和设备能力自动生成并执行 ADB/Simpleperf 参数数组。
+- UI 不展示需要复制或手动输入的采集命令；最终执行命令仍写入会话目录，用于故障定位和复现。
 
 ### 4.4 Capture Progress
 

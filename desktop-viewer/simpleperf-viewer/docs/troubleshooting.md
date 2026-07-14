@@ -15,7 +15,7 @@
 - 普通 user build 通常只能采集 debuggable/profileable App；系统进程或其他 UID 可能需要 root/userdebug。
 - UI 的 Ready/Limited/Blocked 来自实际 `id -u`、build type、SDK 和 simpleperf 探测。
 - 工具不会自动执行 `adb root`，避免改变设备状态。
-- 核对命令预览中的包名/PID/TID是否仍存在；进程重启后需刷新并重新选择 PID。
+- 核对当前选择的包名/PID/TID 是否仍存在；进程重启后需刷新并重新选择 PID。
 
 ## simpleperf 不存在或启动失败
 

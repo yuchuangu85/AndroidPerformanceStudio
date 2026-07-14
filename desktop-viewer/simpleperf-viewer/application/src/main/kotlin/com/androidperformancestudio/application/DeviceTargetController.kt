@@ -6,7 +6,6 @@ import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.DeviceSimpleperfAvailability
 import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingTemplate
-import com.androidperformancestudio.capture.SimpleperfRecordCommand
 import com.androidperformancestudio.capture.SimpleperfTarget
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
@@ -124,7 +123,6 @@ data class DeviceTargetState(
 data class CaptureSetup(
     val template: SamplingTemplate,
     val parameters: SamplingParameters,
-    val commandPreview: String,
 )
 
 interface DeviceTargetGateway {
@@ -239,14 +237,12 @@ class DeviceTargetController(
 
     fun updateSamplingParameters(parameters: SamplingParameters) {
         val current = mutableState.value
-        val serial = current.selectedSerial ?: return
         val setup = current.captureSetup ?: return
         mutableState.value =
             current.copy(
                 captureSetup =
                     setup.copy(
                         parameters = parameters,
-                        commandPreview = SimpleperfRecordCommand(serial, "simpleperf", parameters).preview(),
                     ),
             )
     }
@@ -284,17 +280,17 @@ private fun DeviceTargetState.createCaptureRequest(
         }
     }
 
-private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): CaptureSetup? =
-    selectedSerial?.let { serial ->
-        selectedTarget?.toSimpleperfTarget()?.let { target ->
-            val parameters = template.create(target)
-            CaptureSetup(
-                template = template,
-                parameters = parameters,
-                commandPreview = SimpleperfRecordCommand(serial, "simpleperf", parameters).preview(),
-            )
-        }
+private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): CaptureSetup? {
+    if (selectedSerial == null) {
+        return null
     }
+    return selectedTarget?.toSimpleperfTarget()?.let { target ->
+        CaptureSetup(
+            template = template,
+            parameters = template.create(target),
+        )
+    }
+}
 
 private fun CaptureTarget.toSimpleperfTarget(): SimpleperfTarget =
     when (this) {

@@ -7,6 +7,7 @@ import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.EventScope
 import com.androidperformancestudio.capture.SamplingRate
 import com.androidperformancestudio.capture.SamplingTemplate
+import com.androidperformancestudio.capture.SimpleperfTarget
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
@@ -99,10 +100,10 @@ class DeviceTargetControllerTest {
                     ?.template,
             )
             assertEquals(
-                "adb -s serial-1 shell simpleperf record -e cpu-clock -f 1000 --duration 10 -g -p 321 " +
-                    "-o /data/local/tmp/aps/perf.data",
+                SimpleperfTarget.Process(321),
                 controller.state.value.captureSetup
-                    ?.commandPreview,
+                    ?.parameters
+                    ?.target,
             )
         }
 
@@ -121,11 +122,11 @@ class DeviceTargetControllerTest {
             assertEquals(SamplingTemplate.LOW_OVERHEAD, setup?.template)
             assertEquals(SamplingRate.Frequency(100), setup?.parameters?.rate)
             assertEquals(CallGraphMode.FRAME_POINTER, setup?.parameters?.callGraph)
-            assertTrue(setup?.commandPreview.orEmpty().contains("--app com.example.camera"))
+            assertEquals(SimpleperfTarget.App("com.example.camera"), setup?.parameters?.target)
         }
 
     @Test
-    fun `updates advanced sampling parameters and command preview together`() =
+    fun `updates advanced sampling parameters used by automatic capture`() =
         runBlocking {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())
             controller.refreshDevices()
@@ -145,11 +146,6 @@ class DeviceTargetControllerTest {
 
             val setup = requireNotNull(controller.state.value.captureSetup)
             assertEquals(parameters, setup.parameters)
-            assertEquals(
-                "adb -s serial-1 shell simpleperf record -e instructions:u -c 4000 -p 321 " +
-                    "-o /data/local/tmp/aps/perf.data",
-                setup.commandPreview,
-            )
         }
 
     @Test

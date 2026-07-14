@@ -16,8 +16,8 @@ V0.1 提供自包含 JRE 的桌面发行物：macOS DMG、Windows MSI、Linux DE
 2. 在 **Device & Target** 刷新设备，确认能力为 Ready 或阅读 Limited/Blocked 原因。
 3. 搜索并选择 App/进程；需要时选择线程。
 4. 进入 **Capture**，选择 App CPU、UI Thread、Native Hotspot、Low Overhead 或 System Process 模板。
-5. 在 Advanced parameters 中编辑 event、frequency/period、duration（留空表示手动停止）、callgraph 和 user/kernel 范围；命令预览会同步更新。
-6. 点击 Start。Recording 时可选择 **Stop and analyze**（SIGINT 正常收尾并继续拉取）或 **Cancel**（终止当前任务）。
+5. 可选：在 Advanced parameters 中编辑 event、frequency/period、duration（留空表示手动停止）、callgraph 和 user/kernel 范围。
+6. 点击 **Get data / 获取数据**，客户端会自动生成并执行 Simpleperf 采集命令，不需要复制或手动输入命令。Recording 时可选择 **Stop and analyze**（SIGINT 正常收尾并继续拉取）或 **Cancel**（终止当前任务）。
 7. 成功后会话目录保存 `perf.data`、命令、stop/record/pull/cleanup 日志和元数据，自动转换、索引并进入报告。
 
 失败或取消也会保留本地证据；设备端 `/data/local/tmp/aps/perf.data` 会通过独立、不继承取消信号的清理命令删除。

@@ -167,16 +167,16 @@ private val CHINESE_TEXT =
         "Capture status" to "采集状态",
         "Stop and analyze" to "停止并分析",
         "Cancel" to "取消",
-        "Start capture" to "开始采集",
+        "Get data" to "获取数据",
+        (
+            "Click Get data to run Simpleperf automatically and open the report. " +
+                "No command input is required."
+        ) to "点击“获取数据”即可自动运行 Simpleperf 并打开报告，无需输入命令。",
         "Parameters" to "参数",
         "Manual stop" to "手动停止",
-        "Command preview" to "命令预览",
-        "Copy command" to "复制命令",
         (
-            "Preview and execution share the same argument list. Template values are shown above; " +
-                "device capability replacements will be applied by the tool selection stage."
-        ) to
-            "预览与执行使用相同的参数列表。上方显示模板值；工具选择阶段会根据设备能力进行替换。",
+            "The application generates and executes the Simpleperf command automatically from these parameters."
+        ) to "应用会根据这些参数自动生成并执行 Simpleperf 命令。",
         "None" to "无",
         "Ready to capture" to "可以开始采集",
         "Preparing simpleperf…" to "正在准备 simpleperf…",

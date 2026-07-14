@@ -19,7 +19,7 @@ V0.1 release candidate 功能已实现，等待 GitHub Actions 三平台安装�
 - App 包名、运行进程/PID 和线程列表查询，支持刷新与本地搜索；
 - Device & Target 桌面界面，支持设备能力、App/进程/线程选择并进入采集配置；
 - 嵌入根应用时，主界面和完整报告工作区跟随根应用的语言与主题；页面本身不显示语言和主题设置控件；
-- Simpleperf 参数模型、五类模板、event/frequency/period/duration/callgraph/scope 高级编辑与同步命令预览；
+- Simpleperf 参数模型、五类模板、event/frequency/period/duration/callgraph/scope 高级编辑与一键获取数据，应用自动生成并执行采集命令；
 - 可取消的采集状态机、标准 session 目录、`perf.data` 拉取和命令/stdout/stderr/退出码持久化；
 - 桌面 Start/Stop-and-analyze/Cancel 控制与 Preparing/Recording/Stopping/Pulling/结果状态；
 - host simpleperf 配置/bundled/PATH 发现、版本与 SHA-256 校验；

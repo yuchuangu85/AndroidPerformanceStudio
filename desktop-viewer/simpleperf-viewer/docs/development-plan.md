@@ -95,9 +95,9 @@ V0.1 release candidate 的代码、测试、文档和本机 macOS 发行物已�
 | WBS-014 | 实现完成 | `id -u`、`ro.build.type`、`simpleperf --version` 和 `simpleperf list` 探测 root、profileable、工具版本及设备事件，聚合 Ready/Limited/Blocked；不自动执行 `adb root`，真机能力 smoke 待补测 |
 | WBS-015 | 实现完成 | `cmd package list packages`、`ps -A` 和 `ps -T -p` 查询 App、进程/PID 与线程，支持大小写无关的包名/进程名/用户/PID 搜索、显式刷新、结构化取消和错误传播；真机目标列表 smoke 待有设备环境补测 |
 | WBS-016 | 实现完成 | Application `StateFlow` 控制设备刷新、能力/目标加载、搜索、App/进程/线程选择和页面切换；Compose Desktop 已实现 Device & Target 布局并接入真实 ADB gateway，Blocked 能力禁止进入 Capture；真机 UI 流程待有设备环境补测 |
-| WBS-020 | 实现完成 | 采样目标、event、frequency/period、duration/manual stop、DWARF/frame pointer/no callgraph、user/kernel/both scope 与输出路径均为强类型模型；高级参数 UI 与命令预览共用参数对象 |
+| WBS-020 | 实现完成 | 采样目标、event、frequency/period、duration/manual stop、DWARF/frame pointer/no callgraph、user/kernel/both scope 与输出路径均为强类型模型；高级参数 UI 与自动采集共用参数对象 |
 | WBS-021 | 实现完成 | App CPU Basic、UI Thread Focus、Native Hotspot、Low Overhead、System Process 五个模板已接入 Capture 页面，切换模板保留所选目标 |
-| WBS-022 | 实现完成 | Capture 页面展示模板参数与最终 ADB 命令并支持复制；预览直接从后续执行共用的参数数组生成，已测试 App/PID/TID、frequency/period 和 callgraph 序列化 |
+| WBS-022 | 实现完成 | Capture 页面在上部提供一键获取数据，不展示或要求输入命令；客户端自动从参数模型生成并执行参数数组，已测试 App/PID/TID、frequency/period 和 callgraph 序列化 |
 | WBS-023 | 策略实现 | 优先使用设备端 simpleperf；缺失时按 ABI 选择 bundled 资产，校验远端 SHA-256，按需 mkdir/push/chmod 并执行 `--version` 验证；实际 bundled 二进制目录留待 WBS-083 打包阶段接入 |
 | WBS-024 | 实现完成 | `Idle/Preparing/Recording/Stopping/Pulling/Completed/Failed/Cancelled` 已接入桌面 Start/Stop/Cancel；Stop 独立发送 SIGINT 后继续 pull，Cancel 终止任务，二者均保留日志 |
 | WBS-025 | 实现完成 | 每次采集创建隔离 session 目录，校验 session id 与目录边界，拉取并确认非空前置流程生成的 `perf.data`，完成/失败/取消均保留会话路径 |
@@ -185,7 +185,7 @@ Simpleperf protobuf schema 来自 AOSP `refs/tags/android-17.0.0_r1`，来源和
 |---|---|---:|---:|---|---|
 | WBS-020 | 采样参数模型 | P0 | 1d | WBS-016 | 可序列化为命令参数 |
 | WBS-021 | 常用采样模板 | P0 | 1d | WBS-020 | App CPU/UI Thread/Native 模板可选 |
-| WBS-022 | 命令预览 UI | P0 | 1d | WBS-020 | 用户能复制最终命令 |
+| WBS-022 | 一键获取数据 UI | P0 | 1d | WBS-020 | 用户无需输入命令即可启动自动采集 |
 | WBS-023 | 设备端 simpleperf 选择/推送策略 | P0 | 2d | WBS-014 | 根据设备能力选择 bundled/device simpleperf |
 | WBS-024 | 采集状态机 | P0 | 2d | WBS-011,WBS-020 | 状态流转完整，支持取消 |
 | WBS-025 | 文件拉取与会话目录 | P0 | 1.5d | WBS-024 | 生成标准 session 目录 |

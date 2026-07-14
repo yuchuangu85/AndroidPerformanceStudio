@@ -18,6 +18,10 @@ class SimpleperfLocalizationTest {
             translateSimpleperfText("Continue to Capture", SimpleperfLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
+            "获取数据",
+            translateSimpleperfText("Get data", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+        )
+        assertEquals(
             "丢失样本：12",
             translateSimpleperfText("Lost samples: 12", SimpleperfLanguage.SIMPLIFIED_CHINESE),
         )

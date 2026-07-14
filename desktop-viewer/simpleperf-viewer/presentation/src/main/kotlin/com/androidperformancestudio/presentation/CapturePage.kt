@@ -11,14 +11,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.CaptureSetup
@@ -37,8 +37,6 @@ import com.androidperformancestudio.capture.EventScope
 import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingRate
 import com.androidperformancestudio.capture.SamplingTemplate
-import java.awt.Toolkit
-import java.awt.datatransfer.StringSelection
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -61,21 +59,6 @@ internal fun CapturePage(
             }
             OutlinedButton(onClick = actions.onBack, enabled = !isActive) { Text("Back to Device & Target") }
         }
-        Text("Sampling template", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SamplingTemplate.entries.forEach { template ->
-                TemplateCard(
-                    template = template,
-                    selected = setup?.template == template,
-                    onClick = { actions.onSelectTemplate(template) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        setup?.let {
-            CaptureDetails(it)
-            AdvancedCaptureParameters(it, availableEvents, actions.onUpdateSamplingParameters)
-        }
         CaptureControls(
             captureState = captureState,
             canStart = setup != null && !isActive,
@@ -83,6 +66,29 @@ internal fun CapturePage(
             onStopCapture = actions.onStopCapture,
             onCancelCapture = actions.onCancelCapture,
         )
+        Column(
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Sampling template", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                SamplingTemplate.entries.forEach { template ->
+                    TemplateCard(
+                        template = template,
+                        selected = setup?.template == template,
+                        onClick = { actions.onSelectTemplate(template) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            setup?.let {
+                CaptureDetails(it)
+                AdvancedCaptureParameters(it, availableEvents, actions.onUpdateSamplingParameters)
+            }
+        }
     }
 }
 
@@ -244,6 +250,13 @@ private fun CaptureControls(
             Column(modifier = Modifier.weight(1f)) {
                 Text("Capture status", style = MaterialTheme.typography.titleMedium)
                 Text(captureState.statusText())
+                if (!captureState.isActive()) {
+                    Text(
+                        "Click Get data to run Simpleperf automatically and open the report. " +
+                            "No command input is required.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 captureState.sessionPath()?.let {
                     SelectionContainer { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
@@ -254,7 +267,7 @@ private fun CaptureControls(
                 }
                 OutlinedButton(onClick = onCancelCapture) { Text("Cancel") }
             } else {
-                Button(onClick = onStartCapture, enabled = canStart) { Text("Start capture") }
+                Button(onClick = onStartCapture, enabled = canStart) { Text("Get data") }
             }
         }
     }
@@ -290,22 +303,8 @@ private fun CaptureDetails(setup: CaptureSetup) {
             Text("Duration: ${setup.parameters.durationSeconds?.let { "$it s" } ?: "Manual stop"}")
             Text("Call graph: ${setup.parameters.callGraph.name}")
             Text("Scope: ${setup.parameters.scope.name}")
-            Text("Command preview", style = MaterialTheme.typography.titleMedium)
-            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
-                SelectionContainer {
-                    Text(
-                        setup.commandPreview,
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-            }
-            Button(onClick = { copyToClipboard(setup.commandPreview) }) {
-                Text("Copy command")
-            }
             Text(
-                "Preview and execution share the same argument list. Template values are shown above; " +
-                    "device capability replacements will be applied by the tool selection stage.",
+                "The application generates and executes the Simpleperf command automatically from these parameters.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -331,10 +330,6 @@ private fun CaptureTarget?.orEmptyLabel(): String =
         is CaptureTarget.Thread -> "$name (TID $tid)"
         null -> "None"
     }
-
-private fun copyToClipboard(text: String) {
-    Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
-}
 
 private const val MAX_EVENT_CHIPS = 6
 
