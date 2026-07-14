@@ -4,12 +4,13 @@ import java.sql.Connection
 import java.sql.SQLException
 
 internal object SQLiteSchema {
-    const val VERSION = 1
+    const val VERSION = 2
 
     fun migrate(connection: Connection) {
         val version = connection.userVersion()
         require(version <= VERSION) { "Database schema version $version is newer than supported version $VERSION" }
         if (version == 0) migrateToVersionOne(connection)
+        if (connection.userVersion() == 1) migrateToVersionTwo(connection)
     }
 
     private fun migrateToVersionOne(connection: Connection) {
@@ -18,7 +19,31 @@ internal object SQLiteSchema {
             renameLegacySampleTable(connection)
             createVersionOne(connection)
             migrateLegacySamples(connection)
-            connection.createStatement().use { it.execute("PRAGMA user_version=$VERSION") }
+            connection.createStatement().use { it.execute("PRAGMA user_version=1") }
+            connection.commit()
+        } catch (exception: SQLException) {
+            connection.rollback()
+            throw exception
+        } finally {
+            connection.autoCommit = true
+        }
+    }
+
+    private fun migrateToVersionTwo(connection: Connection) =
+        inTransaction(connection) {
+            SQLiteSchemaV2.statements.forEach { sql ->
+                connection.createStatement().use { it.execute(sql) }
+            }
+            connection.createStatement().use { it.execute("PRAGMA user_version=2") }
+        }
+
+    private inline fun inTransaction(
+        connection: Connection,
+        block: () -> Unit,
+    ) {
+        connection.autoCommit = false
+        try {
+            block()
             connection.commit()
         } catch (exception: SQLException) {
             connection.rollback()

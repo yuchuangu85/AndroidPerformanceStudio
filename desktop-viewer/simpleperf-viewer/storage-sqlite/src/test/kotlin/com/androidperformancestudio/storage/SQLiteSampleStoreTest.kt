@@ -11,12 +11,12 @@ import kotlin.test.assertTrue
 class SQLiteSampleStoreTest {
     @Test
     @Suppress("NestedBlockDepth")
-    fun `creates schema v1 with normalized profile tables and indexes idempotently`() {
+    fun `creates current schema with normalized profile tables and indexes idempotently`() {
         val database = Files.createTempFile("aps-schema-", ".sqlite")
         try {
             repeat(2) {
                 SQLiteSampleStore.open(database).use { store ->
-                    assertEquals(1, store.schemaVersion())
+                    assertEquals(2, store.schemaVersion())
                     assertEquals("wal", store.journalMode())
                 }
             }
