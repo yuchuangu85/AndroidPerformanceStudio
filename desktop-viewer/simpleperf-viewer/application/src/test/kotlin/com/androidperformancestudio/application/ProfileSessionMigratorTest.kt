@@ -165,6 +165,42 @@ class ProfileSessionMigratorTest {
     }
 
     @Test
+    fun `read only hard link aliases may be retained after publication`() {
+        val session = versionOneSession()
+        val original = session.resolve(PROFILE_DATABASE)
+        val sourceHash = sha256(original)
+        val deleter =
+            ScratchArtifactDeleter { path ->
+                val publicArtifact =
+                    when (path.fileName.toString()) {
+                        "profile.v1.sqlite.creating" -> session.resolve(PROFILE_BACKUP)
+                        "migration.properties.creating" -> session.resolve(MIGRATION_PROPERTIES)
+                        else -> null
+                    }
+                if (publicArtifact?.exists() == true) {
+                    throw IOException("injected Windows read-only alias deletion failure")
+                }
+                Files.deleteIfExists(path)
+            }
+        val migrator =
+            ProfileSessionMigrator(
+                CandidateDatabaseMigrator.default(),
+                scratchArtifactDeleter = deleter,
+            )
+
+        val prepared = migrator.prepare(session)
+
+        assertEquals(ProfileSessionMode.READ_WRITE_V2, prepared.mode)
+        assertEquals(2, userVersion(original))
+        assertPublishedEvidence(session, sourceHash)
+        assertRetainedReadOnlyAlias(session.resolve("profile.v1.sqlite.creating"), session.resolve(PROFILE_BACKUP))
+        assertRetainedReadOnlyAlias(
+            session.resolve("migration.properties.creating"),
+            session.resolve(MIGRATION_PROPERTIES),
+        )
+    }
+
+    @Test
     fun `foreign backup replacement after publication is retained and never legitimized`() {
         val session = versionOneSession()
         val original = session.resolve(PROFILE_DATABASE)
@@ -800,6 +836,16 @@ class ProfileSessionMigratorTest {
                 "migration scratch file was not cleaned in $session",
             )
         }
+    }
+
+    private fun assertRetainedReadOnlyAlias(
+        alias: Path,
+        publicArtifact: Path,
+    ) {
+        assertTrue(alias.exists())
+        assertTrue(Files.isSameFile(alias, publicArtifact))
+        assertFalse(Files.isWritable(alias))
+        assertContentEquals(Files.readAllBytes(publicArtifact), Files.readAllBytes(alias))
     }
 
     private fun userVersion(database: Path): Int =

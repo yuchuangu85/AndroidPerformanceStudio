@@ -111,6 +111,13 @@ class SQLiteSampleStore private constructor(
         }
     }
 
+    fun interrupt() {
+        val sqliteConnection =
+            connection as? SQLiteConnection
+                ?: throw SQLException("SQLite interruption requires an SQLiteConnection")
+        sqliteConnection.database.interrupt()
+    }
+
     fun threads(query: ProfileQuery = ProfileQuery()): List<ThreadSummary> = queryThreads(connection, query)
 
     fun topFunctions(

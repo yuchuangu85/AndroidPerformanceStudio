@@ -19,12 +19,15 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.sql.SQLException
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 fun interface ProfileProjectionLoader {
     suspend fun load(
@@ -51,6 +54,16 @@ data class GeneratedProjectionFailure(
 internal class ProfileProjectionLoadException(
     val error: StudioError,
 ) : IOException(error.message, error.cause)
+
+internal interface InterruptibleProjectionStore : Closeable {
+    fun projectCore(request: ProfileProjectionRequest): ProfileProjectionSnapshot
+
+    fun interrupt()
+}
+
+internal fun interface InterruptibleProjectionStoreOpener {
+    fun open(session: PreparedProfileSession): InterruptibleProjectionStore
+}
 
 @Suppress("TooGenericExceptionCaught")
 class ProfileQueryCoordinator(
@@ -142,6 +155,12 @@ class ProfileQueryCoordinator(
 }
 
 fun sqliteProjectionLoader(ioDispatcher: CoroutineDispatcher = Dispatchers.IO): ProfileProjectionLoader =
+    sqliteProjectionLoader(ioDispatcher, DEFAULT_PROJECTION_STORE_OPENER)
+
+internal fun sqliteProjectionLoader(
+    ioDispatcher: CoroutineDispatcher,
+    storeOpener: InterruptibleProjectionStoreOpener,
+): ProfileProjectionLoader =
     object : ProfileProjectionLoader {
         override suspend fun load(
             session: PreparedProfileSession,
@@ -153,29 +172,10 @@ fun sqliteProjectionLoader(ioDispatcher: CoroutineDispatcher = Dispatchers.IO): 
             request: ProfileProjectionRequest,
         ): ProfileProjectionSnapshot =
             withContext(ioDispatcher) {
-                val database = session.database
-                if (Files.isSymbolicLink(database) || !Files.isRegularFile(database, LinkOption.NOFOLLOW_LINKS)) {
-                    throw ProfileProjectionLoadException(
-                        StudioError(
-                            ErrorCategory.IO,
-                            "REPORT_DATABASE_NOT_FOUND",
-                            "Session profile.sqlite does not exist",
-                        ),
-                    )
-                }
                 try {
-                    val store =
-                        when (session.mode) {
-                            ProfileSessionMode.READ_WRITE_V2 -> {
-                                check(session.schemaVersion == 2) { "Writable session is not prepared as schema v2" }
-                                SQLiteSampleStore.openV2(database)
-                            }
-                            ProfileSessionMode.LEGACY_READ_ONLY -> {
-                                val expectedVersion = checkNotNull(session.schemaVersion) { "Unknown read-only schema" }
-                                SQLiteSampleStore.openReadOnlyExpected(database, expectedVersion)
-                            }
-                        }
-                    store.use { it.projectCore(request) }
+                    loadInterruptibly(session, request, storeOpener)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (failure: SQLException) {
                     throw ProfileProjectionLoadException(
                         StudioError(
@@ -198,6 +198,111 @@ fun sqliteProjectionLoader(ioDispatcher: CoroutineDispatcher = Dispatchers.IO): 
                     )
                 }
             }
+    }
+
+@Suppress("TooGenericExceptionCaught")
+private suspend fun loadInterruptibly(
+    session: PreparedProfileSession,
+    request: ProfileProjectionRequest,
+    storeOpener: InterruptibleProjectionStoreOpener,
+): ProfileProjectionSnapshot =
+    suspendCancellableCoroutine { continuation ->
+        val cancellation = ProjectionCancellation()
+        continuation.invokeOnCancellation { cancellation.cancel() }
+        var store: InterruptibleProjectionStore? = null
+        var snapshot: ProfileProjectionSnapshot? = null
+        var failure: Throwable? = null
+        try {
+            if (continuation.isActive) {
+                store = storeOpener.open(session)
+                if (cancellation.install(store) && continuation.isActive) {
+                    snapshot = store.projectCore(request)
+                }
+            }
+        } catch (caught: Throwable) {
+            failure = caught
+        } finally {
+            cancellation.remove(store)
+            try {
+                store?.close()
+            } catch (closeFailure: Throwable) {
+                failure?.addSuppressed(closeFailure) ?: run { failure = closeFailure }
+            }
+        }
+        if (continuation.isActive) {
+            failure?.let(continuation::resumeWithException)
+                ?: continuation.resume(checkNotNull(snapshot) { "SQLite projection completed without a result" })
+        }
+    }
+
+private class ProjectionCancellation {
+    private val lock = Any()
+    private var cancelled: Boolean = false
+    private var store: InterruptibleProjectionStore? = null
+
+    fun install(openedStore: InterruptibleProjectionStore): Boolean =
+        synchronized(lock) {
+            if (cancelled) {
+                openedStore.interruptQuietly()
+                false
+            } else {
+                store = openedStore
+                true
+            }
+        }
+
+    fun cancel() {
+        synchronized(lock) {
+            cancelled = true
+            store?.interruptQuietly()
+        }
+    }
+
+    fun remove(openedStore: InterruptibleProjectionStore?) {
+        synchronized(lock) {
+            if (store === openedStore) store = null
+        }
+    }
+}
+
+private fun InterruptibleProjectionStore.interruptQuietly() {
+    try {
+        interrupt()
+    } catch (_: Exception) {
+        // Cancellation must still let the query unwind and close even if SQLite is already closed.
+    }
+}
+
+private val DEFAULT_PROJECTION_STORE_OPENER =
+    InterruptibleProjectionStoreOpener { session ->
+        val database = session.database
+        if (Files.isSymbolicLink(database) || !Files.isRegularFile(database, LinkOption.NOFOLLOW_LINKS)) {
+            throw ProfileProjectionLoadException(
+                StudioError(
+                    ErrorCategory.IO,
+                    "REPORT_DATABASE_NOT_FOUND",
+                    "Session profile.sqlite does not exist",
+                ),
+            )
+        }
+        val store =
+            when (session.mode) {
+                ProfileSessionMode.READ_WRITE_V2 -> {
+                    check(session.schemaVersion == 2) { "Writable session is not prepared as schema v2" }
+                    SQLiteSampleStore.openV2(database)
+                }
+                ProfileSessionMode.LEGACY_READ_ONLY -> {
+                    val expectedVersion = checkNotNull(session.schemaVersion) { "Unknown read-only schema" }
+                    SQLiteSampleStore.openReadOnlyExpected(database, expectedVersion)
+                }
+            }
+        object : InterruptibleProjectionStore {
+            override fun projectCore(request: ProfileProjectionRequest) = store.projectCore(request)
+
+            override fun interrupt() = store.interrupt()
+
+            override fun close() = store.close()
+        }
     }
 
 private fun ProfileQuery.freeze(): ProfileQuery =

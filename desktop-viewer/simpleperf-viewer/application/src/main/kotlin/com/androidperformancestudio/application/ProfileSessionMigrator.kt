@@ -67,6 +67,14 @@ internal fun interface ArtifactPublisher {
     }
 }
 
+internal fun interface ScratchArtifactDeleter {
+    fun deleteIfExists(path: Path): Boolean
+
+    companion object {
+        val DEFAULT = ScratchArtifactDeleter(Files::deleteIfExists)
+    }
+}
+
 internal fun interface CommitChannelProvider {
     fun open(
         path: Path,
@@ -111,6 +119,7 @@ class ProfileSessionMigrator internal constructor(
     private val finalDatabaseMover: FinalDatabaseMover = FinalDatabaseMover.ATOMIC,
     private val artifactPublisher: ArtifactPublisher = ArtifactPublisher.HARD_LINK,
     private val commitChannelProvider: CommitChannelProvider = CommitChannelProvider.DEFAULT,
+    private val scratchArtifactDeleter: ScratchArtifactDeleter = ScratchArtifactDeleter.DEFAULT,
 ) {
     constructor() : this(CandidateDatabaseMigrator.default())
 
@@ -156,7 +165,7 @@ class ProfileSessionMigrator internal constructor(
             return ProfileSessionMode.LEGACY_READ_ONLY
         }
         return try {
-            cleanupRequired(paths.scratchFiles)
+            cleanupRequired(paths.scratchFiles, scratchArtifactDeleter)
             SQLiteSampleStore.createStableSnapshot(
                 databasePath = original,
                 snapshotPath = paths.candidate,
@@ -172,10 +181,10 @@ class ProfileSessionMigrator internal constructor(
                     validatePublishedEvidence(paths, sourceHash, snapshotHash)
                 } else {
                     val backup = publishBackup(paths)
-                    cleanupRequired(listOf(paths.backupCandidate))
+                    cleanupQuietly(listOf(paths.backupCandidate), scratchArtifactDeleter)
                     checkpoint.reached(ProfileMigrationCheckpoint.AFTER_BACKUP_PUBLISHED)
                     val properties = publishMetadata(paths, sourceHash, backup.sha256)
-                    cleanupRequired(listOf(paths.propertiesCandidate))
+                    cleanupQuietly(listOf(paths.propertiesCandidate), scratchArtifactDeleter)
                     checkpoint.reached(ProfileMigrationCheckpoint.AFTER_METADATA_PUBLISHED)
                     PublishedEvidence(backup, properties)
                 }
@@ -183,7 +192,7 @@ class ProfileSessionMigrator internal constructor(
             candidateMigrator.migrate(paths.candidate)
             check(SQLiteSampleStore.schemaVersion(paths.candidate) == CURRENT_SCHEMA_VERSION)
             forceFile(paths.candidate)
-            cleanupRequired(candidateArtifacts(paths.candidate).drop(1))
+            cleanupRequired(candidateArtifacts(paths.candidate).drop(1), scratchArtifactDeleter)
             checkpoint.reached(ProfileMigrationCheckpoint.BEFORE_FINAL_MOVE)
             replaceOriginal(paths.candidate, original, initialIdentity) {
                 validatePublishedEvidence(paths, sourceHash, snapshotHash, evidence)
@@ -192,7 +201,7 @@ class ProfileSessionMigrator internal constructor(
             runCatching { checkpoint.reached(ProfileMigrationCheckpoint.AFTER_FINAL_MOVE) }
             ProfileSessionMode.READ_WRITE_V2
         } catch (_: Exception) {
-            cleanupQuietly(paths.scratchFiles)
+            cleanupQuietly(paths.scratchFiles, scratchArtifactDeleter)
             ProfileSessionMode.LEGACY_READ_ONLY
         }
     }
@@ -397,21 +406,30 @@ private fun schemaVersion(channel: FileChannel): Int {
     return header.getInt(SQLITE_USER_VERSION_OFFSET)
 }
 
-private fun cleanupRequired(scratchFiles: List<Path>) {
-    val failures = deleteIndependently(scratchFiles.flatMap(::candidateArtifacts))
+private fun cleanupRequired(
+    scratchFiles: List<Path>,
+    deleter: ScratchArtifactDeleter,
+) {
+    val failures = deleteIndependently(scratchFiles.flatMap(::candidateArtifacts), deleter)
     if (failures.isNotEmpty()) throw IOException("Could not clean migration scratch files", failures.first())
 }
 
-private fun cleanupQuietly(scratchFiles: List<Path>) {
-    deleteIndependently(scratchFiles.flatMap(::candidateArtifacts))
+private fun cleanupQuietly(
+    scratchFiles: List<Path>,
+    deleter: ScratchArtifactDeleter,
+) {
+    deleteIndependently(scratchFiles.flatMap(::candidateArtifacts), deleter)
 }
 
 @Suppress("TooGenericExceptionCaught")
-private fun deleteIndependently(paths: List<Path>): List<Exception> =
+private fun deleteIndependently(
+    paths: List<Path>,
+    deleter: ScratchArtifactDeleter,
+): List<Exception> =
     buildList {
         paths.distinct().forEach { path ->
             try {
-                Files.deleteIfExists(path)
+                deleter.deleteIfExists(path)
             } catch (failure: Exception) {
                 add(failure)
             }

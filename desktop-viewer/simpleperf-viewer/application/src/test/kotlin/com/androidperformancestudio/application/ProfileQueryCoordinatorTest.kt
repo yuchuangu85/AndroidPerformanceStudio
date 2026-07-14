@@ -2,6 +2,7 @@ package com.androidperformancestudio.application
 
 import com.androidperformancestudio.storage.DataQualitySummary
 import com.androidperformancestudio.storage.ProfileOverview
+import com.androidperformancestudio.storage.ProfileProjectionRequest
 import com.androidperformancestudio.storage.ProfileProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
@@ -15,6 +16,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.first
@@ -25,8 +27,10 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.sql.SQLException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
@@ -212,6 +216,61 @@ class ProfileQueryCoordinatorTest {
             assertEquals(query, snapshot.query)
         }
 
+    @Test
+    fun `new sqlite submission interrupts obsolete query closes its store and publishes only latest`() =
+        runTest {
+            val obsolete = BlockingProjectionStore()
+            val latest = ImmediateProjectionStore()
+            val stores = Channel<InterruptibleProjectionStore>(Channel.UNLIMITED)
+            stores.trySend(obsolete).getOrThrow()
+            stores.trySend(latest).getOrThrow()
+            val loader = sqliteProjectionLoader(Dispatchers.IO) { stores.tryReceive().getOrThrow() }
+            val coordinator = ProfileQueryCoordinator(backgroundScope, loader)
+            val result =
+                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                    coordinator.results.first()
+                }
+
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(1), ProfileQuery(threadIds = setOf(1)))
+            runCurrent()
+            assertTrue(obsolete.started.await(1, SECONDS), "obsolete SQLite projection did not start")
+
+            coordinator.submit(PREPARED_SESSION, ProfileGeneration(2), ProfileQuery(threadIds = setOf(2)))
+
+            assertTrue(obsolete.interrupted.await(1, SECONDS), "obsolete SQLite projection was not interrupted")
+            assertTrue(obsolete.closed.await(1, SECONDS), "interrupted SQLite store was not closed")
+            assertEquals(1, obsolete.interruptCount.get())
+            assertEquals(GeneratedProjection(ProfileGeneration(2), snapshotFor(2)), result.await())
+            assertTrue(latest.closed.await(1, SECONDS), "latest SQLite store was not closed")
+        }
+
+    @Test
+    fun `sqlite cancellation during open closes store without starting query`() =
+        runTest {
+            val openStarted = CountDownLatch(1)
+            val releaseOpen = CountDownLatch(1)
+            val store = ImmediateProjectionStore()
+            val loader =
+                sqliteProjectionLoader(Dispatchers.IO) {
+                    openStarted.countDown()
+                    check(releaseOpen.await(1, SECONDS)) { "test did not release SQLite open" }
+                    store
+                }
+            val load =
+                backgroundScope.async {
+                    loader.load(PREPARED_SESSION, ProfileQuery(threadIds = setOf(1)))
+                }
+
+            runCurrent()
+            assertTrue(openStarted.await(1, SECONDS), "SQLite open did not start")
+            load.cancel()
+            releaseOpen.countDown()
+            load.cancelAndJoin()
+
+            assertTrue(store.closed.await(1, SECONDS), "store opened after cancellation was not closed")
+            assertEquals(0, store.projectCount.get(), "cancelled open must not start a projection")
+        }
+
     private class ControllableProjectionLoader(
         private val ignoreCancellationFor: Set<Int> = emptySet(),
     ) : ProfileProjectionLoader {
@@ -273,6 +332,44 @@ class ProfileQueryCoordinatorTest {
         ) {
             dispatchCount++
             delegate.dispatch(context, block)
+        }
+    }
+
+    private class BlockingProjectionStore : InterruptibleProjectionStore {
+        val started = CountDownLatch(1)
+        val interrupted = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val interruptCount = AtomicInteger()
+
+        override fun projectCore(request: ProfileProjectionRequest): ProfileProjectionSnapshot {
+            started.countDown()
+            check(interrupted.await(1, SECONDS)) { "projection was not interrupted" }
+            throw SQLException("interrupted")
+        }
+
+        override fun interrupt() {
+            interruptCount.incrementAndGet()
+            interrupted.countDown()
+        }
+
+        override fun close() {
+            closed.countDown()
+        }
+    }
+
+    private class ImmediateProjectionStore : InterruptibleProjectionStore {
+        val projectCount = AtomicInteger()
+        val closed = CountDownLatch(1)
+
+        override fun projectCore(request: ProfileProjectionRequest): ProfileProjectionSnapshot {
+            projectCount.incrementAndGet()
+            return snapshotFor(request.query)
+        }
+
+        override fun interrupt() = Unit
+
+        override fun close() {
+            closed.countDown()
         }
     }
 
