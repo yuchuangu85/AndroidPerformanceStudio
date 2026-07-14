@@ -11,6 +11,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class SQLiteSchemaMigrationTest {
     @Test
@@ -21,6 +22,102 @@ class SQLiteSchemaMigrationTest {
                 assertEquals(2, store.schemaVersion())
             }
             assertEquals(2, pragmaUserVersion(path))
+        }
+
+    @Test
+    fun `v2 migration adds source-qualified identities and lossless time provenance`() =
+        withVersionOneDatabase { path ->
+            SQLiteSampleStore.open(path).use { store ->
+                val connection = store.connection
+                assertTrue(connection.tableExistsForTest("profile_process"))
+                assertTrue(connection.tableExistsForTest("profile_thread"))
+                assertEquals(
+                    setOf(
+                        "process_row_id",
+                        "source_id",
+                        "process_id",
+                        "name",
+                        "start_nanos",
+                        "start_clock_domain",
+                        "start_error_bound_nanos",
+                        "end_nanos",
+                        "end_clock_domain",
+                        "end_error_bound_nanos",
+                    ),
+                    connection.columnsForTest("profile_process"),
+                )
+                assertEquals(
+                    setOf(
+                        "thread_row_id",
+                        "source_id",
+                        "process_row_id",
+                        "thread_id",
+                        "name",
+                        "start_nanos",
+                        "start_clock_domain",
+                        "start_error_bound_nanos",
+                        "end_nanos",
+                        "end_clock_domain",
+                        "end_error_bound_nanos",
+                    ),
+                    connection.columnsForTest("profile_thread"),
+                )
+                assertTrue(
+                    connection.columnsForTest("sample").containsAll(
+                        setOf(
+                            "source_id",
+                            "process_row_id",
+                            "thread_row_id",
+                            "clock_domain",
+                            "time_error_bound_nanos",
+                        ),
+                    ),
+                )
+                assertTimeColumns(connection, "profile_marker", interval = true)
+                assertTimeColumns(connection, "profile_counter", interval = false)
+                assertTimeColumns(connection, "profile_slice", interval = true)
+                assertTimeColumns(connection, "profile_screenshot", interval = false)
+            }
+        }
+
+    @Test
+    fun `v2 identity constraints reject duplicate source-qualified keys but allow reused thread ids`() =
+        withVersionOneDatabase { path ->
+            SQLiteSampleStore.open(path).use { store ->
+                val connection = store.connection
+                connection.createStatement().use { statement ->
+                    statement.executeUpdate(
+                        "INSERT INTO profile_source(source_id, kind, clock_domain) " +
+                            "VALUES ('simpleperf', 'SIMPLEPERF', 'monotonic')",
+                    )
+                    statement.executeUpdate(
+                        "INSERT INTO profile_process(source_id, process_id) VALUES ('simpleperf', 11)",
+                    )
+                    assertFailsWith<SQLException> {
+                        statement.executeUpdate(
+                            "INSERT INTO profile_process(source_id, process_id) VALUES ('simpleperf', 11)",
+                        )
+                    }
+                    statement.executeUpdate(
+                        "INSERT INTO profile_process(source_id, process_id) VALUES ('simpleperf', 12)",
+                    )
+                    statement.executeUpdate(
+                        "INSERT INTO profile_thread(source_id, process_row_id, thread_id, name) " +
+                            "VALUES ('simpleperf', 1, 22, 'first')",
+                    )
+                    statement.executeUpdate(
+                        "INSERT INTO profile_thread(source_id, process_row_id, thread_id, name) " +
+                            "VALUES ('simpleperf', 2, 22, 'second')",
+                    )
+                    assertFailsWith<SQLException> {
+                        statement.executeUpdate(
+                            "INSERT INTO profile_thread(source_id, process_row_id, thread_id, name) " +
+                                "VALUES ('simpleperf', 1, 22, 'duplicate')",
+                        )
+                    }
+                }
+                assertEquals(2L, connection.singleLong("SELECT COUNT(*) FROM profile_thread"))
+            }
         }
 
     @Test
@@ -93,11 +190,15 @@ class SQLiteSchemaMigrationTest {
     private companion object {
         const val FAILING_STATEMENT =
             "CREATE TABLE profile_counter (counter_id INTEGER PRIMARY KEY, source_id TEXT NOT NULL, " +
-                "timestamp_nanos INTEGER NOT NULL, name TEXT NOT NULL, unit TEXT NOT NULL, value REAL NOT NULL)"
+                "timestamp_nanos INTEGER NOT NULL, clock_domain TEXT NOT NULL, " +
+                "time_error_bound_nanos INTEGER NOT NULL, name TEXT NOT NULL, unit TEXT NOT NULL, " +
+                "value REAL NOT NULL, FOREIGN KEY(source_id) REFERENCES profile_source(source_id))"
 
         val V2_TABLES =
             listOf(
                 "profile_source",
+                "profile_process",
+                "profile_thread",
                 "profile_marker",
                 "profile_counter",
                 "profile_slice",
@@ -125,6 +226,30 @@ class SQLiteSchemaMigrationTest {
                     "VALUES (2, 20, 100, 101, 1, 5)",
                 "PRAGMA user_version=1",
             )
+    }
+}
+
+private fun assertTimeColumns(
+    connection: Connection,
+    table: String,
+    interval: Boolean,
+) {
+    val columns = connection.columnsForTest(table)
+    if (interval) {
+        assertTrue(
+            columns.containsAll(
+                setOf(
+                    "start_nanos",
+                    "start_clock_domain",
+                    "start_error_bound_nanos",
+                    "end_nanos",
+                    "end_clock_domain",
+                    "end_error_bound_nanos",
+                ),
+            ),
+        )
+    } else {
+        assertTrue(columns.containsAll(setOf("timestamp_nanos", "clock_domain", "time_error_bound_nanos")))
     }
 }
 
