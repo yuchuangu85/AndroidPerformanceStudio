@@ -1,7 +1,9 @@
 package com.androidperformancestudio.model
 
 @JvmInline
-value class ProfileSourceId(val value: String) {
+value class ProfileSourceId(
+    val value: String,
+) {
     init {
         require(value.isNotBlank()) { "source id must not be blank" }
     }
@@ -14,7 +16,10 @@ enum class ProfileSourceKind {
     IMPORTED,
 }
 
-data class ProfileProcessKey(val sourceId: ProfileSourceId, val processId: Int)
+data class ProfileProcessKey(
+    val sourceId: ProfileSourceId,
+    val processId: Int,
+)
 
 data class ProfileThreadKey(
     val sourceId: ProfileSourceId,
@@ -22,14 +27,19 @@ data class ProfileThreadKey(
     val threadId: Int,
 )
 
-data class ProfileCategory(val name: String, val subcategory: String? = null) {
+data class ProfileCategory(
+    val name: String,
+    val subcategory: String? = null,
+) {
     init {
         require(name.isNotBlank()) { "category name must not be blank" }
     }
 }
 
 @JvmInline
-value class ProfileClockDomain(val value: String) {
+value class ProfileClockDomain(
+    val value: String,
+) {
     init {
         require(value.isNotBlank()) { "clock domain must not be blank" }
     }
