@@ -243,6 +243,8 @@ class CallNodeTable(
     private val categoriesSnapshot = immutableList(categories)
     private val framesSnapshot = immutableMap(framesById)
     private val idsByPathSnapshot = immutableMap(idsByPath)
+    private val pathIndexSnapshot =
+        CompactCallNodePathIndex(idsSnapshot, parentIndexesSnapshot, frameIdsSnapshot, framesSnapshot)
 
     val ids: LongArray get() = idsSnapshot.copyOf()
     val parentIndexes: IntArray get() = parentIndexesSnapshot.copyOf()
@@ -257,7 +259,42 @@ class CallNodeTable(
 
     val size: Int get() = idsSnapshot.size
 
-    fun findByPath(path: CallNodePath): FlameCallNodeId? = idsByPathSnapshot[path]
+    fun findByPath(path: CallNodePath): FlameCallNodeId? = idsByPathSnapshot[path] ?: pathIndexSnapshot.find(path)
+}
+
+private class CompactCallNodePathIndex(
+    ids: LongArray,
+    parentIndexes: IntArray,
+    frameIds: LongArray,
+    framesById: Map<Long, CallStackFrame>,
+) {
+    private class Node(
+        val id: FlameCallNodeId? = null,
+    ) {
+        val children = HashMap<FlameFunctionId, Node>()
+    }
+
+    private val root = Node()
+
+    init {
+        val nodesByIndex = arrayOfNulls<Node>(ids.size)
+        ids.indices.forEach { index ->
+            val parentIndex = parentIndexes.getOrNull(index) ?: return@forEach
+            val frameId = frameIds.getOrNull(index) ?: return@forEach
+            val functionId = framesById[frameId]?.functionId ?: return@forEach
+            val parent = if (parentIndex == -1) root else nodesByIndex.getOrNull(parentIndex) ?: return@forEach
+            val node = parent.children.getOrPut(functionId) { Node(FlameCallNodeId(ids[index])) }
+            nodesByIndex[index] = node
+        }
+    }
+
+    fun find(path: CallNodePath): FlameCallNodeId? {
+        var current = root
+        path.functions.forEach { functionId ->
+            current = current.children[functionId] ?: return null
+        }
+        return current.id
+    }
 }
 
 class FlameGraphRows(

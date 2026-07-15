@@ -6,25 +6,40 @@ object CallTreeProjector {
     fun project(
         table: CallStackTable,
         direction: CallStackDirection = CallStackDirection.FORWARD,
-    ): CallNodeTable = project(table, direction, ::stablePathHash)
+    ): CallNodeTable =
+        project(
+            table = table,
+            direction = direction,
+            primaryHashStep = StableCallNodeId::primaryHashStep,
+            idDeriver = StableCallNodeId::derive,
+        )
 
     internal fun project(
         table: CallStackTable,
         direction: CallStackDirection,
-        pathHash: (CallNodePath) -> Long,
+        primaryHashStep: (Long, FlameFunctionId) -> Long,
+        idDeriver: (Long, Long) -> Long = StableCallNodeId::derive,
     ): CallNodeTable {
-        val canonicalFrames = canonicalFramesByFunction(table.framesById.values)
+        table.stacks.firstOrNull { stack -> stack.weight < 0 }?.let { invalid ->
+            throw IllegalArgumentException(
+                "Negative call-stack weight is unsupported: sampleId=${invalid.sampleId}, weight=${invalid.weight}",
+            )
+        }
+        val canonicalFrames = canonicalReferencedFrames(table)
         val roots = LinkedHashMap<FlameFunctionId, MutableCallNode>()
         table.stacks.forEach { stack ->
-            addStack(table, stack, direction, canonicalFrames, roots)
+            addStack(table, stack, direction, canonicalFrames, roots, primaryHashStep, idDeriver)
         }
-        return flatten(roots.values, canonicalFrames, table.framesById, pathHash)
+        return flatten(roots.values, canonicalFrames)
     }
 }
 
 private class MutableCallNode(
     val functionId: FlameFunctionId,
-    val path: CallNodePath,
+    val parent: MutableCallNode?,
+    val primaryHash: Long,
+    val secondaryHash: Long,
+    val stableId: FlameCallNodeId,
 ) {
     val children = LinkedHashMap<FlameFunctionId, MutableCallNode>()
     val threads = HashSet<String>()
@@ -38,10 +53,10 @@ private class MutableCallNode(
         threadKey: String,
         category: String?,
     ) {
-        inclusiveWeight = saturatingAdd(inclusiveWeight, weight)
-        sampleCount = saturatingAdd(sampleCount, 1)
+        inclusiveWeight = StableCallNodeId.saturatingNonNegativeAdd(inclusiveWeight, weight)
+        sampleCount = StableCallNodeId.saturatingNonNegativeAdd(sampleCount, 1)
         threads += threadKey
-        categoryWeights[category] = saturatingAdd(categoryWeights[category] ?: 0, weight)
+        categoryWeights[category] = StableCallNodeId.saturatingNonNegativeAdd(categoryWeights[category] ?: 0, weight)
     }
 }
 
@@ -51,12 +66,25 @@ private data class PendingNode(
     val depth: Int,
 )
 
+private fun canonicalReferencedFrames(table: CallStackTable): Map<FlameFunctionId, CallStackFrame> {
+    val referencedFrames = LinkedHashMap<Long, CallStackFrame>()
+    table.stacks.forEach { stack ->
+        stack.frameIdsRootToLeaf.forEach { frameId ->
+            referencedFrames.putIfAbsent(frameId, table.frame(frameId))
+        }
+    }
+    return canonicalFramesByFunction(referencedFrames.values)
+}
+
+@Suppress("LongParameterList")
 private fun addStack(
     table: CallStackTable,
     stack: WeightedCallStack,
     direction: CallStackDirection,
     canonicalFrames: Map<FlameFunctionId, CallStackFrame>,
     roots: MutableMap<FlameFunctionId, MutableCallNode>,
+    primaryHashStep: (Long, FlameFunctionId) -> Long,
+    idDeriver: (Long, Long) -> Long,
 ) {
     if (stack.frameIdsRootToLeaf.isEmpty()) return
     val indexes =
@@ -64,34 +92,51 @@ private fun addStack(
             CallStackDirection.FORWARD -> stack.frameIdsRootToLeaf.indices
             CallStackDirection.INVERTED -> stack.frameIdsRootToLeaf.indices.reversed()
         }
-    val effectiveWeight = stack.weight.coerceAtLeast(0)
+    var parent: MutableCallNode? = null
     var siblings = roots
-    val functions = ArrayList<FlameFunctionId>(stack.frameIdsRootToLeaf.size)
     var terminal: MutableCallNode? = null
     indexes.forEach { sourceIndex ->
         val frame = table.frame(stack.frameIdsRootToLeaf[sourceIndex])
         check(canonicalFrames.containsKey(frame.functionId))
-        functions += frame.functionId
-        val path = CallNodePath(functions)
-        val node = siblings.getOrPut(frame.functionId) { MutableCallNode(frame.functionId, path) }
-        node.record(effectiveWeight, stack.threadKey, stack.categoriesRootToLeaf[sourceIndex])
+        val node =
+            siblings.getOrPut(frame.functionId) {
+                createNode(frame.functionId, parent, primaryHashStep, idDeriver)
+            }
+        node.record(stack.weight, stack.threadKey, stack.categoriesRootToLeaf[sourceIndex])
         terminal = node
+        parent = node
         siblings = node.children
     }
-    terminal?.let { node -> node.selfWeight = saturatingAdd(node.selfWeight, effectiveWeight) }
+    terminal?.let { node ->
+        node.selfWeight = StableCallNodeId.saturatingNonNegativeAdd(node.selfWeight, stack.weight)
+    }
+}
+
+private fun createNode(
+    functionId: FlameFunctionId,
+    parent: MutableCallNode?,
+    primaryHashStep: (Long, FlameFunctionId) -> Long,
+    idDeriver: (Long, Long) -> Long,
+): MutableCallNode {
+    val primaryHash = primaryHashStep(parent?.primaryHash ?: PRIMARY_HASH_OFFSET, functionId)
+    val secondaryHash = StableCallNodeId.secondaryHashStep(parent?.secondaryHash, functionId)
+    return MutableCallNode(
+        functionId = functionId,
+        parent = parent,
+        primaryHash = primaryHash,
+        secondaryHash = secondaryHash,
+        stableId = FlameCallNodeId(idDeriver(primaryHash, secondaryHash)),
+    )
 }
 
 @Suppress("LongMethod")
 private fun flatten(
     roots: Collection<MutableCallNode>,
     canonicalFrames: Map<FlameFunctionId, CallStackFrame>,
-    framesById: Map<Long, CallStackFrame>,
-    pathHash: (CallNodePath) -> Long,
 ): CallNodeTable {
     val nodeComparator = callNodeComparator(canonicalFrames)
     val orderedRoots = roots.sortedWith(nodeComparator)
     val nodeCount = countNodes(orderedRoots)
-    val stableIds = assignStableIds(orderedRoots, pathHash)
     val ids = LongArray(nodeCount)
     val parentIndexes = IntArray(nodeCount)
     val frameIds = LongArray(nodeCount)
@@ -101,7 +146,8 @@ private fun flatten(
     val sampleCounts = LongArray(nodeCount)
     val threadCounts = IntArray(nodeCount)
     val categories = ArrayList<String?>(nodeCount)
-    val idsByPath = LinkedHashMap<CallNodePath, FlameCallNodeId>(nodeCount)
+    val projectedFrames = LinkedHashMap<Long, CallStackFrame>()
+    val nodesByStableId = HashMap<Long, MutableCallNode>(nodeCount)
     val pending = ArrayDeque<PendingNode>()
     orderedRoots.asReversed().forEach { root -> pending.addLast(PendingNode(root, -1, 0)) }
 
@@ -109,21 +155,22 @@ private fun flatten(
     while (pending.isNotEmpty()) {
         val current = pending.removeLast()
         val node = current.node
-        val stableId = stableIds.getValue(node.path)
-        ids[index] = stableId.value
+        checkStableIdCollision(nodesByStableId, node)
+        val canonicalFrame = canonicalFrames.getValue(node.functionId)
+        ids[index] = node.stableId.value
         parentIndexes[index] = current.parentIndex
-        frameIds[index] = canonicalFrames.getValue(node.functionId).frameId
+        frameIds[index] = canonicalFrame.frameId
         depths[index] = current.depth
         inclusiveWeights[index] = node.inclusiveWeight
         selfWeights[index] = node.selfWeight
         sampleCounts[index] = node.sampleCount
         threadCounts[index] = node.threads.size
         categories += dominantCategory(node.categoryWeights)
-        idsByPath[node.path] = stableId
+        projectedFrames.putIfAbsent(canonicalFrame.frameId, canonicalFrame)
 
         val parentIndex = index
         index += 1
-        node.children.values.sortedWith(nodeComparator).asReversed().forEach { child ->
+        node.orderedChildren(nodeComparator).asReversed().forEach { child ->
             pending.addLast(PendingNode(child, parentIndex, current.depth + 1))
         }
     }
@@ -138,10 +185,22 @@ private fun flatten(
         sampleCounts = sampleCounts,
         threadCounts = threadCounts,
         categories = categories,
-        framesById = framesById,
-        idsByPath = idsByPath,
+        framesById = projectedFrames,
     )
 }
+
+private fun checkStableIdCollision(
+    nodesByStableId: MutableMap<Long, MutableCallNode>,
+    node: MutableCallNode,
+) {
+    val previous = nodesByStableId.putIfAbsent(node.stableId.value, node)
+    check(previous == null || previous === node) {
+        "Stable call-node ID collision for distinct ordered function paths: id=${node.stableId.value}"
+    }
+}
+
+private fun MutableCallNode.orderedChildren(comparator: Comparator<MutableCallNode>): List<MutableCallNode> =
+    if (children.size <= 1) children.values.toList() else children.values.sortedWith(comparator)
 
 private fun countNodes(roots: Collection<MutableCallNode>): Int {
     var count = 0
@@ -154,43 +213,6 @@ private fun countNodes(roots: Collection<MutableCallNode>): Int {
     }
     return count
 }
-
-private fun assignStableIds(
-    roots: Collection<MutableCallNode>,
-    pathHash: (CallNodePath) -> Long,
-): Map<CallNodePath, FlameCallNodeId> {
-    val allPaths = ArrayList<CallNodePath>()
-    val pending = ArrayDeque<MutableCallNode>()
-    roots.forEach(pending::addLast)
-    while (pending.isNotEmpty()) {
-        val node = pending.removeLast()
-        allPaths += node.path
-        node.children.values.forEach(pending::addLast)
-    }
-    allPaths.sortWith(callNodePathComparator)
-
-    val occupied = HashMap<Long, CallNodePath>(allPaths.size)
-    val ids = LinkedHashMap<CallNodePath, FlameCallNodeId>(allPaths.size)
-    allPaths.forEach { path ->
-        var candidate = pathHash(path)
-        while (occupied.containsKey(candidate)) {
-            candidate = if (candidate == Long.MAX_VALUE) Long.MIN_VALUE else candidate + 1
-        }
-        occupied[candidate] = path
-        ids[path] = FlameCallNodeId(candidate)
-    }
-    return ids
-}
-
-private val callNodePathComparator =
-    Comparator<CallNodePath> { left, right ->
-        val commonSize = minOf(left.functions.size, right.functions.size)
-        for (index in 0 until commonSize) {
-            val comparison = left.functions[index].value.compareTo(right.functions[index].value)
-            if (comparison != 0) return@Comparator comparison
-        }
-        left.functions.size.compareTo(right.functions.size)
-    }
 
 private fun canonicalFramesByFunction(frames: Collection<CallStackFrame>): Map<FlameFunctionId, CallStackFrame> =
     frames
@@ -230,29 +252,4 @@ private fun dominantCategory(weights: Map<String?, Long>): String? =
         ).firstOrNull()
         ?.key
 
-private fun stablePathHash(path: CallNodePath): Long {
-    var hash = FNV_64_OFFSET_BASIS
-    path.functions.forEach { function ->
-        var value = function.value
-        repeat(Long.SIZE_BYTES) {
-            hash = hash xor (value and BYTE_MASK)
-            hash *= FNV_64_PRIME
-            value = value ushr Byte.SIZE_BITS
-        }
-    }
-    return hash
-}
-
-private fun saturatingAdd(
-    left: Long,
-    right: Long,
-): Long =
-    try {
-        Math.addExact(left, right)
-    } catch (_: ArithmeticException) {
-        if (right >= 0) Long.MAX_VALUE else Long.MIN_VALUE
-    }
-
-private const val FNV_64_OFFSET_BASIS = -3750763034362895579L
-private const val FNV_64_PRIME = 1099511628211L
-private const val BYTE_MASK = 0xffL
+private const val PRIMARY_HASH_OFFSET = -3750763034362895579L

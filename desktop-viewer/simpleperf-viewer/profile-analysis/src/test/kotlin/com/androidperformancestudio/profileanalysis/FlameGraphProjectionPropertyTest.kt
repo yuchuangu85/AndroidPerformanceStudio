@@ -68,7 +68,12 @@ class FlameGraphProjectionPropertyTest {
                 .firstOrNull()
                 .orEmpty()
                 .filter { parents[it] == -1 }
-        if (roots.isNotEmpty()) {
+        val rootWeight = parents.indices.filter { parents[it] == -1 }.sumOf { nodes.inclusiveWeights[it] }
+        if (rootWeight > 0) {
+            assertTrue(
+                roots.isNotEmpty(),
+                "positive root weight requires visible roots seed=$seed direction=$direction",
+            )
             assertEquals(0.0, starts[roots.first()], absoluteTolerance = 1e-12)
             assertEquals(1.0, ends[roots.last()], absoluteTolerance = 1e-12)
             val width = roots.sumOf { ends[it] - starts[it] }
@@ -97,7 +102,7 @@ class FlameGraphProjectionPropertyTest {
                 WeightedCallStack(
                     sampleId = index.toLong(),
                     timestampNanos = random.nextLong(),
-                    weight = random.nextLong(-2, 100),
+                    weight = random.nextLong(0, 100),
                     threadKey = "thread-${random.nextInt(4)}",
                     category = "fallback",
                     subcategory = null,

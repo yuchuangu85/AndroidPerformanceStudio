@@ -3,7 +3,9 @@ package com.androidperformancestudio.profileanalysis
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class CallTreeProjectorTest {
     @Test
@@ -68,22 +70,47 @@ class CallTreeProjectorTest {
     }
 
     @Test
-    fun `collision probing is deterministic across input order`() {
+    fun `forced primary collisions do not make IDs depend on other paths`() {
         val table =
             tableOf(
                 stack(1, 1, "one", listOf(ROOT, A)),
                 stack(2, 1, "two", listOf(ROOT, B)),
             )
-        val reversed = table.copy(stacks = table.stacks.reversed())
+        val withoutEarlierCollidingPath = table.copy(stacks = listOf(table.stacks.last()))
 
-        val first = CallTreeProjector.project(table, CallStackDirection.FORWARD) { 7L }
-        val second = CallTreeProjector.project(reversed, CallStackDirection.FORWARD) { 7L }
+        val all = CallTreeProjector.project(table, CallStackDirection.FORWARD, primaryHashStep = { _, _ -> 7L })
+        val filtered =
+            CallTreeProjector.project(
+                withoutEarlierCollidingPath,
+                CallStackDirection.FORWARD,
+                primaryHashStep = { _, _ -> 7L },
+            )
 
-        assertEquals(first.idFor(listOf(ROOT)), second.idFor(listOf(ROOT)))
-        assertEquals(first.idFor(listOf(ROOT, A)), second.idFor(listOf(ROOT, A)))
-        assertEquals(first.idFor(listOf(ROOT, B)), second.idFor(listOf(ROOT, B)))
-        assertNotEquals(first.idFor(listOf(ROOT)), first.idFor(listOf(ROOT, A)))
-        assertNotEquals(first.idFor(listOf(ROOT, A)), first.idFor(listOf(ROOT, B)))
+        assertEquals(all.idFor(listOf(ROOT)), filtered.idFor(listOf(ROOT)))
+        assertEquals(all.idFor(listOf(ROOT, B)), filtered.idFor(listOf(ROOT, B)))
+        assertNotEquals(all.idFor(listOf(ROOT)), all.idFor(listOf(ROOT, A)))
+        assertNotEquals(all.idFor(listOf(ROOT, A)), all.idFor(listOf(ROOT, B)))
+    }
+
+    @Test
+    fun `terminal stable ID collisions fail explicitly`() {
+        val table =
+            tableOf(
+                stack(1, 1, "one", listOf(ROOT, A)),
+                stack(2, 1, "two", listOf(ROOT, B)),
+            )
+
+        val failure =
+            assertFailsWith<IllegalStateException> {
+                CallTreeProjector.project(
+                    table,
+                    CallStackDirection.FORWARD,
+                    primaryHashStep = { _, _ -> 7L },
+                    idDeriver = { _, _ -> 11L },
+                )
+            }
+
+        assertTrue(failure.message.orEmpty().contains("collision", ignoreCase = true))
     }
 
     @Test
@@ -93,8 +120,7 @@ class CallTreeProjectorTest {
                 stack(1, Long.MAX_VALUE, "main", listOf(ROOT, A), listOf("Runtime", "Zulu")),
                 stack(2, 20, "main", listOf(ROOT, A), listOf("Runtime", "Alpha")),
                 stack(3, 20, "worker", listOf(ROOT, A), listOf("Runtime", "Alpha")),
-                stack(4, -50, "ignored-weight", listOf(ROOT, A), listOf("Other", "Zulu")),
-                stack(5, 0, "zero-weight", listOf(ROOT, A), listOf("Other", "Zulu")),
+                stack(4, 0, "zero-weight", listOf(ROOT, A), listOf("Other", "Zulu")),
             )
 
         val projection = CallTreeProjector.project(table, CallStackDirection.FORWARD)
@@ -104,33 +130,84 @@ class CallTreeProjectorTest {
         assertEquals(Long.MAX_VALUE, projection.inclusiveWeights[root])
         assertEquals(Long.MAX_VALUE, projection.inclusiveWeights[child])
         assertEquals(Long.MAX_VALUE, projection.selfWeights[child])
-        assertEquals(5, projection.sampleCounts[child])
-        assertEquals(4, projection.threadCounts[child])
+        assertEquals(4, projection.sampleCounts[child])
+        assertEquals(3, projection.threadCounts[child])
         assertEquals("Runtime", projection.categories[root])
         assertEquals("Zulu", projection.categories[child])
     }
 
     @Test
-    fun `duplicate function metadata chooses a deterministic canonical frame`() {
+    fun `negative stack weights are rejected before projection`() {
+        val table =
+            tableOf(
+                stack(1, 3, "valid", listOf(ROOT, A)),
+                stack(2, -1, "invalid", listOf(ROOT, B)),
+            )
+
+        val failure = assertFailsWith<IllegalArgumentException> { CallTreeProjector.project(table) }
+
+        assertTrue(failure.message.orEmpty().contains("negative", ignoreCase = true))
+        assertTrue(failure.message.orEmpty().contains("sampleId=2"))
+    }
+
+    @Test
+    fun `stale duplicate and unrelated frames cannot affect projected metadata`() {
+        val duplicateA = frame(200, A, "A older", "z.so")
+        val staleA = frame(100, A, "ZZZ stale duplicate", "a.so")
+        val staleUnrelated = frame(300, ZETA, "AAA stale", "a.so")
+        val root = frame(ROOT.value, ROOT, "root")
+        val b = frame(B.value, B, "B")
+        val frames =
+            listOf(root, duplicateA, staleA, staleUnrelated, b)
+                .associateBy(CallStackFrame::frameId)
+        val referencedStacks =
+            listOf(
+                stackFromFrameIds(1, 1, "one", listOf(ROOT.value, duplicateA.frameId)),
+                stackFromFrameIds(2, 1, "two", listOf(ROOT.value, b.frameId)),
+            )
+
+        val projection = CallTreeProjector.project(CallStackTable(frames, referencedStacks))
+
+        assertEquals(200L, projection.frameId(listOf(ROOT, A)))
+        assertEquals(listOf("A older", "B"), projection.childNames("root"))
+        assertEquals(setOf(ROOT.value, 200L, B.value), projection.framesById.keys)
+        assertEquals("A older", projection.framesById.getValue(200L).symbolName)
+    }
+
+    @Test
+    fun `duplicate referenced metadata chooses a deterministic canonical frame`() {
         val duplicateA = frame(200, A, "A older", "z.so")
         val canonicalA = frame(100, A, "A", "a.so")
         val frames =
             listOf(frame(ROOT.value, ROOT, "root"), duplicateA, canonicalA)
                 .associateBy(CallStackFrame::frameId)
-        val firstStack = stackFromFrameIds(1, 1, "one", listOf(ROOT.value, duplicateA.frameId))
-        val secondStack = stackFromFrameIds(1, 1, "one", listOf(ROOT.value, canonicalA.frameId))
-        val first = CallStackTable(frames, listOf(firstStack))
-        val second = CallStackTable(frames, listOf(secondStack))
+        val stacks =
+            listOf(
+                stackFromFrameIds(1, 1, "one", listOf(ROOT.value, duplicateA.frameId)),
+                stackFromFrameIds(2, 1, "two", listOf(ROOT.value, canonicalA.frameId)),
+            )
 
-        val firstProjection = CallTreeProjector.project(first, CallStackDirection.FORWARD)
-        val secondProjection = CallTreeProjector.project(second, CallStackDirection.FORWARD)
+        val projection = CallTreeProjector.project(CallStackTable(frames, stacks))
 
-        assertEquals(100L, firstProjection.frameId(listOf(ROOT, A)))
-        assertEquals(100L, secondProjection.frameId(listOf(ROOT, A)))
-        assertEquals(
-            firstProjection.idFor(listOf(ROOT, A)),
-            secondProjection.idFor(listOf(ROOT, A)),
-        )
+        assertEquals(100L, projection.frameId(listOf(ROOT, A)))
+        assertEquals(setOf(ROOT.value, 100L), projection.framesById.keys)
+    }
+
+    @Test
+    fun `deep stack projection and structural lookup stay iterative and compact`() {
+        val depth = 10_000
+        val frames =
+            (1L..depth.toLong()).associateWith { id ->
+                frame(id, FlameFunctionId(id), "frame-$id")
+            }
+        val stack = stackFromFrameIds(1, 1, "deep", frames.keys.toList())
+
+        val projection = CallTreeProjector.project(CallStackTable(frames, listOf(stack)))
+        val path = CallNodePath(frames.keys.map(::FlameFunctionId))
+
+        assertEquals(depth, projection.size)
+        assertEquals(depth - 1, projection.depths.last())
+        assertEquals(FlameCallNodeId(projection.ids.last()), projection.findByPath(path))
     }
 
     @Test
