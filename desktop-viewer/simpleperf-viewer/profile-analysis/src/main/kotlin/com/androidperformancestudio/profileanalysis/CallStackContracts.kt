@@ -1,5 +1,7 @@
 package com.androidperformancestudio.profileanalysis
 
+import java.util.Collections
+
 @JvmInline
 value class FlameFunctionId(
     val value: Long,
@@ -10,9 +12,17 @@ value class FlameCallNodeId(
     val value: Long,
 )
 
-data class CallNodePath(
+@ConsistentCopyVisibility
+data class CallNodePath private constructor(
     val functions: List<FlameFunctionId>,
-)
+    private val immutableSnapshot: Boolean,
+) {
+    constructor(functions: List<FlameFunctionId>) : this(immutableList(functions), true)
+
+    fun copy(functions: List<FlameFunctionId> = this.functions): CallNodePath = CallNodePath(functions)
+
+    override fun toString(): String = "CallNodePath(functions=$functions)"
+}
 
 data class AnalysisTimeRange(
     val startNanosInclusive: Long,
@@ -48,7 +58,9 @@ data class CallStackFrame(
     val implementation: FrameImplementation,
 )
 
-data class WeightedCallStack(
+@ConsistentCopyVisibility
+@Suppress("LongParameterList")
+data class WeightedCallStack private constructor(
     val sampleId: Long,
     val timestampNanos: Long,
     val weight: Long,
@@ -56,13 +68,71 @@ data class WeightedCallStack(
     val category: String?,
     val subcategory: String?,
     val frameIdsRootToLeaf: List<Long>,
-)
+    private val immutableSnapshot: Boolean,
+) {
+    constructor(
+        sampleId: Long,
+        timestampNanos: Long,
+        weight: Long,
+        threadKey: String,
+        category: String?,
+        subcategory: String?,
+        frameIdsRootToLeaf: List<Long>,
+    ) : this(
+        sampleId,
+        timestampNanos,
+        weight,
+        threadKey,
+        category,
+        subcategory,
+        immutableList(frameIdsRootToLeaf),
+        true,
+    )
 
-data class CallStackTable(
+    fun copy(
+        sampleId: Long = this.sampleId,
+        timestampNanos: Long = this.timestampNanos,
+        weight: Long = this.weight,
+        threadKey: String = this.threadKey,
+        category: String? = this.category,
+        subcategory: String? = this.subcategory,
+        frameIdsRootToLeaf: List<Long> = this.frameIdsRootToLeaf,
+    ): WeightedCallStack =
+        WeightedCallStack(
+            sampleId,
+            timestampNanos,
+            weight,
+            threadKey,
+            category,
+            subcategory,
+            frameIdsRootToLeaf,
+        )
+
+    override fun toString(): String =
+        "WeightedCallStack(sampleId=$sampleId, timestampNanos=$timestampNanos, weight=$weight, " +
+            "threadKey=$threadKey, category=$category, subcategory=$subcategory, " +
+            "frameIdsRootToLeaf=$frameIdsRootToLeaf)"
+}
+
+@ConsistentCopyVisibility
+data class CallStackTable private constructor(
     val framesById: Map<Long, CallStackFrame>,
     val stacks: List<WeightedCallStack>,
+    private val immutableSnapshot: Boolean,
 ) {
+    constructor(
+        framesById: Map<Long, CallStackFrame>,
+        stacks: List<WeightedCallStack>,
+    ) : this(immutableMap(framesById), immutableList(stacks), true)
+
     fun frame(frameId: Long): CallStackFrame = checkNotNull(framesById[frameId])
+
+    fun copy(
+        framesById: Map<Long, CallStackFrame> = this.framesById,
+        stacks: List<WeightedCallStack> = this.stacks,
+    ): CallStackTable = CallStackTable(framesById, stacks)
+
+    override fun toString(): String = "CallStackTable(framesById=$framesById, stacks=$stacks)"
 }
 
 sealed interface CallStackTransform {
@@ -111,39 +181,92 @@ sealed interface CallStackTransform {
     ) : CallStackTransform
 }
 
-data class CallStackAnalysisQuery(
+@ConsistentCopyVisibility
+data class CallStackAnalysisQuery private constructor(
     val previewRange: AnalysisTimeRange? = null,
     val searchText: String = "",
     val implementation: ImplementationFilter = ImplementationFilter.ALL,
     val direction: CallStackDirection = CallStackDirection.FORWARD,
     val transforms: List<CallStackTransform> = emptyList(),
-)
+    private val immutableSnapshot: Boolean,
+) {
+    constructor(
+        previewRange: AnalysisTimeRange? = null,
+        searchText: String = "",
+        implementation: ImplementationFilter = ImplementationFilter.ALL,
+        direction: CallStackDirection = CallStackDirection.FORWARD,
+        transforms: List<CallStackTransform> = emptyList(),
+    ) : this(previewRange, searchText, implementation, direction, immutableList(transforms), true)
+
+    fun copy(
+        previewRange: AnalysisTimeRange? = this.previewRange,
+        searchText: String = this.searchText,
+        implementation: ImplementationFilter = this.implementation,
+        direction: CallStackDirection = this.direction,
+        transforms: List<CallStackTransform> = this.transforms,
+    ): CallStackAnalysisQuery = CallStackAnalysisQuery(previewRange, searchText, implementation, direction, transforms)
+
+    override fun toString(): String =
+        "CallStackAnalysisQuery(previewRange=$previewRange, searchText=$searchText, " +
+            "implementation=$implementation, direction=$direction, transforms=$transforms)"
+}
 
 @Suppress("LongParameterList")
 class CallNodeTable(
-    val ids: LongArray,
-    val parentIndexes: IntArray,
-    val frameIds: LongArray,
-    val depths: IntArray,
-    val inclusiveWeights: LongArray,
-    val selfWeights: LongArray,
-    val sampleCounts: LongArray,
-    val threadCounts: IntArray,
-    val categories: List<String?>,
-    val framesById: Map<Long, CallStackFrame>,
-    private val idsByPath: Map<CallNodePath, FlameCallNodeId> = emptyMap(),
+    ids: LongArray,
+    parentIndexes: IntArray,
+    frameIds: LongArray,
+    depths: IntArray,
+    inclusiveWeights: LongArray,
+    selfWeights: LongArray,
+    sampleCounts: LongArray,
+    threadCounts: IntArray,
+    categories: List<String?>,
+    framesById: Map<Long, CallStackFrame>,
+    idsByPath: Map<CallNodePath, FlameCallNodeId> = emptyMap(),
 ) {
-    val size: Int get() = ids.size
+    private val idsSnapshot = ids.copyOf()
+    private val parentIndexesSnapshot = parentIndexes.copyOf()
+    private val frameIdsSnapshot = frameIds.copyOf()
+    private val depthsSnapshot = depths.copyOf()
+    private val inclusiveWeightsSnapshot = inclusiveWeights.copyOf()
+    private val selfWeightsSnapshot = selfWeights.copyOf()
+    private val sampleCountsSnapshot = sampleCounts.copyOf()
+    private val threadCountsSnapshot = threadCounts.copyOf()
+    private val categoriesSnapshot = immutableList(categories)
+    private val framesSnapshot = immutableMap(framesById)
+    private val idsByPathSnapshot = immutableMap(idsByPath)
 
-    fun findByPath(path: CallNodePath): FlameCallNodeId? = idsByPath[path]
+    val ids: LongArray get() = idsSnapshot.copyOf()
+    val parentIndexes: IntArray get() = parentIndexesSnapshot.copyOf()
+    val frameIds: LongArray get() = frameIdsSnapshot.copyOf()
+    val depths: IntArray get() = depthsSnapshot.copyOf()
+    val inclusiveWeights: LongArray get() = inclusiveWeightsSnapshot.copyOf()
+    val selfWeights: LongArray get() = selfWeightsSnapshot.copyOf()
+    val sampleCounts: LongArray get() = sampleCountsSnapshot.copyOf()
+    val threadCounts: IntArray get() = threadCountsSnapshot.copyOf()
+    val categories: List<String?> get() = categoriesSnapshot
+    val framesById: Map<Long, CallStackFrame> get() = framesSnapshot
+
+    val size: Int get() = idsSnapshot.size
+
+    fun findByPath(path: CallNodePath): FlameCallNodeId? = idsByPathSnapshot[path]
 }
 
 class FlameGraphRows(
-    val nodeIndexesByRow: List<IntArray>,
-    val starts: DoubleArray,
-    val ends: DoubleArray,
+    nodeIndexesByRow: List<IntArray>,
+    starts: DoubleArray,
+    ends: DoubleArray,
     val startsAtBottom: Boolean,
-)
+) {
+    private val nodeIndexesSnapshot = nodeIndexesByRow.map(IntArray::copyOf)
+    private val startsSnapshot = starts.copyOf()
+    private val endsSnapshot = ends.copyOf()
+
+    val nodeIndexesByRow: List<IntArray> get() = nodeIndexesSnapshot.map(IntArray::copyOf)
+    val starts: DoubleArray get() = startsSnapshot.copyOf()
+    val ends: DoubleArray get() = endsSnapshot.copyOf()
+}
 
 enum class FlameGraphEmptyReason {
     THREAD_HAS_NO_SAMPLES,
@@ -156,17 +279,46 @@ enum class FlameGraphEmptyReason {
     PROJECTION_FAILED,
 }
 
-data class FlameGraphSnapshot(
+@ConsistentCopyVisibility
+data class FlameGraphSnapshot private constructor(
     val query: CallStackAnalysisQuery,
     val callNodes: CallNodeTable,
     val rows: FlameGraphRows,
     val totalWeight: Long,
     val emptyReason: FlameGraphEmptyReason?,
     val invalidTransforms: List<CallStackTransform>,
-)
+    private val immutableSnapshot: Boolean,
+) {
+    constructor(
+        query: CallStackAnalysisQuery,
+        callNodes: CallNodeTable,
+        rows: FlameGraphRows,
+        totalWeight: Long,
+        emptyReason: FlameGraphEmptyReason?,
+        invalidTransforms: List<CallStackTransform>,
+    ) : this(query, callNodes, rows, totalWeight, emptyReason, immutableList(invalidTransforms), true)
+
+    @Suppress("LongParameterList")
+    fun copy(
+        query: CallStackAnalysisQuery = this.query,
+        callNodes: CallNodeTable = this.callNodes,
+        rows: FlameGraphRows = this.rows,
+        totalWeight: Long = this.totalWeight,
+        emptyReason: FlameGraphEmptyReason? = this.emptyReason,
+        invalidTransforms: List<CallStackTransform> = this.invalidTransforms,
+    ): FlameGraphSnapshot = FlameGraphSnapshot(query, callNodes, rows, totalWeight, emptyReason, invalidTransforms)
+
+    override fun toString(): String =
+        "FlameGraphSnapshot(query=$query, callNodes=$callNodes, rows=$rows, totalWeight=$totalWeight, " +
+            "emptyReason=$emptyReason, invalidTransforms=$invalidTransforms)"
+}
 
 fun parseFlameSearchTerms(searchText: String): List<String> =
     searchText
         .split(',')
         .map(String::trim)
         .filter(String::isNotEmpty)
+
+private fun <T> immutableList(source: Collection<T>): List<T> = Collections.unmodifiableList(ArrayList(source))
+
+private fun <K, V> immutableMap(source: Map<K, V>): Map<K, V> = Collections.unmodifiableMap(LinkedHashMap(source))
