@@ -9,6 +9,7 @@ val sampleGenerator by sourceSets.creating
 
 dependencies {
     add(poc.implementationConfigurationName, project(":application"))
+    add(poc.implementationConfigurationName, project(":profile-analysis"))
     add(poc.implementationConfigurationName, project(":profile-model"))
     add(poc.implementationConfigurationName, project(":storage-sqlite"))
     add(poc.implementationConfigurationName, project(":visualization"))

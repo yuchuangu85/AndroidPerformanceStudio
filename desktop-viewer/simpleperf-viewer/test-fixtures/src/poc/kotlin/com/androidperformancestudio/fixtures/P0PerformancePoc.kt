@@ -5,13 +5,16 @@ import com.androidperformancestudio.application.ProfileWorkspaceController
 import com.androidperformancestudio.application.ProfileWorkspaceLoadState
 import com.androidperformancestudio.application.sqliteProjectionLoader
 import com.androidperformancestudio.model.ProfileSample
+import com.androidperformancestudio.profileanalysis.CallNodeTable
+import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.FlameGraphRows
+import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
-import com.androidperformancestudio.visualization.FlameGraphNode
-import com.androidperformancestudio.visualization.FlameGraphProjector
+import com.androidperformancestudio.visualization.FlameGraphLayout
+import com.androidperformancestudio.visualization.FlameViewport
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineDensityIndex
-import com.androidperformancestudio.visualization.WeightViewport
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -43,6 +46,9 @@ import kotlin.system.measureNanoTime
 private const val RECORD_COUNT = 1_000_000
 private const val TIMELINE_BUCKET_COUNT = 100_000
 private const val FLAME_NODE_COUNT = 100_000
+private const val FLAME_ROW_COUNT = 64
+private const val FLAME_VISIBLE_ROW_COUNT = 20
+private const val FLAME_ROW_HEIGHT_PX = 18f
 private const val FRAME_COUNT = 240
 private const val FIRST_THREAD_ID = 20_000
 private const val SECOND_THREAD_ID = 20_001
@@ -115,18 +121,19 @@ private fun runP0(
             check(frame.columns.size == 1_200)
         }
 
-    val flameNodes = syntheticFlameNodes(FLAME_NODE_COUNT)
+    val flameSnapshot = syntheticFlameSnapshot(FLAME_NODE_COUNT)
     val flameFrames =
         frameDurations {
             val iteration = it
-            val duration = 100_000L + iteration % 10 * 50_000L
-            val start = (iteration * 7_919L) % (RECORD_COUNT - duration)
-            FlameGraphProjector.project(
-                nodes = flameNodes,
-                viewport = WeightViewport(start, start + duration),
-                widthPixels = 1_200,
-                rowHeightPixels = 18f,
-                minimumNodeWidthPixels = 1f,
+            FlameGraphLayout.layout(
+                snapshot = flameSnapshot,
+                viewport =
+                    FlameViewport(
+                        widthPx = 1_200,
+                        heightPx = 360,
+                        scrollRow = iteration % (FLAME_ROW_COUNT - FLAME_VISIBLE_ROW_COUNT),
+                        rowHeightPx = FLAME_ROW_HEIGHT_PX,
+                    ),
             )
         }
 
@@ -215,18 +222,36 @@ private fun syntheticSamples(count: Int): Sequence<ProfileSample> =
         )
     }
 
-private fun syntheticFlameNodes(count: Int): List<FlameGraphNode> =
-    List(count) { index ->
-        val depth = index % 64
-        val start = (index * 9_973L) % (RECORD_COUNT - 2_000L)
-        val width = 10L + (index * 37L) % 2_000L
-        FlameGraphNode(
-            label = "node_$index",
-            depth = depth,
-            startWeight = start,
-            endWeight = start + width,
-        )
-    }
+private fun syntheticFlameSnapshot(count: Int): FlameGraphSnapshot {
+    val starts = DoubleArray(count) { index -> ((index * 9_973L) % 1_000L) / 1_000.0 }
+    val ends = DoubleArray(count) { index -> (starts[index] + 0.01).coerceAtMost(1.0) }
+    val nodeIndexesByRow =
+        List(FLAME_ROW_COUNT) { row ->
+            IntArray((count + FLAME_ROW_COUNT - row - 1) / FLAME_ROW_COUNT) { position ->
+                row + position * FLAME_ROW_COUNT
+            }
+        }
+    return FlameGraphSnapshot(
+        query = CallStackAnalysisQuery(),
+        callNodes =
+            CallNodeTable(
+                ids = LongArray(count) { it.toLong() },
+                parentIndexes = IntArray(count) { -1 },
+                frameIds = LongArray(count),
+                depths = IntArray(count) { it % FLAME_ROW_COUNT },
+                inclusiveWeights = LongArray(count) { 1 },
+                selfWeights = LongArray(count) { 1 },
+                sampleCounts = LongArray(count) { 1 },
+                threadCounts = IntArray(count) { 1 },
+                categories = List(count) { null },
+                framesById = emptyMap(),
+            ),
+        rows = FlameGraphRows(nodeIndexesByRow, starts, ends, startsAtBottom = true),
+        totalWeight = count.toLong(),
+        emptyReason = null,
+        invalidTransforms = emptyList(),
+    )
+}
 
 private fun frameDurations(block: (Int) -> Unit): List<Long> {
     repeat(20, block)

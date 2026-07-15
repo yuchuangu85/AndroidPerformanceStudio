@@ -3,14 +3,12 @@ package com.androidperformancestudio.presentation
 import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackFrame
-import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class LegacyFlameGraphAdapterTest {
     @Test
@@ -43,13 +41,12 @@ class LegacyFlameGraphAdapterTest {
                 invalidTransforms = emptyList(),
             )
 
-        val bridged = snapshot.toLegacyNodes(FlameCallNodeId(10))
+        val bridged = snapshot.toLegacyNodes()
 
         assertEquals(listOf(10L, 20L), bridged.map(LegacyPresentationFlameNode::id))
         assertEquals(listOf("root", "child"), bridged.last().path)
-        assertEquals(0L, bridged.first().startWeight)
-        assertEquals(8L, bridged.first().endWeightExclusive)
-        assertTrue(bridged.all(LegacyPresentationFlameNode::highlighted))
+        assertEquals(8L, bridged.first().inclusiveWeight)
+        assertEquals(3L, bridged.last().exclusiveWeight)
     }
 
     private fun frame(

@@ -22,19 +22,4 @@ class ViewportNavigationTest {
             TimeViewport(100, 900).selection(startPixel = 75f, endPixel = 25f, widthPixels = 100f),
         )
     }
-
-    @Test
-    fun `weight viewport zoom uses pointer anchor and clamps to full flame weight`() {
-        val bounds = WeightViewport(0, 1_000)
-        val viewport = WeightViewport(200, 600)
-
-        assertEquals(
-            WeightViewport(350, 550),
-            viewport.navigate(NavigationAction.ZOOM_IN, bounds, anchorFraction = 0.75),
-        )
-        assertEquals(
-            WeightViewport(100, 500),
-            viewport.navigate(NavigationAction.PAN_LEFT, bounds),
-        )
-    }
 }

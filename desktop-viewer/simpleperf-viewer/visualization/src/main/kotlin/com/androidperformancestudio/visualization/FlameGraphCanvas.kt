@@ -8,48 +8,41 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-
-@Suppress("MagicNumber")
-private val FlameColor = Color(0xFFE57373)
-
-@Suppress("MagicNumber")
-private val HighlightColor = Color(0xFFFFD54F)
-
-@Suppress("MagicNumber")
-private val SelectedColor = Color(0xFF42A5F5)
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 fun FlameGraphCanvas(
-    rectangles: List<FlameRectangle>,
-    selectedNodeId: Long?,
+    layout: VisibleFlameLayout,
+    selectedNodeId: FlameCallNodeId?,
     modifier: Modifier = Modifier,
-    onNodeClick: (FlameRectangle) -> Unit,
-    onReset: () -> Unit,
+    onNodeClick: (VisibleFlameNode) -> Unit,
+    onBlankClick: () -> Unit,
 ) {
     Canvas(
         modifier =
-            modifier.pointerInput(rectangles) {
+            modifier.pointerInput(layout) {
                 detectTapGestures(
-                    onDoubleTap = { onReset() },
                     onTap = { offset ->
-                        FlameGraphProjector.hitTest(rectangles, offset.x, offset.y)?.let(onNodeClick)
+                        FlameGraphLayout.hitTest(layout, offset.x, offset.y)?.let(onNodeClick) ?: onBlankClick()
                     },
                 )
             },
     ) {
-        rectangles.forEach { rectangle ->
-            val color =
-                when {
-                    rectangle.nodeId == selectedNodeId -> SelectedColor
-                    rectangle.highlighted -> HighlightColor
-                    else -> FlameColor
-                }
+        layout.nodes.forEach { node ->
+            val colors =
+                FlameGraphPalette.colors(
+                    category = null,
+                    theme = FlameTheme.LIGHT,
+                    state = FlameNodeVisualState(selected = node.nodeId == selectedNodeId),
+                )
             drawRect(
-                color = color,
-                topLeft = Offset(rectangle.x, rectangle.y),
-                size = Size(rectangle.width.coerceAtLeast(1f), (rectangle.height - 1f).coerceAtLeast(1f)),
+                color = colors.fill.toComposeColor(),
+                topLeft = Offset(node.x, node.y),
+                size = Size(node.width, (node.height - 1f).coerceAtLeast(1f)),
             )
         }
     }
 }
+
+private fun FlameGraphColor.toComposeColor(): Color = Color(argb.toUInt().toULong())

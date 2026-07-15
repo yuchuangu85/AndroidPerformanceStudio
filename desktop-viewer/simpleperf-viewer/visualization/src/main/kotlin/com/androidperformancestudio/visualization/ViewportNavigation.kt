@@ -28,18 +28,6 @@ fun TimeViewport.selection(
     return TimeViewport(selectionStart, selectionEnd.coerceAtLeast(selectionStart + 1))
 }
 
-fun WeightViewport.navigate(
-    action: NavigationAction,
-    bounds: WeightViewport,
-    anchorFraction: Double = DEFAULT_ANCHOR_FRACTION,
-): WeightViewport {
-    require(anchorFraction in 0.0..1.0) { "anchorFraction must be between zero and one" }
-    val range = LongRangeWindow(startWeight, endWeightExclusive)
-    val limit = LongRangeWindow(bounds.startWeight, bounds.endWeightExclusive)
-    val navigated = range.navigate(action, limit, anchorFraction)
-    return WeightViewport(navigated.start, navigated.endExclusive)
-}
-
 private data class LongRangeWindow(
     val start: Long,
     val endExclusive: Long,

@@ -43,7 +43,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -66,16 +65,14 @@ import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
 import com.androidperformancestudio.visualization.FlameGraphCanvas
-import com.androidperformancestudio.visualization.FlameGraphNode
-import com.androidperformancestudio.visualization.FlameGraphProjector
-import com.androidperformancestudio.visualization.FlameProjectionParameters
+import com.androidperformancestudio.visualization.FlameGraphLayout
+import com.androidperformancestudio.visualization.FlameViewport
 import com.androidperformancestudio.visualization.NavigationAction
 import com.androidperformancestudio.visualization.PerfettoNavigationBindings
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineCanvas
 import com.androidperformancestudio.visualization.TimelineColumn
 import com.androidperformancestudio.visualization.TimelineFrame
-import com.androidperformancestudio.visualization.WeightViewport
 import com.androidperformancestudio.visualization.navigate
 import com.androidperformancestudio.visualization.selection
 
@@ -510,128 +507,49 @@ private fun List<CallTreeNode>.expandedPathIds(search: String): Set<Long> {
 }
 
 @Composable
-@Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun FlameGraphReport(
     state: ReportState,
     report: ReportData,
 ) {
     val legacyFlameGraph =
         remember(report.flameGraph, state.flameGraph) {
-            report.flameGraph.toLegacyNodes(state.flameGraph.selectedNodeId)
+            report.flameGraph.toLegacyNodes()
         }
-    val totalWeight =
-        legacyFlameGraph
-            .filter { it.parentId == null }
-            .sumOf(LegacyPresentationFlameNode::inclusiveWeight)
-            .coerceAtLeast(1)
-    val bounds = WeightViewport(0, totalWeight)
-    var viewport by remember(report.flameGraph) { mutableStateOf(bounds) }
     var selectedId by remember(report.flameGraph, state.flameGraph.selectedNodeId) {
-        mutableStateOf(state.flameGraph.selectedNodeId?.value)
+        mutableStateOf(state.flameGraph.selectedNodeId)
     }
-    var search by remember(state.flameGraph.query.searchText) {
-        mutableStateOf(state.flameGraph.query.searchText)
-    }
-    var widthPixels by remember { mutableIntStateOf(1) }
-    var rectangleLimit by remember(report.flameGraph) { mutableIntStateOf(FLAME_PAGE_SIZE) }
-
-    fun navigate(action: NavigationAction) {
-        viewport = viewport.navigate(action, bounds)
-    }
-    val nodes =
-        legacyFlameGraph.map { node ->
-            FlameGraphNode(
-                label = node.symbolName,
-                id = node.id,
-                parentId = node.parentId,
-                depth = node.depth,
-                startWeight = node.startWeight,
-                endWeight = node.endWeightExclusive,
-                filePath = node.filePath,
-                path = node.path,
-                highlighted =
-                    node.highlighted ||
-                        (
-                            search.isNotBlank() &&
-                                (
-                                    node.symbolName.contains(search, ignoreCase = true) ||
-                                        node.filePath.contains(search, ignoreCase = true)
-                                )
-                        ),
-            )
-        }
-    val projection =
-        FlameGraphProjector.projectPage(
-            nodes = nodes,
-            parameters =
-                FlameProjectionParameters(
-                    viewport = viewport,
-                    widthPixels = widthPixels,
-                    rowHeightPixels = FLAME_ROW_HEIGHT,
-                    minimumNodeWidthPixels = 1f,
+    var widthPixels by remember { mutableIntStateOf(0) }
+    var heightPixels by remember { mutableIntStateOf(0) }
+    val layout =
+        remember(report.flameGraph, widthPixels, heightPixels) {
+            FlameGraphLayout.layout(
+                report.flameGraph,
+                FlameViewport(
+                    widthPx = widthPixels,
+                    heightPx = heightPixels,
+                    scrollRow = 0,
+                    rowHeightPx = FLAME_ROW_HEIGHT,
                 ),
-            startNodeIndex = 0,
-            maximumRectangles = rectangleLimit,
-        )
-    val rectangles = projection.rectangles
-    val selected = legacyFlameGraph.firstOrNull { it.id == selectedId }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = search,
-                onValueChange = { search = it },
-                label = { Text("Search function or library") },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
             )
-            NavigationButtons(::navigate)
-            OutlinedButton(onClick = {
-                viewport = bounds
-                selectedId = null
-            }) { Text("Reset") }
         }
+    val selected = legacyFlameGraph.firstOrNull { it.id == selectedId?.value }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         FlameGraphCanvas(
-            rectangles = rectangles,
+            layout = layout,
             selectedNodeId = selectedId,
-            onNodeClick = { rectangle ->
-                selectedId = rectangle.nodeId
-                nodes.firstOrNull { it.id == rectangle.nodeId }?.let { viewport = FlameGraphProjector.focus(it) }
-            },
-            onReset = {
-                viewport = bounds
-                selectedId = null
-            },
+            onNodeClick = { node -> selectedId = node.nodeId },
+            onBlankClick = { selectedId = null },
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 220.dp, max = 520.dp)
-                    .onSizeChanged { widthPixels = it.width.coerceAtLeast(1) }
-                    .focusable()
-                    .onKeyEvent { event -> handleKey(event, ::navigate) }
-                    .onPointerEvent(PointerEventType.Scroll) { event ->
-                        val change = event.changes.firstOrNull() ?: return@onPointerEvent
-                        PerfettoNavigationBindings
-                            .actionForScroll(change.scrollDelta.y, event.keyboardModifiers.isCtrlPressed)
-                            ?.let(::navigate)
+                    .onSizeChanged { size ->
+                        widthPixels = size.width
+                        heightPixels = size.height
                     },
         )
-        if (projection.nextNodeIndex != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Rendered ${rectangles.size} visible frames progressively")
-                OutlinedButton(
-                    onClick = {
-                        rectangleLimit =
-                            if (rectangleLimit > Int.MAX_VALUE - FLAME_PAGE_SIZE) {
-                                Int.MAX_VALUE
-                            } else {
-                                rectangleLimit + FLAME_PAGE_SIZE
-                            }
-                    },
-                ) {
-                    Text("Render next $FLAME_PAGE_SIZE")
-                }
-            }
-        }
         selected?.let { node ->
             Card(modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
                 Column(Modifier.padding(12.dp)) {
@@ -642,7 +560,7 @@ private fun FlameGraphReport(
                 }
             }
         }
-        Text("Click a frame to drill down; double-click the canvas to reset. Search matches are highlighted.")
+        Text("Click a frame to select it. Flame widths always represent the full analyzed sample set.")
     }
 }
 
@@ -769,6 +687,5 @@ internal fun simpleperfNavigationAction(key: Key): NavigationAction? =
 private fun Long.safeIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1
 
 private const val FLAME_ROW_HEIGHT = 22f
-private const val FLAME_PAGE_SIZE = 20_000
 private const val PERCENT_MULTIPLIER = 100
 private const val OVERVIEW_ITEM_LIMIT = 8

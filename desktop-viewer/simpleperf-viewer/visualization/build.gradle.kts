@@ -4,6 +4,7 @@ plugins {
 }
 
 dependencies {
+    implementation(project(":profile-analysis"))
     implementation(project(":profile-model"))
     implementation("org.jetbrains.compose.foundation:foundation:1.11.1")
 }

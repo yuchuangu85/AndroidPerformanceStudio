@@ -96,9 +96,6 @@ internal fun translateSimpleperfText(
     EVERY_EVENTS_PATTERN.matchEntire(text)?.let { match ->
         return "每 ${match.groupValues[1]} 个事件"
     }
-    RENDERED_FRAMES_PATTERN.matchEntire(text)?.let { match ->
-        return "已渐进渲染 ${match.groupValues[1]} 个可见帧"
-    }
     if (text.endsWith(" hotspot")) {
         return translateSimpleperfText(text.removeSuffix(" hotspot"), language) + "热点"
     }
@@ -131,7 +128,6 @@ private val CHINESE_PREFIXES =
         "Completed: " to "已完成：",
         "Inclusive " to "包含 ",
         "Exclusive " to "独占 ",
-        "Render next " to "继续渲染 ",
     )
 
 private val CHINESE_TEXT =
@@ -292,4 +288,3 @@ private val CHINESE_TEXT =
 
 private val INC_EXC_PATTERN = Regex("inc (.+) · exc (.+)")
 private val EVERY_EVENTS_PATTERN = Regex("every (.+) events")
-private val RENDERED_FRAMES_PATTERN = Regex("Rendered (.+) visible frames progressively")
