@@ -5,6 +5,7 @@ package com.androidperformancestudio.storage
 import com.androidperformancestudio.model.ProfileSample
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -19,6 +20,33 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SQLiteLegacyReadOnlyProjectionTest {
+    @Test
+    fun `legacy projection distinguishes an empty committed range from a thread with no samples`() {
+        val database = versionOneDatabase()
+
+        SQLiteSampleStore.openReadOnlyExpected(database, 1).use { store ->
+            val outOfRange =
+                store.projectCore(
+                    ProfileQuery(
+                        startNanosInclusive = 30,
+                        endNanosExclusive = 40,
+                        threadIds = setOf(101),
+                    ),
+                )
+            val emptyThread =
+                store.projectCore(
+                    ProfileQuery(
+                        startNanosInclusive = 30,
+                        endNanosExclusive = 40,
+                        threadIds = setOf(202),
+                    ),
+                )
+
+            assertEquals(FlameGraphEmptyReason.COMMITTED_RANGE_EMPTY, outOfRange.flameGraph.emptyReason)
+            assertEquals(FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES, emptyThread.flameGraph.emptyReason)
+        }
+    }
+
     @Test
     fun `read only open enforces writes off and projects v1 report data without mutation`() {
         Class.forName("org.sqlite.JDBC")

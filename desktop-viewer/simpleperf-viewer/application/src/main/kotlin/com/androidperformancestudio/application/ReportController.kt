@@ -269,13 +269,11 @@ class ReportController(
     }
 
     fun focusFunction(symbolName: String) {
-        val expectedSessionEpoch = sessionEpoch.get()
-        mutableState.mutate { current -> current.copy(selectedTab = ReportTab.FLAME_GRAPH) }
+        val expectedSessionEpoch = synchronized(sessionMutationLock) { sessionEpoch.get() }
         controllerScope.launch {
             val generation =
                 semanticMutationMutex.withLock {
-                    if (sessionEpoch.get() != expectedSessionEpoch) return@withLock null
-                    updateProjectionStateLocked { current ->
+                    updateProjectionStateLocked(expectedSessionEpoch) { current ->
                         current.copy(
                             selectedTab = ReportTab.FLAME_GRAPH,
                             flameGraph =
@@ -319,12 +317,18 @@ class ReportController(
     }
 
     private suspend fun updateProjectionState(transform: (ReportState) -> ReportState) {
-        val generation = semanticMutationMutex.withLock { updateProjectionStateLocked(transform) }
+        val generation = semanticMutationMutex.withLock { updateProjectionStateLocked(transform = transform) }
         generation?.let { awaitPublication(it) }
     }
 
-    private fun updateProjectionStateLocked(transform: (ReportState) -> ReportState): ProfileGeneration? =
+    private fun updateProjectionStateLocked(
+        expectedSessionEpoch: Long? = null,
+        transform: (ReportState) -> ReportState,
+    ): ProfileGeneration? =
         synchronized(sessionMutationLock) {
+            if (expectedSessionEpoch != null && sessionEpoch.get() != expectedSessionEpoch) {
+                return@synchronized null
+            }
             if (workspace.state.value.sessionDirectory == null) return@synchronized null
             val mutation = mutableState.mutate(transform)
             if (mutation.current == mutation.next) return@synchronized null

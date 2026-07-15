@@ -3,6 +3,7 @@ package com.androidperformancestudio.storage
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.SQLException
@@ -13,6 +14,32 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SQLiteProfileProjectionQueriesTest {
+    @Test
+    fun `canonical projection distinguishes an empty committed range from a thread with no samples`() =
+        withStore { store ->
+            store.seedCanonicalSource("source", "main", sampleNanos = 100)
+
+            val outOfRange =
+                store.projectCore(
+                    ProfileQuery(
+                        startNanosInclusive = 200,
+                        endNanosExclusive = 300,
+                        threadIds = setOf(101),
+                    ),
+                )
+            val emptyThread =
+                store.projectCore(
+                    ProfileQuery(
+                        startNanosInclusive = 200,
+                        endNanosExclusive = 300,
+                        threadIds = setOf(202),
+                    ),
+                )
+
+            assertEquals(FlameGraphEmptyReason.COMMITTED_RANGE_EMPTY, outOfRange.flameGraph.emptyReason)
+            assertEquals(FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES, emptyThread.flameGraph.emptyReason)
+        }
+
     @Test
     fun `flame and call tree share one filtered transformed direction projection`() =
         withStore { store ->

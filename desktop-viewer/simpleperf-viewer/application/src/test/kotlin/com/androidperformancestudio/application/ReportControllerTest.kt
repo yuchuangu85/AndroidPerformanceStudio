@@ -417,7 +417,7 @@ class ReportControllerTest {
         }
 
     @Test
-    fun `queued focus function cannot contaminate a newly opened profile`() =
+    fun `focus function defers tab and query mutation so a racing open wins atomically`() =
         runTest {
             val loader = ControlledRequestLoader()
             val workspace = ProfileWorkspaceController(backgroundScope, loader)
@@ -429,6 +429,8 @@ class ReportControllerTest {
             firstOpen.await()
 
             controller.focusFunction("old-profile-only")
+            assertEquals(ReportTab.OVERVIEW, controller.state.value.selectedTab)
+            assertEquals("", controller.state.value.flameGraph.query.searchText)
             val secondOpen =
                 async(start = CoroutineStart.UNDISPATCHED) {
                     controller.openSession(Files.createTempDirectory("aps-focus-second-"))

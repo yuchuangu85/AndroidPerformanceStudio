@@ -27,8 +27,9 @@ internal object SQLiteProfileProjectionQueries {
         return store.readTransaction {
             val overview = overview(frozenQuery)
             val sessionOverview = overview()
+            val sessionThreads = threads().sortedThreads()
             val quality = dataQuality()
-            val flameGraph = flameGraph(frozenQuery, request)
+            val flameGraph = flameGraph(frozenQuery, request, sessionOverview, sessionThreads)
             ProfileProjectionSnapshot(
                 query = frozenQuery,
                 flameGraph = flameGraph,
@@ -47,7 +48,7 @@ internal object SQLiteProfileProjectionQueries {
                         descending = request.topDescending,
                     ),
                 sessionOverview = sessionOverview.copy(eventTypes = sessionOverview.eventTypes.sorted()),
-                sessionThreads = threads().sortedThreads(),
+                sessionThreads = sessionThreads,
             )
         }
     }
@@ -55,27 +56,53 @@ internal object SQLiteProfileProjectionQueries {
     private fun SQLiteSampleStore.flameGraph(
         query: ProfileQuery,
         request: ProfileProjectionRequest,
+        sessionOverview: ProfileOverview,
+        sessionThreads: List<ThreadSummary>,
     ): FlameGraphSnapshot {
         val source = SQLiteFlameGraphStackQueries.load(connection, query)
         val filtered = CallStackFilter.apply(source, request.callStackAnalysis)
         val transformed = CallStackTransformer.apply(filtered.table, request.callStackAnalysis.transforms)
         val callNodes = CallTreeProjector.project(transformed.table, request.callStackAnalysis.direction)
+        val committedRangeExcludedSamples =
+            source.stacks.isEmpty() &&
+                query.hasCommittedRange() &&
+                hasOtherwiseEligibleSamples(query, sessionOverview, sessionThreads)
         return FlameGraphSnapshot(
             query = request.callStackAnalysis,
             callNodes = callNodes,
             rows = FlameGraphRowProjector.project(callNodes, request.callStackAnalysis.direction),
             totalWeight = callNodes.rootWeight(),
-            emptyReason = emptyReason(source.stacks.size, filtered, transformed.outputStackCount),
+            emptyReason =
+                emptyReason(
+                    source.stacks.size,
+                    filtered,
+                    transformed.outputStackCount,
+                    committedRangeExcludedSamples,
+                ),
             invalidTransforms = transformed.invalidTransforms,
         )
     }
+
+    private fun SQLiteSampleStore.hasOtherwiseEligibleSamples(
+        query: ProfileQuery,
+        sessionOverview: ProfileOverview,
+        sessionThreads: List<ThreadSummary>,
+    ): Boolean =
+        when {
+            query.eventTypes.isNotEmpty() ->
+                sampleCount(query.copy(startNanosInclusive = null, endNanosExclusive = null)) > 0
+            query.threadIds.isEmpty() -> sessionOverview.sampleCount > 0
+            else -> sessionThreads.any { thread -> thread.threadId in query.threadIds && thread.sampleCount > 0 }
+        }
 
     private fun emptyReason(
         sourceStackCount: Int,
         filtered: FilteredCallStacks,
         transformedStackCount: Int,
+        committedRangeExcludedSamples: Boolean,
     ): FlameGraphEmptyReason? =
         when {
+            sourceStackCount == 0 && committedRangeExcludedSamples -> FlameGraphEmptyReason.COMMITTED_RANGE_EMPTY
             sourceStackCount == 0 -> FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES
             filtered.afterPreviewCount == 0 -> FlameGraphEmptyReason.PREVIEW_RANGE_EMPTY
             filtered.afterSearchCount == 0 -> FlameGraphEmptyReason.SEARCH_FILTERED_ALL
@@ -83,6 +110,8 @@ internal object SQLiteProfileProjectionQueries {
             transformedStackCount == 0 -> FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL
             else -> null
         }
+
+    private fun ProfileQuery.hasCommittedRange(): Boolean = startNanosInclusive != null || endNanosExclusive != null
 
     private fun CallNodeTable.rootWeight(): Long {
         val parents = parentIndexes
