@@ -332,7 +332,10 @@ class ReportController(
             if (workspace.state.value.sessionDirectory == null) return@synchronized null
             val mutation = mutableState.mutate(transform)
             if (mutation.current == mutation.next) return@synchronized null
-            workspace.updateProjection(mutation.next.projectionRequest())
+            val currentRequest = mutation.current.projectionRequest()
+            val nextRequest = mutation.next.projectionRequest()
+            if (currentRequest == nextRequest) return@synchronized null
+            workspace.updateProjection(nextRequest)
             workspace.state.value.generation
         }
 

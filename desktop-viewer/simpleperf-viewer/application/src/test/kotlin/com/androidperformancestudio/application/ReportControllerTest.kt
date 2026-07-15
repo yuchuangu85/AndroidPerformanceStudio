@@ -448,6 +448,34 @@ class ReportControllerTest {
         }
 
     @Test
+    fun `focus function changes only the tab when its projection request is already active`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-focus-tab-only-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+
+            val search = async { controller.updateFlameSearch("render") }
+            val searchRequest = loader.started.receive()
+            searchRequest.succeed(flameSnapshot(searchRequest.request))
+            runCurrent()
+            search.await()
+            val generationBeforeFocus = workspace.state.value.generation
+
+            controller.focusFunction("render")
+            runCurrent()
+
+            assertEquals(ReportTab.FLAME_GRAPH, controller.state.value.selectedTab)
+            assertEquals("render", controller.state.value.flameGraph.query.searchText)
+            assertEquals(generationBeforeFocus, workspace.state.value.generation)
+            assertTrue(loader.started.tryReceive().isFailure, "tab-only focus must not submit another projection")
+        }
+
+    @Test
     fun `malformed metadata fails refresh without losing last ready report or killing collection`() =
         runTest {
             val session = indexedSession()
