@@ -110,6 +110,28 @@ class SimpleperfProfileNormalizerTest {
         assertEquals("<unknown-file:42>", sample.frames.single().filePath)
     }
 
+    @Test
+    fun `classifies kernel and unresolved file mappings truthfully`() {
+        val normalizer = SimpleperfProfileNormalizer()
+        normalizer.normalize(file(id = 7, path = "[kernel.kallsyms]", symbols = listOf("schedule")))
+
+        val normalized =
+            normalizer.normalize(
+                sample(
+                    time = 1,
+                    tid = 101,
+                    eventTypeId = 0,
+                    eventCount = 1,
+                    frame(fileId = 7, symbolId = 0, vaddr = 0x10),
+                    frame(fileId = 42, symbolId = -1, vaddr = 0x20),
+                ),
+            )
+
+        val frames = assertIs<NormalizedProfileRecord.Sample>(normalized).value.frames
+        assertEquals(ProfileExecutionType.KERNEL, frames[0].executionType)
+        assertEquals(ProfileExecutionType.UNKNOWN, frames[1].executionType)
+    }
+
     private fun metaInfo(vararg events: String): SimpleperfReport.Record =
         SimpleperfReport.Record
             .newBuilder()

@@ -5,6 +5,8 @@ enum class ProfileExecutionType {
     INTERPRETED_JVM,
     JIT_JVM,
     ART,
+    KERNEL,
+    UNKNOWN,
 }
 
 data class ProfileFrame(

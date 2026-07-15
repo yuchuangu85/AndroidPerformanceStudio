@@ -83,6 +83,7 @@ class SimpleperfProfileNormalizer {
 
     private fun normalizeFrame(entry: SimpleperfReport.Sample.CallChainEntry): ProfileFrame {
         val file = files[entry.fileId]
+        val filePath = file?.path ?: "<unknown-file:${entry.fileId}>"
         val symbol =
             file
                 ?.symbols
@@ -92,9 +93,9 @@ class SimpleperfProfileNormalizer {
             virtualAddress = entry.vaddrInFile,
             fileId = entry.fileId,
             symbolId = entry.symbolId,
-            filePath = file?.path ?: "<unknown-file:${entry.fileId}>",
+            filePath = filePath,
             symbolName = symbol,
-            executionType = entry.executionType.toProfileExecutionType(),
+            executionType = executionType(filePath, entry.executionType),
         )
     }
 
@@ -103,6 +104,16 @@ class SimpleperfProfileNormalizer {
         private const val UNKNOWN_SYMBOL = "<unknown-symbol>"
     }
 }
+
+private fun executionType(
+    filePath: String,
+    reported: ExecutionType,
+): ProfileExecutionType =
+    when {
+        filePath == "[kernel.kallsyms]" || filePath.startsWith("[kernel.") -> ProfileExecutionType.KERNEL
+        filePath.startsWith("<unknown-file:") -> ProfileExecutionType.UNKNOWN
+        else -> reported.toProfileExecutionType()
+    }
 
 private fun SimpleperfReport.Sample.unwindError(): ProfileUnwindError? =
     if (hasUnwindingResult()) {
