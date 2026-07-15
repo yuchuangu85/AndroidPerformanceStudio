@@ -54,6 +54,11 @@ class CallStackFilterTest {
     fun `comma search uses AND semantics across symbols and resources ignoring case`() {
         val fixture = fixture()
 
+        val crossFrameMatch =
+            CallStackFilter.apply(
+                fixture.table,
+                CallStackAnalysisQuery(searchText = "render,draw"),
+            )
         val matching =
             CallStackFilter.apply(
                 fixture.table,
@@ -65,6 +70,7 @@ class CallStackFilterTest {
                 CallStackAnalysisQuery(searchText = "render,libc"),
             )
 
+        assertEquals(listOf(fixture.renderStack), crossFrameMatch.table.stacks)
         assertEquals(listOf(fixture.renderStack), matching.table.stacks)
         assertEquals(1, matching.afterSearchCount)
         assertTrue(missingTerm.table.stacks.isEmpty())
