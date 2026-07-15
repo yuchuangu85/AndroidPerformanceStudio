@@ -5,7 +5,9 @@ package com.androidperformancestudio.presentation
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.CaptureSetup
 import com.androidperformancestudio.application.CaptureTarget
@@ -49,13 +52,13 @@ internal fun CapturePage(
 ) {
     val isActive = captureState.isActive()
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Capture Configuration", style = MaterialTheme.typography.headlineMedium)
-                Text("Selected target: ${target.orEmptyLabel()}")
+                Text("Capture Configuration", style = MaterialTheme.typography.titleLarge)
+                Text("Selected target: ${target.orEmptyLabel()}", style = MaterialTheme.typography.bodySmall)
             }
             OutlinedButton(onClick = actions.onBack, enabled = !isActive) { Text("Back to Device & Target") }
         }
@@ -68,25 +71,67 @@ internal fun CapturePage(
         )
         Column(
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Sampling template", style = MaterialTheme.typography.titleMedium)
+            ResponsiveCaptureConfiguration(
+                setup = setup,
+                availableEvents = availableEvents,
+                onSelectTemplate = actions.onSelectTemplate,
+                onUpdate = actions.onUpdateSamplingParameters,
+            )
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun ResponsiveCaptureConfiguration(
+    setup: CaptureSetup?,
+    availableEvents: List<String>,
+    onSelectTemplate: (SamplingTemplate) -> Unit,
+    onUpdate: (SamplingParameters) -> Unit,
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        if (setup == null) {
+            SamplingTemplatePanel(setup, onSelectTemplate, Modifier.fillMaxWidth())
+        } else if (captureConfigurationLayout(maxWidth) == CaptureConfigurationLayout.HORIZONTAL) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top,
             ) {
-                SamplingTemplate.entries.forEach { template ->
-                    TemplateCard(
-                        template = template,
-                        selected = setup?.template == template,
-                        onClick = { actions.onSelectTemplate(template) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                SamplingTemplatePanel(setup, onSelectTemplate, Modifier.weight(TEMPLATE_PANEL_WEIGHT))
+                AdvancedCaptureParameters(setup, availableEvents, onUpdate, Modifier.weight(PARAMETER_PANEL_WEIGHT))
             }
-            setup?.let {
-                CaptureDetails(it)
-                AdvancedCaptureParameters(it, availableEvents, actions.onUpdateSamplingParameters)
+        } else {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SamplingTemplatePanel(setup, onSelectTemplate, Modifier.fillMaxWidth())
+                AdvancedCaptureParameters(setup, availableEvents, onUpdate, Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun SamplingTemplatePanel(
+    setup: CaptureSetup?,
+    onSelectTemplate: (SamplingTemplate) -> Unit,
+    modifier: Modifier,
+) {
+    Card(modifier = modifier) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Sampling template", style = MaterialTheme.typography.titleSmall)
+            SamplingTemplate.entries.forEach { template ->
+                TemplateCard(
+                    template = template,
+                    selected = setup?.template == template,
+                    onClick = { onSelectTemplate(template) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -104,6 +149,7 @@ private fun AdvancedCaptureParameters(
     setup: CaptureSetup,
     availableEvents: List<String>,
     onUpdate: (SamplingParameters) -> Unit,
+    modifier: Modifier,
 ) {
     var event by remember(setup.template) { mutableStateOf(setup.parameters.event) }
     var rateValue by remember(setup.template) { mutableStateOf(setup.parameters.rate.valueText()) }
@@ -138,9 +184,9 @@ private fun AdvancedCaptureParameters(
         }
     }
 
-    Card(modifier = Modifier.fillMaxWidth().widthIn(max = 1200.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Advanced parameters", style = MaterialTheme.typography.titleMedium)
+    Card(modifier = modifier.widthIn(max = 1200.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Advanced parameters", style = MaterialTheme.typography.titleSmall)
             OutlinedTextField(
                 value = event,
                 onValueChange = {
@@ -148,10 +194,14 @@ private fun AdvancedCaptureParameters(
                     commitNumericValues()
                 },
                 label = { Text("Event") },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
             if (availableEvents.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     availableEvents.take(MAX_EVENT_CHIPS).forEach { candidate ->
                         FilterChip(
                             selected = event == candidate,
@@ -164,7 +214,10 @@ private fun AdvancedCaptureParameters(
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 FilterChip(
                     selected = !periodMode,
                     onClick = {
@@ -190,6 +243,7 @@ private fun AdvancedCaptureParameters(
                         commitNumericValues()
                     },
                     label = { Text(if (periodMode) "Events per sample" else "Hz") },
+                    modifier = Modifier.widthIn(min = 120.dp, max = 180.dp),
                     singleLine = true,
                 )
                 OutlinedTextField(
@@ -199,6 +253,7 @@ private fun AdvancedCaptureParameters(
                         commitNumericValues()
                     },
                     label = { Text("Duration seconds (blank = manual stop)") },
+                    modifier = Modifier.widthIn(min = 220.dp, max = 360.dp),
                     singleLine = true,
                 )
             }
@@ -243,12 +298,12 @@ private fun CaptureControls(
 ) {
     Card(modifier = Modifier.fillMaxWidth().widthIn(max = 1200.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Capture status", style = MaterialTheme.typography.titleMedium)
+                Text("Capture status", style = MaterialTheme.typography.titleSmall)
                 Text(captureState.statusText())
                 if (!captureState.isActive()) {
                     Text(
@@ -285,28 +340,9 @@ private fun TemplateCard(
         modifier = modifier.clickable(onClick = onClick),
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(template.displayName, fontWeight = FontWeight.SemiBold)
             Text(template.description, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun CaptureDetails(setup: CaptureSetup) {
-    Card(modifier = Modifier.fillMaxWidth().widthIn(max = 1200.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Parameters", style = MaterialTheme.typography.titleMedium)
-            Text("Event: ${setup.parameters.event}")
-            Text("Rate: ${setup.parameters.rate.label()}")
-            Text("Duration: ${setup.parameters.durationSeconds?.let { "$it s" } ?: "Manual stop"}")
-            Text("Call graph: ${setup.parameters.callGraph.name}")
-            Text("Scope: ${setup.parameters.scope.name}")
-            Text(
-                "The application generates and executes the Simpleperf command automatically from these parameters.",
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
     }
 }
@@ -332,6 +368,16 @@ private fun CaptureTarget?.orEmptyLabel(): String =
     }
 
 private const val MAX_EVENT_CHIPS = 6
+private const val TEMPLATE_PANEL_WEIGHT = 0.36f
+private const val PARAMETER_PANEL_WEIGHT = 0.64f
+
+internal enum class CaptureConfigurationLayout {
+    HORIZONTAL,
+    STACKED,
+}
+
+internal fun captureConfigurationLayout(availableWidth: Dp): CaptureConfigurationLayout =
+    if (availableWidth >= 900.dp) CaptureConfigurationLayout.HORIZONTAL else CaptureConfigurationLayout.STACKED
 
 private fun CaptureState.isActive(): Boolean =
     this is CaptureState.Preparing ||
