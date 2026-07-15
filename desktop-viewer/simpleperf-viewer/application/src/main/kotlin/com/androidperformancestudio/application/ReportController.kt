@@ -204,6 +204,10 @@ class ReportController(
                         startNanosInclusive = startNanosInclusive,
                         endNanosExclusive = endNanosExclusive,
                     ),
+                flameGraph =
+                    current.flameGraph.copy(
+                        query = current.flameGraph.query.copy(previewRange = null),
+                    ),
             )
         }
     }
@@ -262,11 +266,41 @@ class ReportController(
         updateCallStackQuery { copy(transforms = emptyList()) }
     }
 
+    suspend fun undoLastTransform() {
+        updateCallStackQuery { copy(transforms = transforms.dropLast(1)) }
+    }
+
+    fun hoverCallNode(nodeId: FlameCallNodeId?) {
+        updateTransientNode(nodeId) { panel, validId -> panel.copy(hoveredNodeId = validId) }
+    }
+
+    fun openCallNodeContext(nodeId: FlameCallNodeId?) {
+        updateTransientNode(nodeId) { panel, validId -> panel.copy(contextNodeId = validId) }
+    }
+
+    private fun updateTransientNode(
+        nodeId: FlameCallNodeId?,
+        transform: (FlameGraphPanelState, FlameCallNodeId?) -> FlameGraphPanelState,
+    ) {
+        mutableState.mutate { current ->
+            val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
+            val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
+            current.copy(flameGraph = transform(current.flameGraph, validId))
+        }
+    }
+
     fun selectCallNode(nodeId: FlameCallNodeId?) {
         mutableState.mutate { current ->
             val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
             val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
-            current.copy(flameGraph = current.flameGraph.copy(selectedNodeId = validId))
+            current.copy(
+                flameGraph =
+                    current.flameGraph.copy(
+                        selectedNodeId = validId,
+                        hoveredNodeId = null,
+                        contextNodeId = null,
+                    ),
+            )
         }
     }
 

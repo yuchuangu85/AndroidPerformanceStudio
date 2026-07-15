@@ -34,4 +34,18 @@ class SimpleperfKeyboardShortcutTest {
         assertTrue(timeline.contains("onPreviewKeyEvent"))
         assertTrue(timeline.contains("shortcutFocusRequester.requestFocus()"))
     }
+
+    @Test
+    fun `flame panel owns semantic shortcuts and cancellable search debounce`() {
+        val source =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphPanel.kt"),
+            )
+
+        assertTrue(source.contains("FlameGraphPresenter.keyAction"))
+        assertTrue(source.contains("LaunchedEffect(snapshot, searchDraft)"))
+        assertTrue(source.contains("delay(SEARCH_DEBOUNCE_MILLIS)"))
+        assertTrue(source.contains("actions.onNavigateFlameNode"))
+        assertTrue(source.contains("actions.onCopyFlameFunction"))
+    }
 }

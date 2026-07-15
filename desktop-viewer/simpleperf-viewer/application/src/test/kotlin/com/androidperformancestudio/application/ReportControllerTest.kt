@@ -258,6 +258,40 @@ class ReportControllerTest {
         }
 
     @Test
+    fun `panel transients stay local while commit and undo update authoritative state`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+            val report = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            val selected = report.flameGraph.callNodes.nodeIdAt(0) ?: error("missing root")
+            val first = CallStackTransform.CollapseResource("/system/lib64/libui.so")
+            val second =
+                CallStackTransform.FocusFunction(
+                    report.flameGraph.callNodes
+                        .frameAt(0)!!
+                        .functionId,
+                )
+
+            controller.hoverCallNode(selected)
+            controller.openCallNodeContext(selected)
+            assertEquals(selected, controller.state.value.flameGraph.hoveredNodeId)
+            assertEquals(selected, controller.state.value.flameGraph.contextNodeId)
+
+            controller.selectCallNode(selected)
+            assertEquals(null, controller.state.value.flameGraph.hoveredNodeId)
+            assertEquals(null, controller.state.value.flameGraph.contextNodeId)
+
+            controller.updateFlamePreviewRange(AnalysisTimeRange(1, 10))
+            controller.applyTransform(first)
+            controller.applyTransform(second)
+            controller.undoLastTransform()
+            assertEquals(listOf(first), controller.state.value.flameGraph.query.transforms)
+
+            controller.updateTimeRange(0, 40)
+            assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+        }
+
+    @Test
     fun `opening another profile clears call stack query and transient state`() =
         runTest {
             val controller = ReportController()

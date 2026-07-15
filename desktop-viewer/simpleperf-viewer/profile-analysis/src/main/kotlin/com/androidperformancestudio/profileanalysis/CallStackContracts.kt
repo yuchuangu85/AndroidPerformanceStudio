@@ -281,6 +281,10 @@ class CallNodeTable(
 
     fun selfWeightAt(nodeIndex: Int): Long? = selfWeightsSnapshot.getOrNull(nodeIndex)
 
+    fun sampleCountAt(nodeIndex: Int): Long? = sampleCountsSnapshot.getOrNull(nodeIndex)
+
+    fun categoryAt(nodeIndex: Int): String? = categoriesSnapshot.getOrNull(nodeIndex)
+
     fun indexOf(nodeId: FlameCallNodeId): Int? = indexByIdSnapshot[nodeId.value]
 
     override fun equals(other: Any?): Boolean =

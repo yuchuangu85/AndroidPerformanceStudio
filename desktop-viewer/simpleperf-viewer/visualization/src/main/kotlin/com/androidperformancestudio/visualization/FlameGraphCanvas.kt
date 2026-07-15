@@ -2,6 +2,7 @@ package com.androidperformancestudio.visualization
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -78,8 +79,11 @@ fun FlameGraphCanvas(
     hoveredNodeId: FlameCallNodeId? = null,
     contextNodeId: FlameCallNodeId? = null,
     labelForNode: (VisibleFlameNode) -> String = { "" },
+    categoryForNode: (VisibleFlameNode) -> String? = { null },
+    theme: FlameTheme? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
+    val resolvedTheme = theme ?: if (isSystemInDarkTheme()) FlameTheme.DARK else FlameTheme.LIGHT
     val primaryInputModifier =
         modifier
             .onPointerEvent(PointerEventType.Enter) { event ->
@@ -120,6 +124,8 @@ fun FlameGraphCanvas(
                 hoveredNodeId = hoveredNodeId,
                 contextNodeId = contextNodeId,
                 labelForNode = { labelForNode(node) },
+                category = categoryForNode(node),
+                theme = resolvedTheme,
                 textMeasurer = textMeasurer,
             )
         }
@@ -133,12 +139,14 @@ private fun DrawScope.drawFlameNode(
     hoveredNodeId: FlameCallNodeId?,
     contextNodeId: FlameCallNodeId?,
     labelForNode: () -> String,
+    category: String?,
+    theme: FlameTheme,
     textMeasurer: TextMeasurer,
 ) {
     val colors =
         FlameGraphPalette.colors(
-            category = null,
-            theme = FlameTheme.LIGHT,
+            category = category,
+            theme = theme,
             state =
                 FlameNodeVisualState(
                     selected = node.nodeId == selectedNodeId,

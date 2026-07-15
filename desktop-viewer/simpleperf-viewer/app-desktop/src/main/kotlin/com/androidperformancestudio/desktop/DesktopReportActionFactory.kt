@@ -23,7 +23,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Rectangle
 import java.awt.Robot
+import java.awt.Toolkit
 import java.awt.Window
+import java.awt.datatransfer.StringSelection
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -52,7 +54,16 @@ internal class DesktopReportActionFactory(
                 scope.launch { controller.updateTopFunctions(search, sort, descending) }
             },
             onCallTreeDirection = { direction -> scope.launch { controller.updateCallTreeDirection(direction) } },
+            onFlamePreviewRange = { range -> scope.launch { controller.updateFlamePreviewRange(range) } },
+            onFlameSearch = { search -> scope.launch { controller.updateFlameSearch(search) } },
+            onFlameImplementation = { filter -> scope.launch { controller.updateImplementationFilter(filter) } },
+            onUndoFlameTransform = { scope.launch { controller.undoLastTransform() } },
+            onClearFlameTransforms = { scope.launch { controller.clearTransforms() } },
             onSelectFlameNode = controller::selectCallNode,
+            onHoverFlameNode = controller::hoverCallNode,
+            onOpenFlameContext = controller::openCallNodeContext,
+            onOpenFlameDetails = controller::selectCallNode,
+            onCopyFlameFunction = ::copyFlameFunction,
             onNavigateFlameNode = controller::navigateCallNode,
             onFocusCallTreeFunction = controller::focusCallTreeFunction,
             onFocusFunction = controller::focusFunction,
@@ -64,6 +75,14 @@ internal class DesktopReportActionFactory(
             onGenerateHtmlReport = { generateHtmlReport(state) },
             onExportExternalGuide = { exportExternalGuide(state) },
         )
+
+    private fun copyFlameFunction(functionName: String) {
+        scope.launch(Dispatchers.Default) {
+            runCatching {
+                Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(functionName), null)
+            }
+        }
+    }
 
     private fun openSession() {
         chooseSessionPath()?.let { selected ->

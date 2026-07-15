@@ -1,9 +1,11 @@
 package com.androidperformancestudio.presentation
 
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
+import com.androidperformancestudio.profileanalysis.ImplementationFilter
 import com.androidperformancestudio.storage.TopFunctionSort
 
 data class ReportActions(
@@ -15,7 +17,16 @@ data class ReportActions(
     val onEvents: (Set<String>) -> Unit,
     val onTopFunctions: (String, TopFunctionSort, Boolean) -> Unit,
     val onCallTreeDirection: (CallStackDirection) -> Unit,
+    val onFlamePreviewRange: (AnalysisTimeRange?) -> Unit,
+    val onFlameSearch: (String) -> Unit,
+    val onFlameImplementation: (ImplementationFilter) -> Unit,
+    val onUndoFlameTransform: () -> Unit,
+    val onClearFlameTransforms: () -> Unit,
     val onSelectFlameNode: (FlameCallNodeId?) -> Unit,
+    val onHoverFlameNode: (FlameCallNodeId?) -> Unit,
+    val onOpenFlameContext: (FlameCallNodeId?) -> Unit,
+    val onOpenFlameDetails: (FlameCallNodeId) -> Unit,
+    val onCopyFlameFunction: (String) -> Unit,
     val onNavigateFlameNode: (FlameGraphNavigationCommand) -> FlameCallNodeId?,
     val onFocusCallTreeFunction: (String) -> Unit,
     val onFocusFunction: (String) -> Unit,

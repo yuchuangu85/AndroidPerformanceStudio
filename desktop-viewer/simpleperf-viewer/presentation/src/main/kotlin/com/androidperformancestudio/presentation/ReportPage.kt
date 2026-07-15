@@ -6,7 +6,6 @@ package com.androidperformancestudio.presentation
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,8 +29,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,8 +44,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.analysis.DiagnosticFinding
@@ -60,23 +54,17 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.profileanalysis.CallStackDirection
-import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
-import com.androidperformancestudio.visualization.FlameGraphCanvas
-import com.androidperformancestudio.visualization.FlameGraphIntent
-import com.androidperformancestudio.visualization.FlameGraphLayout
-import com.androidperformancestudio.visualization.FlameViewport
 import com.androidperformancestudio.visualization.NavigationAction
-import com.androidperformancestudio.visualization.PerfettoNavigationBindings
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineCanvas
 import com.androidperformancestudio.visualization.TimelineColumn
 import com.androidperformancestudio.visualization.TimelineFrame
 import com.androidperformancestudio.visualization.navigate
-import com.androidperformancestudio.visualization.selection
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -127,7 +115,7 @@ private fun ReportContent(
                 ReportTab.TIMELINE -> TimelineReport(state, report, actions)
                 ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions)
                 ReportTab.CALL_TREE -> CallTreeReport(state, report, actions)
-                ReportTab.FLAME_GRAPH -> FlameGraphReport(state, report, actions)
+                ReportTab.FLAME_GRAPH -> FlameGraphPanel(state.flameGraph, report.flameGraph, actions)
                 ReportTab.DIAGNOSTICS -> DiagnosticsReport(report, actions)
             }
         }
@@ -264,9 +252,6 @@ private fun TimelineReport(
         )
     val frame = TimelineFrame(report.timeline.map { TimelineColumn(it.eventWeight) })
     val shortcutFocusRequester = remember { FocusRequester() }
-    var widthPixels by remember { mutableIntStateOf(1) }
-    var dragStart by remember { mutableFloatStateOf(0f) }
-    var dragEnd by remember { mutableFloatStateOf(0f) }
 
     fun navigate(action: NavigationAction) {
         val next = viewport.navigate(action, bounds)
@@ -283,32 +268,42 @@ private fun TimelineReport(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             NavigationButtons(::navigate)
-            OutlinedButton(onClick = { actions.onTimeRange(null, null) }) { Text("Reset range") }
+            OutlinedButton(
+                onClick = {
+                    actions.onFlamePreviewRange(null)
+                    actions.onTimeRange(null, null)
+                },
+            ) { Text("Reset range") }
             Text("${viewport.startNanos} – ${viewport.endNanosExclusive} ns")
         }
         TimelineCanvas(
             frame = frame,
+            viewport = viewport,
+            onRangePreview = { preview ->
+                actions.onFlamePreviewRange(
+                    preview?.let { range ->
+                        AnalysisTimeRange(
+                            range.startNanos,
+                            range.endNanosExclusive,
+                        )
+                    },
+                )
+            },
+            onRangeCommit = { selected ->
+                actions.onTimeRange(selected.startNanos, selected.endNanosExclusive)
+            },
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .height(220.dp)
-                    .onSizeChanged { widthPixels = it.width.coerceAtLeast(1) }
                     .onPointerEvent(PointerEventType.Scroll) { event ->
                         val change = event.changes.firstOrNull() ?: return@onPointerEvent
-                        PerfettoNavigationBindings
-                            .actionForScroll(change.scrollDelta.y, event.keyboardModifiers.isCtrlPressed)
-                            ?.let(::navigate)
-                    }.pointerInput(viewport, widthPixels) {
-                        detectDragGestures(
-                            onDragStart = {
-                                dragStart = it.x
-                                dragEnd = it.x
-                            },
-                            onDragEnd = {
-                                val selected = viewport.selection(dragStart, dragEnd, widthPixels.toFloat())
-                                actions.onTimeRange(selected.startNanos, selected.endNanosExclusive)
-                            },
-                        ) { change, _ -> dragEnd = change.position.x }
+                        if (event.keyboardModifiers.isCtrlPressed) {
+                            when {
+                                change.scrollDelta.y < 0f -> navigate(NavigationAction.ZOOM_IN)
+                                change.scrollDelta.y > 0f -> navigate(NavigationAction.ZOOM_OUT)
+                            }
+                        }
                     },
         )
         Text("Drag across the timeline to select a range. W/S zoom, A/D pan, Ctrl+wheel zooms.")
@@ -509,115 +504,6 @@ private fun List<CallTreeNode>.expandedPathIds(search: String): Set<Long> {
 }
 
 @Composable
-@Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
-private fun FlameGraphReport(
-    state: ReportState,
-    report: ReportData,
-    actions: ReportActions,
-) {
-    var hoverState by remember { mutableStateOf(FlameGraphHoverState()) }
-    var contextId by remember(report.flameGraph) { mutableStateOf<FlameCallNodeId?>(null) }
-    var widthPixels by remember { mutableIntStateOf(0) }
-    var heightPixels by remember { mutableIntStateOf(0) }
-    var scrollRow by remember(report.flameGraph) { mutableIntStateOf(0) }
-    val focusRequester = remember { FocusRequester() }
-    val requestedViewport =
-        FlameViewport(
-            widthPx = widthPixels,
-            heightPx = heightPixels,
-            scrollRow = scrollRow,
-            rowHeightPx = FLAME_ROW_HEIGHT,
-        )
-    val clampedScrollRow = FlameGraphLayout.clampScrollRow(report.flameGraph, requestedViewport)
-    val viewport = requestedViewport.copy(scrollRow = clampedScrollRow)
-    val layout =
-        remember(report.flameGraph, viewport) {
-            FlameGraphLayout.layout(report.flameGraph, viewport)
-        }
-    val layoutToken = remember(report.flameGraph, viewport) { Any() }
-    val hoveredId = hoverState.nodeIdFor(layoutToken)
-    val selected =
-        remember(report.flameGraph, state.flameGraph.selectedNodeId) {
-            state.flameGraph.selectedNodeId?.let(report.flameGraph::resolveLegacyNode)
-        }
-
-    LaunchedEffect(report.flameGraph, state.flameGraph.selectedNodeId, heightPixels) {
-        val revealedScrollRow =
-            state.flameGraph.selectedNodeId?.let { selectedNodeId ->
-                FlameGraphLayout.scrollRowToReveal(report.flameGraph, selectedNodeId, viewport)
-            } ?: clampedScrollRow
-        if (scrollRow != revealedScrollRow) scrollRow = revealedScrollRow
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FlameGraphCanvas(
-            layout = layout,
-            selectedNodeId = state.flameGraph.selectedNodeId,
-            hoveredNodeId = hoveredId,
-            contextNodeId = contextId,
-            labelForNode = { node ->
-                report.flameGraph.callNodes
-                    .frameAt(node.nodeIndex)
-                    ?.symbolName
-                    .orEmpty()
-            },
-            onIntent = { intent ->
-                when (intent) {
-                    is FlameGraphIntent.Hover -> hoverState = hoverState.update(layoutToken, intent.nodeId)
-                    is FlameGraphIntent.Select -> {
-                        actions.onSelectFlameNode(intent.nodeId)
-                        contextId = null
-                    }
-                    is FlameGraphIntent.OpenContextMenu -> contextId = intent.nodeId
-                    is FlameGraphIntent.OpenDetails -> actions.onSelectFlameNode(intent.nodeId)
-                }
-            },
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 220.dp, max = 520.dp)
-                    .focusRequester(focusRequester)
-                    .onPreviewKeyEvent { event ->
-                        val command =
-                            FlameGraphKeyboardNavigation.commandFor(
-                                event.key,
-                                event.type,
-                                report.flameGraph.query.direction,
-                            )
-                        val targetNodeId = command?.let(actions.onNavigateFlameNode)
-                        if (targetNodeId == null) {
-                            false
-                        } else {
-                            scrollRow =
-                                FlameGraphKeyboardNavigation.scrollRowToReveal(
-                                    report.flameGraph,
-                                    targetNodeId,
-                                    viewport,
-                                )
-                            true
-                        }
-                    }.focusable()
-                    .onPointerEvent(PointerEventType.Press) { focusRequester.requestFocus() }
-                    .onSizeChanged { size ->
-                        widthPixels = size.width
-                        heightPixels = size.height
-                    },
-        )
-        selected?.let { node ->
-            Card(modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(node.symbolName, fontWeight = FontWeight.Bold)
-                    Text(node.filePath)
-                    Text("Inclusive ${node.inclusiveWeight} · Exclusive ${node.exclusiveWeight}")
-                    Text(node.path.joinToString(" › "))
-                }
-            }
-        }
-        Text("Click a frame to select it. Flame widths always represent the full analyzed sample set.")
-    }
-}
-
-@Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun DiagnosticsReport(
     report: ReportData,
@@ -739,6 +625,5 @@ internal fun simpleperfNavigationAction(key: Key): NavigationAction? =
 
 private fun Long.safeIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1
 
-private const val FLAME_ROW_HEIGHT = 22f
 private const val PERCENT_MULTIPLIER = 100
 private const val OVERVIEW_ITEM_LIMIT = 8
