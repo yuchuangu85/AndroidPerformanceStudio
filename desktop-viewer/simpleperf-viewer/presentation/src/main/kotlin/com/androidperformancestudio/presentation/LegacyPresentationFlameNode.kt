@@ -1,6 +1,8 @@
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import java.util.Collections
 
 /**
  * Compile bridge for the pre-Task-9 canvas. Delete this adapter when the native Firefox-style panel
@@ -15,41 +17,50 @@ internal data class LegacyPresentationFlameNode(
     val exclusiveWeight: Long,
 )
 
-internal fun FlameGraphSnapshot.toLegacyNodes(): List<LegacyPresentationFlameNode> {
-    if (callNodes.size == 0) return emptyList()
-    val ids = callNodes.ids
-    val parents = callNodes.parentIndexes
-    val frameIds = callNodes.frameIds
-    val inclusive = callNodes.inclusiveWeights
-    val exclusive = callNodes.selfWeights
-    val frames = callNodes.framesById
-    val names = frameIds.map { frameId -> frames.getValue(frameId).symbolName }
+internal fun FlameGraphSnapshot.resolveLegacyNode(nodeId: FlameCallNodeId): LegacyPresentationFlameNode? {
+    val nodeIndex = callNodes.indexOf(nodeId)
+    return if (nodeIndex == null) null else resolveLegacyNodeAt(nodeId, nodeIndex)
+}
 
-    return ids.indices.map { index ->
-        val frame = frames.getValue(frameIds[index])
-        val path = nodePath(index, parents, names)
+private fun FlameGraphSnapshot.resolveLegacyNodeAt(
+    nodeId: FlameCallNodeId,
+    nodeIndex: Int,
+): LegacyPresentationFlameNode? {
+    val frame = callNodes.frameAt(nodeIndex)
+    val path = nodePath(nodeIndex)
+    val inclusiveWeight = callNodes.inclusiveWeightAt(nodeIndex)
+    val exclusiveWeight = callNodes.selfWeightAt(nodeIndex)
+    return if (frame == null || path == null) {
+        null
+    } else if (inclusiveWeight == null || exclusiveWeight == null) {
+        null
+    } else {
         LegacyPresentationFlameNode(
-            id = ids[index],
+            id = nodeId.value,
             symbolName = frame.symbolName,
             filePath = frame.resource,
             path = path,
-            inclusiveWeight = inclusive[index],
-            exclusiveWeight = exclusive[index],
+            inclusiveWeight = inclusiveWeight,
+            exclusiveWeight = exclusiveWeight,
         )
     }
 }
 
-private fun nodePath(
-    nodeIndex: Int,
-    parentIndexes: IntArray,
-    names: List<String>,
-): List<String> {
+private fun FlameGraphSnapshot.nodePath(nodeIndex: Int): List<String>? {
     val reversed = ArrayList<String>()
     var current = nodeIndex
-    while (current >= 0) {
-        reversed += names[current]
-        current = parentIndexes[current]
+    var traversed = 0
+    var valid = true
+    while (current >= 0 && traversed++ < callNodes.size) {
+        val frame = callNodes.frameAt(current)
+        val parent = callNodes.parentIndexAt(current)
+        if (frame == null || parent == null) {
+            valid = false
+            break
+        }
+        reversed += frame.symbolName
+        current = parent
     }
     reversed.reverse()
-    return reversed
+    return if (valid && current < 0) Collections.unmodifiableList(reversed) else null
 }

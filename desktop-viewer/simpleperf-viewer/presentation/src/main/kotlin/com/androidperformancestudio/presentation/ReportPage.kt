@@ -512,10 +512,6 @@ private fun FlameGraphReport(
     state: ReportState,
     report: ReportData,
 ) {
-    val legacyFlameGraph =
-        remember(report.flameGraph, state.flameGraph) {
-            report.flameGraph.toLegacyNodes()
-        }
     var selectedId by remember(report.flameGraph, state.flameGraph.selectedNodeId) {
         mutableStateOf(state.flameGraph.selectedNodeId)
     }
@@ -533,7 +529,10 @@ private fun FlameGraphReport(
                 ),
             )
         }
-    val selected = legacyFlameGraph.firstOrNull { it.id == selectedId?.value }
+    val selected =
+        remember(report.flameGraph, selectedId) {
+            selectedId?.let(report.flameGraph::resolveLegacyNode)
+        }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         FlameGraphCanvas(

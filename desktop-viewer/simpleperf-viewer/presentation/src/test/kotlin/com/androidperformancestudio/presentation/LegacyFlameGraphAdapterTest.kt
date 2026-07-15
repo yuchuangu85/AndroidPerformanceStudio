@@ -3,6 +3,7 @@ package com.androidperformancestudio.presentation
 import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackFrame
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
@@ -12,19 +13,19 @@ import kotlin.test.assertEquals
 
 class LegacyFlameGraphAdapterTest {
     @Test
-    fun `bridges immutable rows and panel query without creating another flame truth`() {
+    fun `resolves only selected node metadata and ancestor path from snapshot truth`() {
         val query = CallStackAnalysisQuery(searchText = "child")
         val nodes =
             CallNodeTable(
-                ids = longArrayOf(10, 20),
-                parentIndexes = intArrayOf(-1, 0),
-                frameIds = longArrayOf(1, 2),
-                depths = intArrayOf(0, 1),
-                inclusiveWeights = longArrayOf(8, 3),
-                selfWeights = longArrayOf(5, 3),
-                sampleCounts = longArrayOf(2, 1),
-                threadCounts = intArrayOf(1, 1),
-                categories = listOf("User", "User"),
+                ids = longArrayOf(10, 20, 30),
+                parentIndexes = intArrayOf(-1, 0, 0),
+                frameIds = longArrayOf(1, 2, 999),
+                depths = intArrayOf(0, 1, 1),
+                inclusiveWeights = longArrayOf(8, 3, 2),
+                selfWeights = longArrayOf(3, 3, 2),
+                sampleCounts = longArrayOf(3, 1, 1),
+                threadCounts = intArrayOf(1, 1, 1),
+                categories = listOf("User", "User", "Unrelated"),
                 framesById =
                     mapOf(
                         1L to frame(1, 11, "root"),
@@ -41,12 +42,14 @@ class LegacyFlameGraphAdapterTest {
                 invalidTransforms = emptyList(),
             )
 
-        val bridged = snapshot.toLegacyNodes()
+        val selected = snapshot.resolveLegacyNode(FlameCallNodeId(20))
 
-        assertEquals(listOf(10L, 20L), bridged.map(LegacyPresentationFlameNode::id))
-        assertEquals(listOf("root", "child"), bridged.last().path)
-        assertEquals(8L, bridged.first().inclusiveWeight)
-        assertEquals(3L, bridged.last().exclusiveWeight)
+        assertEquals(20L, selected?.id)
+        assertEquals("child", selected?.symbolName)
+        assertEquals(listOf("root", "child"), selected?.path)
+        assertEquals(3L, selected?.inclusiveWeight)
+        assertEquals(3L, selected?.exclusiveWeight)
+        assertEquals(null, snapshot.resolveLegacyNode(FlameCallNodeId(99)))
     }
 
     private fun frame(

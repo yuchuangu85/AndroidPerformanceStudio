@@ -49,16 +49,19 @@ object FlameGraphLayout {
     fun layout(
         snapshot: FlameGraphSnapshot,
         viewport: FlameViewport,
+    ): VisibleFlameLayout = layout(SnapshotFlameGraphLayoutSource(snapshot), viewport)
+
+    internal fun layout(
+        source: FlameGraphLayoutSource,
+        viewport: FlameViewport,
     ): VisibleFlameLayout {
-        val rows = snapshot.rows.nodeIndexesByRow
-        val materializedRows = materializedRows(rows.size, viewport)
+        val materializedRows = materializedRows(source.rowCount, viewport)
         val canvasWidth = viewport.widthPx.coerceAtLeast(0)
-        val canvasHeight = viewport.heightPx.coerceAtLeast(0)
         val nodes =
             if (materializedRows.isEmpty() || canvasWidth == 0) {
                 emptyList()
             } else {
-                projectVisibleNodes(snapshot, rows, materializedRows, viewport)
+                projectVisibleNodes(source, materializedRows, viewport)
             }
         return VisibleFlameLayout(nodes, materializedRows)
     }
@@ -92,28 +95,19 @@ private fun materializedRows(
 }
 
 private fun projectVisibleNodes(
-    snapshot: FlameGraphSnapshot,
-    rows: List<IntArray>,
+    source: FlameGraphLayoutSource,
     materializedRows: IntRange,
     viewport: FlameViewport,
 ): List<VisibleFlameNode> {
-    // Compact profile-analysis arrays are defensive copies. Cache each getter exactly once.
-    val compactData =
-        CompactLayoutData(
-            starts = snapshot.rows.starts,
-            ends = snapshot.rows.ends,
-            nodeIds = snapshot.callNodes.ids,
-            canvasWidth = viewport.widthPx.coerceAtLeast(0),
-            rowHeightPx = viewport.rowHeightPx,
-        )
     val canvasHeight = viewport.heightPx.coerceAtLeast(0)
-    val visibleRowCount = visibleRowCount(rows.size, canvasHeight, viewport.rowHeightPx)
-    val firstVisibleRow = firstVisibleRow(rows.size, visibleRowCount, viewport.scrollRow)
-    val startsAtBottom = snapshot.rows.startsAtBottom
+    val visibleRowCount = visibleRowCount(source.rowCount, canvasHeight, viewport.rowHeightPx)
+    val firstVisibleRow = firstVisibleRow(source.rowCount, visibleRowCount, viewport.scrollRow)
     val nodes = ArrayList<VisibleFlameNode>()
     materializedRows.forEach { rowIndex ->
-        val y = rowY(rowIndex, firstVisibleRow, canvasHeight, viewport.rowHeightPx, startsAtBottom)
-        rows[rowIndex].forEach { nodeIndex -> compactData.projectNode(nodeIndex, y)?.let(nodes::add) }
+        val y = rowY(rowIndex, firstVisibleRow, canvasHeight, viewport.rowHeightPx, source.startsAtBottom)
+        source.nodeIndexesAt(rowIndex)?.forEach { nodeIndex ->
+            projectNode(source, nodeIndex, y, viewport)?.let(nodes::add)
+        }
     }
     return nodes
 }
@@ -156,53 +150,88 @@ private fun rowY(
     }
 }
 
-private class CompactLayoutData(
-    private val starts: DoubleArray,
-    private val ends: DoubleArray,
-    private val nodeIds: LongArray,
-    private val canvasWidth: Int,
-    private val rowHeightPx: Float,
-) {
-    fun projectNode(
-        nodeIndex: Int,
-        y: Float,
-    ): VisibleFlameNode? {
-        val normalizedStart = starts.getOrNull(nodeIndex)
-        val normalizedEnd = ends.getOrNull(nodeIndex)
-        val nodeId = nodeIds.getOrNull(nodeIndex)
-        return if (normalizedStart == null || normalizedEnd == null || nodeId == null) {
-            null
-        } else if (!normalizedStart.isFinite() || !normalizedEnd.isFinite()) {
-            null
-        } else {
-            projectFiniteNode(nodeIndex, nodeId, normalizedStart, normalizedEnd, y)
-        }
-    }
+internal interface FlameGraphLayoutSource {
+    val rowCount: Int
+    val startsAtBottom: Boolean
 
-    private fun projectFiniteNode(
-        nodeIndex: Int,
-        nodeId: Long,
-        normalizedStart: Double,
-        normalizedEnd: Double,
-        y: Float,
-    ): VisibleFlameNode? {
-        val start = normalizedStart.coerceIn(0.0, 1.0)
-        val end = normalizedEnd.coerceIn(0.0, 1.0)
-        val rawWidth = (end - start) * canvasWidth
-        val snappedStart = (start * canvasWidth).roundToInt()
-        val snappedEnd = (end * canvasWidth).roundToInt()
-        return if (rawWidth < MINIMUM_DRAWABLE_WIDTH_PX || snappedEnd <= snappedStart) {
-            null
-        } else {
-            VisibleFlameNode(
-                nodeIndex = nodeIndex,
-                nodeId = FlameCallNodeId(nodeId),
-                x = snappedStart.toFloat(),
-                y = y,
-                width = (snappedEnd - snappedStart).toFloat(),
-                height = rowHeightPx,
-            )
-        }
+    fun nodeIndexesAt(rowIndex: Int): IntArray?
+
+    fun normalizedStartAt(nodeIndex: Int): Double?
+
+    fun normalizedEndAt(nodeIndex: Int): Double?
+
+    fun nodeIdAt(nodeIndex: Int): FlameCallNodeId?
+}
+
+private class SnapshotFlameGraphLayoutSource(
+    private val snapshot: FlameGraphSnapshot,
+) : FlameGraphLayoutSource {
+    override val rowCount: Int get() = snapshot.rows.rowCount
+    override val startsAtBottom: Boolean get() = snapshot.rows.startsAtBottom
+
+    override fun nodeIndexesAt(rowIndex: Int): IntArray? = snapshot.rows.nodeIndexesAt(rowIndex)
+
+    override fun normalizedStartAt(nodeIndex: Int): Double? = snapshot.rows.startAt(nodeIndex)
+
+    override fun normalizedEndAt(nodeIndex: Int): Double? = snapshot.rows.endAt(nodeIndex)
+
+    override fun nodeIdAt(nodeIndex: Int): FlameCallNodeId? = snapshot.callNodes.nodeIdAt(nodeIndex)
+}
+
+private fun projectNode(
+    source: FlameGraphLayoutSource,
+    nodeIndex: Int,
+    y: Float,
+    viewport: FlameViewport,
+): VisibleFlameNode? {
+    val node = source.compactNodeAt(nodeIndex)
+    return if (node == null || !node.normalizedStart.isFinite() || !node.normalizedEnd.isFinite()) {
+        null
+    } else {
+        projectFiniteNode(nodeIndex, node, y, viewport)
+    }
+}
+
+private data class CompactFlameNode(
+    val nodeId: FlameCallNodeId,
+    val normalizedStart: Double,
+    val normalizedEnd: Double,
+)
+
+private fun FlameGraphLayoutSource.compactNodeAt(nodeIndex: Int): CompactFlameNode? {
+    val normalizedStart = normalizedStartAt(nodeIndex)
+    val normalizedEnd = normalizedEndAt(nodeIndex)
+    val nodeId = nodeIdAt(nodeIndex)
+    return if (normalizedStart == null || normalizedEnd == null || nodeId == null) {
+        null
+    } else {
+        CompactFlameNode(nodeId, normalizedStart, normalizedEnd)
+    }
+}
+
+private fun projectFiniteNode(
+    nodeIndex: Int,
+    node: CompactFlameNode,
+    y: Float,
+    viewport: FlameViewport,
+): VisibleFlameNode? {
+    val start = node.normalizedStart.coerceIn(0.0, 1.0)
+    val end = node.normalizedEnd.coerceIn(0.0, 1.0)
+    val canvasWidth = viewport.widthPx.coerceAtLeast(0)
+    val rawWidth = (end - start) * canvasWidth
+    val snappedStart = (start * canvasWidth).roundToInt()
+    val snappedEnd = (end * canvasWidth).roundToInt()
+    return if (rawWidth < MINIMUM_DRAWABLE_WIDTH_PX || snappedEnd <= snappedStart) {
+        null
+    } else {
+        VisibleFlameNode(
+            nodeIndex = nodeIndex,
+            nodeId = node.nodeId,
+            x = snappedStart.toFloat(),
+            y = y,
+            width = (snappedEnd - snappedStart).toFloat(),
+            height = viewport.rowHeightPx,
+        )
     }
 }
 

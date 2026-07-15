@@ -178,6 +178,23 @@ class FlameGraphLayoutTest {
         assertFalse(layout.nodes.any { it.width < 1f })
     }
 
+    @Test
+    fun `layout never reads offscreen rows or nodes`() {
+        val source = CountingLayoutSource(rowCount = 100_000)
+
+        val layout =
+            FlameGraphLayout.layout(
+                source,
+                FlameViewport(widthPx = 100, heightPx = 32, scrollRow = 50_000),
+            )
+
+        assertEquals(49_999..50_002, layout.materializedRowRange)
+        assertEquals((49_999..50_002).toList(), source.rowsRead)
+        assertEquals((49_999..50_002).toList(), source.startsRead)
+        assertEquals((49_999..50_002).toList(), source.endsRead)
+        assertEquals((49_999..50_002).toList(), source.idsRead)
+    }
+
     private fun rowSnapshot(
         rowCount: Int,
         startsAtBottom: Boolean = true,
@@ -237,5 +254,35 @@ class FlameGraphLayoutTest {
             emptyReason = null,
             invalidTransforms = emptyList(),
         )
+    }
+
+    private class CountingLayoutSource(
+        override val rowCount: Int,
+    ) : FlameGraphLayoutSource {
+        override val startsAtBottom: Boolean = true
+        val rowsRead = mutableListOf<Int>()
+        val startsRead = mutableListOf<Int>()
+        val endsRead = mutableListOf<Int>()
+        val idsRead = mutableListOf<Int>()
+
+        override fun nodeIndexesAt(rowIndex: Int): IntArray {
+            rowsRead += rowIndex
+            return intArrayOf(rowIndex)
+        }
+
+        override fun normalizedStartAt(nodeIndex: Int): Double {
+            startsRead += nodeIndex
+            return 0.0
+        }
+
+        override fun normalizedEndAt(nodeIndex: Int): Double {
+            endsRead += nodeIndex
+            return 1.0
+        }
+
+        override fun nodeIdAt(nodeIndex: Int): FlameCallNodeId {
+            idsRead += nodeIndex
+            return FlameCallNodeId(nodeIndex.toLong())
+        }
     }
 }

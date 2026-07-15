@@ -12,6 +12,7 @@ class FlameGraphPaletteTest {
         assertEquals(FlameCategoryRole.MANAGED, FlameGraphPalette.categoryRole("JAVA"))
         assertEquals(FlameCategoryRole.GRAPHICS, FlameGraphPalette.categoryRole("RenderThread"))
         assertEquals(FlameCategoryRole.IO, FlameGraphPalette.categoryRole("disk I/O"))
+        assertEquals(FlameCategoryRole.IO, FlameGraphPalette.categoryRole("IO"))
         assertEquals(FlameCategoryRole.OTHER, FlameGraphPalette.categoryRole(null))
     }
 

@@ -112,6 +112,48 @@ class CallStackContractsTest {
     }
 
     @Test
+    fun `compact flame access copies only the requested row and resolves node metadata by index`() {
+        val rows =
+            FlameGraphRows(
+                listOf(intArrayOf(0), intArrayOf(1, 2)),
+                doubleArrayOf(0.0, 0.25, 0.5),
+                doubleArrayOf(1.0, 0.5, 0.75),
+                startsAtBottom = true,
+            )
+        val table =
+            CallNodeTable(
+                ids = longArrayOf(7, 8, 9),
+                parentIndexes = intArrayOf(-1, 0, 1),
+                frameIds = longArrayOf(11, 12, 13),
+                depths = intArrayOf(0, 1, 2),
+                inclusiveWeights = longArrayOf(9, 6, 3),
+                selfWeights = longArrayOf(3, 3, 3),
+                sampleCounts = longArrayOf(3, 2, 1),
+                threadCounts = intArrayOf(1, 1, 1),
+                categories = listOf("UI", "IO", "Native"),
+                framesById = mapOf(11L to frame(11), 12L to frame(12), 13L to frame(13)),
+            )
+
+        val requestedRow = rows.nodeIndexesAt(1)!!
+        requestedRow[0] = 99
+
+        assertEquals(2, rows.rowCount)
+        assertContentEquals(intArrayOf(1, 2), rows.nodeIndexesAt(1))
+        assertEquals(null, rows.nodeIndexesAt(2))
+        assertEquals(0.25, rows.startAt(1))
+        assertEquals(0.75, rows.endAt(2))
+        assertEquals(null, rows.startAt(3))
+        assertEquals(FlameCallNodeId(8), table.nodeIdAt(1))
+        assertEquals(0, table.parentIndexAt(1))
+        assertEquals(frame(12), table.frameAt(1))
+        assertEquals(6L, table.inclusiveWeightAt(1))
+        assertEquals(3L, table.selfWeightAt(1))
+        assertEquals(1, table.indexOf(FlameCallNodeId(8)))
+        assertEquals(null, table.nodeIdAt(3))
+        assertEquals(null, table.indexOf(FlameCallNodeId(99)))
+    }
+
+    @Test
     fun `stack query table and snapshot snapshot caller collections`() {
         val frameIds = mutableListOf(11L)
         val frameCategories = mutableListOf<String?>("Graphics")

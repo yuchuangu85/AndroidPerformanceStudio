@@ -243,6 +243,7 @@ class CallNodeTable(
     private val categoriesSnapshot = immutableList(categories)
     private val framesSnapshot = immutableMap(framesById)
     private val idsByPathSnapshot = immutableMap(idsByPath)
+    private val indexByIdSnapshot = idsSnapshot.withIndex().associate { indexed -> indexed.value to indexed.index }
     private val pathIndexSnapshot =
         CompactCallNodePathIndex(idsSnapshot, parentIndexesSnapshot, frameIdsSnapshot, framesSnapshot)
 
@@ -260,6 +261,18 @@ class CallNodeTable(
     val size: Int get() = idsSnapshot.size
 
     fun findByPath(path: CallNodePath): FlameCallNodeId? = idsByPathSnapshot[path] ?: pathIndexSnapshot.find(path)
+
+    fun nodeIdAt(nodeIndex: Int): FlameCallNodeId? = idsSnapshot.getOrNull(nodeIndex)?.let(::FlameCallNodeId)
+
+    fun parentIndexAt(nodeIndex: Int): Int? = parentIndexesSnapshot.getOrNull(nodeIndex)
+
+    fun frameAt(nodeIndex: Int): CallStackFrame? = frameIdsSnapshot.getOrNull(nodeIndex)?.let(framesSnapshot::get)
+
+    fun inclusiveWeightAt(nodeIndex: Int): Long? = inclusiveWeightsSnapshot.getOrNull(nodeIndex)
+
+    fun selfWeightAt(nodeIndex: Int): Long? = selfWeightsSnapshot.getOrNull(nodeIndex)
+
+    fun indexOf(nodeId: FlameCallNodeId): Int? = indexByIdSnapshot[nodeId.value]
 
     override fun equals(other: Any?): Boolean =
         this === other ||
@@ -340,6 +353,13 @@ class FlameGraphRows(
     val nodeIndexesByRow: List<IntArray> get() = nodeIndexesSnapshot.map(IntArray::copyOf)
     val starts: DoubleArray get() = startsSnapshot.copyOf()
     val ends: DoubleArray get() = endsSnapshot.copyOf()
+    val rowCount: Int get() = nodeIndexesSnapshot.size
+
+    fun nodeIndexesAt(rowIndex: Int): IntArray? = nodeIndexesSnapshot.getOrNull(rowIndex)?.copyOf()
+
+    fun startAt(nodeIndex: Int): Double? = startsSnapshot.getOrNull(nodeIndex)
+
+    fun endAt(nodeIndex: Int): Double? = endsSnapshot.getOrNull(nodeIndex)
 
     override fun equals(other: Any?): Boolean =
         this === other ||
