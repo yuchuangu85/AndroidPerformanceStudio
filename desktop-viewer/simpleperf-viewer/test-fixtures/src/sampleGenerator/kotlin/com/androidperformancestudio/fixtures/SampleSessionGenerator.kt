@@ -9,7 +9,7 @@ import com.androidperformancestudio.model.ProfileFile
 import com.androidperformancestudio.model.ProfileFrame
 import com.androidperformancestudio.model.ProfileMetadata
 import com.androidperformancestudio.model.ProfileThread
-import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import java.nio.file.Files
 import java.nio.file.Path
@@ -47,7 +47,7 @@ private fun generateDatabase(database: Path) {
 private fun exportReports(session: Path) {
     SQLiteSampleStore.open(session.resolve("profile.sqlite")).use { store ->
         val top = store.topFunctions(limit = 100)
-        val tree = store.callTree(direction = CallTreeDirection.FORWARD)
+        val tree = store.callTree(direction = CallStackDirection.FORWARD)
         ReportExportService().run {
             exportJson(top, tree, session.resolve("report.json"))
             exportTopFunctionsCsv(top, session.resolve("top-functions.csv"))

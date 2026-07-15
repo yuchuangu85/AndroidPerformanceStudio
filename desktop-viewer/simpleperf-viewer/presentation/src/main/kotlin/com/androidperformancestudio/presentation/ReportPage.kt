@@ -58,11 +58,10 @@ import com.androidperformancestudio.analysis.DiagnosticSeverity
 import com.androidperformancestudio.analysis.DiagnosticTarget
 import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportData
-import com.androidperformancestudio.application.ReportFlameNode
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
@@ -440,11 +439,11 @@ private fun CallTreeReport(
     val visible = remember(report.callTree, expandedIds) { report.callTree.visibleNodes(expandedIds) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CallTreeDirection.entries.forEach { direction ->
+            CallStackDirection.entries.forEach { direction ->
                 FilterChip(
                     selected = state.callTreeDirection == direction,
                     onClick = { actions.onCallTreeDirection(direction) },
-                    label = { Text(if (direction == CallTreeDirection.FORWARD) "Call Tree" else "Reverse Call Tree") },
+                    label = { Text(if (direction == CallStackDirection.FORWARD) "Call Tree" else "Reverse Call Tree") },
                 )
             }
         }
@@ -516,15 +515,23 @@ private fun FlameGraphReport(
     state: ReportState,
     report: ReportData,
 ) {
+    val legacyFlameGraph =
+        remember(report.flameGraph, state.flameGraph) {
+            report.flameGraph.toLegacyNodes(state.flameGraph.selectedNodeId)
+        }
     val totalWeight =
-        report.flameGraph
+        legacyFlameGraph
             .filter { it.parentId == null }
-            .sumOf(ReportFlameNode::inclusiveWeight)
+            .sumOf(LegacyPresentationFlameNode::inclusiveWeight)
             .coerceAtLeast(1)
     val bounds = WeightViewport(0, totalWeight)
     var viewport by remember(report.flameGraph) { mutableStateOf(bounds) }
-    var selectedId by remember(report.flameGraph) { mutableStateOf<Long?>(null) }
-    var search by remember(state.flameSearch) { mutableStateOf(state.flameSearch) }
+    var selectedId by remember(report.flameGraph, state.flameGraph.selectedNodeId) {
+        mutableStateOf(state.flameGraph.selectedNodeId?.value)
+    }
+    var search by remember(state.flameGraph.query.searchText) {
+        mutableStateOf(state.flameGraph.query.searchText)
+    }
     var widthPixels by remember { mutableIntStateOf(1) }
     var rectangleLimit by remember(report.flameGraph) { mutableIntStateOf(FLAME_PAGE_SIZE) }
 
@@ -532,7 +539,7 @@ private fun FlameGraphReport(
         viewport = viewport.navigate(action, bounds)
     }
     val nodes =
-        report.flameGraph.map { node ->
+        legacyFlameGraph.map { node ->
             FlameGraphNode(
                 label = node.symbolName,
                 id = node.id,
@@ -543,7 +550,7 @@ private fun FlameGraphReport(
                 filePath = node.filePath,
                 path = node.path,
                 highlighted =
-                    node.id in state.highlightedFlameNodeIds ||
+                    node.highlighted ||
                         (
                             search.isNotBlank() &&
                                 (
@@ -567,7 +574,7 @@ private fun FlameGraphReport(
             maximumRectangles = rectangleLimit,
         )
     val rectangles = projection.rectangles
-    val selected = report.flameGraph.firstOrNull { it.id == selectedId }
+    val selected = legacyFlameGraph.firstOrNull { it.id == selectedId }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(

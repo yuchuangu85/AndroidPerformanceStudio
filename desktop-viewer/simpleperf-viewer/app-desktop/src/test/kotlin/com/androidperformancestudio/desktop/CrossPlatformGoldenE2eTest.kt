@@ -9,7 +9,7 @@ import com.androidperformancestudio.model.ProfileFile
 import com.androidperformancestudio.model.ProfileFrame
 import com.androidperformancestudio.model.ProfileMetadata
 import com.androidperformancestudio.model.ProfileThread
-import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -33,7 +33,7 @@ class CrossPlatformGoldenE2eTest {
         val topFunctions = SQLiteSampleStore.open(database).use { it.topFunctions(limit = 10) }
         val callTree =
             SQLiteSampleStore.open(database).use {
-                it.callTree(direction = CallTreeDirection.FORWARD)
+                it.callTree(direction = CallStackDirection.FORWARD)
             }
         val exports = root.resolve("report exports").createDirectories()
         ReportExportService().run {

@@ -40,10 +40,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.Closeable
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.isRegularFile
 
 enum class ReportTab {
@@ -137,6 +140,9 @@ class ReportController(
         workspaceController ?: ProfileWorkspaceController(controllerScope, sqliteProjectionLoader(ioDispatcher))
     private val mutableState = MutableStateFlow(ReportState())
     private val mutablePublicationGeneration = MutableStateFlow(ProfileGeneration(0))
+    private val semanticMutationMutex = Mutex()
+    private val sessionMutationLock = Any()
+    private val sessionEpoch = AtomicLong()
     private val workspaceCollection =
         controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
             workspace.state.collect(::publishWorkspaceState)
@@ -146,52 +152,70 @@ class ReportController(
     val state: StateFlow<ReportState> = mutableState.asStateFlow()
 
     suspend fun openSession(directory: Path) {
-        check(!closed) { "ReportController is closed" }
-        val session = directory.toAbsolutePath().normalize()
-        mutableState.value = ReportState(loadState = ReportLoadState.Loading(session))
-        workspace.openSession(session, mutableState.value.projectionRequest())
-        awaitPublication(workspace.state.value.generation)
+        val generation =
+            semanticMutationMutex.withLock {
+                synchronized(sessionMutationLock) {
+                    check(!closed) { "ReportController is closed" }
+                    sessionEpoch.incrementAndGet()
+                    val session = directory.toAbsolutePath().normalize()
+                    val next = ReportState(loadState = ReportLoadState.Loading(session))
+                    mutableState.value = next
+                    workspace.openSession(session, next.projectionRequest())
+                    workspace.state.value.generation
+                }
+            }
+        awaitPublication(generation)
     }
 
     fun closeSession() {
-        workspace.closeSession()
-        mutableState.value = ReportState()
+        synchronized(sessionMutationLock) {
+            sessionEpoch.incrementAndGet()
+            workspace.closeSession()
+            mutableState.value = ReportState()
+        }
     }
 
     fun showFailure(
         directory: Path,
         error: StudioError,
     ) {
-        workspace.closeSession()
-        val session = directory.toAbsolutePath().normalize()
-        mutableState.value = ReportState(loadState = ReportLoadState.Failed(session, error))
+        synchronized(sessionMutationLock) {
+            sessionEpoch.incrementAndGet()
+            workspace.closeSession()
+            val session = directory.toAbsolutePath().normalize()
+            mutableState.value = ReportState(loadState = ReportLoadState.Failed(session, error))
+        }
     }
 
     fun selectTab(tab: ReportTab) {
-        mutableState.value = mutableState.value.copy(selectedTab = tab)
+        mutableState.mutate { current -> current.copy(selectedTab = tab) }
     }
 
     suspend fun updateTimeRange(
         startNanosInclusive: Long?,
         endNanosExclusive: Long?,
     ) {
-        val filter =
-            mutableState.value.filter.copy(
-                startNanosInclusive = startNanosInclusive,
-                endNanosExclusive = endNanosExclusive,
+        updateProjectionState { current ->
+            current.copy(
+                filter =
+                    current.filter.copy(
+                        startNanosInclusive = startNanosInclusive,
+                        endNanosExclusive = endNanosExclusive,
+                    ),
             )
-        mutableState.value = mutableState.value.copy(filter = filter)
-        reload()
+        }
     }
 
     suspend fun updateThreads(threadIds: Set<Int>) {
-        mutableState.value = mutableState.value.copy(filter = mutableState.value.filter.copy(threadIds = threadIds))
-        reload()
+        updateProjectionState { current ->
+            current.copy(filter = current.filter.copy(threadIds = threadIds))
+        }
     }
 
     suspend fun updateEvents(eventTypes: Set<String>) {
-        mutableState.value = mutableState.value.copy(filter = mutableState.value.filter.copy(eventTypes = eventTypes))
-        reload()
+        updateProjectionState { current ->
+            current.copy(filter = current.filter.copy(eventTypes = eventTypes))
+        }
     }
 
     suspend fun updateTopFunctions(
@@ -199,9 +223,9 @@ class ReportController(
         sort: TopFunctionSort,
         descending: Boolean,
     ) {
-        mutableState.value =
-            mutableState.value.copy(topSearch = search, topSort = sort, topDescending = descending)
-        reload()
+        updateProjectionState { current ->
+            current.copy(topSearch = search, topSort = sort, topDescending = descending)
+        }
     }
 
     suspend fun updateFlamePreviewRange(range: AnalysisTimeRange?) {
@@ -237,50 +261,76 @@ class ReportController(
     }
 
     fun selectCallNode(nodeId: FlameCallNodeId?) {
-        val snapshot = (mutableState.value.loadState as? ReportLoadState.Ready)?.report?.flameGraph
-        val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
-        mutableState.value =
-            mutableState.value.copy(
-                flameGraph = mutableState.value.flameGraph.copy(selectedNodeId = validId),
-            )
+        mutableState.mutate { current ->
+            val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
+            val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
+            current.copy(flameGraph = current.flameGraph.copy(selectedNodeId = validId))
+        }
     }
 
     fun focusFunction(symbolName: String) {
-        mutableState.value = mutableState.value.copy(selectedTab = ReportTab.FLAME_GRAPH)
-        controllerScope.launch { updateFlameSearch(symbolName) }
+        val expectedSessionEpoch = sessionEpoch.get()
+        mutableState.mutate { current -> current.copy(selectedTab = ReportTab.FLAME_GRAPH) }
+        controllerScope.launch {
+            val generation =
+                semanticMutationMutex.withLock {
+                    if (sessionEpoch.get() != expectedSessionEpoch) return@withLock null
+                    updateProjectionStateLocked { current ->
+                        current.copy(
+                            selectedTab = ReportTab.FLAME_GRAPH,
+                            flameGraph =
+                                current.flameGraph.copy(
+                                    query = current.flameGraph.query.copy(searchText = symbolName),
+                                ),
+                        )
+                    }
+                }
+            generation?.let { awaitPublication(it) }
+        }
     }
 
     fun focusCallTreeFunction(symbolName: String) {
-        mutableState.value =
-            mutableState.value.copy(
+        mutableState.mutate { current ->
+            current.copy(
                 selectedTab = ReportTab.CALL_TREE,
                 callTreeSearch = symbolName,
             )
+        }
     }
 
     override fun close() {
-        if (closed) return
-        closed = true
-        workspace.closeSession()
+        synchronized(sessionMutationLock) {
+            if (closed) return
+            closed = true
+            sessionEpoch.incrementAndGet()
+            workspace.closeSession()
+            mutableState.value = ReportState()
+        }
         workspaceCollection.cancel()
         if (ownsWorkspace) workspace.close()
         if (ownsScope) controllerScope.cancel()
-        mutableState.value = ReportState()
-    }
-
-    private suspend fun reload() {
-        if (workspace.state.value.sessionDirectory == null) return
-        workspace.updateProjection(mutableState.value.projectionRequest())
-        awaitPublication(workspace.state.value.generation)
     }
 
     private suspend fun updateCallStackQuery(transform: CallStackAnalysisQuery.() -> CallStackAnalysisQuery) {
-        val current = mutableState.value
-        val nextQuery = current.flameGraph.query.transform()
-        if (nextQuery == current.flameGraph.query) return
-        mutableState.value = current.copy(flameGraph = current.flameGraph.copy(query = nextQuery))
-        reload()
+        updateProjectionState { current ->
+            val nextQuery = current.flameGraph.query.transform()
+            current.copy(flameGraph = current.flameGraph.copy(query = nextQuery))
+        }
     }
+
+    private suspend fun updateProjectionState(transform: (ReportState) -> ReportState) {
+        val generation = semanticMutationMutex.withLock { updateProjectionStateLocked(transform) }
+        generation?.let { awaitPublication(it) }
+    }
+
+    private fun updateProjectionStateLocked(transform: (ReportState) -> ReportState): ProfileGeneration? =
+        synchronized(sessionMutationLock) {
+            if (workspace.state.value.sessionDirectory == null) return@synchronized null
+            val mutation = mutableState.mutate(transform)
+            if (mutation.current == mutation.next) return@synchronized null
+            workspace.updateProjection(mutation.next.projectionRequest())
+            workspace.state.value.generation
+        }
 
     private suspend fun awaitPublication(generation: ProfileGeneration) {
         val (workspaceState, publishedGeneration) =
@@ -328,25 +378,27 @@ class ReportController(
         generation: ProfileGeneration,
         report: ReportData,
     ) {
-        var published = false
-        mutableState.update { current ->
-            if (workspace.state.value.generation != generation) {
-                current
-            } else {
-                published = true
-                val selected = retainSelection(current, report.flameGraph)
-                current.copy(
-                    loadState = ReportLoadState.Ready(report),
-                    lastReadyReport = report,
-                    flameGraph =
-                        current.flameGraph.copy(
-                            selectedNodeId = selected,
-                            invalidTransforms = report.flameGraph.invalidTransforms,
-                        ),
-                )
+        synchronized(sessionMutationLock) {
+            mutableState.update { current ->
+                if (workspace.state.value.generation != generation) {
+                    current
+                } else {
+                    val selected = retainSelection(current, report.flameGraph)
+                    current.copy(
+                        loadState = ReportLoadState.Ready(report),
+                        lastReadyReport = report,
+                        flameGraph =
+                            current.flameGraph.copy(
+                                selectedNodeId = selected,
+                                invalidTransforms = report.flameGraph.invalidTransforms,
+                            ),
+                    )
+                }
+            }
+            if (workspace.state.value.generation == generation) {
+                mutablePublicationGeneration.value = generation
             }
         }
-        if (published) mutablePublicationGeneration.value = generation
     }
 
     private fun publishFailure(
@@ -354,16 +406,18 @@ class ReportController(
         sessionDirectory: Path,
         error: StudioError,
     ) {
-        var published = false
-        mutableState.update { current ->
-            if (workspace.state.value.generation != generation) {
-                current
-            } else {
-                published = true
-                current.copy(loadState = ReportLoadState.Failed(sessionDirectory, error))
+        synchronized(sessionMutationLock) {
+            mutableState.update { current ->
+                if (workspace.state.value.generation != generation) {
+                    current
+                } else {
+                    current.copy(loadState = ReportLoadState.Failed(sessionDirectory, error))
+                }
+            }
+            if (workspace.state.value.generation == generation) {
+                mutablePublicationGeneration.value = generation
             }
         }
-        if (published) mutablePublicationGeneration.value = generation
     }
 
     private fun ProfileProjectionSnapshot.toReportData(session: ReportSessionSummary): ReportData =
@@ -481,6 +535,19 @@ private fun CallNodeTable.pathFor(nodeId: FlameCallNodeId): CallNodePath? {
 private fun <T> List<T>.removeFirst(item: T): List<T> {
     val index = indexOf(item)
     return if (index < 0) this else filterIndexed { candidateIndex, _ -> candidateIndex != index }
+}
+
+private data class StateMutation(
+    val current: ReportState,
+    val next: ReportState,
+)
+
+private inline fun MutableStateFlow<ReportState>.mutate(transform: (ReportState) -> ReportState): StateMutation {
+    while (true) {
+        val current = value
+        val next = transform(current)
+        if (next == current || compareAndSet(current, next)) return StateMutation(current, next)
+    }
 }
 
 private val REPORT_ARTIFACTS =

@@ -1,7 +1,7 @@
 package com.androidperformancestudio.presentation
 
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.storage.TopFunctionSort
 
 data class ReportActions(
@@ -12,7 +12,7 @@ data class ReportActions(
     val onThreads: (Set<Int>) -> Unit,
     val onEvents: (Set<String>) -> Unit,
     val onTopFunctions: (String, TopFunctionSort, Boolean) -> Unit,
-    val onCallTreeDirection: (CallTreeDirection) -> Unit,
+    val onCallTreeDirection: (CallStackDirection) -> Unit,
     val onFocusCallTreeFunction: (String) -> Unit,
     val onFocusFunction: (String) -> Unit,
     val onExportSession: () -> Unit,

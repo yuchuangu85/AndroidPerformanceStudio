@@ -7,6 +7,7 @@ dependencies {
     implementation(project(":analysis-rules"))
     implementation(project(":application"))
     implementation(project(":capture-simpleperf"))
+    implementation(project(":profile-analysis"))
     implementation(project(":profile-model"))
     implementation(project(":storage-sqlite"))
     implementation(project(":visualization"))

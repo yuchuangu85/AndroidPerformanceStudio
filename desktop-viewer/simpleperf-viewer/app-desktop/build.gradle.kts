@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":platform-toolchain"))
     implementation(project(":parser-simpleperf-proto"))
     implementation(project(":presentation"))
+    implementation(project(":profile-analysis"))
     implementation(project(":profile-model"))
     implementation(project(":storage-sqlite"))
     implementation(compose.desktop.currentOs)

@@ -11,14 +11,23 @@ import com.androidperformancestudio.model.ProfileMetadata
 import com.androidperformancestudio.model.ProfileThread
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
+import com.androidperformancestudio.profileanalysis.CallNodeTable
+import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
+import com.androidperformancestudio.profileanalysis.FlameFunctionId
+import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
+import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.profileanalysis.FrameImplementation
+import com.androidperformancestudio.storage.ProfileProjectionRequest
 import com.androidperformancestudio.storage.ProfileProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import com.androidperformancestudio.storage.TopFunctionSort
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -351,6 +360,92 @@ class ReportControllerTest {
         }
 
     @Test
+    fun `overlapping semantic mutations atomically submit the complete newest request`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-serialized-open-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+
+            val search = async { controller.updateFlameSearch("render") }
+            val searchRequest = loader.started.receive()
+            assertEquals("render", searchRequest.request.callStackAnalysis.searchText)
+            val collapse = CallStackTransform.CollapseResource("/system/lib64/libui.so")
+            val transform = async { controller.applyTransform(collapse) }
+            runCurrent()
+
+            val transformRequest = loader.started.receive()
+            assertEquals("render", transformRequest.request.callStackAnalysis.searchText)
+            assertEquals(listOf(collapse), transformRequest.request.callStackAnalysis.transforms)
+            assertTrue(search.isCancelled, "the complete newest request must supersede the prior generation")
+            transformRequest.succeed(flameSnapshot(transformRequest.request))
+            runCurrent()
+            transform.await()
+        }
+
+    @Test
+    fun `selection racing publication always resolves inside the published graph`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-selection-open-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request, includeChild = true))
+            runCurrent()
+            opening.await()
+
+            val refresh = async { controller.updateFlameSearch("run") }
+            val pending = loader.started.receive()
+            controller.selectCallNode(FlameCallNodeId(CHILD_NODE_ID))
+            pending.succeed(flameSnapshot(pending.request, includeChild = false))
+            runCurrent()
+            refresh.await()
+
+            val state = controller.state.value
+            val report = assertIs<ReportLoadState.Ready>(state.loadState).report
+            val selected = state.flameGraph.selectedNodeId
+            assertEquals(FlameCallNodeId(ROOT_NODE_ID), selected)
+            assertTrue(
+                report.flameGraph.callNodes.ids
+                    .contains(checkNotNull(selected).value),
+            )
+        }
+
+    @Test
+    fun `queued focus function cannot contaminate a newly opened profile`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val firstOpen = async { controller.openSession(Files.createTempDirectory("aps-focus-first-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            firstOpen.await()
+
+            controller.focusFunction("old-profile-only")
+            val secondOpen =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    controller.openSession(Files.createTempDirectory("aps-focus-second-"))
+                }
+            runCurrent()
+            val second = loader.started.receive()
+            assertEquals("", second.request.callStackAnalysis.searchText)
+            second.succeed(flameSnapshot(second.request))
+            runCurrent()
+            secondOpen.await()
+            runCurrent()
+
+            assertEquals("", controller.state.value.flameGraph.query.searchText)
+            assertEquals(ReportTab.OVERVIEW, controller.state.value.selectedTab)
+        }
+
+    @Test
     fun `malformed metadata fails refresh without losing last ready report or killing collection`() =
         runTest {
             val session = indexedSession()
@@ -374,6 +469,29 @@ class ReportControllerTest {
         val query: ProfileQuery,
         val result: CompletableDeferred<ProfileProjectionSnapshot> = CompletableDeferred(),
     )
+
+    private class ControlledRequestLoader : ProfileProjectionLoader {
+        val started = Channel<PendingRequest>(Channel.UNLIMITED)
+
+        override suspend fun load(
+            session: PreparedProfileSession,
+            query: ProfileQuery,
+        ): ProfileProjectionSnapshot = load(session, ProfileProjectionRequest(query = query))
+
+        override suspend fun load(
+            session: PreparedProfileSession,
+            request: ProfileProjectionRequest,
+        ): ProfileProjectionSnapshot = PendingRequest(request).also { started.send(it) }.result.await()
+    }
+
+    private data class PendingRequest(
+        val request: ProfileProjectionRequest,
+        val result: CompletableDeferred<ProfileProjectionSnapshot> = CompletableDeferred(),
+    ) {
+        fun succeed(snapshot: ProfileProjectionSnapshot) {
+            result.complete(snapshot)
+        }
+    }
 
     private fun indexedSession(): java.nio.file.Path {
         val session = Files.createTempDirectory("aps-report-")
@@ -431,4 +549,56 @@ class ReportControllerTest {
         name: String,
         address: Long,
     ): ProfileFrame = ProfileFrame(address, 7, symbolId, "/system/lib64/libui.so", name, ProfileExecutionType.NATIVE)
+}
+
+private const val ROOT_NODE_ID = 101L
+private const val CHILD_NODE_ID = 202L
+
+private fun flameSnapshot(
+    request: ProfileProjectionRequest,
+    includeChild: Boolean = true,
+): ProfileProjectionSnapshot {
+    val rootFrame =
+        CallStackFrame(
+            frameId = 1,
+            functionId = FlameFunctionId(11),
+            symbolName = "runLoop",
+            resource = "/system/lib64/libui.so",
+            virtualAddress = 0x10,
+            implementation = FrameImplementation.NATIVE,
+        )
+    val childFrame =
+        CallStackFrame(
+            frameId = 2,
+            functionId = FlameFunctionId(22),
+            symbolName = "renderFrame",
+            resource = "/system/lib64/libui.so",
+            virtualAddress = 0x20,
+            implementation = FrameImplementation.NATIVE,
+        )
+    val nodes =
+        CallNodeTable(
+            ids = if (includeChild) longArrayOf(ROOT_NODE_ID, CHILD_NODE_ID) else longArrayOf(ROOT_NODE_ID),
+            parentIndexes = if (includeChild) intArrayOf(-1, 0) else intArrayOf(-1),
+            frameIds = if (includeChild) longArrayOf(1, 2) else longArrayOf(1),
+            depths = if (includeChild) intArrayOf(0, 1) else intArrayOf(0),
+            inclusiveWeights = if (includeChild) longArrayOf(10, 6) else longArrayOf(10),
+            selfWeights = if (includeChild) longArrayOf(4, 6) else longArrayOf(10),
+            sampleCounts = if (includeChild) longArrayOf(2, 1) else longArrayOf(2),
+            threadCounts = if (includeChild) intArrayOf(1, 1) else intArrayOf(1),
+            categories = if (includeChild) listOf("User", "User") else listOf("User"),
+            framesById = if (includeChild) mapOf(1L to rootFrame, 2L to childFrame) else mapOf(1L to rootFrame),
+        )
+    val query: CallStackAnalysisQuery = request.callStackAnalysis
+    return workspaceSnapshot(request.query).copy(
+        flameGraph =
+            FlameGraphSnapshot(
+                query = query,
+                callNodes = nodes,
+                rows = FlameGraphRowProjector.project(nodes, query.direction),
+                totalWeight = 10,
+                emptyReason = null,
+                invalidTransforms = emptyList(),
+            ),
+    )
 }
