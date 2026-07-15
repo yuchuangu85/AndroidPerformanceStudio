@@ -154,6 +154,30 @@ class CallStackContractsTest {
     }
 
     @Test
+    fun `node index lookup remains stable without reading the defensive ids copy`() {
+        val size = 100_000
+        val ids = LongArray(size) { it.toLong() + 10L }
+        val table =
+            CallNodeTable(
+                ids = ids,
+                parentIndexes = IntArray(size) { -1 },
+                frameIds = LongArray(size) { 11L },
+                depths = IntArray(size),
+                inclusiveWeights = LongArray(size) { 1L },
+                selfWeights = LongArray(size) { 1L },
+                sampleCounts = LongArray(size) { 1L },
+                threadCounts = IntArray(size) { 1 },
+                categories = List(size) { null },
+                framesById = mapOf(11L to frame(11)),
+            )
+        val defensiveCopy = table.ids
+        defensiveCopy.fill(Long.MIN_VALUE)
+
+        assertEquals(size - 1, table.indexOf(FlameCallNodeId(ids.last())))
+        assertEquals(null, table.indexOf(FlameCallNodeId(Long.MIN_VALUE)))
+    }
+
+    @Test
     fun `stack query table and snapshot snapshot caller collections`() {
         val frameIds = mutableListOf(11L)
         val frameCategories = mutableListOf<String?>("Graphics")

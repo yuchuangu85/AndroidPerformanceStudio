@@ -515,7 +515,7 @@ private fun FlameGraphReport(
     report: ReportData,
     actions: ReportActions,
 ) {
-    var hoveredId by remember(report.flameGraph) { mutableStateOf<FlameCallNodeId?>(null) }
+    var hoverState by remember { mutableStateOf(FlameGraphHoverState()) }
     var contextId by remember(report.flameGraph) { mutableStateOf<FlameCallNodeId?>(null) }
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
@@ -534,6 +534,8 @@ private fun FlameGraphReport(
         remember(report.flameGraph, viewport) {
             FlameGraphLayout.layout(report.flameGraph, viewport)
         }
+    val layoutToken = remember(report.flameGraph, viewport) { Any() }
+    val hoveredId = hoverState.nodeIdFor(layoutToken)
     val selected =
         remember(report.flameGraph, state.flameGraph.selectedNodeId) {
             state.flameGraph.selectedNodeId?.let(report.flameGraph::resolveLegacyNode)
@@ -561,7 +563,7 @@ private fun FlameGraphReport(
             },
             onIntent = { intent ->
                 when (intent) {
-                    is FlameGraphIntent.Hover -> hoveredId = intent.nodeId
+                    is FlameGraphIntent.Hover -> hoverState = hoverState.update(layoutToken, intent.nodeId)
                     is FlameGraphIntent.Select -> {
                         actions.onSelectFlameNode(intent.nodeId)
                         contextId = null
@@ -576,21 +578,22 @@ private fun FlameGraphReport(
                     .heightIn(min = 220.dp, max = 520.dp)
                     .focusRequester(focusRequester)
                     .onPreviewKeyEvent { event ->
-                        val command = FlameGraphKeyboardNavigation.commandFor(event.key, event.type)
-                        val navigation =
-                            command?.let { navigationCommand ->
-                                FlameGraphKeyboardNavigation.navigate(
-                                    report.flameGraph,
-                                    state.flameGraph.selectedNodeId,
-                                    navigationCommand,
-                                    viewport,
-                                )
-                            }
-                        if (navigation == null) {
+                        val command =
+                            FlameGraphKeyboardNavigation.commandFor(
+                                event.key,
+                                event.type,
+                                report.flameGraph.query.direction,
+                            )
+                        val targetNodeId = command?.let(actions.onNavigateFlameNode)
+                        if (targetNodeId == null) {
                             false
                         } else {
-                            actions.onSelectFlameNode(navigation.targetNodeId)
-                            scrollRow = navigation.scrollRow
+                            scrollRow =
+                                FlameGraphKeyboardNavigation.scrollRowToReveal(
+                                    report.flameGraph,
+                                    targetNodeId,
+                                    viewport,
+                                )
                             true
                         }
                     }.focusable()

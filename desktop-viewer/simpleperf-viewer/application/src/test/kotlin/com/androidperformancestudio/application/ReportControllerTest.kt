@@ -18,6 +18,7 @@ import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
+import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FrameImplementation
@@ -276,6 +277,28 @@ class ReportControllerTest {
             assertEquals(null, state.flameGraph.selectedNodeId)
             assertEquals(null, state.flameGraph.hoveredNodeId)
             assertEquals(null, state.flameGraph.contextNodeId)
+        }
+
+    @Test
+    fun `repeated navigation commands advance authoritative selection without recomposition or projection`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-navigation-open-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request, includeGrandchild = true))
+            runCurrent()
+            opening.await()
+            controller.selectCallNode(FlameCallNodeId(ROOT_NODE_ID))
+
+            val first = controller.navigateCallNode(FlameGraphNavigationCommand.WIDEST_CHILD)
+            val second = controller.navigateCallNode(FlameGraphNavigationCommand.WIDEST_CHILD)
+
+            assertEquals(FlameCallNodeId(CHILD_NODE_ID), first)
+            assertEquals(FlameCallNodeId(GRANDCHILD_NODE_ID), second)
+            assertEquals(second, controller.state.value.flameGraph.selectedNodeId)
+            assertTrue(loader.started.tryReceive().isFailure, "local navigation must not request a projection")
         }
 
     @Test
@@ -583,41 +606,34 @@ class ReportControllerTest {
 
 private const val ROOT_NODE_ID = 101L
 private const val CHILD_NODE_ID = 202L
+private const val GRANDCHILD_NODE_ID = 303L
 
 private fun flameSnapshot(
     request: ProfileProjectionRequest,
     includeChild: Boolean = true,
+    includeGrandchild: Boolean = false,
 ): ProfileProjectionSnapshot {
-    val rootFrame =
-        CallStackFrame(
-            frameId = 1,
-            functionId = FlameFunctionId(11),
-            symbolName = "runLoop",
-            resource = "/system/lib64/libui.so",
-            virtualAddress = 0x10,
-            implementation = FrameImplementation.NATIVE,
-        )
-    val childFrame =
-        CallStackFrame(
-            frameId = 2,
-            functionId = FlameFunctionId(22),
-            symbolName = "renderFrame",
-            resource = "/system/lib64/libui.so",
-            virtualAddress = 0x20,
-            implementation = FrameImplementation.NATIVE,
-        )
+    val rootFrame = testFlameFrame(frameId = 1, functionId = 11, symbolName = "runLoop", address = 0x10)
+    val childFrame = testFlameFrame(frameId = 2, functionId = 22, symbolName = "renderFrame", address = 0x20)
+    val grandchildFrame = testFlameFrame(frameId = 3, functionId = 33, symbolName = "drawFrame", address = 0x30)
+    val ids =
+        when {
+            includeGrandchild -> longArrayOf(ROOT_NODE_ID, CHILD_NODE_ID, GRANDCHILD_NODE_ID)
+            includeChild -> longArrayOf(ROOT_NODE_ID, CHILD_NODE_ID)
+            else -> longArrayOf(ROOT_NODE_ID)
+        }
     val nodes =
         CallNodeTable(
-            ids = if (includeChild) longArrayOf(ROOT_NODE_ID, CHILD_NODE_ID) else longArrayOf(ROOT_NODE_ID),
-            parentIndexes = if (includeChild) intArrayOf(-1, 0) else intArrayOf(-1),
-            frameIds = if (includeChild) longArrayOf(1, 2) else longArrayOf(1),
-            depths = if (includeChild) intArrayOf(0, 1) else intArrayOf(0),
-            inclusiveWeights = if (includeChild) longArrayOf(10, 6) else longArrayOf(10),
-            selfWeights = if (includeChild) longArrayOf(4, 6) else longArrayOf(10),
-            sampleCounts = if (includeChild) longArrayOf(2, 1) else longArrayOf(2),
-            threadCounts = if (includeChild) intArrayOf(1, 1) else intArrayOf(1),
-            categories = if (includeChild) listOf("User", "User") else listOf("User"),
-            framesById = if (includeChild) mapOf(1L to rootFrame, 2L to childFrame) else mapOf(1L to rootFrame),
+            ids = ids,
+            parentIndexes = testParentIndexes(ids.size),
+            frameIds = LongArray(ids.size) { it + 1L },
+            depths = IntArray(ids.size) { it },
+            inclusiveWeights = LongArray(ids.size) { index -> 10L - index * 2L },
+            selfWeights = LongArray(ids.size) { index -> if (index == ids.lastIndex) 6L else 2L },
+            sampleCounts = LongArray(ids.size) { index -> 2L - index.coerceAtMost(1) },
+            threadCounts = IntArray(ids.size) { 1 },
+            categories = List(ids.size) { "User" },
+            framesById = mapOf(1L to rootFrame, 2L to childFrame, 3L to grandchildFrame),
         )
     val query: CallStackAnalysisQuery = request.callStackAnalysis
     return workspaceSnapshot(request.query).copy(
@@ -632,3 +648,25 @@ private fun flameSnapshot(
             ),
     )
 }
+
+private fun testParentIndexes(size: Int): IntArray =
+    when (size) {
+        3 -> intArrayOf(-1, 0, 1)
+        2 -> intArrayOf(-1, 0)
+        else -> intArrayOf(-1)
+    }
+
+private fun testFlameFrame(
+    frameId: Long,
+    functionId: Long,
+    symbolName: String,
+    address: Long,
+): CallStackFrame =
+    CallStackFrame(
+        frameId = frameId,
+        functionId = FlameFunctionId(functionId),
+        symbolName = symbolName,
+        resource = "/system/lib64/libui.so",
+        virtualAddress = address,
+        implementation = FrameImplementation.NATIVE,
+    )

@@ -8,6 +8,7 @@ import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
+import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.FlameGraphRows
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FrameImplementation
@@ -17,74 +18,80 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class FlameGraphKeyboardNavigationTest {
+    private val keyboard = FlameGraphKeyboardNavigation
+
     @Test
     fun `forward and inverted vertical arrows follow Firefox call relationships`() {
-        val forward = snapshot(CallStackDirection.FORWARD)
-        val inverted = snapshot(CallStackDirection.INVERTED)
-
-        assertEquals(id(2), target(forward, id(1), Key.DirectionUp))
-        assertEquals(id(1), target(forward, id(2), Key.DirectionDown))
-        assertEquals(id(1), target(inverted, id(2), Key.DirectionUp))
-        assertEquals(id(2), target(inverted, id(1), Key.DirectionDown))
+        assertEquals(
+            FlameGraphNavigationCommand.WIDEST_CHILD,
+            command(Key.DirectionUp, CallStackDirection.FORWARD),
+        )
+        assertEquals(
+            FlameGraphNavigationCommand.PARENT,
+            command(Key.DirectionDown, CallStackDirection.FORWARD),
+        )
+        assertEquals(
+            FlameGraphNavigationCommand.PARENT,
+            command(Key.DirectionUp, CallStackDirection.INVERTED),
+        )
+        assertEquals(
+            FlameGraphNavigationCommand.WIDEST_CHILD,
+            command(Key.DirectionDown, CallStackDirection.INVERTED),
+        )
     }
 
     @Test
-    fun `horizontal arrows use eligible siblings and boundaries are not consumed`() {
-        val snapshot = snapshot(CallStackDirection.FORWARD)
-
-        assertEquals(id(4), target(snapshot, id(2), Key.DirectionRight))
-        assertEquals(id(2), target(snapshot, id(4), Key.DirectionLeft))
-        assertNull(FlameGraphKeyboardNavigation.navigate(snapshot, id(2), command(Key.DirectionLeft), viewport()))
-        assertNull(FlameGraphKeyboardNavigation.navigate(snapshot, id(1), command(Key.DirectionDown), viewport()))
-        assertNull(FlameGraphKeyboardNavigation.navigate(snapshot, id(4), command(Key.DirectionUp), viewport()))
+    fun `horizontal arrows map to sibling commands independent of direction`() {
+        assertEquals(
+            FlameGraphNavigationCommand.NEXT_SIBLING,
+            command(Key.DirectionRight, CallStackDirection.FORWARD),
+        )
+        assertEquals(
+            FlameGraphNavigationCommand.PREVIOUS_SIBLING,
+            command(Key.DirectionLeft, CallStackDirection.INVERTED),
+        )
     }
 
     @Test
     fun `navigation reveals deep target with a clamped row`() {
         val deep = deepSnapshot(20)
 
-        val result =
-            FlameGraphKeyboardNavigation.navigate(
+        val scrollRow =
+            FlameGraphKeyboardNavigation.scrollRowToReveal(
                 deep,
-                id(19),
-                FlameGraphNavigationCommand.UP,
+                id(20),
                 FlameViewport(widthPx = 100, heightPx = 48, scrollRow = 0, rowHeightPx = 16f),
             )
 
-        assertEquals(id(20), result?.targetNodeId)
-        assertEquals(17, result?.scrollRow)
+        assertEquals(17, scrollRow)
     }
 
     @Test
     fun `only arrow key down events become handled navigation commands`() {
         assertEquals(
-            FlameGraphNavigationCommand.UP,
-            FlameGraphKeyboardNavigation.commandFor(Key.DirectionUp, KeyEventType.KeyDown),
+            FlameGraphNavigationCommand.WIDEST_CHILD,
+            FlameGraphKeyboardNavigation.commandFor(
+                Key.DirectionUp,
+                KeyEventType.KeyDown,
+                CallStackDirection.FORWARD,
+            ),
         )
-        assertNull(FlameGraphKeyboardNavigation.commandFor(Key.DirectionUp, KeyEventType.KeyUp))
-        assertNull(FlameGraphKeyboardNavigation.commandFor(Key.A, KeyEventType.KeyDown))
+        assertNull(
+            FlameGraphKeyboardNavigation.commandFor(
+                Key.DirectionUp,
+                KeyEventType.KeyUp,
+                CallStackDirection.FORWARD,
+            ),
+        )
+        assertNull(
+            FlameGraphKeyboardNavigation.commandFor(Key.A, KeyEventType.KeyDown, CallStackDirection.FORWARD),
+        )
     }
 
-    private fun target(
-        snapshot: FlameGraphSnapshot,
-        selected: FlameCallNodeId,
+    private fun command(
         key: Key,
-    ): FlameCallNodeId? =
-        FlameGraphKeyboardNavigation
-            .navigate(snapshot, selected, command(key), viewport())
-            ?.targetNodeId
-
-    private fun command(key: Key): FlameGraphNavigationCommand =
-        requireNotNull(FlameGraphKeyboardNavigation.commandFor(key, KeyEventType.KeyDown))
-
-    private fun viewport() = FlameViewport(widthPx = 100, heightPx = 32, scrollRow = 0, rowHeightPx = 16f)
-
-    private fun snapshot(direction: CallStackDirection): FlameGraphSnapshot {
-        // root -> wide, narrow, sibling; wide -> leaf
-        val parents = intArrayOf(-1, 0, 0, 0, 1)
-        val widths = doubleArrayOf(1.0, 0.6, 0.0005, 0.3, 0.6)
-        return snapshot(parents, widths, direction)
-    }
+        direction: CallStackDirection,
+    ): FlameGraphNavigationCommand = requireNotNull(keyboard.commandFor(key, KeyEventType.KeyDown, direction))
 
     private fun deepSnapshot(size: Int): FlameGraphSnapshot =
         snapshot(

@@ -3,6 +3,7 @@ package com.androidperformancestudio.presentation
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
+import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.storage.TopFunctionSort
 
 data class ReportActions(
@@ -15,6 +16,7 @@ data class ReportActions(
     val onTopFunctions: (String, TopFunctionSort, Boolean) -> Unit,
     val onCallTreeDirection: (CallStackDirection) -> Unit,
     val onSelectFlameNode: (FlameCallNodeId?) -> Unit,
+    val onNavigateFlameNode: (FlameGraphNavigationCommand) -> FlameCallNodeId?,
     val onFocusCallTreeFunction: (String) -> Unit,
     val onFocusFunction: (String) -> Unit,
     val onExportSession: () -> Unit,

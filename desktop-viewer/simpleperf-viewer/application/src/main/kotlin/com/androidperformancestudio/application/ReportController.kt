@@ -14,6 +14,8 @@ import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
+import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
+import com.androidperformancestudio.profileanalysis.FlameGraphNavigator
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
 import com.androidperformancestudio.storage.CallTreeNode
@@ -266,6 +268,27 @@ class ReportController(
             val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
             current.copy(flameGraph = current.flameGraph.copy(selectedNodeId = validId))
         }
+    }
+
+    fun navigateCallNode(command: FlameGraphNavigationCommand): FlameCallNodeId? {
+        val mutation =
+            mutableState.mutate { current ->
+                val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
+                val selectedNodeId = current.flameGraph.selectedNodeId
+                val targetNodeId =
+                    if (snapshot == null || selectedNodeId == null) {
+                        null
+                    } else {
+                        FlameGraphNavigator.target(snapshot, selectedNodeId, command)
+                    }
+                if (targetNodeId == null) {
+                    current
+                } else {
+                    current.copy(flameGraph = current.flameGraph.copy(selectedNodeId = targetNodeId))
+                }
+            }
+        return mutation.next.flameGraph.selectedNodeId
+            .takeUnless { mutation.current == mutation.next }
     }
 
     fun focusFunction(symbolName: String) {
@@ -522,18 +545,14 @@ private fun CallNodePath.nearestVisibleAncestor(next: CallNodeTable): FlameCallN
         next.findByPath(CallNodePath(functions.take(lastIndex + 1)))
     }
 
-private fun CallNodeTable.contains(nodeId: FlameCallNodeId): Boolean = ids.any { it == nodeId.value }
+private fun CallNodeTable.contains(nodeId: FlameCallNodeId): Boolean = indexOf(nodeId) != null
 
 private fun CallNodeTable.pathFor(nodeId: FlameCallNodeId): CallNodePath? {
-    val nodeIds = ids
-    var index = nodeIds.indexOf(nodeId.value)
-    if (index < 0) return null
-    val parents = parentIndexes
-    val nodeFrameIds = frameIds
+    var index = indexOf(nodeId) ?: return null
     val reversed = ArrayList<FlameFunctionId>()
     while (index >= 0) {
-        reversed += framesById.getValue(nodeFrameIds[index]).functionId
-        index = parents[index]
+        reversed += checkNotNull(frameAt(index)).functionId
+        index = parentIndexAt(index) ?: break
     }
     reversed.reverse()
     return CallNodePath(reversed)

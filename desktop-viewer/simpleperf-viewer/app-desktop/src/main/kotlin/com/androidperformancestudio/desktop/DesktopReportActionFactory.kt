@@ -53,6 +53,7 @@ internal class DesktopReportActionFactory(
             },
             onCallTreeDirection = { direction -> scope.launch { controller.updateCallTreeDirection(direction) } },
             onSelectFlameNode = controller::selectCallNode,
+            onNavigateFlameNode = controller::navigateCallNode,
             onFocusCallTreeFunction = controller::focusCallTreeFunction,
             onFocusFunction = controller::focusFunction,
             onExportSession = { exportSession(state) },

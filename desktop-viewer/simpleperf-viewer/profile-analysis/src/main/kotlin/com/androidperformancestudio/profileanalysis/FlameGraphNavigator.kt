@@ -1,6 +1,25 @@
 package com.androidperformancestudio.profileanalysis
 
+enum class FlameGraphNavigationCommand {
+    PARENT,
+    WIDEST_CHILD,
+    PREVIOUS_SIBLING,
+    NEXT_SIBLING,
+}
+
 object FlameGraphNavigator {
+    fun target(
+        snapshot: FlameGraphSnapshot,
+        nodeId: FlameCallNodeId,
+        command: FlameGraphNavigationCommand,
+    ): FlameCallNodeId? =
+        when (command) {
+            FlameGraphNavigationCommand.PARENT -> parent(snapshot, nodeId)
+            FlameGraphNavigationCommand.WIDEST_CHILD -> widestChild(snapshot, nodeId)
+            FlameGraphNavigationCommand.PREVIOUS_SIBLING -> previousSibling(snapshot, nodeId)
+            FlameGraphNavigationCommand.NEXT_SIBLING -> nextSibling(snapshot, nodeId)
+        }
+
     fun parent(
         snapshot: FlameGraphSnapshot,
         nodeId: FlameCallNodeId,
