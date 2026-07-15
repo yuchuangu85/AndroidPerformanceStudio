@@ -7,6 +7,7 @@ import com.androidperformancestudio.application.sqliteProjectionLoader
 import com.androidperformancestudio.model.ProfileSample
 import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphRows
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
@@ -15,6 +16,8 @@ import com.androidperformancestudio.visualization.FlameGraphLayout
 import com.androidperformancestudio.visualization.FlameViewport
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineDensityIndex
+import com.androidperformancestudio.visualization.VisibleFlameLayout
+import com.androidperformancestudio.visualization.VisibleFlameNode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -125,17 +128,17 @@ private fun runP0(
     val flameFrames =
         frameDurations {
             val iteration = it
-            FlameGraphLayout.layout(
-                snapshot = flameSnapshot,
-                viewport =
-                    FlameViewport(
-                        widthPx = 1_200,
-                        heightPx = 360,
-                        scrollRow = iteration % (FLAME_ROW_COUNT - FLAME_VISIBLE_ROW_COUNT),
-                        rowHeightPx = FLAME_ROW_HEIGHT_PX,
-                    ),
+            FlameLayoutBlackhole.consume(
+                FlameGraphLayout.layout(
+                    snapshot = flameSnapshot,
+                    viewport = flameViewport(iteration),
+                ),
             )
         }
+    verifyFlameLayoutBenchmarkResult(
+        layout = FlameLayoutBlackhole.retainedResult(),
+        viewport = flameViewport(FRAME_COUNT - 1),
+    )
 
     heapSampler.close()
     val peakHeapBytes = heapSampler.peakBytes.coerceAtLeast(usedHeapBytes())
@@ -251,6 +254,97 @@ private fun syntheticFlameSnapshot(count: Int): FlameGraphSnapshot {
         emptyReason = null,
         invalidTransforms = emptyList(),
     )
+}
+
+private fun flameViewport(iteration: Int): FlameViewport =
+    FlameViewport(
+        widthPx = 1_200,
+        heightPx = 360,
+        scrollRow = iteration % (FLAME_ROW_COUNT - FLAME_VISIBLE_ROW_COUNT),
+        rowHeightPx = FLAME_ROW_HEIGHT_PX,
+    )
+
+private fun verifyFlameLayoutBenchmarkResult(
+    layout: VisibleFlameLayout,
+    viewport: FlameViewport,
+) {
+    validateFlameLayoutBenchmarkResult(layout, viewport)
+
+    check(
+        runCatching {
+            validateFlameLayoutBenchmarkResult(
+                VisibleFlameLayout(emptyList(), layout.materializedRowRange),
+                viewport,
+            )
+        }.isFailure,
+    ) { "Flame layout benchmark validation accepted an empty result" }
+
+    val representativeNodeIndex = viewport.scrollRow
+    val wrongGeometry =
+        VisibleFlameLayout(
+            layout.nodes.map { node ->
+                if (node.nodeIndex == representativeNodeIndex) node.copy(width = node.width + 1f) else node
+            },
+            layout.materializedRowRange,
+        )
+    check(runCatching { validateFlameLayoutBenchmarkResult(wrongGeometry, viewport) }.isFailure) {
+        "Flame layout benchmark validation accepted incorrect geometry"
+    }
+}
+
+private fun validateFlameLayoutBenchmarkResult(
+    layout: VisibleFlameLayout,
+    viewport: FlameViewport,
+) {
+    val firstVisibleRow = viewport.scrollRow
+    val expectedRange =
+        IntRange(
+            firstVisibleRow - viewport.overscanRows,
+            firstVisibleRow + FLAME_VISIBLE_ROW_COUNT - 1 + viewport.overscanRows,
+        )
+    check(layout.materializedRowRange == expectedRange) {
+        "Unexpected flame materialized rows: ${layout.materializedRowRange}, expected $expectedRange"
+    }
+    val expectedNodeCount = expectedRange.sumOf(::rowNodeCount)
+    check(layout.nodes.size == expectedNodeCount) {
+        "Unexpected flame node count: ${layout.nodes.size}, expected $expectedNodeCount"
+    }
+
+    val representativeNode = layout.nodes.single { node -> node.nodeIndex == firstVisibleRow }
+    check(representativeNode == expectedSyntheticFlameNode(firstVisibleRow, viewport)) {
+        "Unexpected representative flame node: $representativeNode"
+    }
+}
+
+private fun rowNodeCount(row: Int): Int = (FLAME_NODE_COUNT - row + FLAME_ROW_COUNT - 1) / FLAME_ROW_COUNT
+
+private fun expectedSyntheticFlameNode(
+    nodeIndex: Int,
+    viewport: FlameViewport,
+): VisibleFlameNode {
+    val normalizedStart = ((nodeIndex * 9_973L) % 1_000L) / 1_000.0
+    val normalizedEnd = (normalizedStart + 0.01).coerceAtMost(1.0)
+    val snappedStart = (normalizedStart * viewport.widthPx).roundToLong().toFloat()
+    val snappedEnd = (normalizedEnd * viewport.widthPx).roundToLong().toFloat()
+    return VisibleFlameNode(
+        nodeIndex = nodeIndex,
+        nodeId = FlameCallNodeId(nodeIndex.toLong()),
+        x = snappedStart,
+        y = viewport.heightPx - FLAME_ROW_HEIGHT_PX,
+        width = snappedEnd - snappedStart,
+        height = FLAME_ROW_HEIGHT_PX,
+    )
+}
+
+private object FlameLayoutBlackhole {
+    @Volatile
+    private var result: VisibleFlameLayout? = null
+
+    fun consume(layout: VisibleFlameLayout) {
+        result = layout
+    }
+
+    fun retainedResult(): VisibleFlameLayout = checkNotNull(result) { "No flame layout result escaped the benchmark" }
 }
 
 private fun frameDurations(block: (Int) -> Unit): List<Long> {
