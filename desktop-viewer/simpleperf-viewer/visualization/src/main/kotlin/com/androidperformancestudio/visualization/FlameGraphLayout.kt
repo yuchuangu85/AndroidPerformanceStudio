@@ -76,6 +76,30 @@ object FlameGraphLayout {
             x >= node.x && x < node.x + node.width && y >= node.y && y < node.y + node.height
         }
     }
+
+    fun scrollRowToReveal(
+        snapshot: FlameGraphSnapshot,
+        selectedNodeId: FlameCallNodeId,
+        viewport: FlameViewport,
+    ): Int {
+        val rowCount = snapshot.rows.rowCount
+        val visibleCount = visibleRowCount(rowCount, viewport.heightPx, viewport.rowHeightPx)
+        return if (visibleCount == 0) {
+            0
+        } else {
+            val maximumScrollRow = (rowCount - visibleCount).coerceAtLeast(0)
+            val currentScrollRow = viewport.scrollRow.coerceIn(0, maximumScrollRow)
+            val selectedRow =
+                snapshot.callNodes.indexOf(selectedNodeId)?.let(snapshot.callNodes::depthAt)
+            when {
+                selectedRow == null -> currentScrollRow
+                selectedRow < currentScrollRow -> selectedRow.coerceIn(0, maximumScrollRow)
+                selectedRow >= currentScrollRow + visibleCount ->
+                    (selectedRow - visibleCount + 1).coerceIn(0, maximumScrollRow)
+                else -> currentScrollRow
+            }
+        }
+    }
 }
 
 private fun materializedRows(

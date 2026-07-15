@@ -268,6 +268,8 @@ class CallNodeTable(
 
     fun frameAt(nodeIndex: Int): CallStackFrame? = frameIdsSnapshot.getOrNull(nodeIndex)?.let(framesSnapshot::get)
 
+    fun depthAt(nodeIndex: Int): Int? = depthsSnapshot.getOrNull(nodeIndex)
+
     fun inclusiveWeightAt(nodeIndex: Int): Long? = inclusiveWeightsSnapshot.getOrNull(nodeIndex)
 
     fun selfWeightAt(nodeIndex: Int): Long? = selfWeightsSnapshot.getOrNull(nodeIndex)
@@ -360,6 +362,12 @@ class FlameGraphRows(
     fun startAt(nodeIndex: Int): Double? = startsSnapshot.getOrNull(nodeIndex)
 
     fun endAt(nodeIndex: Int): Double? = endsSnapshot.getOrNull(nodeIndex)
+
+    fun normalizedWidthAt(nodeIndex: Int): Double? {
+        val start = startsSnapshot.getOrNull(nodeIndex)
+        val end = endsSnapshot.getOrNull(nodeIndex)
+        return if (start == null || end == null) null else (end - start).takeIf(Double::isFinite)
+    }
 
     override fun equals(other: Any?): Boolean =
         this === other ||

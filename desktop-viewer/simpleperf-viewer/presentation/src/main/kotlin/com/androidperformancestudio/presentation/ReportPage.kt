@@ -61,10 +61,12 @@ import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
 import com.androidperformancestudio.visualization.FlameGraphCanvas
+import com.androidperformancestudio.visualization.FlameGraphIntent
 import com.androidperformancestudio.visualization.FlameGraphLayout
 import com.androidperformancestudio.visualization.FlameViewport
 import com.androidperformancestudio.visualization.NavigationAction
@@ -507,7 +509,7 @@ private fun List<CallTreeNode>.expandedPathIds(search: String): Set<Long> {
 }
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
 private fun FlameGraphReport(
     state: ReportState,
     report: ReportData,
@@ -515,6 +517,8 @@ private fun FlameGraphReport(
     var selectedId by remember(report.flameGraph, state.flameGraph.selectedNodeId) {
         mutableStateOf(state.flameGraph.selectedNodeId)
     }
+    var hoveredId by remember(report.flameGraph) { mutableStateOf<FlameCallNodeId?>(null) }
+    var contextId by remember(report.flameGraph) { mutableStateOf<FlameCallNodeId?>(null) }
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
     val layout =
@@ -538,8 +542,25 @@ private fun FlameGraphReport(
         FlameGraphCanvas(
             layout = layout,
             selectedNodeId = selectedId,
-            onNodeClick = { node -> selectedId = node.nodeId },
-            onBlankClick = { selectedId = null },
+            hoveredNodeId = hoveredId,
+            contextNodeId = contextId,
+            labelForNode = { node ->
+                report.flameGraph.callNodes
+                    .frameAt(node.nodeIndex)
+                    ?.symbolName
+                    .orEmpty()
+            },
+            onIntent = { intent ->
+                when (intent) {
+                    is FlameGraphIntent.Hover -> hoveredId = intent.nodeId
+                    is FlameGraphIntent.Select -> {
+                        selectedId = intent.nodeId
+                        contextId = null
+                    }
+                    is FlameGraphIntent.OpenContextMenu -> contextId = intent.nodeId
+                    is FlameGraphIntent.OpenDetails -> selectedId = intent.nodeId
+                }
+            },
             modifier =
                 Modifier
                     .fillMaxWidth()
