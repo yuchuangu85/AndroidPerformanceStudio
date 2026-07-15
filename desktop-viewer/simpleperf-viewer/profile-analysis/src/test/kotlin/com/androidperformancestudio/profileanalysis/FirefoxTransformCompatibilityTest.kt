@@ -2,6 +2,7 @@ package com.androidperformancestudio.profileanalysis
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class FirefoxTransformCompatibilityTest {
@@ -105,6 +106,106 @@ class FirefoxTransformCompatibilityTest {
                 .single()
                 .frameIdsRootToLeaf,
         )
+        assertEquals(result.table.frame(2).functionId, result.table.frame(3).functionId)
+        assertNotEquals(resourceOuter.functionId, result.table.frame(2).functionId)
+        assertNotEquals(resourceInner.functionId, result.table.frame(3).functionId)
+    }
+
+    @Test
+    fun `collapse resource creates one deterministic collision safe identity across branches`() {
+        val root = frame(1, FlameFunctionId(1), "root", "app")
+        val first = frame(2, FlameFunctionId(20), "first", "lib.so")
+        val second = frame(3, FlameFunctionId(30), "second", "lib.so")
+        val leaf = frame(4, FlameFunctionId(4), "leaf", "app")
+        val frames = listOf(root, first, second, leaf).associateBy(CallStackFrame::frameId)
+        val table =
+            CallStackTable(
+                frames,
+                listOf(stack(1, listOf(1, 2, 4)), stack(2, listOf(1, 3, 4))),
+            )
+
+        val firstResult = CallStackTransformer.apply(table, listOf(CallStackTransform.CollapseResource("lib.so")))
+        val repeatedResult = CallStackTransformer.apply(table, listOf(CallStackTransform.CollapseResource("lib.so")))
+        val pseudoFunction = firstResult.table.frame(2).functionId
+        val reappliedResult =
+            CallStackTransformer.apply(
+                firstResult.table,
+                listOf(CallStackTransform.CollapseResource("lib.so")),
+            )
+
+        assertEquals(pseudoFunction, firstResult.table.frame(3).functionId)
+        assertEquals(pseudoFunction, repeatedResult.table.frame(2).functionId)
+        assertEquals(pseudoFunction, reappliedResult.table.frame(2).functionId)
+        assertEquals(
+            first.copy(functionId = pseudoFunction, collapsedResource = "lib.so"),
+            firstResult.table.frame(2),
+        )
+        assertEquals(
+            second.copy(functionId = pseudoFunction, collapsedResource = "lib.so"),
+            firstResult.table.frame(3),
+        )
+
+        val collidingFrame = frame(9, pseudoFunction, "collision", "other.so")
+        val collidingTable = table.copy(framesById = frames + (collidingFrame.frameId to collidingFrame))
+        val collisionSafe =
+            CallStackTransformer.apply(collidingTable, listOf(CallStackTransform.CollapseResource("lib.so")))
+        assertNotEquals(pseudoFunction, collisionSafe.table.frame(2).functionId)
+        assertEquals(collisionSafe.table.frame(2).functionId, collisionSafe.table.frame(3).functionId)
+
+        val ordered =
+            CallStackTransformer.apply(
+                table,
+                listOf(
+                    CallStackTransform.CollapseResource("lib.so"),
+                    CallStackTransform.DropFunction(first.functionId),
+                ),
+            )
+        assertEquals(2, ordered.table.stacks.size)
+        assertEquals(pseudoFunction, ordered.table.frame(2).functionId)
+    }
+
+    @Test
+    fun `focus category reconnects matching nodes and preserves aligned metadata`() {
+        val graphicsOuter = frame(1, FlameFunctionId(1), "graphics-outer", "app")
+        val layout = frame(2, FlameFunctionId(2), "layout", "app")
+        val graphicsInner = frame(3, FlameFunctionId(3), "graphics-inner", "app")
+        val input =
+            stack(
+                sampleId = 7,
+                frameIds = listOf(1, 2, 3),
+                category = "SampleFallback",
+                categoriesRootToLeaf = listOf("Graphics", "Layout", "Graphics"),
+            )
+        val table =
+            CallStackTable(
+                listOf(graphicsOuter, layout, graphicsInner).associateBy(CallStackFrame::frameId),
+                listOf(input),
+            )
+
+        val result =
+            CallStackTransformer.apply(
+                table,
+                listOf(
+                    CallStackTransform.FocusCategory("Graphics"),
+                    CallStackTransform.MergeFunction(graphicsOuter.functionId),
+                ),
+            )
+
+        val rewritten = result.table.stacks.single()
+        assertEquals(listOf(3L), rewritten.frameIdsRootToLeaf)
+        assertEquals(listOf("Graphics"), rewritten.categoriesRootToLeaf)
+        assertEquals(
+            input.copy(
+                frameIdsRootToLeaf = listOf(3L),
+                categoriesRootToLeaf = listOf("Graphics"),
+            ),
+            rewritten,
+        )
+        assertEquals(listOf(1L, 2L, 3L), input.frameIdsRootToLeaf)
+        assertEquals(listOf("Graphics", "Layout", "Graphics"), input.categoriesRootToLeaf)
+
+        val noMatch = CallStackTransformer.apply(table, listOf(CallStackTransform.FocusCategory("Network")))
+        assertTrue(noMatch.table.stacks.isEmpty())
     }
 
     @Test

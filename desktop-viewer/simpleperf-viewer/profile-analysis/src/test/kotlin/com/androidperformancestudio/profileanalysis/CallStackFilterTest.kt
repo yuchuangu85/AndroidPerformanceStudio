@@ -118,6 +118,7 @@ class CallStackFilterTest {
                 category = "Graphics",
                 subcategory = "Draw",
                 frameIdsRootToLeaf = listOf(ROOT_ID, RENDER_ID, DRAW_ID, RENDER_ID),
+                categoriesRootToLeaf = listOf("Root", "Render", "Draw", "RenderAgain"),
             )
         val table = fixture.table.copy(stacks = listOf(duplicateStack))
 
@@ -134,7 +135,16 @@ class CallStackFilterTest {
                 .frameIdsRootToLeaf,
         )
         assertEquals(
-            duplicateStack.copy(frameIdsRootToLeaf = listOf(RENDER_ID, DRAW_ID, RENDER_ID)),
+            listOf("Render", "Draw", "RenderAgain"),
+            result.table.stacks
+                .single()
+                .categoriesRootToLeaf,
+        )
+        assertEquals(
+            duplicateStack.copy(
+                frameIdsRootToLeaf = listOf(RENDER_ID, DRAW_ID, RENDER_ID),
+                categoriesRootToLeaf = listOf("Render", "Draw", "RenderAgain"),
+            ),
             result.table.stacks.single(),
         )
     }

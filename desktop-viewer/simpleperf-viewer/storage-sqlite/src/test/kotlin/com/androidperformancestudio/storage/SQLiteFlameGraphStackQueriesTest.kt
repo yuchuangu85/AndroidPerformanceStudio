@@ -63,6 +63,7 @@ class SQLiteFlameGraphStackQueriesTest {
                 assertEquals("canonical:$canonicalThreadRowId", stack.threadKey)
                 assertEquals("Graphics", stack.category)
                 assertEquals("Frame", stack.subcategory)
+                assertEquals(listOf("Graphics", "Graphics"), stack.categoriesRootToLeaf)
                 assertEquals(
                     listOf(FrameImplementation.KERNEL, FrameImplementation.MANAGED),
                     frames.map { it.implementation },
@@ -87,6 +88,7 @@ class SQLiteFlameGraphStackQueriesTest {
                 assertEquals("legacy:101", stack.threadKey)
                 assertEquals(null, stack.category)
                 assertEquals(null, stack.subcategory)
+                assertEquals(listOf<String?>(null), stack.categoriesRootToLeaf)
                 assertEquals("leaf", frame.symbolName)
                 assertEquals("/example/lib.so", frame.resource)
                 assertEquals(4096L, frame.virtualAddress)

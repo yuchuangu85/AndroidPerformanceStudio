@@ -56,6 +56,7 @@ data class CallStackFrame(
     val resource: String,
     val virtualAddress: Long,
     val implementation: FrameImplementation,
+    val collapsedResource: String? = null,
 )
 
 @ConsistentCopyVisibility
@@ -68,6 +69,7 @@ data class WeightedCallStack private constructor(
     val category: String?,
     val subcategory: String?,
     val frameIdsRootToLeaf: List<Long>,
+    val categoriesRootToLeaf: List<String?>,
     private val immutableSnapshot: Boolean,
 ) {
     constructor(
@@ -78,6 +80,7 @@ data class WeightedCallStack private constructor(
         category: String?,
         subcategory: String?,
         frameIdsRootToLeaf: List<Long>,
+        categoriesRootToLeaf: List<String?>? = null,
     ) : this(
         sampleId,
         timestampNanos,
@@ -86,6 +89,7 @@ data class WeightedCallStack private constructor(
         category,
         subcategory,
         immutableList(frameIdsRootToLeaf),
+        immutableCategories(frameIdsRootToLeaf, categoriesRootToLeaf, category),
         true,
     )
 
@@ -97,6 +101,8 @@ data class WeightedCallStack private constructor(
         category: String? = this.category,
         subcategory: String? = this.subcategory,
         frameIdsRootToLeaf: List<Long> = this.frameIdsRootToLeaf,
+        categoriesRootToLeaf: List<String?>? =
+            if (frameIdsRootToLeaf == this.frameIdsRootToLeaf) this.categoriesRootToLeaf else null,
     ): WeightedCallStack =
         WeightedCallStack(
             sampleId,
@@ -106,12 +112,13 @@ data class WeightedCallStack private constructor(
             category,
             subcategory,
             frameIdsRootToLeaf,
+            categoriesRootToLeaf,
         )
 
     override fun toString(): String =
         "WeightedCallStack(sampleId=$sampleId, timestampNanos=$timestampNanos, weight=$weight, " +
             "threadKey=$threadKey, category=$category, subcategory=$subcategory, " +
-            "frameIdsRootToLeaf=$frameIdsRootToLeaf)"
+            "frameIdsRootToLeaf=$frameIdsRootToLeaf, categoriesRootToLeaf=$categoriesRootToLeaf)"
 }
 
 @ConsistentCopyVisibility
@@ -320,5 +327,16 @@ fun parseFlameSearchTerms(searchText: String): List<String> =
         .filter(String::isNotEmpty)
 
 private fun <T> immutableList(source: Collection<T>): List<T> = Collections.unmodifiableList(ArrayList(source))
+
+private fun immutableCategories(
+    frameIdsRootToLeaf: List<Long>,
+    categoriesRootToLeaf: List<String?>?,
+    fallbackCategory: String?,
+): List<String?> {
+    require(categoriesRootToLeaf == null || categoriesRootToLeaf.size == frameIdsRootToLeaf.size) {
+        "categoriesRootToLeaf must align with frameIdsRootToLeaf"
+    }
+    return immutableList(categoriesRootToLeaf ?: List(frameIdsRootToLeaf.size) { fallbackCategory })
+}
 
 private fun <K, V> immutableMap(source: Map<K, V>): Map<K, V> = Collections.unmodifiableMap(LinkedHashMap(source))

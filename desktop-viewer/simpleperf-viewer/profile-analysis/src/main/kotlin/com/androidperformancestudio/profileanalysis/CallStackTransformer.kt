@@ -43,76 +43,67 @@ object CallStackTransformer {
         table: CallStackTable,
         transforms: List<CallStackTransform>,
     ): TransformResult {
-        var currentStacks = table.stacks
+        var currentTable = table
         val appliedTransforms = ArrayList<CallStackTransform>(transforms.size)
         val invalidTransforms = ArrayList<CallStackTransform>()
 
         transforms.forEach { transform ->
-            if (!isValidCallNodeTransform(table, currentStacks, transform)) {
+            if (!isValidCallNodeTransform(currentTable, transform)) {
                 invalidTransforms += transform
             } else {
-                currentStacks = applyTransform(table, currentStacks, transform)
+                currentTable = applyTransform(currentTable, transform)
                 appliedTransforms += transform
             }
         }
 
-        val outputTable =
-            if (table.stacks.hasSameInstances(currentStacks)) {
-                table
-            } else {
-                table.copy(stacks = currentStacks)
-            }
         return TransformResult(
-            table = outputTable,
+            table = currentTable,
             appliedTransforms = appliedTransforms,
             invalidTransforms = invalidTransforms,
             inputStackCount = table.stacks.size,
-            outputStackCount = currentStacks.size,
+            outputStackCount = currentTable.stacks.size,
         )
     }
 }
 
 private fun isValidCallNodeTransform(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     transform: CallStackTransform,
 ): Boolean =
     when (transform) {
-        is CallStackTransform.FocusCallNode -> table.containsPath(stacks, transform.path)
-        is CallStackTransform.MergeCallNode -> table.containsPath(stacks, transform.path)
+        is CallStackTransform.FocusCallNode -> table.containsPath(transform.path)
+        is CallStackTransform.MergeCallNode -> table.containsPath(transform.path)
         else -> true
     }
 
 private fun applyTransform(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     transform: CallStackTransform,
-): List<WeightedCallStack> =
+): CallStackTable =
     when (transform) {
-        is CallStackTransform.FocusCallNode -> focusCallNode(table, stacks, transform.path)
-        is CallStackTransform.FocusFunction -> focusFunction(table, stacks, transform.function)
-        is CallStackTransform.FocusFunctionSelf -> focusFunctionSelf(table, stacks, transform.function)
-        is CallStackTransform.MergeCallNode -> mergeCallNode(table, stacks, transform.path)
-        is CallStackTransform.MergeFunction -> mergeFunction(table, stacks, transform.function)
-        is CallStackTransform.DropFunction -> dropFunction(table, stacks, transform.function)
-        is CallStackTransform.CollapseResource -> collapseResource(table, stacks, transform.resource)
-        is CallStackTransform.CollapseRecursion -> collapseRecursion(table, stacks, transform.function)
+        is CallStackTransform.FocusCallNode -> table.withStacks(focusCallNode(table, transform.path))
+        is CallStackTransform.FocusFunction -> table.withStacks(focusFunction(table, transform.function))
+        is CallStackTransform.FocusFunctionSelf -> table.withStacks(focusFunctionSelf(table, transform.function))
+        is CallStackTransform.MergeCallNode -> table.withStacks(mergeCallNode(table, transform.path))
+        is CallStackTransform.MergeFunction -> table.withStacks(mergeFunction(table, transform.function))
+        is CallStackTransform.DropFunction -> table.withStacks(dropFunction(table, transform.function))
+        is CallStackTransform.CollapseResource -> collapseResource(table, transform.resource)
+        is CallStackTransform.CollapseRecursion -> table.withStacks(collapseRecursion(table, transform.function))
         is CallStackTransform.CollapseDirectRecursion ->
-            collapseDirectRecursion(table, stacks, transform.function)
+            table.withStacks(collapseDirectRecursion(table, transform.function))
         is CallStackTransform.CollapseFunctionSubtree ->
-            collapseFunctionSubtree(table, stacks, transform.function)
-        is CallStackTransform.FocusCategory -> focusCategory(stacks, transform.category)
+            table.withStacks(collapseFunctionSubtree(table, transform.function))
+        is CallStackTransform.FocusCategory -> table.withStacks(focusCategory(table.stacks, transform.category))
     }
 
 private fun focusCallNode(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     path: CallNodePath,
 ): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
+    table.stacks.mapNotNull { stack ->
         val functions = table.functions(stack)
         if (functions.startsWith(path.functions)) {
-            stack.withFramesOrNull(stack.frameIdsRootToLeaf.drop(path.functions.lastIndex))
+            stack.withNodesOrNull(stack.nodes().drop(path.functions.lastIndex))
         } else {
             null
         }
@@ -120,23 +111,21 @@ private fun focusCallNode(
 
 private fun focusFunction(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     function: FlameFunctionId,
 ): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
+    table.stacks.mapNotNull { stack ->
         val focusIndex = table.functions(stack).indexOf(function)
-        if (focusIndex == -1) null else stack.withFramesOrNull(stack.frameIdsRootToLeaf.drop(focusIndex))
+        if (focusIndex == -1) null else stack.withNodesOrNull(stack.nodes().drop(focusIndex))
     }
 
 private fun focusFunctionSelf(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     function: FlameFunctionId,
 ): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
-        val leafFrameId = stack.frameIdsRootToLeaf.lastOrNull() ?: return@mapNotNull null
-        if (table.frame(leafFrameId).functionId == function) {
-            stack.withFramesOrNull(listOf(leafFrameId))
+    table.stacks.mapNotNull { stack ->
+        val leafNode = stack.nodes().lastOrNull() ?: return@mapNotNull null
+        if (table.frame(leafNode.frameId).functionId == function) {
+            stack.withNodesOrNull(listOf(leafNode))
         } else {
             null
         }
@@ -144,13 +133,12 @@ private fun focusFunctionSelf(
 
 private fun mergeCallNode(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     path: CallNodePath,
 ): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
+    table.stacks.mapNotNull { stack ->
         val functions = table.functions(stack)
         if (functions.startsWith(path.functions)) {
-            stack.withFramesOrNull(stack.frameIdsRootToLeaf.withoutIndex(path.functions.lastIndex))
+            stack.withNodesOrNull(stack.nodes().withoutIndex(path.functions.lastIndex))
         } else {
             stack
         }
@@ -158,97 +146,160 @@ private fun mergeCallNode(
 
 private fun mergeFunction(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     function: FlameFunctionId,
 ): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
-        stack.withFramesOrNull(
-            stack.frameIdsRootToLeaf.filter { frameId -> table.frame(frameId).functionId != function },
+    table.stacks.mapNotNull { stack ->
+        stack.withNodesOrNull(
+            stack.nodes().filter { node -> table.frame(node.frameId).functionId != function },
         )
     }
 
 private fun dropFunction(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     function: FlameFunctionId,
 ): List<WeightedCallStack> =
-    stacks.filterNot { stack ->
+    table.stacks.filterNot { stack ->
         stack.frameIdsRootToLeaf.any { frameId -> table.frame(frameId).functionId == function }
     }
 
 private fun collapseResource(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     resource: String,
-): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
-        stack.withFramesOrNull(
-            stack.frameIdsRootToLeaf.collapseConsecutive { frameId -> table.frame(frameId).resource == resource },
-        )
-    }
+): CallStackTable {
+    val matchingFrames = table.framesById.values.filter { frame -> frame.resource == resource }
+    if (matchingFrames.isEmpty()) return table
+
+    val pseudoFunction = collapsedResourceFunctionId(resource, table.framesById.values)
+    val remappedFrames =
+        table.framesById.mapValues { (_, frame) ->
+            if (frame.resource == resource) {
+                frame.copy(functionId = pseudoFunction, collapsedResource = resource)
+            } else {
+                frame
+            }
+        }
+    val remappedTable = table.copy(framesById = remappedFrames)
+    val collapsedStacks =
+        remappedTable.stacks.mapNotNull { stack ->
+            stack.withNodesOrNull(
+                stack.nodes().collapseConsecutive { node -> remappedTable.frame(node.frameId).resource == resource },
+            )
+        }
+    return remappedTable.withStacks(collapsedStacks)
+}
 
 private fun collapseRecursion(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     function: FlameFunctionId,
 ): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
+    table.stacks.mapNotNull { stack ->
         val functions = table.functions(stack)
         val firstIndex = functions.indexOf(function)
         val lastIndex = functions.lastIndexOf(function)
-        val newFrames =
+        val nodes = stack.nodes()
+        val newNodes =
             if (firstIndex == -1 || firstIndex == lastIndex) {
-                stack.frameIdsRootToLeaf
+                nodes
             } else {
-                stack.frameIdsRootToLeaf.take(firstIndex) + stack.frameIdsRootToLeaf.drop(lastIndex)
+                nodes.take(firstIndex) + nodes.drop(lastIndex)
             }
-        stack.withFramesOrNull(newFrames)
+        stack.withNodesOrNull(newNodes)
     }
 
 private fun collapseDirectRecursion(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     function: FlameFunctionId,
 ): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
-        stack.withFramesOrNull(
-            stack.frameIdsRootToLeaf.collapseConsecutive { frameId ->
-                table.frame(frameId).functionId == function
+    table.stacks.mapNotNull { stack ->
+        stack.withNodesOrNull(
+            stack.nodes().collapseConsecutive { node ->
+                table.frame(node.frameId).functionId == function
             },
         )
     }
 
 private fun collapseFunctionSubtree(
     table: CallStackTable,
-    stacks: List<WeightedCallStack>,
     function: FlameFunctionId,
 ): List<WeightedCallStack> =
-    stacks.mapNotNull { stack ->
+    table.stacks.mapNotNull { stack ->
         val functionIndex = table.functions(stack).indexOf(function)
-        val newFrames =
-            if (functionIndex == -1) stack.frameIdsRootToLeaf else stack.frameIdsRootToLeaf.take(functionIndex + 1)
-        stack.withFramesOrNull(newFrames)
+        val nodes = stack.nodes()
+        val newNodes = if (functionIndex == -1) nodes else nodes.take(functionIndex + 1)
+        stack.withNodesOrNull(newNodes)
     }
 
 private fun focusCategory(
     stacks: List<WeightedCallStack>,
     category: String,
-): List<WeightedCallStack> = stacks.filter { stack -> stack.category == category }
+): List<WeightedCallStack> =
+    stacks.mapNotNull { stack ->
+        stack.withNodesOrNull(stack.nodes().filter { node -> node.category == category })
+    }
 
-private fun CallStackTable.containsPath(
-    stacks: List<WeightedCallStack>,
-    path: CallNodePath,
-): Boolean = path.functions.isNotEmpty() && stacks.any { stack -> functions(stack).startsWith(path.functions) }
+private fun CallStackTable.containsPath(path: CallNodePath): Boolean =
+    path.functions.isNotEmpty() && stacks.any { stack -> functions(stack).startsWith(path.functions) }
 
 private fun CallStackTable.functions(stack: WeightedCallStack): List<FlameFunctionId> =
     stack.frameIdsRootToLeaf.map { frameId -> frame(frameId).functionId }
 
-private fun WeightedCallStack.withFramesOrNull(frameIds: List<Long>): WeightedCallStack? =
-    when {
-        frameIds.isEmpty() -> null
-        frameIds === frameIdsRootToLeaf || frameIds == frameIdsRootToLeaf -> this
-        else -> copy(frameIdsRootToLeaf = frameIds)
+private fun CallStackTable.withStacks(newStacks: List<WeightedCallStack>): CallStackTable =
+    if (stacks.hasSameInstances(newStacks)) this else copy(stacks = newStacks)
+
+private data class StackNode(
+    val frameId: Long,
+    val category: String?,
+)
+
+private fun WeightedCallStack.nodes(): List<StackNode> =
+    frameIdsRootToLeaf.indices.map { index ->
+        StackNode(frameIdsRootToLeaf[index], categoriesRootToLeaf[index])
     }
+
+private fun WeightedCallStack.withNodesOrNull(nodes: List<StackNode>): WeightedCallStack? {
+    if (nodes.isEmpty()) return null
+    val frameIds = nodes.map(StackNode::frameId)
+    val categories = nodes.map(StackNode::category)
+    return if (frameIds == frameIdsRootToLeaf && categories == categoriesRootToLeaf) {
+        this
+    } else {
+        copy(frameIdsRootToLeaf = frameIds, categoriesRootToLeaf = categories)
+    }
+}
+
+private fun collapsedResourceFunctionId(
+    resource: String,
+    frames: Collection<CallStackFrame>,
+): FlameFunctionId {
+    val reusableIds =
+        frames
+            .asSequence()
+            .filter { frame -> frame.collapsedResource == resource }
+            .map(CallStackFrame::functionId)
+            .distinct()
+            .toList()
+    reusableIds.singleOrNull()?.let { reusable ->
+        if (frames.none { frame -> frame.functionId == reusable && frame.collapsedResource != resource }) {
+            return reusable
+        }
+    }
+
+    val occupied = frames.mapTo(HashSet(), CallStackFrame::functionId)
+    var candidate = FlameFunctionId(stableResourceHash(resource))
+    while (candidate in occupied) {
+        candidate = FlameFunctionId(if (candidate.value == Long.MAX_VALUE) Long.MIN_VALUE else candidate.value + 1)
+    }
+    return candidate
+}
+
+private fun stableResourceHash(resource: String): Long {
+    var hash = FNV_64_OFFSET_BASIS
+    "collapsed-resource:$resource".encodeToByteArray().forEach { byte ->
+        hash = hash xor (byte.toLong() and BYTE_MASK)
+        hash *= FNV_64_PRIME
+    }
+    return hash
+}
 
 private fun <T> List<T>.withoutIndex(indexToRemove: Int): List<T> = filterIndexed { index, _ -> index != indexToRemove }
 
@@ -274,3 +325,7 @@ private fun List<WeightedCallStack>.hasSameInstances(other: List<WeightedCallSta
 
 private fun immutableTransformList(source: Collection<CallStackTransform>): List<CallStackTransform> =
     Collections.unmodifiableList(ArrayList(source))
+
+private const val FNV_64_OFFSET_BASIS = -3750763034362895579L
+private const val FNV_64_PRIME = 1099511628211L
+private const val BYTE_MASK = 0xffL

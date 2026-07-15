@@ -108,6 +108,57 @@ class CallStackTransformerTest {
     }
 
     @Test
+    fun `every transform keeps node categories aligned with surviving frame metadata`() {
+        val frames =
+            listOf(
+                frame(1, FlameFunctionId(1), "root", "app"),
+                frame(2, FlameFunctionId(2), "outer", "lib.so"),
+                frame(3, FlameFunctionId(2), "inner", "lib.so"),
+                frame(4, FlameFunctionId(2), "recursive", "app"),
+                frame(5, FlameFunctionId(5), "leaf", "app"),
+            ).associateBy(CallStackFrame::frameId)
+        val input =
+            stack(
+                sampleId = 1,
+                frameIds = listOf(1, 2, 3, 4, 5),
+                categoriesRootToLeaf = listOf("root", "outer", "inner", "recursive", "leaf"),
+            )
+        val table = CallStackTable(frames, listOf(input))
+        val categoriesByFrame = input.frameIdsRootToLeaf.zip(input.categoriesRootToLeaf).toMap()
+        val transforms =
+            listOf<CallStackTransform>(
+                CallStackTransform.FocusCallNode(CallNodePath(listOf(FlameFunctionId(1), FlameFunctionId(2)))),
+                CallStackTransform.FocusFunction(FlameFunctionId(2)),
+                CallStackTransform.FocusFunctionSelf(FlameFunctionId(5)),
+                CallStackTransform.MergeCallNode(CallNodePath(listOf(FlameFunctionId(1), FlameFunctionId(2)))),
+                CallStackTransform.MergeFunction(FlameFunctionId(2)),
+                CallStackTransform.DropFunction(FlameFunctionId(2)),
+                CallStackTransform.CollapseResource("lib.so"),
+                CallStackTransform.CollapseRecursion(FlameFunctionId(2)),
+                CallStackTransform.CollapseDirectRecursion(FlameFunctionId(2)),
+                CallStackTransform.CollapseFunctionSubtree(FlameFunctionId(2)),
+                CallStackTransform.FocusCategory("inner"),
+            )
+
+        transforms.forEach { transform ->
+            val result = CallStackTransformer.apply(table, listOf(transform))
+            result.table.stacks.forEach { rewritten ->
+                assertEquals(
+                    rewritten.frameIdsRootToLeaf.size,
+                    rewritten.categoriesRootToLeaf.size,
+                    transform.toString(),
+                )
+                assertEquals(
+                    rewritten.frameIdsRootToLeaf.map(categoriesByFrame::get),
+                    rewritten.categoriesRootToLeaf,
+                    transform.toString(),
+                )
+            }
+        }
+        assertEquals(listOf("root", "outer", "inner", "recursive", "leaf"), input.categoriesRootToLeaf)
+    }
+
+    @Test
     fun `result snapshots applied and invalid transform lists`() {
         val fixture = fixture()
         val valid = CallStackTransform.MergeFunction(B)
@@ -241,6 +292,7 @@ internal fun stack(
     sampleId: Long,
     frameIds: List<Long>,
     category: String? = "UI",
+    categoriesRootToLeaf: List<String?>? = null,
 ): WeightedCallStack =
     WeightedCallStack(
         sampleId = sampleId,
@@ -250,6 +302,7 @@ internal fun stack(
         category = category,
         subcategory = "subcategory-$sampleId",
         frameIdsRootToLeaf = frameIds,
+        categoriesRootToLeaf = categoriesRootToLeaf,
     )
 
 private val ROOT = FlameFunctionId(1)

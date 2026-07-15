@@ -64,14 +64,19 @@ object CallStackFilter {
             stacks
         } else {
             stacks.mapNotNull { stack ->
-                val matchingFrameIds =
-                    stack.frameIdsRootToLeaf.filter { frameId ->
+                val matchingIndexes =
+                    stack.frameIdsRootToLeaf.indices.filter { index ->
+                        val frameId = stack.frameIdsRootToLeaf[index]
                         table.frame(frameId).implementation.matches(implementation)
                     }
                 when {
-                    matchingFrameIds.isEmpty() -> null
-                    matchingFrameIds.size == stack.frameIdsRootToLeaf.size -> stack
-                    else -> stack.copy(frameIdsRootToLeaf = matchingFrameIds)
+                    matchingIndexes.isEmpty() -> null
+                    matchingIndexes.size == stack.frameIdsRootToLeaf.size -> stack
+                    else ->
+                        stack.copy(
+                            frameIdsRootToLeaf = matchingIndexes.map(stack.frameIdsRootToLeaf::get),
+                            categoriesRootToLeaf = matchingIndexes.map(stack.categoriesRootToLeaf::get),
+                        )
                 }
             }
         }

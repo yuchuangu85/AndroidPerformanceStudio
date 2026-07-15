@@ -3,6 +3,7 @@ package com.androidperformancestudio.profileanalysis
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class CallStackContractsTest {
     @Test
@@ -113,7 +114,8 @@ class CallStackContractsTest {
     @Test
     fun `stack query table and snapshot snapshot caller collections`() {
         val frameIds = mutableListOf(11L)
-        val stack = weightedStack(frameIds)
+        val frameCategories = mutableListOf<String?>("Graphics")
+        val stack = weightedStack(frameIds, frameCategories)
         val frames = mutableMapOf(11L to frame(11))
         val stacks = mutableListOf(stack)
         val table = CallStackTable(frames, stacks)
@@ -123,16 +125,28 @@ class CallStackContractsTest {
         val snapshot = FlameGraphSnapshot(query, callNodeTable(), emptyRows(), 1, null, invalidTransforms)
 
         frameIds[0] = 99
+        frameCategories[0] = "mutated"
         frames.clear()
         stacks.clear()
         transforms.clear()
         invalidTransforms.clear()
 
         assertEquals(listOf(11L), stack.frameIdsRootToLeaf)
+        assertEquals(listOf("Graphics"), stack.categoriesRootToLeaf)
         assertEquals(frame(11), table.frame(11))
         assertEquals(listOf(stack), table.stacks)
         assertEquals(listOf(CallStackTransform.FocusFunction(FlameFunctionId(11))), query.transforms)
         assertEquals(listOf(CallStackTransform.FocusFunction(FlameFunctionId(11))), snapshot.invalidTransforms)
+    }
+
+    @Test
+    fun `weighted stacks fallback categories per frame and reject misaligned snapshots`() {
+        val fallback = weightedStack(listOf(11L, 12L))
+
+        assertEquals(listOf("UI", "UI"), fallback.categoriesRootToLeaf)
+        assertFailsWith<IllegalArgumentException> {
+            weightedStack(listOf(11L, 12L), listOf("Graphics"))
+        }
     }
 
     private fun frame(frameId: Long) =
@@ -145,16 +159,19 @@ class CallStackContractsTest {
             implementation = FrameImplementation.NATIVE,
         )
 
-    private fun weightedStack(frameIds: List<Long>) =
-        WeightedCallStack(
-            sampleId = 1,
-            timestampNanos = 2,
-            weight = 3,
-            threadKey = "thread",
-            category = "UI",
-            subcategory = null,
-            frameIdsRootToLeaf = frameIds,
-        )
+    private fun weightedStack(
+        frameIds: List<Long>,
+        categoriesRootToLeaf: List<String?>? = null,
+    ) = WeightedCallStack(
+        sampleId = 1,
+        timestampNanos = 2,
+        weight = 3,
+        threadKey = "thread",
+        category = "UI",
+        subcategory = null,
+        frameIdsRootToLeaf = frameIds,
+        categoriesRootToLeaf = categoriesRootToLeaf,
+    )
 
     private fun callNodeTable(idsByPath: Map<CallNodePath, FlameCallNodeId> = emptyMap()) =
         CallNodeTable(
