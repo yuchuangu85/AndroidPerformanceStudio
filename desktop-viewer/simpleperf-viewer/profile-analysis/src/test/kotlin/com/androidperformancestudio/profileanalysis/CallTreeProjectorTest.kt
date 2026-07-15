@@ -137,6 +137,22 @@ class CallTreeProjectorTest {
     }
 
     @Test
+    fun `dominant category distinguishes null from empty regardless of sample order`() {
+        val nullFirst =
+            tableOf(
+                stack(1, 1, "null", listOf(ROOT, A), listOf(null, null)),
+                stack(2, 1, "empty", listOf(ROOT, A), listOf("", "")),
+            )
+        val emptyFirst = nullFirst.copy(stacks = nullFirst.stacks.reversed())
+
+        val firstCategory = CallTreeProjector.project(nullFirst).category(listOf("root", "A"))
+        val secondCategory = CallTreeProjector.project(emptyFirst).category(listOf("root", "A"))
+
+        assertEquals(firstCategory, secondCategory)
+        assertEquals(null, firstCategory)
+    }
+
+    @Test
     fun `negative stack weights are rejected before projection`() {
         val table =
             tableOf(

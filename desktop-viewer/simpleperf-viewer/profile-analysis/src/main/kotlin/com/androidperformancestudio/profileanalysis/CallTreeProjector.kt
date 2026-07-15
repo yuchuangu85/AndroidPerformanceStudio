@@ -248,7 +248,9 @@ private fun dominantCategory(weights: Map<String?, Long>): String? =
     weights.entries
         .sortedWith(
             compareByDescending<Map.Entry<String?, Long>>(Map.Entry<String?, Long>::value)
-                .thenBy { entry -> entry.key ?: "" },
+                .thenBy { entry -> if (entry.key == null) 0 else 1 }
+                .thenBy { entry -> entry.key?.lowercase(Locale.ROOT).orEmpty() }
+                .thenBy { entry -> entry.key.orEmpty() },
         ).firstOrNull()
         ?.key
 
