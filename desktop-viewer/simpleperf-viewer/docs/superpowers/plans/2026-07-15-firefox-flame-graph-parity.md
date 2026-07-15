@@ -159,10 +159,10 @@ class CallNodeTable(
     val threadCounts: IntArray,
     val categories: List<String?>,
     val framesById: Map<Long, CallStackFrame>,
+    private val idsByPath: Map<CallNodePath, FlameCallNodeId> = emptyMap(),
 ) {
-    private val pathIndex by lazy { CallNodePathIndex(this) }
     val size: Int get() = ids.size
-    fun findByPath(path: CallNodePath): FlameCallNodeId? = pathIndex.find(path)
+    fun findByPath(path: CallNodePath): FlameCallNodeId? = idsByPath[path]
 }
 
 class FlameGraphRows(
@@ -193,7 +193,7 @@ data class FlameGraphSnapshot(
 )
 ```
 
-Implement `CallNodePathIndex` as an internal immutable lookup built once per table; do not scan all nodes on every selection restoration.
+Populate `idsByPath` when Task 5 builds the table; do not scan all nodes on every selection restoration.
 
 - [ ] **Step 4: Run tests and static checks**
 
