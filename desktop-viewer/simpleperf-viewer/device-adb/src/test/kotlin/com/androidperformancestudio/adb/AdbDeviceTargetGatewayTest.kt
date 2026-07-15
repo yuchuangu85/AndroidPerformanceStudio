@@ -42,6 +42,16 @@ class AdbDeviceTargetGatewayTest {
         }
 
     @Test
+    fun `preserves simpleperf availability when the device prints no version`() =
+        runBlocking {
+            val gateway = gateway(simpleperfVersion = null)
+
+            val value = assertIs<StudioResult.Success<DeviceSelection>>(gateway.loadSelection("serial-1")).value
+
+            assertEquals("Available", value.capabilities.simpleperf)
+        }
+
+    @Test
     fun `maps thread results without changing pid or tid`() =
         runBlocking {
             val gateway = gateway()
@@ -82,7 +92,7 @@ class AdbDeviceTargetGatewayTest {
             assertEquals(0, laterStages)
         }
 
-    private fun gateway(): AdbDeviceTargetGateway =
+    private fun gateway(simpleperfVersion: String? = "simpleperf 1.0"): AdbDeviceTargetGateway =
         AdbDeviceTargetGateway(
             refreshDevices = {
                 StudioResult.Success(
@@ -104,7 +114,7 @@ class AdbDeviceTargetGatewayTest {
                         readiness = CapabilityReadiness.LIMITED,
                         rootAccess = RootAccess.UNAVAILABLE,
                         profilingScope = ProfilingScope.PROFILEABLE_OR_DEBUGGABLE_APPS,
-                        simpleperfVersion = "simpleperf 1.0",
+                        simpleperfVersion = simpleperfVersion,
                         eventNames = listOf("cpu-clock", "cpu-cycles"),
                         limitations = setOf(DeviceCapabilityLimitation.ROOT_UNAVAILABLE),
                     ),

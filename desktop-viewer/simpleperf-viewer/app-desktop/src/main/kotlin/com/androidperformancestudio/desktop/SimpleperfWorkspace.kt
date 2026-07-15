@@ -135,7 +135,7 @@ private fun createWorkspaceDependencies(): WorkspaceDependencies {
     return when (location) {
         is StudioResult.Success -> {
             val adbExecutable = location.value.executable
-            val preparer = DeviceSimpleperfManager(adbExecutable, assets = emptyList())
+            val preparer = DeviceSimpleperfManager(adbExecutable, loadBundledDeviceSimpleperfAssets())
             WorkspaceDependencies(
                 deviceGateway = AdbDeviceTargetGateway(adbExecutable),
                 captureSession = SimpleperfCaptureSession(adbExecutable, preparer),

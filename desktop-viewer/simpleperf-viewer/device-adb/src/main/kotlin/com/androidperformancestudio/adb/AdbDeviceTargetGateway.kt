@@ -117,7 +117,12 @@ private fun DeviceCapabilities.toSummary(): CapabilitySummary =
         status = CapabilityStatus.valueOf(readiness.name),
         root = rootAccess.name,
         profilingScope = profilingScope.name,
-        simpleperf = simpleperfVersion ?: "Missing",
+        simpleperf =
+            simpleperfVersion ?: if (DeviceCapabilityLimitation.SIMPLEPERF_UNAVAILABLE in limitations) {
+                "Missing"
+            } else {
+                "Available"
+            },
         eventNames = eventNames,
         limitations = limitations.map { it.name }.sorted(),
     )

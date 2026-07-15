@@ -20,7 +20,9 @@
 ## simpleperf 不存在或启动失败
 
 - 优先使用设备自带 simpleperf。
-- bundled simpleperf 必须匹配 ABI，推送后会校验 SHA-256、执行权限和 `--version`。
+- 设备端缺失时，应用支持 `arm64-v8a`、`armeabi-v7a`、`x86`、`x86_64` bundled simpleperf；资产会提取到用户目录下 `.android-performance-studio/tools/simpleperf/android-ndk-r27b`。
+- bundled simpleperf 提取前后会校验 SHA-256，远端已有文件会先比对摘要，推送后还会校验执行权限和 `--version`；本地摘要不一致时可删除上述缓存目录后重试。
+- `BUNDLED_SIMPLEPERF_ABI_UNAVAILABLE` 表示当前安装包缺少设备首选 ABI 的资产或设备 ABI 不在支持范围；官方安装包若在上述四种 ABI 上出现该错误，应重新安装完整包。
 - host simpleperf 必须是当前桌面平台可执行文件；配置错误时重新选择并检查 `--version` 输出。
 - 路径含空格/中文无需手工加引号，应用使用参数数组启动子进程。
 

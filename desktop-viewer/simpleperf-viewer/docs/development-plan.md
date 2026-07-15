@@ -98,7 +98,7 @@ V0.1 release candidate 的代码、测试、文档和本机 macOS 发行物已�
 | WBS-020 | 实现完成 | 采样目标、event、frequency/period、duration/manual stop、DWARF/frame pointer/no callgraph、user/kernel/both scope 与输出路径均为强类型模型；高级参数 UI 与自动采集共用参数对象 |
 | WBS-021 | 实现完成 | App CPU Basic、UI Thread Focus、Native Hotspot、Low Overhead、System Process 五个模板已接入 Capture 页面，切换模板保留所选目标 |
 | WBS-022 | 实现完成 | Capture 页面在上部提供一键获取数据，不展示或要求输入命令；客户端自动从参数模型生成并执行参数数组，已测试 App/PID/TID、frequency/period 和 callgraph 序列化 |
-| WBS-023 | 策略实现 | 优先使用设备端 simpleperf；缺失时按 ABI 选择 bundled 资产，校验远端 SHA-256，按需 mkdir/push/chmod 并执行 `--version` 验证；实际 bundled 二进制目录留待 WBS-083 打包阶段接入 |
+| WBS-023 | 实现完成 | 优先使用设备端 simpleperf；缺失时按 ABI 选择随应用提供的 Android NDK r27b `arm64-v8a`/`armeabi-v7a`/`x86`/`x86_64` 资产，提取前后校验 SHA-256，按需 mkdir/push/chmod 并执行 `--version` 验证 |
 | WBS-024 | 实现完成 | `Idle/Preparing/Recording/Stopping/Pulling/Completed/Failed/Cancelled` 已接入桌面 Start/Stop/Cancel；Stop 独立发送 SIGINT 后继续 pull，Cancel 终止任务，二者均保留日志 |
 | WBS-025 | 实现完成 | 每次采集创建隔离 session 目录，校验 session id 与目录边界，拉取并确认非空前置流程生成的 `perf.data`，完成/失败/取消均保留会话路径 |
 | WBS-026 | 实现完成 | 持久化最终命令、record/pull stdout、stderr、退出码、截断标记、命令与时间戳，并以稳定 `session.properties` 记录完成、失败或取消状态 |

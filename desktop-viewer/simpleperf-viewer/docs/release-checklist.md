@@ -5,6 +5,7 @@
 - [x] `./gradlew check`：JUnit、ktlint、detekt。
 - [x] 百万样本 PoC：导入不 OOM，Top/Timeline/Flame CPU 准备达到门槛。
 - [x] Android 10/API 29 到 Android 16/API 36、arm64-v8a/armeabi-v7a/x86_64 合成 protobuf 兼容矩阵。
+- [x] Android NDK r27b device simpleperf 的四种 ABI 资产随桌面应用打包，提取后 ELF magic 与 SHA-256 自动校验。
 - [x] Golden 会话在含空格/中文路径完成导入、分析、JSON/CSV 导出、打包、重开。
 - [x] 会话包清单/hash、zip-slip、重复条目、符号链接、条目/总大小上限测试。
 - [x] 本机 macOS portable app image 与 DMG 生成。
