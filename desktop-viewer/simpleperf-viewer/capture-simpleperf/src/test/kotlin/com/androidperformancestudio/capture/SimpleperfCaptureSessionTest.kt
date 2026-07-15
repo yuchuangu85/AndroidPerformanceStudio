@@ -167,6 +167,47 @@ class SimpleperfCaptureSessionTest {
         }
 
     @Test
+    fun `explains when the selected app is not profileable`() =
+        runBlocking {
+            val root = Files.createTempDirectory("aps-capture-profileable-")
+            val stderr =
+                "simpleperf E environment.cpp:825] Package com.hihonor.android.launcher " +
+                    "doesn't exist or isn't debuggable/profileable."
+            val session =
+                SimpleperfCaptureSession(
+                    adbExecutable = Path.of("adb"),
+                    simpleperfPreparer = preparedDeviceSimpleperf(),
+                    processInvocation = { request, _ ->
+                        if ("record" in request.arguments) {
+                            failed(
+                                request = request,
+                                error =
+                                    StudioError(
+                                        category = ErrorCategory.PROCESS_EXIT,
+                                        code = "PROCESS_EXIT_1",
+                                        message = "Process exited with code 1",
+                                    ),
+                                stderr = stderr,
+                            )
+                        } else {
+                            completed(request, stdout = "")
+                        }
+                    },
+                )
+
+            val failure = assertIs<CaptureState.Failed>(session.capture(captureRequest(root)))
+
+            assertEquals(ErrorCategory.CONFIGURATION, failure.error.category)
+            assertEquals("TARGET_NOT_PROFILEABLE", failure.error.code)
+            assertEquals(
+                "The selected app is not debuggable/profileable. Select a debuggable or profileable app, " +
+                    "or use a rooted/userdebug device.",
+                failure.error.message,
+            )
+            assertEquals(stderr, failure.sessionDirectory.resolve("record.stderr.log").readText())
+        }
+
+    @Test
     fun `cancels an active record and retains cancellation evidence`() =
         runBlocking {
             val root = Files.createTempDirectory("aps-capture-cancel-")

@@ -217,7 +217,7 @@ class SimpleperfCaptureSession(
         artifacts.writeProcessOutput("record", recordResult.outputOrNull())
         val outcome =
             when (recordResult) {
-                is ProcessRunResult.Failed -> artifacts.finishFailure(recordResult.error, prepared)
+                is ProcessRunResult.Failed -> artifacts.finishFailure(recordResult.captureError(), prepared)
                 is ProcessRunResult.Completed -> pull(request, prepared, artifacts, cancellation)
             }
         cleanupRemoteOutput(request, artifacts)
@@ -413,9 +413,26 @@ private fun ProcessRunResult.outputOrNull(): ProcessOutput? =
         is ProcessRunResult.Failed -> output
     }
 
+private fun ProcessRunResult.Failed.captureError(): StudioError {
+    val stderr = output?.stderr?.text.orEmpty()
+    return if (error.category == ErrorCategory.PROCESS_EXIT && NOT_PROFILEABLE_ERROR in stderr) {
+        StudioError(
+            category = ErrorCategory.CONFIGURATION,
+            code = "TARGET_NOT_PROFILEABLE",
+            message =
+                "The selected app is not debuggable/profileable. Select a debuggable or profileable app, " +
+                    "or use a rooted/userdebug device.",
+        )
+    } else {
+        error
+    }
+}
+
 private fun SamplingParameters.captureTimeout() = durationSeconds?.seconds?.plus(15.seconds) ?: 24.hours
 
 private fun String.propertyValue(): String = replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
+
+private const val NOT_PROFILEABLE_ERROR = "doesn't exist or isn't debuggable/profileable"
 
 private fun ioError(
     code: String,
