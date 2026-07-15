@@ -52,6 +52,7 @@ internal class DesktopReportActionFactory(
                 scope.launch { controller.updateTopFunctions(search, sort, descending) }
             },
             onCallTreeDirection = { direction -> scope.launch { controller.updateCallTreeDirection(direction) } },
+            onSelectFlameNode = controller::selectCallNode,
             onFocusCallTreeFunction = controller::focusCallTreeFunction,
             onFocusFunction = controller::focusFunction,
             onExportSession = { exportSession(state) },

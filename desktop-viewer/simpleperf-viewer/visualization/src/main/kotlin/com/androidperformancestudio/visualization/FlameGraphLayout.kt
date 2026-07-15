@@ -100,7 +100,20 @@ object FlameGraphLayout {
             }
         }
     }
+
+    fun clampScrollRow(
+        snapshot: FlameGraphSnapshot,
+        viewport: FlameViewport,
+    ): Int {
+        val maximumScrollRow = maximumScrollRow(snapshot.rows.rowCount, viewport)
+        return viewport.scrollRow.coerceIn(0, maximumScrollRow)
+    }
 }
+
+private fun maximumScrollRow(
+    rowCount: Int,
+    viewport: FlameViewport,
+): Int = (rowCount - visibleRowCount(rowCount, viewport.heightPx, viewport.rowHeightPx)).coerceAtLeast(0)
 
 private fun materializedRows(
     rowCount: Int,

@@ -119,7 +119,7 @@ fun FlameGraphCanvas(
                 selectedNodeId = selectedNodeId,
                 hoveredNodeId = hoveredNodeId,
                 contextNodeId = contextNodeId,
-                label = labelForNode(node),
+                labelForNode = { labelForNode(node) },
                 textMeasurer = textMeasurer,
             )
         }
@@ -132,7 +132,7 @@ private fun DrawScope.drawFlameNode(
     selectedNodeId: FlameCallNodeId?,
     hoveredNodeId: FlameCallNodeId?,
     contextNodeId: FlameCallNodeId?,
-    label: String,
+    labelForNode: () -> String,
     textMeasurer: TextMeasurer,
 ) {
     val colors =
@@ -160,7 +160,32 @@ private fun DrawScope.drawFlameNode(
             style = Stroke(width = OUTLINE_WIDTH_PX),
         )
     }
-    drawFittedLabel(node, drawableHeight, label, colors.foreground.toComposeColor(), textMeasurer)
+    if (shouldResolveFlameLabel(node, size.width, size.height)) {
+        drawFittedLabel(
+            node,
+            drawableHeight,
+            labelForNode(),
+            colors.foreground.toComposeColor(),
+            textMeasurer,
+        )
+    }
+}
+
+internal fun shouldResolveFlameLabel(
+    node: VisibleFlameNode,
+    canvasWidth: Float,
+    canvasHeight: Float,
+): Boolean {
+    val drawableHeight = (node.height - NODE_GAP_PX).coerceAtLeast(MINIMUM_NODE_HEIGHT_PX)
+    val maximumTextWidth = node.width - HORIZONTAL_LABEL_PADDING_PX * 2
+    return canvasWidth.isFinite() &&
+        canvasHeight.isFinite() &&
+        maximumTextWidth >= MINIMUM_LABEL_WIDTH_PX &&
+        drawableHeight >= MINIMUM_LABEL_HEIGHT_PX &&
+        node.x < canvasWidth &&
+        node.x + node.width > 0f &&
+        node.y < canvasHeight &&
+        node.y + drawableHeight > 0f
 }
 
 private fun DrawScope.drawFittedLabel(

@@ -12,7 +12,9 @@ import com.androidperformancestudio.profileanalysis.FrameImplementation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class FlameGraphInteractionTest {
     private val back = VisibleFlameNode(0, FlameCallNodeId(10), 0f, 0f, 20f, 20f)
@@ -91,6 +93,35 @@ class FlameGraphInteractionTest {
         assertFailsWith<IllegalArgumentException> {
             FlameViewport(widthPx = 100, heightPx = 10, scrollRow = 0, rowHeightPx = Float.NaN)
         }
+    }
+
+    @Test
+    fun `scroll rows clamp after viewport or row count changes`() {
+        val snapshot = deepSnapshot(rowCount = 20)
+
+        assertEquals(
+            17,
+            FlameGraphLayout.clampScrollRow(
+                snapshot,
+                FlameViewport(widthPx = 100, heightPx = 48, scrollRow = 99, rowHeightPx = 16f),
+            ),
+        )
+        assertEquals(
+            10,
+            FlameGraphLayout.clampScrollRow(
+                snapshot,
+                FlameViewport(widthPx = 100, heightPx = 160, scrollRow = 17, rowHeightPx = 16f),
+            ),
+        )
+    }
+
+    @Test
+    fun `labels reject narrow short and off viewport nodes before resolution`() {
+        assertFalse(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, 0f, 10f, 16f), 100f, 100f))
+        assertFalse(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, 0f, 20f, 7f), 100f, 100f))
+        assertFalse(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, -20f, 20f, 16f), 100f, 100f))
+        assertFalse(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 100f, 0f, 20f, 16f), 100f, 100f))
+        assertTrue(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, 0f, 20f, 16f), 100f, 100f))
     }
 
     private fun deepSnapshot(

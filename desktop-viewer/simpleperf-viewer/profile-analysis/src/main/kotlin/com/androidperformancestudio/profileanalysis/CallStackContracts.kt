@@ -218,7 +218,7 @@ data class CallStackAnalysisQuery private constructor(
             "implementation=$implementation, direction=$direction, transforms=$transforms)"
 }
 
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "TooManyFunctions")
 class CallNodeTable(
     ids: LongArray,
     parentIndexes: IntArray,
@@ -244,6 +244,7 @@ class CallNodeTable(
     private val framesSnapshot = immutableMap(framesById)
     private val idsByPathSnapshot = immutableMap(idsByPath)
     private val indexByIdSnapshot = idsSnapshot.withIndex().associate { indexed -> indexed.value to indexed.index }
+    private val adjacencySnapshot = CallNodeAdjacency(parentIndexesSnapshot, idsSnapshot.size)
     private val pathIndexSnapshot =
         CompactCallNodePathIndex(idsSnapshot, parentIndexesSnapshot, frameIdsSnapshot, framesSnapshot)
 
@@ -265,6 +266,12 @@ class CallNodeTable(
     fun nodeIdAt(nodeIndex: Int): FlameCallNodeId? = idsSnapshot.getOrNull(nodeIndex)?.let(::FlameCallNodeId)
 
     fun parentIndexAt(nodeIndex: Int): Int? = parentIndexesSnapshot.getOrNull(nodeIndex)
+
+    fun firstChildIndexAt(nodeIndex: Int): Int? = adjacencySnapshot.firstChildIndexAt(nodeIndex)
+
+    fun nextSiblingIndexAt(nodeIndex: Int): Int? = adjacencySnapshot.nextSiblingIndexAt(nodeIndex)
+
+    fun previousSiblingIndexAt(nodeIndex: Int): Int? = adjacencySnapshot.previousSiblingIndexAt(nodeIndex)
 
     fun frameAt(nodeIndex: Int): CallStackFrame? = frameIdsSnapshot.getOrNull(nodeIndex)?.let(framesSnapshot::get)
 
@@ -306,6 +313,49 @@ class CallNodeTable(
         return result
     }
 }
+
+private class CallNodeAdjacency(
+    parentIndexes: IntArray,
+    size: Int,
+) {
+    private val firstChildIndexes = IntArray(size) { NO_NODE_INDEX }
+    private val nextSiblingIndexes = IntArray(size) { NO_NODE_INDEX }
+    private val previousSiblingIndexes = IntArray(size) { NO_NODE_INDEX }
+
+    init {
+        val lastChildIndexes = IntArray(size) { NO_NODE_INDEX }
+        var lastRootIndex = NO_NODE_INDEX
+        repeat(size) { nodeIndex ->
+            val parentIndex = parentIndexes.getOrNull(nodeIndex) ?: NO_NODE_INDEX
+            if (parentIndex == NO_NODE_INDEX) {
+                if (lastRootIndex != NO_NODE_INDEX) {
+                    nextSiblingIndexes[lastRootIndex] = nodeIndex
+                    previousSiblingIndexes[nodeIndex] = lastRootIndex
+                }
+                lastRootIndex = nodeIndex
+            } else if (parentIndex in 0 until size && parentIndex != nodeIndex) {
+                val previousSiblingIndex = lastChildIndexes[parentIndex]
+                if (previousSiblingIndex == NO_NODE_INDEX) {
+                    firstChildIndexes[parentIndex] = nodeIndex
+                } else {
+                    nextSiblingIndexes[previousSiblingIndex] = nodeIndex
+                    previousSiblingIndexes[nodeIndex] = previousSiblingIndex
+                }
+                lastChildIndexes[parentIndex] = nodeIndex
+            }
+        }
+    }
+
+    fun firstChildIndexAt(nodeIndex: Int): Int? = firstChildIndexes.nodeIndexAt(nodeIndex)
+
+    fun nextSiblingIndexAt(nodeIndex: Int): Int? = nextSiblingIndexes.nodeIndexAt(nodeIndex)
+
+    fun previousSiblingIndexAt(nodeIndex: Int): Int? = previousSiblingIndexes.nodeIndexAt(nodeIndex)
+}
+
+private fun IntArray.nodeIndexAt(index: Int): Int? = getOrNull(index)?.takeUnless { it == NO_NODE_INDEX }
+
+private const val NO_NODE_INDEX = -1
 
 private class CompactCallNodePathIndex(
     ids: LongArray,

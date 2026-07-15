@@ -127,7 +127,7 @@ private fun ReportContent(
                 ReportTab.TIMELINE -> TimelineReport(state, report, actions)
                 ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions)
                 ReportTab.CALL_TREE -> CallTreeReport(state, report, actions)
-                ReportTab.FLAME_GRAPH -> FlameGraphReport(state, report)
+                ReportTab.FLAME_GRAPH -> FlameGraphReport(state, report, actions)
                 ReportTab.DIAGNOSTICS -> DiagnosticsReport(report, actions)
             }
         }
@@ -513,35 +513,44 @@ private fun List<CallTreeNode>.expandedPathIds(search: String): Set<Long> {
 private fun FlameGraphReport(
     state: ReportState,
     report: ReportData,
+    actions: ReportActions,
 ) {
-    var selectedId by remember(report.flameGraph, state.flameGraph.selectedNodeId) {
-        mutableStateOf(state.flameGraph.selectedNodeId)
-    }
     var hoveredId by remember(report.flameGraph) { mutableStateOf<FlameCallNodeId?>(null) }
     var contextId by remember(report.flameGraph) { mutableStateOf<FlameCallNodeId?>(null) }
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
+    var scrollRow by remember(report.flameGraph) { mutableIntStateOf(0) }
+    val focusRequester = remember { FocusRequester() }
+    val requestedViewport =
+        FlameViewport(
+            widthPx = widthPixels,
+            heightPx = heightPixels,
+            scrollRow = scrollRow,
+            rowHeightPx = FLAME_ROW_HEIGHT,
+        )
+    val clampedScrollRow = FlameGraphLayout.clampScrollRow(report.flameGraph, requestedViewport)
+    val viewport = requestedViewport.copy(scrollRow = clampedScrollRow)
     val layout =
-        remember(report.flameGraph, widthPixels, heightPixels) {
-            FlameGraphLayout.layout(
-                report.flameGraph,
-                FlameViewport(
-                    widthPx = widthPixels,
-                    heightPx = heightPixels,
-                    scrollRow = 0,
-                    rowHeightPx = FLAME_ROW_HEIGHT,
-                ),
-            )
+        remember(report.flameGraph, viewport) {
+            FlameGraphLayout.layout(report.flameGraph, viewport)
         }
     val selected =
-        remember(report.flameGraph, selectedId) {
-            selectedId?.let(report.flameGraph::resolveLegacyNode)
+        remember(report.flameGraph, state.flameGraph.selectedNodeId) {
+            state.flameGraph.selectedNodeId?.let(report.flameGraph::resolveLegacyNode)
         }
+
+    LaunchedEffect(report.flameGraph, state.flameGraph.selectedNodeId, heightPixels) {
+        val revealedScrollRow =
+            state.flameGraph.selectedNodeId?.let { selectedNodeId ->
+                FlameGraphLayout.scrollRowToReveal(report.flameGraph, selectedNodeId, viewport)
+            } ?: clampedScrollRow
+        if (scrollRow != revealedScrollRow) scrollRow = revealedScrollRow
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         FlameGraphCanvas(
             layout = layout,
-            selectedNodeId = selectedId,
+            selectedNodeId = state.flameGraph.selectedNodeId,
             hoveredNodeId = hoveredId,
             contextNodeId = contextId,
             labelForNode = { node ->
@@ -554,17 +563,38 @@ private fun FlameGraphReport(
                 when (intent) {
                     is FlameGraphIntent.Hover -> hoveredId = intent.nodeId
                     is FlameGraphIntent.Select -> {
-                        selectedId = intent.nodeId
+                        actions.onSelectFlameNode(intent.nodeId)
                         contextId = null
                     }
                     is FlameGraphIntent.OpenContextMenu -> contextId = intent.nodeId
-                    is FlameGraphIntent.OpenDetails -> selectedId = intent.nodeId
+                    is FlameGraphIntent.OpenDetails -> actions.onSelectFlameNode(intent.nodeId)
                 }
             },
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 220.dp, max = 520.dp)
+                    .focusRequester(focusRequester)
+                    .onPreviewKeyEvent { event ->
+                        val command = FlameGraphKeyboardNavigation.commandFor(event.key, event.type)
+                        val navigation =
+                            command?.let { navigationCommand ->
+                                FlameGraphKeyboardNavigation.navigate(
+                                    report.flameGraph,
+                                    state.flameGraph.selectedNodeId,
+                                    navigationCommand,
+                                    viewport,
+                                )
+                            }
+                        if (navigation == null) {
+                            false
+                        } else {
+                            actions.onSelectFlameNode(navigation.targetNodeId)
+                            scrollRow = navigation.scrollRow
+                            true
+                        }
+                    }.focusable()
+                    .onPointerEvent(PointerEventType.Press) { focusRequester.requestFocus() }
                     .onSizeChanged { size ->
                         widthPixels = size.width
                         heightPixels = size.height

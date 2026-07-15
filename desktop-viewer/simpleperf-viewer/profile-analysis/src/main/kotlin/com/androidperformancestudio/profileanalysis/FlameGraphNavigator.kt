@@ -20,14 +20,14 @@ object FlameGraphNavigator {
         val nodeIndex = snapshot.callNodes.indexOf(nodeId) ?: return null
         var widestIndex: Int? = null
         var widestWidth = Double.NEGATIVE_INFINITY
-        repeat(snapshot.callNodes.size) { candidateIndex ->
-            if (snapshot.callNodes.parentIndexAt(candidateIndex) == nodeIndex) {
-                val candidateWidth = snapshot.eligibleWidth(candidateIndex, minimumNormalizedWidth)
-                if (candidateWidth != null && candidateWidth > widestWidth) {
-                    widestIndex = candidateIndex
-                    widestWidth = candidateWidth
-                }
+        var candidateIndex = snapshot.callNodes.firstChildIndexAt(nodeIndex)
+        while (candidateIndex != null) {
+            val candidateWidth = snapshot.eligibleWidth(candidateIndex, minimumNormalizedWidth)
+            if (candidateWidth != null && candidateWidth > widestWidth) {
+                widestIndex = candidateIndex
+                widestWidth = candidateWidth
             }
+            candidateIndex = snapshot.callNodes.nextSiblingIndexAt(candidateIndex)
         }
         return widestIndex?.let(snapshot.callNodes::nodeIdAt)
     }
@@ -57,21 +57,20 @@ private fun sibling(
     return if (nodeIndex == null || parentIndex == null) {
         null
     } else {
-        val candidateIndexes =
-            if (searchForward) {
-                (nodeIndex + 1) until snapshot.callNodes.size
-            } else {
-                (nodeIndex - 1 downTo 0)
-            }
-        candidateIndexes.firstNotNullOfOrNull { candidateIndex ->
-            if (snapshot.callNodes.parentIndexAt(candidateIndex) == parentIndex) {
-                snapshot.eligibleNodeId(candidateIndex, minimumNormalizedWidth)
-            } else {
-                null
-            }
+        var candidateIndex = snapshot.callNodes.siblingIndexAt(nodeIndex, searchForward)
+        var eligibleNodeId: FlameCallNodeId? = null
+        while (candidateIndex != null && eligibleNodeId == null) {
+            eligibleNodeId = snapshot.eligibleNodeId(candidateIndex, minimumNormalizedWidth)
+            candidateIndex = snapshot.callNodes.siblingIndexAt(candidateIndex, searchForward)
         }
+        eligibleNodeId
     }
 }
+
+private fun CallNodeTable.siblingIndexAt(
+    nodeIndex: Int,
+    searchForward: Boolean,
+): Int? = if (searchForward) nextSiblingIndexAt(nodeIndex) else previousSiblingIndexAt(nodeIndex)
 
 private fun FlameGraphSnapshot.eligibleNodeId(
     nodeIndex: Int,

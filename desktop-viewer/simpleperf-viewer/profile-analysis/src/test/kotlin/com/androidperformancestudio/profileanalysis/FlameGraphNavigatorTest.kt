@@ -67,6 +67,29 @@ class FlameGraphNavigatorTest {
         }
     }
 
+    @Test
+    fun `navigation follows only precomputed direct relationships in a large table`() {
+        val unrelatedRootCount = 100_000
+        val parentIndexes = IntArray(unrelatedRootCount + 4) { -1 }
+        parentIndexes[unrelatedRootCount] = 50_000
+        parentIndexes[unrelatedRootCount + 1] = 50_000
+        parentIndexes[unrelatedRootCount + 2] = 50_000
+        parentIndexes[unrelatedRootCount + 3] = unrelatedRootCount + 1
+        val snapshot = flatSnapshot(parentIndexes)
+        val root = id(50_000)
+        val firstChild = id(unrelatedRootCount.toLong())
+        val middleChild = id(unrelatedRootCount + 1L)
+        val lastChild = id(unrelatedRootCount + 2L)
+
+        assertEquals(unrelatedRootCount, snapshot.callNodes.firstChildIndexAt(50_000))
+        assertEquals(unrelatedRootCount + 1, snapshot.callNodes.nextSiblingIndexAt(unrelatedRootCount))
+        assertEquals(unrelatedRootCount + 1, snapshot.callNodes.previousSiblingIndexAt(unrelatedRootCount + 2))
+        assertEquals(firstChild, FlameGraphNavigator.widestChild(snapshot, root))
+        assertEquals(middleChild, FlameGraphNavigator.nextSibling(snapshot, firstChild))
+        assertEquals(lastChild, FlameGraphNavigator.nextSibling(snapshot, middleChild))
+        assertEquals(middleChild, FlameGraphNavigator.parent(snapshot, id(unrelatedRootCount + 3L)))
+    }
+
     private fun navigationSnapshot(
         startsAtBottom: Boolean = true,
         equalChildWidths: Boolean = false,
@@ -118,6 +141,37 @@ class FlameGraphNavigatorTest {
             virtualAddress = id,
             implementation = FrameImplementation.NATIVE,
         )
+
+    private fun flatSnapshot(parentIndexes: IntArray): FlameGraphSnapshot {
+        val ids = LongArray(parentIndexes.size) { it.toLong() }
+        val frames = ids.associateWith(::frame)
+        return FlameGraphSnapshot(
+            query = CallStackAnalysisQuery(),
+            callNodes =
+                CallNodeTable(
+                    ids = ids,
+                    parentIndexes = parentIndexes,
+                    frameIds = ids,
+                    depths = IntArray(ids.size),
+                    inclusiveWeights = LongArray(ids.size) { 1 },
+                    selfWeights = LongArray(ids.size),
+                    sampleCounts = LongArray(ids.size),
+                    threadCounts = IntArray(ids.size),
+                    categories = List(ids.size) { null },
+                    framesById = frames,
+                ),
+            rows =
+                FlameGraphRows(
+                    nodeIndexesByRow = listOf(IntArray(ids.size) { it }),
+                    starts = DoubleArray(ids.size),
+                    ends = DoubleArray(ids.size) { 1.0 },
+                    startsAtBottom = true,
+                ),
+            totalWeight = ids.size.toLong(),
+            emptyReason = null,
+            invalidTransforms = emptyList(),
+        )
+    }
 
     private fun id(value: Long) = FlameCallNodeId(value)
 }
