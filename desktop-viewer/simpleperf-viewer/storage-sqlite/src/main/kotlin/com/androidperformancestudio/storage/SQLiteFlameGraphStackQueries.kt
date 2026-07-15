@@ -35,7 +35,7 @@ internal object SQLiteFlameGraphStackQueries {
             "SELECT s.sample_id, s.timestamp_nanos, s.event_count, " +
             "CASE WHEN s.thread_row_id IS NULL THEN 'legacy:' || s.thread_id " +
             "ELSE 'canonical:' || s.thread_row_id END, s.category_name, s.subcategory_name, s.leaf_callsite_id " +
-            "FROM sample s JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
+            "FROM sample s LEFT JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
             "), stack(" +
             "sample_id, timestamp_nanos, event_count, thread_key, category_name, subcategory_name, " +
             "callsite_id, depth, visited_callsite_ids" +
@@ -49,7 +49,7 @@ internal object SQLiteFlameGraphStackQueries {
             "WHERE c.parent_id IS NOT NULL " +
             "AND instr(st.visited_callsite_ids, ',' || c.parent_id || ',') = 0" +
             ") SELECT st.sample_id, st.timestamp_nanos, st.event_count, st.thread_key, st.category_name, " +
-            "st.subcategory_name, st.callsite_id, c.frame_id, f.symbol_id, sy.name, fi.path, " +
+            "st.subcategory_name, st.callsite_id, f.frame_id, sy.symbol_id, sy.name, fi.path, " +
             "f.virtual_address, f.execution_type, st.depth FROM stack st " +
             "LEFT JOIN callsite c ON c.callsite_id=st.callsite_id " +
             "LEFT JOIN frame f ON f.frame_id=c.frame_id LEFT JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
@@ -60,7 +60,7 @@ internal object SQLiteFlameGraphStackQueries {
             "sample_id, timestamp_nanos, event_count, thread_key, category_name, subcategory_name, callsite_id" +
             ") AS (" +
             "SELECT s.sample_id, s.timestamp_nanos, s.event_count, 'legacy:' || s.thread_id, NULL, NULL, " +
-            "s.leaf_callsite_id FROM sample s JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
+            "s.leaf_callsite_id FROM sample s LEFT JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
             "), stack(" +
             "sample_id, timestamp_nanos, event_count, thread_key, category_name, subcategory_name, " +
             "callsite_id, depth, visited_callsite_ids" +
@@ -74,7 +74,7 @@ internal object SQLiteFlameGraphStackQueries {
             "WHERE c.parent_id IS NOT NULL " +
             "AND instr(st.visited_callsite_ids, ',' || c.parent_id || ',') = 0" +
             ") SELECT st.sample_id, st.timestamp_nanos, st.event_count, st.thread_key, st.category_name, " +
-            "st.subcategory_name, st.callsite_id, c.frame_id, f.symbol_id, sy.name, fi.path, " +
+            "st.subcategory_name, st.callsite_id, f.frame_id, sy.symbol_id, sy.name, fi.path, " +
             "f.virtual_address, f.execution_type, st.depth FROM stack st " +
             "LEFT JOIN callsite c ON c.callsite_id=st.callsite_id " +
             "LEFT JOIN frame f ON f.frame_id=c.frame_id LEFT JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
@@ -157,16 +157,32 @@ private fun ResultSet.stackRow(): FlameStackRow =
 
 @Suppress("MagicNumber")
 private fun ResultSet.callStackFrameOrNull(): CallStackFrame? {
-    val frameId = getLong(8)
-    if (wasNull()) return null
-    return CallStackFrame(
-        frameId = frameId,
-        functionId = FlameFunctionId(getLong(9)),
-        symbolName = getString(10),
-        resource = getString(11),
-        virtualAddress = getLong(12),
-        implementation = getString(13).toFrameImplementation(),
-    )
+    val frameId = getNullableLong(8)
+    val functionId = getNullableLong(9)
+    val symbolName = getString(10)
+    val resource = getString(11)
+    val virtualAddress = getNullableLong(12)
+    val executionType = getString(13)
+    val identityComplete = frameId != null && functionId != null
+    val namingComplete = symbolName != null && resource != null
+    val metadataComplete = virtualAddress != null && executionType != null
+    return if (identityComplete && namingComplete && metadataComplete) {
+        CallStackFrame(
+            frameId = requireNotNull(frameId),
+            functionId = FlameFunctionId(requireNotNull(functionId)),
+            symbolName = requireNotNull(symbolName),
+            resource = requireNotNull(resource),
+            virtualAddress = requireNotNull(virtualAddress),
+            implementation = requireNotNull(executionType).toFrameImplementation(),
+        )
+    } else {
+        null
+    }
+}
+
+private fun ResultSet.getNullableLong(index: Int): Long? {
+    val value = getLong(index)
+    return if (wasNull()) null else value
 }
 
 private fun String.toFrameImplementation(): FrameImplementation =

@@ -56,7 +56,10 @@ class SQLiteFlameGraphStackQueriesTest {
                 assertEquals(listOf("runLoop", "renderFrame"), frames.map { it.symbolName })
                 assertEquals(expectedFunctionIds, frames.map { it.functionId })
                 assertEquals(listOf(0x10L, 0x20L), frames.map { it.virtualAddress })
-                assertEquals(listOf("/system/lib64/libui.so", "/system/lib64/libui.so"), frames.map { it.resource })
+                assertEquals(
+                    listOf("/system/lib64/libui.so", "/system/lib64/librender.so"),
+                    frames.map { it.resource },
+                )
                 assertEquals("canonical:$canonicalThreadRowId", stack.threadKey)
                 assertEquals("Graphics", stack.category)
                 assertEquals("Frame", stack.subcategory)
@@ -154,14 +157,111 @@ class SQLiteFlameGraphStackQueriesTest {
         }
     }
 
+    @Test
+    fun `canonical loader skips frames with dangling required relations`() {
+        val corruptions =
+            listOf(
+                "missing frame" to
+                    "DELETE FROM frame WHERE frame_id = (" +
+                    "SELECT f.frame_id FROM frame f JOIN symbol sy USING(symbol_id) " +
+                    "WHERE sy.name = 'renderFrame')",
+                "missing symbol" to "DELETE FROM symbol WHERE name = 'renderFrame'",
+                "missing file" to "DELETE FROM file WHERE path = '/system/lib64/librender.so'",
+            )
+
+        corruptions.forEach { (case, corruption) ->
+            withStore { store ->
+                store.importCanonicalRecords(canonicalRecords())
+                store.connection.corrupt(corruption)
+
+                val table = SQLiteFlameGraphStackQueries.load(store.connection, ProfileQuery())
+
+                assertEquals(listOf(1L, 2L), table.stacks.map { it.sampleId }, case)
+                table.stacks.forEach { stack ->
+                    assertEquals(
+                        listOf("runLoop"),
+                        stack.frameIdsRootToLeaf.map(table::frame).map { it.symbolName },
+                        case,
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `legacy loader skips frames with dangling required relations`() {
+        val corruptions =
+            listOf(
+                "missing frame" to "DELETE FROM frame WHERE frame_id = 2",
+                "missing symbol" to "DELETE FROM symbol WHERE symbol_id = 2",
+                "missing file" to "DELETE FROM file WHERE file_id = 2",
+            )
+
+        corruptions.forEach { (case, corruption) -> assertLegacyDanglingRelation(case, corruption) }
+    }
+
+    @Test
+    fun `canonical loader retains unresolved events only when event type is unfiltered`() =
+        withStore { store ->
+            store.importCanonicalRecords(canonicalRecords())
+            store.connection.corrupt("DELETE FROM event")
+
+            val unfiltered = SQLiteFlameGraphStackQueries.load(store.connection, ProfileQuery())
+            val filtered =
+                SQLiteFlameGraphStackQueries.load(
+                    store.connection,
+                    ProfileQuery(eventTypes = setOf("cpu-cycles")),
+                )
+
+            assertEquals(listOf(1L, 2L), unfiltered.stacks.map { it.sampleId })
+            assertEquals(listOf(100L, 200L), unfiltered.stacks.map { it.timestampNanos })
+            assertEquals(listOf(5L, 8L), unfiltered.stacks.map { it.weight })
+            unfiltered.stacks.forEach { stack ->
+                assertEquals(
+                    listOf("runLoop", "renderFrame"),
+                    stack.frameIdsRootToLeaf.map(unfiltered::frame).map { it.symbolName },
+                )
+            }
+            assertEquals(emptyList(), filtered.stacks)
+        }
+
+    @Test
+    fun `legacy loader retains unresolved events only when event type is unfiltered`() {
+        val database = legacyDatabase()
+        try {
+            DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
+                connection.corrupt("DELETE FROM event")
+
+                val unfiltered = SQLiteFlameGraphStackQueries.load(connection, ProfileQuery())
+                val filtered =
+                    SQLiteFlameGraphStackQueries.load(
+                        connection,
+                        ProfileQuery(eventTypes = setOf("cpu-cycles")),
+                    )
+
+                assertEquals(listOf(1L, 2L, 3L), unfiltered.stacks.map { it.sampleId })
+                assertEquals(listOf(10L, 20L, 30L), unfiltered.stacks.map { it.timestampNanos })
+                assertEquals(listOf(3L, 4L, 6L), unfiltered.stacks.map { it.weight })
+                val populatedStack = unfiltered.stacks.single { it.sampleId == 1L }
+                assertEquals(
+                    listOf("leaf"),
+                    populatedStack.frameIdsRootToLeaf.map(unfiltered::frame).map { it.symbolName },
+                )
+                assertEquals(emptyList(), filtered.stacks)
+            }
+        } finally {
+            database.deleteIfExists()
+        }
+    }
+
     private fun canonicalRecords(): Sequence<CanonicalProfileRecord> {
         val sourceId = ProfileSourceId("simpleperf")
         val process = ProfileProcessKey(sourceId, 100)
         val thread = ProfileThreadKey(sourceId, process, 101)
         val frames =
             listOf(
-                frame(2, "renderFrame", 0x20, ProfileExecutionType.ART),
-                frame(1, "runLoop", 0x10, ProfileExecutionType.KERNEL),
+                frame(2, "renderFrame", 0x20, ProfileExecutionType.ART, "/system/lib64/librender.so"),
+                frame(1, "runLoop", 0x10, ProfileExecutionType.KERNEL, "/system/lib64/libui.so"),
             )
         return sequenceOf(
             CanonicalProfileRecord.Source(
@@ -214,16 +314,49 @@ class SQLiteFlameGraphStackQueriesTest {
         symbolName: String,
         address: Long,
         executionType: ProfileExecutionType,
+        filePath: String,
     ) = ProfileFrame(
         virtualAddress = address,
-        fileId = 7,
+        fileId = symbolId,
         symbolId = symbolId,
-        filePath = "/system/lib64/libui.so",
+        filePath = filePath,
         symbolName = symbolName,
         executionType = executionType,
     )
 
     private fun clock() = ProfileClockDomain("monotonic")
+
+    private fun assertLegacyDanglingRelation(
+        case: String,
+        corruption: String,
+    ) {
+        val database = legacyDatabase()
+        try {
+            DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
+                connection.executeAll(LEGACY_MALFORMED_LEAF_FIXTURE)
+                connection.corrupt(corruption)
+
+                val table = SQLiteFlameGraphStackQueries.load(connection, ProfileQuery())
+                val stack = table.stacks.single { it.sampleId == 4L }
+
+                assertEquals(7L, stack.weight, case)
+                assertEquals(listOf("leaf"), stack.frameIdsRootToLeaf.map(table::frame).map { it.symbolName }, case)
+            }
+        } finally {
+            database.deleteIfExists()
+        }
+    }
+
+    private fun java.sql.Connection.executeAll(statements: List<String>) {
+        createStatement().use { statement -> statements.forEach(statement::execute) }
+    }
+
+    private fun java.sql.Connection.corrupt(sql: String) {
+        createStatement().use { statement ->
+            statement.execute("PRAGMA foreign_keys=OFF")
+            statement.execute(sql)
+        }
+    }
 
     private fun legacyDatabase(): Path {
         Class.forName("org.sqlite.JDBC")
@@ -246,6 +379,15 @@ class SQLiteFlameGraphStackQueriesTest {
     }
 
     private companion object {
+        val LEGACY_MALFORMED_LEAF_FIXTURE =
+            listOf(
+                "INSERT INTO file VALUES (2, '/example/leaf.so')",
+                "INSERT INTO symbol VALUES (2, 2, 2, 'malformedLeaf', NULL)",
+                "INSERT INTO frame VALUES (2, 8192, 2, 2, 'NATIVE')",
+                "INSERT INTO callsite VALUES (2, 1, 2)",
+                "INSERT INTO sample VALUES (4, 40, 100, 104, 1, 7, 2)",
+            )
+
         val LEGACY_FIXTURE =
             listOf(
                 "CREATE TABLE event (event_id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)",
