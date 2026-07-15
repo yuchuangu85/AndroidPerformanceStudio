@@ -126,22 +126,22 @@ private fun runP0(
 
     val flameSnapshot = syntheticFlameSnapshot(FLAME_NODE_COUNT)
     val flameFrames =
-        frameDurations {
+        flameFrameDurations {
             val iteration = it
-            FlameLayoutBlackhole.consume(
-                FlameGraphLayout.layout(
-                    snapshot = flameSnapshot,
-                    viewport = flameViewport(iteration),
-                ),
+            FlameGraphLayout.layout(
+                snapshot = flameSnapshot,
+                viewport = flameViewport(iteration),
             )
         }
-    verifyFlameLayoutBenchmarkResult(
-        layout = FlameLayoutBlackhole.retainedResult(),
-        viewport = flameViewport(FRAME_COUNT - 1),
-    )
+    val retainedFlameLayout = FlameLayoutBlackhole.retainedResult()
 
     heapSampler.close()
     val peakHeapBytes = heapSampler.peakBytes.coerceAtLeast(usedHeapBytes())
+    verifyFlameLayoutBenchmarkResult(
+        layout = retainedFlameLayout,
+        viewport = flameViewport(FRAME_COUNT - 1),
+    )
+
     val report =
         buildReport(
             platform = platform,
@@ -350,6 +350,16 @@ private object FlameLayoutBlackhole {
 private fun frameDurations(block: (Int) -> Unit): List<Long> {
     repeat(20, block)
     return List(FRAME_COUNT) { iteration -> measureNanoTime { block(iteration) } }
+}
+
+private fun flameFrameDurations(block: (Int) -> VisibleFlameLayout): List<Long> {
+    repeat(20) { iteration -> FlameLayoutBlackhole.consume(block(iteration)) }
+    return List(FRAME_COUNT) { iteration ->
+        lateinit var layout: VisibleFlameLayout
+        val duration = measureNanoTime { layout = block(iteration) }
+        FlameLayoutBlackhole.consume(layout)
+        duration
+    }
 }
 
 private class PeakHeapSampler : AutoCloseable {
