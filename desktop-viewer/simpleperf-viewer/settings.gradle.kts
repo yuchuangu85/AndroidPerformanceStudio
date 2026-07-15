@@ -25,6 +25,7 @@ include(
     ":capture-simpleperf",
     ":parser-simpleperf-proto",
     ":profile-model",
+    ":profile-analysis",
     ":storage-sqlite",
     ":analysis-rules",
     ":visualization",
