@@ -76,7 +76,7 @@ class SQLiteFlameGraphStackQueriesTest {
         try {
             DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
                 val table = SQLiteFlameGraphStackQueries.load(connection, ProfileQuery())
-                val stack = table.stacks.single()
+                val stack = table.stacks.single { it.sampleId == 1L }
                 val frame = table.frame(stack.frameIdsRootToLeaf.single())
 
                 assertEquals(10L, stack.timestampNanos)
@@ -88,6 +88,66 @@ class SQLiteFlameGraphStackQueriesTest {
                 assertEquals("/example/lib.so", frame.resource)
                 assertEquals(4096L, frame.virtualAddress)
                 assertEquals(FlameFunctionId(1), frame.functionId)
+            }
+        } finally {
+            database.deleteIfExists()
+        }
+    }
+
+    @Test
+    fun `retains canonical samples without callsites as empty weighted stacks`() =
+        withStore { store ->
+            store.importCanonicalRecords(canonicalEmptyStackRecords())
+
+            val table = SQLiteFlameGraphStackQueries.load(store.connection, ProfileQuery())
+            val stack = table.stacks.single()
+            val canonicalThreadRowId = store.connection.singleLong("SELECT thread_row_id FROM profile_thread")
+
+            assertEquals(100L, stack.timestampNanos)
+            assertEquals(5L, stack.weight)
+            assertEquals("canonical:$canonicalThreadRowId", stack.threadKey)
+            assertEquals("Graphics", stack.category)
+            assertEquals("Frame", stack.subcategory)
+            assertEquals(emptyList(), stack.frameIdsRootToLeaf)
+            assertEquals(emptyMap(), table.framesById)
+        }
+
+    @Test
+    fun `retains legacy samples with null or missing callsites as empty weighted stacks`() {
+        val database = legacyDatabase()
+        try {
+            DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
+                val table = SQLiteFlameGraphStackQueries.load(connection, ProfileQuery())
+                val emptyStacks = table.stacks.filter { it.sampleId == 2L || it.sampleId == 3L }
+
+                assertEquals(listOf(2L, 3L), emptyStacks.map { it.sampleId })
+                assertEquals(listOf(20L, 30L), emptyStacks.map { it.timestampNanos })
+                assertEquals(listOf(4L, 6L), emptyStacks.map { it.weight })
+                assertEquals(listOf("legacy:102", "legacy:103"), emptyStacks.map { it.threadKey })
+                assertEquals(listOf(emptyList(), emptyList()), emptyStacks.map { it.frameIdsRootToLeaf })
+            }
+        } finally {
+            database.deleteIfExists()
+        }
+    }
+
+    @Test
+    fun `terminates cyclic legacy callsites without repeating a visited callsite`() {
+        val database = legacyDatabase()
+        try {
+            DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.execute("INSERT INTO callsite VALUES (2, 3, 1)")
+                    statement.execute("INSERT INTO callsite VALUES (3, 2, 1)")
+                    statement.execute("INSERT INTO sample VALUES (4, 40, 100, 104, 1, 7, 2)")
+                }
+
+                val table = SQLiteFlameGraphStackQueries.load(connection, ProfileQuery())
+                val stack = table.stacks.single { it.sampleId == 4L }
+
+                assertEquals(7L, stack.weight)
+                assertEquals("legacy:104", stack.threadKey)
+                assertEquals(listOf(1L, 1L), stack.frameIdsRootToLeaf)
             }
         } finally {
             database.deleteIfExists()
@@ -111,6 +171,20 @@ class SQLiteFlameGraphStackQueriesTest {
             CanonicalProfileRecord.Thread(ProfileThreadFact(thread, "RenderThread", null, null)),
             sample(sourceId, thread, 100, 5, frames),
             sample(sourceId, thread, 200, 8, frames),
+        )
+    }
+
+    private fun canonicalEmptyStackRecords(): Sequence<CanonicalProfileRecord> {
+        val sourceId = ProfileSourceId("simpleperf")
+        val process = ProfileProcessKey(sourceId, 100)
+        val thread = ProfileThreadKey(sourceId, process, 101)
+        return sequenceOf(
+            CanonicalProfileRecord.Source(
+                ProfileSourceFact(sourceId, ProfileSourceKind.SIMPLEPERF, clock(), 0, 1_000),
+            ),
+            CanonicalProfileRecord.Process(ProfileProcessFact(process, "app", null, null)),
+            CanonicalProfileRecord.Thread(ProfileThreadFact(thread, "RenderThread", null, null)),
+            sample(sourceId, thread, 100, 5, emptyList()),
         )
     }
 
@@ -190,6 +264,8 @@ class SQLiteFlameGraphStackQueriesTest {
                 "INSERT INTO frame VALUES (1, 4096, 1, 1, 'NATIVE')",
                 "INSERT INTO callsite VALUES (1, NULL, 1)",
                 "INSERT INTO sample VALUES (1, 10, 100, 101, 1, 3, 1)",
+                "INSERT INTO sample VALUES (2, 20, 100, 102, 1, 4, NULL)",
+                "INSERT INTO sample VALUES (3, 30, 100, 103, 1, 6, 999)",
                 "PRAGMA user_version=1",
             )
     }

@@ -38,19 +38,22 @@ internal object SQLiteFlameGraphStackQueries {
             "FROM sample s JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
             "), stack(" +
             "sample_id, timestamp_nanos, event_count, thread_key, category_name, subcategory_name, " +
-            "callsite_id, depth" +
+            "callsite_id, depth, visited_callsite_ids" +
             ") AS (" +
             "SELECT sample_id, timestamp_nanos, event_count, thread_key, category_name, subcategory_name, " +
-            "callsite_id, 0 FROM filtered_samples WHERE callsite_id IS NOT NULL UNION ALL " +
+            "callsite_id, 0, CASE WHEN callsite_id IS NULL THEN ',' ELSE ',' || callsite_id || ',' END " +
+            "FROM filtered_samples UNION ALL " +
             "SELECT st.sample_id, st.timestamp_nanos, st.event_count, st.thread_key, st.category_name, " +
-            "st.subcategory_name, c.parent_id, st.depth + 1 FROM stack st " +
-            "JOIN callsite c ON c.callsite_id=st.callsite_id WHERE c.parent_id IS NOT NULL" +
+            "st.subcategory_name, c.parent_id, st.depth + 1, st.visited_callsite_ids || c.parent_id || ',' " +
+            "FROM stack st JOIN callsite c ON c.callsite_id=st.callsite_id " +
+            "WHERE c.parent_id IS NOT NULL " +
+            "AND instr(st.visited_callsite_ids, ',' || c.parent_id || ',') = 0" +
             ") SELECT st.sample_id, st.timestamp_nanos, st.event_count, st.thread_key, st.category_name, " +
             "st.subcategory_name, st.callsite_id, c.frame_id, f.symbol_id, sy.name, fi.path, " +
             "f.virtual_address, f.execution_type, st.depth FROM stack st " +
-            "JOIN callsite c ON c.callsite_id=st.callsite_id " +
-            "JOIN frame f ON f.frame_id=c.frame_id JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
-            "JOIN file fi ON fi.file_id=f.file_id"
+            "LEFT JOIN callsite c ON c.callsite_id=st.callsite_id " +
+            "LEFT JOIN frame f ON f.frame_id=c.frame_id LEFT JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
+            "LEFT JOIN file fi ON fi.file_id=f.file_id"
 
     private const val LEGACY_STACK_ROWS_SQL =
         "WITH RECURSIVE filtered_samples(" +
@@ -60,19 +63,22 @@ internal object SQLiteFlameGraphStackQueries {
             "s.leaf_callsite_id FROM sample s JOIN event e ON e.event_id=s.event_id /*FILTER*/" +
             "), stack(" +
             "sample_id, timestamp_nanos, event_count, thread_key, category_name, subcategory_name, " +
-            "callsite_id, depth" +
+            "callsite_id, depth, visited_callsite_ids" +
             ") AS (" +
             "SELECT sample_id, timestamp_nanos, event_count, thread_key, category_name, subcategory_name, " +
-            "callsite_id, 0 FROM filtered_samples WHERE callsite_id IS NOT NULL UNION ALL " +
+            "callsite_id, 0, CASE WHEN callsite_id IS NULL THEN ',' ELSE ',' || callsite_id || ',' END " +
+            "FROM filtered_samples UNION ALL " +
             "SELECT st.sample_id, st.timestamp_nanos, st.event_count, st.thread_key, st.category_name, " +
-            "st.subcategory_name, c.parent_id, st.depth + 1 FROM stack st " +
-            "JOIN callsite c ON c.callsite_id=st.callsite_id WHERE c.parent_id IS NOT NULL" +
+            "st.subcategory_name, c.parent_id, st.depth + 1, st.visited_callsite_ids || c.parent_id || ',' " +
+            "FROM stack st JOIN callsite c ON c.callsite_id=st.callsite_id " +
+            "WHERE c.parent_id IS NOT NULL " +
+            "AND instr(st.visited_callsite_ids, ',' || c.parent_id || ',') = 0" +
             ") SELECT st.sample_id, st.timestamp_nanos, st.event_count, st.thread_key, st.category_name, " +
             "st.subcategory_name, st.callsite_id, c.frame_id, f.symbol_id, sy.name, fi.path, " +
             "f.virtual_address, f.execution_type, st.depth FROM stack st " +
-            "JOIN callsite c ON c.callsite_id=st.callsite_id " +
-            "JOIN frame f ON f.frame_id=c.frame_id JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
-            "JOIN file fi ON fi.file_id=f.file_id"
+            "LEFT JOIN callsite c ON c.callsite_id=st.callsite_id " +
+            "LEFT JOIN frame f ON f.frame_id=c.frame_id LEFT JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
+            "LEFT JOIN file fi ON fi.file_id=f.file_id"
 }
 
 @Suppress("LongParameterList")
@@ -83,9 +89,7 @@ private data class FlameStackRow(
     val threadKey: String,
     val category: String?,
     val subcategory: String?,
-    val callsiteId: Long,
-    val frame: CallStackFrame,
-    val depth: Int,
+    val frame: CallStackFrame?,
 )
 
 private class CallStackTableBuilder {
@@ -102,8 +106,10 @@ private class CallStackTableBuilder {
     fun add(row: FlameStackRow) {
         if (currentSampleId != null && row.sampleId != currentSampleId) flush()
         if (currentSampleId == null) start(row)
-        framesById.putIfAbsent(row.frame.frameId, row.frame)
-        currentFrameIds += row.frame.frameId
+        row.frame?.let { frame ->
+            framesById.putIfAbsent(frame.frameId, frame)
+            currentFrameIds += frame.frameId
+        }
     }
 
     fun build(): CallStackTable {
@@ -146,18 +152,22 @@ private fun ResultSet.stackRow(): FlameStackRow =
         threadKey = getString(4),
         category = getString(5),
         subcategory = getString(6),
-        callsiteId = getLong(7),
-        frame =
-            CallStackFrame(
-                frameId = getLong(8),
-                functionId = FlameFunctionId(getLong(9)),
-                symbolName = getString(10),
-                resource = getString(11),
-                virtualAddress = getLong(12),
-                implementation = getString(13).toFrameImplementation(),
-            ),
-        depth = getInt(14),
+        frame = callStackFrameOrNull(),
     )
+
+@Suppress("MagicNumber")
+private fun ResultSet.callStackFrameOrNull(): CallStackFrame? {
+    val frameId = getLong(8)
+    if (wasNull()) return null
+    return CallStackFrame(
+        frameId = frameId,
+        functionId = FlameFunctionId(getLong(9)),
+        symbolName = getString(10),
+        resource = getString(11),
+        virtualAddress = getLong(12),
+        implementation = getString(13).toFrameImplementation(),
+    )
+}
 
 private fun String.toFrameImplementation(): FrameImplementation =
     when (this) {
