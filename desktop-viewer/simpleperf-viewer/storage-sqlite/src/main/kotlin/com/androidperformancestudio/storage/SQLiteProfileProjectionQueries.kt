@@ -2,6 +2,14 @@
 
 package com.androidperformancestudio.storage
 
+import com.androidperformancestudio.profileanalysis.CallNodeTable
+import com.androidperformancestudio.profileanalysis.CallStackFilter
+import com.androidperformancestudio.profileanalysis.CallStackTransformer
+import com.androidperformancestudio.profileanalysis.CallTreeProjector
+import com.androidperformancestudio.profileanalysis.FilteredCallStacks
+import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
+import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
+import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import java.sql.Connection
 import java.sql.ResultSet
 
@@ -20,9 +28,11 @@ internal object SQLiteProfileProjectionQueries {
             val overview = overview(frozenQuery)
             val sessionOverview = overview()
             val quality = dataQuality()
-            val forwardCallTree = callTree(frozenQuery, CallTreeDirection.FORWARD).sortedCallTree()
+            val flameGraph = flameGraph(frozenQuery, request)
             ProfileProjectionSnapshot(
                 query = frozenQuery,
+                flameGraph = flameGraph,
+                callTree = flameGraph.callNodes.toCallTree(),
                 overview = overview.copy(eventTypes = overview.eventTypes.sorted()),
                 quality = quality.sorted(),
                 tracks = coreTracks(connection, frozenQuery),
@@ -36,18 +46,83 @@ internal object SQLiteProfileProjectionQueries {
                         sort = request.topSort,
                         descending = request.topDescending,
                     ),
-                forwardCallTree = forwardCallTree,
                 sessionOverview = sessionOverview.copy(eventTypes = sessionOverview.eventTypes.sorted()),
                 sessionThreads = threads().sortedThreads(),
-                callTree =
-                    if (request.callTreeDirection == CallTreeDirection.FORWARD) {
-                        forwardCallTree
-                    } else {
-                        callTree(frozenQuery, CallTreeDirection.REVERSE).sortedCallTree()
-                    },
             )
         }
     }
+
+    private fun SQLiteSampleStore.flameGraph(
+        query: ProfileQuery,
+        request: ProfileProjectionRequest,
+    ): FlameGraphSnapshot {
+        val source = SQLiteFlameGraphStackQueries.load(connection, query)
+        val filtered = CallStackFilter.apply(source, request.callStackAnalysis)
+        val transformed = CallStackTransformer.apply(filtered.table, request.callStackAnalysis.transforms)
+        val callNodes = CallTreeProjector.project(transformed.table, request.callStackAnalysis.direction)
+        return FlameGraphSnapshot(
+            query = request.callStackAnalysis,
+            callNodes = callNodes,
+            rows = FlameGraphRowProjector.project(callNodes, request.callStackAnalysis.direction),
+            totalWeight = callNodes.rootWeight(),
+            emptyReason = emptyReason(source.stacks.size, filtered, transformed.outputStackCount),
+            invalidTransforms = transformed.invalidTransforms,
+        )
+    }
+
+    private fun emptyReason(
+        sourceStackCount: Int,
+        filtered: FilteredCallStacks,
+        transformedStackCount: Int,
+    ): FlameGraphEmptyReason? =
+        when {
+            sourceStackCount == 0 -> FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES
+            filtered.afterPreviewCount == 0 -> FlameGraphEmptyReason.PREVIEW_RANGE_EMPTY
+            filtered.afterSearchCount == 0 -> FlameGraphEmptyReason.SEARCH_FILTERED_ALL
+            filtered.afterImplementationCount == 0 -> FlameGraphEmptyReason.IMPLEMENTATION_FILTERED_ALL
+            transformedStackCount == 0 -> FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL
+            else -> null
+        }
+
+    private fun CallNodeTable.rootWeight(): Long {
+        val parents = parentIndexes
+        val weights = inclusiveWeights
+        var total = 0L
+        parents.indices.forEach { index ->
+            if (parents[index] == -1) total = saturatingAdd(total, weights[index])
+        }
+        return total
+    }
+
+    private fun CallNodeTable.toCallTree(): List<CallTreeNode> {
+        val nodeIds = ids
+        val parents = parentIndexes
+        val nodeFrameIds = frameIds
+        val nodeDepths = depths
+        val inclusive = inclusiveWeights
+        val self = selfWeights
+        val samples = sampleCounts
+        val threads = threadCounts
+        return nodeIds.indices.map { index ->
+            val frame = framesById.getValue(nodeFrameIds[index])
+            CallTreeNode(
+                id = nodeIds[index],
+                parentId = parents[index].takeIf { it >= 0 }?.let(nodeIds::get),
+                depth = nodeDepths[index],
+                symbolName = frame.symbolName,
+                filePath = frame.resource,
+                inclusiveWeight = inclusive[index],
+                exclusiveWeight = self[index],
+                sampleCount = samples[index],
+                threadCount = threads[index].toLong(),
+            )
+        }
+    }
+
+    private fun saturatingAdd(
+        left: Long,
+        right: Long,
+    ): Long = if (Long.MAX_VALUE - left < right) Long.MAX_VALUE else left + right
 
     fun coreTracks(
         connection: Connection,
@@ -418,17 +493,6 @@ private fun List<TimelineBucket>.sortedTimeline(): List<TimelineBucket> =
             TimelineBucket::endNanosExclusive,
             TimelineBucket::sampleCount,
             TimelineBucket::eventWeight,
-        ),
-    )
-
-private fun List<CallTreeNode>.sortedCallTree(): List<CallTreeNode> =
-    sortedWith(
-        compareBy(
-            CallTreeNode::id,
-            { it.parentId ?: Long.MIN_VALUE },
-            CallTreeNode::depth,
-            CallTreeNode::symbolName,
-            CallTreeNode::filePath,
         ),
     )
 

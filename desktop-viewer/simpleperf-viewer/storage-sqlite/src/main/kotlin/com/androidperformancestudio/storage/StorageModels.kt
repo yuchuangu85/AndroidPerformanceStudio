@@ -79,11 +79,6 @@ data class TimelineBucket(
     val eventWeight: Long,
 )
 
-enum class CallTreeDirection {
-    FORWARD,
-    REVERSE,
-}
-
 data class CallTreeNode(
     val id: Long,
     val parentId: Long?,

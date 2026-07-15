@@ -263,5 +263,6 @@ internal fun workspaceSnapshot(query: ProfileQuery): ProfileProjectionSnapshot =
         threads = emptyList(),
         timeline = emptyList(),
         topFunctions = emptyList(),
-        forwardCallTree = emptyList(),
+        flameGraph = emptyFlameGraph(),
+        callTree = emptyList(),
     )

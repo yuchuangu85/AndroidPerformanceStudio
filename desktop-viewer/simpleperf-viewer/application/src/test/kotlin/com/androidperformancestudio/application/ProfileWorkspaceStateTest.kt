@@ -90,6 +90,7 @@ class ProfileWorkspaceStateTest {
             threads = emptyList(),
             timeline = emptyList(),
             topFunctions = emptyList(),
-            forwardCallTree = emptyList(),
+            flameGraph = emptyFlameGraph(),
+            callTree = emptyList(),
         )
 }

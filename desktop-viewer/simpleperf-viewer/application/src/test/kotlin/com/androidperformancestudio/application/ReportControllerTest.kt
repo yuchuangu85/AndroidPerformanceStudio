@@ -10,7 +10,10 @@ import com.androidperformancestudio.model.ProfileFrame
 import com.androidperformancestudio.model.ProfileMetadata
 import com.androidperformancestudio.model.ProfileThread
 import com.androidperformancestudio.model.StudioError
-import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
+import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.CallStackTransform
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.ProfileProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.SQLiteSampleStore
@@ -53,9 +56,7 @@ class ReportControllerTest {
             )
             assertEquals(
                 15L,
-                ready.report.flameGraph
-                    .single { it.parentId == null }
-                    .inclusiveWeight,
+                ready.report.flameGraph.totalWeight,
             )
             assertTrue(
                 ready.report.session.artifacts
@@ -79,7 +80,8 @@ class ReportControllerTest {
             controller.updateTimeRange(15, 30)
             controller.updateThreads(setOf(101))
             controller.updateTopFunctions("render", TopFunctionSort.EXCLUSIVE_WEIGHT, descending = true)
-            controller.updateCallTreeDirection(CallTreeDirection.REVERSE)
+            controller.updateCallStackDirection(CallStackDirection.INVERTED)
+            controller.updateFlameSearch("render,run")
 
             val state = controller.state.value
             val report = assertIs<ReportLoadState.Ready>(state.loadState).report
@@ -87,17 +89,12 @@ class ReportControllerTest {
             assertEquals(5L, report.overview.totalEventWeight)
             assertEquals(listOf("renderFrame"), report.topFunctions.map { it.symbolName })
             assertEquals("renderFrame", report.callTree.single { it.parentId == null }.symbolName)
-            assertEquals(5L, report.flameGraph.single { it.parentId == null }.inclusiveWeight)
+            assertEquals(5L, report.flameGraph.totalWeight)
             assertEquals(15L, state.filter.startNanosInclusive)
             assertEquals(setOf(101), state.filter.threadIds)
 
-            controller.focusFunction("renderFrame")
-
-            assertEquals(ReportTab.FLAME_GRAPH, controller.state.value.selectedTab)
-            assertTrue(
-                controller.state.value.highlightedFlameNodeIds
-                    .isNotEmpty(),
-            )
+            assertEquals("render,run", state.flameGraph.query.searchText)
+            assertEquals(CallStackDirection.INVERTED, state.callTreeDirection)
 
             controller.focusCallTreeFunction("renderFrame")
 
@@ -186,39 +183,90 @@ class ReportControllerTest {
         }
 
     @Test
-    fun `reverse call tree remains selectable while flame graph remains forward`() =
+    fun `direction changes call tree and flame graph together`() =
         runTest {
             val controller = ReportController()
             controller.openSession(indexedSession())
             controller.updateThreads(setOf(101))
 
-            controller.updateCallTreeDirection(CallTreeDirection.REVERSE)
+            controller.updateCallStackDirection(CallStackDirection.INVERTED)
 
             val report = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
             assertEquals("renderFrame", report.callTree.single { it.parentId == null }.symbolName)
-            assertEquals("runLoop", report.flameGraph.single { it.parentId == null }.symbolName)
-            assertEquals(CallTreeDirection.REVERSE, controller.state.value.callTreeDirection)
+            assertEquals(
+                report.callTree.map { it.id },
+                report.flameGraph.callNodes.ids
+                    .toList(),
+            )
+            assertEquals(CallStackDirection.INVERTED, report.flameGraph.query.direction)
+            assertEquals(CallStackDirection.INVERTED, controller.state.value.callTreeDirection)
         }
 
     @Test
-    fun `selection searches and flame highlights survive report refreshes`() =
+    fun `transforms survive unrelated refresh and removed selection falls back to ancestor`() =
         runTest {
             val controller = ReportController()
             controller.openSession(indexedSession())
-            controller.focusFunction("renderFrame")
-            val highlighted = controller.state.value.highlightedFlameNodeIds
-            controller.focusCallTreeFunction("renderFrame")
+            val initial = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            val render = initial.callTree.single { it.symbolName == "renderFrame" }
+            val root = initial.callTree.single { it.symbolName == "runLoop" }
+            val rootIndex =
+                initial.flameGraph.callNodes.ids
+                    .indexOf(root.id)
+            val rootFrameId = initial.flameGraph.callNodes.frameIds[rootIndex]
+            val rootFunction =
+                initial.flameGraph.callNodes.framesById
+                    .getValue(rootFrameId)
+                    .functionId
+            controller.selectCallNode(FlameCallNodeId(render.id))
             controller.selectTab(ReportTab.FLAME_GRAPH)
 
             controller.updateTimeRange(0, 40)
             controller.updateTopFunctions("render", TopFunctionSort.SAMPLE_COUNT, descending = true)
+            controller.applyTransform(CallStackTransform.CollapseFunctionSubtree(rootFunction))
 
             val state = controller.state.value
             assertIs<ReportLoadState.Ready>(state.loadState)
             assertEquals(ReportTab.FLAME_GRAPH, state.selectedTab)
-            assertEquals("renderFrame", state.flameSearch)
-            assertEquals("renderFrame", state.callTreeSearch)
-            assertEquals(highlighted, state.highlightedFlameNodeIds)
+            assertEquals(1, state.flameGraph.query.transforms.size)
+            assertEquals(FlameCallNodeId(root.id), state.flameGraph.selectedNodeId)
+        }
+
+    @Test
+    fun `preview range participates in the semantic projection generation`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+
+            controller.updateFlamePreviewRange(AnalysisTimeRange(15, 25))
+
+            val state = controller.state.value
+            val report = assertIs<ReportLoadState.Ready>(state.loadState).report
+            assertEquals(AnalysisTimeRange(15, 25), state.flameGraph.query.previewRange)
+            assertEquals(5L, report.flameGraph.totalWeight)
+            assertEquals(3L, report.overview.sampleCount)
+        }
+
+    @Test
+    fun `opening another profile clears call stack query and transient state`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+            val report = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            val selected = FlameCallNodeId(report.callTree.first().id)
+            val transform = CallStackTransform.CollapseResource("/missing.so")
+            controller.updateFlameSearch("render")
+            controller.applyTransform(transform)
+            controller.selectCallNode(selected)
+
+            controller.openSession(indexedSession())
+
+            val state = controller.state.value
+            assertEquals("", state.flameGraph.query.searchText)
+            assertEquals(emptyList(), state.flameGraph.query.transforms)
+            assertEquals(null, state.flameGraph.selectedNodeId)
+            assertEquals(null, state.flameGraph.hoveredNodeId)
+            assertEquals(null, state.flameGraph.contextNodeId)
         }
 
     @Test

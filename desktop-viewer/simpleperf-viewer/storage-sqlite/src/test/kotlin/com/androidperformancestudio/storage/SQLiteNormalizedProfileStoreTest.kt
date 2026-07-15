@@ -8,6 +8,7 @@ import com.androidperformancestudio.model.ProfileFrame
 import com.androidperformancestudio.model.ProfileMetadata
 import com.androidperformancestudio.model.ProfileThread
 import com.androidperformancestudio.model.ProfileUnwindError
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import java.nio.file.Files
 import kotlin.io.path.deleteIfExists
 import kotlin.test.Test
@@ -141,7 +142,7 @@ class SQLiteNormalizedProfileStoreTest {
                 store.timelineBuckets(ProfileQuery(startNanosInclusive = 10, endNanosExclusive = 40), 3),
             )
 
-            val forward = store.callTree(direction = CallTreeDirection.FORWARD)
+            val forward = store.callTree(direction = CallStackDirection.FORWARD)
             val forwardRoot = forward.single { it.parentId == null }
             val forwardChild = forward.single { it.parentId == forwardRoot.id }
             assertEquals("runLoop", forwardRoot.symbolName)
@@ -151,7 +152,7 @@ class SQLiteNormalizedProfileStoreTest {
             assertEquals(8L, forwardChild.inclusiveWeight)
             assertEquals(8L, forwardChild.exclusiveWeight)
 
-            val reverse = store.callTree(direction = CallTreeDirection.REVERSE)
+            val reverse = store.callTree(direction = CallStackDirection.INVERTED)
             val reverseRender = reverse.single { it.parentId == null && it.symbolName == "renderFrame" }
             val renderCaller = reverse.single { it.parentId == reverseRender.id }
             assertEquals("runLoop", renderCaller.symbolName)

@@ -1,5 +1,8 @@
 package com.androidperformancestudio.storage
 
+import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
+import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.SQLException
@@ -10,6 +13,45 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SQLiteProfileProjectionQueriesTest {
+    @Test
+    fun `flame and call tree share one filtered transformed direction projection`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachTwoFrameStack()
+
+            val snapshot =
+                store.projectCore(
+                    ProfileProjectionRequest(
+                        query = ProfileQuery(threadIds = setOf(101)),
+                        callStackAnalysis =
+                            CallStackAnalysisQuery(
+                                previewRange = AnalysisTimeRange(10, 11),
+                                searchText = "root,leaf",
+                                direction = CallStackDirection.INVERTED,
+                            ),
+                    ),
+                )
+
+            assertEquals(
+                snapshot.callTree.map(CallTreeNode::id),
+                snapshot.flameGraph.callNodes.ids
+                    .toList(),
+            )
+            assertEquals("leaf", snapshot.callTree.single { it.parentId == null }.symbolName)
+            assertEquals(3L, snapshot.flameGraph.totalWeight)
+            assertEquals(false, snapshot.flameGraph.rows.startsAtBottom)
+
+            val previewEmpty =
+                store.projectCore(
+                    ProfileProjectionRequest(
+                        query = ProfileQuery(threadIds = setOf(101)),
+                        callStackAnalysis = CallStackAnalysisQuery(previewRange = AnalysisTimeRange(11, 12)),
+                    ),
+                )
+            assertEquals(1L, previewEmpty.overview.sampleCount)
+            assertEquals(0L, previewEmpty.flameGraph.totalWeight)
+        }
+
     @Test
     fun `projection request keeps session aggregates unfiltered from the panel query`() =
         withStore { store ->
@@ -26,7 +68,7 @@ class SQLiteProfileProjectionQueriesTest {
                         query = ProfileQuery(threadIds = setOf(101)),
                         timelineBucketCount = 3,
                         topFunctionLimit = 1,
-                        callTreeDirection = CallTreeDirection.REVERSE,
+                        callStackAnalysis = CallStackAnalysisQuery(direction = CallStackDirection.INVERTED),
                     ),
                 )
 
@@ -286,6 +328,23 @@ class SQLiteProfileProjectionQueriesTest {
                     "VALUES (101, $timestamp, 1)",
             )
         }
+    }
+
+    private fun SQLiteSampleStore.attachTwoFrameStack() {
+        execute("INSERT INTO file(file_id, path) VALUES (1, '/lib.so')")
+        execute("INSERT INTO symbol(symbol_id, file_id, source_symbol_id, name) VALUES (1, 1, 1, 'root')")
+        execute("INSERT INTO symbol(symbol_id, file_id, source_symbol_id, name) VALUES (2, 1, 2, 'leaf')")
+        execute(
+            "INSERT INTO frame(frame_id, virtual_address, file_id, symbol_id, execution_type) " +
+                "VALUES (1, 1, 1, 1, 'NATIVE')",
+        )
+        execute(
+            "INSERT INTO frame(frame_id, virtual_address, file_id, symbol_id, execution_type) " +
+                "VALUES (2, 2, 1, 2, 'NATIVE')",
+        )
+        execute("INSERT INTO callsite(callsite_id, parent_id, frame_id) VALUES (1, NULL, 1)")
+        execute("INSERT INTO callsite(callsite_id, parent_id, frame_id) VALUES (2, 1, 2)")
+        execute("UPDATE sample SET leaf_callsite_id=2")
     }
 
     private fun SQLiteSampleStore.seedCanonicalSource(

@@ -3,6 +3,8 @@
 package com.androidperformancestudio.storage
 
 import com.androidperformancestudio.model.ProfileSample
+import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -72,7 +74,7 @@ class SQLiteLegacyReadOnlyProjectionTest {
                 topSearch = "leaf",
                 topSort = TopFunctionSort.SYMBOL_NAME,
                 topDescending = false,
-                callTreeDirection = CallTreeDirection.REVERSE,
+                callStackAnalysis = CallStackAnalysisQuery(direction = CallStackDirection.INVERTED),
             )
 
         val legacyProjection = SQLiteSampleStore.openReadOnlyExpected(legacy, 1).use { it.projectCore(request) }

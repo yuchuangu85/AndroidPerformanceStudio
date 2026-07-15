@@ -3,6 +3,7 @@ dependencies {
     implementation(project(":capture-simpleperf"))
     implementation(project(":parser-simpleperf-proto"))
     implementation(project(":profile-model"))
+    implementation(project(":profile-analysis"))
     implementation(project(":storage-sqlite"))
     implementation(project(":platform-toolchain"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")

@@ -148,6 +148,13 @@ private fun Throwable.toStudioError(): StudioError =
                 "Failed to query report database",
                 this,
             )
+        is IllegalArgumentException ->
+            StudioError(
+                ErrorCategory.DATA_VALIDATION,
+                "REPORT_PROJECTION_INVALID",
+                "Profile data cannot be projected",
+                this,
+            )
         is IOException ->
             StudioError(
                 ErrorCategory.IO,

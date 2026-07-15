@@ -6,6 +6,7 @@ import com.androidperformancestudio.model.NormalizedSample
 import com.androidperformancestudio.model.ProfileExecutionType
 import com.androidperformancestudio.model.ProfileFrame
 import com.androidperformancestudio.model.ProfileSample
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import org.sqlite.ProgressHandler
 import org.sqlite.SQLiteConnection
 import java.io.Closeable
@@ -158,7 +159,7 @@ class SQLiteSampleStore private constructor(
 
     fun callTree(
         query: ProfileQuery = ProfileQuery(),
-        direction: CallTreeDirection,
+        direction: CallStackDirection,
     ): List<CallTreeNode> = SQLiteCallTreeQueries.aggregate(connection, query, direction)
 
     fun projectCore(query: ProfileQuery = ProfileQuery()): ProfileProjectionSnapshot =

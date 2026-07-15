@@ -6,7 +6,16 @@ import com.androidperformancestudio.analysis.DiagnosticEngine
 import com.androidperformancestudio.analysis.DiagnosticFinding
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
-import com.androidperformancestudio.storage.CallTreeDirection
+import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
+import com.androidperformancestudio.profileanalysis.CallNodePath
+import com.androidperformancestudio.profileanalysis.CallNodeTable
+import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.CallStackTransform
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
+import com.androidperformancestudio.profileanalysis.FlameFunctionId
+import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.profileanalysis.ImplementationFilter
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.DataQualitySummary
 import com.androidperformancestudio.storage.ProfileOverview
@@ -59,19 +68,6 @@ data class ReportSessionSummary(
     val artifacts: List<ReportArtifact>,
 )
 
-data class ReportFlameNode(
-    val id: Long,
-    val parentId: Long?,
-    val depth: Int,
-    val symbolName: String,
-    val filePath: String,
-    val path: List<String>,
-    val startWeight: Long,
-    val endWeightExclusive: Long,
-    val inclusiveWeight: Long,
-    val exclusiveWeight: Long,
-)
-
 data class ReportData(
     val session: ReportSessionSummary,
     val sessionOverview: ProfileOverview,
@@ -82,7 +78,7 @@ data class ReportData(
     val topFunctions: List<TopFunction>,
     val timeline: List<TimelineBucket>,
     val callTree: List<CallTreeNode>,
-    val flameGraph: List<ReportFlameNode>,
+    val flameGraph: FlameGraphSnapshot,
     val diagnostics: List<DiagnosticFinding>,
 )
 
@@ -111,11 +107,12 @@ data class ReportState(
     val topSearch: String = "",
     val topSort: TopFunctionSort = TopFunctionSort.INCLUSIVE_WEIGHT,
     val topDescending: Boolean = true,
-    val callTreeDirection: CallTreeDirection = CallTreeDirection.FORWARD,
     val callTreeSearch: String = "",
-    val flameSearch: String = "",
-    val highlightedFlameNodeIds: Set<Long> = emptySet(),
-)
+    val flameGraph: FlameGraphPanelState = FlameGraphPanelState(),
+) {
+    val callTreeDirection: CallStackDirection
+        get() = flameGraph.query.direction
+}
 
 fun interface ReportSessionSummaryLoader {
     suspend fun load(directory: Path): ReportSessionSummary
@@ -207,23 +204,50 @@ class ReportController(
         reload()
     }
 
-    suspend fun updateCallTreeDirection(direction: CallTreeDirection) {
-        mutableState.value = mutableState.value.copy(callTreeDirection = direction)
-        reload()
+    suspend fun updateFlamePreviewRange(range: AnalysisTimeRange?) {
+        updateCallStackQuery { copy(previewRange = range) }
+    }
+
+    suspend fun updateFlameSearch(search: String) {
+        updateCallStackQuery { copy(searchText = search) }
+    }
+
+    suspend fun updateImplementationFilter(filter: ImplementationFilter) {
+        updateCallStackQuery { copy(implementation = filter) }
+    }
+
+    suspend fun updateCallStackDirection(direction: CallStackDirection) {
+        updateCallStackQuery { copy(direction = direction) }
+    }
+
+    suspend fun updateCallTreeDirection(direction: CallStackDirection) {
+        updateCallStackDirection(direction)
+    }
+
+    suspend fun applyTransform(transform: CallStackTransform) {
+        updateCallStackQuery { copy(transforms = transforms + transform) }
+    }
+
+    suspend fun removeTransform(transform: CallStackTransform) {
+        updateCallStackQuery { copy(transforms = transforms.removeFirst(transform)) }
+    }
+
+    suspend fun clearTransforms() {
+        updateCallStackQuery { copy(transforms = emptyList()) }
+    }
+
+    fun selectCallNode(nodeId: FlameCallNodeId?) {
+        val snapshot = (mutableState.value.loadState as? ReportLoadState.Ready)?.report?.flameGraph
+        val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
+        mutableState.value =
+            mutableState.value.copy(
+                flameGraph = mutableState.value.flameGraph.copy(selectedNodeId = validId),
+            )
     }
 
     fun focusFunction(symbolName: String) {
-        val report = (mutableState.value.loadState as? ReportLoadState.Ready)?.report ?: return
-        val matching =
-            report.flameGraph
-                .filter { it.symbolName.contains(symbolName, ignoreCase = true) }
-                .mapTo(mutableSetOf(), ReportFlameNode::id)
-        mutableState.value =
-            mutableState.value.copy(
-                selectedTab = ReportTab.FLAME_GRAPH,
-                flameSearch = symbolName,
-                highlightedFlameNodeIds = matching,
-            )
+        mutableState.value = mutableState.value.copy(selectedTab = ReportTab.FLAME_GRAPH)
+        controllerScope.launch { updateFlameSearch(symbolName) }
     }
 
     fun focusCallTreeFunction(symbolName: String) {
@@ -248,6 +272,14 @@ class ReportController(
         if (workspace.state.value.sessionDirectory == null) return
         workspace.updateProjection(mutableState.value.projectionRequest())
         awaitPublication(workspace.state.value.generation)
+    }
+
+    private suspend fun updateCallStackQuery(transform: CallStackAnalysisQuery.() -> CallStackAnalysisQuery) {
+        val current = mutableState.value
+        val nextQuery = current.flameGraph.query.transform()
+        if (nextQuery == current.flameGraph.query) return
+        mutableState.value = current.copy(flameGraph = current.flameGraph.copy(query = nextQuery))
+        reload()
     }
 
     private suspend fun awaitPublication(generation: ProfileGeneration) {
@@ -302,16 +334,15 @@ class ReportController(
                 current
             } else {
                 published = true
-                val highlighted =
-                    report.flameGraph
-                        .filter {
-                            current.flameSearch.isNotBlank() &&
-                                it.symbolName.contains(current.flameSearch, ignoreCase = true)
-                        }.mapTo(mutableSetOf(), ReportFlameNode::id)
+                val selected = retainSelection(current, report.flameGraph)
                 current.copy(
                     loadState = ReportLoadState.Ready(report),
                     lastReadyReport = report,
-                    highlightedFlameNodeIds = highlighted,
+                    flameGraph =
+                        current.flameGraph.copy(
+                            selectedNodeId = selected,
+                            invalidTransforms = report.flameGraph.invalidTransforms,
+                        ),
                 )
             }
         }
@@ -346,7 +377,7 @@ class ReportController(
             topFunctions = topFunctions,
             timeline = timeline,
             callTree = callTree,
-            flameGraph = forwardCallTree.toFlameGraph(),
+            flameGraph = flameGraph,
             diagnostics =
                 diagnosticEngine.analyze(
                     AnalysisSnapshot(overview, quality, threads, topFunctions),
@@ -356,12 +387,12 @@ class ReportController(
     private fun ReportState.projectionRequest(): ProfileProjectionRequest =
         ProfileProjectionRequest(
             query = filter,
+            callStackAnalysis = flameGraph.query,
             timelineBucketCount = configuration.timelineBucketCount,
             topFunctionLimit = configuration.topFunctionLimit,
             topSearch = topSearch,
             topSort = topSort,
             topDescending = topDescending,
-            callTreeDirection = callTreeDirection,
         )
 
     companion object {
@@ -408,43 +439,48 @@ private fun MutableMap<String, String>.addPropertyLine(line: String) {
     if (separator > 0) this[line.substring(0, separator)] = line.substring(separator + 1)
 }
 
-private fun List<CallTreeNode>.toFlameGraph(): List<ReportFlameNode> {
-    val children = groupBy(CallTreeNode::parentId)
-    val result = mutableListOf<ReportFlameNode>()
-    var rootStart = 0L
-    children[null].orEmpty().sortedByDescending(CallTreeNode::inclusiveWeight).forEach { root ->
-        addFlameNode(root, rootStart, emptyList(), children, result)
-        rootStart += root.inclusiveWeight
+private fun retainSelection(
+    state: ReportState,
+    next: FlameGraphSnapshot,
+): FlameCallNodeId? {
+    val selected = state.flameGraph.selectedNodeId
+    return when {
+        selected == null -> null
+        next.callNodes.contains(selected) -> selected
+        else ->
+            state.lastReadyReport
+                ?.flameGraph
+                ?.callNodes
+                ?.pathFor(selected)
+                ?.nearestVisibleAncestor(next.callNodes)
     }
-    return result
 }
 
-private fun addFlameNode(
-    node: CallTreeNode,
-    startWeight: Long,
-    parentPath: List<String>,
-    children: Map<Long?, List<CallTreeNode>>,
-    result: MutableList<ReportFlameNode>,
-) {
-    val path = parentPath + node.symbolName
-    result +=
-        ReportFlameNode(
-            id = node.id,
-            parentId = node.parentId,
-            depth = node.depth,
-            symbolName = node.symbolName,
-            filePath = node.filePath,
-            path = path,
-            startWeight = startWeight,
-            endWeightExclusive = startWeight + node.inclusiveWeight,
-            inclusiveWeight = node.inclusiveWeight,
-            exclusiveWeight = node.exclusiveWeight,
-        )
-    var childStart = startWeight
-    children[node.id].orEmpty().sortedByDescending(CallTreeNode::inclusiveWeight).forEach { child ->
-        addFlameNode(child, childStart, path, children, result)
-        childStart += child.inclusiveWeight
+private fun CallNodePath.nearestVisibleAncestor(next: CallNodeTable): FlameCallNodeId? =
+    functions.indices.reversed().firstNotNullOfOrNull { lastIndex ->
+        next.findByPath(CallNodePath(functions.take(lastIndex + 1)))
     }
+
+private fun CallNodeTable.contains(nodeId: FlameCallNodeId): Boolean = ids.any { it == nodeId.value }
+
+private fun CallNodeTable.pathFor(nodeId: FlameCallNodeId): CallNodePath? {
+    val nodeIds = ids
+    var index = nodeIds.indexOf(nodeId.value)
+    if (index < 0) return null
+    val parents = parentIndexes
+    val nodeFrameIds = frameIds
+    val reversed = ArrayList<FlameFunctionId>()
+    while (index >= 0) {
+        reversed += framesById.getValue(nodeFrameIds[index]).functionId
+        index = parents[index]
+    }
+    reversed.reverse()
+    return CallNodePath(reversed)
+}
+
+private fun <T> List<T>.removeFirst(item: T): List<T> {
+    val index = indexOf(item)
+    return if (index < 0) this else filterIndexed { candidateIndex, _ -> candidateIndex != index }
 }
 
 private val REPORT_ARTIFACTS =

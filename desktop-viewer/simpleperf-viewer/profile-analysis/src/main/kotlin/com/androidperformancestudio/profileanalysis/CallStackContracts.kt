@@ -260,6 +260,36 @@ class CallNodeTable(
     val size: Int get() = idsSnapshot.size
 
     fun findByPath(path: CallNodePath): FlameCallNodeId? = idsByPathSnapshot[path] ?: pathIndexSnapshot.find(path)
+
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            other is CallNodeTable &&
+            idsSnapshot.contentEquals(other.idsSnapshot) &&
+            parentIndexesSnapshot.contentEquals(other.parentIndexesSnapshot) &&
+            frameIdsSnapshot.contentEquals(other.frameIdsSnapshot) &&
+            depthsSnapshot.contentEquals(other.depthsSnapshot) &&
+            inclusiveWeightsSnapshot.contentEquals(other.inclusiveWeightsSnapshot) &&
+            selfWeightsSnapshot.contentEquals(other.selfWeightsSnapshot) &&
+            sampleCountsSnapshot.contentEquals(other.sampleCountsSnapshot) &&
+            threadCountsSnapshot.contentEquals(other.threadCountsSnapshot) &&
+            categoriesSnapshot == other.categoriesSnapshot &&
+            framesSnapshot == other.framesSnapshot &&
+            idsByPathSnapshot == other.idsByPathSnapshot
+
+    override fun hashCode(): Int {
+        var result = idsSnapshot.contentHashCode()
+        result = 31 * result + parentIndexesSnapshot.contentHashCode()
+        result = 31 * result + frameIdsSnapshot.contentHashCode()
+        result = 31 * result + depthsSnapshot.contentHashCode()
+        result = 31 * result + inclusiveWeightsSnapshot.contentHashCode()
+        result = 31 * result + selfWeightsSnapshot.contentHashCode()
+        result = 31 * result + sampleCountsSnapshot.contentHashCode()
+        result = 31 * result + threadCountsSnapshot.contentHashCode()
+        result = 31 * result + categoriesSnapshot.hashCode()
+        result = 31 * result + framesSnapshot.hashCode()
+        result = 31 * result + idsByPathSnapshot.hashCode()
+        return result
+    }
 }
 
 private class CompactCallNodePathIndex(
@@ -310,7 +340,26 @@ class FlameGraphRows(
     val nodeIndexesByRow: List<IntArray> get() = nodeIndexesSnapshot.map(IntArray::copyOf)
     val starts: DoubleArray get() = startsSnapshot.copyOf()
     val ends: DoubleArray get() = endsSnapshot.copyOf()
+
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            other is FlameGraphRows &&
+            startsAtBottom == other.startsAtBottom &&
+            nodeIndexesSnapshot.arraysEqual(other.nodeIndexesSnapshot) &&
+            startsSnapshot.contentEquals(other.startsSnapshot) &&
+            endsSnapshot.contentEquals(other.endsSnapshot)
+
+    override fun hashCode(): Int {
+        var result = nodeIndexesSnapshot.fold(1) { hash, row -> 31 * hash + row.contentHashCode() }
+        result = 31 * result + startsSnapshot.contentHashCode()
+        result = 31 * result + endsSnapshot.contentHashCode()
+        result = 31 * result + startsAtBottom.hashCode()
+        return result
+    }
 }
+
+private fun List<IntArray>.arraysEqual(other: List<IntArray>): Boolean =
+    size == other.size && indices.all { index -> this[index].contentEquals(other[index]) }
 
 enum class FlameGraphEmptyReason {
     THREAD_HAS_NO_SAMPLES,

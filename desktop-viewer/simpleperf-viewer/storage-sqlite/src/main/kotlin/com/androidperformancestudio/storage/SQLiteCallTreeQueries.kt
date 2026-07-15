@@ -1,5 +1,6 @@
 package com.androidperformancestudio.storage
 
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import java.sql.Connection
 
 @Suppress("MagicNumber")
@@ -7,10 +8,10 @@ internal object SQLiteCallTreeQueries {
     fun aggregate(
         connection: Connection,
         query: ProfileQuery,
-        direction: CallTreeDirection,
+        direction: CallStackDirection,
     ): List<CallTreeNode> {
         val filter = query.toSqlFilter("s", "e")
-        val ordering = if (direction == CallTreeDirection.FORWARD) "DESC" else "ASC"
+        val ordering = if (direction == CallStackDirection.FORWARD) "DESC" else "ASC"
         val sql =
             (if (connection.isLegacySchema()) LEGACY_STACK_ROWS_SQL else STACK_ROWS_SQL)
                 .replace("/*FILTER*/", filter.whereClause) +
