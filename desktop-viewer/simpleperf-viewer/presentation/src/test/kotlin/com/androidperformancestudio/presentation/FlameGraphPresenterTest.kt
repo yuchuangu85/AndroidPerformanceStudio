@@ -1,5 +1,6 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
@@ -33,6 +34,20 @@ class FlameGraphPresenterTest {
             FlameGraphPanelAction.OpenDetails(FlameCallNodeId(2)),
             FlameGraphPresenter.actionFor(FlameGraphIntent.OpenDetails(FlameCallNodeId(2))),
         )
+        val anchor = Offset(48f, 24f)
+        val contextAction =
+            FlameGraphPresenter.actionFor(FlameGraphIntent.OpenContextMenu(FlameCallNodeId(2), anchor))
+        assertEquals(FlameGraphPanelAction.OpenContextMenu(FlameCallNodeId(2), anchor), contextAction)
+        val contextFeedback = FlameGraphPresenter.unavailableFeedbackFor(contextAction)
+        assertEquals(FlameGraphUnavailableFeedback.ContextActions(FlameCallNodeId(2), anchor), contextFeedback)
+        assertEquals("Context actions are not available yet. Press Escape to dismiss.", contextFeedback?.message)
+        val detailsFeedback =
+            FlameGraphPresenter.unavailableFeedbackFor(FlameGraphPanelAction.OpenDetails(FlameCallNodeId(2)))
+        assertEquals(FlameGraphUnavailableFeedback.Details(FlameCallNodeId(2)), detailsFeedback)
+        assertEquals(
+            expected = "Source and disassembly details are not available yet. Press Escape to dismiss.",
+            actual = detailsFeedback?.message,
+        )
     }
 
     @Test
@@ -46,6 +61,18 @@ class FlameGraphPresenterTest {
                 FlameCallNodeId(2),
                 hasContextMenu = false,
                 hasTooltip = false,
+            ),
+        )
+        assertEquals(
+            FlameGraphPanelAction.DismissUnavailableFeedback,
+            FlameGraphPresenter.keyAction(
+                Key.Escape,
+                KeyEventType.KeyDown,
+                snapshot,
+                FlameCallNodeId(2),
+                hasContextMenu = true,
+                hasTooltip = true,
+                hasUnavailableFeedback = true,
             ),
         )
         assertEquals(

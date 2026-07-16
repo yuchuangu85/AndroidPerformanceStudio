@@ -5,6 +5,7 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class SimpleperfLocalizationTest {
     @Test
@@ -53,6 +54,35 @@ class SimpleperfLocalizationTest {
             "预览范围权重：7",
             translateSimpleperfText("Preview range weight: 7", SimpleperfLanguage.SIMPLIFIED_CHINESE),
         )
+        assertEquals(
+            "火焰图调用栈",
+            translateSimpleperfText("Flame graph call stacks", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+        )
+        assertEquals(
+            "火焰图搜索",
+            translateSimpleperfText("Flame graph search", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+        )
+        assertEquals(
+            "上下文操作尚不可用。按 Escape 关闭提示。",
+            translateSimpleperfText(
+                "Context actions are not available yet. Press Escape to dismiss.",
+                SimpleperfLanguage.SIMPLIFIED_CHINESE,
+            ),
+        )
+        assertEquals(
+            "源码和反汇编详情尚不可用。按 Escape 关闭提示。",
+            translateSimpleperfText(
+                "Source and disassembly details are not available yet. Press Escape to dismiss.",
+                SimpleperfLanguage.SIMPLIFIED_CHINESE,
+            ),
+        )
+        assertEquals(
+            "单击帧将其选中。火焰图宽度始终表示完整分析样本集。",
+            translateSimpleperfText(
+                "Click a frame to select it. Flame widths always represent the full analyzed sample set.",
+                SimpleperfLanguage.SIMPLIFIED_CHINESE,
+            ),
+        )
     }
 
     @Test
@@ -65,5 +95,20 @@ class SimpleperfLocalizationTest {
         assertFalse(homeScreen.contains("SimpleperfSettingsBar"))
         assertFalse(homeScreen.contains("onThemePreferenceChanged"))
         assertFalse(homeScreen.contains("onLanguagePreferenceChanged"))
+    }
+
+    @Test
+    fun `flame accessibility semantics resolve through the active localization`() {
+        val panel =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphPanel.kt"),
+            )
+        val toolbar =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphToolbar.kt"),
+            )
+
+        assertTrue(panel.contains("localizedSimpleperfText(\"Flame graph call stacks\")"))
+        assertTrue(toolbar.contains("localizedSimpleperfText(\"Flame graph search\")"))
     }
 }

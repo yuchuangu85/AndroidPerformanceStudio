@@ -33,6 +33,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
@@ -342,7 +343,39 @@ class ReportControllerTest {
         }
 
     @Test
-    fun `rapid flame previews submit only the latest range on a controlled scheduler`() =
+    fun `leaving flame graph and navigating clear panel-only hover and context`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-context-lifecycle-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request, includeGrandchild = true))
+            runCurrent()
+            opening.await()
+            val root = FlameCallNodeId(ROOT_NODE_ID)
+            val child = FlameCallNodeId(CHILD_NODE_ID)
+
+            controller.selectTab(ReportTab.FLAME_GRAPH)
+            controller.hoverCallNode(root)
+            controller.openCallNodeContext(root)
+            controller.selectTab(ReportTab.TIMELINE)
+            assertEquals(null, controller.state.value.flameGraph.hoveredNodeId)
+            assertEquals(null, controller.state.value.flameGraph.contextNodeId)
+
+            controller.selectTab(ReportTab.FLAME_GRAPH)
+            assertEquals(null, controller.state.value.flameGraph.hoveredNodeId)
+            assertEquals(null, controller.state.value.flameGraph.contextNodeId)
+            controller.selectCallNode(root)
+            controller.hoverCallNode(root)
+            controller.openCallNodeContext(root)
+            assertEquals(child, controller.navigateCallNode(FlameGraphNavigationCommand.WIDEST_CHILD))
+            assertEquals(null, controller.state.value.flameGraph.hoveredNodeId)
+            assertEquals(null, controller.state.value.flameGraph.contextNodeId)
+        }
+
+    @Test
+    fun `preview actor bounds interleaved loads and drains to the latest range`() =
         runTest {
             val loader = ControlledRequestLoader()
             val workspace = ProfileWorkspaceController(backgroundScope, loader)
@@ -354,13 +387,27 @@ class ReportControllerTest {
             opening.await()
 
             controller.previewRange(AnalysisTimeRange(10, 20))
+            advanceTimeBy(16)
+            runCurrent()
+            val first = loader.started.receive()
+            assertEquals(AnalysisTimeRange(10, 20), first.request.callStackAnalysis.previewRange)
+
             controller.previewRange(AnalysisTimeRange(20, 30))
+            advanceTimeBy(16)
+            runCurrent()
             controller.previewRange(AnalysisTimeRange(30, 40))
+            advanceTimeBy(16)
+            runCurrent()
+            assertTrue(loader.started.tryReceive().isFailure, "only one preview load may be active")
+
+            first.succeed(flameSnapshot(first.request))
+            runCurrent()
+            advanceTimeBy(16)
             runCurrent()
 
             val latest = loader.started.receive()
             assertEquals(AnalysisTimeRange(30, 40), latest.request.callStackAnalysis.previewRange)
-            assertTrue(loader.started.tryReceive().isFailure, "superseded previews must be conflated before loading")
+            assertTrue(loader.started.tryReceive().isFailure, "pending preview values must be conflated")
             latest.succeed(flameSnapshot(latest.request))
             runCurrent()
             assertEquals(AnalysisTimeRange(30, 40), controller.state.value.flameGraph.query.previewRange)

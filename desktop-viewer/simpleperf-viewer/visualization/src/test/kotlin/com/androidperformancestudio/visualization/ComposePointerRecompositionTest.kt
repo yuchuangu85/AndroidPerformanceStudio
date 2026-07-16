@@ -9,7 +9,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
@@ -101,39 +100,76 @@ class ComposePointerRecompositionTest {
         }
 
     @Test
-    fun `flame tap and double tap survive callback recomposition`() =
+    fun `flame tap dispatches once to callback replaced between pointer down and up`() =
         runDesktopComposeUiTest(width = 240, height = 100) {
-            val intents = mutableListOf<FlameGraphIntent>()
-            var recompositions by mutableIntStateOf(0)
+            val intents = mutableListOf<Pair<Int, FlameGraphIntent>>()
+            var callbackGeneration by mutableIntStateOf(0)
             val nodeId = FlameCallNodeId(7)
             val layout = VisibleFlameLayout(listOf(VisibleFlameNode(0, nodeId, 0f, 0f, 200f, 80f)), 0..0)
 
             setContent {
-                recompositions
+                val generation = callbackGeneration
                 FlameGraphCanvas(
                     layout = layout,
                     selectedNodeId = null,
-                    onIntent = { intent ->
-                        intents += intent
-                        recompositions++
-                    },
+                    onIntent = { intent -> intents += generation to intent },
                     modifier = Modifier.size(220.dp, 80.dp).testTag(FLAME_TAG),
                 )
             }
 
             onNodeWithTag(FLAME_TAG).performMouseInput { moveTo(Offset(50f, 40f)) }
             waitForIdle()
+            onNodeWithTag(FLAME_TAG).performMouseInput { press() }
+            runOnUiThread { callbackGeneration = 1 }
+            waitForIdle()
+            onNodeWithTag(FLAME_TAG).performMouseInput { release() }
+            mainClock.advanceTimeBy(400)
+            onNodeWithTag(FLAME_TAG).performMouseInput { advanceEventTime(400) }
+            waitForIdle()
+            assertEquals(
+                listOf(1 to FlameGraphIntent.Select(nodeId)),
+                intents.filter { (_, intent) -> intent !is FlameGraphIntent.Hover },
+            )
+        }
+
+    @Test
+    fun `flame double tap dispatches once to callback replaced between click legs`() =
+        runDesktopComposeUiTest(width = 240, height = 100) {
+            val intents = mutableListOf<Pair<Int, FlameGraphIntent>>()
+            var callbackGeneration by mutableIntStateOf(1)
+            val nodeId = FlameCallNodeId(7)
+            val layout = VisibleFlameLayout(listOf(VisibleFlameNode(0, nodeId, 0f, 0f, 200f, 80f)), 0..0)
+
+            setContent {
+                val generation = callbackGeneration
+                FlameGraphCanvas(
+                    layout = layout,
+                    selectedNodeId = null,
+                    onIntent = { intent -> intents += generation to intent },
+                    modifier = Modifier.size(220.dp, 80.dp).testTag(FLAME_TAG),
+                )
+            }
+
+            onNodeWithTag(FLAME_TAG).performMouseInput { moveTo(Offset(50f, 40f)) }
+            waitForIdle()
+            mainClock.autoAdvance = false
+            onNodeWithTag(FLAME_TAG).performMouseInput {
+                press()
+                release()
+            }
+            runOnUiThread { callbackGeneration = 2 }
+            mainClock.advanceTimeBy(100)
             onNodeWithTag(FLAME_TAG).performMouseInput {
                 press()
                 release()
             }
             mainClock.advanceTimeBy(400)
             waitForIdle()
-            assertTrue(intents.any { it == FlameGraphIntent.Select(nodeId) })
-            onNodeWithTag(FLAME_TAG).performMouseInput { doubleClick(Offset(50f, 40f)) }
-            waitForIdle()
 
-            assertIs<FlameGraphIntent.OpenDetails>(intents.last { it !is FlameGraphIntent.Hover })
+            val semanticIntents = intents.filter { (_, intent) -> intent !is FlameGraphIntent.Hover }
+            assertEquals(1, semanticIntents.size)
+            assertEquals(2, semanticIntents.single().first)
+            assertIs<FlameGraphIntent.OpenDetails>(semanticIntents.single().second)
         }
 
     private companion object {

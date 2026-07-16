@@ -33,9 +33,10 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -147,12 +148,13 @@ class ReportController(
     private val sessionMutationLock = Any()
     private val sessionEpoch = AtomicLong()
     private val previewMutationId = AtomicLong()
+    private val previewRequests = Channel<PreviewRequest>(Channel.CONFLATED)
     private val workspaceCollection =
         controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
             workspace.state.collect(::publishWorkspaceState)
         }
+    private val previewCollection = controllerScope.launch { collectPreviewRequests() }
     private var closed = false
-    private var previewJob: Job? = null
 
     val state: StateFlow<ReportState> = mutableState.asStateFlow()
 
@@ -196,7 +198,11 @@ class ReportController(
     }
 
     fun selectTab(tab: ReportTab) {
-        mutableState.mutate { current -> current.copy(selectedTab = tab) }
+        mutableState.mutate { current ->
+            current.copy(selectedTab = tab).let { next ->
+                if (tab == ReportTab.FLAME_GRAPH) next else next.clearFlameTransients()
+            }
+        }
     }
 
     suspend fun commitRange(
@@ -246,42 +252,59 @@ class ReportController(
     }
 
     fun previewRange(range: AnalysisTimeRange) {
-        val expectedSessionEpoch: Long
-        val mutationId: Long
         synchronized(sessionMutationLock) {
             if (closed || workspace.state.value.sessionDirectory == null) return
-            expectedSessionEpoch = sessionEpoch.get()
-            mutationId = previewMutationId.incrementAndGet()
-            previewJob?.cancel()
-            previewJob =
-                controllerScope.launch {
-                    try {
-                        val generation =
-                            semanticMutationMutex.withLock {
-                                if (previewMutationId.get() != mutationId) {
-                                    null
-                                } else {
-                                    updateProjectionStateLocked(expectedSessionEpoch) { current ->
-                                        if (previewMutationId.get() != mutationId) {
-                                            current
-                                        } else {
-                                            current.copy(
-                                                flameGraph =
-                                                    current.flameGraph.copy(
-                                                        query = current.flameGraph.query.copy(previewRange = range),
-                                                    ),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        generation?.let { awaitPublication(it) }
-                    } catch (_: CancellationException) {
-                        // A newer preview, commit, cancellation, or session superseded this request.
-                    }
-                }
+            previewRequests.trySend(
+                PreviewRequest(
+                    range = range,
+                    sessionEpoch = sessionEpoch.get(),
+                    mutationId = previewMutationId.incrementAndGet(),
+                ),
+            )
         }
     }
+
+    private suspend fun collectPreviewRequests() {
+        for (first in previewRequests) {
+            // A frame-sized sampling window bounds loader churn while preserving the latest pointer value.
+            delay(PREVIEW_SAMPLE_INTERVAL_MILLIS)
+            var latest = first
+            while (true) {
+                latest = previewRequests.tryReceive().getOrNull() ?: break
+            }
+            submitPreview(latest)
+        }
+    }
+
+    private suspend fun submitPreview(request: PreviewRequest) {
+        try {
+            val generation =
+                semanticMutationMutex.withLock {
+                    if (!isCurrentPreview(request)) {
+                        null
+                    } else {
+                        updateProjectionStateLocked(request.sessionEpoch) { current ->
+                            if (!isCurrentPreview(request)) {
+                                current
+                            } else {
+                                current.copy(
+                                    flameGraph =
+                                        current.flameGraph.copy(
+                                            query = current.flameGraph.query.copy(previewRange = request.range),
+                                        ),
+                                )
+                            }
+                        }
+                    }
+                }
+            generation?.let { awaitPublication(it) }
+        } catch (_: CancellationException) {
+            // A commit, cancellation, profile switch, or newer projection superseded this preview.
+        }
+    }
+
+    private fun isCurrentPreview(request: PreviewRequest): Boolean =
+        previewMutationId.get() == request.mutationId && sessionEpoch.get() == request.sessionEpoch
 
     suspend fun cancelPreview() {
         updateProjectionState { current ->
@@ -371,7 +394,14 @@ class ReportController(
                 if (targetNodeId == null) {
                     current
                 } else {
-                    current.copy(flameGraph = current.flameGraph.copy(selectedNodeId = targetNodeId))
+                    current.copy(
+                        flameGraph =
+                            current.flameGraph.copy(
+                                selectedNodeId = targetNodeId,
+                                hoveredNodeId = null,
+                                contextNodeId = null,
+                            ),
+                    )
                 }
             }
         return mutation.next.flameGraph.selectedNodeId
@@ -400,10 +430,11 @@ class ReportController(
 
     fun focusCallTreeFunction(symbolName: String) {
         mutableState.mutate { current ->
-            current.copy(
-                selectedTab = ReportTab.CALL_TREE,
-                callTreeSearch = symbolName,
-            )
+            current
+                .copy(
+                    selectedTab = ReportTab.CALL_TREE,
+                    callTreeSearch = symbolName,
+                ).clearFlameTransients()
         }
     }
 
@@ -416,6 +447,8 @@ class ReportController(
             workspace.closeSession()
             mutableState.value = ReportState()
         }
+        previewRequests.close()
+        previewCollection.cancel()
         workspaceCollection.cancel()
         if (ownsWorkspace) workspace.close()
         if (ownsScope) controllerScope.cancel()
@@ -443,8 +476,9 @@ class ReportController(
 
     private fun invalidatePreviewWorkLocked() {
         previewMutationId.incrementAndGet()
-        previewJob?.cancel()
-        previewJob = null
+        while (previewRequests.tryReceive().isSuccess) {
+            // Drain pointer values that no longer belong to the current semantic/session token.
+        }
     }
 
     private fun updateProjectionStateLocked(
@@ -605,8 +639,15 @@ class ReportController(
             "Widths and percentages are sample/event weights; they are not exact wall-clock durations."
         private const val DEFAULT_TIMELINE_BUCKET_COUNT = 600
         private const val DEFAULT_TOP_FUNCTION_LIMIT = 200
+        private const val PREVIEW_SAMPLE_INTERVAL_MILLIS = 16L
     }
 }
+
+private data class PreviewRequest(
+    val range: AnalysisTimeRange,
+    val sessionEpoch: Long,
+    val mutationId: Long,
+)
 
 private fun sessionSummary(directory: Path): ReportSessionSummary =
     ReportSessionSummary(

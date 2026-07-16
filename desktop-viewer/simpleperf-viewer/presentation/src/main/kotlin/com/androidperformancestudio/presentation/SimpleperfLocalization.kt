@@ -231,6 +231,11 @@ private val CHINESE_TEXT =
         "Artifacts" to "产物",
         "Reset range" to "重置范围",
         "Flame graph search" to "火焰图搜索",
+        "Flame graph call stacks" to "火焰图调用栈",
+        "Context actions are not available yet. Press Escape to dismiss." to
+            "上下文操作尚不可用。按 Escape 关闭提示。",
+        "Source and disassembly details are not available yet. Press Escape to dismiss." to
+            "源码和反汇编详情尚不可用。按 Escape 关闭提示。",
         "Forward" to "正向",
         "Inverted" to "倒置",
         "All" to "全部",
@@ -259,6 +264,8 @@ private val CHINESE_TEXT =
         "Reset" to "重置",
         "Click a frame to drill down; double-click the canvas to reset. Search matches are highlighted." to
             "单击帧以深入查看；双击画布重置。搜索匹配项会高亮显示。",
+        "Click a frame to select it. Flame widths always represent the full analyzed sample set." to
+            "单击帧将其选中。火焰图宽度始终表示完整分析样本集。",
         "Recommendations" to "建议",
         "Click to inspect evidence" to "单击查看证据",
         "System" to "跟随系统",

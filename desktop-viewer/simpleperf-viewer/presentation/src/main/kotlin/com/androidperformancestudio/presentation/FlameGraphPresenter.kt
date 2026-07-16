@@ -1,5 +1,6 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
@@ -20,6 +21,7 @@ internal sealed interface FlameGraphPanelAction {
 
     data class OpenContextMenu(
         val nodeId: FlameCallNodeId,
+        val anchor: Offset,
     ) : FlameGraphPanelAction
 
     data class OpenDetails(
@@ -36,6 +38,8 @@ internal sealed interface FlameGraphPanelAction {
 
     data object DismissContextMenu : FlameGraphPanelAction
 
+    data object DismissUnavailableFeedback : FlameGraphPanelAction
+
     data object DismissTooltip : FlameGraphPanelAction
 }
 
@@ -44,7 +48,7 @@ internal object FlameGraphPresenter {
         when (intent) {
             is FlameGraphIntent.Hover -> FlameGraphPanelAction.Hover(intent.nodeId)
             is FlameGraphIntent.Select -> FlameGraphPanelAction.Select(intent.nodeId)
-            is FlameGraphIntent.OpenContextMenu -> FlameGraphPanelAction.OpenContextMenu(intent.nodeId)
+            is FlameGraphIntent.OpenContextMenu -> FlameGraphPanelAction.OpenContextMenu(intent.nodeId, intent.position)
             is FlameGraphIntent.OpenDetails -> FlameGraphPanelAction.OpenDetails(intent.nodeId)
         }
 
@@ -56,6 +60,7 @@ internal object FlameGraphPresenter {
         selectedNodeId: FlameCallNodeId?,
         hasContextMenu: Boolean,
         hasTooltip: Boolean,
+        hasUnavailableFeedback: Boolean = false,
         controlPressed: Boolean = false,
         metaPressed: Boolean = false,
     ): FlameGraphPanelAction? =
@@ -63,7 +68,7 @@ internal object FlameGraphPresenter {
             null
         } else {
             when {
-                key == Key.Escape -> dismissAction(hasContextMenu, hasTooltip)
+                key == Key.Escape -> dismissAction(hasUnavailableFeedback, hasContextMenu, hasTooltip)
                 key == Key.Enter -> selectedNodeId?.let(FlameGraphPanelAction::OpenDetails)
                 key == Key.C && (controlPressed || metaPressed) ->
                     selectedNodeId?.let { nodeId ->
@@ -77,12 +82,22 @@ internal object FlameGraphPresenter {
         }
 
     private fun dismissAction(
+        hasUnavailableFeedback: Boolean,
         hasContextMenu: Boolean,
         hasTooltip: Boolean,
     ): FlameGraphPanelAction? =
         when {
+            hasUnavailableFeedback -> FlameGraphPanelAction.DismissUnavailableFeedback
             hasContextMenu -> FlameGraphPanelAction.DismissContextMenu
             hasTooltip -> FlameGraphPanelAction.DismissTooltip
+            else -> null
+        }
+
+    fun unavailableFeedbackFor(action: FlameGraphPanelAction): FlameGraphUnavailableFeedback? =
+        when (action) {
+            is FlameGraphPanelAction.OpenContextMenu ->
+                FlameGraphUnavailableFeedback.ContextActions(action.nodeId, action.anchor)
+            is FlameGraphPanelAction.OpenDetails -> FlameGraphUnavailableFeedback.Details(action.nodeId)
             else -> null
         }
 
@@ -101,3 +116,26 @@ internal object FlameGraphPresenter {
         viewport: FlameViewport,
     ): Int = FlameGraphLayout.scrollRowToReveal(snapshot, nodeId, viewport)
 }
+
+internal sealed interface FlameGraphUnavailableFeedback {
+    val nodeId: FlameCallNodeId
+    val message: String
+
+    data class ContextActions(
+        override val nodeId: FlameCallNodeId,
+        val anchor: Offset,
+    ) : FlameGraphUnavailableFeedback {
+        override val message: String = CONTEXT_ACTIONS_UNAVAILABLE
+    }
+
+    data class Details(
+        override val nodeId: FlameCallNodeId,
+    ) : FlameGraphUnavailableFeedback {
+        override val message: String = DETAILS_UNAVAILABLE
+    }
+}
+
+private const val CONTEXT_ACTIONS_UNAVAILABLE =
+    "Context actions are not available yet. Press Escape to dismiss."
+private const val DETAILS_UNAVAILABLE =
+    "Source and disassembly details are not available yet. Press Escape to dismiss."

@@ -31,13 +31,14 @@ internal fun FlameGraphToolbar(
     onUndo: () -> Unit,
     onClear: () -> Unit,
 ) {
+    val searchDescription = localizedSimpleperfText("Flame graph search")
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(
             value = searchDraft,
             onValueChange = onSearchDraft,
             singleLine = true,
             label = { Text("Search function or library") },
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Flame graph search" },
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = searchDescription },
         )
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
