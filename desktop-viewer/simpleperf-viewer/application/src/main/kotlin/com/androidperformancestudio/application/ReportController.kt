@@ -350,6 +350,24 @@ class ReportController(
         updateCallStackQuery { copy(transforms = transforms.dropLast(1)) }
     }
 
+    suspend fun retryProjection() {
+        val generation =
+            semanticMutationMutex.withLock {
+                withPreviewAdmissionSuspended {
+                    invalidatePreviewWork()
+                    synchronized(sessionMutationLock) {
+                        if (closed || workspace.state.value.sessionDirectory == null) {
+                            null
+                        } else {
+                            workspace.updateProjection(mutableState.value.projectionRequest())
+                            workspace.state.value.generation
+                        }
+                    }
+                }
+            }
+        generation?.let { awaitPublication(it) }
+    }
+
     fun hoverCallNode(nodeId: FlameCallNodeId?) {
         updateTransientNode(nodeId) { panel, validId -> panel.copy(hoveredNodeId = validId) }
     }

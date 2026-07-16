@@ -2,6 +2,14 @@ package com.androidperformancestudio.profileanalysis
 
 import java.util.Locale
 
+data class CallTreeProjectionResult(
+    val callNodes: CallNodeTable,
+    val inputStackCount: Int,
+    val projectedStackCount: Int,
+    val incompleteStackCount: Int,
+    val failureDetail: String?,
+)
+
 object CallTreeProjector {
     fun project(
         table: CallStackTable,
@@ -13,6 +21,32 @@ object CallTreeProjector {
             primaryHashStep = StableCallNodeId::primaryHashStep,
             idDeriver = StableCallNodeId::derive,
         )
+
+    @Suppress("TooGenericExceptionCaught")
+    fun projectResult(
+        table: CallStackTable,
+        direction: CallStackDirection = CallStackDirection.FORWARD,
+    ): CallTreeProjectionResult {
+        val incompleteStackCount = table.stacks.count { stack -> stack.frameIdsRootToLeaf.isEmpty() }
+        return try {
+            val callNodes = project(table, direction)
+            CallTreeProjectionResult(
+                callNodes = callNodes,
+                inputStackCount = table.stacks.size,
+                projectedStackCount = table.stacks.size - incompleteStackCount,
+                incompleteStackCount = incompleteStackCount,
+                failureDetail = null,
+            )
+        } catch (failure: RuntimeException) {
+            CallTreeProjectionResult(
+                callNodes = EMPTY_CALL_NODES,
+                inputStackCount = table.stacks.size,
+                projectedStackCount = 0,
+                incompleteStackCount = incompleteStackCount,
+                failureDetail = "${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
+            )
+        }
+    }
 
     internal fun project(
         table: CallStackTable,
@@ -33,6 +67,20 @@ object CallTreeProjector {
         return flatten(roots.values, canonicalFrames)
     }
 }
+
+private val EMPTY_CALL_NODES =
+    CallNodeTable(
+        ids = LongArray(0),
+        parentIndexes = IntArray(0),
+        frameIds = LongArray(0),
+        depths = IntArray(0),
+        inclusiveWeights = LongArray(0),
+        selfWeights = LongArray(0),
+        sampleCounts = LongArray(0),
+        threadCounts = IntArray(0),
+        categories = emptyList(),
+        framesById = emptyMap(),
+    )
 
 private class MutableCallNode(
     val functionId: FlameFunctionId,

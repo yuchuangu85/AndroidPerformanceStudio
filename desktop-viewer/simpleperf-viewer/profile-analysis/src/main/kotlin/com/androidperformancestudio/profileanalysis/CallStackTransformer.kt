@@ -11,6 +11,7 @@ data class TransformResult private constructor(
     val invalidTransforms: List<CallStackTransform>,
     val inputStackCount: Int,
     val outputStackCount: Int,
+    val incompleteOutputStackCount: Int,
     private val immutableSnapshot: Boolean,
 ) {
     constructor(
@@ -19,12 +20,14 @@ data class TransformResult private constructor(
         invalidTransforms: List<CallStackTransform>,
         inputStackCount: Int,
         outputStackCount: Int,
+        incompleteOutputStackCount: Int,
     ) : this(
         table = table,
         appliedTransforms = immutableTransformList(appliedTransforms),
         invalidTransforms = immutableTransformList(invalidTransforms),
         inputStackCount = inputStackCount,
         outputStackCount = outputStackCount,
+        incompleteOutputStackCount = incompleteOutputStackCount,
         immutableSnapshot = true,
     )
 
@@ -35,7 +38,16 @@ data class TransformResult private constructor(
         invalidTransforms: List<CallStackTransform> = this.invalidTransforms,
         inputStackCount: Int = this.inputStackCount,
         outputStackCount: Int = this.outputStackCount,
-    ): TransformResult = TransformResult(table, appliedTransforms, invalidTransforms, inputStackCount, outputStackCount)
+        incompleteOutputStackCount: Int = this.incompleteOutputStackCount,
+    ): TransformResult =
+        TransformResult(
+            table,
+            appliedTransforms,
+            invalidTransforms,
+            inputStackCount,
+            outputStackCount,
+            incompleteOutputStackCount,
+        )
 }
 
 object CallStackTransformer {
@@ -62,6 +74,7 @@ object CallStackTransformer {
             invalidTransforms = invalidTransforms,
             inputStackCount = table.stacks.size,
             outputStackCount = currentTable.stacks.size,
+            incompleteOutputStackCount = currentTable.stacks.count { stack -> stack.frameIdsRootToLeaf.isEmpty() },
         )
     }
 }

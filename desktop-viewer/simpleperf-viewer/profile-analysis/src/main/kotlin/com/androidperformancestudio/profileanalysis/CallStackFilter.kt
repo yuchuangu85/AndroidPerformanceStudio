@@ -6,6 +6,7 @@ data class FilteredCallStacks(
     val afterPreviewCount: Int,
     val afterSearchCount: Int,
     val afterImplementationCount: Int,
+    val incompleteInputStackCount: Int,
 )
 
 object CallStackFilter {
@@ -24,6 +25,7 @@ object CallStackFilter {
             afterPreviewCount = afterPreview.size,
             afterSearchCount = afterSearch.size,
             afterImplementationCount = afterImplementation.size,
+            incompleteInputStackCount = table.stacks.count { stack -> stack.frameIdsRootToLeaf.isEmpty() },
         )
     }
 

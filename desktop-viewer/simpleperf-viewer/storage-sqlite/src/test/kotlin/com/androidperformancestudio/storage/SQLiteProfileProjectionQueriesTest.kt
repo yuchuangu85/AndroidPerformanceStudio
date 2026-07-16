@@ -15,6 +15,25 @@ import kotlin.test.assertTrue
 
 class SQLiteProfileProjectionQueriesTest {
     @Test
+    fun `projection distinguishes incomplete stacks from projector failures`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+
+            val incomplete = store.projectCore(ProfileQuery(threadIds = setOf(101)))
+            assertEquals(FlameGraphEmptyReason.PROFILE_INCOMPLETE, incomplete.flameGraph.emptyReason)
+
+            store.attachTwoFrameStack()
+            store.execute("UPDATE sample SET event_count=-1")
+            val failed = store.projectCore(ProfileQuery(threadIds = setOf(101)))
+            assertEquals(FlameGraphEmptyReason.PROJECTION_FAILED, failed.flameGraph.emptyReason)
+            assertTrue(
+                failed.flameGraph.diagnosticDetails
+                    .orEmpty()
+                    .contains("Negative call-stack weight"),
+            )
+        }
+
+    @Test
     fun `canonical projection distinguishes an empty committed range from a thread with no samples`() =
         withStore { store ->
             store.seedCanonicalSource("source", "main", sampleNanos = 100)

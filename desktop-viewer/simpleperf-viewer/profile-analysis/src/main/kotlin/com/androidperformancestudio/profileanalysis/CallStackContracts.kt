@@ -454,6 +454,34 @@ enum class FlameGraphEmptyReason {
     PROJECTION_FAILED,
 }
 
+@Suppress("LongParameterList")
+data class FlameGraphStageCounts(
+    val sourceStackCount: Int,
+    val selectedThreadHasNoSamples: Boolean,
+    val committedRangeExcludedSamples: Boolean,
+    val afterPreviewCount: Int,
+    val afterSearchCount: Int,
+    val afterImplementationCount: Int,
+    val afterTransformCount: Int,
+    val incompleteStackCount: Int,
+    val projectedNodeCount: Int,
+    val projectionFailure: String?,
+) {
+    fun emptyReason(): FlameGraphEmptyReason? =
+        when {
+            selectedThreadHasNoSamples -> FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES
+            sourceStackCount == 0 && committedRangeExcludedSamples -> FlameGraphEmptyReason.COMMITTED_RANGE_EMPTY
+            sourceStackCount == 0 -> FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES
+            afterPreviewCount == 0 -> FlameGraphEmptyReason.PREVIEW_RANGE_EMPTY
+            afterSearchCount == 0 -> FlameGraphEmptyReason.SEARCH_FILTERED_ALL
+            afterImplementationCount == 0 -> FlameGraphEmptyReason.IMPLEMENTATION_FILTERED_ALL
+            afterTransformCount == 0 -> FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL
+            incompleteStackCount > 0 && projectedNodeCount == 0 -> FlameGraphEmptyReason.PROFILE_INCOMPLETE
+            projectionFailure != null -> FlameGraphEmptyReason.PROJECTION_FAILED
+            else -> null
+        }
+}
+
 @ConsistentCopyVisibility
 data class FlameGraphSnapshot private constructor(
     val query: CallStackAnalysisQuery,
@@ -462,6 +490,7 @@ data class FlameGraphSnapshot private constructor(
     val totalWeight: Long,
     val emptyReason: FlameGraphEmptyReason?,
     val invalidTransforms: List<CallStackTransform>,
+    val diagnosticDetails: String?,
     private val immutableSnapshot: Boolean,
 ) {
     constructor(
@@ -471,7 +500,17 @@ data class FlameGraphSnapshot private constructor(
         totalWeight: Long,
         emptyReason: FlameGraphEmptyReason?,
         invalidTransforms: List<CallStackTransform>,
-    ) : this(query, callNodes, rows, totalWeight, emptyReason, immutableList(invalidTransforms), true)
+        diagnosticDetails: String? = null,
+    ) : this(
+        query,
+        callNodes,
+        rows,
+        totalWeight,
+        emptyReason,
+        immutableList(invalidTransforms),
+        diagnosticDetails,
+        true,
+    )
 
     @Suppress("LongParameterList")
     fun copy(
@@ -481,11 +520,21 @@ data class FlameGraphSnapshot private constructor(
         totalWeight: Long = this.totalWeight,
         emptyReason: FlameGraphEmptyReason? = this.emptyReason,
         invalidTransforms: List<CallStackTransform> = this.invalidTransforms,
-    ): FlameGraphSnapshot = FlameGraphSnapshot(query, callNodes, rows, totalWeight, emptyReason, invalidTransforms)
+        diagnosticDetails: String? = this.diagnosticDetails,
+    ): FlameGraphSnapshot =
+        FlameGraphSnapshot(
+            query,
+            callNodes,
+            rows,
+            totalWeight,
+            emptyReason,
+            invalidTransforms,
+            diagnosticDetails,
+        )
 
     override fun toString(): String =
         "FlameGraphSnapshot(query=$query, callNodes=$callNodes, rows=$rows, totalWeight=$totalWeight, " +
-            "emptyReason=$emptyReason, invalidTransforms=$invalidTransforms)"
+            "emptyReason=$emptyReason, invalidTransforms=$invalidTransforms, diagnosticDetails=$diagnosticDetails)"
 }
 
 fun parseFlameSearchTerms(searchText: String): List<String> =

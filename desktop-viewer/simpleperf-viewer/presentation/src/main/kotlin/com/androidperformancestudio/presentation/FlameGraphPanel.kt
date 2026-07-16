@@ -100,92 +100,96 @@ internal fun FlameGraphPanel(
             onClear = actions.onClearFlameTransforms,
         )
         Box {
-            FlameGraphCanvas(
-                layout = layout,
-                selectedNodeId = state.selectedNodeId,
-                hoveredNodeId = state.hoveredNodeId,
-                contextNodeId = state.contextNodeId,
-                labelForNode = { node ->
-                    snapshot.callNodes
-                        .frameAt(node.nodeIndex)
-                        ?.symbolName
-                        .orEmpty()
-                },
-                categoryForNode = { node -> snapshot.callNodes.categoryAt(node.nodeIndex) },
-                theme =
-                    if (MaterialTheme.colorScheme.background.luminance() < DARK_THEME_LUMINANCE_THRESHOLD) {
-                        FlameTheme.DARK
-                    } else {
-                        FlameTheme.LIGHT
+            if (snapshot.emptyReason == null) {
+                FlameGraphCanvas(
+                    layout = layout,
+                    selectedNodeId = state.selectedNodeId,
+                    hoveredNodeId = state.hoveredNodeId,
+                    contextNodeId = state.contextNodeId,
+                    labelForNode = { node ->
+                        snapshot.callNodes
+                            .frameAt(node.nodeIndex)
+                            ?.symbolName
+                            .orEmpty()
                     },
-                onIntent = { intent ->
-                    dispatchFlameAction(
-                        action = FlameGraphPresenter.actionFor(intent),
-                        actions = actions,
-                        snapshot = snapshot,
-                        viewport = viewport,
-                        onFeedback = { unavailableFeedback = it },
-                        onScrollRow = { scrollRow = it },
-                        onContextAnchor = { contextAnchor = it },
-                    )
-                },
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 220.dp, max = 520.dp)
-                        .semantics { contentDescription = callStacksDescription }
-                        .focusRequester(focusRequester)
-                        .onPreviewKeyEvent { event ->
-                            val action =
-                                FlameGraphPresenter.keyAction(
-                                    key = event.key,
-                                    eventType = event.type,
-                                    snapshot = snapshot,
-                                    selectedNodeId = state.contextNodeId ?: state.selectedNodeId,
-                                    hasContextMenu = state.contextNodeId != null,
-                                    hasTooltip = state.hoveredNodeId != null,
-                                    hasUnavailableFeedback = unavailableFeedback != null,
-                                    controlPressed = event.isCtrlPressed,
-                                    metaPressed = event.isMetaPressed,
-                                    altPressed = event.isAltPressed,
-                                    shiftPressed = event.isShiftPressed,
-                                )
-                            if (action == null) {
-                                false
-                            } else {
-                                dispatchFlameAction(
-                                    action = action,
-                                    actions = actions,
-                                    snapshot = snapshot,
-                                    viewport = viewport,
-                                    onFeedback = { unavailableFeedback = it },
-                                    onScrollRow = { scrollRow = it },
-                                    onContextAnchor = { contextAnchor = it },
-                                )
-                                true
-                            }
-                        }.focusable()
-                        .onPointerEvent(PointerEventType.Press) { focusRequester.requestFocus() }
-                        .onPointerEvent(PointerEventType.Scroll) { event ->
-                            val delta =
-                                event.changes
-                                    .firstOrNull()
-                                    ?.scrollDelta
-                                    ?.y ?: 0f
-                            if (delta.isFinite() && delta != 0f) {
-                                val rows = delta.roundToInt().takeUnless { it == 0 } ?: if (delta > 0) 1 else -1
-                                scrollRow =
-                                    FlameGraphLayout.clampScrollRow(
-                                        snapshot,
-                                        viewport.copy(scrollRow = clampedScrollRow + rows),
-                                    )
-                            }
-                        }.onSizeChanged { size ->
-                            widthPixels = size.width
-                            heightPixels = size.height
+                    categoryForNode = { node -> snapshot.callNodes.categoryAt(node.nodeIndex) },
+                    theme =
+                        if (MaterialTheme.colorScheme.background.luminance() < DARK_THEME_LUMINANCE_THRESHOLD) {
+                            FlameTheme.DARK
+                        } else {
+                            FlameTheme.LIGHT
                         },
-            )
-            state.contextNodeId?.let { contextNodeId ->
+                    onIntent = { intent ->
+                        dispatchFlameAction(
+                            action = FlameGraphPresenter.actionFor(intent),
+                            actions = actions,
+                            snapshot = snapshot,
+                            viewport = viewport,
+                            onFeedback = { unavailableFeedback = it },
+                            onScrollRow = { scrollRow = it },
+                            onContextAnchor = { contextAnchor = it },
+                        )
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 220.dp, max = 520.dp)
+                            .semantics { contentDescription = callStacksDescription }
+                            .focusRequester(focusRequester)
+                            .onPreviewKeyEvent { event ->
+                                val action =
+                                    FlameGraphPresenter.keyAction(
+                                        key = event.key,
+                                        eventType = event.type,
+                                        snapshot = snapshot,
+                                        selectedNodeId = state.contextNodeId ?: state.selectedNodeId,
+                                        hasContextMenu = state.contextNodeId != null,
+                                        hasTooltip = state.hoveredNodeId != null,
+                                        hasUnavailableFeedback = unavailableFeedback != null,
+                                        controlPressed = event.isCtrlPressed,
+                                        metaPressed = event.isMetaPressed,
+                                        altPressed = event.isAltPressed,
+                                        shiftPressed = event.isShiftPressed,
+                                    )
+                                if (action == null) {
+                                    false
+                                } else {
+                                    dispatchFlameAction(
+                                        action = action,
+                                        actions = actions,
+                                        snapshot = snapshot,
+                                        viewport = viewport,
+                                        onFeedback = { unavailableFeedback = it },
+                                        onScrollRow = { scrollRow = it },
+                                        onContextAnchor = { contextAnchor = it },
+                                    )
+                                    true
+                                }
+                            }.focusable()
+                            .onPointerEvent(PointerEventType.Press) { focusRequester.requestFocus() }
+                            .onPointerEvent(PointerEventType.Scroll) { event ->
+                                val delta =
+                                    event.changes
+                                        .firstOrNull()
+                                        ?.scrollDelta
+                                        ?.y ?: 0f
+                                if (delta.isFinite() && delta != 0f) {
+                                    val rows = delta.roundToInt().takeUnless { it == 0 } ?: if (delta > 0) 1 else -1
+                                    scrollRow =
+                                        FlameGraphLayout.clampScrollRow(
+                                            snapshot,
+                                            viewport.copy(scrollRow = clampedScrollRow + rows),
+                                        )
+                                }
+                            }.onSizeChanged { size ->
+                                widthPixels = size.width
+                                heightPixels = size.height
+                            },
+                )
+            } else {
+                FlameGraphEmptyState(snapshot, actions)
+            }
+            state.contextNodeId?.takeIf { snapshot.emptyReason == null }?.let { contextNodeId ->
                 FlameGraphContextMenu(
                     entries =
                         FlameGraphContextCommands.entries(
@@ -207,7 +211,9 @@ internal fun FlameGraphPanel(
             ?.takeIf { state.contextNodeId == null }
             ?.let(snapshot::tooltipFacts)
             ?.let { facts -> FlameGraphTooltip(facts) }
-        Text("Click a frame to select it. Flame widths always represent the full analyzed sample set.")
+        if (snapshot.emptyReason == null) {
+            Text("Click a frame to select it. Flame widths always represent the full analyzed sample set.")
+        }
     }
 }
 

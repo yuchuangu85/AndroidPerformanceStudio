@@ -6,10 +6,9 @@ import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackFilter
 import com.androidperformancestudio.profileanalysis.CallStackTransformer
 import com.androidperformancestudio.profileanalysis.CallTreeProjector
-import com.androidperformancestudio.profileanalysis.FilteredCallStacks
-import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.profileanalysis.FlameGraphStageCounts
 import java.sql.Connection
 import java.sql.ResultSet
 
@@ -62,24 +61,40 @@ internal object SQLiteProfileProjectionQueries {
         val source = SQLiteFlameGraphStackQueries.load(connection, query)
         val filtered = CallStackFilter.apply(source, request.callStackAnalysis)
         val transformed = CallStackTransformer.apply(filtered.table, request.callStackAnalysis.transforms)
-        val callNodes = CallTreeProjector.project(transformed.table, request.callStackAnalysis.direction)
+        val projection = CallTreeProjector.projectResult(transformed.table, request.callStackAnalysis.direction)
+        val callNodes = projection.callNodes
         val committedRangeExcludedSamples =
             source.stacks.isEmpty() &&
                 query.hasCommittedRange() &&
                 hasOtherwiseEligibleSamples(query, sessionOverview, sessionThreads)
+        val selectedThreadHasNoSamples =
+            source.stacks.isEmpty() &&
+                !committedRangeExcludedSamples &&
+                (
+                    query.threadIds.isEmpty() ||
+                        sessionThreads.none { thread -> thread.threadId in query.threadIds && thread.sampleCount > 0 }
+                )
+        val stages =
+            FlameGraphStageCounts(
+                sourceStackCount = source.stacks.size,
+                selectedThreadHasNoSamples = selectedThreadHasNoSamples,
+                committedRangeExcludedSamples = committedRangeExcludedSamples,
+                afterPreviewCount = filtered.afterPreviewCount,
+                afterSearchCount = filtered.afterSearchCount,
+                afterImplementationCount = filtered.afterImplementationCount,
+                afterTransformCount = transformed.outputStackCount,
+                incompleteStackCount = projection.incompleteStackCount,
+                projectedNodeCount = callNodes.size,
+                projectionFailure = projection.failureDetail,
+            )
         return FlameGraphSnapshot(
             query = request.callStackAnalysis,
             callNodes = callNodes,
             rows = FlameGraphRowProjector.project(callNodes, request.callStackAnalysis.direction),
             totalWeight = callNodes.rootWeight(),
-            emptyReason =
-                emptyReason(
-                    source.stacks.size,
-                    filtered,
-                    transformed.outputStackCount,
-                    committedRangeExcludedSamples,
-                ),
+            emptyReason = stages.emptyReason(),
             invalidTransforms = transformed.invalidTransforms,
+            diagnosticDetails = projection.failureDetail,
         )
     }
 
@@ -93,22 +108,6 @@ internal object SQLiteProfileProjectionQueries {
                 sampleCount(query.copy(startNanosInclusive = null, endNanosExclusive = null)) > 0
             query.threadIds.isEmpty() -> sessionOverview.sampleCount > 0
             else -> sessionThreads.any { thread -> thread.threadId in query.threadIds && thread.sampleCount > 0 }
-        }
-
-    private fun emptyReason(
-        sourceStackCount: Int,
-        filtered: FilteredCallStacks,
-        transformedStackCount: Int,
-        committedRangeExcludedSamples: Boolean,
-    ): FlameGraphEmptyReason? =
-        when {
-            sourceStackCount == 0 && committedRangeExcludedSamples -> FlameGraphEmptyReason.COMMITTED_RANGE_EMPTY
-            sourceStackCount == 0 -> FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES
-            filtered.afterPreviewCount == 0 -> FlameGraphEmptyReason.PREVIEW_RANGE_EMPTY
-            filtered.afterSearchCount == 0 -> FlameGraphEmptyReason.SEARCH_FILTERED_ALL
-            filtered.afterImplementationCount == 0 -> FlameGraphEmptyReason.IMPLEMENTATION_FILTERED_ALL
-            transformedStackCount == 0 -> FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL
-            else -> null
         }
 
     private fun ProfileQuery.hasCommittedRange(): Boolean = startNanosInclusive != null || endNanosExclusive != null

@@ -61,6 +61,7 @@ internal class DesktopReportActionFactory(
             onApplyFlameTransform = { transform -> scope.launch { controller.applyTransform(transform) } },
             onUndoFlameTransform = { scope.launch { controller.undoLastTransform() } },
             onClearFlameTransforms = { scope.launch { controller.clearTransforms() } },
+            onRetryFlameProjection = { scope.launch { controller.retryProjection() } },
             onSelectCallNode = controller::selectCallNode,
             onHoverFlameNode = controller::hoverCallNode,
             onOpenFlameContext = controller::openCallNodeContext,

@@ -25,6 +25,7 @@ data class ReportActions(
     val onApplyFlameTransform: (CallStackTransform) -> Unit,
     val onUndoFlameTransform: () -> Unit,
     val onClearFlameTransforms: () -> Unit,
+    val onRetryFlameProjection: () -> Unit,
     val onSelectCallNode: (FlameCallNodeId?) -> Unit,
     val onHoverFlameNode: (FlameCallNodeId?) -> Unit,
     val onOpenFlameContext: (FlameCallNodeId?) -> Unit,

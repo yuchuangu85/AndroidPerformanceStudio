@@ -368,6 +368,28 @@ class ReportControllerTest {
         }
 
     @Test
+    fun `retry projection resubmits the unchanged authoritative request`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-retry-projection-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+
+            val retry = async { controller.retryProjection() }
+            val retried = loader.started.receive()
+            assertEquals(initial.request, retried.request)
+            retried.succeed(flameSnapshot(retried.request))
+            runCurrent()
+            retry.await()
+
+            assertIs<ReportLoadState.Ready>(controller.state.value.loadState)
+        }
+
+    @Test
     fun `leaving flame graph and navigating clear panel-only hover and context`() =
         runTest {
             val loader = ControlledRequestLoader()

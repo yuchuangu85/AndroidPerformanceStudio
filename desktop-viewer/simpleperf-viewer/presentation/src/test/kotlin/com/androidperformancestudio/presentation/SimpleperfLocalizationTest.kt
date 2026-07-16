@@ -86,6 +86,33 @@ class SimpleperfLocalizationTest {
     }
 
     @Test
+    fun `Chinese localization covers reason specific flame empty states and recoveries`() {
+        val expected =
+            mapOf(
+                "The selected thread has no samples." to "所选线程没有样本。",
+                "The selected time range contains no samples." to "所选时间范围内没有样本。",
+                "The preview range contains no samples." to "预览范围内没有样本。",
+                "Search removed all samples." to "搜索条件排除了所有样本。",
+                "The implementation filter removed all samples." to "实现类型筛选排除了所有样本。",
+                "Stack transforms removed all samples." to "调用栈变换排除了所有样本。",
+                "The profile does not contain complete call stacks." to "性能数据中没有完整的调用栈。",
+                "The flame graph could not be projected." to "无法生成火焰图。",
+                "Show all threads" to "显示所有线程",
+                "Reset time range" to "重置时间范围",
+                "Cancel preview" to "取消预览",
+                "Clear search" to "清除搜索",
+                "Show all implementations" to "显示所有实现类型",
+                "Undo transform" to "撤销变换",
+                "Review data quality" to "查看数据质量",
+                "Retry projection" to "重试生成",
+            )
+
+        expected.forEach { (english, chinese) ->
+            assertEquals(chinese, translateSimpleperfText(english, SimpleperfLanguage.SIMPLIFIED_CHINESE))
+        }
+    }
+
+    @Test
     fun `workspace pages do not expose language or theme controls`() {
         val homeScreen =
             Files.readString(
