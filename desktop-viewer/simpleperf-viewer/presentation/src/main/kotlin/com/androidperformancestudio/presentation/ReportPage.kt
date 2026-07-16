@@ -115,7 +115,8 @@ private fun ReportContent(
                 ReportTab.TIMELINE -> TimelineReport(state, report, actions)
                 ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions)
                 ReportTab.CALL_TREE -> CallTreeReport(state, report, actions)
-                ReportTab.FLAME_GRAPH -> FlameGraphPanel(state.flameGraph, report.flameGraph, actions)
+                ReportTab.FLAME_GRAPH ->
+                    FlameGraphPanel(report.session.directory, state.flameGraph, report.flameGraph, actions)
                 ReportTab.DIAGNOSTICS -> DiagnosticsReport(report, actions)
             }
         }

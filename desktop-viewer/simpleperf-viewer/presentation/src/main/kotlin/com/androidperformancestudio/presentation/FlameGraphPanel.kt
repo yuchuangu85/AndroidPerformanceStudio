@@ -44,17 +44,17 @@ import com.androidperformancestudio.visualization.FlameGraphCanvas
 import com.androidperformancestudio.visualization.FlameGraphLayout
 import com.androidperformancestudio.visualization.FlameTheme
 import com.androidperformancestudio.visualization.FlameViewport
-import kotlinx.coroutines.delay
+import java.nio.file.Path
 import kotlin.math.roundToInt
 
 @Composable
 @Suppress("CyclomaticComplexMethod", "FunctionName", "LongMethod", "ktlint:standard:function-naming")
 internal fun FlameGraphPanel(
+    sessionIdentity: Path,
     state: FlameGraphPanelState,
     snapshot: FlameGraphSnapshot,
     actions: ReportActions,
 ) {
-    var searchDraft by remember(snapshot) { mutableStateOf(state.query.searchText) }
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
     var scrollRow by remember(snapshot) { mutableIntStateOf(0) }
@@ -72,15 +72,6 @@ internal fun FlameGraphPanel(
     val viewport = requestedViewport.copy(scrollRow = clampedScrollRow)
     val layout = remember(snapshot, viewport) { FlameGraphLayout.layout(snapshot, viewport) }
 
-    LaunchedEffect(snapshot, state.query.searchText) {
-        if (searchDraft != state.query.searchText) searchDraft = state.query.searchText
-    }
-    LaunchedEffect(snapshot, searchDraft) {
-        if (searchDraft != state.query.searchText) {
-            delay(SEARCH_DEBOUNCE_MILLIS)
-            actions.onFlameSearch(searchDraft)
-        }
-    }
     LaunchedEffect(snapshot, state.selectedNodeId, heightPixels) {
         val next =
             state.selectedNodeId?.let { selected ->
@@ -97,11 +88,12 @@ internal fun FlameGraphPanel(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FlameGraphToolbar(
-            searchDraft = searchDraft,
+            sessionIdentity = sessionIdentity,
+            authoritativeSearch = state.query.searchText,
             implementation = state.query.implementation,
             direction = state.query.direction,
             hasTransforms = state.query.transforms.isNotEmpty(),
-            onSearchDraft = { searchDraft = it },
+            onSearch = actions.onFlameSearch,
             onImplementation = actions.onFlameImplementation,
             onDirection = actions.onCallTreeDirection,
             onUndo = actions.onUndoFlameTransform,
@@ -268,4 +260,3 @@ private fun FlameGraphUnavailableNotice(
 
 private const val FLAME_ROW_HEIGHT = 16f
 private const val DARK_THEME_LUMINANCE_THRESHOLD = 0.5f
-private const val SEARCH_DEBOUNCE_MILLIS = 150L

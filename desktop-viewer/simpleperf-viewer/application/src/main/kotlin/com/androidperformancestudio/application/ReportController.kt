@@ -155,6 +155,10 @@ class ReportController(
         }
     private val previewCollection = controllerScope.launch { collectPreviewRequests() }
     private var closed = false
+    private var semanticMutationInProgress = false
+
+    @Volatile
+    internal var afterPreviewInvalidatedForTest: (() -> Unit)? = null
 
     val state: StateFlow<ReportState> = mutableState.asStateFlow()
 
@@ -253,7 +257,7 @@ class ReportController(
 
     fun previewRange(range: AnalysisTimeRange) {
         synchronized(sessionMutationLock) {
-            if (closed || workspace.state.value.sessionDirectory == null) return
+            if (closed || semanticMutationInProgress || workspace.state.value.sessionDirectory == null) return
             previewRequests.trySend(
                 PreviewRequest(
                     range = range,
@@ -413,15 +417,18 @@ class ReportController(
         controllerScope.launch {
             val generation =
                 semanticMutationMutex.withLock {
-                    invalidatePreviewWork()
-                    updateProjectionStateLocked(expectedSessionEpoch) { current ->
-                        current.copy(
-                            selectedTab = ReportTab.FLAME_GRAPH,
-                            flameGraph =
-                                current.flameGraph.copy(
-                                    query = current.flameGraph.query.copy(searchText = symbolName),
-                                ),
-                        )
+                    withPreviewAdmissionSuspended {
+                        invalidatePreviewWork()
+                        afterPreviewInvalidatedForTest?.invoke()
+                        updateProjectionStateLocked(expectedSessionEpoch) { current ->
+                            current.copy(
+                                selectedTab = ReportTab.FLAME_GRAPH,
+                                flameGraph =
+                                    current.flameGraph.copy(
+                                        query = current.flameGraph.query.copy(searchText = symbolName),
+                                    ),
+                            )
+                        }
                     }
                 }
             generation?.let { awaitPublication(it) }
@@ -464,10 +471,22 @@ class ReportController(
     private suspend fun updateProjectionState(transform: (ReportState) -> ReportState) {
         val generation =
             semanticMutationMutex.withLock {
-                invalidatePreviewWork()
-                updateProjectionStateLocked(transform = transform)
+                withPreviewAdmissionSuspended {
+                    invalidatePreviewWork()
+                    afterPreviewInvalidatedForTest?.invoke()
+                    updateProjectionStateLocked(transform = transform)
+                }
             }
         generation?.let { awaitPublication(it) }
+    }
+
+    private inline fun <T> withPreviewAdmissionSuspended(block: () -> T): T {
+        synchronized(sessionMutationLock) { semanticMutationInProgress = true }
+        return try {
+            block()
+        } finally {
+            synchronized(sessionMutationLock) { semanticMutationInProgress = false }
+        }
     }
 
     private fun invalidatePreviewWork() {

@@ -37,15 +37,19 @@ class SimpleperfKeyboardShortcutTest {
 
     @Test
     fun `flame panel owns semantic shortcuts and cancellable search debounce`() {
-        val source =
+        val panelSource =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphPanel.kt"),
             )
+        val toolbarSource =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphToolbar.kt"),
+            )
 
-        assertTrue(source.contains("FlameGraphPresenter.keyAction"))
-        assertTrue(source.contains("LaunchedEffect(snapshot, searchDraft)"))
-        assertTrue(source.contains("delay(SEARCH_DEBOUNCE_MILLIS)"))
-        assertTrue(source.contains("actions.onNavigateFlameNode"))
-        assertTrue(source.contains("actions.onCopyFlameFunction"))
+        assertTrue(panelSource.contains("FlameGraphPresenter.keyAction"))
+        assertTrue(toolbarSource.contains("LaunchedEffect(sessionIdentity, searchState.draft"))
+        assertTrue(toolbarSource.contains("delay(SEARCH_DEBOUNCE_MILLIS)"))
+        assertTrue(panelSource.contains("actions.onNavigateFlameNode"))
+        assertTrue(panelSource.contains("actions.onCopyFlameFunction"))
     }
 }

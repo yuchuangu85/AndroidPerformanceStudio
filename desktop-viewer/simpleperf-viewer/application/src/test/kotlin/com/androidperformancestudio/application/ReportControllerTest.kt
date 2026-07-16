@@ -29,6 +29,7 @@ import com.androidperformancestudio.storage.SQLiteSampleStore
 import com.androidperformancestudio.storage.TopFunctionSort
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -37,6 +38,8 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -474,6 +477,20 @@ class ReportControllerTest {
         }
 
     @Test
+    fun `preview attempt inside range commit critical section is rejected`() =
+        runTest {
+            assertPreviewAttemptDuringSemanticMutationIsRejected { controller ->
+                controller.commitRange(100, 200)
+            }
+        }
+
+    @Test
+    fun `preview attempt inside cancellation critical section is rejected`() =
+        runTest {
+            assertPreviewAttemptDuringSemanticMutationIsRejected(ReportController::cancelPreview)
+        }
+
+    @Test
     fun `opening another profile cancels pending preview work`() =
         runTest {
             val loader = ControlledRequestLoader()
@@ -766,6 +783,51 @@ class ReportControllerTest {
             session: PreparedProfileSession,
             request: ProfileProjectionRequest,
         ): ProfileProjectionSnapshot = PendingRequest(request).also { started.send(it) }.result.await()
+    }
+
+    private suspend fun kotlinx.coroutines.test.TestScope.assertPreviewAttemptDuringSemanticMutationIsRejected(
+        mutation: suspend (ReportController) -> Unit,
+    ) {
+        val loader = ControlledRequestLoader()
+        val workspace = ProfileWorkspaceController(backgroundScope, loader)
+        val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+        val opening = async { controller.openSession(Files.createTempDirectory("aps-preview-critical-")) }
+        val initial = loader.started.receive()
+        initial.succeed(flameSnapshot(initial.request))
+        runCurrent()
+        opening.await()
+
+        controller.previewRange(AnalysisTimeRange(10, 20))
+        advanceTimeBy(16)
+        runCurrent()
+        val activePreview = loader.started.receive()
+        activePreview.succeed(flameSnapshot(activePreview.request))
+        runCurrent()
+
+        val mutationEntered = CountDownLatch(1)
+        val releaseMutation = CountDownLatch(1)
+        controller.afterPreviewInvalidatedForTest = {
+            mutationEntered.countDown()
+            check(releaseMutation.await(5, TimeUnit.SECONDS))
+        }
+        val semanticMutation = async(Dispatchers.Default) { mutation(controller) }
+        assertTrue(mutationEntered.await(5, TimeUnit.SECONDS), "semantic mutation did not reach the deterministic gate")
+
+        val previewAttempt = async(Dispatchers.Default) { controller.previewRange(AnalysisTimeRange(30, 40)) }
+        previewAttempt.await()
+        releaseMutation.countDown()
+        controller.afterPreviewInvalidatedForTest = null
+
+        val authoritative = loader.started.receive()
+        assertEquals(null, authoritative.request.callStackAnalysis.previewRange)
+        authoritative.succeed(flameSnapshot(authoritative.request))
+        runCurrent()
+        semanticMutation.await()
+        advanceTimeBy(32)
+        runCurrent()
+
+        assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+        assertTrue(loader.started.tryReceive().isFailure, "rejected preview must not submit after mutation completion")
     }
 
     private data class PendingRequest(
