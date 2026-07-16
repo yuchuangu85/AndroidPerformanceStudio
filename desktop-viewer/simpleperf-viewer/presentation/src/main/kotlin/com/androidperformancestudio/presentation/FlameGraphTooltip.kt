@@ -19,13 +19,21 @@ import java.util.Locale
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 internal fun FlameGraphTooltip(facts: FlameGraphTooltipFacts) {
+    val flameFrameLabel = localizedSimpleperfText("Flame frame")
+    val inclusiveLabel = localizedSimpleperfText("inclusive")
+    val selfLabel = localizedSimpleperfText("self")
     val accessible =
         buildString {
-            append("Flame frame ")
+            append(flameFrameLabel)
+            append(' ')
             append(facts.function)
-            append(", inclusive ")
+            append(", ")
+            append(inclusiveLabel)
+            append(' ')
             append(facts.inclusiveWeight)
-            append(", self ")
+            append(", ")
+            append(selfLabel)
+            append(' ')
             append(facts.selfWeight)
         }
     Card(
@@ -39,14 +47,36 @@ internal fun FlameGraphTooltip(facts: FlameGraphTooltipFacts) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            facts.category?.let { Text("Category: $it", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            Text("Implementation: ${facts.implementation.displayName()}")
-            facts.resource?.let { Text("Resource: $it", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            Text("Inclusive ${facts.inclusiveWeight} · Self ${facts.selfWeight}")
-            Text("Samples ${facts.sampleCount} · ${String.format(Locale.ROOT, "%.2f%%", facts.percentage)}")
-            facts.previewRangeWeight?.let { Text("Preview range weight: $it") }
+            facts.category?.let {
+                DynamicTooltipFact("Category", it, maxLines = 1)
+            }
+            DynamicTooltipFact("Implementation", localizedSimpleperfText(facts.implementation.displayName()))
+            facts.resource?.let { DynamicTooltipFact("Resource", it, maxLines = 1) }
+            Text(
+                "${localizedSimpleperfText("Inclusive")} ${facts.inclusiveWeight} · " +
+                    "${localizedSimpleperfText("Self")} ${facts.selfWeight}",
+            )
+            Text(
+                "${localizedSimpleperfText("Samples")} ${facts.sampleCount} · " +
+                    String.format(Locale.ROOT, "%.2f%%", facts.percentage),
+            )
+            facts.previewRangeWeight?.let { DynamicTooltipFact("Preview range weight", it.toString()) }
         }
     }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun DynamicTooltipFact(
+    label: String,
+    value: String,
+    maxLines: Int = Int.MAX_VALUE,
+) {
+    Text(
+        localizedSimpleperfText("$label: ") + value,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 private fun FrameImplementation.displayName(): String = name.lowercase().replaceFirstChar(Char::uppercase)

@@ -36,6 +36,26 @@ class SimpleperfLocalizationTest {
     }
 
     @Test
+    fun `Chinese localization composes flame tooltip labels from structured keys`() {
+        assertEquals(
+            "类别：Rendering",
+            translateSimpleperfText("Category: Rendering", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+        )
+        assertEquals(
+            "包含 12 · 独占 3",
+            translateSimpleperfText("Inclusive 12 · Self 3", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+        )
+        assertEquals(
+            "样本 4 · 25.00%",
+            translateSimpleperfText("Samples 4 · 25.00%", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+        )
+        assertEquals(
+            "预览范围权重：7",
+            translateSimpleperfText("Preview range weight: 7", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+        )
+    }
+
+    @Test
     fun `workspace pages do not expose language or theme controls`() {
         val homeScreen =
             Files.readString(

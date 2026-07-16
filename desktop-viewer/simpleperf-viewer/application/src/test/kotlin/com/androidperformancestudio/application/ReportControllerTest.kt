@@ -32,6 +32,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
@@ -43,6 +44,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LargeClass")
 class ReportControllerTest {
     @Test
     fun `opens indexed session into overview timeline tree and flame report`() =
@@ -248,9 +250,12 @@ class ReportControllerTest {
             val controller = ReportController()
             controller.openSession(indexedSession())
 
-            controller.updateFlamePreviewRange(AnalysisTimeRange(15, 25))
-
-            val state = controller.state.value
+            controller.previewRange(AnalysisTimeRange(15, 25))
+            val state =
+                controller.state.first { current ->
+                    val report = (current.loadState as? ReportLoadState.Ready)?.report
+                    report?.flameGraph?.query?.previewRange == AnalysisTimeRange(15, 25)
+                }
             val report = assertIs<ReportLoadState.Ready>(state.loadState).report
             assertEquals(AnalysisTimeRange(15, 25), state.flameGraph.query.previewRange)
             assertEquals(5L, report.flameGraph.totalWeight)
@@ -281,7 +286,8 @@ class ReportControllerTest {
             assertEquals(null, controller.state.value.flameGraph.hoveredNodeId)
             assertEquals(null, controller.state.value.flameGraph.contextNodeId)
 
-            controller.updateFlamePreviewRange(AnalysisTimeRange(1, 10))
+            controller.previewRange(AnalysisTimeRange(1, 10))
+            runCurrent()
             controller.applyTransform(first)
             controller.applyTransform(second)
             controller.undoLastTransform()
@@ -333,6 +339,150 @@ class ReportControllerTest {
             assertEquals(FlameCallNodeId(GRANDCHILD_NODE_ID), second)
             assertEquals(second, controller.state.value.flameGraph.selectedNodeId)
             assertTrue(loader.started.tryReceive().isFailure, "local navigation must not request a projection")
+        }
+
+    @Test
+    fun `rapid flame previews submit only the latest range on a controlled scheduler`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-preview-latest-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+
+            controller.previewRange(AnalysisTimeRange(10, 20))
+            controller.previewRange(AnalysisTimeRange(20, 30))
+            controller.previewRange(AnalysisTimeRange(30, 40))
+            runCurrent()
+
+            val latest = loader.started.receive()
+            assertEquals(AnalysisTimeRange(30, 40), latest.request.callStackAnalysis.previewRange)
+            assertTrue(loader.started.tryReceive().isFailure, "superseded previews must be conflated before loading")
+            latest.succeed(flameSnapshot(latest.request))
+            runCurrent()
+            assertEquals(AnalysisTimeRange(30, 40), controller.state.value.flameGraph.query.previewRange)
+        }
+
+    @Test
+    fun `range commit atomically clears preview and wins over a late preview result`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-preview-commit-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+
+            controller.previewRange(AnalysisTimeRange(10, 20))
+            runCurrent()
+            val preview = loader.started.receive()
+            val commit = async { controller.commitRange(100, 200) }
+            runCurrent()
+            val committed = loader.started.receive()
+
+            assertEquals(100, committed.request.query.startNanosInclusive)
+            assertEquals(200, committed.request.query.endNanosExclusive)
+            assertEquals(null, committed.request.callStackAnalysis.previewRange)
+            preview.succeed(flameSnapshot(preview.request))
+            committed.succeed(flameSnapshot(committed.request))
+            runCurrent()
+            commit.await()
+
+            assertEquals(100, controller.state.value.filter.startNanosInclusive)
+            assertEquals(200, controller.state.value.filter.endNanosExclusive)
+            assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+        }
+
+    @Test
+    fun `preview cancellation atomically clears state and wins over a late preview result`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-preview-cancel-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+
+            controller.previewRange(AnalysisTimeRange(10, 20))
+            runCurrent()
+            val preview = loader.started.receive()
+            val cancellation = async { controller.cancelPreview() }
+            runCurrent()
+            val cleared = loader.started.receive()
+
+            assertEquals(null, cleared.request.callStackAnalysis.previewRange)
+            preview.succeed(flameSnapshot(preview.request))
+            cleared.succeed(flameSnapshot(cleared.request))
+            runCurrent()
+            cancellation.await()
+
+            assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+        }
+
+    @Test
+    fun `opening another profile cancels pending preview work`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-preview-first-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+
+            controller.previewRange(AnalysisTimeRange(10, 20))
+            runCurrent()
+            val obsolete = loader.started.receive()
+            val nextOpen = async { controller.openSession(Files.createTempDirectory("aps-preview-second-")) }
+            runCurrent()
+            val next = loader.started.receive()
+            assertEquals(null, next.request.callStackAnalysis.previewRange)
+            obsolete.succeed(flameSnapshot(obsolete.request))
+            next.succeed(flameSnapshot(next.request))
+            runCurrent()
+            nextOpen.await()
+
+            assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+            assertEquals("", controller.state.value.flameGraph.query.searchText)
+        }
+
+    @Test
+    fun `semantic submission and publication cannot retain invisible hover or context nodes`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-transient-sanitize-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request, includeChild = true))
+            runCurrent()
+            opening.await()
+            val child = FlameCallNodeId(CHILD_NODE_ID)
+            controller.hoverCallNode(child)
+            controller.openCallNodeContext(child)
+
+            val refresh = async { controller.updateFlameSearch("root-only") }
+            runCurrent()
+            val pending = loader.started.receive()
+            assertEquals(null, controller.state.value.flameGraph.hoveredNodeId)
+            assertEquals(null, controller.state.value.flameGraph.contextNodeId)
+
+            controller.hoverCallNode(child)
+            controller.openCallNodeContext(child)
+            pending.succeed(flameSnapshot(pending.request, includeChild = false))
+            runCurrent()
+            refresh.await()
+
+            assertEquals(null, controller.state.value.flameGraph.hoveredNodeId)
+            assertEquals(null, controller.state.value.flameGraph.contextNodeId)
         }
 
     @Test

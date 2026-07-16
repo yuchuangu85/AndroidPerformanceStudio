@@ -32,18 +32,18 @@ internal fun FlameGraphToolbar(
     onClear: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = searchDraft,
+            onValueChange = onSearchDraft,
+            singleLine = true,
+            label = { Text("Search function or library") },
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Flame graph search" },
+        )
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedTextField(
-                value = searchDraft,
-                onValueChange = onSearchDraft,
-                singleLine = true,
-                label = { Text("Search function or library") },
-                modifier = Modifier.weight(1f).semantics { contentDescription = "Flame graph search" },
-            )
             CallStackDirection.entries.forEach { option ->
                 FilterChip(
                     selected = direction == option,

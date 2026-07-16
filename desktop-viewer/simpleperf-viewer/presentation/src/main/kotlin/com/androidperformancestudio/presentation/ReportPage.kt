@@ -270,7 +270,6 @@ private fun TimelineReport(
             NavigationButtons(::navigate)
             OutlinedButton(
                 onClick = {
-                    actions.onFlamePreviewRange(null)
                     actions.onTimeRange(null, null)
                 },
             ) { Text("Reset range") }
@@ -281,17 +280,16 @@ private fun TimelineReport(
             viewport = viewport,
             onRangePreview = { preview ->
                 actions.onFlamePreviewRange(
-                    preview?.let { range ->
-                        AnalysisTimeRange(
-                            range.startNanos,
-                            range.endNanosExclusive,
-                        )
-                    },
+                    AnalysisTimeRange(
+                        preview.startNanos,
+                        preview.endNanosExclusive,
+                    ),
                 )
             },
             onRangeCommit = { selected ->
                 actions.onTimeRange(selected.startNanos, selected.endNanosExclusive)
             },
+            onRangeCancel = actions.onCancelFlamePreview,
             modifier =
                 Modifier
                     .fillMaxWidth()

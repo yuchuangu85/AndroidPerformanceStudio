@@ -2,14 +2,11 @@
 
 package com.androidperformancestudio.presentation
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,11 +29,8 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphPanelState
-import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.visualization.FlameGraphCanvas
 import com.androidperformancestudio.visualization.FlameGraphLayout
@@ -170,12 +164,6 @@ internal fun FlameGraphPanel(
             ?.takeIf { state.contextNodeId == null }
             ?.let(snapshot::tooltipFacts)
             ?.let { facts -> FlameGraphTooltip(facts) }
-        state.contextNodeId?.let { contextId ->
-            ContextActionPlaceholder(snapshot, contextId)
-        }
-        state.selectedNodeId?.let { selectedId ->
-            SelectionDetailsSlot(snapshot, selectedId)
-        }
         Text("Click a frame to select it. Flame widths always represent the full analyzed sample set.")
     }
 }
@@ -191,7 +179,7 @@ private fun dispatchFlameAction(
         is FlameGraphPanelAction.Hover -> actions.onHoverFlameNode(action.nodeId)
         is FlameGraphPanelAction.Select -> actions.onSelectFlameNode(action.nodeId)
         is FlameGraphPanelAction.OpenContextMenu -> actions.onOpenFlameContext(action.nodeId)
-        is FlameGraphPanelAction.OpenDetails -> actions.onOpenFlameDetails(action.nodeId)
+        is FlameGraphPanelAction.OpenDetails -> Unit // Task 12 owns the authoritative details surface.
         is FlameGraphPanelAction.Copy -> actions.onCopyFlameFunction(action.text)
         FlameGraphPanelAction.DismissContextMenu -> actions.onOpenFlameContext(null)
         FlameGraphPanelAction.DismissTooltip -> actions.onHoverFlameNode(null)
@@ -199,45 +187,6 @@ private fun dispatchFlameAction(
             actions.onNavigateFlameNode(action.command)?.let { target ->
                 onScrollRow(FlameGraphPresenter.scrollRowToReveal(snapshot, target, viewport))
             }
-        }
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun ContextActionPlaceholder(
-    snapshot: FlameGraphSnapshot,
-    nodeId: FlameCallNodeId,
-) {
-    val name = FlameGraphPresenter.copyText(snapshot, nodeId) ?: return
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
-    ) {
-        Text(
-            "Selected context: $name",
-            modifier = Modifier.padding(10.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun SelectionDetailsSlot(
-    snapshot: FlameGraphSnapshot,
-    nodeId: FlameCallNodeId,
-) {
-    val facts = snapshot.tooltipFacts(nodeId) ?: return
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-    ) {
-        Column(Modifier.padding(10.dp)) {
-            Text(facts.function, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            facts.resource?.let { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            Text("Inclusive ${facts.inclusiveWeight} · Self ${facts.selfWeight}")
         }
     }
 }

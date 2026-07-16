@@ -33,6 +33,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -145,11 +146,13 @@ class ReportController(
     private val semanticMutationMutex = Mutex()
     private val sessionMutationLock = Any()
     private val sessionEpoch = AtomicLong()
+    private val previewMutationId = AtomicLong()
     private val workspaceCollection =
         controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
             workspace.state.collect(::publishWorkspaceState)
         }
     private var closed = false
+    private var previewJob: Job? = null
 
     val state: StateFlow<ReportState> = mutableState.asStateFlow()
 
@@ -158,6 +161,7 @@ class ReportController(
             semanticMutationMutex.withLock {
                 synchronized(sessionMutationLock) {
                     check(!closed) { "ReportController is closed" }
+                    invalidatePreviewWorkLocked()
                     sessionEpoch.incrementAndGet()
                     val session = directory.toAbsolutePath().normalize()
                     val next = ReportState(loadState = ReportLoadState.Loading(session))
@@ -171,6 +175,7 @@ class ReportController(
 
     fun closeSession() {
         synchronized(sessionMutationLock) {
+            invalidatePreviewWorkLocked()
             sessionEpoch.incrementAndGet()
             workspace.closeSession()
             mutableState.value = ReportState()
@@ -182,6 +187,7 @@ class ReportController(
         error: StudioError,
     ) {
         synchronized(sessionMutationLock) {
+            invalidatePreviewWorkLocked()
             sessionEpoch.incrementAndGet()
             workspace.closeSession()
             val session = directory.toAbsolutePath().normalize()
@@ -193,7 +199,7 @@ class ReportController(
         mutableState.mutate { current -> current.copy(selectedTab = tab) }
     }
 
-    suspend fun updateTimeRange(
+    suspend fun commitRange(
         startNanosInclusive: Long?,
         endNanosExclusive: Long?,
     ) {
@@ -211,6 +217,11 @@ class ReportController(
             )
         }
     }
+
+    suspend fun updateTimeRange(
+        startNanosInclusive: Long?,
+        endNanosExclusive: Long?,
+    ) = commitRange(startNanosInclusive, endNanosExclusive)
 
     suspend fun updateThreads(threadIds: Set<Int>) {
         updateProjectionState { current ->
@@ -234,8 +245,50 @@ class ReportController(
         }
     }
 
-    suspend fun updateFlamePreviewRange(range: AnalysisTimeRange?) {
-        updateCallStackQuery { copy(previewRange = range) }
+    fun previewRange(range: AnalysisTimeRange) {
+        val expectedSessionEpoch: Long
+        val mutationId: Long
+        synchronized(sessionMutationLock) {
+            if (closed || workspace.state.value.sessionDirectory == null) return
+            expectedSessionEpoch = sessionEpoch.get()
+            mutationId = previewMutationId.incrementAndGet()
+            previewJob?.cancel()
+            previewJob =
+                controllerScope.launch {
+                    try {
+                        val generation =
+                            semanticMutationMutex.withLock {
+                                if (previewMutationId.get() != mutationId) {
+                                    null
+                                } else {
+                                    updateProjectionStateLocked(expectedSessionEpoch) { current ->
+                                        if (previewMutationId.get() != mutationId) {
+                                            current
+                                        } else {
+                                            current.copy(
+                                                flameGraph =
+                                                    current.flameGraph.copy(
+                                                        query = current.flameGraph.query.copy(previewRange = range),
+                                                    ),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        generation?.let { awaitPublication(it) }
+                    } catch (_: CancellationException) {
+                        // A newer preview, commit, cancellation, or session superseded this request.
+                    }
+                }
+        }
+    }
+
+    suspend fun cancelPreview() {
+        updateProjectionState { current ->
+            current.copy(
+                flameGraph = current.flameGraph.copy(query = current.flameGraph.query.copy(previewRange = null)),
+            )
+        }
     }
 
     suspend fun updateFlameSearch(search: String) {
@@ -330,6 +383,7 @@ class ReportController(
         controllerScope.launch {
             val generation =
                 semanticMutationMutex.withLock {
+                    invalidatePreviewWork()
                     updateProjectionStateLocked(expectedSessionEpoch) { current ->
                         current.copy(
                             selectedTab = ReportTab.FLAME_GRAPH,
@@ -357,6 +411,7 @@ class ReportController(
         synchronized(sessionMutationLock) {
             if (closed) return
             closed = true
+            invalidatePreviewWorkLocked()
             sessionEpoch.incrementAndGet()
             workspace.closeSession()
             mutableState.value = ReportState()
@@ -374,8 +429,22 @@ class ReportController(
     }
 
     private suspend fun updateProjectionState(transform: (ReportState) -> ReportState) {
-        val generation = semanticMutationMutex.withLock { updateProjectionStateLocked(transform = transform) }
+        val generation =
+            semanticMutationMutex.withLock {
+                invalidatePreviewWork()
+                updateProjectionStateLocked(transform = transform)
+            }
         generation?.let { awaitPublication(it) }
+    }
+
+    private fun invalidatePreviewWork() {
+        synchronized(sessionMutationLock) { invalidatePreviewWorkLocked() }
+    }
+
+    private fun invalidatePreviewWorkLocked() {
+        previewMutationId.incrementAndGet()
+        previewJob?.cancel()
+        previewJob = null
     }
 
     private fun updateProjectionStateLocked(
@@ -387,7 +456,15 @@ class ReportController(
                 return@synchronized null
             }
             if (workspace.state.value.sessionDirectory == null) return@synchronized null
-            val mutation = mutableState.mutate(transform)
+            val mutation =
+                mutableState.mutate { current ->
+                    val transformed = transform(current)
+                    if (current.projectionRequest() == transformed.projectionRequest()) {
+                        transformed
+                    } else {
+                        transformed.clearFlameTransients()
+                    }
+                }
             if (mutation.current == mutation.next) return@synchronized null
             val currentRequest = mutation.current.projectionRequest()
             val nextRequest = mutation.next.projectionRequest()
@@ -448,12 +525,22 @@ class ReportController(
                     current
                 } else {
                     val selected = retainSelection(current, report.flameGraph)
+                    val hovered =
+                        current.flameGraph.hoveredNodeId?.takeIf { nodeId ->
+                            report.flameGraph.callNodes.contains(nodeId)
+                        }
+                    val context =
+                        current.flameGraph.contextNodeId?.takeIf { nodeId ->
+                            report.flameGraph.callNodes.contains(nodeId)
+                        }
                     current.copy(
                         loadState = ReportLoadState.Ready(report),
                         lastReadyReport = report,
                         flameGraph =
                             current.flameGraph.copy(
                                 selectedNodeId = selected,
+                                hoveredNodeId = hovered,
+                                contextNodeId = context,
                                 invalidTransforms = report.flameGraph.invalidTransforms,
                             ),
                     )
@@ -573,6 +660,15 @@ private fun retainSelection(
                 ?.nearestVisibleAncestor(next.callNodes)
     }
 }
+
+private fun ReportState.clearFlameTransients(): ReportState =
+    copy(
+        flameGraph =
+            flameGraph.copy(
+                hoveredNodeId = null,
+                contextNodeId = null,
+            ),
+    )
 
 private fun CallNodePath.nearestVisibleAncestor(next: CallNodeTable): FlameCallNodeId? =
     functions.indices.reversed().firstNotNullOfOrNull { lastIndex ->

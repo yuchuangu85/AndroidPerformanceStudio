@@ -41,6 +41,9 @@ internal fun SimpleperfLocalization(
 }
 
 @Composable
+internal fun localizedSimpleperfText(text: String): String = translateSimpleperfText(text, LocalSimpleperfLanguage.current)
+
+@Composable
 internal fun Text(
     text: String,
     modifier: Modifier = Modifier,
@@ -87,11 +90,17 @@ internal fun translateSimpleperfText(
 ): String {
     if (language == SimpleperfLanguage.ENGLISH) return text
     CHINESE_TEXT[text]?.let { return it }
-    CHINESE_PREFIXES.firstOrNull { text.startsWith(it.first) }?.let { (english, chinese) ->
-        return chinese + text.removePrefix(english)
-    }
     INC_EXC_PATTERN.matchEntire(text)?.let { match ->
         return "包含 ${match.groupValues[1]} · 独占 ${match.groupValues[2]}"
+    }
+    INCLUSIVE_SELF_PATTERN.matchEntire(text)?.let { match ->
+        return "包含 ${match.groupValues[1]} · 独占 ${match.groupValues[2]}"
+    }
+    SAMPLES_PATTERN.matchEntire(text)?.let { match ->
+        return "样本 ${match.groupValues[1]} · ${match.groupValues[2]}"
+    }
+    CHINESE_PREFIXES.firstOrNull { text.startsWith(it.first) }?.let { (english, chinese) ->
+        return chinese + text.removePrefix(english)
     }
     EVERY_EVENTS_PATTERN.matchEntire(text)?.let { match ->
         return "每 ${match.groupValues[1]} 个事件"
@@ -126,6 +135,10 @@ private val CHINESE_PREFIXES =
         "Unknown symbols: " to "未知符号：",
         "Empty stacks: " to "空调用栈：",
         "Completed: " to "已完成：",
+        "Category: " to "类别：",
+        "Implementation: " to "实现：",
+        "Resource: " to "资源：",
+        "Preview range weight: " to "预览范围权重：",
         "Inclusive " to "包含 ",
         "Exclusive " to "独占 ",
     )
@@ -203,6 +216,14 @@ private val CHINESE_TEXT =
         "Flame graph" to "火焰图",
         "Diagnostics" to "诊断",
         "Samples" to "样本",
+        "Self" to "独占",
+        "Category" to "类别",
+        "Implementation" to "实现",
+        "Resource" to "资源",
+        "Preview range weight" to "预览范围权重",
+        "Flame frame" to "火焰图帧",
+        "inclusive" to "包含",
+        "self" to "独占",
         "Event weight" to "事件权重",
         "Lost rate" to "丢失率",
         "Data quality" to "数据质量",
@@ -297,4 +318,6 @@ private val CHINESE_TEXT =
     )
 
 private val INC_EXC_PATTERN = Regex("inc (.+) · exc (.+)")
+private val INCLUSIVE_SELF_PATTERN = Regex("Inclusive (.+) · Self (.+)")
+private val SAMPLES_PATTERN = Regex("Samples (.+) · (.+)")
 private val EVERY_EVENTS_PATTERN = Regex("every (.+) events")

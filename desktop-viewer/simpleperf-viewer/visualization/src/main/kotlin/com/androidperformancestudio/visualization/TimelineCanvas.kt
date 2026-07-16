@@ -3,6 +3,8 @@ package com.androidperformancestudio.visualization
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -19,32 +21,43 @@ fun TimelineCanvas(
     modifier: Modifier = Modifier,
     color: Color = DefaultTimelineColor,
     viewport: TimeViewport? = null,
-    onRangePreview: (TimeViewport?) -> Unit = {},
+    onRangePreview: (TimeViewport) -> Unit = {},
     onRangeCommit: (TimeViewport) -> Unit = {},
+    onRangeCancel: () -> Unit = {},
 ) {
+    val currentRangePreview by rememberUpdatedState(onRangePreview)
+    val currentRangeCommit by rememberUpdatedState(onRangeCommit)
+    val currentRangeCancel by rememberUpdatedState(onRangeCancel)
     val rangeModifier =
         if (viewport == null) {
             modifier
         } else {
-            modifier.pointerInput(viewport, onRangePreview, onRangeCommit) {
+            modifier.pointerInput(viewport) {
                 var interaction: TimelineRangeInteraction? = null
-                detectDragGestures(
-                    onDragStart = { position ->
-                        interaction = TimelineRangeInteraction(viewport, size.width.toFloat())
-                        interaction?.start(position.x)?.let(onRangePreview)
-                    },
-                    onDragCancel = {
-                        interaction?.cancel()
-                        interaction = null
-                        onRangePreview(null)
-                    },
-                    onDragEnd = {
-                        interaction?.commit()?.let(onRangeCommit)
-                        interaction = null
-                        onRangePreview(null)
-                    },
-                ) { change, _ ->
-                    interaction?.drag(change.position.x)?.let(onRangePreview)
+
+                fun cancelActiveInteraction() {
+                    val active = interaction ?: return
+                    active.cancel()
+                    interaction = null
+                    currentRangeCancel()
+                }
+
+                try {
+                    detectDragGestures(
+                        onDragStart = { position ->
+                            interaction = TimelineRangeInteraction(viewport, size.width.toFloat())
+                            interaction?.start(position.x)?.let(currentRangePreview)
+                        },
+                        onDragCancel = ::cancelActiveInteraction,
+                        onDragEnd = {
+                            interaction?.commit()?.let(currentRangeCommit)
+                            interaction = null
+                        },
+                    ) { change, _ ->
+                        interaction?.drag(change.position.x)?.let(currentRangePreview)
+                    }
+                } finally {
+                    cancelActiveInteraction()
                 }
             }
         }

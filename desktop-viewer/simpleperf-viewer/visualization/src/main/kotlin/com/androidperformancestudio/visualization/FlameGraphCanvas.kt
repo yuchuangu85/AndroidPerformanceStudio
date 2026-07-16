@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -83,25 +85,26 @@ fun FlameGraphCanvas(
     theme: FlameTheme? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
+    val currentIntent by rememberUpdatedState(onIntent)
     val resolvedTheme = theme ?: if (isSystemInDarkTheme()) FlameTheme.DARK else FlameTheme.LIGHT
     val primaryInputModifier =
         modifier
             .onPointerEvent(PointerEventType.Enter) { event ->
                 event.changes.lastOrNull()?.position?.let { position ->
-                    onIntent(FlameGraphInteraction.hover(layout, position))
+                    currentIntent(FlameGraphInteraction.hover(layout, position))
                 }
             }.onPointerEvent(PointerEventType.Move) { event ->
                 event.changes.lastOrNull()?.position?.let { position ->
-                    onIntent(FlameGraphInteraction.hover(layout, position))
+                    currentIntent(FlameGraphInteraction.hover(layout, position))
                 }
             }.onPointerEvent(PointerEventType.Exit) {
-                onIntent(FlameGraphInteraction.hoverExit())
-            }.pointerInput(layout, onIntent) {
+                currentIntent(FlameGraphInteraction.hoverExit())
+            }.pointerInput(layout) {
                 detectTapGestures(
                     onDoubleTap = { position ->
-                        FlameGraphInteraction.openDetails(layout, position)?.let(onIntent)
+                        FlameGraphInteraction.openDetails(layout, position)?.let(currentIntent)
                     },
-                    onTap = { position -> onIntent(FlameGraphInteraction.select(layout, position)) },
+                    onTap = { position -> currentIntent(FlameGraphInteraction.select(layout, position)) },
                 )
             }
     // The inner press handler consumes secondary downs before the outer tap detector's main pass.
@@ -109,7 +112,7 @@ fun FlameGraphCanvas(
         primaryInputModifier.onPointerEvent(PointerEventType.Press) { event ->
             if (event.buttons.isSecondaryPressed) {
                 event.changes.lastOrNull()?.position?.let { position ->
-                    FlameGraphInteraction.openContextMenu(layout, position)?.let(onIntent)
+                    FlameGraphInteraction.openContextMenu(layout, position)?.let(currentIntent)
                 }
                 event.changes.forEach { change -> change.consume() }
             }
@@ -230,7 +233,7 @@ private fun VisibleFlameLayout.nodeIdAt(position: Offset): FlameCallNodeId? =
 
 private fun FlameCallNodeId.contextMenuAt(position: Offset) = FlameGraphIntent.OpenContextMenu(this, position)
 
-private fun FlameGraphColor.toComposeColor(): Color = Color(argb.toUInt().toULong())
+private fun FlameGraphColor.toComposeColor(): Color = Color(argb)
 
 private const val NODE_GAP_PX = 1f
 private const val MINIMUM_NODE_HEIGHT_PX = 1f
