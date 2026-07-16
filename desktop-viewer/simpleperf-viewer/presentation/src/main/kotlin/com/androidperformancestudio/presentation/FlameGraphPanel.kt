@@ -6,6 +6,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.MaterialTheme
@@ -178,6 +179,15 @@ internal fun FlameGraphPanel(
                                 widthPixels = size.width
                                 heightPixels = size.height
                             },
+                )
+                FlameGraphSemanticsOverlay(
+                    snapshot = snapshot,
+                    layout = layout,
+                    selectedNodeId = state.selectedNodeId,
+                    onSelect = actions.onSelectCallNode,
+                    onOpenDetails = actions.onOpenFlameDetails,
+                    onOpenContextMenu = { nodeId, _ -> actions.onOpenFlameContext(nodeId) },
+                    modifier = Modifier.fillMaxSize(),
                 )
             } else {
                 FlameGraphEmptyState(snapshot, actions)

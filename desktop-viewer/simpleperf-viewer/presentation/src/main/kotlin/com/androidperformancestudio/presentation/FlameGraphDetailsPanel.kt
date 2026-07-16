@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -94,6 +95,7 @@ internal fun FlameGraphDetailsPanel(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag("flame-details")
                 .semantics {
                     contentDescription = content.title
                     liveRegion = LiveRegionMode.Polite
