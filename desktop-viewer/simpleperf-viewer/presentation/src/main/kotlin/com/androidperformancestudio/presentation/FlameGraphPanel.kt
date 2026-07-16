@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -23,9 +22,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -36,7 +38,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphPanelState
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
@@ -59,6 +60,7 @@ internal fun FlameGraphPanel(
     var heightPixels by remember { mutableIntStateOf(0) }
     var scrollRow by remember(snapshot) { mutableIntStateOf(0) }
     var unavailableFeedback by remember(snapshot) { mutableStateOf<FlameGraphUnavailableFeedback?>(null) }
+    var contextAnchor by remember(snapshot) { mutableStateOf<Offset?>(null) }
     val focusRequester = remember { FocusRequester() }
     val callStacksDescription = localizedSimpleperfText("Flame graph call stacks")
     val requestedViewport =
@@ -80,9 +82,7 @@ internal fun FlameGraphPanel(
         if (scrollRow != next) scrollRow = next
     }
     LaunchedEffect(state.contextNodeId) {
-        if (state.contextNodeId == null && unavailableFeedback is FlameGraphUnavailableFeedback.ContextActions) {
-            unavailableFeedback = null
-        }
+        if (state.contextNodeId == null) contextAnchor = null
     }
     LaunchedEffect(focusRequester) { focusRequester.requestFocus() }
 
@@ -126,6 +126,7 @@ internal fun FlameGraphPanel(
                         viewport = viewport,
                         onFeedback = { unavailableFeedback = it },
                         onScrollRow = { scrollRow = it },
+                        onContextAnchor = { contextAnchor = it },
                     )
                 },
                 modifier =
@@ -140,12 +141,14 @@ internal fun FlameGraphPanel(
                                     key = event.key,
                                     eventType = event.type,
                                     snapshot = snapshot,
-                                    selectedNodeId = state.selectedNodeId,
+                                    selectedNodeId = state.contextNodeId ?: state.selectedNodeId,
                                     hasContextMenu = state.contextNodeId != null,
                                     hasTooltip = state.hoveredNodeId != null,
                                     hasUnavailableFeedback = unavailableFeedback != null,
                                     controlPressed = event.isCtrlPressed,
                                     metaPressed = event.isMetaPressed,
+                                    altPressed = event.isAltPressed,
+                                    shiftPressed = event.isShiftPressed,
                                 )
                             if (action == null) {
                                 false
@@ -157,6 +160,7 @@ internal fun FlameGraphPanel(
                                     viewport = viewport,
                                     onFeedback = { unavailableFeedback = it },
                                     onScrollRow = { scrollRow = it },
+                                    onContextAnchor = { contextAnchor = it },
                                 )
                                 true
                             }
@@ -181,15 +185,21 @@ internal fun FlameGraphPanel(
                             heightPixels = size.height
                         },
             )
+            state.contextNodeId?.let { contextNodeId ->
+                FlameGraphContextMenu(
+                    entries =
+                        FlameGraphContextCommands.entries(
+                            snapshot,
+                            contextNodeId,
+                            hasTransforms = state.query.transforms.isNotEmpty(),
+                        ),
+                    anchor = contextAnchor ?: Offset.Zero,
+                    onCommand = { command -> dispatchContextCommand(command, actions) },
+                    onDismiss = { actions.onOpenFlameContext(null) },
+                )
+            }
             unavailableFeedback?.let { feedback ->
-                val feedbackModifier =
-                    when (feedback) {
-                        is FlameGraphUnavailableFeedback.ContextActions ->
-                            Modifier.offset {
-                                IntOffset(feedback.anchor.x.roundToInt(), feedback.anchor.y.roundToInt())
-                            }
-                        is FlameGraphUnavailableFeedback.Details -> Modifier.align(Alignment.TopEnd).padding(8.dp)
-                    }
+                val feedbackModifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
                 FlameGraphUnavailableNotice(feedback, feedbackModifier)
             }
         }
@@ -209,14 +219,15 @@ private fun dispatchFlameAction(
     viewport: FlameViewport,
     onFeedback: (FlameGraphUnavailableFeedback?) -> Unit,
     onScrollRow: (Int) -> Unit,
+    onContextAnchor: (Offset?) -> Unit = {},
 ) {
     if (action !is FlameGraphPanelAction.Hover) onFeedback(null)
     when (action) {
         is FlameGraphPanelAction.Hover -> actions.onHoverFlameNode(action.nodeId)
-        is FlameGraphPanelAction.Select -> actions.onSelectFlameNode(action.nodeId)
+        is FlameGraphPanelAction.Select -> actions.onSelectCallNode(action.nodeId)
         is FlameGraphPanelAction.OpenContextMenu -> {
+            onContextAnchor(action.anchor)
             actions.onOpenFlameContext(action.nodeId)
-            onFeedback(FlameGraphPresenter.unavailableFeedbackFor(action))
         }
         is FlameGraphPanelAction.OpenDetails -> {
             actions.onOpenFlameContext(null)
@@ -226,7 +237,14 @@ private fun dispatchFlameAction(
             actions.onOpenFlameContext(null)
             actions.onCopyFlameFunction(action.text)
         }
-        FlameGraphPanelAction.DismissContextMenu -> actions.onOpenFlameContext(null)
+        is FlameGraphPanelAction.ApplyTransform -> {
+            actions.onOpenFlameContext(null)
+            actions.onApplyFlameTransform(action.transform)
+        }
+        FlameGraphPanelAction.DismissContextMenu -> {
+            onContextAnchor(null)
+            actions.onOpenFlameContext(null)
+        }
         FlameGraphPanelAction.DismissUnavailableFeedback -> actions.onOpenFlameContext(null)
         FlameGraphPanelAction.DismissTooltip -> actions.onHoverFlameNode(null)
         is FlameGraphPanelAction.Navigate -> {
@@ -235,6 +253,19 @@ private fun dispatchFlameAction(
                 onScrollRow(FlameGraphPresenter.scrollRowToReveal(snapshot, target, viewport))
             }
         }
+    }
+}
+
+private fun dispatchContextCommand(
+    command: FlameGraphContextCommand,
+    actions: ReportActions,
+) {
+    actions.onOpenFlameContext(null)
+    when (command) {
+        is FlameGraphContextCommand.ApplyTransform -> actions.onApplyFlameTransform(command.transform)
+        is FlameGraphContextCommand.Copy -> actions.onCopyFlameFunction(command.text)
+        FlameGraphContextCommand.Undo -> actions.onUndoFlameTransform()
+        FlameGraphContextCommand.Clear -> actions.onClearFlameTransforms()
     }
 }
 

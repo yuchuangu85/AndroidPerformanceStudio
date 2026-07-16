@@ -3,6 +3,7 @@ package com.androidperformancestudio.presentation
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
@@ -21,9 +22,10 @@ data class ReportActions(
     val onCancelFlamePreview: () -> Unit,
     val onFlameSearch: (String) -> Unit,
     val onFlameImplementation: (ImplementationFilter) -> Unit,
+    val onApplyFlameTransform: (CallStackTransform) -> Unit,
     val onUndoFlameTransform: () -> Unit,
     val onClearFlameTransforms: () -> Unit,
-    val onSelectFlameNode: (FlameCallNodeId?) -> Unit,
+    val onSelectCallNode: (FlameCallNodeId?) -> Unit,
     val onHoverFlameNode: (FlameCallNodeId?) -> Unit,
     val onOpenFlameContext: (FlameCallNodeId?) -> Unit,
     val onCopyFlameFunction: (String) -> Unit,

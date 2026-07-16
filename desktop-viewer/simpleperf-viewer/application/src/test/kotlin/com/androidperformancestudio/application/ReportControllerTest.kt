@@ -219,6 +219,28 @@ class ReportControllerTest {
         }
 
     @Test
+    fun `call tree and flame graph publish one selection without mutating the shared query`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+            val initial = controller.state.value
+            val report = assertIs<ReportLoadState.Ready>(initial.loadState).report
+            val callTreeNode = report.callTree.single { it.symbolName == "renderFrame" }
+            val initialQuery = initial.flameGraph.query
+
+            controller.selectCallNode(FlameCallNodeId(callTreeNode.id))
+
+            val selected = controller.state.value
+            assertEquals(FlameCallNodeId(callTreeNode.id), selected.flameGraph.selectedNodeId)
+            assertEquals(initialQuery, selected.flameGraph.query)
+            assertTrue(
+                assertIs<ReportLoadState.Ready>(selected.loadState).report.callTree.any { node ->
+                    node.id == selected.flameGraph.selectedNodeId?.value
+                },
+            )
+        }
+
+    @Test
     fun `transforms survive unrelated refresh and removed selection falls back to ancestor`() =
         runTest {
             val controller = ReportController()

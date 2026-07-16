@@ -8,6 +8,7 @@ import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.CallStackFrame
+import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FlameGraphRows
@@ -38,15 +39,48 @@ class FlameGraphPresenterTest {
         val contextAction =
             FlameGraphPresenter.actionFor(FlameGraphIntent.OpenContextMenu(FlameCallNodeId(2), anchor))
         assertEquals(FlameGraphPanelAction.OpenContextMenu(FlameCallNodeId(2), anchor), contextAction)
-        val contextFeedback = FlameGraphPresenter.unavailableFeedbackFor(contextAction)
-        assertEquals(FlameGraphUnavailableFeedback.ContextActions(FlameCallNodeId(2), anchor), contextFeedback)
-        assertEquals("Context actions are not available yet. Press Escape to dismiss.", contextFeedback?.message)
+        assertNull(FlameGraphPresenter.unavailableFeedbackFor(contextAction))
         val detailsFeedback =
             FlameGraphPresenter.unavailableFeedbackFor(FlameGraphPanelAction.OpenDetails(FlameCallNodeId(2)))
         assertEquals(FlameGraphUnavailableFeedback.Details(FlameCallNodeId(2)), detailsFeedback)
         assertEquals(
             expected = "Source and disassembly details are not available yet. Press Escape to dismiss.",
             actual = detailsFeedback?.message,
+        )
+    }
+
+    @Test
+    fun `transform shortcuts dispatch exact semantic transform actions`() {
+        val expected =
+            FlameGraphPanelAction.ApplyTransform(
+                CallStackTransform.FocusCallNode(
+                    requireNotNull(FlameGraphContextCommands.pathFor(snapshot, FlameCallNodeId(2))),
+                ),
+            )
+
+        assertEquals(
+            expected,
+            FlameGraphPresenter.keyAction(
+                Key.F,
+                KeyEventType.KeyDown,
+                snapshot,
+                FlameCallNodeId(2),
+                hasContextMenu = false,
+                hasTooltip = false,
+                shiftPressed = true,
+            ),
+        )
+        assertNull(
+            FlameGraphPresenter.keyAction(
+                Key.F,
+                KeyEventType.KeyDown,
+                snapshot,
+                FlameCallNodeId(2),
+                hasContextMenu = false,
+                hasTooltip = false,
+                controlPressed = true,
+                shiftPressed = true,
+            ),
         )
     }
 

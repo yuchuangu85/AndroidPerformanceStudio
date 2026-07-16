@@ -4,6 +4,7 @@
 package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -56,6 +58,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
@@ -424,12 +427,24 @@ private fun CallTreeReport(
     var expandedIds by remember(report.callTree) {
         mutableStateOf(report.callTree.filter { it.parentId == null }.mapTo(mutableSetOf(), CallTreeNode::id))
     }
+    val listState = rememberLazyListState()
+    val selectedNodeId = state.flameGraph.selectedNodeId
     LaunchedEffect(report.callTree, state.callTreeSearch) {
         if (state.callTreeSearch.isNotBlank()) {
             expandedIds = (expandedIds + report.callTree.expandedPathIds(state.callTreeSearch)).toMutableSet()
         }
     }
+    LaunchedEffect(report.callTree, selectedNodeId) {
+        if (selectedNodeId != null) {
+            expandedIds = (expandedIds + report.callTree.selectedPathIds(selectedNodeId)).toMutableSet()
+        }
+    }
     val visible = remember(report.callTree, expandedIds) { report.callTree.visibleNodes(expandedIds) }
+    LaunchedEffect(visible, selectedNodeId) {
+        visible.selectedNodeIndex(selectedNodeId).takeIf { index -> index >= 0 }?.let { index ->
+            listState.animateScrollToItem(index)
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CallStackDirection.entries.forEach { direction ->
@@ -447,21 +462,26 @@ private fun CallTreeReport(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(3.dp)) {
             items(visible, key = CallTreeNode::id) { node ->
                 val hasChildren = report.callTree.any { it.parentId == node.id }
                 Row(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .clickable {
+                            .background(
+                                if (selectedNodeId?.value == node.id) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    androidx.compose.ui.graphics.Color.Transparent
+                                },
+                            ).clickable {
+                                actions.onSelectCallNode(FlameCallNodeId(node.id))
                                 if (hasChildren) {
                                     expandedIds =
                                         expandedIds.toMutableSet().also {
                                             if (!it.add(node.id)) it.remove(node.id)
                                         }
-                                } else {
-                                    actions.onFocusFunction(node.symbolName)
                                 }
                             }.padding(start = (node.depth * 18).dp, top = 6.dp, bottom = 6.dp),
                 ) {
@@ -586,7 +606,7 @@ internal fun topFunctionItemKey(
     function: TopFunction,
 ): String = "$index:${function.filePath}:${function.symbolName}"
 
-private fun List<CallTreeNode>.visibleNodes(expandedIds: Set<Long>): List<CallTreeNode> {
+internal fun List<CallTreeNode>.visibleNodes(expandedIds: Set<Long>): List<CallTreeNode> {
     val children = groupBy(CallTreeNode::parentId)
     return buildList {
         fun append(parentId: Long?) {
@@ -598,6 +618,20 @@ private fun List<CallTreeNode>.visibleNodes(expandedIds: Set<Long>): List<CallTr
         append(null)
     }
 }
+
+internal fun List<CallTreeNode>.selectedPathIds(selectedNodeId: FlameCallNodeId?): Set<Long> {
+    val byId = associateBy(CallTreeNode::id)
+    return buildSet {
+        var node = selectedNodeId?.value?.let(byId::get)
+        while (node != null) {
+            add(node.id)
+            node = node.parentId?.let(byId::get)
+        }
+    }
+}
+
+internal fun List<CallTreeNode>.selectedNodeIndex(selectedNodeId: FlameCallNodeId?): Int =
+    indexOfFirst { node -> node.id == selectedNodeId?.value }
 
 private fun handleKey(
     event: androidx.compose.ui.input.key.KeyEvent,

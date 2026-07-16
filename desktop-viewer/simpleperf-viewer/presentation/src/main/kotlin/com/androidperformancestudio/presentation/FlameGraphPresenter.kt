@@ -3,6 +3,7 @@ package com.androidperformancestudio.presentation
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
@@ -36,6 +37,10 @@ internal sealed interface FlameGraphPanelAction {
         val text: String,
     ) : FlameGraphPanelAction
 
+    data class ApplyTransform(
+        val transform: CallStackTransform,
+    ) : FlameGraphPanelAction
+
     data object DismissContextMenu : FlameGraphPanelAction
 
     data object DismissUnavailableFeedback : FlameGraphPanelAction
@@ -63,6 +68,8 @@ internal object FlameGraphPresenter {
         hasUnavailableFeedback: Boolean = false,
         controlPressed: Boolean = false,
         metaPressed: Boolean = false,
+        altPressed: Boolean = false,
+        shiftPressed: Boolean = false,
     ): FlameGraphPanelAction? =
         if (eventType != KeyEventType.KeyDown) {
             null
@@ -75,11 +82,31 @@ internal object FlameGraphPresenter {
                         copyText(snapshot, nodeId)?.let(FlameGraphPanelAction::Copy)
                     }
                 else ->
-                    FlameGraphKeyboardNavigation
+                    transformAction(
+                        key = key,
+                        snapshot = snapshot,
+                        selectedNodeId = selectedNodeId,
+                        modifiersPressed = controlPressed || metaPressed || altPressed,
+                        shiftPressed = shiftPressed,
+                    ) ?: FlameGraphKeyboardNavigation
                         .commandFor(key, eventType, snapshot.query.direction)
                         ?.let(FlameGraphPanelAction::Navigate)
             }
         }
+
+    private fun transformAction(
+        key: Key,
+        snapshot: FlameGraphSnapshot,
+        selectedNodeId: FlameCallNodeId?,
+        modifiersPressed: Boolean,
+        shiftPressed: Boolean,
+    ): FlameGraphPanelAction.ApplyTransform? {
+        if (modifiersPressed || selectedNodeId == null) return null
+        val command =
+            FlameGraphContextCommands.commandForShortcut(snapshot, selectedNodeId, key, shiftPressed)
+                as? FlameGraphContextCommand.ApplyTransform
+        return command?.transform?.let(FlameGraphPanelAction::ApplyTransform)
+    }
 
     private fun dismissAction(
         hasUnavailableFeedback: Boolean,
@@ -95,8 +122,6 @@ internal object FlameGraphPresenter {
 
     fun unavailableFeedbackFor(action: FlameGraphPanelAction): FlameGraphUnavailableFeedback? =
         when (action) {
-            is FlameGraphPanelAction.OpenContextMenu ->
-                FlameGraphUnavailableFeedback.ContextActions(action.nodeId, action.anchor)
             is FlameGraphPanelAction.OpenDetails -> FlameGraphUnavailableFeedback.Details(action.nodeId)
             else -> null
         }
@@ -121,13 +146,6 @@ internal sealed interface FlameGraphUnavailableFeedback {
     val nodeId: FlameCallNodeId
     val message: String
 
-    data class ContextActions(
-        override val nodeId: FlameCallNodeId,
-        val anchor: Offset,
-    ) : FlameGraphUnavailableFeedback {
-        override val message: String = CONTEXT_ACTIONS_UNAVAILABLE
-    }
-
     data class Details(
         override val nodeId: FlameCallNodeId,
     ) : FlameGraphUnavailableFeedback {
@@ -135,7 +153,5 @@ internal sealed interface FlameGraphUnavailableFeedback {
     }
 }
 
-private const val CONTEXT_ACTIONS_UNAVAILABLE =
-    "Context actions are not available yet. Press Escape to dismiss."
 private const val DETAILS_UNAVAILABLE =
     "Source and disassembly details are not available yet. Press Escape to dismiss."
