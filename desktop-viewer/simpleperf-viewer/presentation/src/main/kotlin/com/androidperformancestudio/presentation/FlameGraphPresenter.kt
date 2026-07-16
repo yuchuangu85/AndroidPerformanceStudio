@@ -43,7 +43,7 @@ internal sealed interface FlameGraphPanelAction {
 
     data object DismissContextMenu : FlameGraphPanelAction
 
-    data object DismissUnavailableFeedback : FlameGraphPanelAction
+    data object CloseDetails : FlameGraphPanelAction
 
     data object DismissTooltip : FlameGraphPanelAction
 }
@@ -65,7 +65,7 @@ internal object FlameGraphPresenter {
         selectedNodeId: FlameCallNodeId?,
         hasContextMenu: Boolean,
         hasTooltip: Boolean,
-        hasUnavailableFeedback: Boolean = false,
+        hasDetails: Boolean = false,
         controlPressed: Boolean = false,
         metaPressed: Boolean = false,
         altPressed: Boolean = false,
@@ -75,7 +75,7 @@ internal object FlameGraphPresenter {
             null
         } else {
             when {
-                key == Key.Escape -> dismissAction(hasUnavailableFeedback, hasContextMenu, hasTooltip)
+                key == Key.Escape -> dismissAction(hasContextMenu, hasTooltip, hasDetails)
                 key == Key.Enter -> selectedNodeId?.let(FlameGraphPanelAction::OpenDetails)
                 key == Key.C && (controlPressed || metaPressed) ->
                     selectedNodeId?.let { nodeId ->
@@ -109,20 +109,14 @@ internal object FlameGraphPresenter {
     }
 
     private fun dismissAction(
-        hasUnavailableFeedback: Boolean,
         hasContextMenu: Boolean,
         hasTooltip: Boolean,
+        hasDetails: Boolean,
     ): FlameGraphPanelAction? =
         when {
-            hasUnavailableFeedback -> FlameGraphPanelAction.DismissUnavailableFeedback
             hasContextMenu -> FlameGraphPanelAction.DismissContextMenu
             hasTooltip -> FlameGraphPanelAction.DismissTooltip
-            else -> null
-        }
-
-    fun unavailableFeedbackFor(action: FlameGraphPanelAction): FlameGraphUnavailableFeedback? =
-        when (action) {
-            is FlameGraphPanelAction.OpenDetails -> FlameGraphUnavailableFeedback.Details(action.nodeId)
+            hasDetails -> FlameGraphPanelAction.CloseDetails
             else -> null
         }
 
@@ -141,17 +135,3 @@ internal object FlameGraphPresenter {
         viewport: FlameViewport,
     ): Int = FlameGraphLayout.scrollRowToReveal(snapshot, nodeId, viewport)
 }
-
-internal sealed interface FlameGraphUnavailableFeedback {
-    val nodeId: FlameCallNodeId
-    val message: String
-
-    data class Details(
-        override val nodeId: FlameCallNodeId,
-    ) : FlameGraphUnavailableFeedback {
-        override val message: String = DETAILS_UNAVAILABLE
-    }
-}
-
-private const val DETAILS_UNAVAILABLE =
-    "Source and disassembly details are not available yet. Press Escape to dismiss."

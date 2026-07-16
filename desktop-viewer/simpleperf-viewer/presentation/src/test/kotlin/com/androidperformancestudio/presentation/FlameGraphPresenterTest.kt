@@ -39,14 +39,6 @@ class FlameGraphPresenterTest {
         val contextAction =
             FlameGraphPresenter.actionFor(FlameGraphIntent.OpenContextMenu(FlameCallNodeId(2), anchor))
         assertEquals(FlameGraphPanelAction.OpenContextMenu(FlameCallNodeId(2), anchor), contextAction)
-        assertNull(FlameGraphPresenter.unavailableFeedbackFor(contextAction))
-        val detailsFeedback =
-            FlameGraphPresenter.unavailableFeedbackFor(FlameGraphPanelAction.OpenDetails(FlameCallNodeId(2)))
-        assertEquals(FlameGraphUnavailableFeedback.Details(FlameCallNodeId(2)), detailsFeedback)
-        assertEquals(
-            expected = "Source and disassembly details are not available yet. Press Escape to dismiss.",
-            actual = detailsFeedback?.message,
-        )
     }
 
     @Test
@@ -98,15 +90,15 @@ class FlameGraphPresenterTest {
             ),
         )
         assertEquals(
-            FlameGraphPanelAction.DismissUnavailableFeedback,
+            FlameGraphPanelAction.CloseDetails,
             FlameGraphPresenter.keyAction(
                 Key.Escape,
                 KeyEventType.KeyDown,
                 snapshot,
                 FlameCallNodeId(2),
-                hasContextMenu = true,
-                hasTooltip = true,
-                hasUnavailableFeedback = true,
+                hasContextMenu = false,
+                hasTooltip = false,
+                hasDetails = true,
             ),
         )
         assertEquals(

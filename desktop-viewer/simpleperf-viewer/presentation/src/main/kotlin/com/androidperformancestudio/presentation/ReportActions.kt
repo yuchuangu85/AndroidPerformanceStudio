@@ -29,6 +29,8 @@ data class ReportActions(
     val onSelectCallNode: (FlameCallNodeId?) -> Unit,
     val onHoverFlameNode: (FlameCallNodeId?) -> Unit,
     val onOpenFlameContext: (FlameCallNodeId?) -> Unit,
+    val onOpenFlameDetails: (FlameCallNodeId) -> Unit,
+    val onCloseFlameDetails: () -> Unit,
     val onCopyFlameFunction: (String) -> Unit,
     val onNavigateFlameNode: (FlameGraphNavigationCommand) -> FlameCallNodeId?,
     val onFocusCallTreeFunction: (String) -> Unit,

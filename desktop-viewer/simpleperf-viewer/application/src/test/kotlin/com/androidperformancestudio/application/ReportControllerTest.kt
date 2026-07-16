@@ -31,13 +31,16 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.writeText
@@ -760,6 +763,92 @@ class ReportControllerTest {
 
             assertEquals("", controller.state.value.flameGraph.query.searchText)
             assertEquals(ReportTab.OVERVIEW, controller.state.value.selectedTab)
+        }
+
+    @Test
+    fun `opening frame details publishes source details without recomputing the graph`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val captured = Channel<FlameGraphFrameDetailsRequest>(Channel.UNLIMITED)
+            val detail = CompletableDeferred<FlameGraphFrameDetails>()
+            val controller =
+                ReportController(
+                    scope = backgroundScope,
+                    workspaceController = workspace,
+                    detailsProvider =
+                        FlameGraphFrameDetailsProvider { request ->
+                            captured.send(request)
+                            detail.await()
+                        },
+                )
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-details-open-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request, includeChild = true))
+            runCurrent()
+            opening.await()
+
+            controller.openFrameDetails(FlameCallNodeId(CHILD_NODE_ID))
+            runCurrent()
+
+            val loading = assertIs<FlameGraphDetailsState.Loading>(controller.state.value.flameGraph.details)
+            assertEquals(FlameCallNodeId(CHILD_NODE_ID), loading.nodeId)
+            val request = captured.receive()
+            assertEquals("renderFrame", request.function)
+            assertEquals("/system/lib64/libui.so", request.resource)
+            assertEquals(0x20, request.address)
+
+            detail.complete(
+                FlameGraphFrameDetails.Source(Path.of("Render.cpp"), 2, null, listOf("one", "two")),
+            )
+            runCurrent()
+
+            val ready = assertIs<FlameGraphDetailsState.Ready>(controller.state.value.flameGraph.details)
+            assertIs<FlameGraphFrameDetails.Source>(ready.details)
+            assertTrue(loader.started.tryReceive().isFailure, "details lookup must not submit a projection")
+
+            controller.closeFrameDetails()
+
+            assertEquals(FlameGraphDetailsState.Closed, controller.state.value.flameGraph.details)
+        }
+
+    @Test
+    fun `stale frame details cannot publish after graph generation changes`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val detail = CompletableDeferred<FlameGraphFrameDetails>()
+            val controller =
+                ReportController(
+                    scope = backgroundScope,
+                    workspaceController = workspace,
+                    detailsProvider =
+                        FlameGraphFrameDetailsProvider {
+                            withContext(NonCancellable) { detail.await() }
+                        },
+                )
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-details-stale-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request, includeChild = true))
+            runCurrent()
+            opening.await()
+
+            controller.openFrameDetails(FlameCallNodeId(CHILD_NODE_ID))
+            runCurrent()
+            assertIs<FlameGraphDetailsState.Loading>(controller.state.value.flameGraph.details)
+
+            val mutation = async { controller.updateFlameSearch("run") }
+            val newestProjection = loader.started.receive()
+            detail.complete(
+                FlameGraphFrameDetails.Source(Path.of("Render.cpp"), 1, null, listOf("stale")),
+            )
+            runCurrent()
+
+            assertEquals(FlameGraphDetailsState.Closed, controller.state.value.flameGraph.details)
+            newestProjection.succeed(flameSnapshot(newestProjection.request, includeChild = false))
+            runCurrent()
+            mutation.await()
+            assertEquals(FlameGraphDetailsState.Closed, controller.state.value.flameGraph.details)
         }
 
     @Test

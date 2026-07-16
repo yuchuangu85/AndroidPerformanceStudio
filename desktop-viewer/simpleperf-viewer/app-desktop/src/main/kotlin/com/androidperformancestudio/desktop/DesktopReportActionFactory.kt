@@ -65,6 +65,8 @@ internal class DesktopReportActionFactory(
             onSelectCallNode = controller::selectCallNode,
             onHoverFlameNode = controller::hoverCallNode,
             onOpenFlameContext = controller::openCallNodeContext,
+            onOpenFlameDetails = controller::openFrameDetails,
+            onCloseFlameDetails = controller::closeFrameDetails,
             onCopyFlameFunction = ::copyFlameFunction,
             onNavigateFlameNode = controller::navigateCallNode,
             onFocusCallTreeFunction = controller::focusCallTreeFunction,

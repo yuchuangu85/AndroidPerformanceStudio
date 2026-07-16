@@ -8,9 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,7 +16,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -34,11 +31,10 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphPanelState
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.visualization.FlameGraphCanvas
@@ -59,7 +55,6 @@ internal fun FlameGraphPanel(
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
     var scrollRow by remember(snapshot) { mutableIntStateOf(0) }
-    var unavailableFeedback by remember(snapshot) { mutableStateOf<FlameGraphUnavailableFeedback?>(null) }
     var contextAnchor by remember(snapshot) { mutableStateOf<Offset?>(null) }
     val focusRequester = remember { FocusRequester() }
     val callStacksDescription = localizedSimpleperfText("Flame graph call stacks")
@@ -125,7 +120,6 @@ internal fun FlameGraphPanel(
                             actions = actions,
                             snapshot = snapshot,
                             viewport = viewport,
-                            onFeedback = { unavailableFeedback = it },
                             onScrollRow = { scrollRow = it },
                             onContextAnchor = { contextAnchor = it },
                         )
@@ -145,7 +139,7 @@ internal fun FlameGraphPanel(
                                         selectedNodeId = state.contextNodeId ?: state.selectedNodeId,
                                         hasContextMenu = state.contextNodeId != null,
                                         hasTooltip = state.hoveredNodeId != null,
-                                        hasUnavailableFeedback = unavailableFeedback != null,
+                                        hasDetails = state.details != FlameGraphDetailsState.Closed,
                                         controlPressed = event.isCtrlPressed,
                                         metaPressed = event.isMetaPressed,
                                         altPressed = event.isAltPressed,
@@ -159,7 +153,6 @@ internal fun FlameGraphPanel(
                                         actions = actions,
                                         snapshot = snapshot,
                                         viewport = viewport,
-                                        onFeedback = { unavailableFeedback = it },
                                         onScrollRow = { scrollRow = it },
                                         onContextAnchor = { contextAnchor = it },
                                     )
@@ -202,15 +195,12 @@ internal fun FlameGraphPanel(
                     onDismiss = { actions.onOpenFlameContext(null) },
                 )
             }
-            unavailableFeedback?.let { feedback ->
-                val feedbackModifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-                FlameGraphUnavailableNotice(feedback, feedbackModifier)
-            }
         }
         state.hoveredNodeId
             ?.takeIf { state.contextNodeId == null }
             ?.let(snapshot::tooltipFacts)
             ?.let { facts -> FlameGraphTooltip(facts) }
+        FlameGraphDetailsPanel(state.details, actions.onCloseFlameDetails)
         if (snapshot.emptyReason == null) {
             Text("Click a frame to select it. Flame widths always represent the full analyzed sample set.")
         }
@@ -223,11 +213,9 @@ private fun dispatchFlameAction(
     actions: ReportActions,
     snapshot: FlameGraphSnapshot,
     viewport: FlameViewport,
-    onFeedback: (FlameGraphUnavailableFeedback?) -> Unit,
     onScrollRow: (Int) -> Unit,
     onContextAnchor: (Offset?) -> Unit = {},
 ) {
-    if (action !is FlameGraphPanelAction.Hover) onFeedback(null)
     when (action) {
         is FlameGraphPanelAction.Hover -> actions.onHoverFlameNode(action.nodeId)
         is FlameGraphPanelAction.Select -> actions.onSelectCallNode(action.nodeId)
@@ -237,7 +225,7 @@ private fun dispatchFlameAction(
         }
         is FlameGraphPanelAction.OpenDetails -> {
             actions.onOpenFlameContext(null)
-            onFeedback(FlameGraphPresenter.unavailableFeedbackFor(action))
+            actions.onOpenFlameDetails(action.nodeId)
         }
         is FlameGraphPanelAction.Copy -> {
             actions.onOpenFlameContext(null)
@@ -251,7 +239,7 @@ private fun dispatchFlameAction(
             onContextAnchor(null)
             actions.onOpenFlameContext(null)
         }
-        FlameGraphPanelAction.DismissUnavailableFeedback -> actions.onOpenFlameContext(null)
+        FlameGraphPanelAction.CloseDetails -> actions.onCloseFlameDetails()
         FlameGraphPanelAction.DismissTooltip -> actions.onHoverFlameNode(null)
         is FlameGraphPanelAction.Navigate -> {
             actions.onOpenFlameContext(null)
@@ -272,26 +260,6 @@ private fun dispatchContextCommand(
         is FlameGraphContextCommand.Copy -> actions.onCopyFlameFunction(command.text)
         FlameGraphContextCommand.Undo -> actions.onUndoFlameTransform()
         FlameGraphContextCommand.Clear -> actions.onClearFlameTransforms()
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun FlameGraphUnavailableNotice(
-    feedback: FlameGraphUnavailableFeedback,
-    modifier: Modifier,
-) {
-    val message = localizedSimpleperfText(feedback.message)
-    Surface(
-        modifier =
-            modifier.semantics {
-                contentDescription = message
-                liveRegion = LiveRegionMode.Polite
-            },
-        color = MaterialTheme.colorScheme.errorContainer,
-        tonalElevation = 2.dp,
-    ) {
-        Text(message, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
     }
 }
 

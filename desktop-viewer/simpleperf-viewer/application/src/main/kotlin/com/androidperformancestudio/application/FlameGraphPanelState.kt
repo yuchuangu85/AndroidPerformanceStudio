@@ -9,5 +9,6 @@ data class FlameGraphPanelState(
     val selectedNodeId: FlameCallNodeId? = null,
     val hoveredNodeId: FlameCallNodeId? = null,
     val contextNodeId: FlameCallNodeId? = null,
+    val details: FlameGraphDetailsState = FlameGraphDetailsState.Closed,
     val invalidTransforms: List<CallStackTransform> = emptyList(),
 )

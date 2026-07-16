@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.androidperformancestudio.application
 
 import com.androidperformancestudio.analysis.AnalysisSnapshot
@@ -33,6 +35,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -135,6 +138,7 @@ class ReportController(
     workspaceController: ProfileWorkspaceController? = null,
     private val sessionSummaryLoader: ReportSessionSummaryLoader =
         ReportSessionSummaryLoader { directory -> sessionSummary(directory) },
+    private val detailsProvider: FlameGraphFrameDetailsProvider = FlameGraphFrameDetailsResolver(),
 ) : Closeable {
     private val configuration = ReportConfiguration(timelineBucketCount, topFunctionLimit)
     private val ownsScope = scope == null
@@ -156,6 +160,7 @@ class ReportController(
     private val previewCollection = controllerScope.launch { collectPreviewRequests() }
     private var closed = false
     private var semanticMutationInProgress = false
+    private var detailsJob: Job? = null
 
     @Volatile
     internal var afterPreviewInvalidatedForTest: (() -> Unit)? = null
@@ -168,6 +173,7 @@ class ReportController(
                 synchronized(sessionMutationLock) {
                     check(!closed) { "ReportController is closed" }
                     invalidatePreviewWorkLocked()
+                    cancelFrameDetailsLocked()
                     sessionEpoch.incrementAndGet()
                     val session = directory.toAbsolutePath().normalize()
                     val next = ReportState(loadState = ReportLoadState.Loading(session))
@@ -182,6 +188,7 @@ class ReportController(
     fun closeSession() {
         synchronized(sessionMutationLock) {
             invalidatePreviewWorkLocked()
+            cancelFrameDetailsLocked()
             sessionEpoch.incrementAndGet()
             workspace.closeSession()
             mutableState.value = ReportState()
@@ -194,6 +201,7 @@ class ReportController(
     ) {
         synchronized(sessionMutationLock) {
             invalidatePreviewWorkLocked()
+            cancelFrameDetailsLocked()
             sessionEpoch.incrementAndGet()
             workspace.closeSession()
             val session = directory.toAbsolutePath().normalize()
@@ -202,6 +210,7 @@ class ReportController(
     }
 
     fun selectTab(tab: ReportTab) {
+        if (tab != ReportTab.FLAME_GRAPH) synchronized(sessionMutationLock) { cancelFrameDetailsLocked() }
         mutableState.mutate { current ->
             current.copy(selectedTab = tab).let { next ->
                 if (tab == ReportTab.FLAME_GRAPH) next else next.clearFlameTransients()
@@ -354,6 +363,7 @@ class ReportController(
         val generation =
             semanticMutationMutex.withLock {
                 withPreviewAdmissionSuspended {
+                    synchronized(sessionMutationLock) { cancelFrameDetailsLocked() }
                     invalidatePreviewWork()
                     synchronized(sessionMutationLock) {
                         if (closed || workspace.state.value.sessionDirectory == null) {
@@ -385,6 +395,94 @@ class ReportController(
             val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
             current.copy(flameGraph = transform(current.flameGraph, validId))
         }
+    }
+
+    @Suppress("ReturnCount")
+    fun openFrameDetails(nodeId: FlameCallNodeId) {
+        val detailsRequest =
+            synchronized(sessionMutationLock) {
+                if (closed) return
+                val current = mutableState.value
+                val report = (current.loadState as? ReportLoadState.Ready)?.report ?: return
+                val nodeIndex = report.flameGraph.callNodes.indexOf(nodeId) ?: return
+                val frame = report.flameGraph.callNodes.frameAt(nodeIndex) ?: return
+                val generation = workspace.state.value.generation
+                cancelFrameDetailsLocked()
+                mutableState.value =
+                    current.copy(
+                        flameGraph =
+                            current.flameGraph.copy(
+                                selectedNodeId = nodeId,
+                                hoveredNodeId = null,
+                                contextNodeId = null,
+                                details = FlameGraphDetailsState.Loading(nodeId, generation),
+                            ),
+                    )
+                PendingFrameDetailsRequest(
+                    nodeId = nodeId,
+                    generation = generation,
+                    request =
+                        FlameGraphFrameDetailsRequest(
+                            sessionDirectory = report.session.directory,
+                            function = frame.symbolName,
+                            resource = frame.resource,
+                            address = frame.virtualAddress,
+                            libraryOffset = frame.virtualAddress,
+                            buildId = null,
+                        ),
+                )
+            }
+        detailsJob =
+            controllerScope.launch {
+                val details =
+                    try {
+                        detailsProvider.resolve(detailsRequest.request)
+                    } catch (_: CancellationException) {
+                        return@launch
+                    }
+                publishFrameDetails(detailsRequest.nodeId, detailsRequest.generation, details)
+            }
+    }
+
+    fun closeFrameDetails() {
+        synchronized(sessionMutationLock) {
+            cancelFrameDetailsLocked()
+            mutableState.value =
+                mutableState.value.copy(
+                    flameGraph = mutableState.value.flameGraph.copy(details = FlameGraphDetailsState.Closed),
+                )
+        }
+    }
+
+    private fun publishFrameDetails(
+        nodeId: FlameCallNodeId,
+        generation: ProfileGeneration,
+        details: FlameGraphFrameDetails,
+    ) {
+        synchronized(sessionMutationLock) {
+            mutableState.update { current ->
+                if (closed || workspace.state.value.generation != generation) {
+                    current
+                } else {
+                    val active = current.flameGraph.details
+                    if (active == FlameGraphDetailsState.Loading(nodeId, generation)) {
+                        current.copy(
+                            flameGraph =
+                                current.flameGraph.copy(
+                                    details = FlameGraphDetailsState.Ready(details),
+                                ),
+                        )
+                    } else {
+                        current
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cancelFrameDetailsLocked() {
+        detailsJob?.cancel()
+        detailsJob = null
     }
 
     fun selectCallNode(nodeId: FlameCallNodeId?) {
@@ -436,6 +534,7 @@ class ReportController(
             val generation =
                 semanticMutationMutex.withLock {
                     withPreviewAdmissionSuspended {
+                        synchronized(sessionMutationLock) { cancelFrameDetailsLocked() }
                         invalidatePreviewWork()
                         afterPreviewInvalidatedForTest?.invoke()
                         updateProjectionStateLocked(expectedSessionEpoch) { current ->
@@ -468,6 +567,7 @@ class ReportController(
             if (closed) return
             closed = true
             invalidatePreviewWorkLocked()
+            cancelFrameDetailsLocked()
             sessionEpoch.incrementAndGet()
             workspace.closeSession()
             mutableState.value = ReportState()
@@ -490,6 +590,7 @@ class ReportController(
         val generation =
             semanticMutationMutex.withLock {
                 withPreviewAdmissionSuspended {
+                    synchronized(sessionMutationLock) { cancelFrameDetailsLocked() }
                     invalidatePreviewWork()
                     afterPreviewInvalidatedForTest?.invoke()
                     updateProjectionStateLocked(transform = transform)
@@ -686,6 +787,12 @@ private data class PreviewRequest(
     val mutationId: Long,
 )
 
+private data class PendingFrameDetailsRequest(
+    val nodeId: FlameCallNodeId,
+    val generation: ProfileGeneration,
+    val request: FlameGraphFrameDetailsRequest,
+)
+
 private fun sessionSummary(directory: Path): ReportSessionSummary =
     ReportSessionSummary(
         name = directory.fileName?.toString().orEmpty(),
@@ -745,6 +852,7 @@ private fun ReportState.clearFlameTransients(): ReportState =
             flameGraph.copy(
                 hoveredNodeId = null,
                 contextNodeId = null,
+                details = FlameGraphDetailsState.Closed,
             ),
     )
 
