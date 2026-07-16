@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -128,7 +128,7 @@ internal fun FlameGraphPanel(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 220.dp, max = 520.dp)
+                            .height(220.dp)
                             .semantics { contentDescription = callStacksDescription }
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
