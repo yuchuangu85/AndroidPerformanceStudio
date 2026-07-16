@@ -47,19 +47,22 @@ Home 的 Open 支持：
 - **Timeline**：时间桶、拖拽框选、线程过滤；时间范围会重算其他视图。
 - **Top Functions**：inclusive/exclusive、库、sample、线程排序和搜索；Path/Flame 分别跳转调用路径或火焰图。
 - **Call Tree / Reverse Call Tree**：搜索会自动展开匹配路径，点击叶子跳转火焰图。
-- **FlameGraph**：搜索、高亮、点击下钻、双击重置；大树每批最多绘制 20,000 个可见节点。
+- **FlameGraph**：搜索会重算火焰图和联动 Call Tree；可切换 Forward/Inverted、实现类型过滤，并通过点击/键盘选择帧、打开源码/反汇编/符号 fallback 详情，或应用 Focus/Merge/Drop/Collapse 变换。
 - **Diagnostics**：丢样、unwind、unknown、CPU/线程热点的等级、证据和建议。
 
-Timeline 与 FlameGraph 的缩放/平移尽量与 Perfetto 保持一致：
+Timeline 与 FlameGraph 的键盘/鼠标入口：
 
-| 动作 | 快捷键 |
-|---|---|
-| 放大 | `W` 或 `Ctrl + 鼠标滚轮向上` |
-| 缩小 | `S` 或 `Ctrl + 鼠标滚轮向下` |
-| 向左平移 | `A` |
-| 向右平移 | `D` |
+| 区域 | 动作 | 快捷键 / 手势 |
+|---|---|---|
+| Timeline | 缩放 | `W`/`S` 或 `Ctrl + 鼠标滚轮` |
+| Timeline | 向左/右平移 | `A` / `D` |
+| FlameGraph | 移动选择 | 方向键 |
+| FlameGraph | 打开当前帧详情 | `Enter` 或双击节点 |
+| FlameGraph | 关闭详情或菜单 | `Escape` |
+| FlameGraph | 打开上下文菜单 | `Shift + F10` 或右键 |
+| FlameGraph | 复制帧信息 | 菜单中的 Copy frame |
 
-输入框聚焦时字符键由输入框处理。
+FlameGraph 只按当前 viewport materialize 可见节点；滚动、hover 和选择不重新执行 SQLite 投影。输入框聚焦时字符键由输入框处理。
 
 ## 5. 导出与外部验证
 

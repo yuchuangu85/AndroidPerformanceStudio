@@ -1,5 +1,7 @@
 dependencies {
     api(project(":profile-model"))
+    api(project(":profile-analysis"))
+    implementation(project(":storage-sqlite"))
     testImplementation(project(":export-adapters"))
     testImplementation(project(":storage-sqlite"))
 }
@@ -31,6 +33,21 @@ tasks.register<JavaExec>("runP0PerformancePoc") {
         rootProject.layout.projectDirectory
             .dir("docs/poc-results")
             .asFile.absolutePath,
+    )
+}
+
+tasks.register<JavaExec>("runFlameGraphPerformancePoc") {
+    group = "verification"
+    description = "Runs the reproducible Firefox flame graph parity P0 benchmark."
+    dependsOn(poc.classesTaskName)
+    classpath = poc.runtimeClasspath
+    mainClass.set("com.androidperformancestudio.fixtures.P0PerformancePocKt")
+    jvmArgs("-Xms256m", "-Xmx1g")
+    args(
+        rootProject.layout.projectDirectory
+            .dir("docs/poc-results")
+            .asFile.absolutePath,
+        "firefox-flame-graph",
     )
 }
 

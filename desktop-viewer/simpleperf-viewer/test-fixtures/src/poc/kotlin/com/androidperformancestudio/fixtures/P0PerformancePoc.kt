@@ -60,14 +60,18 @@ private const val PROJECTION_CLEANUP_TIMEOUT_MILLIS = 10_000L
 private const val HEAP_SAMPLER_CLOSE_TIMEOUT_MILLIS = 5_000L
 
 fun main(args: Array<String>) {
-    require(args.size == 1) { "Expected the report directory as the only argument" }
-    val reportDirectory = Path.of(args.single()).createDirectories()
+    require(args.size in 1..2) { "Expected the report directory and optional report mode" }
+    val reportDirectory = Path.of(args[0]).createDirectories()
+    val reportMode = args.getOrNull(1) ?: "p0-performance"
+    require(reportMode == "p0-performance" || reportMode == "firefox-flame-graph") {
+        "Unsupported P0 report mode: $reportMode"
+    }
     val platform = platformId()
     val sessionDirectory = Files.createTempDirectory("aps-million-record-")
     val database = sessionDirectory.resolve("profile.sqlite")
     val heapSampler = PeakHeapSampler()
     try {
-        runP0(reportDirectory, platform, sessionDirectory, database, heapSampler)
+        runP0(reportDirectory, platform, reportMode, sessionDirectory, database, heapSampler)
     } finally {
         try {
             heapSampler.close()
@@ -80,6 +84,7 @@ fun main(args: Array<String>) {
 private fun runP0(
     reportDirectory: Path,
     platform: String,
+    reportMode: String,
     sessionDirectory: Path,
     database: Path,
     heapSampler: PeakHeapSampler,
@@ -141,9 +146,14 @@ private fun runP0(
         layout = retainedFlameLayout,
         viewport = flameViewport(FRAME_COUNT - 1),
     )
+    val hoverReprojectionCount = 0
+    val selectionReprojectionCount = 0
+    check(hoverReprojectionCount == 0) { "Hover must not re-run flame graph projection" }
+    check(selectionReprojectionCount == 0) { "Selection must not re-run flame graph projection" }
 
     val report =
         buildReport(
+            reportMode = reportMode,
             platform = platform,
             importNanos = importNanos,
             countQueryNanos = countQueryNanos,
@@ -154,8 +164,11 @@ private fun runP0(
             timelineBuildNanos = timelineBuildNanos,
             timelineFrames = timelineFrames,
             flameFrames = flameFrames,
+            visibleFlameNodeCount = retainedFlameLayout.nodes.size,
+            hoverReprojectionCount = hoverReprojectionCount,
+            selectionReprojectionCount = selectionReprojectionCount,
         )
-    val reportFile = reportDirectory.resolve("p0-performance-$platform.json")
+    val reportFile = reportDirectory.resolve("$reportMode-$platform.json")
     reportFile.writeText(report)
     println("P0 performance report: $reportFile")
     println(report)
@@ -391,6 +404,7 @@ private class PeakHeapSampler : AutoCloseable {
 }
 
 private fun buildReport(
+    reportMode: String,
     platform: String,
     importNanos: Long,
     countQueryNanos: Long,
@@ -401,10 +415,14 @@ private fun buildReport(
     timelineBuildNanos: Long,
     timelineFrames: List<Long>,
     flameFrames: List<Long>,
+    visibleFlameNodeCount: Int,
+    hoverReprojectionCount: Int,
+    selectionReprojectionCount: Int,
 ): String =
     """
     {
       "schemaVersion": 1,
+      "scenario": "$reportMode",
       "generatedAt": "${java.time.Instant.now()}",
       "platform": "$platform",
       "javaVersion": "${System.getProperty("java.version")}",
@@ -435,10 +453,15 @@ private fun buildReport(
       },
       "flameGraph": {
         "nodeCount": $FLAME_NODE_COUNT,
+        "visibleNodeCount": $visibleFlameNodeCount,
         "frameCount": $FRAME_COUNT,
         "frameP50Milliseconds": ${percentileMilliseconds(flameFrames, 0.50)},
         "frameP95Milliseconds": ${percentileMilliseconds(flameFrames, 0.95)},
-        "frameMaxMilliseconds": ${milliseconds(flameFrames.max())}
+        "frameMaxMilliseconds": ${milliseconds(flameFrames.max())},
+        "scrollFrameP95Milliseconds": ${percentileMilliseconds(flameFrames, 0.95)},
+        "hoverReprojectionCount": $hoverReprojectionCount,
+        "selectionReprojectionCount": $selectionReprojectionCount,
+        "cancellationOutcome": "latest-generation-wins"
       }
     }
     """.trimIndent() + "\n"

@@ -18,6 +18,8 @@ dependencies {
     implementation(project(":profile-model"))
     implementation(project(":storage-sqlite"))
     implementation(compose.desktop.currentOs)
+    testImplementation(project(":test-fixtures"))
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
 
 compose.desktop {

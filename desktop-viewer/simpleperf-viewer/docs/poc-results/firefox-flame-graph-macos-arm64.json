@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "scenario": "firefox-flame-graph",
+  "generatedAt": "2026-07-16T16:07:48.532393Z",
+  "platform": "macos-arm64",
+  "javaVersion": "21.0.10",
+  "availableProcessors": 18,
+  "heapLimitBytes": 1073741824,
+  "recordCount": 1000000,
+  "sqlite": {
+    "batchSize": 10000,
+    "importMilliseconds": 7373.524,
+    "recordsPerSecond": 135620,
+    "countQueryMilliseconds": 16.936,
+    "top20QueryMilliseconds": 686.782,
+    "databaseBytes": 83316736
+  },
+  "memory": {
+    "heapBeforeBytes": 2850536,
+    "peakHeapBytes": 174772824,
+    "peakHeapDeltaBytes": 171922288
+  },
+  "timeline": {
+    "sourceRecordCount": 1000000,
+    "indexBucketCount": 100000,
+    "indexBuildMilliseconds": 23.183,
+    "frameCount": 240,
+    "frameP50Milliseconds": 0.067,
+    "frameP95Milliseconds": 0.146,
+    "frameMaxMilliseconds": 0.176
+  },
+  "flameGraph": {
+    "nodeCount": 100000,
+    "visibleNodeCount": 34378,
+    "frameCount": 240,
+    "frameP50Milliseconds": 0.342,
+    "frameP95Milliseconds": 0.404,
+    "frameMaxMilliseconds": 2.184,
+    "scrollFrameP95Milliseconds": 0.404,
+    "hoverReprojectionCount": 0,
+    "selectionReprojectionCount": 0,
+    "cancellationOutcome": "latest-generation-wins"
+  }
+}
