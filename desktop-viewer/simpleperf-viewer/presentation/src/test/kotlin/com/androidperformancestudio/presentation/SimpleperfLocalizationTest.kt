@@ -19,6 +19,17 @@ class SimpleperfLocalizationTest {
             translateSimpleperfText("Continue to Capture", SimpleperfLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
+            "性能采集目标",
+            translateSimpleperfText("Profile target", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+        )
+        assertEquals(
+            "选择要进行性能采集的应用、进程或线程。",
+            translateSimpleperfText(
+                "Choose an app, process, or thread to profile.",
+                SimpleperfLanguage.SIMPLIFIED_CHINESE,
+            ),
+        )
+        assertEquals(
             "获取数据",
             translateSimpleperfText("Get data", SimpleperfLanguage.SIMPLIFIED_CHINESE),
         )

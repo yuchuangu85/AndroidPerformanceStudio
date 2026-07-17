@@ -6,9 +6,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.awt.ComposeWindow
+import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.adb.AdbConfiguration
 import com.androidperformancestudio.adb.AdbDeviceTargetGateway
 import com.androidperformancestudio.adb.SystemAdbLocator
@@ -18,6 +21,8 @@ import com.androidperformancestudio.application.DeviceTargetController
 import com.androidperformancestudio.application.DeviceTargetGateway
 import com.androidperformancestudio.application.OfflineProfileImporter
 import com.androidperformancestudio.application.ReportController
+import com.androidperformancestudio.application.ReportLoadState
+import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureSession
 import com.androidperformancestudio.capture.CaptureState
@@ -30,6 +35,7 @@ import com.androidperformancestudio.parser.HostSimpleperfLocator
 import com.androidperformancestudio.parser.SimpleperfReportConverter
 import com.androidperformancestudio.presentation.DeviceTargetActions
 import com.androidperformancestudio.presentation.HomeScreen
+import com.androidperformancestudio.presentation.ReportActions
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.launch
 import java.io.File
@@ -39,7 +45,7 @@ import com.androidperformancestudio.presentation.SimpleperfLanguage as Presentat
 
 @Composable
 @Suppress("FunctionName")
-fun SimpleperfWorkspace(
+fun FrameWindowScope.SimpleperfWorkspace(
     window: ComposeWindow,
     settings: SimpleperfUiSettings = SimpleperfUiSettings(),
 ) {
@@ -70,15 +76,51 @@ fun SimpleperfWorkspace(
                 window,
             )
         }
+    val reportActions = reportActionFactory.create(reportState)
+    val resolvedLanguage = settings.language.resolve(Locale.getDefault())
     LaunchedEffect(controller) { controller.refreshDevices() }
+    SimpleperfMenu(resolvedLanguage, reportState, reportActions, reportController, scope)
     HomeScreen(
         state = state,
         captureState = captureState,
         reportState = reportState,
         actions = controller.deviceActions(scope, reportController, offlineImporter),
-        reportActions = reportActionFactory.create(reportState),
+        reportActions = reportActions,
         darkTheme = settings.theme.resolveDark(isSystemInDarkTheme()),
-        language = settings.language.resolve(Locale.getDefault()).toPresentationLanguage(),
+        language = resolvedLanguage.toPresentationLanguage(),
+    )
+}
+
+@Composable
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
+private fun FrameWindowScope.SimpleperfMenu(
+    language: SimpleperfLanguage,
+    reportState: ReportState,
+    reportActions: ReportActions,
+    reportController: ReportController,
+    scope: kotlinx.coroutines.CoroutineScope,
+) {
+    val recentSessionStore = remember { RecentSimpleperfSessionStore.desktop() }
+    var recentSessions by remember { mutableStateOf(recentSessionStore.load()) }
+    val readySession = reportState.lastReadyReport?.session?.directory
+    LaunchedEffect(readySession) {
+        readySession?.let { recentSessions = recentSessionStore.record(it) }
+    }
+    SimpleperfFileMenuBar(
+        model =
+            SimpleperfFileMenuModel(
+                language = language,
+                recentSessions = recentSessions,
+                exportEnabled = reportState.loadState is ReportLoadState.Ready,
+                isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
+            ),
+        onOpen = reportActions.onOpenSession,
+        onExport = reportActions.onExportReport,
+        onOpenRecent = { session -> scope.launch { reportController.openSession(session) } },
+        onClearRecent = {
+            recentSessionStore.clear()
+            recentSessions = emptyList()
+        },
     )
 }
 

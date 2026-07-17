@@ -75,7 +75,7 @@ class FlameGraphVisualGoldenTest {
     }
 }
 
-private fun ImageBitmap.toBufferedImage(): BufferedImage {
+internal fun ImageBitmap.toBufferedImage(): BufferedImage {
     val pixels = toPixelMap()
     return BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB).also { image ->
         for (y in 0 until height) {
@@ -86,7 +86,7 @@ private fun ImageBitmap.toBufferedImage(): BufferedImage {
     }
 }
 
-private fun ImageBitmap.mismatchRatio(expected: BufferedImage): Double {
+internal fun ImageBitmap.mismatchRatio(expected: BufferedImage): Double {
     val actual = toPixelMap()
     var mismatches = 0L
     val total = width.toLong() * height.toLong()
@@ -113,7 +113,7 @@ private fun Color.argbInt(): Int =
 
 private fun Float.channelByte(): Int = (this * CHANNEL_MASK).roundToInt().coerceIn(0, CHANNEL_MASK)
 
-private fun goldenActions() =
+internal fun goldenActions() =
     ReportActions(
         onOpenSession = {},
         onCloseSession = {},
