@@ -1,5 +1,6 @@
 package com.androidperformancestudio.visualization
 
+import com.androidperformancestudio.profileanalysis.CallStackFrame
 import java.util.Locale
 
 enum class FlameTheme {
@@ -51,11 +52,58 @@ object FlameGraphPalette {
         }
     }
 
+    fun categoryRole(
+        category: String?,
+        frame: CallStackFrame?,
+    ): FlameCategoryRole =
+        if (category.isNullOrBlank()) {
+            frame?.firefoxSimpleperfCategoryRole() ?: FlameCategoryRole.OTHER
+        } else {
+            categoryRole(category)
+        }
+
     fun colors(
         category: String?,
         theme: FlameTheme,
         state: FlameNodeVisualState = FlameNodeVisualState(),
     ): FlameNodeColors = FirefoxFlameGraphStyle.resolve(theme).nodeColors(category, state)
 }
+
+private fun CallStackFrame.firefoxSimpleperfCategoryRole(): FlameCategoryRole {
+    val fileInSystem =
+        resource.startsWith("/apex/") ||
+            resource.startsWith("/system/") ||
+            resource.startsWith("/vendor/")
+    return when {
+        resource == "[kernel.kallsyms]" || resource.endsWith(".ko") -> FlameCategoryRole.KERNEL
+        resource.endsWith(".so") -> if (fileInSystem) FlameCategoryRole.SYSTEM else FlameCategoryRole.NATIVE
+        resource == "[JIT app cache]" || resource.hasManagedCodeExtension() -> {
+            if (fileInSystem || symbolName.isAndroidOrJavaMethod()) {
+                FlameCategoryRole.SYSTEM
+            } else {
+                FlameCategoryRole.MANAGED
+            }
+        }
+        else -> FlameCategoryRole.OTHER
+    }
+}
+
+private fun String.hasManagedCodeExtension(): Boolean =
+    endsWith(".vdex") ||
+        endsWith(".apk") ||
+        endsWith(".jar") ||
+        endsWith(".oat") ||
+        endsWith(".odex")
+
+private fun String.isAndroidOrJavaMethod(): Boolean =
+    startsWith("java.") ||
+        startsWith("javax.") ||
+        startsWith("kotlin.") ||
+        startsWith("kotlinx.") ||
+        startsWith("dalvik.") ||
+        startsWith("android.") ||
+        startsWith("com.android.") ||
+        startsWith("androidx.") ||
+        startsWith("libcore.")
 
 private fun String.containsAny(vararg candidates: String): Boolean = candidates.any(::contains)

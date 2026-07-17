@@ -23,6 +23,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Density
+import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import kotlin.math.roundToInt
 
@@ -81,6 +82,7 @@ fun FlameGraphCanvas(
     contextNodeId: FlameCallNodeId? = null,
     labelForNode: (VisibleFlameNode) -> String = { "" },
     categoryForNode: (VisibleFlameNode) -> String? = { null },
+    frameForNode: (VisibleFlameNode) -> CallStackFrame? = { null },
     style: FirefoxFlameGraphStyle,
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -132,7 +134,7 @@ fun FlameGraphCanvas(
                 labelForNode = { labelForNode(node) },
                 categoryRole =
                     categoryCache.getOrPut(node.nodeIndex) {
-                        FlameGraphPalette.categoryRole(categoryForNode(node))
+                        FlameGraphPalette.categoryRole(categoryForNode(node), frameForNode(node))
                     },
                 style = style,
                 textStyle = textStyle,

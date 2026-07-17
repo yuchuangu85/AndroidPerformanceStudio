@@ -87,13 +87,13 @@ private fun light(devicePixelRatio: Float) =
         labelBaselineOffsetPx = cssPixels(11f, devicePixelRatio),
         categoryStyles =
             categoryStyles(
-                system = style(0xFF0060DF, 0x600060DF, 0xFFFFFFFF),
-                kernel = style(0xFF6200A4, 0x606200A4, 0xFFFFFFFF),
-                native = style(0xFFFFE129, 0x70FFE900, 0xFF000000),
-                managed = style(0xFF45A1FF, 0x6045A1FF, 0xFF000000),
+                system = style(0xFFFFE129, 0x70FFE900, 0xFF000000),
+                kernel = style(0xFFFF9400, 0x60FF9400, 0xFFFFFFFF),
+                native = style(0xFFED00B5, 0x60ED00B5, 0xFFFFFFFF),
+                managed = style(0xFF12BC00, 0x6012BC00, 0xFFFFFFFF),
                 graphics = style(0xFF12BC00, 0x6012BC00, 0xFFFFFFFF),
-                io = style(0xFFFF9400, 0x60FF9400, 0xFFFFFFFF),
-                network = style(0xFFED00B5, 0x60ED00B5, 0xFFFFFFFF),
+                io = style(0xFFFFE129, 0x70FFE900, 0xFF000000),
+                network = style(0xFF45A1FF, 0x6045A1FF, 0xFF000000),
                 other = style(0xFFB1B1B3, 0x60B1B1B3, 0xFF000000),
             ),
     )
@@ -117,13 +117,13 @@ private fun dark(devicePixelRatio: Float) =
         labelBaselineOffsetPx = cssPixels(11f, devicePixelRatio),
         categoryStyles =
             categoryStyles(
-                system = style(0xFF0060DF, 0x600060DF, 0xFFFFFFFF),
-                kernel = style(0xFF8A00EB, 0x708A00EB, 0xFFFFFFFF),
-                native = style(0xFFBE9B00, 0x85BE9B00, 0xFFEDEDF0),
-                managed = style(0xFF45A1FF, 0x6045A1FF, 0xFFEDEDF0),
+                system = style(0xFFBE9B00, 0x85BE9B00, 0xFFEDEDF0),
+                kernel = style(0xFFD76E00, 0x60D76E00, 0xFFFFFFFF),
+                native = style(0xFFB5007F, 0x60B5007F, 0xFFFFFFFF),
+                managed = style(0xFF058B00, 0x60058B00, 0xFFFFFFFF),
                 graphics = style(0xFF058B00, 0x60058B00, 0xFFFFFFFF),
-                io = style(0xFFD76E00, 0x60D76E00, 0xFFFFFFFF),
-                network = style(0xFFB5007F, 0x60B5007F, 0xFFFFFFFF),
+                io = style(0xFFBE9B00, 0x85BE9B00, 0xFFEDEDF0),
+                network = style(0xFF45A1FF, 0x6045A1FF, 0xFFEDEDF0),
                 other = style(0xFF737373, 0x60737373, 0xFFEDEDF0),
             ),
     )

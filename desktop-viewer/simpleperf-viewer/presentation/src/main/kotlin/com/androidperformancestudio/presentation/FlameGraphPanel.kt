@@ -124,6 +124,7 @@ internal fun FlameGraphPanel(
                             .orEmpty()
                     },
                     categoryForNode = { node -> snapshot.callNodes.categoryAt(node.nodeIndex) },
+                    frameForNode = { node -> snapshot.callNodes.frameAt(node.nodeIndex) },
                     style = style,
                     onIntent = { intent ->
                         dispatchFlameAction(
