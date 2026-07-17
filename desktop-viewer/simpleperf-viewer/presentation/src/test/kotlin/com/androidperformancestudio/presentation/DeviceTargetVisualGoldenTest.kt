@@ -38,16 +38,25 @@ class DeviceTargetVisualGoldenTest {
     @Test
     fun `dark device target workspace matches macOS golden`() = verifyGolden("dark", dark = true)
 
+    @Test
+    fun `light embedded report workspace matches macOS golden`() =
+        verifyGolden("report-light", dark = false, reportState = sampleReportState())
+
+    @Test
+    fun `dark embedded report workspace matches macOS golden`() =
+        verifyGolden("report-dark", dark = true, reportState = sampleReportState())
+
     private fun verifyGolden(
         name: String,
         dark: Boolean,
+        reportState: ReportState = ReportState(),
     ) = runDesktopComposeUiTest(width = GOLDEN_WIDTH, height = GOLDEN_HEIGHT) {
         setContent {
             Box(Modifier.fillMaxSize().testTag(GOLDEN_TAG)) {
                 HomeScreen(
                     state = macOsGoldenState(),
                     captureState = CaptureState.Idle,
-                    reportState = ReportState(),
+                    reportState = reportState,
                     actions = visualDeviceActions(),
                     reportActions = goldenActions(),
                     darkTheme = dark,

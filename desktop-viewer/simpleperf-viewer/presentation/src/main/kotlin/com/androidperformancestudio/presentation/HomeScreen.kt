@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.androidperformancestudio.application.DeviceTargetState
-import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.capture.CaptureState
 
@@ -42,18 +41,16 @@ fun HomeScreen(
         }
         MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
             Surface(modifier = Modifier.fillMaxSize()) {
-                if (reportState.loadState != ReportLoadState.Closed) {
-                    ReportPage(reportState, reportActions)
-                } else {
-                    DeviceTargetPage(
-                        state,
-                        captureState,
-                        actions,
-                        darkTheme,
-                        activeCaptureSettingsSection,
-                        updateCaptureSettingsSection,
-                    )
-                }
+                DeviceTargetPage(
+                    state,
+                    captureState,
+                    reportState,
+                    actions,
+                    reportActions,
+                    darkTheme,
+                    activeCaptureSettingsSection,
+                    updateCaptureSettingsSection,
+                )
             }
         }
     }

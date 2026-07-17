@@ -25,7 +25,7 @@ internal data class MacOsDeviceTargetStyle(
 
 internal object MacOsDeviceTargetDimensions {
     val toolbarHeight = 58.dp
-    val footerHeight = 58.dp
+    val footerHeight = 29.dp
     val buttonHeight = 28.dp
     val selectorHeight = 30.dp
     val controlRadius = 6.dp

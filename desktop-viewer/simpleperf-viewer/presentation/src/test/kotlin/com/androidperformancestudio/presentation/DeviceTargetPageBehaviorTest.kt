@@ -56,6 +56,7 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithText("Pixel Offline").assertIsNotEnabled()
             onNodeWithText("Pixel 8 Pro").performClick()
             onNodeWithText("Open Session").assertDoesNotExist()
+            onNodeWithText("Capture target").assertDoesNotExist()
 
             val title = onNodeWithText("Device & Target").fetchSemanticsNode().boundsInRoot
             val deviceSelector = onNodeWithContentDescription("Device selector").fetchSemanticsNode().boundsInRoot

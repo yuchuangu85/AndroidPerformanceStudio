@@ -348,7 +348,7 @@ private fun EmptyParametersPanel(
 }
 
 @Composable
-private fun MacOsTextField(
+internal fun MacOsTextField(
     label: String,
     value: String,
     enabled: Boolean,
@@ -395,7 +395,7 @@ private fun <T : Enum<T>> ParameterChoices(
 }
 
 @Composable
-private fun MacOsChoiceChip(
+internal fun MacOsChoiceChip(
     label: String,
     selected: Boolean,
     enabled: Boolean,
@@ -468,7 +468,7 @@ private fun TemplateChoice(
 }
 
 @Composable
-private fun MacOsPanel(
+internal fun MacOsPanel(
     modifier: Modifier,
     style: MacOsDeviceTargetStyle,
     content: @Composable () -> Unit,

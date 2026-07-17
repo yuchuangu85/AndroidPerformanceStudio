@@ -19,11 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
@@ -50,6 +48,8 @@ import com.androidperformancestudio.application.DeviceSelection
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.PackageOption
 import com.androidperformancestudio.application.ProcessOption
+import com.androidperformancestudio.application.ReportLoadState
+import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 
@@ -58,7 +58,9 @@ import com.androidperformancestudio.capture.CaptureState
 internal fun DeviceTargetPage(
     state: DeviceTargetState,
     captureState: CaptureState,
+    reportState: ReportState,
     actions: DeviceTargetActions,
+    reportActions: ReportActions,
     darkTheme: Boolean,
     settingsSection: CaptureSettingsSection?,
     onSettingsSectionChange: (CaptureSettingsSection?) -> Unit,
@@ -74,8 +76,15 @@ internal fun DeviceTargetPage(
             showGetData = !captureActive,
             onOpenSettings = { onSettingsSectionChange(CaptureSettingsSection.SAMPLING_TEMPLATE) },
         )
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            TargetSummary(state, style)
+        if (reportState.loadState == ReportLoadState.Closed) {
+            Spacer(Modifier.weight(1f))
+        } else {
+            ReportWorkspace(
+                state = reportState,
+                actions = reportActions,
+                style = style,
+                modifier = Modifier.weight(1f),
+            )
         }
         WorkspaceFooter(state, captureState, actions, style)
     }
@@ -543,81 +552,6 @@ private fun CapabilityPopupFact(
         )
     }
 }
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun TargetSummary(
-    state: DeviceTargetState,
-    style: MacOsDeviceTargetStyle,
-) {
-    val selectedDevice =
-        state.selection?.model ?: state.devices.firstOrNull { it.serial == state.selectedSerial }?.label
-    val (targetType, targetName) = state.selectedTarget.summary()
-    Box(
-        Modifier.fillMaxWidth().background(style.workspace).padding(horizontal = 24.dp, vertical = 16.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            Modifier
-                .widthIn(max = 560.dp)
-                .fillMaxWidth()
-                .background(style.panel, RoundedCornerShape(10.dp))
-                .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(10.dp))
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                "Capture target",
-                color = style.text,
-                fontSize = 13.sp,
-                lineHeight = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            HorizontalHairline(style.border)
-            SummaryRow("Device", selectedDevice ?: localizedSimpleperfText("Not selected"), style)
-            state.selectedPackageName?.let { SummaryRow("App", it, style) }
-            if (state.selectedTarget !is CaptureTarget.App) {
-                SummaryRow(targetType, targetName, style)
-            }
-            Text(
-                "Select a device and target from the toolbar.",
-                color = style.secondaryText,
-                fontSize = 10.sp,
-                lineHeight = 13.sp,
-            )
-        }
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun SummaryRow(
-    label: String,
-    value: String,
-    style: MacOsDeviceTargetStyle,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.width(72.dp), color = style.secondaryText, fontSize = 11.sp, lineHeight = 14.sp)
-        Text(
-            value,
-            modifier = Modifier.weight(1f),
-            color = style.text,
-            fontSize = 12.sp,
-            lineHeight = 15.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-private fun CaptureTarget?.summary(): Pair<String, String> =
-    when (this) {
-        is CaptureTarget.App -> "App" to packageName
-        is CaptureTarget.Process -> "Process" to "$name · PID $pid"
-        is CaptureTarget.Thread -> "Thread" to "$name · TID $tid"
-        null -> "Target" to "Not selected"
-    }
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")

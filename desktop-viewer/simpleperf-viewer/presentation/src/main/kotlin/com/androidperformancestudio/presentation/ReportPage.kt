@@ -1,10 +1,10 @@
 @file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
-@file:Suppress("TooManyFunctions")
+@file:Suppress("TooManyFunctions", "LongMethod", "MaxLineLength")
 
 package com.androidperformancestudio.presentation
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,12 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,8 +43,12 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.analysis.DiagnosticFinding
 import com.androidperformancestudio.analysis.DiagnosticSeverity
 import com.androidperformancestudio.analysis.DiagnosticTarget
@@ -74,31 +75,112 @@ import com.androidperformancestudio.visualization.navigate
 fun ReportPage(
     state: ReportState,
     actions: ReportActions,
+    darkTheme: Boolean = false,
 ) {
-    when (val loadState = state.loadState) {
-        ReportLoadState.Closed -> Unit
-        is ReportLoadState.Loading -> StatusPage("Loading ${loadState.sessionDirectory.fileName}…")
-        is ReportLoadState.Failed ->
-            StatusPage(
-                "${loadState.error.code}: ${loadState.error.message}",
-                onClose = actions.onCloseSession,
-            )
-        is ReportLoadState.Ready -> ReportContent(state, loadState.report, actions)
+    ReportWorkspace(state, actions, macOsDeviceTargetStyle(darkTheme), Modifier.fillMaxSize())
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+internal fun ReportWorkspace(
+    state: ReportState,
+    actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxSize()
+            .background(style.workspace)
+            .border(MacOsDeviceTargetDimensions.hairline, style.border),
+    ) {
+        ReportNavigation(state.selectedTab, actions.onSelectTab, style)
+        ReportResultPane(state, actions, style, Modifier.weight(1f))
     }
 }
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun StatusPage(
+private fun ReportNavigation(
+    selectedTab: ReportTab,
+    onSelectTab: (ReportTab) -> Unit,
+    style: MacOsDeviceTargetStyle,
+) {
+    Column(
+        Modifier
+            .width(180.dp)
+            .fillMaxHeight()
+            .background(style.toolbar)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Text("Report", color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text("Analysis", color = style.secondaryText, fontSize = 10.sp)
+        Spacer(Modifier.height(8.dp))
+        ReportTab.entries.forEach { tab ->
+            val selected = tab == selectedTab
+            val label = tab.displayName()
+            val localizedLabel = localizedSimpleperfText(label)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (selected) style.accent.copy(alpha = 0.16f) else style.toolbar,
+                        RoundedCornerShape(6.dp),
+                    ).clickable { onSelectTab(tab) }
+                    .semantics {
+                        contentDescription = localizedLabel
+                        this.selected = selected
+                    }.padding(horizontal = 9.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    label,
+                    color = if (selected) style.accent else style.text,
+                    fontSize = 11.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun ReportResultPane(
+    state: ReportState,
+    actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
+    modifier: Modifier,
+) {
+    Box(modifier.fillMaxHeight().padding(14.dp)) {
+        when (val loadState = state.loadState) {
+            ReportLoadState.Closed -> ReportStatus("Open a profile session to view its report.", style)
+            is ReportLoadState.Loading -> ReportStatus("Loading ${loadState.sessionDirectory.fileName}…", style)
+            is ReportLoadState.Failed ->
+                ReportStatus(
+                    "${loadState.error.code}: ${loadState.error.message}",
+                    style,
+                    actions.onCloseSession,
+                )
+            is ReportLoadState.Ready -> ReportContent(state, loadState.report, actions, style)
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun ReportStatus(
     message: String,
+    style: MacOsDeviceTargetStyle,
     onClose: (() -> Unit)? = null,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        Modifier.fillMaxSize().background(style.panel, RoundedCornerShape(10.dp)).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(message, style = MaterialTheme.typography.headlineSmall)
-        onClose?.let { OutlinedButton(onClick = it) { Text("Back") } }
+        Text(message, color = style.text, fontSize = 13.sp)
+        onClose?.let { MacOsButton("Back", it, style) }
     }
 }
 
@@ -108,50 +190,47 @@ private fun ReportContent(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
 ) {
-    Column(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ReportHeader(state, report, actions)
-        HorizontalDivider()
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(style.panel, RoundedCornerShape(10.dp))
+                .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(10.dp))
+                .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        ReportHeader(report, actions, style)
+        Box(Modifier.fillMaxWidth().height(MacOsDeviceTargetDimensions.hairline).background(style.border))
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (state.selectedTab) {
-                ReportTab.OVERVIEW -> OverviewReport(report, actions)
-                ReportTab.TIMELINE -> TimelineReport(state, report, actions)
-                ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions)
-                ReportTab.CALL_TREE -> CallTreeReport(state, report, actions)
+                ReportTab.OVERVIEW -> OverviewReport(report, actions, style)
+                ReportTab.TIMELINE -> TimelineReport(state, report, actions, style)
+                ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions, style)
+                ReportTab.CALL_TREE -> CallTreeReport(state, report, actions, style)
                 ReportTab.FLAME_GRAPH ->
                     FlameGraphPanel(report.session.directory, state.flameGraph, report.flameGraph, actions)
-                ReportTab.DIAGNOSTICS -> DiagnosticsReport(report, actions)
+                ReportTab.DIAGNOSTICS -> DiagnosticsReport(report, actions, style)
             }
         }
-        Text(ReportController.WEIGHT_SEMANTICS, style = MaterialTheme.typography.bodySmall)
+        Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
     }
 }
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun ReportHeader(
-    state: ReportState,
     report: ReportData,
     actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(report.session.name, style = MaterialTheme.typography.headlineSmall)
-            Text(report.session.directory.toString(), style = MaterialTheme.typography.bodySmall)
+            Text(report.session.name, color = style.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(report.session.directory.toString(), color = style.secondaryText, fontSize = 9.sp)
         }
-        OutlinedButton(onClick = actions.onCloseSession) { Text("Close report") }
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        ReportTab.entries.forEach { tab ->
-            FilterChip(
-                selected = state.selectedTab == tab,
-                onClick = { actions.onSelectTab(tab) },
-                label = { Text(tab.displayName()) },
-            )
-        }
+        MacOsButton("Close report", actions.onCloseSession, style)
     }
 }
 
@@ -160,36 +239,40 @@ private fun ReportHeader(
 private fun OverviewReport(
     report: ReportData,
     actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
 ) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard("Samples", report.overview.sampleCount.toString(), Modifier.weight(1f))
-                MetricCard("Event weight", report.overview.totalEventWeight.toString(), Modifier.weight(1f))
-                MetricCard("Threads", report.overview.threadCount.toString(), Modifier.weight(1f))
+                MetricCard("Samples", report.overview.sampleCount.toString(), Modifier.weight(1f), style)
+                MetricCard("Event weight", report.overview.totalEventWeight.toString(), Modifier.weight(1f), style)
+                MetricCard("Threads", report.overview.threadCount.toString(), Modifier.weight(1f), style)
                 MetricCard(
                     "Lost rate",
                     "%.2f%%".format(report.quality.lostRate * PERCENT_MULTIPLIER),
                     Modifier.weight(1f),
+                    style,
                 )
             }
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Data quality", style = MaterialTheme.typography.titleMedium)
-                    Text("Lost samples: ${report.quality.lostSampleCount}")
-                    Text("Unwind errors: ${report.quality.unwindErrorSamples}")
-                    Text("Unknown symbols: ${report.quality.unknownSymbolSamples}")
-                    Text("Empty stacks: ${report.quality.emptyStackSamples}")
-                }
+            MacOsPanel(Modifier.fillMaxWidth(), style) {
+                Text("Data quality", color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Lost samples: ${report.quality.lostSampleCount}", color = style.text, fontSize = 10.sp)
+                Text("Unwind errors: ${report.quality.unwindErrorSamples}", color = style.text, fontSize = 10.sp)
+                Text("Unknown symbols: ${report.quality.unknownSymbolSamples}", color = style.text, fontSize = 10.sp)
+                Text("Empty stacks: ${report.quality.emptyStackSamples}", color = style.text, fontSize = 10.sp)
             }
         }
-        item { SectionTitle("Top threads") }
+        item { SectionTitle("Top threads", style) }
         items(report.topThreads.take(OVERVIEW_ITEM_LIMIT), key = { it.threadId }) { thread ->
-            Text("${thread.name} · TID ${thread.threadId} · weight ${thread.totalEventCount}")
+            Text(
+                "${thread.name} · TID ${thread.threadId} · weight ${thread.totalEventCount}",
+                color = style.text,
+                fontSize = 10.sp,
+            )
         }
-        item { SectionTitle("Top functions") }
+        item { SectionTitle("Top functions", style) }
         itemsIndexed(
             report.topFunctions.take(OVERVIEW_ITEM_LIMIT),
             key = ::topFunctionItemKey,
@@ -201,13 +284,21 @@ private fun OverviewReport(
                         .clickable { actions.onFocusFunction(function.symbolName) }
                         .padding(6.dp),
             ) {
-                Text(function.symbolName, modifier = Modifier.weight(1f))
-                Text("inc ${function.inclusiveWeight} · exc ${function.exclusiveWeight}")
+                Text(function.symbolName, modifier = Modifier.weight(1f), color = style.text, fontSize = 10.sp)
+                Text(
+                    "inc ${function.inclusiveWeight} · exc ${function.exclusiveWeight}",
+                    color = style.secondaryText,
+                    fontSize = 9.sp,
+                )
             }
         }
-        item { SectionTitle("Artifacts") }
+        item { SectionTitle("Artifacts", style) }
         items(report.session.artifacts, key = { it.name }) { artifact ->
-            Text("${if (artifact.exists) "✓" else "–"} ${artifact.name} · ${artifact.path}")
+            Text(
+                "${if (artifact.exists) "✓" else "–"} ${artifact.name} · ${artifact.path}",
+                color = style.text,
+                fontSize = 10.sp,
+            )
         }
     }
 }
@@ -218,12 +309,11 @@ private fun MetricCard(
     title: String,
     value: String,
     modifier: Modifier,
+    style: MacOsDeviceTargetStyle,
 ) {
-    Card(modifier) {
-        Column(Modifier.padding(14.dp)) {
-            Text(title, style = MaterialTheme.typography.bodySmall)
-            Text(value, style = MaterialTheme.typography.headlineSmall)
-        }
+    MacOsPanel(modifier, style) {
+        Text(title, color = style.secondaryText, fontSize = 9.sp)
+        Text(value, color = style.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -233,6 +323,7 @@ private fun TimelineReport(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
 ) {
     val fullStart = report.sessionOverview.startNanos ?: 0L
     val fullEnd = (report.sessionOverview.endNanosInclusive ?: fullStart).safeIncrement()
@@ -259,13 +350,9 @@ private fun TimelineReport(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            NavigationButtons(::navigate)
-            OutlinedButton(
-                onClick = {
-                    actions.onTimeRange(null, null)
-                },
-            ) { Text("Reset range") }
-            Text("${viewport.startNanos} – ${viewport.endNanosExclusive} ns")
+            NavigationButtons(::navigate, style)
+            MacOsButton("Reset range", { actions.onTimeRange(null, null) }, style)
+            Text("${viewport.startNanos} – ${viewport.endNanosExclusive} ns", color = style.secondaryText, fontSize = 10.sp)
         }
         TimelineCanvas(
             frame = frame,
@@ -296,23 +383,28 @@ private fun TimelineReport(
                         }
                     },
         )
-        Text("Drag across the timeline to select a range. W/S zoom, A/D pan, Ctrl+wheel zooms.")
-        SectionTitle("Thread filter")
+        Text(
+            "Drag across the timeline to select a range. W/S zoom, A/D pan, Ctrl+wheel zooms.",
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
+        SectionTitle("Thread filter", style)
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             report.sessionThreads.forEach { thread ->
                 val selected = thread.threadId in state.filter.threadIds
-                FilterChip(
+                MacOsChoiceChip(
+                    label = "${thread.name} (${thread.threadId})",
                     selected = selected,
-                    onClick = {
-                        val next = state.filter.threadIds.toMutableSet()
-                        if (!next.add(thread.threadId)) next.remove(thread.threadId)
-                        actions.onThreads(next)
-                    },
-                    label = { Text("${thread.name} (${thread.threadId})") },
-                )
+                    enabled = true,
+                    style = style,
+                ) {
+                    val next = state.filter.threadIds.toMutableSet()
+                    if (!next.add(thread.threadId)) next.remove(thread.threadId)
+                    actions.onThreads(next)
+                }
             }
         }
     }
@@ -320,14 +412,17 @@ private fun TimelineReport(
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun NavigationButtons(onAction: (NavigationAction) -> Unit) {
+private fun NavigationButtons(
+    onAction: (NavigationAction) -> Unit,
+    style: MacOsDeviceTargetStyle,
+) {
     listOf(
         "W +" to NavigationAction.ZOOM_IN,
         "S −" to NavigationAction.ZOOM_OUT,
         "A ←" to NavigationAction.PAN_LEFT,
         "D →" to NavigationAction.PAN_RIGHT,
     ).forEach { (label, action) ->
-        OutlinedButton(onClick = { onAction(action) }) { Text(label) }
+        MacOsButton(label, { onAction(action) }, style)
     }
 }
 
@@ -337,31 +432,36 @@ private fun TopFunctionsReport(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(
+        MacOsTextField(
+            label = "Search function or library",
             value = state.topSearch,
+            enabled = true,
             onValueChange = { actions.onTopFunctions(it, state.topSort, state.topDescending) },
-            label = { Text("Search function or library") },
+            style = style,
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TopFunctionSort.entries.forEach { sort ->
-                FilterChip(
+                MacOsChoiceChip(
+                    label = sort.displayName(),
                     selected = state.topSort == sort,
-                    onClick = { actions.onTopFunctions(state.topSearch, sort, state.topDescending) },
-                    label = { Text(sort.displayName()) },
-                )
+                    enabled = true,
+                    style = style,
+                ) { actions.onTopFunctions(state.topSearch, sort, state.topDescending) }
             }
-            OutlinedButton(
-                onClick = { actions.onTopFunctions(state.topSearch, state.topSort, !state.topDescending) },
-            ) { Text(if (state.topDescending) "Descending" else "Ascending") }
+            MacOsButton(
+                if (state.topDescending) "Descending" else "Ascending",
+                { actions.onTopFunctions(state.topSearch, state.topSort, !state.topDescending) },
+                style,
+            )
         }
-        TopFunctionHeader()
+        TopFunctionHeader(style)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             itemsIndexed(report.topFunctions, key = ::topFunctionItemKey) { _, function ->
-                TopFunctionRow(function, actions.onFocusCallTreeFunction, actions.onFocusFunction)
+                TopFunctionRow(function, actions.onFocusCallTreeFunction, actions.onFocusFunction, style)
             }
         }
     }
@@ -369,14 +469,14 @@ private fun TopFunctionsReport(
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun TopFunctionHeader() {
+private fun TopFunctionHeader(style: MacOsDeviceTargetStyle) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Function / Library", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-        Text("Inclusive", modifier = Modifier.width(90.dp), fontWeight = FontWeight.Bold)
-        Text("Exclusive", modifier = Modifier.width(90.dp), fontWeight = FontWeight.Bold)
-        Text("Samples", modifier = Modifier.width(70.dp), fontWeight = FontWeight.Bold)
-        Text("Threads", modifier = Modifier.width(70.dp), fontWeight = FontWeight.Bold)
-        Text("Navigate", modifier = Modifier.width(180.dp), fontWeight = FontWeight.Bold)
+        Text("Function / Library", modifier = Modifier.weight(1f), color = style.secondaryText, fontSize = 9.sp)
+        Text("Inclusive", modifier = Modifier.width(90.dp), color = style.secondaryText, fontSize = 9.sp)
+        Text("Exclusive", modifier = Modifier.width(90.dp), color = style.secondaryText, fontSize = 9.sp)
+        Text("Samples", modifier = Modifier.width(70.dp), color = style.secondaryText, fontSize = 9.sp)
+        Text("Threads", modifier = Modifier.width(70.dp), color = style.secondaryText, fontSize = 9.sp)
+        Text("Navigate", modifier = Modifier.width(180.dp), color = style.secondaryText, fontSize = 9.sp)
     }
 }
 
@@ -386,20 +486,21 @@ private fun TopFunctionRow(
     function: TopFunction,
     onFocusCallTree: (String) -> Unit,
     onFocusFlame: (String) -> Unit,
+    style: MacOsDeviceTargetStyle,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    MacOsPanel(Modifier.fillMaxWidth(), style) {
         Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(function.symbolName, fontWeight = FontWeight.SemiBold)
-                Text(function.filePath, style = MaterialTheme.typography.bodySmall)
+                Text(function.symbolName, color = style.text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                Text(function.filePath, color = style.secondaryText, fontSize = 8.sp)
             }
-            Text(function.inclusiveWeight.toString(), modifier = Modifier.width(90.dp))
-            Text(function.exclusiveWeight.toString(), modifier = Modifier.width(90.dp))
-            Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp))
-            Text(function.threadCount.toString(), modifier = Modifier.width(70.dp))
+            Text(function.inclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = 10.sp)
+            Text(function.exclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = 10.sp)
+            Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
+            Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
             Row(modifier = Modifier.width(180.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(onClick = { onFocusCallTree(function.symbolName) }) { Text("Path") }
-                OutlinedButton(onClick = { onFocusFlame(function.symbolName) }) { Text("Flame") }
+                MacOsButton("Path", { onFocusCallTree(function.symbolName) }, style)
+                MacOsButton("Flame", { onFocusFlame(function.symbolName) }, style)
             }
         }
     }
@@ -411,6 +512,7 @@ private fun CallTreeReport(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
 ) {
     var expandedIds by remember(report.callTree) {
         mutableStateOf(report.callTree.filter { it.parentId == null }.mapTo(mutableSetOf(), CallTreeNode::id))
@@ -436,19 +538,21 @@ private fun CallTreeReport(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CallStackDirection.entries.forEach { direction ->
-                FilterChip(
+                MacOsChoiceChip(
+                    label = if (direction == CallStackDirection.FORWARD) "Call Tree" else "Reverse Call Tree",
                     selected = state.callTreeDirection == direction,
-                    onClick = { actions.onCallTreeDirection(direction) },
-                    label = { Text(if (direction == CallStackDirection.FORWARD) "Call Tree" else "Reverse Call Tree") },
-                )
+                    enabled = true,
+                    style = style,
+                ) { actions.onCallTreeDirection(direction) }
             }
         }
-        OutlinedTextField(
+        MacOsTextField(
+            label = "Find function in call paths",
             value = state.callTreeSearch,
+            enabled = true,
             onValueChange = actions.onFocusCallTreeFunction,
-            label = { Text("Find function in call paths") },
+            style = style,
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
         )
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(3.dp)) {
             items(visible, key = CallTreeNode::id) { node ->
@@ -459,9 +563,9 @@ private fun CallTreeReport(
                             .fillMaxWidth()
                             .background(
                                 if (selectedNodeId?.value == node.id) {
-                                    MaterialTheme.colorScheme.secondaryContainer
+                                    style.accent.copy(alpha = 0.16f)
                                 } else {
-                                    androidx.compose.ui.graphics.Color.Transparent
+                                    style.panel
                                 },
                             ).clickable {
                                 actions.onSelectCallNode(FlameCallNodeId(node.id))
@@ -484,13 +588,13 @@ private fun CallTreeReport(
                             "  "
                         },
                     )
-                    Text(node.symbolName, modifier = Modifier.weight(1f))
+                    Text(node.symbolName, modifier = Modifier.weight(1f), color = style.text, fontSize = 10.sp)
                     if (state.callTreeSearch.isNotBlank() &&
                         node.symbolName.contains(state.callTreeSearch, ignoreCase = true)
                     ) {
-                        Text("MATCH", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Text("MATCH", color = style.accent, fontWeight = FontWeight.Bold, fontSize = 9.sp)
                     }
-                    Text("inc ${node.inclusiveWeight} · exc ${node.exclusiveWeight}")
+                    Text("inc ${node.inclusiveWeight} · exc ${node.exclusiveWeight}", color = style.secondaryText, fontSize = 9.sp)
                 }
             }
         }
@@ -515,10 +619,11 @@ private fun List<CallTreeNode>.expandedPathIds(search: String): Set<Long> {
 private fun DiagnosticsReport(
     report: ReportData,
     actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
 ) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(report.diagnostics, key = { it.ruleId }) { finding ->
-            DiagnosticCard(finding, actions)
+            DiagnosticCard(finding, actions, style)
         }
     }
 }
@@ -528,39 +633,47 @@ private fun DiagnosticsReport(
 private fun DiagnosticCard(
     finding: DiagnosticFinding,
     actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
 ) {
     val accent =
         when (finding.severity) {
-            DiagnosticSeverity.INFO -> MaterialTheme.colorScheme.primary
-            DiagnosticSeverity.WARNING -> MaterialTheme.colorScheme.tertiary
-            DiagnosticSeverity.CRITICAL -> MaterialTheme.colorScheme.error
+            DiagnosticSeverity.INFO -> style.accent
+            DiagnosticSeverity.WARNING -> style.warning
+            DiagnosticSeverity.CRITICAL -> style.error
         }
     val navigation = finding.navigation(actions)
-    Card(
+    Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .then(if (navigation == null) Modifier else Modifier.clickable(onClick = navigation)),
-        border = BorderStroke(1.dp, accent),
+                .background(style.panel, RoundedCornerShape(9.dp))
+                .border(MacOsDeviceTargetDimensions.hairline, accent, RoundedCornerShape(9.dp))
+                .then(if (navigation == null) Modifier else Modifier.clickable(onClick = navigation))
+                .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(finding.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Text(finding.severity.name, color = accent, fontWeight = FontWeight.Bold)
-            }
-            Text(finding.conclusion)
-            finding.evidence.forEach { evidence ->
-                Row(Modifier.fillMaxWidth()) {
-                    Text(evidence.label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    Text(evidence.value, fontWeight = FontWeight.SemiBold)
-                }
-            }
-            if (finding.recommendations.isNotEmpty()) {
-                Text("Recommendations", fontWeight = FontWeight.Bold)
-                finding.recommendations.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
-            }
-            if (navigation != null) Text("Click to inspect evidence", color = accent)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                finding.title,
+                modifier = Modifier.weight(1f),
+                color = style.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(finding.severity.name, color = accent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
         }
+        Text(finding.conclusion, color = style.text, fontSize = 10.sp)
+        finding.evidence.forEach { evidence ->
+            Row(Modifier.fillMaxWidth()) {
+                Text(evidence.label, modifier = Modifier.weight(1f), color = style.secondaryText, fontSize = 9.sp)
+                Text(evidence.value, color = style.text, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        if (finding.recommendations.isNotEmpty()) {
+            Text("Recommendations", color = style.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            finding.recommendations.forEach { Text("• $it", color = style.secondaryText, fontSize = 9.sp) }
+        }
+        if (navigation != null) Text("Click to inspect evidence", color = accent, fontSize = 9.sp)
     }
 }
 
@@ -581,8 +694,11 @@ private fun DiagnosticFinding.navigation(actions: ReportActions): (() -> Unit)? 
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun SectionTitle(title: String) {
-    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+private fun SectionTitle(
+    title: String,
+    style: MacOsDeviceTargetStyle,
+) {
+    Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
 }
 
 private fun ReportTab.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
