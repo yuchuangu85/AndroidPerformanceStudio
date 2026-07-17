@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.application.WorkspacePage
 import com.androidperformancestudio.capture.CaptureState
 
 @Composable
@@ -30,22 +29,7 @@ fun HomeScreen(
                 if (reportState.loadState != ReportLoadState.Closed) {
                     ReportPage(reportState, reportActions)
                 } else {
-                    when (state.page) {
-                        WorkspacePage.DEVICE_TARGET ->
-                            DeviceTargetPage(state, actions, darkTheme)
-                        WorkspacePage.CAPTURE ->
-                            CapturePage(
-                                target = state.selectedTarget,
-                                setup = state.captureSetup,
-                                availableEvents =
-                                    state.selection
-                                        ?.capabilities
-                                        ?.eventNames
-                                        .orEmpty(),
-                                captureState = captureState,
-                                actions = actions,
-                            )
-                    }
+                    DeviceTargetPage(state, captureState, actions, darkTheme)
                 }
             }
         }

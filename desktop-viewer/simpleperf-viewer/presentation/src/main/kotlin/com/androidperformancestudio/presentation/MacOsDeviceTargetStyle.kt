@@ -10,7 +10,6 @@ import androidx.compose.ui.unit.dp
 internal data class MacOsDeviceTargetStyle(
     val workspace: Color,
     val toolbar: Color,
-    val sidebar: Color,
     val panel: Color,
     val field: Color,
     val border: Color,
@@ -26,15 +25,9 @@ internal data class MacOsDeviceTargetStyle(
 
 internal object MacOsDeviceTargetDimensions {
     val toolbarHeight = 58.dp
-    val sidebarWidth = 270.dp
-    val compactSidebarWidth = 224.dp
-    val capabilityHeight = 116.dp
     val footerHeight = 58.dp
     val buttonHeight = 28.dp
-    val searchHeight = 30.dp
-    val deviceRowHeight = 58.dp
-    val targetRowHeight = 38.dp
-    val panelRadius = 9.dp
+    val selectorHeight = 30.dp
     val controlRadius = 6.dp
     val hairline = 1.dp
 }
@@ -44,7 +37,6 @@ internal fun macOsDeviceTargetStyle(dark: Boolean): MacOsDeviceTargetStyle =
         MacOsDeviceTargetStyle(
             workspace = Color(0xFF1E1E20),
             toolbar = Color(0xFF29292B),
-            sidebar = Color(0xFF252527),
             panel = Color(0xFF2C2C2E),
             field = Color(0xFF1C1C1E),
             border = Color(0xFF48484A),
@@ -61,7 +53,6 @@ internal fun macOsDeviceTargetStyle(dark: Boolean): MacOsDeviceTargetStyle =
         MacOsDeviceTargetStyle(
             workspace = Color(0xFFF5F5F7),
             toolbar = Color(0xFFFAFAFB),
-            sidebar = Color(0xFFEDEDEF),
             panel = Color.White,
             field = Color.White,
             border = Color(0xFFD1D1D6),

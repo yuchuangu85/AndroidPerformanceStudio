@@ -2,7 +2,6 @@ package com.androidperformancestudio.presentation
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,8 +19,12 @@ import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingTemplate
+import com.androidperformancestudio.capture.SimpleperfTarget
+import java.nio.file.Path
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class DeviceTargetPageBehaviorTest {
@@ -49,10 +52,18 @@ class DeviceTargetPageBehaviorTest {
                 )
             }
 
-            onNodeWithText("Pixel 8 Pro").performClick()
+            onNodeWithContentDescription("Device selector").performClick()
             onNodeWithText("Pixel Offline").assertIsNotEnabled()
+            onNodeWithText("Pixel 8 Pro").performClick()
             onNodeWithText("Open Session").assertDoesNotExist()
             onNodeWithText("Refreshing…").assertIsNotEnabled()
+
+            val title = onNodeWithText("Device & Target").fetchSemanticsNode().boundsInRoot
+            val deviceSelector = onNodeWithContentDescription("Device selector").fetchSemanticsNode().boundsInRoot
+            val refresh = onNodeWithText("Refreshing…").fetchSemanticsNode().boundsInRoot
+            val capabilities = onNodeWithText("Capabilities").fetchSemanticsNode().boundsInRoot
+            assertTrue(abs(title.center.y - deviceSelector.center.y) < SAME_ROW_TOLERANCE)
+            assertTrue(capabilities.left > refresh.right)
 
             assertEquals(listOf("emulator-5554"), selectedDevices)
         }
@@ -63,14 +74,16 @@ class DeviceTargetPageBehaviorTest {
             val packages = mutableListOf<String>()
             val processes = mutableListOf<Int>()
             val threads = mutableListOf<ThreadOption>()
-            var continueCount = 0
+            val templates = mutableListOf<SamplingTemplate>()
+            var startCount = 0
             val thread = ThreadOption(pid = 42, tid = 43, name = "RenderThread")
             val actions =
                 deviceActions(
                     onSelectPackage = packages::add,
                     onSelectProcess = processes::add,
                     onSelectThread = threads::add,
-                    onContinue = { continueCount++ },
+                    onSelectTemplate = templates::add,
+                    onStartCapture = { startCount++ },
                 )
 
             setContent {
@@ -83,16 +96,61 @@ class DeviceTargetPageBehaviorTest {
                 )
             }
 
-            onNodeWithContentDescription("Search package, process, user or PID").assertExists()
-            onNodeWithText("com.example.demo").assertIsSelected().performClick()
+            onNodeWithContentDescription("Search package, process, user or PID").assertDoesNotExist()
+            onNodeWithContentDescription("App selector").performClick()
+            onNodeWithText("com.example.second").performClick()
+            onNodeWithContentDescription("Process selector").performClick()
             onNodeWithText("example_process").performClick()
+            onNodeWithContentDescription("Thread selector").performClick()
             onNodeWithText("RenderThread").performClick()
-            onNodeWithText("Continue to Capture").performClick()
+            onNodeWithText("Capabilities").performClick()
+            onNodeWithText("Device capability").assertExists()
+            onNodeWithText("system-wide").assertExists()
+            onNodeWithText("Get data").performClick()
+            onNodeWithText("Device capability").assertDoesNotExist()
+            onNodeWithText("Capture Configuration").assertExists()
+            onNodeWithText("Sampling template").assertExists()
+            onNodeWithText("Advanced parameters").assertExists()
+            onNodeWithText("Back to Device & Target").assertDoesNotExist()
+            onNodeWithText("Continue to Capture").assertDoesNotExist()
+            onNodeWithText("Low Overhead").performClick()
+            onNodeWithText("Get data").performClick()
 
-            assertEquals(listOf("com.example.demo"), packages)
+            assertEquals(listOf("com.example.second"), packages)
             assertEquals(listOf(42), processes)
             assertEquals(listOf(thread), threads)
-            assertEquals(1, continueCount)
+            assertEquals(listOf(SamplingTemplate.LOW_OVERHEAD), templates)
+            assertEquals(1, startCount)
+        }
+
+    @Test
+    fun `active capture locks selectors and exposes stop controls`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            var stopCount = 0
+            var cancelCount = 0
+            val actions =
+                deviceActions(
+                    onStopCapture = { stopCount++ },
+                    onCancelCapture = { cancelCount++ },
+                )
+
+            setContent {
+                HomeScreen(
+                    state = readyState(ThreadOption(pid = 42, tid = 43, name = "RenderThread")),
+                    captureState = CaptureState.Recording(Path.of("session"), "simpleperf record"),
+                    reportState = ReportState(),
+                    actions = actions,
+                    reportActions = goldenActions(),
+                )
+            }
+
+            onNodeWithContentDescription("Device selector").assertIsNotEnabled()
+            onNodeWithText("Get data").assertDoesNotExist()
+            onNodeWithText("Stop and analyze").performClick()
+            onNodeWithText("Cancel").performClick()
+
+            assertEquals(1, stopCount)
+            assertEquals(1, cancelCount)
         }
 }
 
@@ -117,20 +175,34 @@ private fun readyState(thread: ThreadOption): DeviceTargetState {
                 sdkInt = 36,
                 abis = listOf("arm64-v8a"),
                 capabilities = capabilities,
-                packages = listOf(PackageOption("com.example.demo")),
+                packages =
+                    listOf(
+                        PackageOption("com.example.demo"),
+                        PackageOption("com.example.second"),
+                    ),
                 processes = listOf(ProcessOption(42, "example_process", "u0_a123")),
             ),
         selectedTarget = CaptureTarget.App("com.example.demo"),
+        captureSetup =
+            com.androidperformancestudio.application.CaptureSetup(
+                template = SamplingTemplate.APP_CPU_BASIC,
+                parameters = SamplingTemplate.APP_CPU_BASIC.create(SimpleperfTarget.App("com.example.demo")),
+            ),
         threads = listOf(thread),
     )
 }
 
+@Suppress("LongParameterList")
 private fun deviceActions(
     onSelectDevice: (String) -> Unit = {},
     onSelectPackage: (String) -> Unit = {},
     onSelectProcess: (Int) -> Unit = {},
     onSelectThread: (ThreadOption) -> Unit = {},
     onContinue: () -> Unit = {},
+    onSelectTemplate: (SamplingTemplate) -> Unit = {},
+    onStartCapture: () -> Unit = {},
+    onStopCapture: () -> Unit = {},
+    onCancelCapture: () -> Unit = {},
 ) = DeviceTargetActions(
     onRefresh = {},
     onSelectDevice = onSelectDevice,
@@ -140,9 +212,11 @@ private fun deviceActions(
     onSelectThread = onSelectThread,
     onContinue = onContinue,
     onBack = {},
-    onSelectTemplate = { _: SamplingTemplate -> },
+    onSelectTemplate = onSelectTemplate,
     onUpdateSamplingParameters = { _: SamplingParameters -> },
-    onStartCapture = {},
-    onStopCapture = {},
-    onCancelCapture = {},
+    onStartCapture = onStartCapture,
+    onStopCapture = onStopCapture,
+    onCancelCapture = onCancelCapture,
 )
+
+private const val SAME_ROW_TOLERANCE = 4f

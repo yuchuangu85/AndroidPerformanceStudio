@@ -78,7 +78,7 @@ class DeviceTargetControllerTest {
         }
 
     @Test
-    fun `selects a process loads its threads and enters capture`() =
+    fun `selecting a process loads threads and prepares capture in the target workspace`() =
         runBlocking {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())
             controller.refreshDevices()
@@ -92,6 +92,12 @@ class DeviceTargetControllerTest {
                     .map(ThreadOption::tid),
             )
             assertIs<CaptureTarget.Process>(controller.state.value.selectedTarget)
+            assertEquals(WorkspacePage.DEVICE_TARGET, controller.state.value.page)
+            assertEquals(
+                SamplingTemplate.APP_CPU_BASIC,
+                controller.state.value.captureSetup
+                    ?.template,
+            )
             assertTrue(controller.enterCapture())
             assertEquals(WorkspacePage.CAPTURE, controller.state.value.page)
             assertEquals(

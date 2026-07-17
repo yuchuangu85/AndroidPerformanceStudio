@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.application.CapabilityStatus
 import com.androidperformancestudio.application.CapabilitySummary
+import com.androidperformancestudio.application.CaptureSetup
 import com.androidperformancestudio.application.CaptureTarget
 import com.androidperformancestudio.application.DeviceOption
 import com.androidperformancestudio.application.DeviceSelection
@@ -21,6 +22,7 @@ import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingTemplate
+import com.androidperformancestudio.capture.SimpleperfTarget
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
@@ -115,6 +117,14 @@ private fun macOsGoldenState(): DeviceTargetState {
                 processes = processes,
             ),
         selectedTarget = CaptureTarget.Process(7421, "com.example.gallery"),
+        captureSetup =
+            CaptureSetup(
+                template = SamplingTemplate.APP_CPU_BASIC,
+                parameters =
+                    SamplingTemplate.APP_CPU_BASIC.create(
+                        SimpleperfTarget.Process(7421, appPackage = "com.example.gallery"),
+                    ),
+            ),
         threads =
             listOf(
                 ThreadOption(7421, 7421, "example.gallery"),

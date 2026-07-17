@@ -185,19 +185,20 @@ class DeviceTargetController(
     }
 
     fun selectPackage(packageName: String) {
-        mutableState.value =
+        val selected =
             mutableState.value.copy(
                 selectedTarget = CaptureTarget.App(packageName),
                 captureSetup = null,
                 threads = emptyList(),
             )
+        mutableState.value = selected.withDefaultCaptureSetup()
     }
 
     suspend fun selectProcess(pid: Int) {
         val current = mutableState.value
         val serial = current.selectedSerial ?: return
         val process = current.selection?.processes?.firstOrNull { it.pid == pid } ?: return
-        mutableState.value =
+        val selected =
             current.copy(
                 selectedTarget = CaptureTarget.Process(process.pid, process.name),
                 captureSetup = null,
@@ -205,6 +206,7 @@ class DeviceTargetController(
                 isLoading = true,
                 error = null,
             )
+        mutableState.value = selected.withDefaultCaptureSetup()
         mutableState.value =
             when (val result = gateway.loadThreads(serial, pid)) {
                 is StudioResult.Success -> mutableState.value.copy(threads = result.value, isLoading = false)
@@ -213,11 +215,12 @@ class DeviceTargetController(
     }
 
     fun selectThread(thread: ThreadOption) {
-        mutableState.value =
+        val selected =
             mutableState.value.copy(
                 selectedTarget = CaptureTarget.Thread(thread.pid, thread.tid, thread.name),
                 captureSetup = null,
             )
+        mutableState.value = selected.withDefaultCaptureSetup()
     }
 
     fun enterCapture(): Boolean {
@@ -291,6 +294,9 @@ private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): Ca
         )
     }
 }
+
+private fun DeviceTargetState.withDefaultCaptureSetup(): DeviceTargetState =
+    copy(captureSetup = createCaptureSetup(SamplingTemplate.APP_CPU_BASIC))
 
 private fun CaptureTarget.toSimpleperfTarget(selection: DeviceSelection?): SimpleperfTarget =
     when (this) {
