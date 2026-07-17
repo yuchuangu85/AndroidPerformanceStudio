@@ -5,6 +5,7 @@ import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.parser.HostSimpleperf
 import com.androidperformancestudio.parser.HostSimpleperfSource
 import com.androidperformancestudio.parser.SimpleperfConversionResult
+import com.androidperformancestudio.storage.SQLiteSampleStore
 import com.androidperformancestudio.toolchain.ProcessCancellationSignal
 import kotlinx.coroutines.test.runTest
 import java.io.ByteArrayOutputStream
@@ -113,6 +114,35 @@ class OfflineProfileImporterTest {
         }
 
     @Test
+    fun `resolves samples when simpleperf emits lookup records after samples`() =
+        runTest {
+            val root = Files.createTempDirectory("aps-offline-late-lookups-")
+            val input = root.resolve("input.perf.trace").apply { writeBytes(profileTrace(lookupsAfterSample = true)) }
+            val importer =
+                OfflineProfileImporter(
+                    hostSimpleperfResolver = { error("host simpleperf must not be used for protobuf imports") },
+                    perfDataConverter = { _, _, _ -> error("converter must not be used for protobuf imports") },
+                )
+
+            val result =
+                importer.import(
+                    OfflineImportRequest(
+                        sessionId = "late-lookups",
+                        sessionRoot = root.resolve("sessions"),
+                        input = input,
+                        format = OfflineProfileFormat.SIMPLEPERF_PROTOBUF,
+                    ),
+                )
+
+            val imported = assertIs<StudioResult.Success<OfflineImportResult>>(result).value
+            assertEquals(0L, imported.quality.unknownSymbolSamples)
+            SQLiteSampleStore.openReadOnly(imported.database).use { store ->
+                assertEquals("renderFrame", store.topFunctions(limit = 1).single().symbolName)
+                assertEquals("RenderThread", store.threads().single().name)
+            }
+        }
+
+    @Test
     fun `converts and indexes a completed capture inside its existing evidence directory`() =
         runTest {
             val session = Files.createTempDirectory("aps-captured-session-")
@@ -146,49 +176,57 @@ class OfflineProfileImporterTest {
             assertTrue(session.resolve("simpleperf.protobuf").exists())
         }
 
-    private fun profileTrace(): ByteArray {
+    @Suppress("LongMethod")
+    private fun profileTrace(lookupsAfterSample: Boolean = false): ByteArray {
+        val metadata =
+            SimpleperfReport.Record
+                .newBuilder()
+                .setMetaInfo(SimpleperfReport.MetaInfo.newBuilder().addEventType("cpu-cycles"))
+                .build()
+        val file =
+            SimpleperfReport.Record
+                .newBuilder()
+                .setFile(
+                    SimpleperfReport.File
+                        .newBuilder()
+                        .setId(7)
+                        .setPath("/system/lib64/libui.so")
+                        .addSymbol("renderFrame"),
+                ).build()
+        val thread =
+            SimpleperfReport.Record
+                .newBuilder()
+                .setThread(
+                    SimpleperfReport.Thread
+                        .newBuilder()
+                        .setProcessId(100)
+                        .setThreadId(101)
+                        .setThreadName("RenderThread"),
+                ).build()
+        val sample =
+            SimpleperfReport.Record
+                .newBuilder()
+                .setSample(
+                    SimpleperfReport.Sample
+                        .newBuilder()
+                        .setTime(42)
+                        .setThreadId(101)
+                        .setEventTypeId(0)
+                        .setEventCount(5)
+                        .addCallchain(
+                            SimpleperfReport.Sample.CallChainEntry
+                                .newBuilder()
+                                .setFileId(7)
+                                .setSymbolId(0)
+                                .setVaddrInFile(0x20),
+                        ),
+                ).build()
         val records =
-            listOf(
-                SimpleperfReport.Record
-                    .newBuilder()
-                    .setMetaInfo(SimpleperfReport.MetaInfo.newBuilder().addEventType("cpu-cycles"))
-                    .build(),
-                SimpleperfReport.Record
-                    .newBuilder()
-                    .setFile(
-                        SimpleperfReport.File
-                            .newBuilder()
-                            .setId(7)
-                            .setPath("/system/lib64/libui.so")
-                            .addSymbol("renderFrame"),
-                    ).build(),
-                SimpleperfReport.Record
-                    .newBuilder()
-                    .setThread(
-                        SimpleperfReport.Thread
-                            .newBuilder()
-                            .setProcessId(100)
-                            .setThreadId(101)
-                            .setThreadName("RenderThread"),
-                    ).build(),
-                SimpleperfReport.Record
-                    .newBuilder()
-                    .setSample(
-                        SimpleperfReport.Sample
-                            .newBuilder()
-                            .setTime(42)
-                            .setThreadId(101)
-                            .setEventTypeId(0)
-                            .setEventCount(5)
-                            .addCallchain(
-                                SimpleperfReport.Sample.CallChainEntry
-                                    .newBuilder()
-                                    .setFileId(7)
-                                    .setSymbolId(0)
-                                    .setVaddrInFile(0x20),
-                            ),
-                    ).build(),
-            )
+            if (lookupsAfterSample) {
+                listOf(sample, file, thread, metadata)
+            } else {
+                listOf(metadata, file, thread, sample)
+            }
         return ByteArrayOutputStream()
             .apply {
                 write("SIMPLEPERF".encodeToByteArray())

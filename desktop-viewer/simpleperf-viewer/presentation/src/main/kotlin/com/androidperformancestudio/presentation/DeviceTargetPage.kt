@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming", "TooManyFunctions")
+@file:Suppress("FunctionNaming", "TooManyFunctions", "LongParameterList")
 
 package com.androidperformancestudio.presentation
 
@@ -60,6 +60,8 @@ internal fun DeviceTargetPage(
     captureState: CaptureState,
     actions: DeviceTargetActions,
     darkTheme: Boolean,
+    settingsSection: CaptureSettingsSection?,
+    onSettingsSectionChange: (CaptureSettingsSection?) -> Unit,
 ) {
     val style = macOsDeviceTargetStyle(darkTheme)
     val captureActive = captureState.isCaptureActive()
@@ -70,23 +72,29 @@ internal fun DeviceTargetPage(
             style = style,
             enabled = !captureActive && !state.isLoading,
             showGetData = !captureActive,
+            onOpenSettings = { onSettingsSectionChange(CaptureSettingsSection.SAMPLING_TEMPLATE) },
         )
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             TargetSummary(state, style)
-            CaptureConfigurationWorkspace(
-                setup = state.captureSetup,
-                availableEvents =
-                    state.selection
-                        ?.capabilities
-                        ?.eventNames
-                        .orEmpty(),
-                style = style,
-                enabled = !captureActive,
-                onSelectTemplate = actions.onSelectTemplate,
-                onUpdate = actions.onUpdateSamplingParameters,
-            )
         }
         WorkspaceFooter(state, captureState, actions, style)
+    }
+    settingsSection?.let { section ->
+        CaptureSettingsDialog(
+            section = section,
+            setup = state.captureSetup,
+            availableEvents =
+                state.selection
+                    ?.capabilities
+                    ?.eventNames
+                    .orEmpty(),
+            style = style,
+            enabled = !captureActive,
+            onSectionChange = { onSettingsSectionChange(it) },
+            onSelectTemplate = actions.onSelectTemplate,
+            onUpdate = actions.onUpdateSamplingParameters,
+            onDismiss = { onSettingsSectionChange(null) },
+        )
     }
 }
 
@@ -98,6 +106,7 @@ private fun WorkspaceToolbar(
     style: MacOsDeviceTargetStyle,
     enabled: Boolean,
     showGetData: Boolean,
+    onOpenSettings: () -> Unit,
 ) {
     Row(
         modifier =
@@ -113,7 +122,7 @@ private fun WorkspaceToolbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        ToolbarContent(state, actions, style, enabled, showGetData)
+        ToolbarContent(state, actions, style, enabled, showGetData, onOpenSettings)
     }
 }
 
@@ -125,6 +134,7 @@ private fun RowScope.ToolbarContent(
     style: MacOsDeviceTargetStyle,
     enabled: Boolean,
     showGetData: Boolean,
+    onOpenSettings: () -> Unit,
 ) {
     val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
     val selectedThreadId = (state.selectedTarget as? CaptureTarget.Thread)?.tid
@@ -172,6 +182,7 @@ private fun RowScope.ToolbarContent(
     Spacer(Modifier.width(2.dp))
     ToolbarCaptureActions(state, actions, style, enabled, showGetData)
     CapabilityPopupButton(state.selection, style)
+    MacOsButton("Settings", onOpenSettings, style, enabled = enabled)
 }
 
 @Composable
@@ -720,7 +731,7 @@ private fun CaptureActions(
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun MacOsButton(
+internal fun MacOsButton(
     label: String,
     onClick: () -> Unit,
     style: MacOsDeviceTargetStyle,

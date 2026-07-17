@@ -153,18 +153,6 @@ private fun ReportHeader(
             )
         }
     }
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        OutlinedButton(onClick = actions.onExportSession) { Text("Session package") }
-        OutlinedButton(onClick = actions.onExportReport) { Text("JSON + CSV") }
-        OutlinedButton(onClick = actions.onExportRawProtobuf) { Text("Raw protobuf") }
-        OutlinedButton(onClick = actions.onExportScreenshot) { Text("Screenshot") }
-        OutlinedButton(onClick = actions.onGenerateSimpleperfReport) { Text("simpleperf report") }
-        OutlinedButton(onClick = actions.onGenerateHtmlReport) { Text("report_html.py") }
-        OutlinedButton(onClick = actions.onExportExternalGuide) { Text("External open guide") }
-    }
 }
 
 @Composable

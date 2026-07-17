@@ -33,6 +33,7 @@ import com.androidperformancestudio.export.SessionPackageService
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.parser.HostSimpleperfLocator
 import com.androidperformancestudio.parser.SimpleperfReportConverter
+import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.DeviceTargetActions
 import com.androidperformancestudio.presentation.HomeScreen
 import com.androidperformancestudio.presentation.ReportActions
@@ -78,8 +79,16 @@ fun FrameWindowScope.SimpleperfWorkspace(
         }
     val reportActions = reportActionFactory.create(reportState)
     val resolvedLanguage = settings.language.resolve(Locale.getDefault())
+    var captureSettingsSection by remember { mutableStateOf<CaptureSettingsSection?>(null) }
     LaunchedEffect(controller) { controller.refreshDevices() }
-    SimpleperfMenu(resolvedLanguage, reportState, reportActions, reportController, scope)
+    SimpleperfMenu(
+        resolvedLanguage,
+        reportState,
+        reportActions,
+        reportController,
+        scope,
+        onOpenCaptureSettings = { captureSettingsSection = it },
+    )
     HomeScreen(
         state = state,
         captureState = captureState,
@@ -88,6 +97,8 @@ fun FrameWindowScope.SimpleperfWorkspace(
         reportActions = reportActions,
         darkTheme = settings.theme.resolveDark(isSystemInDarkTheme()),
         language = resolvedLanguage.toPresentationLanguage(),
+        captureSettingsSection = captureSettingsSection,
+        onCaptureSettingsSectionChange = { captureSettingsSection = it },
     )
 }
 
@@ -99,6 +110,7 @@ private fun FrameWindowScope.SimpleperfMenu(
     reportActions: ReportActions,
     reportController: ReportController,
     scope: kotlinx.coroutines.CoroutineScope,
+    onOpenCaptureSettings: (CaptureSettingsSection) -> Unit,
 ) {
     val recentSessionStore = remember { RecentSimpleperfSessionStore.desktop() }
     var recentSessions by remember { mutableStateOf(recentSessionStore.load()) }
@@ -113,14 +125,25 @@ private fun FrameWindowScope.SimpleperfMenu(
                 recentSessions = recentSessions,
                 exportEnabled = reportState.loadState is ReportLoadState.Ready,
                 isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
+                configurationEnabled = reportState.loadState == ReportLoadState.Closed,
             ),
         onOpen = reportActions.onOpenSession,
-        onExport = reportActions.onExportReport,
+        exportActions =
+            SimpleperfExportMenuActions(
+                onSessionPackage = reportActions.onExportSession,
+                onReport = reportActions.onExportReport,
+                onRawProtobuf = reportActions.onExportRawProtobuf,
+                onScreenshot = reportActions.onExportScreenshot,
+                onSimpleperfReport = reportActions.onGenerateSimpleperfReport,
+                onHtmlReport = reportActions.onGenerateHtmlReport,
+                onExternalOpen = reportActions.onExportExternalGuide,
+            ),
         onOpenRecent = { session -> scope.launch { reportController.openSession(session) } },
         onClearRecent = {
             recentSessionStore.clear()
             recentSessions = emptyList()
         },
+        onOpenCaptureSettings = onOpenCaptureSettings,
     )
 }
 

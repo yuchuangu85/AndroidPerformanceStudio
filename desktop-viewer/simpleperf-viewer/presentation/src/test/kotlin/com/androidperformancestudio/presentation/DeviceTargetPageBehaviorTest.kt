@@ -62,9 +62,13 @@ class DeviceTargetPageBehaviorTest {
             val refresh = onNodeWithText("Refresh").fetchSemanticsNode().boundsInRoot
             val getData = onNodeWithText("Get data").fetchSemanticsNode().boundsInRoot
             val capabilities = onNodeWithText("Capabilities").fetchSemanticsNode().boundsInRoot
+            val settings = onNodeWithText("Settings").fetchSemanticsNode().boundsInRoot
             assertTrue(abs(title.center.y - deviceSelector.center.y) < SAME_ROW_TOLERANCE)
             assertTrue(getData.left > refresh.right)
             assertTrue(capabilities.left > getData.right)
+            assertTrue(settings.left > capabilities.right)
+            onNodeWithText("Settings").performClick()
+            onNodeWithContentDescription("Capture settings: Sampling template").assertExists()
 
             assertEquals(listOf("emulator-5554"), selectedDevices)
         }
@@ -80,6 +84,7 @@ class DeviceTargetPageBehaviorTest {
             var startCount = 0
             val thread = ThreadOption(pid = 42, tid = 43, name = "RenderThread")
             val uiState = androidx.compose.runtime.mutableStateOf(readyState(thread))
+            val settingsSection = androidx.compose.runtime.mutableStateOf<CaptureSettingsSection?>(null)
             val actions =
                 deviceActions(
                     onSelectPackage = { packageName ->
@@ -122,6 +127,8 @@ class DeviceTargetPageBehaviorTest {
                     reportState = ReportState(),
                     actions = actions,
                     reportActions = goldenActions(),
+                    captureSettingsSection = settingsSection.value,
+                    onCaptureSettingsSectionChange = { settingsSection.value = it },
                 )
             }
 
@@ -144,12 +151,18 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithText("system-wide").assertExists()
             onNodeWithText("Get data").performClick()
             onNodeWithText("Device capability").assertDoesNotExist()
-            onNodeWithText("Capture Configuration").assertExists()
-            onNodeWithText("Sampling template").assertExists()
-            onNodeWithText("Advanced parameters").assertExists()
+            onNodeWithText("Capture Configuration").assertDoesNotExist()
+            onNodeWithText("Settings").performClick()
+            onNodeWithContentDescription("Capture settings: Sampling template").assertExists()
+            onNodeWithContentDescription("Capture settings: Capture configuration").performClick()
+            onNodeWithText("Event and rate").assertExists()
+            onNodeWithContentDescription("Capture settings: Advanced parameters").performClick()
+            onNodeWithText("Call graph").assertExists()
+            onNodeWithContentDescription("Capture settings: Sampling template").performClick()
             onNodeWithText("Back to Device & Target").assertDoesNotExist()
             onNodeWithText("Continue to Capture").assertDoesNotExist()
             onNodeWithText("Low Overhead").performClick()
+            onNodeWithText("Done").performClick()
             onNodeWithText("Get data").performClick()
 
             assertEquals(listOf("com.example.second"), packages)

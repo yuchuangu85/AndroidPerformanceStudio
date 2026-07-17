@@ -1,6 +1,7 @@
 package com.androidperformancestudio.application
 
 import com.androidperformancestudio.model.ErrorCategory
+import com.androidperformancestudio.model.NormalizedProfileRecord
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.parser.HostSimpleperf
@@ -244,7 +245,7 @@ class OfflineProfileImporter(
         }
     }
 
-    @Suppress("NestedBlockDepth")
+    @Suppress("NestedBlockDepth", "ReturnCount")
     private fun indexTrace(
         request: OfflineImportRequest,
         artifacts: ImportArtifacts,
@@ -258,11 +259,28 @@ class OfflineProfileImporter(
         try {
             SQLiteSampleStore.open(artifacts.database).use { store ->
                 store.beginRecordImport(request.batchSize).use { writer ->
+                    // Simpleperf can emit samples before the File, Thread, and MetaInfo records they reference.
+                    val preload =
+                        Files.newInputStream(prepared.protobufTrace).buffered().use { input ->
+                            recordReader.read(input) { envelope ->
+                                ensureActive(cancellationSignal)
+                                val normalized = normalizer.normalize(envelope.record)
+                                if (normalized.isLookupRecord()) writer.add(normalized)
+                            }
+                        }
+                    when (preload) {
+                        is StudioResult.Failure -> {
+                            writeFailure(artifacts.sessionDirectory, request.format, preload.error)
+                            return preload
+                        }
+                        is StudioResult.Success -> Unit
+                    }
                     val read =
                         Files.newInputStream(prepared.protobufTrace).buffered().use { input ->
                             recordReader.read(input) { envelope ->
                                 ensureActive(cancellationSignal)
-                                writer.add(normalizer.normalize(envelope.record))
+                                val normalized = normalizer.normalize(envelope.record)
+                                if (!normalized.isLookupRecord()) writer.add(normalized)
                             }
                         }
                     when (read) {
@@ -304,6 +322,11 @@ class OfflineProfileImporter(
             else -> null
         }
 }
+
+private fun NormalizedProfileRecord.isLookupRecord(): Boolean =
+    this is NormalizedProfileRecord.File ||
+        this is NormalizedProfileRecord.Thread ||
+        this is NormalizedProfileRecord.Metadata
 
 private data class ImportArtifacts(
     val sessionDirectory: Path,

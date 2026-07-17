@@ -6,6 +6,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.ReportLoadState
@@ -22,14 +27,32 @@ fun HomeScreen(
     reportActions: ReportActions,
     darkTheme: Boolean = false,
     language: SimpleperfLanguage = SimpleperfLanguage.ENGLISH,
+    captureSettingsSection: CaptureSettingsSection? = null,
+    onCaptureSettingsSectionChange: (CaptureSettingsSection?) -> Unit = {},
 ) {
     SimpleperfLocalization(language) {
+        var localCaptureSettingsSection by remember { mutableStateOf(captureSettingsSection) }
+        LaunchedEffect(captureSettingsSection) {
+            localCaptureSettingsSection = captureSettingsSection
+        }
+        val activeCaptureSettingsSection = captureSettingsSection ?: localCaptureSettingsSection
+        val updateCaptureSettingsSection: (CaptureSettingsSection?) -> Unit = { next ->
+            localCaptureSettingsSection = next
+            onCaptureSettingsSectionChange(next)
+        }
         MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
             Surface(modifier = Modifier.fillMaxSize()) {
                 if (reportState.loadState != ReportLoadState.Closed) {
                     ReportPage(reportState, reportActions)
                 } else {
-                    DeviceTargetPage(state, captureState, actions, darkTheme)
+                    DeviceTargetPage(
+                        state,
+                        captureState,
+                        actions,
+                        darkTheme,
+                        activeCaptureSettingsSection,
+                        updateCaptureSettingsSection,
+                    )
                 }
             }
         }

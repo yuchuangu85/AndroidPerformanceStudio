@@ -1,23 +1,24 @@
 package com.androidperformancestudio.presentation
 
-import androidx.compose.ui.unit.dp
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CaptureConfigurationWorkspaceTest {
     @Test
-    fun `device target and capture configuration share one workspace`() {
+    fun `device target opens capture configuration in settings dialog`() {
         val home = source("HomeScreen.kt")
         val workspace = source("DeviceTargetPage.kt")
+        val configuration = source("CaptureConfigurationWorkspace.kt")
 
-        assertTrue(home.contains("DeviceTargetPage(state, captureState, actions, darkTheme)"))
+        assertTrue(home.contains("captureSettingsSection"))
         assertFalse(home.contains("CapturePage("))
         assertTrue(workspace.contains("TargetSummary(state, style)"))
-        assertTrue(workspace.contains("CaptureConfigurationWorkspace("))
+        assertFalse(workspace.contains("CaptureConfigurationWorkspace("))
+        assertTrue(workspace.contains("CaptureSettingsDialog("))
+        assertTrue(configuration.contains("DialogProperties(usePlatformDefaultWidth = false)"))
         assertTrue(workspace.contains("WorkspaceFooter(state, captureState, actions, style)"))
     }
 
@@ -32,17 +33,21 @@ class CaptureConfigurationWorkspaceTest {
     }
 
     @Test
-    fun `capture configuration uses horizontal panels at normal desktop widths`() {
-        assertEquals(CaptureConfigurationLayout.HORIZONTAL, captureConfigurationLayout(900.dp))
-        assertEquals(CaptureConfigurationLayout.HORIZONTAL, captureConfigurationLayout(1200.dp))
-        assertEquals(CaptureConfigurationLayout.STACKED, captureConfigurationLayout(899.dp))
+    fun `settings dialog separates capture parameters into three sections`() {
+        val source = source("CaptureConfigurationWorkspace.kt")
+
+        assertTrue(source.contains("SAMPLING_TEMPLATE"))
+        assertTrue(source.contains("CAPTURE_CONFIGURATION"))
+        assertTrue(source.contains("ADVANCED_PARAMETERS"))
+        assertTrue(source.contains("CaptureConfigurationPanel("))
+        assertTrue(source.contains("AdvancedCaptureParameters("))
     }
 
     @Test
     fun `capture configuration follows compact macOS styling`() {
         val source = source("CaptureConfigurationWorkspace.kt")
 
-        assertTrue(source.contains("CaptureConfigurationWorkspace("))
+        assertTrue(source.contains("CaptureSettingsDialog("))
         assertTrue(source.contains("MacOsPanel("))
         assertTrue(source.contains("MacOsTextField("))
         assertTrue(source.contains("MacOsChoiceChip("))
