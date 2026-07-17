@@ -896,6 +896,7 @@ private val REPORT_ARTIFACTS =
     listOf(
         "perf.data",
         "simpleperf.protobuf",
+        "gecko-profile.json.gz",
         "mapping.txt",
         "symbols",
         "capture-command.txt",

@@ -32,6 +32,7 @@ import kotlin.io.path.isRegularFile
 enum class OfflineProfileFormat {
     PERF_DATA,
     SIMPLEPERF_PROTOBUF,
+    GECKO_PROFILE_JSON_GZIP,
 }
 
 data class OfflineImportRequest(
@@ -58,7 +59,8 @@ data class OfflineImportRequest(
 data class OfflineImportResult(
     val sessionDirectory: Path,
     val perfData: Path?,
-    val protobufTrace: Path,
+    val protobufTrace: Path?,
+    val geckoProfile: Path?,
     val database: Path,
     val hostSimpleperf: HostSimpleperf?,
     val readSummary: SimpleperfReadSummary,
@@ -84,6 +86,7 @@ class OfflineProfileImporter(
     private val recordReader: SimpleperfRecordReader = SimpleperfRecordReader(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
+    private val geckoProfileReader = GeckoProfileReader()
     constructor(
         locator: HostSimpleperfLocator,
         converter: SimpleperfReportConverter,
@@ -131,6 +134,7 @@ class OfflineProfileImporter(
                         sessionDirectory = session,
                         perfData = perfData,
                         protobufTrace = session.resolve("simpleperf.protobuf"),
+                        geckoProfile = null,
                         database = session.resolve("profile.sqlite"),
                         mapping = session.resolve("mapping.txt").takeIf(Path::isRegularFile),
                         symbols = session.resolve("symbols").takeIf { Files.isDirectory(it) },
@@ -146,6 +150,13 @@ class OfflineProfileImporter(
                 block()
             } catch (_: CancellationException) {
                 failure(ErrorCategory.PROCESS_CANCELLED, "OFFLINE_IMPORT_CANCELLED", "Offline import was cancelled")
+            } catch (exception: GeckoProfileFormatException) {
+                failure(
+                    ErrorCategory.DATA_VALIDATION,
+                    "GECKO_PROFILE_INVALID",
+                    exception.message ?: "Invalid Gecko profile",
+                    exception,
+                )
             } catch (exception: IOException) {
                 failure(
                     ErrorCategory.IO,
@@ -172,11 +183,15 @@ class OfflineProfileImporter(
         return importPrepared(request, artifacts, cancellationSignal)
     }
 
+    @Suppress("ReturnCount")
     private suspend fun importPrepared(
         request: OfflineImportRequest,
         artifacts: ImportArtifacts,
         cancellationSignal: ProcessCancellationSignal,
     ): StudioResult<OfflineImportResult> {
+        if (request.format == OfflineProfileFormat.GECKO_PROFILE_JSON_GZIP) {
+            return indexGeckoProfile(request, artifacts, cancellationSignal)
+        }
         val converted = convertIfNecessary(request, artifacts, cancellationSignal)
         val prepared =
             when (converted) {
@@ -206,6 +221,12 @@ class OfflineProfileImporter(
             }
         val protobufTrace = sessionDirectory.resolve("simpleperf.protobuf")
         if (request.format == OfflineProfileFormat.SIMPLEPERF_PROTOBUF) copy(request.input, protobufTrace)
+        val geckoProfile =
+            if (request.format == OfflineProfileFormat.GECKO_PROFILE_JSON_GZIP) {
+                copy(request.input, sessionDirectory.resolve("gecko-profile.json.gz"))
+            } else {
+                null
+            }
         val mapping = request.proguardMapping?.let { copy(it, sessionDirectory.resolve("mapping.txt")) }
         val symbols = request.symbolDirectory?.let { copyDirectory(it, sessionDirectory.resolve("symbols")) }
         return ImportArtifacts(
@@ -213,6 +234,7 @@ class OfflineProfileImporter(
             perfData = perfData,
             protobufTrace = protobufTrace,
             database = sessionDirectory.resolve("profile.sqlite"),
+            geckoProfile = geckoProfile,
             mapping = mapping,
             symbols = symbols,
         )
@@ -297,8 +319,58 @@ class OfflineProfileImporter(
                         sessionDirectory = artifacts.sessionDirectory,
                         perfData = artifacts.perfData,
                         protobufTrace = prepared.protobufTrace,
+                        geckoProfile = artifacts.geckoProfile,
                         database = artifacts.database,
                         hostSimpleperf = prepared.hostSimpleperf,
+                        readSummary = checkNotNull(readSummary),
+                        profileImport = checkNotNull(profileImport),
+                        quality = store.dataQuality(),
+                    )
+                writeSuccess(request, result)
+                return StudioResult.Success(result)
+            }
+        } finally {
+            if (readSummary == null || profileImport == null) deleteDatabaseArtifacts(artifacts.database)
+        }
+    }
+
+    @Suppress("NestedBlockDepth")
+    private fun indexGeckoProfile(
+        request: OfflineImportRequest,
+        artifacts: ImportArtifacts,
+        cancellationSignal: ProcessCancellationSignal,
+    ): StudioResult<OfflineImportResult> {
+        deleteDatabaseArtifacts(artifacts.database)
+        var readSummary: SimpleperfReadSummary? = null
+        var profileImport: ProfileImportResult? = null
+        try {
+            SQLiteSampleStore.open(artifacts.database).use { store ->
+                store.beginRecordImport(request.batchSize).use { writer ->
+                    val gecko = checkNotNull(artifacts.geckoProfile)
+                    val summary =
+                        Files.newInputStream(gecko).buffered().use { input ->
+                            geckoProfileReader.read(
+                                input = input,
+                                ensureActive = { ensureActive(cancellationSignal) },
+                                onRecord = writer::add,
+                            )
+                        }
+                    readSummary =
+                        SimpleperfReadSummary(
+                            version = GECKO_PROFILE_VERSION,
+                            recordCount = summary.recordCount,
+                            bytesRead = summary.decompressedBytes,
+                        )
+                    profileImport = writer.finish()
+                }
+                val result =
+                    OfflineImportResult(
+                        sessionDirectory = artifacts.sessionDirectory,
+                        perfData = null,
+                        protobufTrace = null,
+                        geckoProfile = artifacts.geckoProfile,
+                        database = artifacts.database,
+                        hostSimpleperf = null,
                         readSummary = checkNotNull(readSummary),
                         profileImport = checkNotNull(profileImport),
                         quality = store.dataQuality(),
@@ -332,6 +404,7 @@ private data class ImportArtifacts(
     val sessionDirectory: Path,
     val perfData: Path?,
     val protobufTrace: Path,
+    val geckoProfile: Path?,
     val database: Path,
     val mapping: Path?,
     val symbols: Path?,
@@ -388,7 +461,8 @@ private fun writeSuccess(
             add("format=${request.format}")
             add("input=${request.input.toAbsolutePath()}")
             result.perfData?.let { add("perfData=${it.fileName}") }
-            add("protobufTrace=${result.protobufTrace.fileName}")
+            result.protobufTrace?.let { add("protobufTrace=${it.fileName}") }
+            result.geckoProfile?.let { add("geckoProfile=${it.fileName}") }
             add("database=${result.database.fileName}")
             add("recordCount=${result.readSummary.recordCount}")
             add("sampleCount=${result.profileImport.importedSamples}")
@@ -417,3 +491,5 @@ private fun failure(
     message: String,
     cause: Throwable? = null,
 ): StudioResult.Failure = StudioResult.Failure(StudioError(category, code, message, cause))
+
+private const val GECKO_PROFILE_VERSION = 24

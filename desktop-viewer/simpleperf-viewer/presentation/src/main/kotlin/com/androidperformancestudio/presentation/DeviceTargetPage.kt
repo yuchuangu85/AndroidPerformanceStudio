@@ -86,7 +86,7 @@ internal fun DeviceTargetPage(
                 modifier = Modifier.weight(1f),
             )
         }
-        WorkspaceFooter(state, captureState, actions, style)
+        WorkspaceFooter(state, captureState, reportState, actions, style)
     }
     settingsSection?.let { section ->
         CaptureSettingsDialog(
@@ -588,6 +588,7 @@ private fun StatusDot(color: Color) {
 private fun WorkspaceFooter(
     state: DeviceTargetState,
     captureState: CaptureState,
+    reportState: ReportState,
     actions: DeviceTargetActions,
     style: MacOsDeviceTargetStyle,
 ) {
@@ -603,7 +604,7 @@ private fun WorkspaceFooter(
             ).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CaptureStatus(state, captureState, style, Modifier.weight(1f))
+        CaptureStatus(state, captureState, reportState, style, Modifier.weight(1f))
         CaptureActions(captureState, actions, style)
     }
 }
@@ -613,30 +614,46 @@ private fun WorkspaceFooter(
 private fun CaptureStatus(
     state: DeviceTargetState,
     captureState: CaptureState,
+    reportState: ReportState,
     style: MacOsDeviceTargetStyle,
     modifier: Modifier,
 ) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         val error = state.error
         val color = if (error == null) style.online else style.error
+        val fileInfo = reportState.footerFileInfo() ?: captureState.footerFileInfo()
         StatusDot(color)
         Spacer(Modifier.width(7.dp))
-        Column {
+        Text(
+            error?.let { "${it.code}: ${it.message}" } ?: captureState.statusText(),
+            modifier = if (fileInfo == null) Modifier.weight(1f) else Modifier.widthIn(max = 240.dp),
+            color = color,
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        fileInfo?.let { info ->
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.width(MacOsDeviceTargetDimensions.hairline).height(14.dp).background(style.border))
+            Spacer(Modifier.width(10.dp))
             Text(
-                error?.let { "${it.code}: ${it.message}" } ?: captureState.statusText(),
-                color = color,
+                info.name,
+                color = style.text,
                 fontSize = 10.sp,
                 lineHeight = 13.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            captureState.sessionPath()?.let { path ->
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.weight(1f)) {
                 SelectionContainer {
                     Text(
-                        path,
+                        info.path,
                         color = style.secondaryText,
-                        fontSize = 8.sp,
-                        lineHeight = 10.sp,
+                        fontSize = 9.sp,
+                        lineHeight = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -645,6 +662,40 @@ private fun CaptureStatus(
         }
     }
 }
+
+private data class FooterFileInfo(
+    val name: String,
+    val path: String,
+)
+
+private fun ReportState.footerFileInfo(): FooterFileInfo? =
+    when (val current = loadState) {
+        ReportLoadState.Closed -> null
+        is ReportLoadState.Loading ->
+            FooterFileInfo(
+                current.sessionDirectory.fileName.toString(),
+                current.sessionDirectory.toString(),
+            )
+        is ReportLoadState.Failed ->
+            FooterFileInfo(
+                current.sessionDirectory.fileName.toString(),
+                current.sessionDirectory.toString(),
+            )
+        is ReportLoadState.Ready ->
+            FooterFileInfo(
+                current.report.session.name,
+                current.report.session.directory
+                    .toString(),
+            )
+    }
+
+private fun CaptureState.footerFileInfo(): FooterFileInfo? =
+    sessionPath()?.let { path ->
+        FooterFileInfo(
+            path.replace('\\', '/').substringAfterLast('/'),
+            path,
+        )
+    }
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")

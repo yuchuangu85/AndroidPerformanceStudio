@@ -13,12 +13,14 @@ class DesktopProfileFormatTest {
         val archive = root.resolve("profile.apsession.zip").also { it.writeText("zip") }
         val perfData = root.resolve("capture.perf.data").also { it.writeText("perf") }
         val protobuf = root.resolve("capture.perf.trace").also { it.writeText("trace") }
+        val gecko = root.resolve("perf_data.json.gz").also { it.writeText("gzip") }
         val unknown = root.resolve("notes.txt").also { it.writeText("text") }
 
         assertEquals(DesktopProfileFormat.SESSION_DIRECTORY, detectDesktopProfileFormat(session))
         assertEquals(DesktopProfileFormat.SESSION_PACKAGE, detectDesktopProfileFormat(archive))
         assertEquals(DesktopProfileFormat.PERF_DATA, detectDesktopProfileFormat(perfData))
         assertEquals(DesktopProfileFormat.SIMPLEPERF_PROTOBUF, detectDesktopProfileFormat(protobuf))
+        assertEquals(DesktopProfileFormat.GECKO_PROFILE_JSON_GZIP, detectDesktopProfileFormat(gecko))
         assertEquals(DesktopProfileFormat.UNSUPPORTED, detectDesktopProfileFormat(unknown))
     }
 }

@@ -29,11 +29,11 @@ V0.1 release candidate 功能已实现，等待 GitHub Actions 三平台安装�
 - protobuf 到业务层 Process/Thread/Sample/Frame 的有状态 normalizer，保留 Lost、Unwind 与 unknown 数据质量证据；
 - SQLite schema v1、共享 Frame/Callsite、WAL、有界事务批量写入、迁移和时间/线程/事件过滤查询；
 - 样本数、线程、Top Functions inclusive/exclusive 与 Lost/Unwind/unknown/空栈质量统计；
-- 在线采集自动转换/索引/打开报告；Home 支持会话、`perf.data`、protobuf 导入及可选 mapping/symbols；
+- 在线采集自动转换/索引/打开报告；Home 支持会话、`perf.data`、protobuf、Firefox Profiler Gecko `json.gz` 导入及可选 mapping/symbols；
 - Overview、Timeline、Top Functions、正反 CallTree、FlameGraph 联动报告；
 - Timeline/FlameGraph 使用 Perfetto 风格 `W/A/S/D` 与 `Ctrl + 鼠标滚轮` 缩放平移；
 - 证据型数据质量、CPU 热点和线程热点诊断；
-- `.apsession.zip`、JSON、CSV、PNG、原始 protobuf 导入导出和外部验证入口；
+- `.apsession.zip`、Firefox Profiler Gecko `json.gz`、JSON、CSV、PNG、原始 protobuf 导入导出和外部验证入口；
 - 大火焰图 20,000 可见节点分页投影，百万样本性能基线；
 - 会话包 hash 校验、路径穿越/符号链接/解压炸弹防护；
 - Android 10–16、arm64-v8a/armeabi-v7a/x86_64 兼容矩阵；

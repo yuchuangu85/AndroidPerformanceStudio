@@ -23,6 +23,7 @@ internal data class SimpleperfExportMenuModel(
     val title: String,
     val sessionPackageLabel: String,
     val reportLabel: String,
+    val geckoProfileLabel: String,
     val rawProtobufLabel: String,
     val screenshotLabel: String,
     val simpleperfReportLabel: String,
@@ -33,6 +34,7 @@ internal data class SimpleperfExportMenuModel(
 internal data class SimpleperfExportMenuActions(
     val onSessionPackage: () -> Unit,
     val onReport: () -> Unit,
+    val onGeckoProfile: () -> Unit,
     val onRawProtobuf: () -> Unit,
     val onScreenshot: () -> Unit,
     val onSimpleperfReport: () -> Unit,
@@ -75,6 +77,7 @@ internal data class SimpleperfFileMenuModel(
                 title = language.text(english = "Export", chinese = "导出"),
                 sessionPackageLabel = language.text(english = "Session package", chinese = "会话包"),
                 reportLabel = "JSON + CSV",
+                geckoProfileLabel = "Firefox Profiler JSON (.json.gz)",
                 rawProtobufLabel = language.text(english = "Raw protobuf", chinese = "原始 protobuf"),
                 screenshotLabel = language.text(english = "Screenshot", chinese = "截图"),
                 simpleperfReportLabel = "simpleperf report",
@@ -138,6 +141,11 @@ internal fun FrameWindowScope.SimpleperfFileMenuBar(
                     text = model.exportMenu.rawProtobufLabel,
                     enabled = model.exportEnabled,
                     onClick = exportActions.onRawProtobuf,
+                )
+                Item(
+                    text = model.exportMenu.geckoProfileLabel,
+                    enabled = model.exportEnabled,
+                    onClick = exportActions.onGeckoProfile,
                 )
                 Item(
                     text = model.exportMenu.screenshotLabel,

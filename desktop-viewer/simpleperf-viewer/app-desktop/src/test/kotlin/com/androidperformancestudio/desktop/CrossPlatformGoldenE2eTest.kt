@@ -1,5 +1,10 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.application.OfflineImportRequest
+import com.androidperformancestudio.application.OfflineImportResult
+import com.androidperformancestudio.application.OfflineProfileFormat
+import com.androidperformancestudio.application.OfflineProfileImporter
+import com.androidperformancestudio.export.GeckoProfileExportService
 import com.androidperformancestudio.export.ReportExportService
 import com.androidperformancestudio.export.SessionPackageService
 import com.androidperformancestudio.model.NormalizedProfileRecord
@@ -9,14 +14,17 @@ import com.androidperformancestudio.model.ProfileFile
 import com.androidperformancestudio.model.ProfileFrame
 import com.androidperformancestudio.model.ProfileMetadata
 import com.androidperformancestudio.model.ProfileThread
+import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.storage.SQLiteSampleStore
+import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class CrossPlatformGoldenE2eTest {
@@ -57,6 +65,45 @@ class CrossPlatformGoldenE2eTest {
         assertTrue(exports.resolve("top functions.csv").exists())
         assertTrue(exports.resolve("call tree.csv").exists())
     }
+
+    @Test
+    fun `exports Gecko json gzip that can be imported with equivalent samples and stacks`() =
+        runTest {
+            val root = Files.createTempDirectory("aps-gecko-roundtrip-")
+            val sourceSession = root.resolve("source").createDirectories()
+            SQLiteSampleStore.open(sourceSession.resolve("profile.sqlite")).use { store ->
+                store.importRecords(goldenRecords())
+            }
+            val exported = root.resolve("perf_data.json.gz")
+            GeckoProfileExportService().export(sourceSession, exported)
+            val importer =
+                OfflineProfileImporter(
+                    hostSimpleperfResolver = { error("Gecko import must not locate simpleperf") },
+                    perfDataConverter = { _, _, _ -> error("Gecko import must not run a converter") },
+                )
+
+            val imported =
+                importer.import(
+                    OfflineImportRequest(
+                        sessionId = "reimported",
+                        sessionRoot = root.resolve("imports"),
+                        input = exported,
+                        format = OfflineProfileFormat.GECKO_PROFILE_JSON_GZIP,
+                    ),
+                )
+
+            val result = assertIs<StudioResult.Success<OfflineImportResult>>(imported)
+            val importedSession = result.value.sessionDirectory
+            SQLiteSampleStore.openReadOnly(importedSession.resolve("profile.sqlite")).use { store ->
+                assertEquals(2L, store.sampleCount())
+                assertEquals(listOf("RenderThread"), store.threads().map { it.name })
+                assertEquals(
+                    listOf("renderFrame", "runLoop"),
+                    store.topFunctions(limit = 10).map { it.symbolName },
+                )
+                assertEquals(2, store.callTree(direction = CallStackDirection.FORWARD).size)
+            }
+        }
 }
 
 private fun goldenRecords(): Sequence<NormalizedProfileRecord> =

@@ -132,6 +132,7 @@ private fun FrameWindowScope.SimpleperfMenu(
             SimpleperfExportMenuActions(
                 onSessionPackage = reportActions.onExportSession,
                 onReport = reportActions.onExportReport,
+                onGeckoProfile = reportActions.onExportGeckoProfile,
                 onRawProtobuf = reportActions.onExportRawProtobuf,
                 onScreenshot = reportActions.onExportScreenshot,
                 onSimpleperfReport = reportActions.onGenerateSimpleperfReport,

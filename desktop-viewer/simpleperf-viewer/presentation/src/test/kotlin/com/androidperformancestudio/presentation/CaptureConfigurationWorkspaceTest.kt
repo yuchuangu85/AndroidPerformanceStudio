@@ -21,7 +21,7 @@ class CaptureConfigurationWorkspaceTest {
         assertFalse(workspace.contains("CaptureConfigurationWorkspace("))
         assertTrue(workspace.contains("CaptureSettingsDialog("))
         assertTrue(configuration.contains("DialogProperties(usePlatformDefaultWidth = false)"))
-        assertTrue(workspace.contains("WorkspaceFooter(state, captureState, actions, style)"))
+        assertTrue(workspace.contains("WorkspaceFooter(state, captureState, reportState, actions, style)"))
     }
 
     @Test

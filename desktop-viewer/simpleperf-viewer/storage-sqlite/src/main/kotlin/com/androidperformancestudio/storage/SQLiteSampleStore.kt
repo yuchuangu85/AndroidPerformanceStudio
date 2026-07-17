@@ -133,6 +133,10 @@ class SQLiteSampleStore private constructor(
 
     fun threads(query: ProfileQuery = ProfileQuery()): List<ThreadSummary> = queryThreads(connection, query)
 
+    fun forEachStoredSample(action: (StoredProfileSample) -> Unit) {
+        SQLiteStoredProfileQueries.forEachSample(connection, action)
+    }
+
     fun topFunctions(
         query: ProfileQuery = ProfileQuery(),
         limit: Int,

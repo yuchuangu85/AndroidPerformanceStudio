@@ -11,8 +11,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +25,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -108,39 +114,69 @@ private fun ReportNavigation(
 ) {
     Column(
         Modifier
-            .width(180.dp)
+            .width(IntrinsicSize.Max)
             .fillMaxHeight()
             .background(style.toolbar)
-            .padding(12.dp),
+            .padding(horizontal = 4.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Report", color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Text("Analysis", color = style.secondaryText, fontSize = 10.sp)
-        Spacer(Modifier.height(8.dp))
         ReportTab.entries.forEach { tab ->
-            val selected = tab == selectedTab
-            val label = tab.displayName()
-            val localizedLabel = localizedSimpleperfText(label)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(
-                        if (selected) style.accent.copy(alpha = 0.16f) else style.toolbar,
-                        RoundedCornerShape(6.dp),
-                    ).clickable { onSelectTab(tab) }
-                    .semantics {
-                        contentDescription = localizedLabel
-                        this.selected = selected
-                    }.padding(horizontal = 9.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            ReportNavigationItem(tab, tab == selectedTab, style) { onSelectTab(tab) }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun ReportNavigationItem(
+    tab: ReportTab,
+    selected: Boolean,
+    style: MacOsDeviceTargetStyle,
+    onClick: () -> Unit,
+) {
+    val label = tab.displayName()
+    val localizedLabel = localizedSimpleperfText(label)
+    TooltipBox(
+        positionProvider =
+            TooltipDefaults.rememberTooltipPositionProvider(
+                positioning = TooltipAnchorPosition.Right,
+                spacingBetweenTooltipAndAnchor = 8.dp,
+            ),
+        tooltip = {
+            PlainTooltip(
+                containerColor = style.text,
+                contentColor = style.panel,
+                shape = RoundedCornerShape(6.dp),
+                shadowElevation = 4.dp,
             ) {
-                Text(
-                    label,
-                    color = if (selected) style.accent else style.text,
-                    fontSize = 11.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                )
+                Text(localizedLabel, color = style.panel, fontSize = 10.sp)
             }
+        },
+        state = rememberTooltipState(),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(REPORT_NAVIGATION_ITEM_HEIGHT)
+                .background(
+                    if (selected) style.accent.copy(alpha = 0.16f) else style.toolbar,
+                    RoundedCornerShape(6.dp),
+                ).clickable(onClick = onClick)
+                .semantics {
+                    contentDescription = localizedLabel
+                    this.selected = selected
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                tab.iconGlyph(),
+                color = if (selected) style.accent else style.text,
+                fontSize = 18.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
         }
     }
 }
@@ -201,8 +237,6 @@ private fun ReportContent(
                 .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ReportHeader(report, actions, style)
-        Box(Modifier.fillMaxWidth().height(MacOsDeviceTargetDimensions.hairline).background(style.border))
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (state.selectedTab) {
                 ReportTab.OVERVIEW -> OverviewReport(report, actions, style)
@@ -215,22 +249,6 @@ private fun ReportContent(
             }
         }
         Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun ReportHeader(
-    report: ReportData,
-    actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(report.session.name, color = style.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text(report.session.directory.toString(), color = style.secondaryText, fontSize = 9.sp)
-        }
-        MacOsButton("Close report", actions.onCloseSession, style)
     }
 }
 
@@ -554,7 +572,7 @@ private fun CallTreeReport(
             style = style,
             modifier = Modifier.fillMaxWidth(),
         )
-        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(1.5.dp)) {
             items(visible, key = CallTreeNode::id) { node ->
                 val hasChildren = report.callTree.any { it.parentId == node.id }
                 Row(
@@ -575,7 +593,7 @@ private fun CallTreeReport(
                                             if (!it.add(node.id)) it.remove(node.id)
                                         }
                                 }
-                            }.padding(start = (node.depth * 18).dp, top = 6.dp, bottom = 6.dp),
+                            }.padding(start = (node.depth * 18).dp, top = 3.dp, bottom = 3.dp),
                 ) {
                     Text(
                         if (hasChildren) {
@@ -703,6 +721,16 @@ private fun SectionTitle(
 
 private fun ReportTab.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
+private fun ReportTab.iconGlyph(): String =
+    when (this) {
+        ReportTab.OVERVIEW -> "▦"
+        ReportTab.TIMELINE -> "↔"
+        ReportTab.TOP_FUNCTIONS -> "ƒ"
+        ReportTab.CALL_TREE -> "↳"
+        ReportTab.FLAME_GRAPH -> "Ψ"
+        ReportTab.DIAGNOSTICS -> "⚠"
+    }
+
 private fun TopFunctionSort.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
 internal fun topFunctionItemKey(
@@ -764,3 +792,4 @@ private fun Long.safeIncrement(): Long = if (this == Long.MAX_VALUE) this else t
 
 private const val PERCENT_MULTIPLIER = 100
 private const val OVERVIEW_ITEM_LIMIT = 8
+private val REPORT_NAVIGATION_ITEM_HEIGHT = 42.dp

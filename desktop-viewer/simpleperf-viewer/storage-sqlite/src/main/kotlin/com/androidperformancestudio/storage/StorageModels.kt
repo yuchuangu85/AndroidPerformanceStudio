@@ -1,5 +1,7 @@
 package com.androidperformancestudio.storage
 
+import com.androidperformancestudio.model.ProfileFrame
+
 data class SampleImportResult(
     val importedSamples: Long,
     val committedBatches: Int,
@@ -35,6 +37,19 @@ data class ThreadSummary(
     val name: String,
     val sampleCount: Long,
     val totalEventCount: Long,
+)
+
+data class StoredProfileThread(
+    val key: String,
+    val processId: Int,
+    val threadId: Int,
+    val name: String,
+)
+
+data class StoredProfileSample(
+    val thread: StoredProfileThread,
+    val timestampNanos: Long,
+    val framesRootToLeaf: List<ProfileFrame>,
 )
 
 data class TopFunction(

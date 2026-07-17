@@ -30,6 +30,7 @@ Home 的 Open 支持：
 - `.apsession.zip`：校验清单和 SHA-256 后解压到用户目录；
 - Simpleperf protobuf：可选 ProGuard mapping 与 symbols/binary_cache，随后流式解析并导入 SQLite；
 - `perf.data`：选择 host simpleperf，可选 mapping 与 symbols/binary_cache，执行 `report-sample --protobuf --show-callchain` 再导入。
+- `*.json.gz`：支持 AOSP `gecko_profile_generator.py -i perf.data | gzip` 生成的 Firefox Profiler Gecko Profile，直接解压、解析调用栈并导入 SQLite。
 
 演示包位于 `test-fixtures/src/main/resources/sessions/golden.apsession.zip`，可直接从 Home 打开。
 
@@ -69,6 +70,7 @@ FlameGraph 只按当前 viewport materialize 可见节点；滚动、hover 和�
 报告页提供：
 
 - `.apsession.zip` 可复现会话包；
+- Firefox Profiler Gecko Profile `perf_data.json.gz`（AOSP schema v24，可直接上传到 `profiler.firefox.com`）；
 - `report.json`、Top Functions CSV、CallTree CSV；
 - 当前窗口 PNG；
 - 原始 Simpleperf protobuf；
@@ -77,6 +79,9 @@ FlameGraph 只按当前 viewport materialize 可见节点；滚动、hover 和�
 - Android Studio Profiler / Perfetto 打开说明。
 
 会话包拒绝路径穿越、重复条目、符号链接和超过数量/解压大小上限的内容，并在失败后删除导入临时目录。
+
+从 Gecko Profile 导入的会话在导出时直接复制原始 `json.gz`，保持字节不变；其他会话从 `profile.sqlite` 重建与
+`gecko_profile_generator.py -i perf.data | gzip` 相同的线程、样本、Frame/Stack/String Table 和分类结构。
 
 ## 6. 权重说明
 

@@ -8,6 +8,7 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.export.ExternalValidationResult
+import com.androidperformancestudio.export.GeckoProfileExportService
 import com.androidperformancestudio.export.ReportExportService
 import com.androidperformancestudio.export.ReportHtmlAdapter
 import com.androidperformancestudio.export.SessionPackageService
@@ -42,6 +43,8 @@ internal class DesktopReportActionFactory(
     private val scope: CoroutineScope,
     private val window: Window,
 ) {
+    private val geckoProfiles = GeckoProfileExportService()
+
     fun create(state: ReportState): ReportActions =
         ReportActions(
             onOpenSession = ::openSession,
@@ -78,6 +81,7 @@ internal class DesktopReportActionFactory(
             onGenerateSimpleperfReport = { generateSimpleperfReport(state) },
             onGenerateHtmlReport = { generateHtmlReport(state) },
             onExportExternalGuide = { exportExternalGuide(state) },
+            onExportGeckoProfile = { exportGeckoProfile(state) },
         )
 
     private fun copyFlameFunction(functionName: String) {
@@ -88,6 +92,7 @@ internal class DesktopReportActionFactory(
         }
     }
 
+    @Suppress("LongMethod")
     private fun openSession() {
         chooseSessionPath()?.let { selected ->
             val format = detectDesktopProfileFormat(selected)
@@ -119,13 +124,21 @@ internal class DesktopReportActionFactory(
                             )
                         DesktopProfileFormat.SIMPLEPERF_PROTOBUF ->
                             importOffline(selected, OfflineProfileFormat.SIMPLEPERF_PROTOBUF, null, supplementalInputs)
+                        DesktopProfileFormat.GECKO_PROFILE_JSON_GZIP ->
+                            importOffline(
+                                selected,
+                                OfflineProfileFormat.GECKO_PROFILE_JSON_GZIP,
+                                null,
+                                SupplementalInputs(),
+                            )
                         DesktopProfileFormat.UNSUPPORTED ->
                             controller.showFailure(
                                 selected,
                                 StudioError(
                                     ErrorCategory.DATA_VALIDATION,
                                     "UNSUPPORTED_PROFILE_FORMAT",
-                                    "Select a session directory, .apsession.zip, perf.data, or Simpleperf protobuf",
+                                    "Select a session directory, .apsession.zip, perf.data, " +
+                                        "Simpleperf protobuf, or Gecko .json.gz",
                                 ),
                             )
                     }
@@ -198,6 +211,14 @@ internal class DesktopReportActionFactory(
         readyReportDirectory(state)?.resolve(RAW_PROTOBUF)?.let { source ->
             chooseSavePath("Export raw protobuf", RAW_PROTOBUF)?.let { output ->
                 scope.launch(Dispatchers.IO) { reportExports.exportRawProtobuf(source, output) }
+            }
+        }
+    }
+
+    private fun exportGeckoProfile(state: ReportState) {
+        readyReportDirectory(state)?.let { session ->
+            chooseSavePath("Export Firefox Profiler JSON", "perf_data.json.gz")?.let { output ->
+                scope.launch(Dispatchers.IO) { geckoProfiles.export(session, output) }
             }
         }
     }
@@ -323,5 +344,6 @@ private fun readyReportDirectory(state: ReportState): Path? = readyReport(state)
 private fun importedSessionRoot(): Path = Path.of(System.getProperty("user.home"), APP_DIRECTORY, "imports")
 
 private const val RAW_PROTOBUF = "simpleperf.protobuf"
-private const val SESSION_DIALOG_TITLE = "Open session, .apsession.zip, perf.data, or Simpleperf protobuf"
+private const val SESSION_DIALOG_TITLE =
+    "Open session, .apsession.zip, perf.data, Simpleperf protobuf, or Gecko .json.gz"
 private const val APP_DIRECTORY = ".android-performance-studio"

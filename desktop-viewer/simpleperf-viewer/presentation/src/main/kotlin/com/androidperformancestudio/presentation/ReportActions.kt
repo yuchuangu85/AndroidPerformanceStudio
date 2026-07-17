@@ -42,4 +42,5 @@ data class ReportActions(
     val onGenerateSimpleperfReport: () -> Unit,
     val onGenerateHtmlReport: () -> Unit,
     val onExportExternalGuide: () -> Unit,
+    val onExportGeckoProfile: () -> Unit = {},
 )

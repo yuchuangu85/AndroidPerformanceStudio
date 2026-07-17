@@ -5,9 +5,11 @@ package com.androidperformancestudio.presentation
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.ReportArtifact
@@ -54,8 +56,18 @@ class ReportWorkspaceBehaviorTest {
             }
 
             onNodeWithText("Device & Target").assertExists()
+            onNodeWithText("Close report").assertDoesNotExist()
+            onNodeWithText("Gallery capture").assertExists()
+            onNodeWithText("sessions/gallery-capture").assertExists()
             onNodeWithContentDescription("Overview").assertIsSelected()
             onNodeWithText("Top threads").assertExists()
+            onNodeWithText("Timeline").assertDoesNotExist()
+
+            onNodeWithContentDescription("Timeline").performMouseInput { moveTo(center) }
+            waitUntil(timeoutMillis = 2_000) {
+                onAllNodesWithText("Timeline").fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText("Timeline").assertExists()
 
             onNodeWithContentDescription("Top functions").performClick()
 

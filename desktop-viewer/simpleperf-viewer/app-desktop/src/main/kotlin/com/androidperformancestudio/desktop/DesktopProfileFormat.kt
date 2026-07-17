@@ -8,6 +8,7 @@ internal enum class DesktopProfileFormat {
     SESSION_PACKAGE,
     PERF_DATA,
     SIMPLEPERF_PROTOBUF,
+    GECKO_PROFILE_JSON_GZIP,
     UNSUPPORTED,
 }
 
@@ -20,6 +21,7 @@ internal fun detectDesktopProfileFormat(path: Path): DesktopProfileFormat {
             DesktopProfileFormat.PERF_DATA
         name.endsWith(".protobuf") || name.endsWith(".proto") || name.endsWith(".trace") ->
             DesktopProfileFormat.SIMPLEPERF_PROTOBUF
+        name.endsWith(".json.gz") -> DesktopProfileFormat.GECKO_PROFILE_JSON_GZIP
         else -> DesktopProfileFormat.UNSUPPORTED
     }
 }
