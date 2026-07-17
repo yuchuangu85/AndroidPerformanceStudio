@@ -1,0 +1,19 @@
+{
+  "visualBaselineCommit": "faaf1a14affd3c6d8b7342188371079b999abf5b",
+  "functionalBaselineCommit": "9dd90d380ee711f209c4dcd89beec244eb6d3654",
+  "fixture": "presentation.accessibilitySnapshot",
+  "dimensions": { "width": 900, "height": 520 },
+  "themes": ["light", "dark"],
+  "platformPolicy": {
+    "channelTolerance": 8,
+    "maximumMismatchedPixelRatio": 0.03,
+    "reason": "Font rasterization and Skia output differ slightly across macOS, Windows, and Linux."
+  },
+  "authoritativeSources": [
+    "src/components/flame-graph/Canvas.tsx",
+    "src/components/flame-graph/FlameGraph.tsx",
+    "src/components/flame-graph/FlameGraph.css",
+    "src/components/flame-graph/Canvas.css",
+    "src/utils/colors.ts"
+  ]
+}

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
@@ -15,7 +16,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.visualization.VisibleFlameLayout
@@ -38,8 +38,13 @@ internal object FlameGraphSemanticsPresenter {
         snapshot: FlameGraphSnapshot,
         layout: VisibleFlameLayout,
         selectedNodeId: FlameCallNodeId?,
+        hoveredNodeId: FlameCallNodeId? = null,
+        contextNodeId: FlameCallNodeId? = null,
     ): List<FlameGraphSemanticNode> {
-        val visibleNodes = layout.nodes.mapNotNull { node -> node.toSemanticNode(snapshot, selectedNodeId) }
+        val visibleNodes =
+            layout.nodes.mapNotNull { node ->
+                node.toSemanticNode(snapshot, selectedNodeId, hoveredNodeId, contextNodeId)
+            }
         val visibleIds = visibleNodes.mapTo(mutableSetOf()) { it.nodeId }
         val selectedNode =
             selectedNodeId
@@ -51,12 +56,24 @@ internal object FlameGraphSemanticsPresenter {
     private fun VisibleFlameNode.toSemanticNode(
         snapshot: FlameGraphSnapshot,
         selectedNodeId: FlameCallNodeId?,
+        hoveredNodeId: FlameCallNodeId?,
+        contextNodeId: FlameCallNodeId?,
     ): FlameGraphSemanticNode? {
         val node = semanticFacts(snapshot, nodeId) ?: return null
+        val states =
+            listOfNotNull(
+                "selected".takeIf { nodeId == selectedNodeId },
+                "hovered".takeIf { nodeId == hoveredNodeId },
+                "context menu open".takeIf { nodeId == contextNodeId },
+            )
+        val stateDescription =
+            listOf(node.stateDescription, states.joinToString())
+                .filter(String::isNotBlank)
+                .joinToString(", ")
         return FlameGraphSemanticNode(
             nodeId = nodeId,
             contentDescription = node.contentDescription,
-            stateDescription = node.stateDescription,
+            stateDescription = stateDescription,
             selected = nodeId == selectedNodeId,
             x = x.roundToInt(),
             y = y.roundToInt(),
@@ -86,19 +103,25 @@ internal fun FlameGraphSemanticsOverlay(
     snapshot: FlameGraphSnapshot,
     layout: VisibleFlameLayout,
     selectedNodeId: FlameCallNodeId?,
+    hoveredNodeId: FlameCallNodeId? = null,
+    contextNodeId: FlameCallNodeId? = null,
     onSelect: (FlameCallNodeId) -> Unit,
     onOpenDetails: (FlameCallNodeId) -> Unit,
     onOpenContextMenu: (FlameCallNodeId, Offset) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val density = LocalDensity.current
     Box(modifier) {
-        FlameGraphSemanticsPresenter.nodes(snapshot, layout, selectedNodeId).forEach { node ->
+        val nodes = FlameGraphSemanticsPresenter.nodes(snapshot, layout, selectedNodeId, hoveredNodeId, contextNodeId)
+        nodes.forEach { node ->
             Box(
                 modifier =
                     Modifier
                         .absoluteOffset { IntOffset(node.x, node.y) }
-                        .size(node.width.dp, node.height.dp)
-                        .testTag("flame-node-${node.nodeId.value}")
+                        .size(
+                            with(density) { node.width.toDp() },
+                            with(density) { node.height.toDp() },
+                        ).testTag("flame-node-${node.nodeId.value}")
                         .semantics {
                             contentDescription = node.contentDescription
                             stateDescription = node.stateDescription

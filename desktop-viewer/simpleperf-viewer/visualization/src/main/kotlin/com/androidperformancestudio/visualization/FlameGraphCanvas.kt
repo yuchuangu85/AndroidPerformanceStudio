@@ -2,9 +2,9 @@ package com.androidperformancestudio.visualization
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -17,13 +17,12 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Density
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import kotlin.math.roundToInt
 
@@ -82,11 +81,14 @@ fun FlameGraphCanvas(
     contextNodeId: FlameCallNodeId? = null,
     labelForNode: (VisibleFlameNode) -> String = { "" },
     categoryForNode: (VisibleFlameNode) -> String? = { null },
-    theme: FlameTheme? = null,
+    style: FirefoxFlameGraphStyle,
 ) {
     val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val textStyle = remember(style.labelFontSizePx, density) { style.textStyle(density) }
+    val labelCache = remember(style.labelFontSizePx) { FlameLabelCache() }
+    val categoryCache = remember(layout) { HashMap<Int, FlameCategoryRole>() }
     val currentIntent by rememberUpdatedState(onIntent)
-    val resolvedTheme = theme ?: if (isSystemInDarkTheme()) FlameTheme.DARK else FlameTheme.LIGHT
     val primaryInputModifier =
         modifier
             .onPointerEvent(PointerEventType.Enter) { event ->
@@ -120,6 +122,7 @@ fun FlameGraphCanvas(
     Canvas(
         modifier = pointerModifier,
     ) {
+        drawRect(style.canvasBackground.toComposeColor())
         layout.nodes.forEach { node ->
             drawFlameNode(
                 node = node,
@@ -127,9 +130,14 @@ fun FlameGraphCanvas(
                 hoveredNodeId = hoveredNodeId,
                 contextNodeId = contextNodeId,
                 labelForNode = { labelForNode(node) },
-                category = categoryForNode(node),
-                theme = resolvedTheme,
+                categoryRole =
+                    categoryCache.getOrPut(node.nodeIndex) {
+                        FlameGraphPalette.categoryRole(categoryForNode(node))
+                    },
+                style = style,
+                textStyle = textStyle,
                 textMeasurer = textMeasurer,
+                labelCache = labelCache,
             )
         }
     }
@@ -142,14 +150,15 @@ private fun DrawScope.drawFlameNode(
     hoveredNodeId: FlameCallNodeId?,
     contextNodeId: FlameCallNodeId?,
     labelForNode: () -> String,
-    category: String?,
-    theme: FlameTheme,
+    categoryRole: FlameCategoryRole,
+    style: FirefoxFlameGraphStyle,
+    textStyle: TextStyle,
     textMeasurer: TextMeasurer,
+    labelCache: FlameLabelCache,
 ) {
     val colors =
-        FlameGraphPalette.colors(
-            category = category,
-            theme = theme,
+        style.nodeColors(
+            role = categoryRole,
             state =
                 FlameNodeVisualState(
                     selected = node.nodeId == selectedNodeId,
@@ -157,7 +166,7 @@ private fun DrawScope.drawFlameNode(
                     context = node.nodeId == contextNodeId,
                 ),
         )
-    val drawableHeight = (node.height - NODE_GAP_PX).coerceAtLeast(MINIMUM_NODE_HEIGHT_PX)
+    val drawableHeight = (node.height - ROW_BOTTOM_GAP_DEVICE_PX).coerceAtLeast(MINIMUM_NODE_HEIGHT_PX)
     drawRect(
         color = colors.fill.toComposeColor(),
         topLeft = Offset(node.x, node.y),
@@ -171,13 +180,16 @@ private fun DrawScope.drawFlameNode(
             style = Stroke(width = OUTLINE_WIDTH_PX),
         )
     }
-    if (shouldResolveFlameLabel(node, size.width, size.height)) {
+    if (shouldResolveFlameLabel(node, size.width, size.height, style)) {
         drawFittedLabel(
             node,
             drawableHeight,
             labelForNode(),
             colors.foreground.toComposeColor(),
+            style,
+            textStyle,
             textMeasurer,
+            labelCache,
         )
     }
 }
@@ -186,12 +198,13 @@ internal fun shouldResolveFlameLabel(
     node: VisibleFlameNode,
     canvasWidth: Float,
     canvasHeight: Float,
+    style: FirefoxFlameGraphStyle = FirefoxFlameGraphStyle.resolve(FlameTheme.LIGHT),
 ): Boolean {
-    val drawableHeight = (node.height - NODE_GAP_PX).coerceAtLeast(MINIMUM_NODE_HEIGHT_PX)
-    val maximumTextWidth = node.width - HORIZONTAL_LABEL_PADDING_PX * 2
+    val drawableHeight = (node.height - ROW_BOTTOM_GAP_DEVICE_PX).coerceAtLeast(MINIMUM_NODE_HEIGHT_PX)
+    val maximumTextWidth = node.width - style.labelStartOffsetPx
     return canvasWidth.isFinite() &&
         canvasHeight.isFinite() &&
-        maximumTextWidth >= MINIMUM_LABEL_WIDTH_PX &&
+        maximumTextWidth > 0f &&
         drawableHeight >= MINIMUM_LABEL_HEIGHT_PX &&
         node.x < canvasWidth &&
         node.x + node.width > 0f &&
@@ -199,32 +212,99 @@ internal fun shouldResolveFlameLabel(
         node.y + drawableHeight > 0f
 }
 
+@Suppress("LongParameterList")
 private fun DrawScope.drawFittedLabel(
     node: VisibleFlameNode,
     drawableHeight: Float,
     label: String,
     foreground: Color,
+    style: FirefoxFlameGraphStyle,
+    textStyle: TextStyle,
     textMeasurer: TextMeasurer,
+    labelCache: FlameLabelCache,
 ) {
-    val maximumTextWidth = (node.width - HORIZONTAL_LABEL_PADDING_PX * 2).roundToInt()
-    if (label.isBlank() || maximumTextWidth < MINIMUM_LABEL_WIDTH_PX || drawableHeight < MINIMUM_LABEL_HEIGHT_PX) {
+    val maximumTextWidth = (node.width - style.labelStartOffsetPx).roundToInt()
+    if (label.isBlank() || maximumTextWidth <= 0 || drawableHeight < MINIMUM_LABEL_HEIGHT_PX) {
         return
     }
+    val fittedText =
+        labelCache.fitted(label, maximumTextWidth) {
+            fitFlameLabel(label, maximumTextWidth.toFloat()) { candidate ->
+                textMeasurer
+                    .measure(candidate, textStyle)
+                    .size
+                    .width
+                    .toFloat()
+            }
+        } ?: return
     val result =
         textMeasurer.measure(
-            text = label,
-            style = TextStyle(color = foreground, fontSize = LABEL_FONT_SIZE_SP.sp),
-            overflow = TextOverflow.Ellipsis,
-            maxLines = 1,
-            constraints = Constraints(maxWidth = maximumTextWidth),
+            text = fittedText,
+            style = textStyle.copy(color = foreground),
         )
     if (result.size.height <= drawableHeight) {
         drawText(
             textLayoutResult = result,
-            topLeft = Offset(node.x + HORIZONTAL_LABEL_PADDING_PX, node.y + (drawableHeight - result.size.height) / 2f),
+            topLeft =
+                Offset(
+                    node.x + style.labelStartOffsetPx,
+                    node.y + style.labelBaselineOffsetPx - result.firstBaseline,
+                ),
         )
     }
 }
+
+@Suppress("ReturnCount")
+internal fun fitFlameLabel(
+    label: String,
+    maximumWidthPx: Float,
+    measureWidth: (String) -> Float,
+): String? {
+    if (label.isBlank() || !maximumWidthPx.isFinite() || maximumWidthPx <= 0f) return null
+    if (measureWidth(label) <= maximumWidthPx) return label
+    if (measureWidth(ELLIPSIS) > maximumWidthPx) return null
+    var low = 0
+    var high = label.length
+    while (low < high) {
+        val candidateLength = (low + high + 1) / 2
+        if (measureWidth(label.take(candidateLength) + ELLIPSIS) <= maximumWidthPx) {
+            low = candidateLength
+        } else {
+            high = candidateLength - 1
+        }
+    }
+    return label.take(low) + ELLIPSIS
+}
+
+private class FlameLabelCache(
+    private val maximumEntries: Int = MAXIMUM_LABEL_CACHE_ENTRIES,
+) {
+    private val values =
+        object : LinkedHashMap<FlameLabelCacheKey, String?>(maximumEntries, CACHE_LOAD_FACTOR, true) {
+            @Suppress("MaxLineLength")
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<FlameLabelCacheKey, String?>?): Boolean = size > maximumEntries
+        }
+
+    fun fitted(
+        label: String,
+        maximumWidthPx: Int,
+        compute: () -> String?,
+    ): String? {
+        val key = FlameLabelCacheKey(label, maximumWidthPx)
+        if (values.containsKey(key)) return values[key]
+        return compute().also { values[key] = it }
+    }
+}
+
+private data class FlameLabelCacheKey(
+    val label: String,
+    val maximumWidthPx: Int,
+)
+
+private fun FirefoxFlameGraphStyle.textStyle(density: Density): TextStyle =
+    TextStyle(
+        fontSize = with(density) { labelFontSizePx.toSp() },
+    )
 
 private fun VisibleFlameLayout.nodeIdAt(position: Offset): FlameCallNodeId? =
     FlameGraphLayout
@@ -235,10 +315,10 @@ private fun FlameCallNodeId.contextMenuAt(position: Offset) = FlameGraphIntent.O
 
 private fun FlameGraphColor.toComposeColor(): Color = Color(argb)
 
-private const val NODE_GAP_PX = 1f
+private const val ROW_BOTTOM_GAP_DEVICE_PX = 1f
 private const val MINIMUM_NODE_HEIGHT_PX = 1f
 private const val OUTLINE_WIDTH_PX = 1f
-private const val HORIZONTAL_LABEL_PADDING_PX = 3f
-private const val MINIMUM_LABEL_WIDTH_PX = 12
 private const val MINIMUM_LABEL_HEIGHT_PX = 8f
-private const val LABEL_FONT_SIZE_SP = 10
+private const val ELLIPSIS = "…"
+private const val MAXIMUM_LABEL_CACHE_ENTRIES = 4_096
+private const val CACHE_LOAD_FACTOR = 0.75f

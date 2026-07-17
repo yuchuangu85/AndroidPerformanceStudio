@@ -1,10 +1,12 @@
+@file:Suppress("TooManyFunctions")
+
 package com.androidperformancestudio.visualization
 
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import java.util.Collections
 import kotlin.math.ceil
-import kotlin.math.roundToInt
+import kotlin.math.floor
 
 data class FlameViewport(
     val widthPx: Int,
@@ -181,7 +183,8 @@ private fun rowY(
             rowOffset * rowHeightPx
         }
     return if (y.isFinite()) {
-        y.coerceIn(-Float.MAX_VALUE.toDouble(), Float.MAX_VALUE.toDouble()).toFloat()
+        val bounded = y.coerceIn(Int.MIN_VALUE.toDouble(), Int.MAX_VALUE.toDouble())
+        snapFirefoxDevicePixel(bounded).toFloat()
     } else {
         if (y < 0.0) -Float.MAX_VALUE else Float.MAX_VALUE
     }
@@ -255,23 +258,53 @@ private fun projectFiniteNode(
     val start = node.normalizedStart.coerceIn(0.0, 1.0)
     val end = node.normalizedEnd.coerceIn(0.0, 1.0)
     val canvasWidth = viewport.widthPx.coerceAtLeast(0)
-    val rawWidth = (end - start) * canvasWidth
-    val snappedStart = (start * canvasWidth).roundToInt()
-    val snappedEnd = (end * canvasWidth).roundToInt()
-    return if (rawWidth < MINIMUM_DRAWABLE_WIDTH_PX || snappedEnd <= snappedStart) {
+    val geometry = firefoxHorizontalGeometry(start, end, canvasWidth)
+    return if (geometry == null) {
         null
     } else {
         VisibleFlameNode(
             nodeIndex = nodeIndex,
             nodeId = node.nodeId,
-            x = snappedStart.toFloat(),
+            x = geometry.leftPx,
             y = y,
-            width = (snappedEnd - snappedStart).toFloat(),
+            width = geometry.widthPx,
             height = viewport.rowHeightPx,
         )
     }
 }
 
+internal data class FirefoxHorizontalGeometry(
+    val leftPx: Float,
+    val rightPx: Float,
+) {
+    val widthPx: Float
+        get() = rightPx - leftPx
+}
+
+internal fun firefoxHorizontalGeometry(
+    normalizedStart: Double,
+    normalizedEnd: Double,
+    canvasWidthPx: Int,
+): FirefoxHorizontalGeometry? {
+    if (!normalizedStart.isFinite() || !normalizedEnd.isFinite() || canvasWidthPx <= 0) return null
+    val start = normalizedStart.coerceIn(0.0, 1.0)
+    val end = normalizedEnd.coerceIn(0.0, 1.0)
+    val left = snapToDevicePixelMultiple(start * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX)
+    val right =
+        snapToDevicePixelMultiple(end * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX) -
+            FIREFOX_TRANSLUCENT_GAP_PX
+    return FirefoxHorizontalGeometry(left.toFloat(), right.toFloat()).takeIf { it.widthPx > 0f }
+}
+
+internal fun snapFirefoxDevicePixel(value: Double): Int = floor(value + SNAP_HALF).toInt()
+
+private fun snapToDevicePixelMultiple(
+    value: Double,
+    multiple: Int,
+): Double = snapFirefoxDevicePixel(value / multiple) * multiple.toDouble()
+
 private const val DEFAULT_FLAME_ROW_HEIGHT_PX = 16f
 private const val DEFAULT_FLAME_OVERSCAN_ROWS = 1
-private const val MINIMUM_DRAWABLE_WIDTH_PX = 1.0
+private const val FIREFOX_EDGE_SNAP_MULTIPLE_PX = 2
+private const val FIREFOX_TRANSLUCENT_GAP_PX = 0.8
+private const val SNAP_HALF = 0.5

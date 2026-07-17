@@ -2,14 +2,16 @@
 
 package com.androidperformancestudio.presentation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,11 +19,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
@@ -38,9 +40,9 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphPanelState
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameGraphCanvas
 import com.androidperformancestudio.visualization.FlameGraphLayout
-import com.androidperformancestudio.visualization.FlameTheme
 import com.androidperformancestudio.visualization.FlameViewport
 import java.nio.file.Path
 import kotlin.math.roundToInt
@@ -53,6 +55,7 @@ internal fun FlameGraphPanel(
     snapshot: FlameGraphSnapshot,
     actions: ReportActions,
 ) {
+    val style = rememberFirefoxFlameGraphStyle()
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
     var scrollRow by remember(snapshot) { mutableIntStateOf(0) }
@@ -64,7 +67,7 @@ internal fun FlameGraphPanel(
             widthPx = widthPixels,
             heightPx = heightPixels,
             scrollRow = scrollRow,
-            rowHeightPx = FLAME_ROW_HEIGHT,
+            rowHeightPx = style.rowHeightPx,
         )
     val clampedScrollRow = FlameGraphLayout.clampScrollRow(snapshot, requestedViewport)
     val viewport = requestedViewport.copy(scrollRow = clampedScrollRow)
@@ -82,12 +85,13 @@ internal fun FlameGraphPanel(
     }
     LaunchedEffect(focusRequester) { focusRequester.requestFocus() }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        FlameGraphToolbar(
+    Column(modifier = Modifier.fillMaxSize().background(style.panelSurface.toComposeColor())) {
+        FirefoxFlameGraphToolbar(
             sessionIdentity = sessionIdentity,
             authoritativeSearch = state.query.searchText,
             implementation = state.query.implementation,
             direction = state.query.direction,
+            style = style,
             hasTransforms = state.query.transforms.isNotEmpty(),
             onSearch = actions.onFlameSearch,
             onImplementation = actions.onFlameImplementation,
@@ -95,7 +99,18 @@ internal fun FlameGraphPanel(
             onUndo = actions.onUndoFlameTransform,
             onClear = actions.onClearFlameTransforms,
         )
-        Box {
+        FirefoxTransformNavigator(
+            transforms = state.query.transforms,
+            style = style,
+            onUndo = actions.onUndoFlameTransform,
+            onClear = actions.onClearFlameTransforms,
+        )
+        FirefoxFlameGraphViewport(
+            style = style,
+            details = state.details,
+            onCloseDetails = actions.onCloseFlameDetails,
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 4.dp),
+        ) {
             if (snapshot.emptyReason == null) {
                 FlameGraphCanvas(
                     layout = layout,
@@ -109,12 +124,7 @@ internal fun FlameGraphPanel(
                             .orEmpty()
                     },
                     categoryForNode = { node -> snapshot.callNodes.categoryAt(node.nodeIndex) },
-                    theme =
-                        if (MaterialTheme.colorScheme.background.luminance() < DARK_THEME_LUMINANCE_THRESHOLD) {
-                            FlameTheme.DARK
-                        } else {
-                            FlameTheme.LIGHT
-                        },
+                    style = style,
                     onIntent = { intent ->
                         dispatchFlameAction(
                             action = FlameGraphPresenter.actionFor(intent),
@@ -127,8 +137,7 @@ internal fun FlameGraphPanel(
                     },
                     modifier =
                         Modifier
-                            .fillMaxWidth()
-                            .height(220.dp)
+                            .fillMaxSize()
                             .semantics { contentDescription = callStacksDescription }
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
@@ -184,16 +193,28 @@ internal fun FlameGraphPanel(
                     snapshot = snapshot,
                     layout = layout,
                     selectedNodeId = state.selectedNodeId,
+                    hoveredNodeId = state.hoveredNodeId,
+                    contextNodeId = state.contextNodeId,
                     onSelect = actions.onSelectCallNode,
                     onOpenDetails = actions.onOpenFlameDetails,
                     onOpenContextMenu = { nodeId, _ -> actions.onOpenFlameContext(nodeId) },
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                FlameGraphEmptyState(snapshot, actions)
+                FirefoxFlameGraphEmptyState(snapshot, actions, style, Modifier.fillMaxSize())
             }
+            state.hoveredNodeId
+                ?.takeIf { state.contextNodeId == null && snapshot.emptyReason == null }
+                ?.let(snapshot::tooltipFacts)
+                ?.let { facts ->
+                    FirefoxFlameGraphTooltip(
+                        facts = facts,
+                        style = style,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                    )
+                }
             state.contextNodeId?.takeIf { snapshot.emptyReason == null }?.let { contextNodeId ->
-                FlameGraphContextMenu(
+                FirefoxFlameGraphContextMenu(
                     entries =
                         FlameGraphContextCommands.entries(
                             snapshot,
@@ -201,19 +222,36 @@ internal fun FlameGraphPanel(
                             hasTransforms = state.query.transforms.isNotEmpty(),
                         ),
                     anchor = contextAnchor ?: Offset.Zero,
+                    style = style,
                     onCommand = { command -> dispatchContextCommand(command, actions) },
                     onDismiss = { actions.onOpenFlameContext(null) },
                 )
             }
         }
-        state.hoveredNodeId
-            ?.takeIf { state.contextNodeId == null }
-            ?.let(snapshot::tooltipFacts)
-            ?.let { facts -> FlameGraphTooltip(facts) }
-        FlameGraphDetailsPanel(state.details, actions.onCloseFlameDetails)
-        if (snapshot.emptyReason == null) {
-            Text("Click a frame to select it. Flame widths always represent the full analyzed sample set.")
-        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+internal fun FirefoxFlameGraphViewport(
+    style: FirefoxFlameGraphStyle,
+    details: FlameGraphDetailsState,
+    onCloseDetails: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Column(modifier) {
+        Box(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .heightIn(min = MINIMUM_VIEWPORT_HEIGHT_DP.dp)
+                    .background(style.canvasBackground.toComposeColor())
+                    .border(1.dp, style.viewportBorder.toComposeColor()),
+            content = content,
+        )
+        FirefoxFrameDetailsBottomBox(details, onCloseDetails, style)
     }
 }
 
@@ -273,5 +311,4 @@ private fun dispatchContextCommand(
     }
 }
 
-private const val FLAME_ROW_HEIGHT = 16f
-private const val DARK_THEME_LUMINANCE_THRESHOLD = 0.5f
+private const val MINIMUM_VIEWPORT_HEIGHT_DP = 220

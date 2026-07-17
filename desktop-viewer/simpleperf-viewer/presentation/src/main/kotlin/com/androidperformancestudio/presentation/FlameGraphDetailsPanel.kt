@@ -1,6 +1,8 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,10 +11,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,8 +22,10 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphFrameDetails
+import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 
 internal data class FlameGraphDetailsContent(
     val title: String,
@@ -85,9 +86,10 @@ internal object FlameGraphDetailsPresenter {
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-internal fun FlameGraphDetailsPanel(
+internal fun FirefoxFrameDetailsBottomBox(
     state: FlameGraphDetailsState,
     onClose: () -> Unit,
+    style: FirefoxFlameGraphStyle,
     modifier: Modifier = Modifier,
 ) {
     val content = FlameGraphDetailsPresenter.content(state) ?: return
@@ -100,17 +102,23 @@ internal fun FlameGraphDetailsPanel(
                     contentDescription = content.title
                     liveRegion = LiveRegionMode.Polite
                 },
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 2.dp,
+        color = style.panelSurface.toComposeColor(),
+        contentColor = style.canvasForeground.toComposeColor(),
+        border = BorderStroke(1.dp, style.viewportBorder.toComposeColor()),
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(content.title, style = MaterialTheme.typography.titleSmall)
-                TextButton(onClick = onClose) { Text(localizedSimpleperfText("Close")) }
+                Text(content.title, color = style.canvasForeground.toComposeColor(), fontSize = 12.sp)
+                Text(
+                    localizedSimpleperfText("Close"),
+                    modifier = Modifier.clickable(onClick = onClose).padding(horizontal = 5.dp, vertical = 2.dp),
+                    color = style.canvasForeground.toComposeColor(),
+                    fontSize = 10.sp,
+                )
             }
             Column(
                 modifier =
@@ -122,20 +130,31 @@ internal fun FlameGraphDetailsPanel(
                 content.lines.forEachIndexed { index, line ->
                     val lineModifier =
                         if (index == content.selectedLineIndex) {
-                            Modifier.background(MaterialTheme.colorScheme.secondaryContainer).fillMaxWidth()
+                            Modifier.background(style.selectedLineSurface.toComposeColor()).fillMaxWidth()
                         } else {
                             Modifier.fillMaxWidth()
                         }
                     Text(
                         text = line,
                         modifier = lineModifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                        style = MaterialTheme.typography.bodySmall,
+                        color = style.canvasForeground.toComposeColor(),
+                        fontSize = 10.sp,
                         fontFamily = if (content.monospace) FontFamily.Monospace else null,
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+internal fun FlameGraphDetailsPanel(
+    state: FlameGraphDetailsState,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FirefoxFrameDetailsBottomBox(state, onClose, rememberFirefoxFlameGraphStyle(), modifier)
 }
 
 private fun disassemblyTitle(details: FlameGraphFrameDetails.Disassembly): String =

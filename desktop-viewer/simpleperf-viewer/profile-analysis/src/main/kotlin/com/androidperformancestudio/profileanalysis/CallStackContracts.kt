@@ -283,6 +283,8 @@ class CallNodeTable(
 
     fun sampleCountAt(nodeIndex: Int): Long? = sampleCountsSnapshot.getOrNull(nodeIndex)
 
+    fun threadCountAt(nodeIndex: Int): Int? = threadCountsSnapshot.getOrNull(nodeIndex)
+
     fun categoryAt(nodeIndex: Int): String? = categoriesSnapshot.getOrNull(nodeIndex)
 
     fun indexOf(nodeId: FlameCallNodeId): Int? = indexByIdSnapshot[nodeId.value]

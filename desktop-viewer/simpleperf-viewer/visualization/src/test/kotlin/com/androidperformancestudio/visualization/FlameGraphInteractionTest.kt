@@ -117,11 +117,22 @@ class FlameGraphInteractionTest {
 
     @Test
     fun `labels reject narrow short and off viewport nodes before resolution`() {
-        assertFalse(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, 0f, 10f, 16f), 100f, 100f))
+        assertTrue(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, 0f, 10f, 16f), 100f, 100f))
         assertFalse(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, 0f, 20f, 7f), 100f, 100f))
         assertFalse(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, -20f, 20f, 16f), 100f, 100f))
         assertFalse(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 100f, 0f, 20f, 16f), 100f, 100f))
         assertTrue(shouldResolveFlameLabel(VisibleFlameNode(0, FlameCallNodeId(1), 0f, 0f, 20f, 16f), 100f, 100f))
+    }
+
+    @Test
+    fun `label fitting returns full truncated or omitted text from measured width`() {
+        val measure = { value: String -> value.length.toFloat() }
+
+        assertEquals("frame", fitFlameLabel("frame", 5f, measure))
+        assertEquals("fra…", fitFlameLabel("frame", 4f, measure))
+        assertEquals("…", fitFlameLabel("frame", 1f, measure))
+        assertNull(fitFlameLabel("frame", 0.5f, measure))
+        assertNull(fitFlameLabel("", 10f, measure))
     }
 
     private fun deepSnapshot(

@@ -1,12 +1,13 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -15,6 +16,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.androidperformancestudio.profileanalysis.CallNodePath
@@ -24,6 +26,7 @@ import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import kotlin.math.roundToInt
 
 internal sealed interface FlameGraphContextCommand {
@@ -160,9 +163,10 @@ private val TRANSFORM_SHORTCUTS =
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-internal fun FlameGraphContextMenu(
+internal fun FirefoxFlameGraphContextMenu(
     entries: List<FlameGraphContextEntry>,
     anchor: Offset,
+    style: FirefoxFlameGraphStyle,
     onCommand: (FlameGraphContextCommand) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -174,23 +178,25 @@ internal fun FlameGraphContextMenu(
     ) {
         Surface(
             modifier = Modifier.widthIn(min = 240.dp, max = 360.dp),
-            shape = MaterialTheme.shapes.small,
-            tonalElevation = 4.dp,
-            shadowElevation = 8.dp,
+            shape = RoundedCornerShape(2.dp),
+            color = style.raisedSurface.toComposeColor(),
+            contentColor = style.canvasForeground.toComposeColor(),
+            border = BorderStroke(1.dp, style.surfaceBorder.toComposeColor()),
+            shadowElevation = 4.dp,
         ) {
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            Column(modifier = Modifier.padding(vertical = 3.dp)) {
                 entries.forEach { entry ->
                     Row(
                         modifier =
                             Modifier
                                 .clickable { onCommand(entry.command) }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(entry.label, modifier = Modifier.weight(1f))
+                        Text(entry.label, modifier = Modifier.weight(1f), fontSize = 11.sp)
                         entry.shortcut?.let { shortcut ->
-                            Text(shortcut, style = MaterialTheme.typography.labelMedium)
+                            Text(shortcut, color = style.mutedForeground.toComposeColor(), fontSize = 10.sp)
                         }
                     }
                 }

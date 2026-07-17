@@ -38,7 +38,7 @@ Firefox flame graph 复测额外记录：`visibleNodeCount`、`scrollFrameP95Mil
 
 1. SQLite 使用规范化 schema v1、共享 Frame/Callsite、xerial sqlite-jdbc、WAL、`PreparedStatement`、实体缓存和有界批次；输入为懒序列。
 2. Timeline 先构建固定大小密度索引，再按 viewport 投影到有限像素列；`TimelineCanvas` 不接收原始 sample。
-3. FlameGraph 投影按 viewport 裁剪，并移除小于 1 像素的节点，避免为 10 万节点逐个创建 UI 组件。
+3. FlameGraph 投影按 viewport 裁剪，边缘吸附到 2 device-pixel 倍数并保留 Firefox 的 0.8 device-pixel 右侧缝隙；吸附后宽度非正的节点不绘制，避免为 10 万节点逐个创建 UI 组件。
 4. FlameGraph hover、选择和滚动只更新 viewport/selection/details 状态，不重新执行 SQLite flame projection。
 5. 帧统计是交给 Compose Canvas 前的 CPU 侧 render model 准备耗时，不包含 GPU 光栅化、显示合成或操作系统输入分发。
 

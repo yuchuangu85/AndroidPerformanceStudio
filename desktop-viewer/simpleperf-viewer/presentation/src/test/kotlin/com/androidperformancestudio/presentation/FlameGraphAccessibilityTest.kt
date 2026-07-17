@@ -35,6 +35,25 @@ class FlameGraphAccessibilityTest {
         assertTrue(nodes.first { it.nodeId == FlameCallNodeId(2) }.stateDescription.contains("1 sample"))
         assertTrue(nodes.first { it.nodeId == FlameCallNodeId(3) }.selected)
     }
+
+    @Test
+    fun `semantic descriptions expose selected hover and context states without color`() {
+        val snapshot = accessibilitySnapshot()
+        val layout = FlameGraphLayout.layout(snapshot, FlameViewport(widthPx = 1_000, heightPx = 48, scrollRow = 0))
+
+        val nodes =
+            FlameGraphSemanticsPresenter.nodes(
+                snapshot = snapshot,
+                layout = layout,
+                selectedNodeId = FlameCallNodeId(1),
+                hoveredNodeId = FlameCallNodeId(2),
+                contextNodeId = FlameCallNodeId(3),
+            )
+
+        assertTrue(nodes.first { it.nodeId == FlameCallNodeId(1) }.stateDescription.contains("selected"))
+        assertTrue(nodes.first { it.nodeId == FlameCallNodeId(2) }.stateDescription.contains("hovered"))
+        assertTrue(nodes.first { it.nodeId == FlameCallNodeId(3) }.stateDescription.contains("context menu open"))
+    }
 }
 
 internal fun accessibilitySnapshot(): FlameGraphSnapshot {

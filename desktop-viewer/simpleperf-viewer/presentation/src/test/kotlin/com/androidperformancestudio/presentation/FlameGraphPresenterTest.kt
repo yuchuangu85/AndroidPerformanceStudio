@@ -169,6 +169,7 @@ class FlameGraphPresenterTest {
         assertEquals(6, facts.inclusiveWeight)
         assertEquals(6, facts.selfWeight)
         assertEquals(1, facts.sampleCount)
+        assertEquals(1, facts.threadCount)
         assertEquals(0.0, facts.percentage)
         assertEquals(6, facts.previewRangeWeight)
     }

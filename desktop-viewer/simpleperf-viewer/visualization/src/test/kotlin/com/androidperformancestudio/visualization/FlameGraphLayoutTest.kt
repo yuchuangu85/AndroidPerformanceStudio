@@ -49,7 +49,7 @@ class FlameGraphLayoutTest {
     }
 
     @Test
-    fun `uses full width normalized edges and skips subpixel nodes only from drawing`() {
+    fun `uses Firefox two device pixel snapping gap and narrow node omission`() {
         val snapshot =
             snapshot(
                 rows = listOf(intArrayOf(0, 1, 2)),
@@ -66,11 +66,24 @@ class FlameGraphLayoutTest {
 
         assertEquals(listOf(0, 2), layout.nodes.map(VisibleFlameNode::nodeIndex))
         assertEquals(0f, layout.nodes[0].x)
-        assertEquals(10f, layout.nodes[0].width)
+        assertEquals(9.2f, layout.nodes[0].width, absoluteTolerance = 0.0001f)
         assertEquals(20f, layout.nodes[1].x)
-        assertEquals(60f, layout.nodes[1].width)
+        assertEquals(59.2f, layout.nodes[1].width, absoluteTolerance = 0.0001f)
         assertEquals(0..0, layout.materializedRowRange)
         assertEquals(3, snapshot.callNodes.size)
+    }
+
+    @Test
+    fun `Firefox snapping rounds halves toward positive infinity and shifts the right edge`() {
+        assertEquals(0, snapFirefoxDevicePixel(-0.5))
+        assertEquals(1, snapFirefoxDevicePixel(0.5))
+        assertEquals(10, snapFirefoxDevicePixel(9.5))
+
+        val geometry = requireNotNull(firefoxHorizontalGeometry(0.101, 0.209, 100))
+        assertEquals(10f, geometry.leftPx)
+        assertEquals(19.2f, geometry.rightPx, absoluteTolerance = 0.0001f)
+        assertEquals(9.2f, geometry.widthPx, absoluteTolerance = 0.0001f)
+        assertNull(firefoxHorizontalGeometry(0.101, 0.109, 100))
     }
 
     @Test

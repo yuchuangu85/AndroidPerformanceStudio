@@ -112,6 +112,7 @@ class ComposePointerRecompositionTest {
                 FlameGraphCanvas(
                     layout = layout,
                     selectedNodeId = null,
+                    style = FirefoxFlameGraphStyle.resolve(FlameTheme.LIGHT),
                     onIntent = { intent -> intents += generation to intent },
                     modifier = Modifier.size(220.dp, 80.dp).testTag(FLAME_TAG),
                 )
@@ -145,6 +146,7 @@ class ComposePointerRecompositionTest {
                 FlameGraphCanvas(
                     layout = layout,
                     selectedNodeId = null,
+                    style = FirefoxFlameGraphStyle.resolve(FlameTheme.LIGHT),
                     onIntent = { intent -> intents += generation to intent },
                     modifier = Modifier.size(220.dp, 80.dp).testTag(FLAME_TAG),
                 )

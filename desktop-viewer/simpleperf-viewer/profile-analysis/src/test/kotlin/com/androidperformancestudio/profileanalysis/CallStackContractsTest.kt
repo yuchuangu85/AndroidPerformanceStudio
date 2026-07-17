@@ -148,6 +148,8 @@ class CallStackContractsTest {
         assertEquals(frame(12), table.frameAt(1))
         assertEquals(6L, table.inclusiveWeightAt(1))
         assertEquals(3L, table.selfWeightAt(1))
+        assertEquals(2L, table.sampleCountAt(1))
+        assertEquals(1, table.threadCountAt(1))
         assertEquals(1, table.indexOf(FlameCallNodeId(8)))
         assertEquals(null, table.nodeIdAt(3))
         assertEquals(null, table.indexOf(FlameCallNodeId(99)))

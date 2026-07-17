@@ -1,18 +1,24 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 
 internal enum class FlameGraphRecoveryAction {
     SELECT_ALL_THREADS,
@@ -97,23 +103,32 @@ internal fun flameGraphEmptyStateContent(
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-internal fun FlameGraphEmptyState(
+internal fun FirefoxFlameGraphEmptyState(
     snapshot: FlameGraphSnapshot,
     actions: ReportActions,
+    style: FirefoxFlameGraphStyle,
     modifier: Modifier = Modifier,
 ) {
     val reason = snapshot.emptyReason ?: return
     val content = flameGraphEmptyStateContent(reason, snapshot.diagnosticDetails)
     Column(
-        modifier = modifier.fillMaxWidth().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier.fillMaxWidth().background(style.canvasBackground.toComposeColor()).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(content.message, style = MaterialTheme.typography.titleMedium)
+        Text(content.message, color = style.canvasForeground.toComposeColor(), fontSize = 13.sp)
         content.diagnosticDetails?.takeIf(String::isNotBlank)?.let { details ->
-            Text(details, style = MaterialTheme.typography.bodySmall)
+            Text(details, color = style.mutedForeground.toComposeColor(), fontSize = 11.sp)
         }
-        OutlinedButton(onClick = { dispatchRecovery(content.recoveryAction, actions) }) {
-            Text(content.recoveryLabel)
+        Box(
+            modifier =
+                Modifier
+                    .background(style.panelSurface.toComposeColor(), RoundedCornerShape(2.dp))
+                    .border(1.dp, style.surfaceBorder.toComposeColor(), RoundedCornerShape(2.dp))
+                    .clickable { dispatchRecovery(content.recoveryAction, actions) }
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(content.recoveryLabel, color = style.canvasForeground.toComposeColor(), fontSize = 11.sp)
         }
     }
 }

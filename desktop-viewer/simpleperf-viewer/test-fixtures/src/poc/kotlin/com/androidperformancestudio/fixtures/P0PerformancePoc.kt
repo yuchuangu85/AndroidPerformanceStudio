@@ -43,6 +43,7 @@ import kotlin.io.path.deleteIfExists
 import kotlin.io.path.fileSize
 import kotlin.io.path.writeText
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.roundToLong
 import kotlin.system.measureNanoTime
 
@@ -52,6 +53,9 @@ private const val FLAME_NODE_COUNT = 100_000
 private const val FLAME_ROW_COUNT = 64
 private const val FLAME_VISIBLE_ROW_COUNT = 20
 private const val FLAME_ROW_HEIGHT_PX = 18f
+private const val FIREFOX_EDGE_MULTIPLE_PX = 2.0
+private const val FIREFOX_TRANSLUCENT_GAP_PX = 0.8
+private const val FIREFOX_SNAP_HALF = 0.5
 private const val FRAME_COUNT = 240
 private const val FIRST_THREAD_ID = 20_000
 private const val SECOND_THREAD_ID = 20_001
@@ -337,8 +341,8 @@ private fun expectedSyntheticFlameNode(
 ): VisibleFlameNode {
     val normalizedStart = ((nodeIndex * 9_973L) % 1_000L) / 1_000.0
     val normalizedEnd = (normalizedStart + 0.01).coerceAtMost(1.0)
-    val snappedStart = (normalizedStart * viewport.widthPx).roundToLong().toFloat()
-    val snappedEnd = (normalizedEnd * viewport.widthPx).roundToLong().toFloat()
+    val snappedStart = snapFirefoxEdge(normalizedStart * viewport.widthPx).toFloat()
+    val snappedEnd = (snapFirefoxEdge(normalizedEnd * viewport.widthPx) - FIREFOX_TRANSLUCENT_GAP_PX).toFloat()
     return VisibleFlameNode(
         nodeIndex = nodeIndex,
         nodeId = FlameCallNodeId(nodeIndex.toLong()),
@@ -347,6 +351,11 @@ private fun expectedSyntheticFlameNode(
         width = snappedEnd - snappedStart,
         height = FLAME_ROW_HEIGHT_PX,
     )
+}
+
+private fun snapFirefoxEdge(value: Double): Double {
+    val snappedMultiple = floor(value / FIREFOX_EDGE_MULTIPLE_PX + FIREFOX_SNAP_HALF)
+    return snappedMultiple * FIREFOX_EDGE_MULTIPLE_PX
 }
 
 private object FlameLayoutBlackhole {

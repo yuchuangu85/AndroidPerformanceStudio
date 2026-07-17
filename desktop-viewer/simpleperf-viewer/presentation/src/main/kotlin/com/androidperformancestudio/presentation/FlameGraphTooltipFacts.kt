@@ -12,6 +12,7 @@ internal data class FlameGraphTooltipFacts(
     val inclusiveWeight: Long,
     val selfWeight: Long,
     val sampleCount: Long,
+    val threadCount: Int,
     val percentage: Double,
     val previewRangeWeight: Long?,
 )
@@ -23,6 +24,7 @@ internal fun FlameGraphSnapshot.tooltipFacts(nodeId: FlameCallNodeId): FlameGrap
     val inclusive = callNodes.inclusiveWeightAt(index) ?: return null
     val self = callNodes.selfWeightAt(index) ?: return null
     val samples = callNodes.sampleCountAt(index) ?: return null
+    val threads = callNodes.threadCountAt(index) ?: return null
     val category = callNodes.categoryAt(index)
     val percentage = if (totalWeight > 0) inclusive.toDouble() / totalWeight * PERCENT_SCALE else 0.0
     return FlameGraphTooltipFacts(
@@ -33,6 +35,7 @@ internal fun FlameGraphSnapshot.tooltipFacts(nodeId: FlameCallNodeId): FlameGrap
         inclusiveWeight = inclusive,
         selfWeight = self,
         sampleCount = samples,
+        threadCount = threads,
         percentage = percentage.takeIf(Double::isFinite) ?: 0.0,
         previewRangeWeight = inclusive.takeIf { query.previewRange != null },
     )
