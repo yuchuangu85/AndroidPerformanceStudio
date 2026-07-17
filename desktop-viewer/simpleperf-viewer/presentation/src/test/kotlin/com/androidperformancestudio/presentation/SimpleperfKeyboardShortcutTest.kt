@@ -23,16 +23,12 @@ class SimpleperfKeyboardShortcutTest {
     fun `timeline requests focus and handles shortcuts above child controls`() {
         val source =
             Files.readString(
-                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/ReportPage.kt"),
+                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FirefoxTimeline.kt"),
             )
-        val timeline =
-            source
-                .substringAfter("private fun TimelineReport(")
-                .substringBefore("private fun NavigationButtons(")
 
-        assertTrue(timeline.contains("focusRequester(shortcutFocusRequester)"))
-        assertTrue(timeline.contains("onPreviewKeyEvent"))
-        assertTrue(timeline.contains("shortcutFocusRequester.requestFocus()"))
+        assertTrue(source.contains("focusRequester(shortcutFocusRequester)"))
+        assertTrue(source.contains("onPreviewKeyEvent"))
+        assertTrue(source.contains("shortcutFocusRequester.requestFocus()"))
     }
 
     @Test

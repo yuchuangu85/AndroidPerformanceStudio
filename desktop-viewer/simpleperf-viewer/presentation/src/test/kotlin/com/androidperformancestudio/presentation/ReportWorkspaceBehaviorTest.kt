@@ -30,6 +30,7 @@ import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.DataQualitySummary
 import com.androidperformancestudio.storage.ProfileOverview
 import com.androidperformancestudio.storage.ThreadSummary
+import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.storage.TopFunction
 import java.nio.file.Path
@@ -118,6 +119,41 @@ class ReportWorkspaceBehaviorTest {
         assertEquals("Total (samples)", listOf("samples").firefoxTotalColumnLabel())
         assertEquals("Total", listOf("cpu-cycles").firefoxTotalColumnLabel())
     }
+
+    @Test
+    fun `Firefox timeline exposes aligned process and thread tracks with selection and range commit`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            var selectedThreads = emptySet<Int>()
+            var committedRange: Pair<Long?, Long?>? = null
+            setContent {
+                ReportPage(
+                    state = sampleReportState(ReportTab.TIMELINE),
+                    actions =
+                        goldenActions().copy(
+                            onThreads = { selectedThreads = it },
+                            onTimeRange = { start, end -> committedRange = start to end },
+                        ),
+                )
+            }
+
+            onNodeWithText("2 / 2 tracks").assertExists()
+            onNodeWithText("main").assertExists()
+            onNodeWithText("RenderThread").assertExists()
+            onNodeWithText("(7421)").assertExists()
+            onNodeWithText("(7440)").assertExists()
+            onNodeWithContentDescription("Timeline track main (7421)").assertIsSelected()
+
+            onNodeWithText("RenderThread").performClick()
+            assertEquals(setOf(7440), selectedThreads)
+
+            onNodeWithContentDescription("Thread activity graph main").performMouseInput {
+                moveTo(centerLeft)
+                press()
+                moveTo(centerRight)
+                release()
+            }
+            assertEquals(true, committedRange?.let { (start, end) -> start != null && end != null && start < end })
+        }
 }
 
 internal fun sampleReportState(selectedTab: ReportTab = ReportTab.OVERVIEW): ReportState {
@@ -189,9 +225,44 @@ internal fun sampleReportState(selectedTab: ReportTab = ReportTab.OVERVIEW): Rep
                 ),
             flameGraph = emptyFlameGraphSnapshot(),
             diagnostics = emptyList(),
+            timelineTracks =
+                listOf(
+                    ThreadTimelineTrack(
+                        id = "legacy:7421",
+                        processId = 7421,
+                        threadId = 7421,
+                        name = "main",
+                        buckets =
+                            timelineBuckets(
+                                weights = listOf(90, 180, 260, 400, 360, 210, 80, 20),
+                                samples = listOf(5, 9, 13, 18, 15, 10, 7, 3),
+                            ),
+                    ),
+                    ThreadTimelineTrack(
+                        id = "legacy:7440",
+                        processId = 7421,
+                        threadId = 7440,
+                        name = "RenderThread",
+                        buckets =
+                            timelineBuckets(
+                                weights = listOf(0, 40, 130, 90, 210, 180, 110, 40),
+                                samples = listOf(0, 2, 7, 5, 10, 8, 5, 3),
+                            ),
+                    ),
+                ),
         )
     return ReportState(loadState = ReportLoadState.Ready(report), lastReadyReport = report, selectedTab = selectedTab)
 }
+
+private fun timelineBuckets(
+    weights: List<Long>,
+    samples: List<Long>,
+): List<TimelineBucket> =
+    weights.mapIndexed { index, weight ->
+        val start = 10_001L * index / weights.size
+        val end = 10_001L * (index + 1) / weights.size
+        TimelineBucket(start, end, samples[index], weight)
+    }
 
 private fun emptyDeviceActions() =
     DeviceTargetActions(

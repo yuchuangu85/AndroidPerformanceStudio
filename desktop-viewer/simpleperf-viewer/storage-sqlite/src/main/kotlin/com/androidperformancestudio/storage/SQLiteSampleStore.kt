@@ -161,6 +161,11 @@ class SQLiteSampleStore private constructor(
         bucketCount: Int,
     ): List<TimelineBucket> = SQLiteProfileQueries.timelineBuckets(connection, query, bucketCount)
 
+    fun threadTimelineTracks(
+        query: ProfileQuery = ProfileQuery(),
+        bucketCount: Int,
+    ): List<ThreadTimelineTrack> = SQLiteProfileQueries.threadTimelineTracks(connection, query, bucketCount)
+
     fun callTree(
         query: ProfileQuery = ProfileQuery(),
         direction: CallStackDirection,

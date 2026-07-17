@@ -212,6 +212,94 @@ internal object SQLiteProfileQueries {
         }
     }
 
+    fun threadTimelineTracks(
+        connection: Connection,
+        query: ProfileQuery,
+        bucketCount: Int,
+    ): List<ThreadTimelineTrack> {
+        require(bucketCount > 0) { "bucketCount must be positive" }
+        val identities = timelineTrackIdentities(connection)
+        val bounds = query.timelineBounds(connection)
+        if (identities.isEmpty() || bounds == null) return emptyList()
+        val duration = bounds.second - bounds.first
+        val boundedQuery = query.copy(startNanosInclusive = bounds.first, endNanosExclusive = bounds.second)
+        val filter = boundedQuery.toSqlFilter("s", "e")
+        val values = identities.associate { identity -> identity.id to Array(bucketCount) { 0L to 0L } }
+        val threadKey =
+            if (connection.isLegacySchema()) {
+                "'legacy:' || s.thread_id"
+            } else {
+                "CASE WHEN s.thread_row_id IS NULL THEN 'legacy:' || s.thread_id " +
+                    "ELSE 'canonical:' || s.thread_row_id END"
+            }
+        val sql =
+            "SELECT $threadKey, MIN(((s.timestamp_nanos - ?) * ? / ?), ?), COUNT(*), " +
+                "COALESCE(SUM(s.event_count), 0) FROM sample s JOIN event e ON e.event_id=s.event_id " +
+                "${filter.whereClause} GROUP BY 1, 2"
+        connection.prepareStatement(sql).use { statement ->
+            statement.bind(listOf(bounds.first, bucketCount, duration, bucketCount - 1) + filter.parameters)
+            statement.executeQuery().use { result ->
+                while (result.next()) {
+                    values[result.getString(1)]?.set(
+                        result.getInt(2),
+                        result.getLong(3) to result.getLong(4),
+                    )
+                }
+            }
+        }
+        return identities.map { identity ->
+            ThreadTimelineTrack(
+                id = identity.id,
+                processId = identity.processId,
+                threadId = identity.threadId,
+                name = identity.name,
+                buckets =
+                    List(bucketCount) { index ->
+                        TimelineBucket(
+                            startNanos = bounds.first + duration * index / bucketCount,
+                            endNanosExclusive = bounds.first + duration * (index + 1) / bucketCount,
+                            sampleCount = values.getValue(identity.id)[index].first,
+                            eventWeight = values.getValue(identity.id)[index].second,
+                        )
+                    },
+            )
+        }
+    }
+
+    private fun timelineTrackIdentities(connection: Connection): List<TimelineTrackIdentity> {
+        val sql =
+            if (connection.isLegacySchema()) {
+                "SELECT DISTINCT 'legacy:' || s.thread_id, t.process_id, t.thread_id, t.name " +
+                    "FROM sample s JOIN thread t ON t.thread_id=s.thread_id " +
+                    "ORDER BY t.process_id, t.thread_id, 1"
+            } else {
+                "SELECT DISTINCT CASE WHEN s.thread_row_id IS NULL THEN 'legacy:' || s.thread_id " +
+                    "ELSE 'canonical:' || s.thread_row_id END, " +
+                    "COALESCE(pp.process_id, t.process_id), COALESCE(pt.thread_id, t.thread_id), " +
+                    "COALESCE(pt.name, t.name) FROM sample s " +
+                    "LEFT JOIN profile_thread pt ON pt.thread_row_id=s.thread_row_id " +
+                    "LEFT JOIN profile_process pp ON pp.process_row_id=pt.process_row_id " +
+                    "LEFT JOIN thread t ON t.thread_id=s.thread_id " +
+                    "ORDER BY 2, 3, 1"
+            }
+        return connection.createStatement().use { statement ->
+            statement.executeQuery(sql).use { result ->
+                buildList {
+                    while (result.next()) {
+                        add(
+                            TimelineTrackIdentity(
+                                id = result.getString(1),
+                                processId = result.getInt(2),
+                                threadId = result.getInt(3),
+                                name = result.getString(4),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun dataQuality(connection: Connection): DataQualitySummary {
         val sample =
             connection.createStatement().use { statement ->
@@ -313,6 +401,13 @@ internal object SQLiteProfileQueries {
             "JOIN symbol sy ON sy.symbol_id=f.symbol_id JOIN file fi ON fi.file_id=f.file_id " +
             "LEFT JOIN exclusive x ON x.frame_id=i.frame_id"
 }
+
+private data class TimelineTrackIdentity(
+    val id: String,
+    val processId: Int,
+    val threadId: Int,
+    val name: String,
+)
 
 internal fun Connection.isLegacySchema(): Boolean = singleInt("PRAGMA user_version") < 2
 

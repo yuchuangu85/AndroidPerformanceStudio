@@ -122,6 +122,13 @@ class SQLiteProfileProjectionQueriesTest {
             assertEquals(1L, snapshot.overview.sampleCount)
             assertEquals(listOf(101, 102), snapshot.sessionThreads.map(ThreadSummary::threadId).sorted())
             assertEquals(listOf(101), snapshot.threads.map(ThreadSummary::threadId))
+            assertEquals(listOf(101, 102), snapshot.timelineTracks.map(ThreadTimelineTrack::threadId).sorted())
+            assertEquals(
+                listOf(3L, 7L),
+                snapshot.timelineTracks.sortedBy(ThreadTimelineTrack::threadId).map { track ->
+                    track.buckets.sumOf(TimelineBucket::eventWeight)
+                },
+            )
         }
 
     @Test

@@ -48,6 +48,11 @@ internal object SQLiteProfileProjectionQueries {
                     ),
                 sessionOverview = sessionOverview.copy(eventTypes = sessionOverview.eventTypes.sorted()),
                 sessionThreads = sessionThreads,
+                timelineTracks =
+                    threadTimelineTracks(
+                        frozenQuery.copy(threadIds = emptySet()),
+                        request.timelineBucketCount,
+                    ),
             )
         }
     }

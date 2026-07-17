@@ -163,6 +163,38 @@ class SQLiteNormalizedProfileStoreTest {
     }
 
     @Test
+    fun `builds aligned Firefox timeline buckets for every thread despite thread filter`() {
+        withStore { store ->
+            store.importRecords(
+                sequenceOf(
+                    metadata(),
+                    file(),
+                    NormalizedProfileRecord.Thread(ProfileThread(100, 100, "main")),
+                    NormalizedProfileRecord.Thread(ProfileThread(100, 102, "worker")),
+                    sample(10, 100, 3, listOf(frame(0, "runLoop", 0x10))),
+                    sample(20, 100, 5, listOf(frame(0, "runLoop", 0x10))),
+                    sample(30, 102, 7, listOf(frame(0, "runLoop", 0x10))),
+                ),
+            )
+
+            val tracks =
+                store.threadTimelineTracks(
+                    ProfileQuery(
+                        startNanosInclusive = 10,
+                        endNanosExclusive = 40,
+                        threadIds = emptySet(),
+                    ),
+                    bucketCount = 3,
+                )
+
+            assertEquals(listOf("legacy:100", "legacy:102"), tracks.map(ThreadTimelineTrack::id))
+            assertEquals(listOf(10L, 20L, 30L), tracks.first().buckets.map(TimelineBucket::startNanos))
+            assertEquals(listOf(3L, 5L, 0L), tracks.first().buckets.map(TimelineBucket::eventWeight))
+            assertEquals(listOf(0L, 0L, 7L), tracks.last().buckets.map(TimelineBucket::eventWeight))
+        }
+    }
+
+    @Test
     fun `extracts lost unwind unknown symbol empty stack and unknown record quality`() {
         withStore { store ->
             val unknownFrame =

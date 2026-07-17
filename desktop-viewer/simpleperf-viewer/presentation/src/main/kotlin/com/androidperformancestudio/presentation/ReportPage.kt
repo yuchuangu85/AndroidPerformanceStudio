@@ -7,8 +7,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.PlainTooltip
@@ -41,17 +38,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.isCtrlPressed
-import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -72,18 +63,12 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
 import com.androidperformancestudio.visualization.NavigationAction
-import com.androidperformancestudio.visualization.TimeViewport
-import com.androidperformancestudio.visualization.TimelineCanvas
-import com.androidperformancestudio.visualization.TimelineColumn
-import com.androidperformancestudio.visualization.TimelineFrame
-import com.androidperformancestudio.visualization.navigate
 import androidx.compose.material3.Text as MaterialText
 
 @Composable
@@ -258,7 +243,9 @@ private fun ReportContent(
                 ReportTab.DIAGNOSTICS -> DiagnosticsReport(report, actions, style)
             }
         }
-        Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
+        if (state.selectedTab != ReportTab.TIMELINE) {
+            Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
+        }
     }
 }
 
@@ -347,115 +334,6 @@ private fun MetricCard(
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
-private fun TimelineReport(
-    state: ReportState,
-    report: ReportData,
-    actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
-) {
-    val fullStart = report.sessionOverview.startNanos ?: 0L
-    val fullEnd = (report.sessionOverview.endNanosInclusive ?: fullStart).safeIncrement()
-    val bounds = TimeViewport(fullStart, fullEnd.coerceAtLeast(fullStart + 1))
-    val viewport =
-        TimeViewport(
-            state.filter.startNanosInclusive ?: bounds.startNanos,
-            state.filter.endNanosExclusive ?: bounds.endNanosExclusive,
-        )
-    val frame = TimelineFrame(report.timeline.map { TimelineColumn(it.eventWeight) })
-    val shortcutFocusRequester = remember { FocusRequester() }
-
-    fun navigate(action: NavigationAction) {
-        val next = viewport.navigate(action, bounds)
-        actions.onTimeRange(next.startNanos, next.endNanosExclusive)
-    }
-    LaunchedEffect(shortcutFocusRequester) { shortcutFocusRequester.requestFocus() }
-    Column(
-        modifier =
-            Modifier
-                .focusRequester(shortcutFocusRequester)
-                .onPreviewKeyEvent { event -> handleKey(event, ::navigate) }
-                .focusable(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            NavigationButtons(::navigate, style)
-            MacOsButton("Reset range", { actions.onTimeRange(null, null) }, style)
-            Text("${viewport.startNanos} – ${viewport.endNanosExclusive} ns", color = style.secondaryText, fontSize = 10.sp)
-        }
-        TimelineCanvas(
-            frame = frame,
-            viewport = viewport,
-            onRangePreview = { preview ->
-                actions.onFlamePreviewRange(
-                    AnalysisTimeRange(
-                        preview.startNanos,
-                        preview.endNanosExclusive,
-                    ),
-                )
-            },
-            onRangeCommit = { selected ->
-                actions.onTimeRange(selected.startNanos, selected.endNanosExclusive)
-            },
-            onRangeCancel = actions.onCancelFlamePreview,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(220.dp)
-                    .onPointerEvent(PointerEventType.Scroll) { event ->
-                        val change = event.changes.firstOrNull() ?: return@onPointerEvent
-                        if (event.keyboardModifiers.isCtrlPressed) {
-                            when {
-                                change.scrollDelta.y < 0f -> navigate(NavigationAction.ZOOM_IN)
-                                change.scrollDelta.y > 0f -> navigate(NavigationAction.ZOOM_OUT)
-                            }
-                        }
-                    },
-        )
-        Text(
-            "Drag across the timeline to select a range. W/S zoom, A/D pan, Ctrl+wheel zooms.",
-            color = style.secondaryText,
-            fontSize = 9.sp,
-        )
-        SectionTitle("Thread filter", style)
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            report.sessionThreads.forEach { thread ->
-                val selected = thread.threadId in state.filter.threadIds
-                MacOsChoiceChip(
-                    label = "${thread.name} (${thread.threadId})",
-                    selected = selected,
-                    enabled = true,
-                    style = style,
-                ) {
-                    val next = state.filter.threadIds.toMutableSet()
-                    if (!next.add(thread.threadId)) next.remove(thread.threadId)
-                    actions.onThreads(next)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun NavigationButtons(
-    onAction: (NavigationAction) -> Unit,
-    style: MacOsDeviceTargetStyle,
-) {
-    listOf(
-        "W +" to NavigationAction.ZOOM_IN,
-        "S −" to NavigationAction.ZOOM_OUT,
-        "A ←" to NavigationAction.PAN_LEFT,
-        "D →" to NavigationAction.PAN_RIGHT,
-    ).forEach { (label, action) ->
-        MacOsButton(label, { onAction(action) }, style)
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun TopFunctionsReport(
     state: ReportState,
     report: ReportData,
@@ -1005,7 +883,7 @@ internal fun List<CallTreeNode>.selectedPathIds(selectedNodeId: FlameCallNodeId?
 internal fun List<CallTreeNode>.selectedNodeIndex(selectedNodeId: FlameCallNodeId?): Int =
     indexOfFirst { node -> node.id == selectedNodeId?.value }
 
-private fun handleKey(
+internal fun handleKey(
     event: androidx.compose.ui.input.key.KeyEvent,
     onAction: (NavigationAction) -> Unit,
 ): Boolean {
@@ -1037,8 +915,6 @@ internal fun simpleperfNavigationAction(key: Key): NavigationAction? =
         Key.D -> NavigationAction.PAN_RIGHT
         else -> null
     }
-
-private fun Long.safeIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1
 
 private const val PERCENT_MULTIPLIER = 100
 private const val OVERVIEW_ITEM_LIMIT = 8

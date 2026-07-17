@@ -27,6 +27,7 @@ import com.androidperformancestudio.storage.ProfileProjectionRequest
 import com.androidperformancestudio.storage.ProfileProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
 import com.androidperformancestudio.storage.ThreadSummary
+import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
@@ -90,6 +91,7 @@ data class ReportData(
     val callTree: List<CallTreeNode>,
     val flameGraph: FlameGraphSnapshot,
     val diagnostics: List<DiagnosticFinding>,
+    val timelineTracks: List<ThreadTimelineTrack> = emptyList(),
 )
 
 sealed interface ReportLoadState {
@@ -759,6 +761,7 @@ class ReportController(
                 diagnosticEngine.analyze(
                     AnalysisSnapshot(overview, quality, threads, topFunctions),
                 ),
+            timelineTracks = timelineTracks,
         )
 
     private fun ReportState.projectionRequest(): ProfileProjectionRequest =

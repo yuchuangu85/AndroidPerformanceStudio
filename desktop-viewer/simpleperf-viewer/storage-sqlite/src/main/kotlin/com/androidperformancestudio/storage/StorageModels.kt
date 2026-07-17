@@ -94,6 +94,14 @@ data class TimelineBucket(
     val eventWeight: Long,
 )
 
+data class ThreadTimelineTrack(
+    val id: String,
+    val processId: Int,
+    val threadId: Int,
+    val name: String,
+    val buckets: List<TimelineBucket>,
+)
+
 data class CallTreeNode(
     val id: Long,
     val parentId: Long?,

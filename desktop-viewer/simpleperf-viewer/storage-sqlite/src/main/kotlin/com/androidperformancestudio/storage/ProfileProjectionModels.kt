@@ -59,4 +59,5 @@ data class ProfileProjectionSnapshot(
     val topFunctions: List<TopFunction>,
     val sessionOverview: ProfileOverview = overview,
     val sessionThreads: List<ThreadSummary> = threads,
+    val timelineTracks: List<ThreadTimelineTrack> = emptyList(),
 )

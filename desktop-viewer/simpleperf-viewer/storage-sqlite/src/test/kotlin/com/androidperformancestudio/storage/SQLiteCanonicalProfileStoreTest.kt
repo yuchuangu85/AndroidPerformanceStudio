@@ -165,6 +165,10 @@ class SQLiteCanonicalProfileStoreTest {
             assertEquals(2L, store.connection.singleLong("SELECT COUNT(DISTINCT thread_row_id) FROM sample"))
             assertEquals(2L, store.overview().processCount)
             assertEquals(2L, store.overview().threadCount)
+            val timelineTracks = store.threadTimelineTracks(bucketCount = 2)
+            assertEquals(2, timelineTracks.size)
+            assertEquals(2, timelineTracks.map(ThreadTimelineTrack::id).toSet().size)
+            assertEquals(setOf("first", "second"), timelineTracks.map(ThreadTimelineTrack::name).toSet())
         }
 
     @Test
