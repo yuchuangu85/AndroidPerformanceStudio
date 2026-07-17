@@ -3,6 +3,7 @@
 
 package com.androidperformancestudio.presentation
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -52,7 +55,13 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.analysis.DiagnosticFinding
@@ -75,6 +84,7 @@ import com.androidperformancestudio.visualization.TimelineCanvas
 import com.androidperformancestudio.visualization.TimelineColumn
 import com.androidperformancestudio.visualization.TimelineFrame
 import com.androidperformancestudio.visualization.navigate
+import androidx.compose.material3.Text as MaterialText
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -533,10 +543,16 @@ private fun CallTreeReport(
     style: MacOsDeviceTargetStyle,
 ) {
     var expandedIds by remember(report.callTree) {
-        mutableStateOf(report.callTree.filter { it.parentId == null }.mapTo(mutableSetOf(), CallTreeNode::id))
+        mutableStateOf(report.callTree.firefoxInitialExpandedIds().toMutableSet())
     }
     val listState = rememberLazyListState()
     val selectedNodeId = state.flameGraph.selectedNodeId
+    val childrenByParent = remember(report.callTree) { report.callTree.groupBy(CallTreeNode::parentId) }
+    LaunchedEffect(report.callTree) {
+        if (selectedNodeId == null) {
+            report.callTree.firefoxInitialSelectedId()?.let { actions.onSelectCallNode(FlameCallNodeId(it)) }
+        }
+    }
     LaunchedEffect(report.callTree, state.callTreeSearch) {
         if (state.callTreeSearch.isNotBlank()) {
             expandedIds = (expandedIds + report.callTree.expandedPathIds(state.callTreeSearch)).toMutableSet()
@@ -553,7 +569,7 @@ private fun CallTreeReport(
             listState.animateScrollToItem(index)
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CallStackDirection.entries.forEach { direction ->
                 MacOsChoiceChip(
@@ -572,49 +588,240 @@ private fun CallTreeReport(
             style = style,
             modifier = Modifier.fillMaxWidth(),
         )
-        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(1.5.dp)) {
-            items(visible, key = CallTreeNode::id) { node ->
-                val hasChildren = report.callTree.any { it.parentId == node.id }
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (selectedNodeId?.value == node.id) {
-                                    style.accent.copy(alpha = 0.16f)
-                                } else {
-                                    style.panel
-                                },
-                            ).clickable {
-                                actions.onSelectCallNode(FlameCallNodeId(node.id))
-                                if (hasChildren) {
-                                    expandedIds =
-                                        expandedIds.toMutableSet().also {
-                                            if (!it.add(node.id)) it.remove(node.id)
-                                        }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(style.panel)
+                .border(MacOsDeviceTargetDimensions.hairline, style.border),
+        ) {
+            FirefoxCallTreeHeader(report.overview.eventTypes.firefoxTotalColumnLabel(), style)
+            LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+                itemsIndexed(visible, key = { _, node -> node.id }) { index, node ->
+                    val hasChildren = childrenByParent[node.id].orEmpty().isNotEmpty()
+                    FirefoxCallTreeRow(
+                        index = index,
+                        node = node,
+                        totalWeight = report.overview.totalEventWeight,
+                        hasChildren = hasChildren,
+                        expanded = node.id in expandedIds,
+                        selected = selectedNodeId?.value == node.id,
+                        search = state.callTreeSearch,
+                        style = style,
+                        onSelect = { actions.onSelectCallNode(FlameCallNodeId(node.id)) },
+                        onToggle = {
+                            expandedIds =
+                                expandedIds.toMutableSet().also {
+                                    if (!it.add(node.id)) it.remove(node.id)
                                 }
-                            }.padding(start = (node.depth * 18).dp, top = 3.dp, bottom = 3.dp),
-                ) {
-                    Text(
-                        if (hasChildren) {
-                            if (node.id in expandedIds) {
-                                "▾ "
-                            } else {
-                                "▸ "
-                            }
-                        } else {
-                            "  "
                         },
                     )
-                    Text(node.symbolName, modifier = Modifier.weight(1f), color = style.text, fontSize = 10.sp)
-                    if (state.callTreeSearch.isNotBlank() &&
-                        node.symbolName.contains(state.callTreeSearch, ignoreCase = true)
-                    ) {
-                        Text("MATCH", color = style.accent, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                    }
-                    Text("inc ${node.inclusiveWeight} · exc ${node.exclusiveWeight}", color = style.secondaryText, fontSize = 9.sp)
                 }
             }
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxCallTreeHeader(
+    totalLabel: String,
+    style: MacOsDeviceTargetStyle,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(FIREFOX_CALL_TREE_HEADER_HEIGHT)
+            .background(style.toolbar)
+            .border(MacOsDeviceTargetDimensions.hairline, style.border),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FirefoxCallTreeHeaderCell(
+            label = totalLabel,
+            width = FIREFOX_PERCENT_COLUMN_WIDTH + FIREFOX_TOTAL_COLUMN_WIDTH,
+            style = style,
+        )
+        FirefoxCallTreeDivider(style)
+        FirefoxCallTreeHeaderCell(
+            label = "Self",
+            width = FIREFOX_SELF_COLUMN_WIDTH,
+            style = style,
+        )
+        FirefoxCallTreeDivider(style)
+        Spacer(Modifier.width(FIREFOX_ICON_COLUMN_WIDTH))
+        FirefoxCallTreeDivider(style)
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxCallTreeHeaderCell(
+    label: String,
+    width: androidx.compose.ui.unit.Dp,
+    style: MacOsDeviceTargetStyle,
+) {
+    Text(
+        text = label,
+        modifier = Modifier.width(width).padding(horizontal = 5.dp),
+        color = style.text,
+        fontSize = 9.sp,
+        textAlign = TextAlign.End,
+        maxLines = 1,
+    )
+}
+
+@Composable
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
+private fun FirefoxCallTreeRow(
+    index: Int,
+    node: CallTreeNode,
+    totalWeight: Long,
+    hasChildren: Boolean,
+    expanded: Boolean,
+    selected: Boolean,
+    search: String,
+    style: MacOsDeviceTargetStyle,
+    onSelect: () -> Unit,
+    onToggle: () -> Unit,
+) {
+    val foreground = if (selected) style.accentText else style.text
+    val secondary = if (selected) style.accentText.copy(alpha = 0.9f) else style.secondaryText
+    val background =
+        when {
+            selected -> style.accent
+            index % 2 == 1 -> style.toolbar.copy(alpha = 0.62f)
+            else -> style.panel
+        }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(FIREFOX_CALL_TREE_ROW_HEIGHT)
+            .background(background)
+            .clickable(onClick = onSelect),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FirefoxCallTreeValue(node.firefoxTotalPercent(totalWeight), FIREFOX_PERCENT_COLUMN_WIDTH, foreground)
+        FirefoxCallTreeValue(node.inclusiveWeight.firefoxWeight(), FIREFOX_TOTAL_COLUMN_WIDTH, foreground)
+        FirefoxCallTreeDivider(style)
+        FirefoxCallTreeValue(node.exclusiveWeight.firefoxWeight(), FIREFOX_SELF_COLUMN_WIDTH, foreground)
+        FirefoxCallTreeDivider(style)
+        Spacer(Modifier.width(FIREFOX_ICON_COLUMN_WIDTH))
+        FirefoxCallTreeDivider(style)
+        Row(
+            Modifier.weight(1f).fillMaxHeight().padding(end = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.width((node.depth * FIREFOX_CALL_TREE_INDENT).dp))
+            Box(
+                Modifier
+                    .width(FIREFOX_TOGGLE_COLUMN_WIDTH)
+                    .fillMaxHeight()
+                    .then(
+                        if (hasChildren) {
+                            Modifier
+                                .clickable(onClick = onToggle)
+                                .semantics {
+                                    contentDescription =
+                                        if (expanded) "Collapse ${node.symbolName}" else "Expand ${node.symbolName}"
+                                }
+                        } else {
+                            Modifier
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (hasChildren) {
+                    Canvas(Modifier.width(8.dp).height(10.dp)) {
+                        val triangle = Path()
+                        if (expanded) {
+                            triangle.moveTo(0f, 2f)
+                            triangle.lineTo(size.width, 2f)
+                            triangle.lineTo(size.width / 2f, size.height)
+                        } else {
+                            triangle.moveTo(0f, 0f)
+                            triangle.lineTo(size.width, size.height / 2f)
+                            triangle.lineTo(0f, size.height)
+                        }
+                        triangle.close()
+                        drawPath(triangle, secondary)
+                    }
+                }
+            }
+            FirefoxHighlightedText(node.symbolName, search, foreground, style)
+            if (node.filePath.isNotBlank()) {
+                Spacer(Modifier.width(10.dp))
+                FirefoxHighlightedText(
+                    text = node.filePath,
+                    search = search,
+                    color = secondary,
+                    style = style,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxCallTreeValue(
+    value: String,
+    width: androidx.compose.ui.unit.Dp,
+    color: androidx.compose.ui.graphics.Color,
+) {
+    MaterialText(
+        text = value,
+        modifier = Modifier.width(width).padding(horizontal = 5.dp),
+        color = color,
+        fontSize = 9.sp,
+        lineHeight = FIREFOX_CALL_TREE_ROW_HEIGHT.value.sp,
+        textAlign = TextAlign.End,
+        maxLines = 1,
+    )
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxCallTreeDivider(style: MacOsDeviceTargetStyle) {
+    Spacer(Modifier.width(1.dp).fillMaxHeight().background(style.border))
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxHighlightedText(
+    text: String,
+    search: String,
+    color: androidx.compose.ui.graphics.Color,
+    style: MacOsDeviceTargetStyle,
+    modifier: Modifier = Modifier,
+) {
+    MaterialText(
+        text = text.firefoxHighlight(search, style),
+        modifier = modifier,
+        color = color,
+        fontSize = 10.sp,
+        lineHeight = FIREFOX_CALL_TREE_ROW_HEIGHT.value.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        softWrap = false,
+    )
+}
+
+private fun String.firefoxHighlight(
+    search: String,
+    style: MacOsDeviceTargetStyle,
+): AnnotatedString {
+    val matchStart = if (search.isBlank()) -1 else indexOf(search, ignoreCase = true)
+    return if (matchStart < 0) {
+        AnnotatedString(this)
+    } else {
+        buildAnnotatedString {
+            append(this@firefoxHighlight.substring(0, matchStart))
+            withStyle(SpanStyle(color = style.text, background = style.accent.copy(alpha = 0.28f))) {
+                append(this@firefoxHighlight.substring(matchStart, matchStart + search.length))
+            }
+            append(this@firefoxHighlight.substring(matchStart + search.length))
         }
     }
 }
@@ -738,11 +945,33 @@ internal fun topFunctionItemKey(
     function: TopFunction,
 ): String = "$index:${function.filePath}:${function.symbolName}"
 
+internal fun List<CallTreeNode>.firefoxInitialExpandedIds(maxDepth: Int = FIREFOX_INITIAL_EXPANSION_DEPTH): Set<Long> =
+    firefoxInitialPath(maxDepth).toSet()
+
+internal fun List<CallTreeNode>.firefoxInitialSelectedId(maxDepth: Int = FIREFOX_INITIAL_EXPANSION_DEPTH): Long? =
+    firefoxInitialPath(maxDepth).lastOrNull()
+
+private fun List<CallTreeNode>.firefoxInitialPath(maxDepth: Int): List<Long> {
+    if (isEmpty() || maxDepth <= 0) return emptyList()
+    val children = groupBy(CallTreeNode::parentId)
+    return buildList {
+        var current = children[null].orEmpty().firefoxSorted().firstOrNull()
+        repeat(maxDepth) {
+            val node = current ?: return@buildList
+            add(node.id)
+            current = children[node.id].orEmpty().firefoxSorted().firstOrNull()
+        }
+    }
+}
+
+internal fun List<String>.firefoxTotalColumnLabel(): String =
+    if (size == 1 && single().equals("samples", ignoreCase = true)) "Total (samples)" else "Total"
+
 internal fun List<CallTreeNode>.visibleNodes(expandedIds: Set<Long>): List<CallTreeNode> {
     val children = groupBy(CallTreeNode::parentId)
     return buildList {
         fun append(parentId: Long?) {
-            children[parentId].orEmpty().forEach { node ->
+            children[parentId].orEmpty().firefoxSorted().forEach { node ->
                 add(node)
                 if (node.id in expandedIds) append(node.id)
             }
@@ -750,6 +979,17 @@ internal fun List<CallTreeNode>.visibleNodes(expandedIds: Set<Long>): List<CallT
         append(null)
     }
 }
+
+private fun List<CallTreeNode>.firefoxSorted(): List<CallTreeNode> = sortedByDescending(CallTreeNode::inclusiveWeight)
+
+internal fun CallTreeNode.firefoxTotalPercent(totalWeight: Long): String {
+    if (totalWeight <= 0L) return "0%"
+    val percent = inclusiveWeight.toDouble() * PERCENT_MULTIPLIER / totalWeight.toDouble()
+    val decimals = if (percent == percent.toLong().toDouble()) 0 else 1
+    return if (decimals == 0) "${percent.toLong()}%" else "%.1f%%".format(percent)
+}
+
+internal fun Long.firefoxWeight(): String = if (this == 0L) "—" else "%,d".format(this)
 
 internal fun List<CallTreeNode>.selectedPathIds(selectedNodeId: FlameCallNodeId?): Set<Long> {
     val byId = associateBy(CallTreeNode::id)
@@ -778,6 +1018,16 @@ private fun handleKey(
         true
     }
 }
+
+private val FIREFOX_CALL_TREE_HEADER_HEIGHT = 23.dp
+private val FIREFOX_CALL_TREE_ROW_HEIGHT = 16.dp
+private val FIREFOX_PERCENT_COLUMN_WIDTH = 55.dp
+private val FIREFOX_TOTAL_COLUMN_WIDTH = 70.dp
+private val FIREFOX_SELF_COLUMN_WIDTH = 80.dp
+private val FIREFOX_ICON_COLUMN_WIDTH = 20.dp
+private val FIREFOX_TOGGLE_COLUMN_WIDTH = 18.dp
+private const val FIREFOX_CALL_TREE_INDENT = 10
+private const val FIREFOX_INITIAL_EXPANSION_DEPTH = 18
 
 internal fun simpleperfNavigationAction(key: Key): NavigationAction? =
     when (key) {

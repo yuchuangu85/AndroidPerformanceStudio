@@ -18,6 +18,7 @@ import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.PackageOption
 import com.androidperformancestudio.application.ProcessOption
 import com.androidperformancestudio.application.ReportState
+import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.SamplingParameters
@@ -45,6 +46,14 @@ class DeviceTargetVisualGoldenTest {
     @Test
     fun `dark embedded report workspace matches macOS golden`() =
         verifyGolden("report-dark", dark = true, reportState = sampleReportState())
+
+    @Test
+    fun `light Firefox call tree matches macOS golden`() =
+        verifyGolden("call-tree-light", dark = false, reportState = sampleReportState(ReportTab.CALL_TREE))
+
+    @Test
+    fun `dark Firefox call tree matches macOS golden`() =
+        verifyGolden("call-tree-dark", dark = true, reportState = sampleReportState(ReportTab.CALL_TREE))
 
     private fun verifyGolden(
         name: String,

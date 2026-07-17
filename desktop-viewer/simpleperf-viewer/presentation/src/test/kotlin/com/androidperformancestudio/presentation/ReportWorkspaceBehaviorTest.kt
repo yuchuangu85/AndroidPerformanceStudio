@@ -23,6 +23,7 @@ import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.storage.CallTreeNode
@@ -33,6 +34,7 @@ import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.storage.TopFunction
 import java.nio.file.Path
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class ReportWorkspaceBehaviorTest {
@@ -74,6 +76,48 @@ class ReportWorkspaceBehaviorTest {
             onNodeWithContentDescription("Top functions").assertIsSelected()
             onNodeWithText("Search function or library").assertExists()
         }
+
+    @Test
+    fun `call tree matches Firefox columns ordering expansion and toggle behavior`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            var selectedNode: FlameCallNodeId? = null
+            setContent {
+                ReportPage(
+                    state = sampleReportState(ReportTab.CALL_TREE),
+                    actions = goldenActions().copy(onSelectCallNode = { selectedNode = it }),
+                )
+            }
+
+            onNodeWithText("Total").assertExists()
+            onNodeWithText("Self").assertExists()
+            onNodeWithText("91.7%").assertExists()
+            onNodeWithText("2,200").assertExists()
+            assertEquals(2, onAllNodesWithText("/system/lib64/libui.so").fetchSemanticsNodes().size)
+            onNodeWithText("main").performClick()
+            assertEquals(FlameCallNodeId(1), selectedNode)
+            onNodeWithText("renderFrame").assertExists()
+
+            onNodeWithContentDescription("Collapse main").performClick()
+
+            onNodeWithText("renderFrame").assertDoesNotExist()
+            onNodeWithContentDescription("Expand main").assertExists()
+        }
+
+    @Test
+    fun `Firefox call tree expands and sorts the heaviest path`() {
+        val nodes = sampleReportState().lastReadyReport!!.callTree
+
+        assertEquals(setOf(1L, 2L, 3L), nodes.firefoxInitialExpandedIds())
+        assertEquals(3L, nodes.firefoxInitialSelectedId())
+        assertEquals(
+            listOf(1L, 2L, 3L, 4L, 5L, 6L),
+            nodes.visibleNodes(nodes.firefoxInitialExpandedIds()).map(CallTreeNode::id),
+        )
+        assertEquals("91.7%", nodes.first().firefoxTotalPercent(totalWeight = 2_400))
+        assertEquals("2,200", nodes.first().inclusiveWeight.firefoxWeight())
+        assertEquals("Total (samples)", listOf("samples").firefoxTotalColumnLabel())
+        assertEquals("Total", listOf("cpu-cycles").firefoxTotalColumnLabel())
+    }
 }
 
 internal fun sampleReportState(selectedTab: ReportTab = ReportTab.OVERVIEW): ReportState {
@@ -136,8 +180,12 @@ internal fun sampleReportState(selectedTab: ReportTab = ReportTab.OVERVIEW): Rep
             timeline = listOf(TimelineBucket(0, 10_001, 120, 2_400)),
             callTree =
                 listOf(
-                    CallTreeNode(1, null, 0, "main", "/system/lib64/libui.so", 2_400, 600, 120, 2),
-                    CallTreeNode(2, 1, 1, "renderFrame", "/system/lib64/libui.so", 1_800, 900, 90, 2),
+                    CallTreeNode(1, null, 0, "main", "/system/lib64/libui.so", 2_200, 100, 110, 2),
+                    CallTreeNode(2, 1, 1, "renderFrame", "/system/lib64/libui.so", 1_600, 250, 80, 2),
+                    CallTreeNode(3, 2, 2, "SkCanvas::draw", "/system/lib64/libhwui.so", 900, 700, 45, 2),
+                    CallTreeNode(4, 2, 2, "eglSwapBuffers", "/system/lib64/libEGL.so", 700, 650, 35, 1),
+                    CallTreeNode(5, 1, 1, "MessageQueue::next", "/system/lib64/libutils.so", 600, 500, 30, 1),
+                    CallTreeNode(6, null, 0, "__schedule", "[kernel.kallsyms]", 200, 200, 10, 2),
                 ),
             flameGraph = emptyFlameGraphSnapshot(),
             diagnostics = emptyList(),
