@@ -83,6 +83,7 @@ class DeviceTargetControllerTest {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())
             controller.refreshDevices()
             controller.selectDevice("serial-1")
+            controller.selectPackage("com.example.camera")
 
             controller.selectProcess(321)
 
@@ -120,12 +121,41 @@ class DeviceTargetControllerTest {
         }
 
     @Test
+    fun `process selection is constrained to the previously selected app`() =
+        runBlocking {
+            val controller = DeviceTargetController(FakeDeviceTargetGateway())
+            controller.refreshDevices()
+            controller.selectDevice("serial-1")
+            controller.selectPackage("com.example.camera")
+
+            assertEquals(
+                listOf(321),
+                controller.state.value.processesForSelectedPackage
+                    .map(ProcessOption::pid),
+            )
+
+            controller.selectProcess(654)
+
+            assertIs<CaptureTarget.App>(controller.state.value.selectedTarget)
+            assertEquals("com.example.camera", controller.state.value.selectedPackageName)
+            assertTrue(
+                controller.state.value.threads
+                    .isEmpty(),
+            )
+        }
+
+    @Test
     fun `uses parent app profiling context when a thread is selected on a non-root device`() =
         runBlocking {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())
             controller.refreshDevices()
             controller.selectDevice("serial-1")
+            controller.selectPackage("com.example.camera")
             controller.selectProcess(321)
+            controller.selectThread(ThreadOption(pid = 654, tid = 655, name = "WrongProcessThread"))
+
+            assertIs<CaptureTarget.Process>(controller.state.value.selectedTarget)
+
             controller.selectThread(ThreadOption(pid = 321, tid = 333, name = "RenderThread"))
 
             assertTrue(controller.enterCapture())
@@ -168,6 +198,7 @@ class DeviceTargetControllerTest {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())
             controller.refreshDevices()
             controller.selectDevice("serial-1")
+            controller.selectPackage("com.example.camera")
             controller.selectProcess(321)
             controller.enterCapture()
             val parameters =
@@ -199,6 +230,7 @@ class DeviceTargetControllerTest {
                 )
             controller.refreshDevices()
             controller.selectDevice("serial-1")
+            controller.selectPackage("com.example.camera")
             controller.selectProcess(321)
             controller.enterCapture()
 

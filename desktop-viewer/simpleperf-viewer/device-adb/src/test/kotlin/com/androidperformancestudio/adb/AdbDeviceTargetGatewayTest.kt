@@ -37,7 +37,7 @@ class AdbDeviceTargetGatewayTest {
             assertEquals("Pixel 8", value.model)
             assertEquals(CapabilityStatus.LIMITED, value.capabilities.status)
             assertEquals(listOf("cpu-clock", "cpu-cycles"), value.capabilities.eventNames)
-            assertEquals(listOf("com.example.camera"), value.packages.map { it.packageName })
+            assertEquals(listOf("com.example.camera", "com.example.debug"), value.packages.map { it.packageName })
             assertEquals(listOf(321), value.processes.map { it.pid })
         }
 
@@ -49,6 +49,65 @@ class AdbDeviceTargetGatewayTest {
             val value = assertIs<StudioResult.Success<DeviceSelection>>(gateway.loadSelection("serial-1")).value
 
             assertEquals("Available", value.capabilities.simpleperf)
+        }
+
+    @Test
+    fun `only exposes apps allowed by the device profiling scope`() =
+        runBlocking {
+            val profileable = assertIs<StudioResult.Success<DeviceSelection>>(gateway().loadSelection("serial-1")).value
+            val debuggableOnly =
+                assertIs<StudioResult.Success<DeviceSelection>>(
+                    gateway(profilingScope = ProfilingScope.DEBUGGABLE_APPS).loadSelection("serial-1"),
+                ).value
+            val root =
+                assertIs<StudioResult.Success<DeviceSelection>>(
+                    gateway(profilingScope = ProfilingScope.ANY_PROCESS).loadSelection("serial-1"),
+                ).value
+
+            assertEquals(
+                listOf("com.example.camera", "com.example.debug"),
+                profileable.packages.map { it.packageName },
+            )
+            assertEquals(listOf("com.example.debug"), debuggableOnly.packages.map { it.packageName })
+            assertEquals(
+                listOf("com.example.camera", "com.example.debug", "com.example.private"),
+                root.packages.map { it.packageName },
+            )
+        }
+
+    @Test
+    fun `exposes debuggable apps through a compatible bundled simpleperf fallback`() =
+        runBlocking {
+            val value =
+                assertIs<StudioResult.Success<DeviceSelection>>(
+                    gateway(
+                        simpleperfVersion = null,
+                        readiness = CapabilityReadiness.BLOCKED,
+                        limitations = setOf(DeviceCapabilityLimitation.SIMPLEPERF_UNAVAILABLE),
+                        bundledSimpleperfAbis = setOf("arm64-v8a"),
+                    ).loadSelection("serial-1"),
+                ).value
+
+            assertEquals(CapabilityStatus.LIMITED, value.capabilities.status)
+            assertEquals("Missing", value.capabilities.simpleperf)
+            assertEquals(
+                listOf("com.example.camera", "com.example.debug"),
+                value.packages.map { it.packageName },
+            )
+        }
+
+    @Test
+    fun `exposes no apps when simpleperf is blocked without a compatible fallback`() =
+        runBlocking {
+            val value =
+                assertIs<StudioResult.Success<DeviceSelection>>(
+                    gateway(
+                        readiness = CapabilityReadiness.BLOCKED,
+                        limitations = setOf(DeviceCapabilityLimitation.SIMPLEPERF_UNAVAILABLE),
+                    ).loadSelection("serial-1"),
+                ).value
+
+            assertEquals(emptyList(), value.packages)
         }
 
     @Test
@@ -92,7 +151,13 @@ class AdbDeviceTargetGatewayTest {
             assertEquals(0, laterStages)
         }
 
-    private fun gateway(simpleperfVersion: String? = "simpleperf 1.0"): AdbDeviceTargetGateway =
+    private fun gateway(
+        simpleperfVersion: String? = "simpleperf 1.0",
+        profilingScope: ProfilingScope = ProfilingScope.PROFILEABLE_OR_DEBUGGABLE_APPS,
+        readiness: CapabilityReadiness = CapabilityReadiness.LIMITED,
+        limitations: Set<DeviceCapabilityLimitation> = setOf(DeviceCapabilityLimitation.ROOT_UNAVAILABLE),
+        bundledSimpleperfAbis: Set<String> = emptySet(),
+    ): AdbDeviceTargetGateway =
         AdbDeviceTargetGateway(
             refreshDevices = {
                 StudioResult.Success(
@@ -111,19 +176,24 @@ class AdbDeviceTargetGatewayTest {
                 StudioResult.Success(
                     DeviceCapabilities(
                         serial = "serial-1",
-                        readiness = CapabilityReadiness.LIMITED,
+                        readiness = readiness,
                         rootAccess = RootAccess.UNAVAILABLE,
-                        profilingScope = ProfilingScope.PROFILEABLE_OR_DEBUGGABLE_APPS,
+                        profilingScope = profilingScope,
                         simpleperfVersion = simpleperfVersion,
                         eventNames = listOf("cpu-clock", "cpu-cycles"),
-                        limitations = setOf(DeviceCapabilityLimitation.ROOT_UNAVAILABLE),
+                        limitations = limitations,
                     ),
                 )
             },
             refreshTargets = {
                 StudioResult.Success(
                     AdbTargetSnapshot(
-                        packages = listOf(AndroidPackage("com.example.camera")),
+                        packages =
+                            listOf(
+                                AndroidPackage("com.example.camera", profileableByShell = true),
+                                AndroidPackage("com.example.debug", debuggable = true),
+                                AndroidPackage("com.example.private"),
+                            ),
                         processes = listOf(AndroidProcess(321, 1, "u0_a1", "com.example.camera")),
                     ),
                 )
@@ -136,5 +206,6 @@ class AdbDeviceTargetGatewayTest {
                     ),
                 )
             },
+            bundledSimpleperfAbis = bundledSimpleperfAbis,
         )
 }

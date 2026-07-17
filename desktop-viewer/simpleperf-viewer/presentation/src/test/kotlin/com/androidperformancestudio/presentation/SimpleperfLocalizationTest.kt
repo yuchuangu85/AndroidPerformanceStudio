@@ -11,7 +11,7 @@ class SimpleperfLocalizationTest {
     @Test
     fun `Chinese localization covers primary workflow labels`() {
         assertEquals(
-            "设备与目标",
+            "设备和目标",
             translateSimpleperfText("Device & Target", SimpleperfLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(

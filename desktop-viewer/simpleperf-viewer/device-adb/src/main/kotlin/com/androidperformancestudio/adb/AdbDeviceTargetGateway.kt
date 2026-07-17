@@ -13,8 +13,12 @@ import java.nio.file.Path
 
 class AdbDeviceTargetGateway private constructor(
     private val operations: GatewayOperations,
+    private val bundledSimpleperfAbis: Set<String>,
 ) : DeviceTargetGateway {
-    constructor(adbExecutable: Path) : this(GatewayOperations.create(adbExecutable))
+    constructor(
+        adbExecutable: Path,
+        bundledSimpleperfAbis: Set<String> = emptySet(),
+    ) : this(GatewayOperations.create(adbExecutable), bundledSimpleperfAbis)
 
     internal constructor(
         refreshDevices: suspend () -> StudioResult<List<AdbDevice>>,
@@ -22,6 +26,7 @@ class AdbDeviceTargetGateway private constructor(
         detectCapabilities: suspend (AndroidDeviceProperties) -> StudioResult<DeviceCapabilities>,
         refreshTargets: suspend (String) -> StudioResult<AdbTargetSnapshot>,
         readThreads: suspend (String, Int) -> StudioResult<List<AndroidThread>>,
+        bundledSimpleperfAbis: Set<String> = emptySet(),
     ) : this(
         GatewayOperations(
             refreshDevices = refreshDevices,
@@ -30,6 +35,7 @@ class AdbDeviceTargetGateway private constructor(
             refreshTargets = refreshTargets,
             readThreads = readThreads,
         ),
+        bundledSimpleperfAbis,
     )
 
     override suspend fun refreshDevices(): StudioResult<List<DeviceOption>> =
@@ -56,7 +62,11 @@ class AdbDeviceTargetGateway private constructor(
     private suspend fun loadCapabilities(properties: AndroidDeviceProperties): StudioResult<DeviceSelection> =
         when (val result = operations.detectCapabilities(properties)) {
             is StudioResult.Failure -> result
-            is StudioResult.Success -> loadTargets(properties, result.value)
+            is StudioResult.Success ->
+                loadTargets(
+                    properties,
+                    result.value.withBundledSimpleperfFallback(properties.abis, bundledSimpleperfAbis),
+                )
         }
 
     private suspend fun loadTargets(
@@ -74,7 +84,10 @@ class AdbDeviceTargetGateway private constructor(
                         sdkInt = properties.sdkInt,
                         abis = properties.abis,
                         capabilities = capabilities.toSummary(),
-                        packages = result.value.packages.map { PackageOption(it.packageName) },
+                        packages =
+                            result.value.packages
+                                .filter { it.canCaptureSimpleperf(capabilities) }
+                                .map { PackageOption(it.packageName) },
                         processes = result.value.processes.map { ProcessOption(it.pid, it.name, it.user) },
                     ),
                 )
@@ -128,3 +141,28 @@ private fun DeviceCapabilities.toSummary(): CapabilitySummary =
     )
 
 private fun AndroidThread.toOption(): ThreadOption = ThreadOption(pid = pid, tid = tid, name = name)
+
+private fun DeviceCapabilities.withBundledSimpleperfFallback(
+    deviceAbis: List<String>,
+    bundledAbis: Set<String>,
+): DeviceCapabilities {
+    val fallbackAvailable = deviceAbis.any(bundledAbis::contains)
+    return if (
+        readiness == CapabilityReadiness.BLOCKED &&
+        DeviceCapabilityLimitation.SIMPLEPERF_UNAVAILABLE in limitations &&
+        fallbackAvailable
+    ) {
+        copy(readiness = CapabilityReadiness.LIMITED)
+    } else {
+        this
+    }
+}
+
+private fun AndroidPackage.canCaptureSimpleperf(capabilities: DeviceCapabilities): Boolean {
+    if (capabilities.readiness == CapabilityReadiness.BLOCKED) return false
+    return when (capabilities.profilingScope) {
+        ProfilingScope.ANY_PROCESS -> true
+        ProfilingScope.PROFILEABLE_OR_DEBUGGABLE_APPS -> profileableByShell || debuggable
+        ProfilingScope.DEBUGGABLE_APPS -> debuggable
+    }
+}

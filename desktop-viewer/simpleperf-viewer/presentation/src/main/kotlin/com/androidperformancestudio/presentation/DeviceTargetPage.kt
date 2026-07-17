@@ -64,7 +64,13 @@ internal fun DeviceTargetPage(
     val style = macOsDeviceTargetStyle(darkTheme)
     val captureActive = captureState.isCaptureActive()
     Column(Modifier.fillMaxSize().background(style.workspace)) {
-        WorkspaceToolbar(state, actions, style, enabled = !captureActive)
+        WorkspaceToolbar(
+            state = state,
+            actions = actions,
+            style = style,
+            enabled = !captureActive && !state.isLoading,
+            showGetData = !captureActive,
+        )
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             TargetSummary(state, style)
             CaptureConfigurationWorkspace(
@@ -91,6 +97,7 @@ private fun WorkspaceToolbar(
     actions: DeviceTargetActions,
     style: MacOsDeviceTargetStyle,
     enabled: Boolean,
+    showGetData: Boolean,
 ) {
     Row(
         modifier =
@@ -106,7 +113,7 @@ private fun WorkspaceToolbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        ToolbarContent(state, actions, style, enabled)
+        ToolbarContent(state, actions, style, enabled, showGetData)
     }
 }
 
@@ -117,10 +124,9 @@ private fun RowScope.ToolbarContent(
     actions: DeviceTargetActions,
     style: MacOsDeviceTargetStyle,
     enabled: Boolean,
+    showGetData: Boolean,
 ) {
     val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
-    val selectedPackage = (state.selectedTarget as? CaptureTarget.App)?.packageName
-    val selectedProcessId = state.selectedTarget.processId()
     val selectedThreadId = (state.selectedTarget as? CaptureTarget.Thread)?.tid
     Text(
         "Device & Target",
@@ -140,7 +146,7 @@ private fun RowScope.ToolbarContent(
         enabled,
     )
     AppSelector(
-        selectedPackage,
+        state.selectedPackageName,
         state.selection?.packages.orEmpty(),
         actions.onSelectPackage,
         style,
@@ -148,8 +154,8 @@ private fun RowScope.ToolbarContent(
         enabled,
     )
     ProcessSelector(
-        selectedProcessId,
-        state.selection?.processes.orEmpty(),
+        state.selectedProcessId,
+        state.processesForSelectedPackage,
         actions.onSelectProcess,
         style,
         Modifier.weight(PROCESS_SELECTOR_WEIGHT),
@@ -157,20 +163,41 @@ private fun RowScope.ToolbarContent(
     )
     ThreadSelector(
         selectedThreadId,
-        state.threads,
+        state.threadsForSelectedProcess,
         actions.onSelectThread,
         style,
         Modifier.weight(THREAD_SELECTOR_WEIGHT),
         enabled,
     )
     Spacer(Modifier.width(2.dp))
+    ToolbarCaptureActions(state, actions, style, enabled, showGetData)
+    CapabilityPopupButton(state.selection, style)
+}
+
+@Composable
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
+private fun ToolbarCaptureActions(
+    state: DeviceTargetState,
+    actions: DeviceTargetActions,
+    style: MacOsDeviceTargetStyle,
+    enabled: Boolean,
+    showGetData: Boolean,
+) {
     MacOsButton(
         if (state.isLoading) "Refreshing…" else "Refresh",
         actions.onRefresh,
         style,
         enabled = enabled && !state.isLoading,
     )
-    CapabilityPopupButton(state.selection, style)
+    if (showGetData) {
+        MacOsButton(
+            label = "Get data",
+            onClick = actions.onStartCapture,
+            style = style,
+            enabled = enabled && state.canEnterCapture && state.captureSetup != null,
+            primary = true,
+        )
+    }
 }
 
 @Composable
@@ -537,7 +564,10 @@ private fun TargetSummary(
             )
             HorizontalHairline(style.border)
             SummaryRow("Device", selectedDevice ?: localizedSimpleperfText("Not selected"), style)
-            SummaryRow(targetType, targetName, style)
+            state.selectedPackageName?.let { SummaryRow("App", it, style) }
+            if (state.selectedTarget !is CaptureTarget.App) {
+                SummaryRow(targetType, targetName, style)
+            }
             Text(
                 "Select a device and target from the toolbar.",
                 color = style.secondaryText,
@@ -576,13 +606,6 @@ private fun CaptureTarget?.summary(): Pair<String, String> =
         is CaptureTarget.Process -> "Process" to "$name · PID $pid"
         is CaptureTarget.Thread -> "Thread" to "$name · TID $tid"
         null -> "Target" to "Not selected"
-    }
-
-private fun CaptureTarget?.processId(): Int? =
-    when (this) {
-        is CaptureTarget.Process -> pid
-        is CaptureTarget.Thread -> pid
-        else -> null
     }
 
 @Composable
@@ -636,7 +659,7 @@ private fun WorkspaceFooter(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CaptureStatus(state, captureState, style, Modifier.weight(1f))
-        CaptureActions(state, captureState, actions, style)
+        CaptureActions(captureState, actions, style)
     }
 }
 
@@ -681,7 +704,6 @@ private fun CaptureStatus(
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun CaptureActions(
-    state: DeviceTargetState,
     captureState: CaptureState,
     actions: DeviceTargetActions,
     style: MacOsDeviceTargetStyle,
@@ -692,14 +714,6 @@ private fun CaptureActions(
                 MacOsButton("Stop and analyze", actions.onStopCapture, style, primary = true)
             }
             MacOsButton("Cancel", actions.onCancelCapture, style)
-        } else {
-            MacOsButton(
-                label = "Get data",
-                onClick = actions.onStartCapture,
-                style = style,
-                enabled = state.canEnterCapture && state.captureSetup != null,
-                primary = true,
-            )
         }
     }
 }

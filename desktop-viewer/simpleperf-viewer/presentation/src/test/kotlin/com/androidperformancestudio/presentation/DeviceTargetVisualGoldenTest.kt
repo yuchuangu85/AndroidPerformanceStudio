@@ -117,6 +117,7 @@ private fun macOsGoldenState(): DeviceTargetState {
                 processes = processes,
             ),
         selectedTarget = CaptureTarget.Process(7421, "com.example.gallery"),
+        selectedPackageName = "com.example.gallery",
         captureSetup =
             CaptureSetup(
                 template = SamplingTemplate.APP_CPU_BASIC,

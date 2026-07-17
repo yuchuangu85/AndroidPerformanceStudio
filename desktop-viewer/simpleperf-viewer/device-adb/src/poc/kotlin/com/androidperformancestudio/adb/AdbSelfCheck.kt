@@ -88,6 +88,9 @@ private suspend fun printTargets(
     when (val result = AdbTargetCatalog(adbExecutable).refresh(serial)) {
         is StudioResult.Success -> {
             println("packageCount=${result.value.packages.size}")
+            val capturablePackages = result.value.packages.filter { it.debuggable || it.profileableByShell }
+            println("capturablePackageCount=${capturablePackages.size}")
+            println("capturablePackages=${capturablePackages.joinToString { it.packageName }}")
             println("processCount=${result.value.processes.size}")
         }
         is StudioResult.Failure -> fail("${result.error.code}: ${result.error.message}")

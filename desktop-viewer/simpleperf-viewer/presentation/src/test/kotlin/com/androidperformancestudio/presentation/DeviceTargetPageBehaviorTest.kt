@@ -1,5 +1,6 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -43,7 +44,6 @@ class DeviceTargetPageBehaviorTest {
                                     DeviceOption("emulator-5554", "Pixel 8 Pro", true),
                                     DeviceOption("offline-1", "Pixel Offline", false),
                                 ),
-                            isLoading = true,
                         ),
                     captureState = CaptureState.Idle,
                     reportState = ReportState(),
@@ -56,20 +56,22 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithText("Pixel Offline").assertIsNotEnabled()
             onNodeWithText("Pixel 8 Pro").performClick()
             onNodeWithText("Open Session").assertDoesNotExist()
-            onNodeWithText("Refreshing…").assertIsNotEnabled()
 
             val title = onNodeWithText("Device & Target").fetchSemanticsNode().boundsInRoot
             val deviceSelector = onNodeWithContentDescription("Device selector").fetchSemanticsNode().boundsInRoot
-            val refresh = onNodeWithText("Refreshing…").fetchSemanticsNode().boundsInRoot
+            val refresh = onNodeWithText("Refresh").fetchSemanticsNode().boundsInRoot
+            val getData = onNodeWithText("Get data").fetchSemanticsNode().boundsInRoot
             val capabilities = onNodeWithText("Capabilities").fetchSemanticsNode().boundsInRoot
             assertTrue(abs(title.center.y - deviceSelector.center.y) < SAME_ROW_TOLERANCE)
-            assertTrue(capabilities.left > refresh.right)
+            assertTrue(getData.left > refresh.right)
+            assertTrue(capabilities.left > getData.right)
 
             assertEquals(listOf("emulator-5554"), selectedDevices)
         }
 
     @Test
-    fun `target and continue actions remain wired`() =
+    @Suppress("LongMethod")
+    fun `cascaded target and capture actions remain wired`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             val packages = mutableListOf<String>()
             val processes = mutableListOf<Int>()
@@ -77,18 +79,45 @@ class DeviceTargetPageBehaviorTest {
             val templates = mutableListOf<SamplingTemplate>()
             var startCount = 0
             val thread = ThreadOption(pid = 42, tid = 43, name = "RenderThread")
+            val uiState = androidx.compose.runtime.mutableStateOf(readyState(thread))
             val actions =
                 deviceActions(
-                    onSelectPackage = packages::add,
-                    onSelectProcess = processes::add,
-                    onSelectThread = threads::add,
+                    onSelectPackage = { packageName ->
+                        packages += packageName
+                        uiState.value =
+                            uiState.value.copy(
+                                selectedPackageName = packageName,
+                                selectedTarget = CaptureTarget.App(packageName),
+                                threads = emptyList(),
+                            )
+                    },
+                    onSelectProcess = { pid ->
+                        processes += pid
+                        uiState.value =
+                            uiState.value.copy(
+                                selectedTarget = CaptureTarget.Process(pid, "com.example.second:worker"),
+                                threads = listOf(thread),
+                            )
+                    },
+                    onSelectThread = { selectedThread ->
+                        threads += selectedThread
+                        uiState.value =
+                            uiState.value.copy(
+                                selectedTarget =
+                                    CaptureTarget.Thread(
+                                        selectedThread.pid,
+                                        selectedThread.tid,
+                                        selectedThread.name,
+                                    ),
+                            )
+                    },
                     onSelectTemplate = templates::add,
                     onStartCapture = { startCount++ },
                 )
 
             setContent {
                 HomeScreen(
-                    state = readyState(thread),
+                    state = uiState.value,
                     captureState = CaptureState.Idle,
                     reportState = ReportState(),
                     actions = actions,
@@ -100,7 +129,14 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithContentDescription("App selector").performClick()
             onNodeWithText("com.example.second").performClick()
             onNodeWithContentDescription("Process selector").performClick()
-            onNodeWithText("example_process").performClick()
+            onNodeWithText("unrelated.process").assertDoesNotExist()
+            onNodeWithText("com.example.second:worker").performClick()
+            assertEquals(
+                "com.example.second",
+                onNodeWithContentDescription("App selector")
+                    .fetchSemanticsNode()
+                    .config[SemanticsProperties.StateDescription],
+            )
             onNodeWithContentDescription("Thread selector").performClick()
             onNodeWithText("RenderThread").performClick()
             onNodeWithText("Capabilities").performClick()
@@ -180,8 +216,14 @@ private fun readyState(thread: ThreadOption): DeviceTargetState {
                         PackageOption("com.example.demo"),
                         PackageOption("com.example.second"),
                     ),
-                processes = listOf(ProcessOption(42, "example_process", "u0_a123")),
+                processes =
+                    listOf(
+                        ProcessOption(40, "com.example.demo", "u0_a123"),
+                        ProcessOption(42, "com.example.second:worker", "u0_a124"),
+                        ProcessOption(44, "unrelated.process", "u0_a125"),
+                    ),
             ),
+        selectedPackageName = "com.example.demo",
         selectedTarget = CaptureTarget.App("com.example.demo"),
         captureSetup =
             com.androidperformancestudio.application.CaptureSetup(

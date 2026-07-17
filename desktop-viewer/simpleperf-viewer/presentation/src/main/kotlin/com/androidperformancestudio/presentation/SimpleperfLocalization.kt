@@ -145,7 +145,7 @@ private val CHINESE_PREFIXES =
 
 private val CHINESE_TEXT =
     mapOf(
-        "Device & Target" to "设备与目标",
+        "Device & Target" to "设备和目标",
         "Select an Android device and a profile target." to "选择 Android 设备和性能采集目标。",
         "Open Session" to "打开会话",
         "Refreshing…" to "刷新中…",
@@ -182,7 +182,7 @@ private val CHINESE_TEXT =
         "Events" to "事件",
         "Limits" to "限制",
         "Capture Configuration" to "采集配置",
-        "Back to Device & Target" to "返回设备与目标",
+        "Back to Device & Target" to "返回设备和目标",
         "Sampling template" to "采样模板",
         "Advanced parameters" to "高级参数",
         "Event" to "事件",

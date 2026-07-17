@@ -91,6 +91,7 @@ data class DeviceTargetState(
     val selectedSerial: String? = null,
     val selection: DeviceSelection? = null,
     val searchQuery: String = "",
+    val selectedPackageName: String? = null,
     val selectedTarget: CaptureTarget? = null,
     val captureSetup: CaptureSetup? = null,
     val threads: List<ThreadOption> = emptyList(),
@@ -99,6 +100,27 @@ data class DeviceTargetState(
 ) {
     val canEnterCapture: Boolean
         get() = selectedTarget != null && selection?.capabilities?.status != CapabilityStatus.BLOCKED
+
+    val selectedProcessId: Int?
+        get() =
+            when (val target = selectedTarget) {
+                is CaptureTarget.Process -> target.pid
+                is CaptureTarget.Thread -> target.pid
+                else -> null
+            }
+
+    val processesForSelectedPackage: List<ProcessOption>
+        get() =
+            selectedPackageName
+                ?.let { packageName ->
+                    selection
+                        ?.processes
+                        .orEmpty()
+                        .filter { it.belongsToPackage(packageName) }
+                }.orEmpty()
+
+    val threadsForSelectedProcess: List<ThreadOption>
+        get() = selectedProcessId?.let { pid -> threads.filter { it.pid == pid } }.orEmpty()
 
     val visiblePackages: List<PackageOption>
         get() =
@@ -171,6 +193,7 @@ class DeviceTargetController(
                     mutableState.value.copy(
                         selectedSerial = serial,
                         selection = result.value,
+                        selectedPackageName = null,
                         selectedTarget = null,
                         captureSetup = null,
                         threads = emptyList(),
@@ -185,8 +208,11 @@ class DeviceTargetController(
     }
 
     fun selectPackage(packageName: String) {
+        val packages = mutableState.value.selection?.packages ?: return
+        if (packages.none { it.packageName == packageName }) return
         val selected =
             mutableState.value.copy(
+                selectedPackageName = packageName,
                 selectedTarget = CaptureTarget.App(packageName),
                 captureSetup = null,
                 threads = emptyList(),
@@ -196,8 +222,10 @@ class DeviceTargetController(
 
     suspend fun selectProcess(pid: Int) {
         val current = mutableState.value
-        val serial = current.selectedSerial ?: return
-        val process = current.selection?.processes?.firstOrNull { it.pid == pid } ?: return
+        val serial = current.selectedSerial
+        val packageName = current.selectedPackageName
+        val process = current.processesForSelectedPackage.firstOrNull { it.pid == pid }
+        if (serial == null || packageName == null || process == null) return
         val selected =
             current.copy(
                 selectedTarget = CaptureTarget.Process(process.pid, process.name),
@@ -207,16 +235,22 @@ class DeviceTargetController(
                 error = null,
             )
         mutableState.value = selected.withDefaultCaptureSetup()
-        mutableState.value =
-            when (val result = gateway.loadThreads(serial, pid)) {
-                is StudioResult.Success -> mutableState.value.copy(threads = result.value, isLoading = false)
-                is StudioResult.Failure -> mutableState.value.copy(isLoading = false, error = result.error)
-            }
+        val result = gateway.loadThreads(serial, pid)
+        val latest = mutableState.value
+        if (latest.selectedPackageName == packageName && latest.selectedProcessId == pid) {
+            mutableState.value =
+                when (result) {
+                    is StudioResult.Success -> latest.copy(threads = result.value, isLoading = false)
+                    is StudioResult.Failure -> latest.copy(isLoading = false, error = result.error)
+                }
+        }
     }
 
     fun selectThread(thread: ThreadOption) {
+        val current = mutableState.value
+        if (current.selectedProcessId != thread.pid || thread !in current.threadsForSelectedProcess) return
         val selected =
-            mutableState.value.copy(
+            current.copy(
                 selectedTarget = CaptureTarget.Thread(thread.pid, thread.tid, thread.name),
                 captureSetup = null,
             )
@@ -287,7 +321,7 @@ private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): Ca
     if (selectedSerial == null) {
         return null
     }
-    return selectedTarget?.toSimpleperfTarget(selection)?.let { target ->
+    return selectedTarget?.toSimpleperfTarget(selectedPackageName)?.let { target ->
         CaptureSetup(
             template = template,
             parameters = template.create(target),
@@ -298,22 +332,14 @@ private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): Ca
 private fun DeviceTargetState.withDefaultCaptureSetup(): DeviceTargetState =
     copy(captureSetup = createCaptureSetup(SamplingTemplate.APP_CPU_BASIC))
 
-private fun CaptureTarget.toSimpleperfTarget(selection: DeviceSelection?): SimpleperfTarget =
+private fun CaptureTarget.toSimpleperfTarget(selectedPackageName: String?): SimpleperfTarget =
     when (this) {
         is CaptureTarget.App -> SimpleperfTarget.App(packageName)
-        is CaptureTarget.Process -> SimpleperfTarget.Process(pid, selection.findAppPackage(name))
-        is CaptureTarget.Thread ->
-            SimpleperfTarget.Thread(
-                tid,
-                selection.findAppPackage(selection?.processes?.firstOrNull { it.pid == pid }?.name),
-            )
+        is CaptureTarget.Process -> SimpleperfTarget.Process(pid, selectedPackageName)
+        is CaptureTarget.Thread -> SimpleperfTarget.Thread(tid, selectedPackageName)
     }
 
-private fun DeviceSelection?.findAppPackage(processName: String?): String? {
-    if (this == null || processName == null) return null
-    return packages
-        .asSequence()
-        .map(PackageOption::packageName)
-        .filter { processName == it || processName.startsWith("$it:") }
-        .maxByOrNull(String::length)
+private fun ProcessOption.belongsToPackage(packageName: String): Boolean {
+    if (name == packageName) return true
+    return name.startsWith("$packageName:")
 }
