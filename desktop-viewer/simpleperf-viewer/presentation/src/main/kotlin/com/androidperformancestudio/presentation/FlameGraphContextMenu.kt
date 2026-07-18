@@ -86,7 +86,7 @@ internal object FlameGraphContextCommands {
                     CallStackTransform.CollapseDirectRecursion(function),
                 )
             }
-            transform("Drop samples with this function", "d", CallStackTransform.DropFunction(function))
+            transform("Drop samples with this function", "D", CallStackTransform.DropFunction(function))
             add(FlameGraphContextEntry("Copy function name", null, FlameGraphContextCommand.Copy(frame.symbolName)))
             if (hasTransforms) {
                 add(FlameGraphContextEntry("Undo last transform", null, FlameGraphContextCommand.Undo))
@@ -153,7 +153,7 @@ private val TRANSFORM_SHORTCUTS =
         Shortcut(Key.S, true) to "S",
         Shortcut(Key.M, true) to "M",
         Shortcut(Key.M, false) to "m",
-        Shortcut(Key.D, false) to "d",
+        Shortcut(Key.D, true) to "D",
         Shortcut(Key.C, true) to "C",
         Shortcut(Key.C, false) to "c",
         Shortcut(Key.R, true) to "R",

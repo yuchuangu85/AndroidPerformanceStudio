@@ -14,6 +14,7 @@ data class FlameViewport(
     val scrollRow: Int,
     val rowHeightPx: Float = DEFAULT_FLAME_ROW_HEIGHT_PX,
     val overscanRows: Int = DEFAULT_FLAME_OVERSCAN_ROWS,
+    val horizontal: FlameHorizontalViewport = FlameHorizontalViewport(),
 ) {
     init {
         require(rowHeightPx.isFinite() && rowHeightPx > 0f) { "rowHeightPx must be finite and positive" }
@@ -258,16 +259,19 @@ private fun projectFiniteNode(
     val start = node.normalizedStart.coerceIn(0.0, 1.0)
     val end = node.normalizedEnd.coerceIn(0.0, 1.0)
     val canvasWidth = viewport.widthPx.coerceAtLeast(0)
-    val geometry = firefoxHorizontalGeometry(start, end, canvasWidth)
+    val geometry = firefoxHorizontalGeometry(start, end, canvasWidth, viewport.horizontal)
     return if (geometry == null) {
         null
     } else {
+        val visibleLeft = geometry.leftPx.coerceAtLeast(0f)
+        val visibleRight = geometry.rightPx.coerceAtMost(canvasWidth.toFloat())
+        if (visibleRight <= visibleLeft) return null
         VisibleFlameNode(
             nodeIndex = nodeIndex,
             nodeId = node.nodeId,
-            x = geometry.leftPx,
+            x = visibleLeft,
             y = y,
-            width = geometry.widthPx,
+            width = visibleRight - visibleLeft,
             height = viewport.rowHeightPx,
         )
     }
@@ -285,15 +289,22 @@ internal fun firefoxHorizontalGeometry(
     normalizedStart: Double,
     normalizedEnd: Double,
     canvasWidthPx: Int,
+    viewport: FlameHorizontalViewport = FlameHorizontalViewport(),
 ): FirefoxHorizontalGeometry? {
     if (!normalizedStart.isFinite() || !normalizedEnd.isFinite() || canvasWidthPx <= 0) return null
     val start = normalizedStart.coerceIn(0.0, 1.0)
     val end = normalizedEnd.coerceIn(0.0, 1.0)
-    val left = snapToDevicePixelMultiple(start * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX)
-    val right =
-        snapToDevicePixelMultiple(end * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX) -
-            FIREFOX_TRANSLUCENT_GAP_PX
-    return FirefoxHorizontalGeometry(left.toFloat(), right.toFloat()).takeIf { it.widthPx > 0f }
+    return if (end <= viewport.start || start >= viewport.end) {
+        null
+    } else {
+        val projectedStart = (start - viewport.start) / viewport.span
+        val projectedEnd = (end - viewport.start) / viewport.span
+        val left = snapToDevicePixelMultiple(projectedStart * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX)
+        val right =
+            snapToDevicePixelMultiple(projectedEnd * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX) -
+                FIREFOX_TRANSLUCENT_GAP_PX
+        FirefoxHorizontalGeometry(left.toFloat(), right.toFloat()).takeIf { it.widthPx > 0f }
+    }
 }
 
 internal fun snapFirefoxDevicePixel(value: Double): Int = floor(value + SNAP_HALF).toInt()

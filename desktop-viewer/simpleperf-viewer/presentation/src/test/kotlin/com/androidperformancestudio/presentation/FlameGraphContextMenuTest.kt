@@ -87,7 +87,7 @@ class FlameGraphContextMenuTest {
                 Key.S to true,
                 Key.M to true,
                 Key.M to false,
-                Key.D to false,
+                Key.D to true,
                 Key.C to true,
                 Key.R to false,
                 Key.R to true,

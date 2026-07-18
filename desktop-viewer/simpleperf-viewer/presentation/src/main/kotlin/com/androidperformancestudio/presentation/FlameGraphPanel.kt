@@ -43,6 +43,7 @@ import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameGraphCanvas
 import com.androidperformancestudio.visualization.FlameGraphLayout
+import com.androidperformancestudio.visualization.FlameHorizontalViewport
 import com.androidperformancestudio.visualization.FlameViewport
 import java.nio.file.Path
 import kotlin.math.roundToInt
@@ -59,6 +60,7 @@ internal fun FlameGraphPanel(
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
     var scrollRow by remember(snapshot) { mutableIntStateOf(0) }
+    var horizontalViewport by remember(snapshot) { mutableStateOf(FlameHorizontalViewport()) }
     var contextAnchor by remember(snapshot) { mutableStateOf<Offset?>(null) }
     val focusRequester = remember { FocusRequester() }
     val callStacksDescription = localizedSimpleperfText("Flame graph call stacks")
@@ -68,6 +70,7 @@ internal fun FlameGraphPanel(
             heightPx = heightPixels,
             scrollRow = scrollRow,
             rowHeightPx = style.rowHeightPx,
+            horizontal = horizontalViewport,
         )
     val clampedScrollRow = FlameGraphLayout.clampScrollRow(snapshot, requestedViewport)
     val viewport = requestedViewport.copy(scrollRow = clampedScrollRow)
@@ -142,6 +145,21 @@ internal fun FlameGraphPanel(
                             .semantics { contentDescription = callStacksDescription }
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
+                                val modifiersPressed =
+                                    event.isCtrlPressed ||
+                                        event.isMetaPressed ||
+                                        event.isAltPressed ||
+                                        event.isShiftPressed
+                                val horizontalAction =
+                                    FlameGraphKeyboardNavigation.horizontalActionFor(
+                                        key = event.key,
+                                        eventType = event.type,
+                                        modifiersPressed = modifiersPressed,
+                                    )
+                                if (horizontalAction != null) {
+                                    horizontalViewport = horizontalViewport.navigate(horizontalAction)
+                                    return@onPreviewKeyEvent true
+                                }
                                 val action =
                                     FlameGraphPresenter.keyAction(
                                         key = event.key,

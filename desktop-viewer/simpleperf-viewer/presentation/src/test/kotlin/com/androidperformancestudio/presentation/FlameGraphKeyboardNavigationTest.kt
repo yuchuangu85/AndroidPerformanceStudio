@@ -13,6 +13,7 @@ import com.androidperformancestudio.profileanalysis.FlameGraphRows
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.visualization.FlameViewport
+import com.androidperformancestudio.visualization.NavigationAction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -50,6 +51,16 @@ class FlameGraphKeyboardNavigationTest {
             FlameGraphNavigationCommand.PREVIOUS_SIBLING,
             command(Key.DirectionLeft, CallStackDirection.INVERTED),
         )
+    }
+
+    @Test
+    fun `wasd maps to horizontal viewport actions without modifiers`() {
+        assertEquals(NavigationAction.ZOOM_IN, keyboard.horizontalActionFor(Key.W, KeyEventType.KeyDown, false))
+        assertEquals(NavigationAction.ZOOM_OUT, keyboard.horizontalActionFor(Key.S, KeyEventType.KeyDown, false))
+        assertEquals(NavigationAction.PAN_LEFT, keyboard.horizontalActionFor(Key.A, KeyEventType.KeyDown, false))
+        assertEquals(NavigationAction.PAN_RIGHT, keyboard.horizontalActionFor(Key.D, KeyEventType.KeyDown, false))
+        assertNull(keyboard.horizontalActionFor(Key.W, KeyEventType.KeyUp, false))
+        assertNull(keyboard.horizontalActionFor(Key.D, KeyEventType.KeyDown, true))
     }
 
     @Test

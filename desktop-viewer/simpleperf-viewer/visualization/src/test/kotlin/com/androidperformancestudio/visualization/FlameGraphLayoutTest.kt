@@ -87,6 +87,28 @@ class FlameGraphLayoutTest {
     }
 
     @Test
+    fun `horizontal viewport expands visible geometry and omits offscreen nodes`() {
+        val viewport = FlameHorizontalViewport(0.25, 0.75)
+
+        val visible = requireNotNull(firefoxHorizontalGeometry(0.25, 0.5, 100, viewport))
+
+        assertEquals(0f, visible.leftPx)
+        assertEquals(49.2f, visible.rightPx, absoluteTolerance = 0.0001f)
+        assertNull(firefoxHorizontalGeometry(0.0, 0.2, 100, viewport))
+        assertNull(firefoxHorizontalGeometry(0.8, 1.0, 100, viewport))
+
+        val clipped =
+            FlameGraphLayout
+                .layout(
+                    snapshot(listOf(intArrayOf(0)), doubleArrayOf(0.0), doubleArrayOf(1.0), longArrayOf(1)),
+                    FlameViewport(widthPx = 100, heightPx = 16, scrollRow = 0, horizontal = viewport),
+                ).nodes
+                .single()
+        assertEquals(0f, clipped.x)
+        assertEquals(100f, clipped.width)
+    }
+
+    @Test
     fun `hit testing uses half open bounds and last painted node`() {
         val bottom = VisibleFlameNode(0, FlameCallNodeId(10), 0f, 0f, 20f, 20f)
         val top = VisibleFlameNode(1, FlameCallNodeId(20), 10f, 10f, 20f, 20f)

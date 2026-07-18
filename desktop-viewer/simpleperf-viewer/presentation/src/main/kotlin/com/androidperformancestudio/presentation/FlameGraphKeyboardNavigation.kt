@@ -8,8 +8,24 @@ import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.visualization.FlameGraphLayout
 import com.androidperformancestudio.visualization.FlameViewport
+import com.androidperformancestudio.visualization.NavigationAction
 
 internal object FlameGraphKeyboardNavigation {
+    fun horizontalActionFor(
+        key: Key,
+        eventType: KeyEventType,
+        modifiersPressed: Boolean,
+    ): NavigationAction? {
+        if (eventType != KeyEventType.KeyDown || modifiersPressed) return null
+        return when (key) {
+            Key.W -> NavigationAction.ZOOM_IN
+            Key.S -> NavigationAction.ZOOM_OUT
+            Key.A -> NavigationAction.PAN_LEFT
+            Key.D -> NavigationAction.PAN_RIGHT
+            else -> null
+        }
+    }
+
     fun commandFor(
         key: Key,
         eventType: KeyEventType,
