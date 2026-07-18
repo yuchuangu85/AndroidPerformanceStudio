@@ -27,6 +27,7 @@ fun AppHomePage(
     chinese: Boolean,
     onOpenLayoutInspector: () -> Unit,
     onOpenSimpleperf: () -> Unit,
+    onOpenPerfetto: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -75,6 +76,18 @@ fun AppHomePage(
                         },
                     actionLabel = if (chinese) "进入 CPU 分析" else "Open CPU Profiler",
                     onClick = onOpenSimpleperf,
+                    modifier = Modifier.weight(1f),
+                )
+                FeatureEntryCard(
+                    title = "Perfetto Trace Analyzer",
+                    description =
+                        if (chinese) {
+                            "在 Perfetto Web UI 中在线打开并分析 Trace 文件。"
+                        } else {
+                            "Open and analyze trace files online in the Perfetto Web UI."
+                        },
+                    actionLabel = if (chinese) "打开 Perfetto" else "Open Perfetto",
+                    onClick = onOpenPerfetto,
                     modifier = Modifier.weight(1f),
                 )
             }

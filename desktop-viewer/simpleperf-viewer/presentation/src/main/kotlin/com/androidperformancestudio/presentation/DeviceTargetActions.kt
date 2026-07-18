@@ -18,5 +18,4 @@ data class DeviceTargetActions(
     val onStartCapture: () -> Unit,
     val onStopCapture: () -> Unit,
     val onCancelCapture: () -> Unit,
-    val onOpenPerfetto: () -> Unit = {},
 )

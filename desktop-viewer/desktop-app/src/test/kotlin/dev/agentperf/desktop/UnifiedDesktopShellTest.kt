@@ -34,5 +34,7 @@ class UnifiedDesktopShellTest {
         assertFalse(home.contains("AppSettingsControls"))
         assertTrue(home.contains("Layout Inspector"))
         assertTrue(home.contains("Simpleperf CPU Profiler"))
+        assertTrue(home.contains("Perfetto Trace Analyzer"))
+        assertTrue(shell.contains("onOpenPerfetto"))
     }
 }

@@ -1,4 +1,4 @@
-package com.androidperformancestudio.desktop
+package dev.agentperf.desktop
 
 import java.awt.Desktop
 import java.net.URI

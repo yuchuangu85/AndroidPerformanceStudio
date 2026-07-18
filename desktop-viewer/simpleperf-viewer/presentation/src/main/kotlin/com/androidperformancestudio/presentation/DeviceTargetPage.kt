@@ -191,7 +191,6 @@ private fun RowScope.ToolbarContent(
     Spacer(Modifier.width(2.dp))
     ToolbarCaptureActions(state, actions, style, enabled, showGetData)
     CapabilityPopupButton(state.selection, style)
-    MacOsButton("Perfetto", actions.onOpenPerfetto, style)
     MacOsButton("Settings", onOpenSettings, style, enabled = enabled)
 }
 

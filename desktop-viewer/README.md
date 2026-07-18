@@ -29,8 +29,10 @@ Prerequisites:
 ./gradlew :desktop-app:run
 ```
 
-The root application opens on a two-entry home page. Selecting Layout Inspector or Simpleperf
-replaces the home page with that feature's original full-window interface.
+The root application opens on a three-entry home page. Selecting Layout Inspector or Simpleperf
+replaces the home page with that feature's original full-window interface. Selecting Perfetto opens
+`https://ui.perfetto.dev` in the system browser for online trace analysis while the desktop window
+stays open.
 Application-wide language (`System`, `简体中文`, `English`) and theme (`System`, `Light`, `Dark`)
 are available only from the operating system's application Settings/Preferences command; the
 home page and feature pages do not render language or theme controls. Feature settings stay inside

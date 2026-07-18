@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.FrameWindowScope
@@ -19,12 +20,16 @@ import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.desktop.SimpleperfWorkspace
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @Composable
 fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
     val navigator = remember { AppNavigator() }
     var showApplicationSettings by remember { mutableStateOf(false) }
     val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
+    val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
+    val coroutineScope = rememberCoroutineScope()
     var applicationSettings by remember { mutableStateOf(applicationSettingsStore.load()) }
     val updateApplicationSettings: (ApplicationUiSettings) -> Unit = { updated ->
         applicationSettings = updated
@@ -56,6 +61,11 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                         },
                         onOpenSimpleperf = {
                             navigator.open(AppDestination.SIMPLEPERF)
+                        },
+                        onOpenPerfetto = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                runCatching(externalAnalysisLauncher::openPerfetto)
+                            }
                         },
                     )
                 AppDestination.LAYOUT_INSPECTOR ->

@@ -1,12 +1,12 @@
-package com.androidperformancestudio.desktop
+package dev.agentperf.desktop
 
 import java.net.URI
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
 class ExternalAnalysisLauncherTest {
     @Test
-    fun `Perfetto option opens the online trace analyzer`() {
+    fun `Perfetto home option opens the online trace analyzer`() {
         val opened = mutableListOf<URI>()
 
         ExternalAnalysisLauncher(opened::add).openPerfetto()
