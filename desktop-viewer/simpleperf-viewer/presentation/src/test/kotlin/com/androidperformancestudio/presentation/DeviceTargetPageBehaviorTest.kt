@@ -61,7 +61,12 @@ class DeviceTargetPageBehaviorTest {
     fun `device and toolbar actions remain wired`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             val selectedDevices = mutableListOf<String>()
-            val actions = deviceActions(onSelectDevice = selectedDevices::add)
+            var perfettoOpenCount = 0
+            val actions =
+                deviceActions(
+                    onSelectDevice = selectedDevices::add,
+                    onOpenPerfetto = { perfettoOpenCount++ },
+                )
 
             setContent {
                 HomeScreen(
@@ -92,16 +97,20 @@ class DeviceTargetPageBehaviorTest {
             val refresh = onNodeWithText("Refresh").fetchSemanticsNode().boundsInRoot
             val getData = onNodeWithText("Get data").fetchSemanticsNode().boundsInRoot
             val capabilities = onNodeWithText("Capabilities").fetchSemanticsNode().boundsInRoot
+            val perfetto = onNodeWithText("Perfetto").fetchSemanticsNode().boundsInRoot
             val settings = onNodeWithText("Settings").fetchSemanticsNode().boundsInRoot
             assertTrue(deviceSelector.left < TOOLBAR_LEFT_ALIGNMENT_LIMIT)
             assertTrue(deviceSelector.width < appSelector.width)
             assertTrue(getData.left > refresh.right)
             assertTrue(capabilities.left > getData.right)
-            assertTrue(settings.left > capabilities.right)
+            assertTrue(perfetto.left > capabilities.right)
+            assertTrue(settings.left > perfetto.right)
+            onNodeWithText("Perfetto").performClick()
             onNodeWithText("Settings").performClick()
             onNodeWithContentDescription("Capture settings: Sampling template").assertExists()
 
             assertEquals(listOf("emulator-5554"), selectedDevices)
+            assertEquals(1, perfettoOpenCount)
         }
 
     @Test
@@ -289,6 +298,7 @@ private fun deviceActions(
     onStartCapture: () -> Unit = {},
     onStopCapture: () -> Unit = {},
     onCancelCapture: () -> Unit = {},
+    onOpenPerfetto: () -> Unit = {},
 ) = DeviceTargetActions(
     onRefresh = {},
     onSelectDevice = onSelectDevice,
@@ -303,6 +313,7 @@ private fun deviceActions(
     onStartCapture = onStartCapture,
     onStopCapture = onStopCapture,
     onCancelCapture = onCancelCapture,
+    onOpenPerfetto = onOpenPerfetto,
 )
 
 private const val TOOLBAR_LEFT_ALIGNMENT_LIMIT = 20f

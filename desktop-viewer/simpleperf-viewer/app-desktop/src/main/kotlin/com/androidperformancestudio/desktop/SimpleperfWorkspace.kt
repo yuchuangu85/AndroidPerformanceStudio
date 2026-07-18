@@ -66,7 +66,13 @@ fun FrameWindowScope.SimpleperfWorkspace(
     val sessionPackages = remember { SessionPackageService() }
     val reportExports = remember { ReportExportService() }
     val offlineImporter = remember { createOfflineImporter() }
-    val firefoxProfilerLauncher = remember { FirefoxProfilerLauncher() }
+    val workspaceLaunchers =
+        remember {
+            WorkspaceLaunchers(
+                firefoxProfiler = FirefoxProfilerLauncher(),
+                externalAnalysis = ExternalAnalysisLauncher(),
+            )
+        }
     val state by controller.state.collectAsState()
     val captureState by controller.captureState.collectAsState()
     val reportState by reportController.state.collectAsState()
@@ -104,7 +110,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
                 reportController,
                 offlineImporter,
                 currentSettings.simpleperfEngine,
-                firefoxProfilerLauncher,
+                workspaceLaunchers,
             ),
         reportActions = reportActions,
         darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
@@ -175,7 +181,7 @@ private fun DeviceTargetController.deviceActions(
     reportController: ReportController,
     offlineImporter: OfflineProfileImporter,
     simpleperfEngine: SimpleperfEngine,
-    firefoxProfilerLauncher: FirefoxProfilerLauncher,
+    launchers: WorkspaceLaunchers,
 ): DeviceTargetActions =
     DeviceTargetActions(
         onRefresh = { scope.launch { refreshDevices() } },
@@ -199,7 +205,7 @@ private fun DeviceTargetController.deviceActions(
                                         reportController.openSession(imported.value.sessionDirectory)
                                     SimpleperfEngine.FIREFOX_PROFILER ->
                                         try {
-                                            firefoxProfilerLauncher.open(imported.value.sessionDirectory)
+                                            launchers.firefoxProfiler.open(imported.value.sessionDirectory)
                                         } catch (exception: FirefoxProfilerLaunchException) {
                                             reportController.showFailure(
                                                 captured.sessionDirectory,
@@ -221,7 +227,17 @@ private fun DeviceTargetController.deviceActions(
         },
         onStopCapture = { scope.launch { stopCapture() } },
         onCancelCapture = cancelCapture,
+        onOpenPerfetto = {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                launchers.externalAnalysis.openPerfetto()
+            }
+        },
     )
+
+private data class WorkspaceLaunchers(
+    val firefoxProfiler: FirefoxProfilerLauncher,
+    val externalAnalysis: ExternalAnalysisLauncher,
+)
 
 private data class WorkspaceDependencies(
     val deviceGateway: DeviceTargetGateway,
