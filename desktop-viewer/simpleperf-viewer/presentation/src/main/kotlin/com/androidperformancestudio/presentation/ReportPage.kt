@@ -425,6 +425,7 @@ private fun CallTreeReport(
     }
     val listState = rememberLazyListState()
     val selectedNodeId = state.flameGraph.selectedNodeId
+    var lastAutoPositionedNodeId by remember(report.callTree) { mutableStateOf<FlameCallNodeId?>(null) }
     val childrenByParent = remember(report.callTree) { report.callTree.groupBy(CallTreeNode::parentId) }
     LaunchedEffect(report.callTree) {
         if (selectedNodeId == null) {
@@ -443,8 +444,12 @@ private fun CallTreeReport(
     }
     val visible = remember(report.callTree, expandedIds) { report.callTree.visibleNodes(expandedIds) }
     LaunchedEffect(visible, selectedNodeId) {
-        visible.selectedNodeIndex(selectedNodeId).takeIf { index -> index >= 0 }?.let { index ->
-            listState.animateScrollToItem(index)
+        if (selectedNodeId != null && selectedNodeId != lastAutoPositionedNodeId) {
+            visible.selectedNodeIndex(selectedNodeId).takeIf { index -> index >= 0 }?.let { index ->
+                val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { item -> item.key == selectedNodeId.value }
+                if (!alreadyVisible) listState.animateScrollToItem(index)
+                lastAutoPositionedNodeId = selectedNodeId
+            }
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -5,11 +5,13 @@ package com.androidperformancestudio.presentation
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.ReportArtifact
@@ -36,6 +38,7 @@ import com.androidperformancestudio.storage.TopFunction
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class ReportWorkspaceBehaviorTest {
@@ -121,6 +124,29 @@ class ReportWorkspaceBehaviorTest {
     }
 
     @Test
+    fun `expanding a visible call tree row keeps its viewport position`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            setContent {
+                ReportPage(
+                    state = scrollingCallTreeState(),
+                    actions = goldenActions(),
+                )
+            }
+
+            onNode(hasScrollAction()).performScrollToIndex(71)
+            waitForIdle()
+            val target = onNodeWithText("root-70")
+            val before = target.fetchSemanticsNode().boundsInRoot.top
+
+            onNodeWithContentDescription("Expand root-70").performClick()
+            waitForIdle()
+
+            onNodeWithText("child-70").assertExists()
+            val after = onNodeWithText("root-70").fetchSemanticsNode().boundsInRoot.top
+            assertTrue(kotlin.math.abs(after - before) <= 1f, "expanded row moved from $before to $after")
+        }
+
+    @Test
     fun `Firefox timeline exposes aligned process and thread tracks with selection and range commit`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             var selectedThreads = emptySet<Int>()
@@ -154,6 +180,26 @@ class ReportWorkspaceBehaviorTest {
             }
             assertEquals(true, committedRange?.let { (start, end) -> start != null && end != null && start < end })
         }
+}
+
+private fun scrollingCallTreeState(): ReportState {
+    val base = sampleReportState(ReportTab.CALL_TREE)
+    val nodes =
+        buildList {
+            repeat(90) { index ->
+                val rootId = index * 2L + 1L
+                val childId = rootId + 1L
+                val weight = 10_000L - index
+                add(CallTreeNode(rootId, null, 0, "root-$index", "/lib/root-$index.so", weight, 1, 1, 1))
+                add(CallTreeNode(childId, rootId, 1, "child-$index", "/lib/child-$index.so", weight, weight, 1, 1))
+            }
+        }
+    val report = base.lastReadyReport!!.copy(callTree = nodes)
+    return base.copy(
+        loadState = ReportLoadState.Ready(report),
+        lastReadyReport = report,
+        flameGraph = base.flameGraph.copy(selectedNodeId = FlameCallNodeId(1)),
+    )
 }
 
 internal fun sampleReportState(selectedTab: ReportTab = ReportTab.OVERVIEW): ReportState {
