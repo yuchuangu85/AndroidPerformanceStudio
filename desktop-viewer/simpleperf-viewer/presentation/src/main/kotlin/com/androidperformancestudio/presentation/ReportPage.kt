@@ -63,7 +63,6 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.PanelProjection
@@ -241,12 +240,11 @@ internal fun ReportSelectedPanel(
     flameTooltipMode: FlameTooltipMode,
 ) {
     when (state.selectedTab) {
-        ReportTab.OVERVIEW -> OverviewReport(report, actions, style)
-        ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions, style)
-        ReportTab.CALL_TREE -> CallTreeReport(state, report, actions, style)
+        ReportTab.OVERVIEW -> OverviewPanel(report, actions, style)
+        ReportTab.TOP_FUNCTIONS -> TopFunctionsPanel(state, report, actions, style)
+        ReportTab.CALL_TREE -> CallTreePanel(state, report, actions, style)
         ReportTab.FLAME_GRAPH ->
             FlameGraphPanel(
-                sessionIdentity = report.session.directory,
                 state = state.flameGraph,
                 query = state.callStackQuery,
                 selectedNodeId = state.workspace.selections.callNodeId,
@@ -317,7 +315,7 @@ private fun ReportPanelPlaceholder(
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun OverviewReport(
+internal fun OverviewReport(
     report: ReportData,
     actions: ReportActions,
     style: MacOsDeviceTargetStyle,
@@ -381,6 +379,14 @@ private fun OverviewReport(
                 fontSize = 10.sp,
             )
         }
+        item { SectionTitle("Diagnostics", style) }
+        if (report.diagnostics.isEmpty()) {
+            item { Text("No diagnostic findings.", color = style.secondaryText, fontSize = 10.sp) }
+        } else {
+            items(report.diagnostics, key = { it.ruleId }) { finding ->
+                DiagnosticCard(finding, actions, style)
+            }
+        }
     }
 }
 
@@ -400,21 +406,13 @@ private fun MetricCard(
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
-private fun TopFunctionsReport(
+internal fun TopFunctionsReport(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
     style: MacOsDeviceTargetStyle,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        MacOsTextField(
-            label = "Search function or library",
-            value = state.callStackQuery.searchText,
-            enabled = true,
-            onValueChange = actions.onFlameSearch,
-            style = style,
-            modifier = Modifier.fillMaxWidth(),
-        )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TopFunctionSort.entries.forEach { sort ->
                 MacOsChoiceChip(
@@ -487,7 +485,7 @@ private fun TopFunctionRow(
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
-private fun CallTreeReport(
+internal fun CallTreeReport(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
@@ -527,29 +525,6 @@ private fun CallTreeReport(
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CallStackDirection.entries.forEach { direction ->
-                MacOsChoiceChip(
-                    label = if (direction == CallStackDirection.FORWARD) "Call Tree" else "Reverse Call Tree",
-                    selected = state.callTreeDirection == direction,
-                    enabled = true,
-                    style = style,
-                ) { actions.onCallTreeDirection(direction) }
-            }
-            Spacer(Modifier.weight(1f))
-            MacOsInlineTextField(
-                label = "Find function in call paths",
-                value = state.callStackQuery.searchText,
-                enabled = true,
-                onValueChange = actions.onFlameSearch,
-                style = style,
-                fieldWidth = CALL_TREE_SEARCH_FIELD_WIDTH,
-            )
-        }
         Column(
             Modifier
                 .fillMaxWidth()
@@ -806,20 +781,6 @@ private fun List<CallTreeNode>.expandedPathIds(search: String): Set<Long> {
 }
 
 @Composable
-@Suppress("FunctionName", "UnusedPrivateMember", "ktlint:standard:function-naming")
-private fun DiagnosticsReport(
-    report: ReportData,
-    actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
-) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(report.diagnostics, key = { it.ruleId }) { finding ->
-            DiagnosticCard(finding, actions, style)
-        }
-    }
-}
-
-@Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun DiagnosticCard(
     finding: DiagnosticFinding,
@@ -991,7 +952,6 @@ private val FIREFOX_TOTAL_COLUMN_WIDTH = 70.dp
 private val FIREFOX_SELF_COLUMN_WIDTH = 80.dp
 private val FIREFOX_ICON_COLUMN_WIDTH = 20.dp
 private val FIREFOX_TOGGLE_COLUMN_WIDTH = 18.dp
-private val CALL_TREE_SEARCH_FIELD_WIDTH = 160.dp
 private const val FIREFOX_CALL_TREE_INDENT = 10
 private const val FIREFOX_INITIAL_EXPANSION_DEPTH = 18
 

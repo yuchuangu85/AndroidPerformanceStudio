@@ -24,7 +24,6 @@ import com.androidperformancestudio.application.FlameGraphPanelState
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.visualization.FlameGraphLayout
 import com.androidperformancestudio.visualization.FlameViewport
-import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -42,7 +41,6 @@ class FlameGraphComposeUiTest {
             setContent {
                 MaterialTheme {
                     FlameGraphPanel(
-                        sessionIdentity = Path.of("tooltip-hover"),
                         state = panelState,
                         snapshot = accessibilitySnapshot(),
                         actions = actions,
@@ -74,7 +72,6 @@ class FlameGraphComposeUiTest {
             setContent {
                 MaterialTheme {
                     FlameGraphPanel(
-                        sessionIdentity = Path.of("keyboard-navigation"),
                         state = FlameGraphPanelState(),
                         snapshot = accessibilitySnapshot(),
                         actions = goldenActions(),

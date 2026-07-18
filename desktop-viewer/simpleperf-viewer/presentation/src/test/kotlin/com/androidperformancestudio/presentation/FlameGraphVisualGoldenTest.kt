@@ -48,7 +48,6 @@ class FlameGraphVisualGoldenTest {
             ) {
                 Box(Modifier.fillMaxSize().testTag(GOLDEN_TAG)) {
                     FlameGraphPanel(
-                        sessionIdentity = Path.of("firefox-compatibility-fixture"),
                         state = FlameGraphPanelState(),
                         snapshot = accessibilitySnapshot(),
                         actions = goldenActions(),

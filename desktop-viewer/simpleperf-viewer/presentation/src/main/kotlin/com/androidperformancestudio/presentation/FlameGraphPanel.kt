@@ -51,7 +51,6 @@ import com.androidperformancestudio.visualization.FlameGraphCanvas
 import com.androidperformancestudio.visualization.FlameGraphLayout
 import com.androidperformancestudio.visualization.FlameHorizontalViewport
 import com.androidperformancestudio.visualization.FlameViewport
-import java.nio.file.Path
 import kotlin.math.roundToInt
 
 @Composable
@@ -63,7 +62,6 @@ import kotlin.math.roundToInt
     "ktlint:standard:function-naming",
 )
 internal fun FlameGraphPanel(
-    sessionIdentity: Path,
     state: FlameGraphPanelState,
     query: CallStackAnalysisQuery = CallStackAnalysisQuery(),
     selectedNodeId: FlameCallNodeId? = null,
@@ -106,19 +104,6 @@ internal fun FlameGraphPanel(
     LaunchedEffect(focusRequester) { focusRequester.requestFocus() }
 
     Column(modifier = Modifier.fillMaxSize().background(style.panelSurface.toComposeColor())) {
-        FirefoxFlameGraphToolbar(
-            sessionIdentity = sessionIdentity,
-            authoritativeSearch = query.searchText,
-            implementation = query.implementation,
-            direction = query.direction,
-            style = style,
-            hasTransforms = query.transforms.isNotEmpty(),
-            onSearch = actions.onFlameSearch,
-            onImplementation = actions.onFlameImplementation,
-            onDirection = actions.onCallTreeDirection,
-            onUndo = actions.onUndoFlameTransform,
-            onClear = actions.onClearFlameTransforms,
-        )
         FirefoxTransformNavigator(
             transforms = query.transforms,
             style = style,

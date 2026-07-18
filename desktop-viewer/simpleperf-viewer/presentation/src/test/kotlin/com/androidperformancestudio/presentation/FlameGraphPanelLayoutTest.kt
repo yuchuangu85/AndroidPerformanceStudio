@@ -25,7 +25,6 @@ import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameTheme
-import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -38,7 +37,6 @@ class FlameGraphPanelLayoutTest {
             setContent {
                 MaterialTheme {
                     FlameGraphPanel(
-                        sessionIdentity = Path.of("fixture"),
                         state = FlameGraphPanelState(),
                         snapshot = accessibilitySnapshot(),
                         actions = noOpReportActions(),
@@ -101,19 +99,15 @@ class FlameGraphPanelLayoutTest {
                 }
             }
 
-            val canvasBounds =
-                onNodeWithContentDescription("Flame graph call stacks")
-                    .fetchSemanticsNode()
-                    .boundsInRoot
             val footerBounds =
                 onNodeWithText(ReportController.WEIGHT_SEMANTICS)
                     .fetchSemanticsNode()
                     .boundsInRoot
 
-            val footerHeight = footerBounds.bottom - canvasBounds.bottom
+            val footerHeight = footerBounds.height
             assertTrue(
                 footerHeight <= 24f,
-                "Footer still reserves $footerHeight px: canvas=$canvasBounds footer=$footerBounds",
+                "Footer still reserves $footerHeight px: footer=$footerBounds",
             )
         }
 }
