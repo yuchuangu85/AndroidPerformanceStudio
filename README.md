@@ -12,6 +12,10 @@ Android 布局复杂度检测工具的多形态仓库。
 
 总体规划参见 [`docs/layout-complexity-inspector-three-solutions-plan.md`](docs/layout-complexity-inspector-three-solutions-plan.md)。
 
+Firefox Profiler 通过固定提交的 Git Submodule 存放在
+[`third_party/firefox-profiler`](third_party/firefox-profiler)，独立构建说明见
+[`third_party/README.md`](third_party/README.md)。
+
 ## 当前工程边界
 
 现有代码只实现 **Desktop 方案**。Desktop 工程按功能收拢代码：Layout Inspector 位于

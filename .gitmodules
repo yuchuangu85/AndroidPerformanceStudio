@@ -1,0 +1,4 @@
+[submodule "third_party/firefox-profiler"]
+	path = third_party/firefox-profiler
+	url = https://github.com/firefox-devtools/profiler.git
+	shallow = true

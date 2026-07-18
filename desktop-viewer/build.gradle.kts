@@ -16,6 +16,38 @@ allprojects {
 }
 
 val simpleperfBuild = gradle.includedBuild("simpleperf-viewer")
+val repositoryRoot = layout.projectDirectory.dir("..")
+val firefoxProfilerScript = repositoryRoot.file("scripts/firefox-profiler.sh")
+
+tasks.register<Exec>("firefoxProfilerInit") {
+    group = "firefox profiler"
+    description = "Initializes the pinned Firefox Profiler Git submodule."
+    workingDir(repositoryRoot)
+    commandLine(firefoxProfilerScript.asFile.absolutePath, "init")
+}
+
+tasks.register<Exec>("firefoxProfilerVerify") {
+    group = "verification"
+    description = "Verifies the Firefox Profiler revision and Node/Yarn toolchain."
+    workingDir(repositoryRoot)
+    commandLine(firefoxProfilerScript.asFile.absolutePath, "verify")
+}
+
+tasks.register<Exec>("firefoxProfilerInstall") {
+    group = "firefox profiler"
+    description = "Installs Firefox Profiler dependencies using the pinned yarn.lock."
+    dependsOn("firefoxProfilerInit")
+    workingDir(repositoryRoot)
+    commandLine(firefoxProfilerScript.asFile.absolutePath, "install")
+}
+
+tasks.register<Exec>("firefoxProfilerBuild") {
+    group = "firefox profiler"
+    description = "Builds Firefox Profiler production static assets."
+    dependsOn("firefoxProfilerInstall")
+    workingDir(repositoryRoot)
+    commandLine(firefoxProfilerScript.asFile.absolutePath, "build")
+}
 
 tasks.register("simpleperfRun") {
     group = "application"
