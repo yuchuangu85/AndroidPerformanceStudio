@@ -110,7 +110,7 @@ class ReportWorkspaceBehaviorTest {
 
             onNodeWithContentDescription("Stack chart").performClick()
             onNodeWithContentDescription("Stack chart").assertIsSelected()
-            onNodeWithTag("stack-chart-placeholder").assertExists()
+            onNodeWithTag("stack-chart-panel").assertExists()
 
             onNodeWithContentDescription("Top functions").performClick()
 

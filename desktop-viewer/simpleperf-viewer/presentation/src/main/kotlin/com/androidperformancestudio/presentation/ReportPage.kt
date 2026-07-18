@@ -252,29 +252,10 @@ internal fun ReportSelectedPanel(
                 actions = actions,
                 tooltipMode = flameTooltipMode,
             )
-        ReportTab.STACK_CHART -> StackChartPlaceholder(report, style)
+        ReportTab.STACK_CHART -> StackChartPanel(state, report.stackChart, actions, style)
         ReportTab.MARKER_CHART -> MarkerPlaceholder(report, chart = true, style = style)
         ReportTab.MARKER_TABLE -> MarkerPlaceholder(report, chart = false, style = style)
     }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun StackChartPlaceholder(
-    report: ReportData,
-    style: MacOsDeviceTargetStyle,
-) {
-    val message =
-        when (val projection = report.stackChart) {
-            is PanelProjection.Failed -> "${projection.code}: ${projection.message}"
-            is PanelProjection.Ready ->
-                if (projection.value.blocks.isEmpty()) {
-                    "No stack blocks are available for the current analysis filters."
-                } else {
-                    "${projection.value.blocks.size} stack blocks are ready. Interactive rendering is coming next."
-                }
-        }
-    ReportPanelPlaceholder("Stack Chart", message, "stack-chart-placeholder", style)
 }
 
 @Composable
