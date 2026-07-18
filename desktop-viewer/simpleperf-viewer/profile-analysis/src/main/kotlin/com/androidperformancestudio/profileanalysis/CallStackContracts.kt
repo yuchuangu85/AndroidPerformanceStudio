@@ -43,10 +43,8 @@ enum class FrameImplementation {
 
 enum class ImplementationFilter {
     ALL,
+    SCRIPT,
     NATIVE,
-    MANAGED,
-    KERNEL,
-    UNKNOWN,
 }
 
 data class CallStackFrame(

@@ -2,6 +2,7 @@ package com.androidperformancestudio.profileanalysis
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -22,7 +23,7 @@ class CallStackFilterTest {
                 CallStackAnalysisQuery(
                     previewRange = AnalysisTimeRange(10, 20),
                     searchText = "libc",
-                    implementation = ImplementationFilter.MANAGED,
+                    implementation = ImplementationFilter.SCRIPT,
                 ),
             )
 
@@ -95,7 +96,7 @@ class CallStackFilterTest {
         val result =
             CallStackFilter.apply(
                 fixture.table,
-                CallStackAnalysisQuery(implementation = ImplementationFilter.MANAGED),
+                CallStackAnalysisQuery(implementation = ImplementationFilter.SCRIPT),
             )
 
         assertEquals(listOf(listOf("managedTick")), result.table.stackSymbols())
@@ -150,29 +151,31 @@ class CallStackFilterTest {
     }
 
     @Test
-    fun `implementation filters distinguish native managed kernel and unknown frames`() {
-        val frames =
-            FrameImplementation.entries
-                .mapIndexed { index, implementation ->
-                    frame(index.toLong(), implementation.name, "mixed", implementation)
-                }.associateBy(CallStackFrame::frameId)
-        val stack = stack(1, 10, frames.keys.toList())
-        val table = CallStackTable(frames, listOf(stack))
+    fun `script retains only managed frames`() {
+        val filtered = CallStackFilter.apply(mixedImplementationTable(), query(ImplementationFilter.SCRIPT))
 
-        val expectedByFilter =
-            mapOf(
-                ImplementationFilter.NATIVE to FrameImplementation.NATIVE,
-                ImplementationFilter.MANAGED to FrameImplementation.MANAGED,
-                ImplementationFilter.KERNEL to FrameImplementation.KERNEL,
-                ImplementationFilter.UNKNOWN to FrameImplementation.UNKNOWN,
-            )
+        assertEquals(listOf(FrameImplementation.MANAGED), filtered.implementations())
+    }
 
-        expectedByFilter.forEach { (filter, expected) ->
-            val result = CallStackFilter.apply(table, CallStackAnalysisQuery(implementation = filter))
+    @Test
+    fun `native retains native and kernel frames`() {
+        val filtered = CallStackFilter.apply(mixedImplementationTable(), query(ImplementationFilter.NATIVE))
 
-            assertEquals(listOf(listOf(expected.name)), result.table.stackSymbols())
-            assertEquals(1, result.afterImplementationCount)
-        }
+        assertEquals(
+            setOf(FrameImplementation.NATIVE, FrameImplementation.KERNEL),
+            filtered.implementations().toSet(),
+        )
+    }
+
+    @Test
+    fun `unknown frames are visible only under all frames`() {
+        assertTrue(CallStackFilter.apply(mixedImplementationTable(), query(ImplementationFilter.ALL)).hasUnknownFrame())
+        assertFalse(
+            CallStackFilter.apply(mixedImplementationTable(), query(ImplementationFilter.SCRIPT)).hasUnknownFrame(),
+        )
+        assertFalse(
+            CallStackFilter.apply(mixedImplementationTable(), query(ImplementationFilter.NATIVE)).hasUnknownFrame(),
+        )
     }
 
     @Test
@@ -215,7 +218,7 @@ class CallStackFilterTest {
                 CallStackAnalysisQuery(
                     previewRange = AnalysisTimeRange(0, 100),
                     searchText = "render",
-                    implementation = ImplementationFilter.KERNEL,
+                    implementation = ImplementationFilter.NATIVE,
                 ),
             )
 
@@ -238,7 +241,7 @@ class CallStackFilterTest {
                 CallStackAnalysisQuery(
                     previewRange = AnalysisTimeRange(0, 100),
                     searchText = "managed",
-                    implementation = ImplementationFilter.MANAGED,
+                    implementation = ImplementationFilter.SCRIPT,
                 ),
             )
 
@@ -250,6 +253,35 @@ class CallStackFilterTest {
 
     private fun CallStackTable.stackSymbols(): List<List<String>> =
         stacks.map { stack -> stack.frameIdsRootToLeaf.map { frame(it).symbolName } }
+
+    private fun mixedImplementationTable(): CallStackTable {
+        val frames =
+            FrameImplementation.entries
+                .mapIndexed { index, implementation ->
+                    frame(index.toLong(), implementation.name, "mixed", implementation)
+                }.associateBy(CallStackFrame::frameId)
+        return tableOf(stack(1, 10, frames.keys.toList()), frames = frames)
+    }
+
+    private fun query(filter: ImplementationFilter) = CallStackAnalysisQuery(implementation = filter)
+
+    private fun FilteredCallStacks.implementations(): List<FrameImplementation> =
+        table.stacks
+            .single()
+            .frameIdsRootToLeaf
+            .map { table.frame(it).implementation }
+
+    private fun FilteredCallStacks.hasUnknownFrame(): Boolean =
+        table.stacks.any { stack ->
+            stack.frameIdsRootToLeaf.any { frameId ->
+                table.frame(frameId).implementation == FrameImplementation.UNKNOWN
+            }
+        }
+
+    private fun tableOf(
+        vararg stacks: WeightedCallStack,
+        frames: Map<Long, CallStackFrame>,
+    ): CallStackTable = CallStackTable(frames, stacks.toList())
 
     private fun fixture(): Fixture {
         val frames =

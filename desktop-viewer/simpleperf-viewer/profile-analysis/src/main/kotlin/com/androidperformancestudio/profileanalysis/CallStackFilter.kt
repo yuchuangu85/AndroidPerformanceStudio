@@ -89,10 +89,8 @@ object CallStackFilter {
     private fun FrameImplementation.matches(filter: ImplementationFilter): Boolean =
         when (filter) {
             ImplementationFilter.ALL -> true
-            ImplementationFilter.NATIVE -> this == FrameImplementation.NATIVE
-            ImplementationFilter.MANAGED -> this == FrameImplementation.MANAGED
-            ImplementationFilter.KERNEL -> this == FrameImplementation.KERNEL
-            ImplementationFilter.UNKNOWN -> this == FrameImplementation.UNKNOWN
+            ImplementationFilter.SCRIPT -> this == FrameImplementation.MANAGED
+            ImplementationFilter.NATIVE -> this == FrameImplementation.NATIVE || this == FrameImplementation.KERNEL
         }
 
     private fun CallStackTable.withStacks(filteredStacks: List<WeightedCallStack>): CallStackTable =

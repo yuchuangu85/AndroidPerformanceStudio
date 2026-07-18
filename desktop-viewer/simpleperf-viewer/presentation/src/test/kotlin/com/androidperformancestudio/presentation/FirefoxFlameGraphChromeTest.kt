@@ -128,13 +128,18 @@ class FirefoxFlameGraphChromeTest {
 
             onNodeWithText("Forward").assertIsSelected()
             assertEquals(24f, onNodeWithText("Forward").fetchSemanticsNode().boundsInRoot.height)
+            onNodeWithText("All Frames").assertIsSelected()
+            onNodeWithText("Native").fetchSemanticsNode()
+            onNodeWithText("Managed").assertDoesNotExist()
+            onNodeWithText("Kernel").assertDoesNotExist()
+            onNodeWithText("Unknown").assertDoesNotExist()
             onNodeWithText("Inverted").performClick()
-            onNodeWithText("Managed").performClick()
+            onNodeWithText("Script").performClick()
             onNodeWithText("Undo").performClick()
             onNodeWithText("Clear").performClick()
 
             assertEquals(CallStackDirection.INVERTED, direction)
-            assertEquals(ImplementationFilter.MANAGED, implementation)
+            assertEquals(ImplementationFilter.SCRIPT, implementation)
             assertEquals(1, undoCount)
             assertEquals(1, clearCount)
         }

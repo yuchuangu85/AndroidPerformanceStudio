@@ -290,11 +290,9 @@ private fun CallStackDirection.displayName(): String =
 
 private fun ImplementationFilter.displayName(): String =
     when (this) {
-        ImplementationFilter.ALL -> "All"
+        ImplementationFilter.ALL -> "All Frames"
+        ImplementationFilter.SCRIPT -> "Script"
         ImplementationFilter.NATIVE -> "Native"
-        ImplementationFilter.MANAGED -> "Managed"
-        ImplementationFilter.KERNEL -> "Kernel"
-        ImplementationFilter.UNKNOWN -> "Unknown"
     }
 
 private const val SEARCH_DEBOUNCE_MILLIS = 150L
