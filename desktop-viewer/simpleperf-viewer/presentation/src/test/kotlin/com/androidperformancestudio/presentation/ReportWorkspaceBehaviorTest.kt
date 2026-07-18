@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -32,6 +31,7 @@ import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.DataQualitySummary
+import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.storage.ProfileOverview
 import com.androidperformancestudio.storage.ThreadSummary
 import com.androidperformancestudio.storage.ThreadTimelineTrack
@@ -82,7 +82,7 @@ class ReportWorkspaceBehaviorTest {
         }
 
     @Test
-    fun `report stays inside device workspace and left navigation switches the right result`() =
+    fun `report stays inside device workspace and navigation exposes honest pending panels`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             val reportState = mutableStateOf(sampleReportState())
             val reportActions =
@@ -106,13 +106,11 @@ class ReportWorkspaceBehaviorTest {
             onNodeWithText("sessions/gallery-capture").assertExists()
             onNodeWithContentDescription("Overview").assertIsSelected()
             onNodeWithText("Top threads").assertExists()
-            onNodeWithText("Timeline").assertDoesNotExist()
+            onNodeWithTag("report-timeline").assertExists()
 
-            onNodeWithContentDescription("Timeline").performMouseInput { moveTo(center) }
-            waitUntil(timeoutMillis = 2_000) {
-                onAllNodesWithText("Timeline").fetchSemanticsNodes().isNotEmpty()
-            }
-            onNodeWithText("Timeline").assertExists()
+            onNodeWithContentDescription("Stack chart").performClick()
+            onNodeWithContentDescription("Stack chart").assertIsSelected()
+            onNodeWithTag("stack-chart-placeholder").assertExists()
 
             onNodeWithContentDescription("Top functions").performClick()
 
@@ -148,7 +146,7 @@ class ReportWorkspaceBehaviorTest {
                 "search width=${searchField.width}, density=$densityFactor",
             )
             assertEquals(2, onAllNodesWithText("/system/lib64/libui.so").fetchSemanticsNodes().size)
-            onNodeWithText("main").performClick()
+            onNodeWithTag("call-tree-row-1").performClick()
             assertEquals(FlameCallNodeId(1), selectedNode)
             onNodeWithText("renderFrame").assertExists()
 
@@ -184,7 +182,7 @@ class ReportWorkspaceBehaviorTest {
                 )
             }
 
-            onNode(hasScrollAction()).performScrollToIndex(71)
+            onNodeWithTag("call-tree-list").performScrollToIndex(71)
             waitForIdle()
             val target = onNodeWithText("root-70")
             val before = target.fetchSemanticsNode().boundsInRoot.top
@@ -202,14 +200,17 @@ class ReportWorkspaceBehaviorTest {
         runDesktopComposeUiTest(width = 1100, height = 760) {
             var selectedThreads = emptySet<Int>()
             var committedRange: Pair<Long?, Long?>? = null
+            val state = sampleReportState()
             setContent {
-                ReportPage(
-                    state = sampleReportState(ReportTab.TIMELINE),
+                TimelineReport(
+                    state = state,
+                    report = requireNotNull(state.lastReadyReport),
                     actions =
                         goldenActions().copy(
                             onThreads = { selectedThreads = it },
                             onTimeRange = { start, end -> committedRange = start to end },
                         ),
+                    style = macOsDeviceTargetStyle(dark = false),
                 )
             }
 
@@ -249,7 +250,10 @@ private fun scrollingCallTreeState(): ReportState {
     return base.copy(
         loadState = ReportLoadState.Ready(report),
         lastReadyReport = report,
-        flameGraph = base.flameGraph.copy(selectedNodeId = FlameCallNodeId(1)),
+        workspace =
+            base.workspace.copy(
+                selections = base.workspace.selections.copy(callNodeId = FlameCallNodeId(1)),
+            ),
     )
 }
 
@@ -321,6 +325,8 @@ internal fun sampleReportState(selectedTab: ReportTab = ReportTab.OVERVIEW): Rep
                     CallTreeNode(6, null, 0, "__schedule", "[kernel.kallsyms]", 200, 200, 10, 2),
                 ),
             flameGraph = emptyFlameGraphSnapshot(),
+            stackChart = PanelProjection.Failed("TEST_STACK_CHART_UNAVAILABLE", "Fixture has no stack chart"),
+            markers = PanelProjection.Failed("TEST_MARKERS_UNAVAILABLE", "Fixture has no markers"),
             diagnostics = emptyList(),
             timelineTracks =
                 listOf(

@@ -7,6 +7,8 @@ import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.profileanalysis.StackChartBlockId
+import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.TopFunctionSort
 
 data class ReportActions(
@@ -16,7 +18,7 @@ data class ReportActions(
     val onTimeRange: (Long?, Long?) -> Unit,
     val onThreads: (Set<Int>) -> Unit,
     val onEvents: (Set<String>) -> Unit,
-    val onTopFunctions: (String, TopFunctionSort, Boolean) -> Unit,
+    val onTopFunctionSort: (TopFunctionSort, Boolean) -> Unit,
     val onCallTreeDirection: (CallStackDirection) -> Unit,
     val onFlamePreviewRange: (AnalysisTimeRange) -> Unit,
     val onCancelFlamePreview: () -> Unit,
@@ -43,4 +45,11 @@ data class ReportActions(
     val onGenerateHtmlReport: () -> Unit,
     val onExportExternalGuide: () -> Unit,
     val onExportGeckoProfile: () -> Unit = {},
+    val onDetailsVisible: (Boolean) -> Unit = {},
+    val onTimelineHeightDp: (Int) -> Unit = {},
+    val onSelectOverviewFinding: (String?) -> Unit = {},
+    val onSelectTopFunction: (String?) -> Unit = {},
+    val onSelectStackChartBlock: (StackChartBlockId?) -> Unit = {},
+    val onSelectMarker: (ProfileMarkerId?) -> Unit = {},
+    val onMarkerSearch: (String) -> Unit = {},
 )

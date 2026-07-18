@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphPanelState
+import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameGraphCanvas
@@ -53,10 +55,18 @@ import java.nio.file.Path
 import kotlin.math.roundToInt
 
 @Composable
-@Suppress("CyclomaticComplexMethod", "FunctionName", "LongMethod", "ktlint:standard:function-naming")
+@Suppress(
+    "CyclomaticComplexMethod",
+    "FunctionName",
+    "LongMethod",
+    "LongParameterList",
+    "ktlint:standard:function-naming",
+)
 internal fun FlameGraphPanel(
     sessionIdentity: Path,
     state: FlameGraphPanelState,
+    query: CallStackAnalysisQuery = CallStackAnalysisQuery(),
+    selectedNodeId: FlameCallNodeId? = null,
     snapshot: FlameGraphSnapshot,
     actions: ReportActions,
     tooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
@@ -83,9 +93,9 @@ internal fun FlameGraphPanel(
     val viewport = requestedViewport.copy(scrollRow = clampedScrollRow)
     val layout = remember(snapshot, viewport) { FlameGraphLayout.layout(snapshot, viewport) }
 
-    LaunchedEffect(snapshot, state.selectedNodeId, heightPixels) {
+    LaunchedEffect(snapshot, selectedNodeId, heightPixels) {
         val next =
-            state.selectedNodeId?.let { selected ->
+            selectedNodeId?.let { selected ->
                 FlameGraphPresenter.scrollRowToReveal(snapshot, selected, viewport)
             } ?: clampedScrollRow
         if (scrollRow != next) scrollRow = next
@@ -98,11 +108,11 @@ internal fun FlameGraphPanel(
     Column(modifier = Modifier.fillMaxSize().background(style.panelSurface.toComposeColor())) {
         FirefoxFlameGraphToolbar(
             sessionIdentity = sessionIdentity,
-            authoritativeSearch = state.query.searchText,
-            implementation = state.query.implementation,
-            direction = state.query.direction,
+            authoritativeSearch = query.searchText,
+            implementation = query.implementation,
+            direction = query.direction,
             style = style,
-            hasTransforms = state.query.transforms.isNotEmpty(),
+            hasTransforms = query.transforms.isNotEmpty(),
             onSearch = actions.onFlameSearch,
             onImplementation = actions.onFlameImplementation,
             onDirection = actions.onCallTreeDirection,
@@ -110,7 +120,7 @@ internal fun FlameGraphPanel(
             onClear = actions.onClearFlameTransforms,
         )
         FirefoxTransformNavigator(
-            transforms = state.query.transforms,
+            transforms = query.transforms,
             style = style,
             onUndo = actions.onUndoFlameTransform,
             onClear = actions.onClearFlameTransforms,
@@ -124,7 +134,7 @@ internal fun FlameGraphPanel(
             if (snapshot.emptyReason == null) {
                 FlameGraphCanvas(
                     layout = layout,
-                    selectedNodeId = state.selectedNodeId,
+                    selectedNodeId = selectedNodeId,
                     hoveredNodeId = state.hoveredNodeId,
                     contextNodeId = state.contextNodeId,
                     labelForNode = { node ->
@@ -173,7 +183,7 @@ internal fun FlameGraphPanel(
                                         key = event.key,
                                         eventType = event.type,
                                         snapshot = snapshot,
-                                        selectedNodeId = state.contextNodeId ?: state.selectedNodeId,
+                                        selectedNodeId = state.contextNodeId ?: selectedNodeId,
                                         hasContextMenu = state.contextNodeId != null,
                                         hasTooltip = state.hoveredNodeId != null,
                                         hasDetails = state.details != FlameGraphDetailsState.Closed,
@@ -219,7 +229,7 @@ internal fun FlameGraphPanel(
                 FlameGraphSemanticsOverlay(
                     snapshot = snapshot,
                     layout = layout,
-                    selectedNodeId = state.selectedNodeId,
+                    selectedNodeId = selectedNodeId,
                     hoveredNodeId = state.hoveredNodeId,
                     contextNodeId = state.contextNodeId,
                     onSelect = actions.onSelectCallNode,
@@ -259,7 +269,7 @@ internal fun FlameGraphPanel(
                         FlameGraphContextCommands.entries(
                             snapshot,
                             contextNodeId,
-                            hasTransforms = state.query.transforms.isNotEmpty(),
+                            hasTransforms = query.transforms.isNotEmpty(),
                         ),
                     anchor = contextAnchor ?: Offset.Zero,
                     style = style,

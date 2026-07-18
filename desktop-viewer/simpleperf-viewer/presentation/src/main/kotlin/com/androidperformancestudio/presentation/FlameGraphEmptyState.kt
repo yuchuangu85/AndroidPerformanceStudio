@@ -151,7 +151,7 @@ private fun dispatchRecovery(
         FlameGraphRecoveryAction.CLEAR_SEARCH -> actions.onFlameSearch("")
         FlameGraphRecoveryAction.SHOW_ALL_IMPLEMENTATIONS -> actions.onFlameImplementation(ImplementationFilter.ALL)
         FlameGraphRecoveryAction.UNDO_TRANSFORM -> actions.onUndoFlameTransform()
-        FlameGraphRecoveryAction.REVIEW_DATA_QUALITY -> actions.onSelectTab(ReportTab.DIAGNOSTICS)
+        FlameGraphRecoveryAction.REVIEW_DATA_QUALITY -> actions.onSelectTab(ReportTab.OVERVIEW)
         FlameGraphRecoveryAction.RETRY_PROJECTION -> actions.onRetryFlameProjection()
     }
 }

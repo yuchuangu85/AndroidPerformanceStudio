@@ -127,7 +127,7 @@ internal fun TimelineReport(
                         local = false,
                         selected = global.isFirefoxSelected(state, defaultSelectedTrackId),
                         viewport = viewport,
-                        previewRange = state.flameGraph.query.previewRange,
+                        previewRange = state.callStackQuery.previewRange,
                         style = style,
                         actions = actions,
                     )
@@ -147,7 +147,7 @@ internal fun TimelineReport(
                                 local = true,
                                 selected = local.isFirefoxSelected(state, defaultSelectedTrackId),
                                 viewport = viewport,
-                                previewRange = state.flameGraph.query.previewRange,
+                                previewRange = state.callStackQuery.previewRange,
                                 style = style,
                                 actions = actions,
                             )

@@ -55,14 +55,6 @@ class DeviceTargetVisualGoldenTest {
     fun `dark Firefox call tree matches macOS golden`() =
         verifyGolden("call-tree-dark", dark = true, reportState = sampleReportState(ReportTab.CALL_TREE))
 
-    @Test
-    fun `light Firefox timeline matches macOS golden`() =
-        verifyGolden("timeline-light", dark = false, reportState = sampleReportState(ReportTab.TIMELINE))
-
-    @Test
-    fun `dark Firefox timeline matches macOS golden`() =
-        verifyGolden("timeline-dark", dark = true, reportState = sampleReportState(ReportTab.TIMELINE))
-
     private fun verifyGolden(
         name: String,
         dark: Boolean,

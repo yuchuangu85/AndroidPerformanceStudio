@@ -59,7 +59,6 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.analysis.DiagnosticFinding
 import com.androidperformancestudio.analysis.DiagnosticSeverity
 import com.androidperformancestudio.analysis.DiagnosticTarget
-import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
@@ -67,6 +66,7 @@ import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
+import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
 import com.androidperformancestudio.visualization.NavigationAction
@@ -98,19 +98,18 @@ internal fun ReportWorkspace(
     modifier: Modifier = Modifier,
     flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
 ) {
-    Row(
+    Box(
         modifier
             .fillMaxSize()
             .background(style.workspace)
             .border(MacOsDeviceTargetDimensions.hairline, style.border),
     ) {
-        ReportNavigation(state.selectedTab, actions.onSelectTab, style)
-        ReportResultPane(state, actions, style, Modifier.weight(1f), flameTooltipMode)
+        ReportResultPane(state, actions, style, Modifier.fillMaxSize(), flameTooltipMode)
     }
 }
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "UnusedPrivateMember", "ktlint:standard:function-naming")
 private fun ReportNavigation(
     selectedTab: ReportTab,
     onSelectTab: (ReportTab) -> Unit,
@@ -204,7 +203,14 @@ private fun ReportResultPane(
                     style,
                     actions.onCloseSession,
                 )
-            is ReportLoadState.Ready -> ReportContent(state, loadState.report, actions, style, flameTooltipMode)
+            is ReportLoadState.Ready ->
+                FirefoxReportWorkspace(
+                    state = state,
+                    report = loadState.report,
+                    actions = actions,
+                    style = style,
+                    flameTooltipMode = flameTooltipMode,
+                )
         }
     }
 }
@@ -227,42 +233,85 @@ private fun ReportStatus(
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun ReportContent(
+internal fun ReportSelectedPanel(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
     style: MacOsDeviceTargetStyle,
     flameTooltipMode: FlameTooltipMode,
 ) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(style.panel, RoundedCornerShape(10.dp))
-                .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(10.dp))
-                .padding(14.dp),
-        verticalArrangement = Arrangement.Top,
-    ) {
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            when (state.selectedTab) {
-                ReportTab.OVERVIEW -> OverviewReport(report, actions, style)
-                ReportTab.TIMELINE -> TimelineReport(state, report, actions, style)
-                ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions, style)
-                ReportTab.CALL_TREE -> CallTreeReport(state, report, actions, style)
-                ReportTab.FLAME_GRAPH ->
-                    FlameGraphPanel(
-                        report.session.directory,
-                        state.flameGraph,
-                        report.flameGraph,
-                        actions,
-                        flameTooltipMode,
-                    )
-                ReportTab.DIAGNOSTICS -> DiagnosticsReport(report, actions, style)
-            }
+    when (state.selectedTab) {
+        ReportTab.OVERVIEW -> OverviewReport(report, actions, style)
+        ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions, style)
+        ReportTab.CALL_TREE -> CallTreeReport(state, report, actions, style)
+        ReportTab.FLAME_GRAPH ->
+            FlameGraphPanel(
+                sessionIdentity = report.session.directory,
+                state = state.flameGraph,
+                query = state.callStackQuery,
+                selectedNodeId = state.workspace.selections.callNodeId,
+                snapshot = report.flameGraph,
+                actions = actions,
+                tooltipMode = flameTooltipMode,
+            )
+        ReportTab.STACK_CHART -> StackChartPlaceholder(report, style)
+        ReportTab.MARKER_CHART -> MarkerPlaceholder(report, chart = true, style = style)
+        ReportTab.MARKER_TABLE -> MarkerPlaceholder(report, chart = false, style = style)
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun StackChartPlaceholder(
+    report: ReportData,
+    style: MacOsDeviceTargetStyle,
+) {
+    val message =
+        when (val projection = report.stackChart) {
+            is PanelProjection.Failed -> "${projection.code}: ${projection.message}"
+            is PanelProjection.Ready ->
+                if (projection.value.blocks.isEmpty()) {
+                    "No stack blocks are available for the current analysis filters."
+                } else {
+                    "${projection.value.blocks.size} stack blocks are ready. Interactive rendering is coming next."
+                }
         }
-        if (state.selectedTab != ReportTab.TIMELINE) {
-            Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
+    ReportPanelPlaceholder("Stack Chart", message, "stack-chart-placeholder", style)
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun MarkerPlaceholder(
+    report: ReportData,
+    chart: Boolean,
+    style: MacOsDeviceTargetStyle,
+) {
+    val panelName = if (chart) "Marker Chart" else "Marker Table"
+    val message =
+        when (val projection = report.markers) {
+            is PanelProjection.Failed -> "${projection.code}: ${projection.message}"
+            is PanelProjection.Ready ->
+                if (projection.value.markers.isEmpty()) {
+                    "No markers are available for the current analysis filters."
+                } else {
+                    "${projection.value.markers.size} markers are ready. Interactive $panelName is coming next."
+                }
         }
+    val tag = if (chart) "marker-chart-panel" else "marker-table-panel"
+    ReportPanelPlaceholder(panelName, message, tag, style)
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun ReportPanelPlaceholder(
+    title: String,
+    message: String,
+    tag: String,
+    style: MacOsDeviceTargetStyle,
+) {
+    MacOsPanel(Modifier.fillMaxWidth().testTag(tag), style) {
+        Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(message, color = style.secondaryText, fontSize = 10.sp)
     }
 }
 
@@ -360,9 +409,9 @@ private fun TopFunctionsReport(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         MacOsTextField(
             label = "Search function or library",
-            value = state.topSearch,
+            value = state.callStackQuery.searchText,
             enabled = true,
-            onValueChange = { actions.onTopFunctions(it, state.topSort, state.topDescending) },
+            onValueChange = actions.onFlameSearch,
             style = style,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -373,11 +422,11 @@ private fun TopFunctionsReport(
                     selected = state.topSort == sort,
                     enabled = true,
                     style = style,
-                ) { actions.onTopFunctions(state.topSearch, sort, state.topDescending) }
+                ) { actions.onTopFunctionSort(sort, state.topDescending) }
             }
             MacOsButton(
                 if (state.topDescending) "Descending" else "Ascending",
-                { actions.onTopFunctions(state.topSearch, state.topSort, !state.topDescending) },
+                { actions.onTopFunctionSort(state.topSort, !state.topDescending) },
                 style,
             )
         }
@@ -448,7 +497,7 @@ private fun CallTreeReport(
         mutableStateOf(report.callTree.firefoxInitialExpandedIds().toMutableSet())
     }
     val listState = rememberLazyListState()
-    val selectedNodeId = state.flameGraph.selectedNodeId
+    val selectedNodeId = state.workspace.selections.callNodeId
     var lastAutoPositionedNodeId by remember(report.callTree) { mutableStateOf<FlameCallNodeId?>(null) }
     val childrenByParent = remember(report.callTree) { report.callTree.groupBy(CallTreeNode::parentId) }
     LaunchedEffect(report.callTree) {
@@ -456,9 +505,10 @@ private fun CallTreeReport(
             report.callTree.firefoxInitialSelectedId()?.let { actions.onSelectCallNode(FlameCallNodeId(it)) }
         }
     }
-    LaunchedEffect(report.callTree, state.callTreeSearch) {
-        if (state.callTreeSearch.isNotBlank()) {
-            expandedIds = (expandedIds + report.callTree.expandedPathIds(state.callTreeSearch)).toMutableSet()
+    LaunchedEffect(report.callTree, state.callStackQuery.searchText) {
+        if (state.callStackQuery.searchText.isNotBlank()) {
+            expandedIds =
+                (expandedIds + report.callTree.expandedPathIds(state.callStackQuery.searchText)).toMutableSet()
         }
     }
     LaunchedEffect(report.callTree, selectedNodeId) {
@@ -493,9 +543,9 @@ private fun CallTreeReport(
             Spacer(Modifier.weight(1f))
             MacOsInlineTextField(
                 label = "Find function in call paths",
-                value = state.callTreeSearch,
+                value = state.callStackQuery.searchText,
                 enabled = true,
-                onValueChange = actions.onFocusCallTreeFunction,
+                onValueChange = actions.onFlameSearch,
                 style = style,
                 fieldWidth = CALL_TREE_SEARCH_FIELD_WIDTH,
             )
@@ -508,7 +558,10 @@ private fun CallTreeReport(
                 .border(MacOsDeviceTargetDimensions.hairline, style.border),
         ) {
             FirefoxCallTreeHeader(report.overview.eventTypes.firefoxTotalColumnLabel(), style)
-            LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("call-tree-list"),
+            ) {
                 itemsIndexed(visible, key = { _, node -> node.id }) { index, node ->
                     val hasChildren = childrenByParent[node.id].orEmpty().isNotEmpty()
                     FirefoxCallTreeRow(
@@ -518,7 +571,7 @@ private fun CallTreeReport(
                         hasChildren = hasChildren,
                         expanded = node.id in expandedIds,
                         selected = selectedNodeId?.value == node.id,
-                        search = state.callTreeSearch,
+                        search = state.callStackQuery.searchText,
                         style = style,
                         onSelect = { actions.onSelectCallNode(FlameCallNodeId(node.id)) },
                         onToggle = {
@@ -608,6 +661,7 @@ private fun FirefoxCallTreeRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .testTag("call-tree-row-${node.id}")
             .height(FIREFOX_CALL_TREE_ROW_HEIGHT)
             .background(background)
             .clickable(onClick = onSelect),
@@ -752,7 +806,7 @@ private fun List<CallTreeNode>.expandedPathIds(search: String): Set<Long> {
 }
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "UnusedPrivateMember", "ktlint:standard:function-naming")
 private fun DiagnosticsReport(
     report: ReportData,
     actions: ReportActions,
@@ -823,7 +877,7 @@ private fun DiagnosticFinding.navigation(actions: ReportActions): (() -> Unit)? 
             {
                 {
                     actions.onThreads(setOf(destination.threadId))
-                    actions.onSelectTab(ReportTab.TIMELINE)
+                    actions.onSelectTab(ReportTab.OVERVIEW)
                 }
             }
         null -> null
@@ -838,16 +892,15 @@ private fun SectionTitle(
     Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
 }
 
-private fun ReportTab.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
-
 private fun ReportTab.iconGlyph(): String =
     when (this) {
         ReportTab.OVERVIEW -> "▦"
-        ReportTab.TIMELINE -> "↔"
         ReportTab.TOP_FUNCTIONS -> "ƒ"
         ReportTab.CALL_TREE -> "↳"
         ReportTab.FLAME_GRAPH -> "Ψ"
-        ReportTab.DIAGNOSTICS -> "⚠"
+        ReportTab.STACK_CHART -> "▥"
+        ReportTab.MARKER_CHART -> "⌁"
+        ReportTab.MARKER_TABLE -> "≣"
     }
 
 private fun TopFunctionSort.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)

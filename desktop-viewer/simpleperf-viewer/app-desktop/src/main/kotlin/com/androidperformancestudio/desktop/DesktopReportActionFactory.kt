@@ -54,8 +54,8 @@ internal class DesktopReportActionFactory(
             onTimeRange = { start, end -> scope.launch { controller.commitRange(start, end) } },
             onThreads = { threads -> scope.launch { controller.updateThreads(threads) } },
             onEvents = { events -> scope.launch { controller.updateEvents(events) } },
-            onTopFunctions = { search, sort, descending ->
-                scope.launch { controller.updateTopFunctions(search, sort, descending) }
+            onTopFunctionSort = { sort, descending ->
+                scope.launch { controller.updateTopFunctionSort(sort, descending) }
             },
             onCallTreeDirection = { direction -> scope.launch { controller.updateCallTreeDirection(direction) } },
             onFlamePreviewRange = controller::previewRange,
@@ -83,6 +83,13 @@ internal class DesktopReportActionFactory(
             onGenerateHtmlReport = { generateHtmlReport(state) },
             onExportExternalGuide = { exportExternalGuide(state) },
             onExportGeckoProfile = { exportGeckoProfile(state) },
+            onDetailsVisible = controller::setDetailsVisible,
+            onTimelineHeightDp = controller::setTimelineHeightDp,
+            onSelectOverviewFinding = controller::selectOverviewFinding,
+            onSelectTopFunction = controller::selectTopFunction,
+            onSelectStackChartBlock = controller::selectStackChartBlock,
+            onSelectMarker = controller::selectMarker,
+            onMarkerSearch = { search -> scope.launch { controller.updateMarkerSearch(search) } },
         )
 
     private fun copyFlameFunction(functionName: String) {
