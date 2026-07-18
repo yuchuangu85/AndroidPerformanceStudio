@@ -270,7 +270,7 @@ private fun SimpleperfEngineSettingsPanel(
     MacOsPanel(Modifier.fillMaxWidth(), style) {
         Text("Analysis engine", color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Text(
-            "The Firefox Profiler engine converts captures to json.gz and opens them privately from localhost.",
+            "The Firefox Profiler engine converts captures to json.gz and opens the pinned local site in your browser.",
             color = style.secondaryText,
             fontSize = 10.sp,
         )

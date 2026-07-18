@@ -66,7 +66,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
     val sessionPackages = remember { SessionPackageService() }
     val reportExports = remember { ReportExportService() }
     val offlineImporter = remember { createOfflineImporter() }
-    val firefoxProfilerLauncher = remember { FirefoxProfilerLauncher() }
+    val firefoxProfilerLauncher = remember { applicationFirefoxProfilerLauncher }
     val state by controller.state.collectAsState()
     val captureState by controller.captureState.collectAsState()
     val reportState by reportController.state.collectAsState()
@@ -227,6 +227,8 @@ private data class WorkspaceDependencies(
     val deviceGateway: DeviceTargetGateway,
     val captureSession: CaptureSession?,
 )
+
+private val applicationFirefoxProfilerLauncher by lazy(::FirefoxProfilerLauncher)
 
 private fun createWorkspaceDependencies(): WorkspaceDependencies {
     val platform = SystemHostPlatformDetector().detect()

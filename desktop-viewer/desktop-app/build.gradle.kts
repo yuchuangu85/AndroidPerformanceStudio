@@ -8,6 +8,18 @@ plugins {
 }
 
 val appVersion = project.version.toString()
+val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_party/firefox-profiler/dist")
+val firefoxProfilerAppResources = layout.buildDirectory.dir("generated/firefox-profiler-app-resources")
+val prepareFirefoxProfilerAppResources =
+    tasks.register<Sync>("prepareFirefoxProfilerAppResources") {
+        inputs.file(firefoxProfilerDist.file("index.html"))
+        from(firefoxProfilerDist)
+        into(firefoxProfilerAppResources.map { resources -> resources.dir("common") })
+    }
+
+tasks
+    .matching { task -> task.name == "prepareAppResources" }
+    .configureEach { dependsOn(prepareFirefoxProfilerAppResources) }
 
 fun macOsPackageVersion(version: String): String {
     val numericComponents = version.split(".")
@@ -52,6 +64,7 @@ compose.desktop {
         jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")
         jvmArgs("-Dagentperf.version=$appVersion")
         nativeDistributions {
+            appResourcesRootDir.set(firefoxProfilerAppResources)
             // The minimized jpackage runtime cannot infer JdkAiHttpTransport's reflective HTTP usage.
             modules("java.net.http")
             modules("java.sql")

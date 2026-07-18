@@ -203,8 +203,8 @@ private val CHINESE_TEXT =
         "Fixed" to "固定",
         "Follow mouse" to "跟随鼠标",
         "Analysis engine" to "分析引擎",
-        "The Firefox Profiler engine converts captures to json.gz and opens them privately from localhost." to
-            "Firefox Profiler 引擎会将采集数据转换为 json.gz，并通过本机私密打开。",
+        "The Firefox Profiler engine converts captures to json.gz and opens the pinned local site in your browser." to
+            "Firefox Profiler 引擎会将采集数据转换为 json.gz，并在系统浏览器中打开本机固定版本的页面。",
         "Local engine" to "本地引擎",
         "Firefox Profiler" to "Firefox Profiler",
         "Event and rate" to "事件与采样率",

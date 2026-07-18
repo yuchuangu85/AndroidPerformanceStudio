@@ -5,6 +5,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../../third_party/firefox-profiler/dist")
+val firefoxProfilerAppResources = layout.buildDirectory.dir("generated/firefox-profiler-app-resources")
+val prepareFirefoxProfilerAppResources =
+    tasks.register<Sync>("prepareFirefoxProfilerAppResources") {
+        inputs.file(firefoxProfilerDist.file("index.html"))
+        from(firefoxProfilerDist)
+        into(firefoxProfilerAppResources.map { resources -> resources.dir("common") })
+    }
+
+tasks
+    .matching { task -> task.name == "prepareAppResources" }
+    .configureEach { dependsOn(prepareFirefoxProfilerAppResources) }
+
 dependencies {
     implementation(project(":analysis-rules"))
     implementation(project(":application"))
@@ -27,6 +40,7 @@ compose.desktop {
         mainClass = "com.androidperformancestudio.desktop.MainKt"
 
         nativeDistributions {
+            appResourcesRootDir.set(firefoxProfilerAppResources)
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm)
             // The minimized jpackage runtime does not infer JDBC usage through the storage module.
             modules("java.sql")
