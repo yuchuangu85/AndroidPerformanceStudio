@@ -203,9 +203,10 @@ private val CHINESE_TEXT =
         "Fixed" to "固定",
         "Follow mouse" to "跟随鼠标",
         "Analysis engine" to "分析引擎",
-        "The Firefox Profiler engine converts captures to json.gz and opens the pinned local site in your browser." to
-            "Firefox Profiler 引擎会将采集数据转换为 json.gz，并在系统浏览器中打开本机固定版本的页面。",
-        "Local engine" to "本地引擎",
+        "Choose the new engine, the pinned local Firefox Profiler site, or the official Firefox Profiler website." to
+            "选择新引擎、本机固定版本的 Firefox Profiler 页面，或 Firefox Profiler 官方网站。",
+        "New engine" to "新引擎",
+        "Firefox Profiler local engine" to "Firefox Profiler 本地引擎",
         "Firefox Profiler" to "Firefox Profiler",
         "Event and rate" to "事件与采样率",
         "Select a target to configure sampling parameters." to "选择目标后配置采样参数。",

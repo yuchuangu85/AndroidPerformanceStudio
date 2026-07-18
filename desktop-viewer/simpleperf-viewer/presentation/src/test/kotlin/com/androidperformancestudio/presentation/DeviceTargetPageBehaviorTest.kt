@@ -53,6 +53,8 @@ class DeviceTargetPageBehaviorTest {
             assertEquals(FlameTooltipMode.FOLLOW_MOUSE, tooltipMode)
 
             onNodeWithContentDescription("Capture settings: Simpleperf engine").performClick()
+            onNodeWithText("Firefox Profiler local engine").performClick()
+            assertEquals(SimpleperfEngine.FIREFOX_PROFILER_LOCAL, engine)
             onNodeWithText("Firefox Profiler").performClick()
             assertEquals(SimpleperfEngine.FIREFOX_PROFILER, engine)
         }

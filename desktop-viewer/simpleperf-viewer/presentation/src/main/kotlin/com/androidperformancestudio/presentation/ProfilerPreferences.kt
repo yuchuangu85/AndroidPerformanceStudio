@@ -7,5 +7,6 @@ enum class FlameTooltipMode {
 
 enum class SimpleperfEngine {
     LOCAL,
+    FIREFOX_PROFILER_LOCAL,
     FIREFOX_PROFILER,
 }

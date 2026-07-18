@@ -270,13 +270,21 @@ private fun SimpleperfEngineSettingsPanel(
     MacOsPanel(Modifier.fillMaxWidth(), style) {
         Text("Analysis engine", color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Text(
-            "The Firefox Profiler engine converts captures to json.gz and opens the pinned local site in your browser.",
+            "Choose the new engine, the pinned local Firefox Profiler site, or the official Firefox Profiler website.",
             color = style.secondaryText,
             fontSize = 10.sp,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MacOsChoiceChip("Local engine", selected == SimpleperfEngine.LOCAL, true, style) {
+            MacOsChoiceChip("New engine", selected == SimpleperfEngine.LOCAL, true, style) {
                 onSelect(SimpleperfEngine.LOCAL)
+            }
+            MacOsChoiceChip(
+                "Firefox Profiler local engine",
+                selected == SimpleperfEngine.FIREFOX_PROFILER_LOCAL,
+                true,
+                style,
+            ) {
+                onSelect(SimpleperfEngine.FIREFOX_PROFILER_LOCAL)
             }
             MacOsChoiceChip("Firefox Profiler", selected == SimpleperfEngine.FIREFOX_PROFILER, true, style) {
                 onSelect(SimpleperfEngine.FIREFOX_PROFILER)

@@ -30,9 +30,11 @@ production web build independently from the Kotlin/Gradle application build:
 The generated static assets are written to `third_party/firefox-profiler/dist/` and remain ignored
 by the upstream submodule.
 
-Android Performance Studio does not embed the React application. When the Firefox Profiler engine
-is selected, the desktop application serves this pinned build from `127.0.0.1`, serves the generated
-`perf_data.json.gz` from the same local origin, and opens the local page in the system browser.
+Android Performance Studio does not embed the React application. When the Firefox Profiler local
+engine is selected, the desktop application serves this pinned build from `127.0.0.1`, serves the
+generated `perf_data.json.gz` from the same local origin, and opens the local page in the system
+browser. The Firefox Profiler engine without the local qualifier continues to open the official
+website.
 Native application distributions copy the already-built `dist/` directory into the application
 resources; keep the Node/Yarn build as a separate prerequisite before packaging.
 

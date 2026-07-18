@@ -24,6 +24,16 @@ class FirefoxProfilerLauncherTest {
     }
 
     @Test
+    fun `official profiler route keeps the profile transfer on loopback`() {
+        val url = officialFirefoxProfilerUrl(URI.create("http://127.0.0.1:43210/perf_data.json.gz"))
+
+        assertEquals("https", url.scheme)
+        assertEquals("profiler.firefox.com", url.host)
+        assertTrue(url.rawPath.startsWith("/from-url/http%3A%2F%2F127.0.0.1%3A43210%2Fperf_data.json.gz/"))
+        assertTrue(url.path.endsWith("/flame-graph/"))
+    }
+
+    @Test
     fun `local server hosts the profiler application and generated profile`() {
         val site = Files.createTempDirectory("firefox-profiler-site-")
         site.resolve("index.html").writeText("<html>local profiler</html>")
@@ -56,6 +66,23 @@ class FirefoxProfilerLauncherTest {
                 assertEquals("application/gzip", connection.contentType)
                 assertEquals("no-store", connection.getHeaderField("Cache-Control"))
                 assertContentEquals(bytes, connection.inputStream.use { it.readBytes() })
+            }
+        }
+    }
+
+    @Test
+    fun `official profile transfer server exposes gzip with cors and private network permission`() {
+        val bytes = byteArrayOf(0x1f, 0x8b.toByte(), 5, 6, 7, 8)
+        val profile = Files.createTempFile("firefox-profiler-official-profile-", ".json.gz")
+        Files.write(profile, bytes)
+
+        FirefoxProfileTransferServer(profile).use { server ->
+            server.start().withConnection { connection ->
+                assertEquals(200, connection.responseCode)
+                assertEquals("*", connection.getHeaderField("Access-Control-Allow-Origin"))
+                assertEquals("true", connection.getHeaderField("Access-Control-Allow-Private-Network"))
+                assertEquals("no-store", connection.getHeaderField("Cache-Control"))
+                assertContentEquals(bytes, connection.inputStream.use { input -> input.readBytes() })
             }
         }
     }

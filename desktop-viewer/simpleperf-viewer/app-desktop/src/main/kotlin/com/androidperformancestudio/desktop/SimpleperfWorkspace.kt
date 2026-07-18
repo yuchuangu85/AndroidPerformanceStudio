@@ -66,7 +66,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
     val sessionPackages = remember { SessionPackageService() }
     val reportExports = remember { ReportExportService() }
     val offlineImporter = remember { createOfflineImporter() }
-    val firefoxProfilerLauncher = remember { applicationFirefoxProfilerLauncher }
+    val firefoxProfilerLaunchers = remember { applicationFirefoxProfilerLaunchers }
     val state by controller.state.collectAsState()
     val captureState by controller.captureState.collectAsState()
     val reportState by reportController.state.collectAsState()
@@ -104,7 +104,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
                 reportController,
                 offlineImporter,
                 currentSettings.simpleperfEngine,
-                firefoxProfilerLauncher,
+                firefoxProfilerLaunchers,
             ),
         reportActions = reportActions,
         darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
@@ -175,7 +175,7 @@ private fun DeviceTargetController.deviceActions(
     reportController: ReportController,
     offlineImporter: OfflineProfileImporter,
     simpleperfEngine: SimpleperfEngine,
-    firefoxProfilerLauncher: FirefoxProfilerLauncher,
+    firefoxProfilerLaunchers: FirefoxProfilerLaunchers,
 ): DeviceTargetActions =
     DeviceTargetActions(
         onRefresh = { scope.launch { refreshDevices() } },
@@ -197,19 +197,19 @@ private fun DeviceTargetController.deviceActions(
                                 when (simpleperfEngine) {
                                     SimpleperfEngine.LOCAL ->
                                         reportController.openSession(imported.value.sessionDirectory)
+                                    SimpleperfEngine.FIREFOX_PROFILER_LOCAL ->
+                                        reportController.openFirefoxProfiler(
+                                            captured.sessionDirectory,
+                                            "FIREFOX_PROFILER_LOCAL_OPEN_FAILED",
+                                        ) {
+                                            firefoxProfilerLaunchers.local.open(imported.value.sessionDirectory)
+                                        }
                                     SimpleperfEngine.FIREFOX_PROFILER ->
-                                        try {
-                                            firefoxProfilerLauncher.open(imported.value.sessionDirectory)
-                                        } catch (exception: FirefoxProfilerLaunchException) {
-                                            reportController.showFailure(
-                                                captured.sessionDirectory,
-                                                StudioError(
-                                                    category = ErrorCategory.IO,
-                                                    code = "FIREFOX_PROFILER_OPEN_FAILED",
-                                                    message = exception.message ?: "Failed to open Firefox Profiler",
-                                                    cause = exception,
-                                                ),
-                                            )
+                                        reportController.openFirefoxProfiler(
+                                            captured.sessionDirectory,
+                                            "FIREFOX_PROFILER_OPEN_FAILED",
+                                        ) {
+                                            firefoxProfilerLaunchers.official.open(imported.value.sessionDirectory)
                                         }
                                 }
                             is StudioResult.Failure ->
@@ -228,7 +228,34 @@ private data class WorkspaceDependencies(
     val captureSession: CaptureSession?,
 )
 
-private val applicationFirefoxProfilerLauncher by lazy(::FirefoxProfilerLauncher)
+private data class FirefoxProfilerLaunchers(
+    val local: LocalFirefoxProfilerLauncher,
+    val official: OfficialFirefoxProfilerLauncher,
+)
+
+private val applicationFirefoxProfilerLaunchers by lazy {
+    FirefoxProfilerLaunchers(LocalFirefoxProfilerLauncher(), OfficialFirefoxProfilerLauncher())
+}
+
+private suspend fun ReportController.openFirefoxProfiler(
+    sessionDirectory: Path,
+    errorCode: String,
+    open: suspend () -> Path,
+) {
+    try {
+        open()
+    } catch (exception: FirefoxProfilerLaunchException) {
+        showFailure(
+            sessionDirectory,
+            StudioError(
+                category = ErrorCategory.IO,
+                code = errorCode,
+                message = exception.message ?: "Failed to open Firefox Profiler",
+                cause = exception,
+            ),
+        )
+    }
+}
 
 private fun createWorkspaceDependencies(): WorkspaceDependencies {
     val platform = SystemHostPlatformDetector().detect()

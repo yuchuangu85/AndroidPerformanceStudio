@@ -18,7 +18,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.concurrent.thread
 
-internal class FirefoxProfilerLauncher(
+internal class LocalFirefoxProfilerLauncher(
     private val exporter: GeckoProfileExportService = GeckoProfileExportService(),
     private val browse: (URI) -> Unit = { uri -> Desktop.getDesktop().browse(uri) },
     private val siteDirectory: () -> Path = { FirefoxProfilerSiteLocator().locate() },

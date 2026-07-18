@@ -30,7 +30,7 @@ V0.1 release candidate 功能已实现，等待 GitHub Actions 三平台安装�
 - SQLite schema v1、共享 Frame/Callsite、WAL、有界事务批量写入、迁移和时间/线程/事件过滤查询；
 - 样本数、线程、Top Functions inclusive/exclusive 与 Lost/Unwind/unknown/空栈质量统计；
 - 在线采集自动转换/索引/打开报告；Home 支持会话、`perf.data`、protobuf、Firefox Profiler Gecko `json.gz` 导入及可选 mapping/symbols；
-- Firefox Profiler 引擎使用固定版本的本地站点，通过 `127.0.0.1` 同源提供页面和 `perf_data.json.gz`，并在系统浏览器中打开；
+- Firefox Profiler 本地引擎使用固定版本站点，通过 `127.0.0.1` 同源提供页面和 `perf_data.json.gz`；Firefox Profiler 引擎继续打开官方网站；
 - Overview、Timeline、Top Functions、正反 CallTree、FlameGraph 联动报告；
 - Timeline/FlameGraph 使用 Perfetto 风格 `W/A/S/D` 与 `Ctrl + 鼠标滚轮` 缩放平移；
 - 证据型数据质量、CPU 热点和线程热点诊断；
