@@ -375,7 +375,13 @@ internal fun TopFunctionsReport(
         TopFunctionHeader(style)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             itemsIndexed(report.topFunctions, key = ::topFunctionItemKey) { _, function ->
-                TopFunctionRow(function, actions.onFocusCallTreeFunction, actions.onFocusFunction, style)
+                TopFunctionRow(
+                    function = function,
+                    onSelect = { actions.onSelectTopFunction(function.symbolName) },
+                    onFocusCallTree = actions.onFocusCallTreeFunction,
+                    onFocusFlame = actions.onFocusFunction,
+                    style = style,
+                )
             }
         }
     }
@@ -398,6 +404,7 @@ private fun TopFunctionHeader(style: MacOsDeviceTargetStyle) {
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun TopFunctionRow(
     function: TopFunction,
+    onSelect: () -> Unit,
     onFocusCallTree: (String) -> Unit,
     onFocusFlame: (String) -> Unit,
     style: MacOsDeviceTargetStyle,
@@ -409,6 +416,7 @@ private fun TopFunctionRow(
                 .testTag("top-function-row-${function.symbolName}")
                 .background(style.panel, RoundedCornerShape(9.dp))
                 .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(9.dp))
+                .clickable(onClick = onSelect)
                 .padding(horizontal = 20.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -744,8 +752,10 @@ private fun DiagnosticCard(
                 .fillMaxWidth()
                 .background(style.panel, RoundedCornerShape(9.dp))
                 .border(MacOsDeviceTargetDimensions.hairline, accent, RoundedCornerShape(9.dp))
-                .then(if (navigation == null) Modifier else Modifier.clickable(onClick = navigation))
-                .padding(12.dp),
+                .clickable {
+                    actions.onSelectOverviewFinding(finding.ruleId)
+                    navigation?.invoke()
+                }.padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

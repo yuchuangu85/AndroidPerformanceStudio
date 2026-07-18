@@ -124,6 +124,31 @@ class SimpleperfLocalizationTest {
     }
 
     @Test
+    fun `Chinese localization covers the complete Firefox report workspace`() {
+        val expected =
+            mapOf(
+                "Stack chart" to "堆栈图",
+                "Marker chart" to "标记图",
+                "Marker table" to "标记表",
+                "Show details" to "显示详情",
+                "All Frames" to "所有帧",
+                "Script" to "脚本",
+                "Native" to "原生",
+                "Invert Call Stack" to "反转调用栈",
+                "Filter Stacks" to "过滤栈",
+                "Filter markers" to "过滤标记",
+                "Select a marker to inspect details." to "选择一个标记以查看详情。",
+                "Markers were not collected for this session." to "此会话未采集标记。",
+                "No stack samples overlap the selected range." to "所选范围内没有堆栈样本。",
+            )
+
+        assertEquals(expected.size, expected.keys.distinct().size)
+        expected.forEach { (english, chinese) ->
+            assertEquals(chinese, translateSimpleperfText(english, SimpleperfLanguage.SIMPLIFIED_CHINESE))
+        }
+    }
+
+    @Test
     fun `workspace pages do not expose language or theme controls`() {
         val homeScreen =
             Files.readString(

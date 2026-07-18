@@ -1,6 +1,7 @@
 package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -36,7 +42,26 @@ internal fun FirefoxReportTabs(
             Modifier
                 .testTag("report-tabs")
                 .horizontalScroll(rememberScrollState())
-                .selectableGroup(),
+                .selectableGroup()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) {
+                        false
+                    } else {
+                        val currentIndex = ReportTab.entries.indexOf(selectedTab)
+                        val nextIndex =
+                            when (event.key) {
+                                Key.DirectionLeft -> (currentIndex - 1).coerceAtLeast(0)
+                                Key.DirectionRight -> (currentIndex + 1).coerceAtMost(ReportTab.entries.lastIndex)
+                                else -> currentIndex
+                            }
+                        if (nextIndex == currentIndex) {
+                            false
+                        } else {
+                            onSelectTab(ReportTab.entries[nextIndex])
+                            true
+                        }
+                    }
+                }.focusable(),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

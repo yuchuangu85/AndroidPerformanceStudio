@@ -1,9 +1,11 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,7 +47,7 @@ internal fun FirefoxStackToolbar(
     }
 
     Row(
-        modifier = Modifier.testTag("stack-toolbar"),
+        modifier = Modifier.testTag("stack-toolbar").horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -79,7 +81,7 @@ internal fun FirefoxStackToolbar(
             enabled = true,
             onValueChange = { searchState = searchState.edit(it) },
             style = style,
-            fieldWidth = 220.dp,
+            fieldWidth = 180.dp,
         )
     }
 }

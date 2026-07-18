@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -95,19 +96,55 @@ internal fun FirefoxReportWorkspace(
         } else {
             FirefoxStackToolbar(state, actions, style)
         }
-        Row(Modifier.weight(1f).fillMaxWidth()) {
-            Box(Modifier.weight(1f).fillMaxHeight().testTag("report-content")) {
-                ReportSelectedPanel(state, report, actions, style, flameTooltipMode)
-            }
-            if (state.workspace.detailsVisible) {
-                Box(Modifier.width(300.dp).fillMaxHeight()) {
+        FirefoxReportContentAndDetails(
+            state = state,
+            report = report,
+            actions = actions,
+            style = style,
+            flameTooltipMode = flameTooltipMode,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        )
+        Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
+private fun FirefoxReportContentAndDetails(
+    state: ReportState,
+    report: ReportData,
+    actions: ReportActions,
+    style: MacOsDeviceTargetStyle,
+    flameTooltipMode: FlameTooltipMode,
+    modifier: Modifier,
+) {
+    BoxWithConstraints(modifier) {
+        if (state.workspace.detailsVisible && maxWidth < NARROW_REPORT_WIDTH) {
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f).fillMaxWidth().testTag("report-content")) {
+                    ReportSelectedPanel(state, report, actions, style, flameTooltipMode)
+                }
+                Box(Modifier.fillMaxWidth().height(NARROW_DETAILS_HEIGHT)) {
                     FirefoxReportDetails(state, report, style)
                 }
             }
+        } else {
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f).fillMaxHeight().testTag("report-content")) {
+                    ReportSelectedPanel(state, report, actions, style, flameTooltipMode)
+                }
+                if (state.workspace.detailsVisible) {
+                    Box(Modifier.width(WIDE_DETAILS_WIDTH).fillMaxHeight()) {
+                        FirefoxReportDetails(state, report, style)
+                    }
+                }
+            }
         }
-        Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
     }
 }
 
 private const val MIN_TIMELINE_HEIGHT_DP = 120
 private const val MAX_TIMELINE_HEIGHT_DP = 480
+private val NARROW_REPORT_WIDTH = 760.dp
+private val NARROW_DETAILS_HEIGHT = 160.dp
+private val WIDE_DETAILS_WIDTH = 300.dp
