@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
@@ -43,6 +44,43 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class ReportWorkspaceBehaviorTest {
+    @Test
+    fun `top function rows reserve only one third of their former vertical padding`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            var densityFactor = 1f
+            val baseState = sampleReportState(ReportTab.TOP_FUNCTIONS)
+            val baseReport = requireNotNull(baseState.lastReadyReport)
+            val firstFunction = baseReport.topFunctions.single()
+            val report =
+                baseReport.copy(
+                    topFunctions = listOf(firstFunction, firstFunction.copy(symbolName = "drawFrame")),
+                )
+            val state =
+                baseState.copy(
+                    loadState = ReportLoadState.Ready(report),
+                    lastReadyReport = report,
+                )
+            setContent {
+                densityFactor = LocalDensity.current.density
+                ReportPage(
+                    state = state,
+                    actions = goldenActions(),
+                )
+            }
+
+            val firstRow = onNodeWithTag("top-function-row-renderFrame").fetchSemanticsNode().boundsInRoot
+            val secondRow = onNodeWithTag("top-function-row-drawFrame").fetchSemanticsNode().boundsInRoot
+
+            assertTrue(
+                firstRow.height <= 42f * densityFactor + 1f,
+                "Top function row remains too tall: ${firstRow.height} px at density $densityFactor",
+            )
+            assertTrue(
+                secondRow.top - firstRow.bottom <= densityFactor + 1f,
+                "Top function row gap remains too large: ${secondRow.top - firstRow.bottom} px",
+            )
+        }
+
     @Test
     fun `report stays inside device workspace and left navigation switches the right result`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {

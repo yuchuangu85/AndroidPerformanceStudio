@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -29,6 +31,43 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class FlameGraphComposeUiTest {
+    @Test
+    fun `default Firefox tooltip follows a real hover and closes behind context menu`() =
+        runDesktopComposeUiTest(width = 760, height = 320) {
+            var panelState by mutableStateOf(FlameGraphPanelState())
+            val actions =
+                goldenActions().copy(
+                    onHoverFlameNode = { nodeId -> panelState = panelState.copy(hoveredNodeId = nodeId) },
+                )
+            setContent {
+                MaterialTheme {
+                    FlameGraphPanel(
+                        sessionIdentity = Path.of("tooltip-hover"),
+                        state = panelState,
+                        snapshot = accessibilitySnapshot(),
+                        actions = actions,
+                    )
+                }
+            }
+
+            val canvas = onNodeWithContentDescription("Flame graph call stacks")
+            val canvasBounds = canvas.fetchSemanticsNode().boundsInRoot
+            val frameBounds = onNodeWithContentDescription("renderFrame, 60%, Native").fetchSemanticsNode().boundsInRoot
+            val hoverPosition = Offset(x = 20f, y = frameBounds.center.y - canvasBounds.top)
+            canvas.performMouseInput { moveTo(hoverPosition) }
+            waitUntil { panelState.hoveredNodeId != null }
+
+            val tooltip = onNodeWithTag("firefox-flame-tooltip").fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                kotlin.math.abs(tooltip.left - (canvasBounds.left + hoverPosition.x + 11f)) <= 2f,
+                "Tooltip did not follow the pointer with Firefox's 11px offset: $tooltip",
+            )
+
+            panelState = panelState.copy(contextNodeId = panelState.hoveredNodeId)
+            waitForIdle()
+            onNodeWithTag("firefox-flame-tooltip").assertDoesNotExist()
+        }
+
     @Test
     fun `wasd changes the flame graph horizontal viewport`() =
         runDesktopComposeUiTest(width = 700, height = 260) {

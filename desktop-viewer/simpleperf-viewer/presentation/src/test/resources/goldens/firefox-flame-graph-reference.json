@@ -15,5 +15,12 @@
     "src/components/flame-graph/FlameGraph.css",
     "src/components/flame-graph/Canvas.css",
     "src/utils/colors.ts"
+  ],
+  "tooltipAuthoritativeSources": [
+    "src/components/tooltip/CallNode.tsx",
+    "src/components/tooltip/CallNode.css",
+    "src/components/tooltip/Tooltip.css",
+    "src/components/flame-graph/Canvas.tsx",
+    "src/utils/format-numbers.ts"
   ]
 }

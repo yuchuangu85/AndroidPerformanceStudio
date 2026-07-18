@@ -78,7 +78,7 @@ internal fun CaptureSettingsDialog(
     onSelectTemplate: (SamplingTemplate) -> Unit,
     onUpdate: (SamplingParameters) -> Unit,
     onDismiss: () -> Unit,
-    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
     simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},

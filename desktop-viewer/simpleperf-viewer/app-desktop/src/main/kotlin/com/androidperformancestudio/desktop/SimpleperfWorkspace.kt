@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.window.FrameWindowScope
@@ -39,7 +40,6 @@ import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.DeviceTargetActions
 import com.androidperformancestudio.presentation.HomeScreen
 import com.androidperformancestudio.presentation.ReportActions
-import com.androidperformancestudio.presentation.SimpleperfEngine
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.launch
 import java.io.File
@@ -67,17 +67,42 @@ fun FrameWindowScope.SimpleperfWorkspace(
     val reportExports = remember { ReportExportService() }
     val offlineImporter = remember { createOfflineImporter() }
     val firefoxProfilerLaunchers = remember { applicationFirefoxProfilerLaunchers }
+    val selectedEngine by rememberUpdatedState(currentSettings.simpleperfEngine)
+    val sessionOpener =
+        remember(reportController, firefoxProfilerLaunchers) {
+            SimpleperfSessionOpener(
+                selectedEngine = { selectedEngine },
+                openLocal = reportController::openSession,
+                openLocalFirefoxProfiler = { session ->
+                    reportController.openFirefoxProfiler(
+                        session,
+                        "FIREFOX_PROFILER_LOCAL_OPEN_FAILED",
+                    ) {
+                        firefoxProfilerLaunchers.local.open(session)
+                    }
+                },
+                openOfficialFirefoxProfiler = { session ->
+                    reportController.openFirefoxProfiler(
+                        session,
+                        "FIREFOX_PROFILER_OPEN_FAILED",
+                    ) {
+                        firefoxProfilerLaunchers.official.open(session)
+                    }
+                },
+            )
+        }
     val state by controller.state.collectAsState()
     val captureState by controller.captureState.collectAsState()
     val reportState by reportController.state.collectAsState()
     val scope = rememberCoroutineScope()
     val reportActionFactory =
-        remember(reportController, sessionPackages, reportExports, scope, window) {
+        remember(reportController, sessionPackages, reportExports, sessionOpener, scope, window) {
             DesktopReportActionFactory(
                 reportController,
                 sessionPackages,
                 reportExports,
                 ::createOfflineImporter,
+                sessionOpener::open,
                 scope,
                 window,
             )
@@ -90,7 +115,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
         resolvedLanguage,
         reportState,
         reportActions,
-        reportController,
+        sessionOpener::open,
         scope,
         onOpenCaptureSettings = { captureSettingsSection = it },
     )
@@ -103,8 +128,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
                 scope,
                 reportController,
                 offlineImporter,
-                currentSettings.simpleperfEngine,
-                firefoxProfilerLaunchers,
+                sessionOpener::open,
             ),
         reportActions = reportActions,
         darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
@@ -124,7 +148,7 @@ private fun FrameWindowScope.SimpleperfMenu(
     language: SimpleperfLanguage,
     reportState: ReportState,
     reportActions: ReportActions,
-    reportController: ReportController,
+    sessionOpener: suspend (Path) -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
     onOpenCaptureSettings: (CaptureSettingsSection) -> Unit,
 ) {
@@ -155,7 +179,7 @@ private fun FrameWindowScope.SimpleperfMenu(
                 onHtmlReport = reportActions.onGenerateHtmlReport,
                 onExternalOpen = reportActions.onExportExternalGuide,
             ),
-        onOpenRecent = { session -> scope.launch { reportController.openSession(session) } },
+        onOpenRecent = { session -> scope.launch { sessionOpener(session) } },
         onClearRecent = {
             recentSessionStore.clear()
             recentSessions = emptyList()
@@ -174,8 +198,7 @@ private fun DeviceTargetController.deviceActions(
     scope: kotlinx.coroutines.CoroutineScope,
     reportController: ReportController,
     offlineImporter: OfflineProfileImporter,
-    simpleperfEngine: SimpleperfEngine,
-    firefoxProfilerLaunchers: FirefoxProfilerLaunchers,
+    sessionOpener: suspend (Path) -> Unit,
 ): DeviceTargetActions =
     DeviceTargetActions(
         onRefresh = { scope.launch { refreshDevices() } },
@@ -193,25 +216,7 @@ private fun DeviceTargetController.deviceActions(
                 when (val captured = startCapture()) {
                     is CaptureState.Completed ->
                         when (val imported = offlineImporter.importCapturedSession(captured.sessionDirectory)) {
-                            is StudioResult.Success ->
-                                when (simpleperfEngine) {
-                                    SimpleperfEngine.LOCAL ->
-                                        reportController.openSession(imported.value.sessionDirectory)
-                                    SimpleperfEngine.FIREFOX_PROFILER_LOCAL ->
-                                        reportController.openFirefoxProfiler(
-                                            captured.sessionDirectory,
-                                            "FIREFOX_PROFILER_LOCAL_OPEN_FAILED",
-                                        ) {
-                                            firefoxProfilerLaunchers.local.open(imported.value.sessionDirectory)
-                                        }
-                                    SimpleperfEngine.FIREFOX_PROFILER ->
-                                        reportController.openFirefoxProfiler(
-                                            captured.sessionDirectory,
-                                            "FIREFOX_PROFILER_OPEN_FAILED",
-                                        ) {
-                                            firefoxProfilerLaunchers.official.open(imported.value.sessionDirectory)
-                                        }
-                                }
+                            is StudioResult.Success -> sessionOpener(imported.value.sessionDirectory)
                             is StudioResult.Failure ->
                                 reportController.showFailure(captured.sessionDirectory, imported.error)
                         }

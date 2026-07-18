@@ -663,6 +663,47 @@ class ProfileSessionMigratorTest {
         }
 
     @Test
+    fun `current schema with active WAL opens through the conservative read only path`() =
+        runTest {
+            val session = versionOneSession()
+            val original = session.resolve(PROFILE_DATABASE)
+            SQLiteSampleStore.open(original).use { }
+            val writer = DriverManager.getConnection("jdbc:sqlite:${original.toAbsolutePath()}")
+            try {
+                writer.createStatement().use { statement -> statement.execute("PRAGMA journal_mode=WAL") }
+                assertTrue(original.resolveSibling("$PROFILE_DATABASE-wal").exists())
+                assertTrue(original.resolveSibling("$PROFILE_DATABASE-shm").exists())
+                val controller =
+                    ProfileWorkspaceController(
+                        backgroundScope,
+                        sqliteProjectionLoader(UnconfinedTestDispatcher(testScheduler)),
+                    )
+
+                controller.openSession(
+                    session,
+                    ProfileProjectionRequest(timelineBucketCount = 2, topFunctionLimit = 10),
+                )
+                runCurrent()
+
+                assertEquals(ProfileSessionMode.LEGACY_READ_ONLY, controller.state.value.sessionMode)
+                assertEquals(
+                    null,
+                    controller.state.value.preparedSession
+                        ?.schemaVersion,
+                )
+                assertIs<ProfileWorkspaceLoadState.Ready>(controller.state.value.loadState)
+                assertEquals(
+                    2,
+                    controller.state.value.snapshot
+                        ?.overview
+                        ?.sampleCount,
+                )
+            } finally {
+                writer.close()
+            }
+        }
+
+    @Test
     fun `prepared writable v2 fails closed if database is replaced with v1 before load`() =
         runTest {
             val v2Session = versionOneSession()

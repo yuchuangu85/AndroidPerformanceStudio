@@ -43,6 +43,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -77,7 +78,7 @@ fun ReportPage(
     state: ReportState,
     actions: ReportActions,
     darkTheme: Boolean = false,
-    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
 ) {
     ReportWorkspace(
         state,
@@ -95,7 +96,7 @@ internal fun ReportWorkspace(
     actions: ReportActions,
     style: MacOsDeviceTargetStyle,
     modifier: Modifier = Modifier,
-    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
 ) {
     Row(
         modifier
@@ -240,7 +241,7 @@ private fun ReportContent(
                 .background(style.panel, RoundedCornerShape(10.dp))
                 .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(10.dp))
                 .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.Top,
     ) {
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (state.selectedTab) {
@@ -381,7 +382,7 @@ private fun TopFunctionsReport(
             )
         }
         TopFunctionHeader(style)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             itemsIndexed(report.topFunctions, key = ::topFunctionItemKey) { _, function ->
                 TopFunctionRow(function, actions.onFocusCallTreeFunction, actions.onFocusFunction, style)
             }
@@ -410,20 +411,27 @@ private fun TopFunctionRow(
     onFocusFlame: (String) -> Unit,
     style: MacOsDeviceTargetStyle,
 ) {
-    MacOsPanel(Modifier.fillMaxWidth(), style) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(function.symbolName, color = style.text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                Text(function.filePath, color = style.secondaryText, fontSize = 8.sp)
-            }
-            Text(function.inclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = 10.sp)
-            Text(function.exclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = 10.sp)
-            Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
-            Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
-            Row(modifier = Modifier.width(180.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                MacOsButton("Path", { onFocusCallTree(function.symbolName) }, style)
-                MacOsButton("Flame", { onFocusFlame(function.symbolName) }, style)
-            }
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .testTag("top-function-row-${function.symbolName}")
+                .background(style.panel, RoundedCornerShape(9.dp))
+                .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(9.dp))
+                .padding(horizontal = 20.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(function.symbolName, color = style.text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Text(function.filePath, color = style.secondaryText, fontSize = 8.sp)
+        }
+        Text(function.inclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = 10.sp)
+        Text(function.exclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = 10.sp)
+        Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
+        Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
+        Row(modifier = Modifier.width(180.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            MacOsButton("Path", { onFocusCallTree(function.symbolName) }, style)
+            MacOsButton("Flame", { onFocusFlame(function.symbolName) }, style)
         }
     }
 }

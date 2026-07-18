@@ -34,12 +34,13 @@ import java.util.UUID
 import javax.swing.JFileChooser
 import javax.swing.JOptionPane
 
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LongParameterList")
 internal class DesktopReportActionFactory(
     private val controller: ReportController,
     private val sessionPackages: SessionPackageService,
     private val reportExports: ReportExportService,
     private val offlineImporterFactory: (Path?) -> OfflineProfileImporter,
+    private val sessionOpener: suspend (Path) -> Unit,
     private val scope: CoroutineScope,
     private val window: Window,
 ) {
@@ -107,13 +108,13 @@ internal class DesktopReportActionFactory(
             scope.launch {
                 try {
                     when (format) {
-                        DesktopProfileFormat.SESSION_DIRECTORY -> controller.openSession(selected)
+                        DesktopProfileFormat.SESSION_DIRECTORY -> sessionOpener(selected)
                         DesktopProfileFormat.SESSION_PACKAGE -> {
                             val directory =
                                 withContext(Dispatchers.IO) {
                                     sessionPackages.import(selected, importedSessionRoot()).sessionDirectory
                                 }
-                            controller.openSession(directory)
+                            sessionOpener(directory)
                         }
                         DesktopProfileFormat.PERF_DATA ->
                             importOffline(
@@ -173,7 +174,7 @@ internal class DesktopReportActionFactory(
                 proguardMapping = supplementalInputs.proguardMapping,
             )
         when (val result = offlineImporterFactory(configuredSimpleperf).import(request)) {
-            is StudioResult.Success -> controller.openSession(result.value.sessionDirectory)
+            is StudioResult.Success -> sessionOpener(result.value.sessionDirectory)
             is StudioResult.Failure ->
                 controller.showFailure(
                     importedSessionRoot().resolve(request.sessionId),

@@ -1,26 +1,46 @@
+@file:Suppress("MagicNumber", "TooManyFunctions")
+
 package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
+import com.androidperformancestudio.visualization.FlameGraphPalette
+import com.androidperformancestudio.visualization.FlameTheme
+import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.floor
+import kotlin.math.log10
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
@@ -29,61 +49,129 @@ internal fun FirefoxFlameGraphTooltip(
     style: FirefoxFlameGraphStyle,
     modifier: Modifier = Modifier,
 ) {
-    val flameFrameLabel = localizedSimpleperfText("Flame frame")
-    val inclusiveLabel = localizedSimpleperfText("inclusive")
-    val selfLabel = localizedSimpleperfText("self")
+    val durationText = firefoxTooltipPercent(facts.percentage)
+    val foreground = style.canvasForeground.toComposeColor()
     val accessible =
         buildString {
-            append(flameFrameLabel)
+            append(localizedSimpleperfText("Flame frame"))
             append(' ')
             append(facts.function)
             append(", ")
-            append(inclusiveLabel)
+            append(durationText)
+            append(", ")
+            append(localizedSimpleperfText("inclusive"))
             append(' ')
             append(facts.inclusiveWeight)
             append(", ")
-            append(selfLabel)
+            append(localizedSimpleperfText("self"))
             append(' ')
             append(facts.selfWeight)
-            append(", ")
-            append(facts.threadCount)
-            append(" threads")
         }
     Surface(
         modifier =
             modifier
                 .widthIn(max = TOOLTIP_MAX_WIDTH_DP.dp)
+                .testTag("firefox-flame-tooltip")
                 .semantics { contentDescription = accessible },
-        shape = RoundedCornerShape(2.dp),
+        shape = RoundedCornerShape(0.dp),
         color = style.raisedSurface.toComposeColor(),
-        contentColor = style.canvasForeground.toComposeColor(),
+        contentColor = foreground,
         border = BorderStroke(1.dp, style.surfaceBorder.toComposeColor()),
         shadowElevation = 3.dp,
     ) {
-        Column(Modifier.padding(7.dp)) {
-            Row(Modifier.fillMaxWidth()) {
+        Column(Modifier.width(IntrinsicSize.Max).padding(TOOLTIP_PADDING_DP.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    String.format(Locale.ROOT, "%.2f%%", facts.percentage),
-                    color = style.canvasForeground.toComposeColor(),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    durationText,
+                    color = style.mutedForeground.toComposeColor(),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     facts.function,
-                    color = style.canvasForeground.toComposeColor(),
+                    color = foreground,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            FirefoxTooltipFact("Stack Type", facts.implementation.firefoxStackType(), style)
-            facts.category?.let { FirefoxTooltipFact("Category", it, style, maxLines = 1) }
-            facts.resource?.let { FirefoxTooltipFact("Resource", it, style, maxLines = 1) }
+            FirefoxTooltipDivider(style)
+            Column(Modifier.padding(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 5.dp)) {
+                FirefoxTooltipDetail("Stack Type", facts.implementation.firefoxStackType(), style)
+                facts.category?.let { category -> FirefoxTooltipCategoryDetail(category, style) }
+                facts.resource?.let { FirefoxTooltipDetail("Resource", it, style) }
+            }
             FirefoxTooltipTimings(facts, style)
         }
     }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxTooltipDetail(
+    label: String,
+    value: String,
+    style: FirefoxFlameGraphStyle,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        FirefoxTooltipLabel(label, style)
+        Text(
+            value,
+            modifier = Modifier.widthIn(max = TOOLTIP_DETAIL_VALUE_WIDTH_DP.dp),
+            color = style.canvasForeground.toComposeColor(),
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxTooltipCategoryDetail(
+    category: String,
+    style: FirefoxFlameGraphStyle,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        FirefoxTooltipLabel("Category", style)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(10.dp)
+                    .testTag("firefox-tooltip-category-swatch")
+                    .background(firefoxCategoryColor(category, style)),
+            )
+            Spacer(Modifier.width(3.dp))
+            Text(
+                category,
+                modifier = Modifier.widthIn(max = TOOLTIP_DETAIL_VALUE_WIDTH_DP.dp),
+                color = style.canvasForeground.toComposeColor(),
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxTooltipLabel(
+    label: String,
+    style: FirefoxFlameGraphStyle,
+) {
+    Text(
+        localizedSimpleperfText("$label: ").trimEnd(),
+        modifier = Modifier.width(TOOLTIP_DETAIL_LABEL_WIDTH_DP.dp),
+        color = style.mutedForeground.toComposeColor(),
+        fontSize = 11.sp,
+        textAlign = TextAlign.End,
+        maxLines = 1,
+    )
 }
 
 @Composable
@@ -92,87 +180,223 @@ private fun FirefoxTooltipTimings(
     facts: FlameGraphTooltipFacts,
     style: FirefoxFlameGraphStyle,
 ) {
-    val foreground = style.canvasForeground.toComposeColor()
-    Row(Modifier.fillMaxWidth().padding(top = 5.dp)) {
-        Text("", modifier = Modifier.width(110.dp), fontSize = 10.sp)
-        Text(
-            "Running",
-            modifier = Modifier.width(78.dp),
-            color = foreground,
-            fontSize = 10.sp,
-            textAlign = TextAlign.End,
-        )
-        Text(
-            "Self",
-            modifier = Modifier.width(62.dp),
-            color = foreground,
-            fontSize = 10.sp,
-            textAlign = TextAlign.End,
+    FirefoxTooltipDivider(style)
+    Row(
+        modifier = Modifier.padding(top = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(Modifier.width(TOOLTIP_TIMING_LABEL_WIDTH_DP.dp))
+        Spacer(Modifier.width(TOOLTIP_METER_WIDTH_DP.dp))
+        FirefoxTooltipTimingHeader("Running", TOOLTIP_RUNNING_WIDTH_DP, style)
+        FirefoxTooltipTimingHeader("Self", TOOLTIP_SELF_WIDTH_DP, style)
+    }
+    FirefoxTooltipTimingRow(
+        label = "Overall",
+        running = facts.inclusiveWeight,
+        self = facts.selfWeight,
+        maximum = facts.inclusiveWeight,
+        color = firefoxOverallMeterColor(style.theme),
+        style = style,
+        tag = "overall",
+    )
+    facts.category?.let { category ->
+        FirefoxTooltipTimingRow(
+            label = category,
+            running = facts.inclusiveWeight,
+            self = facts.selfWeight,
+            maximum = facts.inclusiveWeight,
+            color = firefoxCategoryColor(category, style),
+            style = style,
+            tag = "category",
         )
     }
-    FirefoxTooltipTimingRow("Overall", facts.inclusiveWeight, facts.selfWeight, style, bold = true)
-    facts.category?.let { FirefoxTooltipTimingRow(it, facts.inclusiveWeight, facts.selfWeight, style) }
+    Spacer(Modifier.height(10.dp))
 }
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxTooltipTimingHeader(
+    label: String,
+    width: Int,
+    style: FirefoxFlameGraphStyle,
+) {
+    Text(
+        localizedSimpleperfText(label),
+        modifier = Modifier.width(width.dp),
+        color = style.mutedForeground.toComposeColor(),
+        fontSize = 10.sp,
+        textAlign = TextAlign.End,
+        maxLines = 1,
+    )
+}
+
+@Composable
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 private fun FirefoxTooltipTimingRow(
     label: String,
     running: Long,
     self: Long,
+    maximum: Long,
+    color: Color,
     style: FirefoxFlameGraphStyle,
-    bold: Boolean = false,
+    tag: String,
 ) {
-    val foreground = style.canvasForeground.toComposeColor()
-    val weight = if (bold) FontWeight.SemiBold else FontWeight.Normal
-    Row(Modifier.fillMaxWidth()) {
+    Row(
+        modifier =
+            Modifier
+                .padding(top = 12.dp)
+                .testTag("firefox-tooltip-$tag-row"),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
-            label,
-            modifier = Modifier.width(110.dp),
-            color = foreground,
+            localizedSimpleperfText(label),
+            modifier = Modifier.width(TOOLTIP_TIMING_LABEL_WIDTH_DP.dp),
+            color = style.canvasForeground.toComposeColor(),
             fontSize = 10.sp,
-            fontWeight = weight,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            running.firefoxWeight(),
-            modifier = Modifier.width(78.dp),
-            color = foreground,
-            fontSize = 10.sp,
-            textAlign = TextAlign.End,
-        )
-        Text(
-            self.firefoxWeight(),
-            modifier = Modifier.width(62.dp),
-            color = foreground,
-            fontSize = 10.sp,
-            textAlign = TextAlign.End,
-        )
+        FirefoxTooltipTotalSelfMeters(running, self, maximum, color, style, tag)
+        FirefoxTooltipTimingValue(running.firefoxTooltipWeight(zeroAsDash = false), TOOLTIP_RUNNING_WIDTH_DP, style)
+        FirefoxTooltipTimingValue(self.firefoxTooltipWeight(zeroAsDash = true), TOOLTIP_SELF_WIDTH_DP, style)
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
+private fun FirefoxTooltipTotalSelfMeters(
+    running: Long,
+    self: Long,
+    maximum: Long,
+    color: Color,
+    style: FirefoxFlameGraphStyle,
+    tag: String,
+) {
+    Column(
+        modifier = Modifier.width(TOOLTIP_METER_WIDTH_DP.dp).height(10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        FirefoxTooltipMeter(running, maximum, color, style, "$tag-running")
+        FirefoxTooltipMeter(self, maximum, color, style, "$tag-self")
     }
 }
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun FirefoxTooltipFact(
-    label: String,
-    value: String,
+private fun FirefoxTooltipMeter(
+    value: Long,
+    maximum: Long,
+    color: Color,
     style: FirefoxFlameGraphStyle,
-    maxLines: Int = Int.MAX_VALUE,
+    tag: String,
+) {
+    val safeMaximum = maximum.coerceAtLeast(1L)
+    val safeValue = value.coerceIn(0L, safeMaximum)
+    val fraction = (safeValue.toDouble() / safeMaximum.toDouble()).toFloat()
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .testTag("firefox-tooltip-$tag-meter")
+                .background(firefoxMeterTrackColor(style.theme))
+                .semantics {
+                    progressBarRangeInfo =
+                        ProgressBarRangeInfo(
+                            current = safeValue.toFloat(),
+                            range = 0f..safeMaximum.toFloat(),
+                        )
+                },
+    ) {
+        if (safeValue > 0L) {
+            Box(
+                Modifier
+                    .fillMaxWidth(fraction)
+                    .fillMaxHeight()
+                    .testTag("firefox-tooltip-$tag-bar")
+                    .background(color),
+            )
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxTooltipTimingValue(
+    value: String,
+    width: Int,
+    style: FirefoxFlameGraphStyle,
 ) {
     Text(
-        localizedSimpleperfText("$label: ") + value,
+        value,
+        modifier = Modifier.width(width.dp),
         color = style.canvasForeground.toComposeColor(),
-        fontSize = 11.sp,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
+        fontSize = 10.sp,
+        textAlign = TextAlign.End,
+        maxLines = 1,
     )
 }
 
-private fun com.androidperformancestudio.profileanalysis.FrameImplementation.firefoxStackType(): String =
-    when (this) {
-        com.androidperformancestudio.profileanalysis.FrameImplementation.NATIVE -> "Native"
-        com.androidperformancestudio.profileanalysis.FrameImplementation.MANAGED -> "Java / Kotlin"
-        com.androidperformancestudio.profileanalysis.FrameImplementation.KERNEL -> "Kernel"
-        com.androidperformancestudio.profileanalysis.FrameImplementation.UNKNOWN -> "Unsymbolicated"
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxTooltipDivider(style: FirefoxFlameGraphStyle) {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(style.surfaceBorder.toComposeColor()))
+}
+
+internal fun firefoxTooltipPercent(percentage: Double): String {
+    val safePercentage = percentage.takeIf(Double::isFinite)?.coerceIn(0.0, 100.0) ?: 0.0
+    if (safePercentage == 0.0) return "0%"
+    val digitsOnLeft = floor(log10(safePercentage)).toInt() + 1
+    val fractionDigits = (2 - digitsOnLeft).coerceIn(0, 1)
+    val formatter =
+        NumberFormat.getNumberInstance(Locale.ROOT).apply {
+            minimumFractionDigits = fractionDigits
+            maximumFractionDigits = fractionDigits
+            isGroupingUsed = true
+        }
+    return formatter.format(safePercentage) + "%"
+}
+
+private fun Long.firefoxTooltipWeight(zeroAsDash: Boolean): String =
+    if (zeroAsDash && this == 0L) {
+        "—"
+    } else {
+        NumberFormat.getIntegerInstance(Locale.ROOT).format(this)
     }
 
-private const val TOOLTIP_MAX_WIDTH_DP = 380
+private fun FrameImplementation.firefoxStackType(): String =
+    when (this) {
+        FrameImplementation.NATIVE -> "Native"
+        FrameImplementation.MANAGED -> "Java / Kotlin"
+        FrameImplementation.KERNEL -> "Kernel"
+        FrameImplementation.UNKNOWN -> "Unsymbolicated"
+    }
+
+private fun firefoxCategoryColor(
+    category: String,
+    style: FirefoxFlameGraphStyle,
+): Color = style.categoryStyle(FlameGraphPalette.categoryRole(category)).selectedFill.toComposeColor()
+
+private fun firefoxOverallMeterColor(theme: FlameTheme): Color =
+    when (theme) {
+        FlameTheme.LIGHT -> Color(0xFF45A1FF)
+        FlameTheme.DARK -> Color(0xFF0A84FF)
+    }
+
+private fun firefoxMeterTrackColor(theme: FlameTheme): Color =
+    when (theme) {
+        FlameTheme.LIGHT -> Color.Black.copy(alpha = 0.1f)
+        FlameTheme.DARK -> Color.White.copy(alpha = 0.1f)
+    }
+
+private const val TOOLTIP_MAX_WIDTH_DP = 600
+private const val TOOLTIP_PADDING_DP = 8
+private const val TOOLTIP_DETAIL_LABEL_WIDTH_DP = 90
+private const val TOOLTIP_DETAIL_VALUE_WIDTH_DP = 470
+private const val TOOLTIP_TIMING_LABEL_WIDTH_DP = 110
+private const val TOOLTIP_METER_WIDTH_DP = 150
+private const val TOOLTIP_RUNNING_WIDTH_DP = 78
+private const val TOOLTIP_SELF_WIDTH_DP = 62

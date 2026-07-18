@@ -64,7 +64,7 @@ internal fun DeviceTargetPage(
     darkTheme: Boolean,
     settingsSection: CaptureSettingsSection?,
     onSettingsSectionChange: (CaptureSettingsSection?) -> Unit,
-    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
     simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},

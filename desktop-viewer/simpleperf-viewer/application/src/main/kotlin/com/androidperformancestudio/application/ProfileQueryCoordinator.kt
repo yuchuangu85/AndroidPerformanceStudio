@@ -309,8 +309,9 @@ private val DEFAULT_PROJECTION_STORE_OPENER =
                     SQLiteSampleStore.openV2(database)
                 }
                 ProfileSessionMode.LEGACY_READ_ONLY -> {
-                    val expectedVersion = checkNotNull(session.schemaVersion) { "Unknown read-only schema" }
-                    SQLiteSampleStore.openReadOnlyExpected(database, expectedVersion)
+                    session.schemaVersion?.let { expectedVersion ->
+                        SQLiteSampleStore.openReadOnlyExpected(database, expectedVersion)
+                    } ?: SQLiteSampleStore.openReadOnly(database)
                 }
             }
         object : InterruptibleProjectionStore {

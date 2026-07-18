@@ -62,6 +62,6 @@ enum class SimpleperfLanguagePreference(
 data class SimpleperfUiSettings(
     val theme: SimpleperfThemePreference = SimpleperfThemePreference.SYSTEM,
     val language: SimpleperfLanguagePreference = SimpleperfLanguagePreference.SYSTEM,
-    val flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    val flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
     val simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
 )

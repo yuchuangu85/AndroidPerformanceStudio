@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -58,7 +59,7 @@ internal fun FlameGraphPanel(
     state: FlameGraphPanelState,
     snapshot: FlameGraphSnapshot,
     actions: ReportActions,
-    tooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    tooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
 ) {
     val style = rememberFirefoxFlameGraphStyle()
     var widthPixels by remember { mutableIntStateOf(0) }
@@ -308,7 +309,8 @@ internal fun FirefoxFlameGraphViewport(
                     .fillMaxWidth()
                     .heightIn(min = MINIMUM_VIEWPORT_HEIGHT_DP.dp)
                     .background(style.canvasBackground.toComposeColor())
-                    .border(1.dp, style.viewportBorder.toComposeColor()),
+                    .border(1.dp, style.viewportBorder.toComposeColor())
+                    .clipToBounds(),
             content = content,
         )
         FirefoxFrameDetailsBottomBox(details, onCloseDetails, style)

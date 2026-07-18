@@ -28,7 +28,7 @@ fun HomeScreen(
     language: SimpleperfLanguage = SimpleperfLanguage.ENGLISH,
     captureSettingsSection: CaptureSettingsSection? = null,
     onCaptureSettingsSectionChange: (CaptureSettingsSection?) -> Unit = {},
-    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
     simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
