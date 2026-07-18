@@ -88,6 +88,17 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                     SimpleperfWorkspace(
                         window = window,
                         settings = simpleperfSettings,
+                        onOpenUserGuide = {
+                            val language =
+                                if (chinese) {
+                                    UserDocumentationLanguage.SIMPLIFIED_CHINESE
+                                } else {
+                                    UserDocumentationLanguage.ENGLISH
+                                }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                runCatching { userDocumentationLauncher.open(language) }
+                            }
+                        },
                     )
             }
             if (showApplicationSettings) {
@@ -95,17 +106,6 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                     settings = applicationSettings,
                     chinese = chinese,
                     onSettingsChanged = updateApplicationSettings,
-                    onOpenUserGuide = {
-                        val language =
-                            if (chinese) {
-                                UserDocumentationLanguage.SIMPLIFIED_CHINESE
-                            } else {
-                                UserDocumentationLanguage.ENGLISH
-                            }
-                        coroutineScope.launch(Dispatchers.IO) {
-                            runCatching { userDocumentationLauncher.open(language) }
-                        }
-                    },
                     onDismiss = { showApplicationSettings = false },
                 )
             }

@@ -52,6 +52,7 @@ import com.androidperformancestudio.presentation.SimpleperfLanguage as Presentat
 fun FrameWindowScope.SimpleperfWorkspace(
     window: ComposeWindow,
     settings: SimpleperfUiSettings = SimpleperfUiSettings(),
+    onOpenUserGuide: (() -> Unit)? = null,
 ) {
     var currentSettings by remember(settings) { mutableStateOf(settings) }
     val dependencies = remember { createWorkspaceDependencies() }
@@ -139,6 +140,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
         onFlameTooltipModeChange = { currentSettings = currentSettings.copy(flameTooltipMode = it) },
         simpleperfEngine = currentSettings.simpleperfEngine,
         onSimpleperfEngineChange = { currentSettings = currentSettings.copy(simpleperfEngine = it) },
+        onOpenUserGuide = onOpenUserGuide,
     )
 }
 

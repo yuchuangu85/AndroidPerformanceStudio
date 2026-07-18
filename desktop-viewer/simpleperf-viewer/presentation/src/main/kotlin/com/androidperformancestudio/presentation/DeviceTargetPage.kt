@@ -68,6 +68,7 @@ internal fun DeviceTargetPage(
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
     simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
+    onOpenUserGuide: (() -> Unit)? = null,
 ) {
     val style = macOsDeviceTargetStyle(darkTheme)
     val captureActive = captureState.isCaptureActive()
@@ -112,6 +113,7 @@ internal fun DeviceTargetPage(
             onFlameTooltipModeChange = onFlameTooltipModeChange,
             simpleperfEngine = simpleperfEngine,
             onSimpleperfEngineChange = onSimpleperfEngineChange,
+            onOpenUserGuide = onOpenUserGuide,
         )
     }
 }

@@ -1,4 +1,4 @@
-- [User Guide](/docs-user/)
+- [User Guide](/)
   - [Getting Started](./guide-getting-started.md)
   - [UI Tour: The Timeline](./guide-ui-tour-timeline.md)
   - [UI Tour: The Panels](./guide-ui-tour-panels.md)

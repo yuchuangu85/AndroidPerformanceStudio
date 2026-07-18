@@ -41,6 +41,23 @@ class UserDocumentationPackagingTest {
         assertTrue(buildScript.contains("into(\"docs-user-zh\")"))
     }
 
+    @Test
+    fun `Docsify loads each guide from its mounted directory`() {
+        val englishConfig = Files.readString(english.resolve("js/init.js"))
+        val chineseConfig = Files.readString(chinese.resolve("js/init.js"))
+        val englishSidebar = Files.readString(english.resolve("_sidebar.md"))
+        val chineseSidebar = Files.readString(chinese.resolve("_sidebar.md"))
+        val englishNavbar = Files.readString(english.resolve("_navbar.md"))
+        val chineseNavbar = Files.readString(chinese.resolve("_navbar.md"))
+
+        assertTrue(englishConfig.contains("basePath: '/docs-user/'"))
+        assertTrue(chineseConfig.contains("basePath: '/docs-user-zh/'"))
+        assertTrue(englishSidebar.startsWith("- [User Guide](/)"))
+        assertTrue(chineseSidebar.startsWith("- [用户指南](/)"))
+        assertTrue(englishNavbar.contains("href=\"/docs-user-zh/\" target=\"_self\""))
+        assertTrue(chineseNavbar.contains("href=\"/docs-user/\" target=\"_self\""))
+    }
+
     private fun markdownNames(root: Path): Set<String> =
         Files
             .list(root)

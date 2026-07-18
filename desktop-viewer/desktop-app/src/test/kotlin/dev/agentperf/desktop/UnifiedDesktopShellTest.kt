@@ -27,6 +27,7 @@ class UnifiedDesktopShellTest {
         assertTrue(shell.contains("LaunchedEffect(settingsRequest)"))
         assertFalse(shell.contains("GlobalSettingsBar("))
         assertTrue(shell.contains("SimpleperfWorkspace("))
+        assertTrue(shell.contains("onOpenUserGuide"))
         assertTrue(shell.contains("commonThemePreference = applicationSettings.theme.storageValue"))
         assertTrue(shell.contains("commonLanguagePreference = applicationSettings.language.storageValue"))
         assertFalse(shell.contains("返回主页"))

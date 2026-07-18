@@ -2,6 +2,7 @@ package dev.agentperf.desktop
 
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -17,9 +18,8 @@ class ApplicationSettingsDialogTest {
         assertTrue(dialog.contains("ApplicationThemePreference.entries"))
         assertTrue(dialog.contains("onSettingsChanged(settings.copy(language = it))"))
         assertTrue(dialog.contains("onSettingsChanged(settings.copy(theme = it))"))
-        assertTrue(dialog.contains("onOpenUserGuide"))
-        assertTrue(dialog.contains("Open User Guide in Browser"))
-        assertTrue(dialog.contains("在浏览器中打开用户指南"))
+        assertFalse(dialog.contains("onOpenUserGuide"))
+        assertFalse(dialog.contains("User Guide"))
     }
 
     @Test

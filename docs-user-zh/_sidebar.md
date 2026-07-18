@@ -1,4 +1,4 @@
-- [用户指南](/docs-user-zh/)
+- [用户指南](/)
    - [入门指南](./guide-getting-started.md)
    - [界面导览：时间线](./guide-ui-tour-timeline.md)
    - [界面导览：面板](./guide-ui-tour-panels.md)

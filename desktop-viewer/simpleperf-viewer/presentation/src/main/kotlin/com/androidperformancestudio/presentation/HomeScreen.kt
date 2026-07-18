@@ -32,6 +32,7 @@ fun HomeScreen(
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
     simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
+    onOpenUserGuide: (() -> Unit)? = null,
 ) {
     SimpleperfLocalization(language) {
         var localCaptureSettingsSection by remember { mutableStateOf(captureSettingsSection) }
@@ -58,6 +59,7 @@ fun HomeScreen(
                     onFlameTooltipModeChange,
                     simpleperfEngine,
                     onSimpleperfEngineChange,
+                    onOpenUserGuide,
                 )
             }
         }

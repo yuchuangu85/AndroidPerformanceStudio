@@ -30,7 +30,6 @@ internal fun ApplicationSettingsDialog(
     settings: ApplicationUiSettings,
     chinese: Boolean,
     onSettingsChanged: (ApplicationUiSettings) -> Unit,
-    onOpenUserGuide: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -58,12 +57,6 @@ internal fun ApplicationSettingsDialog(
                     optionLabel = { themePreferenceLabel(it, chinese) },
                     onSelected = { onSettingsChanged(settings.copy(theme = it)) },
                 )
-                OutlinedButton(
-                    onClick = onOpenUserGuide,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (chinese) "在浏览器中打开用户指南" else "Open User Guide in Browser")
-                }
             }
         },
         confirmButton = {

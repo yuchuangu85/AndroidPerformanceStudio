@@ -1,4 +1,4 @@
 - [Firefox 分析器](https://profiler.firefox.com/)
 - [GitHub](https://github.com/firefox-devtools/profiler)
 - [Matrix 上的 _Firefox 分析器_](https://chat.mozilla.org/#/room/#profiler:mozilla.org)
-- [English](/docs-user/)
+- <a href="/docs-user/" target="_self">English</a>

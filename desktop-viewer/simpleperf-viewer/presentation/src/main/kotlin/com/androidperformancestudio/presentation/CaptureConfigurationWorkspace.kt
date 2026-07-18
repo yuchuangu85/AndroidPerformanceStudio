@@ -64,6 +64,7 @@ enum class CaptureSettingsSection {
     ADVANCED_PARAMETERS,
     FLAME_GRAPH,
     SIMPLEPERF_ENGINE,
+    USER_GUIDE,
 }
 
 @Composable
@@ -82,6 +83,7 @@ internal fun CaptureSettingsDialog(
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
     simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
+    onOpenUserGuide: (() -> Unit)? = null,
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -101,7 +103,7 @@ internal fun CaptureSettingsDialog(
                     .background(style.workspace, RoundedCornerShape(12.dp))
                     .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(12.dp)),
             ) {
-                SettingsNavigation(section, style, onSectionChange)
+                SettingsNavigation(section, style, onSectionChange, showUserGuide = onOpenUserGuide != null)
                 SettingsPanel(
                     section = section,
                     setup = setup,
@@ -115,6 +117,7 @@ internal fun CaptureSettingsDialog(
                     onFlameTooltipModeChange = onFlameTooltipModeChange,
                     simpleperfEngine = simpleperfEngine,
                     onSimpleperfEngineChange = onSimpleperfEngineChange,
+                    onOpenUserGuide = onOpenUserGuide,
                 )
             }
         }
@@ -126,6 +129,7 @@ private fun SettingsNavigation(
     section: CaptureSettingsSection,
     style: MacOsDeviceTargetStyle,
     onSectionChange: (CaptureSettingsSection) -> Unit,
+    showUserGuide: Boolean,
 ) {
     Column(
         Modifier
@@ -138,7 +142,7 @@ private fun SettingsNavigation(
         Text("Settings", color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         Text("Application", color = style.secondaryText, fontSize = 10.sp)
         Spacer(Modifier.height(8.dp))
-        CaptureSettingsSection.entries.forEach { item ->
+        CaptureSettingsSection.entries.filter { item -> item != CaptureSettingsSection.USER_GUIDE || showUserGuide }.forEach { item ->
             val selected = item == section
             val label = item.label()
             val navigationDescription = localizedSimpleperfText("Capture settings: $label")
@@ -180,6 +184,7 @@ private fun RowScope.SettingsPanel(
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit,
     simpleperfEngine: SimpleperfEngine,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit,
+    onOpenUserGuide: (() -> Unit)?,
 ) {
     Column(Modifier.weight(1f).fillMaxHeight().padding(22.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -205,6 +210,8 @@ private fun RowScope.SettingsPanel(
                     FlameGraphSettingsPanel(flameTooltipMode, onFlameTooltipModeChange, style)
                 CaptureSettingsSection.SIMPLEPERF_ENGINE ->
                     SimpleperfEngineSettingsPanel(simpleperfEngine, onSimpleperfEngineChange, style)
+                CaptureSettingsSection.USER_GUIDE ->
+                    onOpenUserGuide?.let { UserGuideSettingsPanel(it, style) }
             }
         }
     }
@@ -217,6 +224,7 @@ private fun CaptureSettingsSection.label(): String =
         CaptureSettingsSection.ADVANCED_PARAMETERS -> "Advanced parameters"
         CaptureSettingsSection.FLAME_GRAPH -> "Flame graph"
         CaptureSettingsSection.SIMPLEPERF_ENGINE -> "Simpleperf engine"
+        CaptureSettingsSection.USER_GUIDE -> "User guide"
     }
 
 private fun CaptureSettingsSection.title(): String =
@@ -226,6 +234,7 @@ private fun CaptureSettingsSection.title(): String =
         CaptureSettingsSection.ADVANCED_PARAMETERS -> "Advanced parameters"
         CaptureSettingsSection.FLAME_GRAPH -> "Flame graph"
         CaptureSettingsSection.SIMPLEPERF_ENGINE -> "Simpleperf engine"
+        CaptureSettingsSection.USER_GUIDE -> "User guide"
     }
 
 private fun CaptureSettingsSection.subtitle(): String =
@@ -235,7 +244,24 @@ private fun CaptureSettingsSection.subtitle(): String =
         CaptureSettingsSection.ADVANCED_PARAMETERS -> "Tune call graph collection and event scope."
         CaptureSettingsSection.FLAME_GRAPH -> "Choose how frame information follows pointer movement."
         CaptureSettingsSection.SIMPLEPERF_ENGINE -> "Choose where captured Simpleperf data is analyzed."
+        CaptureSettingsSection.USER_GUIDE -> "Read the offline Simpleperf user guide in your default browser."
     }
+
+@Composable
+private fun UserGuideSettingsPanel(
+    onOpenUserGuide: () -> Unit,
+    style: MacOsDeviceTargetStyle,
+) {
+    MacOsPanel(Modifier.fillMaxWidth(), style) {
+        Text("User guide", color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Read the offline Simpleperf user guide in your default browser.",
+            color = style.secondaryText,
+            fontSize = 10.sp,
+        )
+        MacOsButton("Open User Guide in Browser", onOpenUserGuide, style, primary = true)
+    }
+}
 
 @Composable
 private fun FlameGraphSettingsPanel(

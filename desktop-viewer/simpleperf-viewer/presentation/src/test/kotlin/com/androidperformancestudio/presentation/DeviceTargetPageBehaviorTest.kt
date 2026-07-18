@@ -33,6 +33,7 @@ class DeviceTargetPageBehaviorTest {
         runDesktopComposeUiTest(width = 1100, height = 760) {
             var tooltipMode = FlameTooltipMode.FIXED
             var engine = SimpleperfEngine.LOCAL
+            var userGuideOpenCount = 0
             setContent {
                 HomeScreen(
                     state = DeviceTargetState(),
@@ -44,6 +45,7 @@ class DeviceTargetPageBehaviorTest {
                     onFlameTooltipModeChange = { tooltipMode = it },
                     simpleperfEngine = engine,
                     onSimpleperfEngineChange = { engine = it },
+                    onOpenUserGuide = { userGuideOpenCount++ },
                 )
             }
 
@@ -57,6 +59,10 @@ class DeviceTargetPageBehaviorTest {
             assertEquals(SimpleperfEngine.FIREFOX_PROFILER_LOCAL, engine)
             onNodeWithText("Firefox Profiler").performClick()
             assertEquals(SimpleperfEngine.FIREFOX_PROFILER, engine)
+
+            onNodeWithContentDescription("Capture settings: User guide").performClick()
+            onNodeWithText("Open User Guide in Browser").performClick()
+            assertEquals(1, userGuideOpenCount)
         }
 
     @Test
