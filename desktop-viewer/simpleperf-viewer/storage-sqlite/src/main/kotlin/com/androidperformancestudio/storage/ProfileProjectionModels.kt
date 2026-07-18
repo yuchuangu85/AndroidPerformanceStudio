@@ -2,6 +2,7 @@ package com.androidperformancestudio.storage
 
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 
 enum class ProfileTrackKind {
     CPU_SAMPLES,
@@ -38,6 +39,7 @@ data class ProfileProjectionRequest(
     val timelineBucketCount: Int = 600,
     val topFunctionLimit: Int = 200,
     val topSearch: String = "",
+    val markerSearch: String = "",
     val topSort: TopFunctionSort = TopFunctionSort.INCLUSIVE_WEIGHT,
     val topDescending: Boolean = true,
 ) {
@@ -57,6 +59,8 @@ data class ProfileProjectionSnapshot(
     val threads: List<ThreadSummary>,
     val timeline: List<TimelineBucket>,
     val topFunctions: List<TopFunction>,
+    val stackChart: PanelProjection<StackChartSnapshot>,
+    val markers: PanelProjection<MarkerProjectionSnapshot>,
     val sessionOverview: ProfileOverview = overview,
     val sessionThreads: List<ThreadSummary> = threads,
     val timelineTracks: List<ThreadTimelineTrack> = emptyList(),

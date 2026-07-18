@@ -92,5 +92,7 @@ class ProfileWorkspaceStateTest {
             topFunctions = emptyList(),
             flameGraph = emptyFlameGraph(),
             callTree = emptyList(),
+            stackChart = emptyStackChart(),
+            markers = emptyMarkers(),
         )
 }

@@ -17,6 +17,7 @@ import java.sql.Statement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class SQLiteLegacyReadOnlyProjectionTest {
@@ -108,7 +109,15 @@ class SQLiteLegacyReadOnlyProjectionTest {
         val legacyProjection = SQLiteSampleStore.openReadOnlyExpected(legacy, 1).use { it.projectCore(request) }
         val migratedProjection = SQLiteSampleStore.openV2(migrated).use { it.projectCore(request) }
 
-        assertEquals(migratedProjection, legacyProjection)
+        assertEquals(migratedProjection.copy(markers = legacyProjection.markers), legacyProjection)
+        assertEquals(
+            MarkerAvailability.AVAILABLE,
+            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(migratedProjection.markers).value.availability,
+        )
+        assertEquals(
+            MarkerAvailability.NOT_COLLECTED,
+            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(legacyProjection.markers).value.availability,
+        )
     }
 
     @Test

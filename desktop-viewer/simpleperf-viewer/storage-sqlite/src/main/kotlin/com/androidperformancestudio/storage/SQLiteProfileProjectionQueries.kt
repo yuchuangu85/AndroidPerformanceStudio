@@ -1,16 +1,22 @@
-@file:Suppress("MagicNumber", "TooManyFunctions")
+@file:Suppress("MagicNumber", "TooGenericExceptionCaught", "TooManyFunctions")
 
 package com.androidperformancestudio.storage
 
 import com.androidperformancestudio.profileanalysis.CallNodeTable
+import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackFilter
+import com.androidperformancestudio.profileanalysis.CallStackTable
 import com.androidperformancestudio.profileanalysis.CallStackTransformer
 import com.androidperformancestudio.profileanalysis.CallTreeProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FlameGraphStageCounts
+import com.androidperformancestudio.profileanalysis.StackChartProjector
+import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 import java.sql.Connection
 import java.sql.ResultSet
+import java.sql.SQLException
+import java.util.concurrent.CancellationException
 
 internal object SQLiteProfileProjectionQueries {
     fun project(
@@ -21,6 +27,10 @@ internal object SQLiteProfileProjectionQueries {
     fun project(
         store: SQLiteSampleStore,
         request: ProfileProjectionRequest,
+        stackChartProjector: (CallStackTable, CallStackAnalysisQuery, Long) -> StackChartSnapshot =
+            StackChartProjector::project,
+        markerProjector: (Connection, ProfileQuery, String) -> MarkerProjectionSnapshot =
+            SQLiteMarkerProjectionQueries::load,
     ): ProfileProjectionSnapshot {
         val frozenQuery = request.query.freeze()
         return store.readTransaction {
@@ -28,24 +38,42 @@ internal object SQLiteProfileProjectionQueries {
             val sessionOverview = overview()
             val sessionThreads = threads().sortedThreads()
             val quality = dataQuality()
-            val flameGraph = flameGraph(frozenQuery, request, sessionOverview, sessionThreads)
+            val source = SQLiteFlameGraphStackQueries.load(connection, frozenQuery)
+            val callStacks = projectCallStacks(source, frozenQuery, request, sessionOverview, sessionThreads)
+            val stackChart =
+                isolatedPanel(STACK_CHART_QUERY_FAILED) {
+                    stackChartProjector(
+                        source,
+                        request.callStackAnalysis,
+                        overview.stackChartViewportEnd(request),
+                    )
+                }
+            val markers =
+                isolatedPanel(MARKER_QUERY_FAILED) {
+                    markerProjector(connection, frozenQuery, request.markerSearch)
+                }
             ProfileProjectionSnapshot(
                 query = frozenQuery,
-                flameGraph = flameGraph,
-                callTree = flameGraph.callNodes.toCallTree(),
+                flameGraph = callStacks.flameGraph,
+                callTree = callStacks.flameGraph.callNodes.toCallTree(),
                 overview = overview.copy(eventTypes = overview.eventTypes.sorted()),
                 quality = quality.sorted(),
                 tracks = coreTracks(connection, frozenQuery),
                 threads = threads(frozenQuery).sortedThreads(),
                 timeline = timelineBuckets(frozenQuery, request.timelineBucketCount).sortedTimeline(),
                 topFunctions =
-                    topFunctions(
-                        query = frozenQuery,
-                        limit = request.topFunctionLimit,
-                        search = request.topSearch,
-                        sort = request.topSort,
-                        descending = request.topDescending,
+                    CallStackTopFunctions.project(
+                        table = callStacks.transformed,
+                        options =
+                            TopFunctionOptions(
+                                limit = request.topFunctionLimit,
+                                search = request.topSearch,
+                                sort = request.topSort,
+                                descending = request.topDescending,
+                            ),
                     ),
+                stackChart = stackChart,
+                markers = markers,
                 sessionOverview = sessionOverview.copy(eventTypes = sessionOverview.eventTypes.sorted()),
                 sessionThreads = sessionThreads,
                 timelineTracks =
@@ -57,13 +85,13 @@ internal object SQLiteProfileProjectionQueries {
         }
     }
 
-    private fun SQLiteSampleStore.flameGraph(
+    private fun SQLiteSampleStore.projectCallStacks(
+        source: CallStackTable,
         query: ProfileQuery,
         request: ProfileProjectionRequest,
         sessionOverview: ProfileOverview,
         sessionThreads: List<ThreadSummary>,
-    ): FlameGraphSnapshot {
-        val source = SQLiteFlameGraphStackQueries.load(connection, query)
+    ): CallStackPanels {
         val filtered = CallStackFilter.apply(source, request.callStackAnalysis)
         val transformed = CallStackTransformer.apply(filtered.table, request.callStackAnalysis.transforms)
         val projection = CallTreeProjector.projectResult(transformed.table, request.callStackAnalysis.direction)
@@ -92,16 +120,41 @@ internal object SQLiteProfileProjectionQueries {
                 projectedNodeCount = callNodes.size,
                 projectionFailure = projection.failureDetail,
             )
-        return FlameGraphSnapshot(
-            query = request.callStackAnalysis,
-            callNodes = callNodes,
-            rows = FlameGraphRowProjector.project(callNodes, request.callStackAnalysis.direction),
-            totalWeight = callNodes.rootWeight(),
-            emptyReason = stages.emptyReason(),
-            invalidTransforms = transformed.invalidTransforms,
-            diagnosticDetails = projection.failureDetail,
+        return CallStackPanels(
+            transformed = transformed.table,
+            flameGraph =
+                FlameGraphSnapshot(
+                    query = request.callStackAnalysis,
+                    callNodes = callNodes,
+                    rows = FlameGraphRowProjector.project(callNodes, request.callStackAnalysis.direction),
+                    totalWeight = callNodes.rootWeight(),
+                    emptyReason = stages.emptyReason(),
+                    invalidTransforms = transformed.invalidTransforms,
+                    diagnosticDetails = projection.failureDetail,
+                ),
         )
     }
+
+    private fun ProfileOverview.stackChartViewportEnd(request: ProfileProjectionRequest): Long =
+        request.callStackAnalysis.previewRange?.endNanosExclusive
+            ?: request.query.endNanosExclusive
+            ?: endNanosInclusive?.exclusiveEnd()
+            ?: 0L
+
+    private inline fun <T> isolatedPanel(
+        code: String,
+        project: () -> T,
+    ): PanelProjection<T> =
+        try {
+            PanelProjection.Ready(project())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (interrupted: SQLException) {
+            if (interrupted.errorCode == SQLITE_INTERRUPT) throw interrupted
+            PanelProjection.Failed(code, interrupted.message ?: code)
+        } catch (failure: Exception) {
+            PanelProjection.Failed(code, failure.message ?: code)
+        }
 
     private fun SQLiteSampleStore.hasOtherwiseEligibleSamples(
         query: ProfileQuery,
@@ -483,7 +536,16 @@ internal object SQLiteProfileProjectionQueries {
     private const val LEGACY_CPU_BOUNDS_SQL =
         "SELECT 'legacy:' || s.thread_id, MIN(s.timestamp_nanos), MAX(s.timestamp_nanos) FROM sample s " +
             "JOIN event e ON e.event_id=s.event_id /*FILTER*/ GROUP BY s.thread_id"
+
+    private const val STACK_CHART_QUERY_FAILED = "STACK_CHART_QUERY_FAILED"
+    private const val MARKER_QUERY_FAILED = "MARKER_QUERY_FAILED"
+    private const val SQLITE_INTERRUPT = 9
 }
+
+private data class CallStackPanels(
+    val transformed: CallStackTable,
+    val flameGraph: FlameGraphSnapshot,
+)
 
 private inline fun <T> SQLiteSampleStore.readTransaction(block: SQLiteSampleStore.() -> T): T {
     check(connection.autoCommit) { "A record import is active" }

@@ -585,4 +585,6 @@ private fun snapshotFor(query: ProfileQuery): ProfileProjectionSnapshot =
         topFunctions = emptyList(),
         flameGraph = emptyFlameGraph(),
         callTree = emptyList(),
+        stackChart = emptyStackChart(),
+        markers = emptyMarkers(),
     )

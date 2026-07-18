@@ -1,19 +1,133 @@
+@file:Suppress("LargeClass")
+
 package com.androidperformancestudio.storage
 
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
+import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.SQLException
+import java.util.concurrent.CancellationException
 import kotlin.io.path.deleteIfExists
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class SQLiteProfileProjectionQueriesTest {
+    @Test
+    fun `core projection publishes stack chart and marker snapshots`() =
+        withStore { store ->
+            store.seedCanonicalSource("source", "main", sampleNanos = 100)
+            store.attachTwoFrameStack()
+
+            val snapshot = store.projectCore(ProfileProjectionRequest(markerSearch = "marker"))
+
+            assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart)
+            assertEquals(
+                listOf("marker"),
+                assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(snapshot.markers)
+                    .value.markers
+                    .map(MarkerProjectionRow::name),
+            )
+        }
+
+    @Test
+    fun `marker projection failure preserves sample panels`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachTwoFrameStack()
+
+            val snapshot =
+                SQLiteProfileProjectionQueries.project(
+                    store = store,
+                    request = ProfileProjectionRequest(),
+                    markerProjector = { _, _, _ -> throw SQLException("marker unavailable") },
+                )
+
+            assertTrue(snapshot.flameGraph.callNodes.size > 0)
+            assertEquals("MARKER_QUERY_FAILED", assertIs<PanelProjection.Failed>(snapshot.markers).code)
+        }
+
+    @Test
+    fun `stack chart failure preserves sample and marker panels`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachTwoFrameStack()
+
+            val snapshot =
+                SQLiteProfileProjectionQueries.project(
+                    store = store,
+                    request = ProfileProjectionRequest(),
+                    stackChartProjector = { _, _, _ -> error("stack chart unavailable") },
+                )
+
+            assertTrue(snapshot.flameGraph.callNodes.size > 0)
+            assertEquals("STACK_CHART_QUERY_FAILED", assertIs<PanelProjection.Failed>(snapshot.stackChart).code)
+            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(snapshot.markers)
+        }
+
+    @Test
+    fun `top functions use the shared script stack filter`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachMixedImplementationStack()
+            val request =
+                ProfileProjectionRequest(
+                    callStackAnalysis =
+                        CallStackAnalysisQuery(
+                            implementation = ImplementationFilter.SCRIPT,
+                        ),
+                )
+
+            val topFunctions = store.projectCore(request).topFunctions
+
+            assertEquals(listOf("managedFrame"), topFunctions.map(TopFunction::symbolName))
+        }
+
+    @Test
+    fun `top functions count a recursive function once per sample`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachRecursiveFunctionStack()
+
+            val function = store.projectCore().topFunctions.single()
+
+            assertEquals("recursive", function.symbolName)
+            assertEquals(3, function.inclusiveWeight)
+            assertEquals(3, function.exclusiveWeight)
+            assertEquals(1, function.sampleCount)
+            assertEquals(1, function.threadCount)
+        }
+
+    @Test
+    fun `optional panel cancellation and SQLite interrupt abort projection`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachTwoFrameStack()
+
+            assertFailsWith<CancellationException> {
+                SQLiteProfileProjectionQueries.project(
+                    store = store,
+                    request = ProfileProjectionRequest(),
+                    stackChartProjector = { _, _, _ -> throw CancellationException("obsolete") },
+                )
+            }
+            assertFailsWith<SQLException> {
+                SQLiteProfileProjectionQueries.project(
+                    store = store,
+                    request = ProfileProjectionRequest(),
+                    markerProjector = { _, _, _ -> throw SQLException("interrupted", null, 9) },
+                )
+            }
+            assertTrue(store.connection.autoCommit)
+        }
+
     @Test
     fun `call tree replaces opaque vendor hashes with Firefox file offset labels`() =
         withStore { store ->
@@ -422,6 +536,40 @@ class SQLiteProfileProjectionQueriesTest {
         execute(
             "INSERT INTO frame(frame_id, virtual_address, file_id, symbol_id, execution_type) " +
                 "VALUES (2, 2, 1, 2, 'NATIVE')",
+        )
+        execute("INSERT INTO callsite(callsite_id, parent_id, frame_id) VALUES (1, NULL, 1)")
+        execute("INSERT INTO callsite(callsite_id, parent_id, frame_id) VALUES (2, 1, 2)")
+        execute("UPDATE sample SET leaf_callsite_id=2")
+    }
+
+    private fun SQLiteSampleStore.attachMixedImplementationStack() {
+        execute("INSERT INTO file(file_id, path) VALUES (1, '/native.so')")
+        execute("INSERT INTO file(file_id, path) VALUES (2, '/managed.jar')")
+        execute("INSERT INTO symbol(symbol_id, file_id, source_symbol_id, name) VALUES (1, 1, 1, 'nativeFrame')")
+        execute("INSERT INTO symbol(symbol_id, file_id, source_symbol_id, name) VALUES (2, 2, 2, 'managedFrame')")
+        execute(
+            "INSERT INTO frame(frame_id, virtual_address, file_id, symbol_id, execution_type) " +
+                "VALUES (1, 1, 1, 1, 'NATIVE')",
+        )
+        execute(
+            "INSERT INTO frame(frame_id, virtual_address, file_id, symbol_id, execution_type) " +
+                "VALUES (2, 2, 2, 2, 'ART')",
+        )
+        execute("INSERT INTO callsite(callsite_id, parent_id, frame_id) VALUES (1, NULL, 1)")
+        execute("INSERT INTO callsite(callsite_id, parent_id, frame_id) VALUES (2, 1, 2)")
+        execute("UPDATE sample SET leaf_callsite_id=2")
+    }
+
+    private fun SQLiteSampleStore.attachRecursiveFunctionStack() {
+        execute("INSERT INTO file(file_id, path) VALUES (1, '/recursive.so')")
+        execute("INSERT INTO symbol(symbol_id, file_id, source_symbol_id, name) VALUES (1, 1, 1, 'recursive')")
+        execute(
+            "INSERT INTO frame(frame_id, virtual_address, file_id, symbol_id, execution_type) " +
+                "VALUES (1, 1, 1, 1, 'NATIVE')",
+        )
+        execute(
+            "INSERT INTO frame(frame_id, virtual_address, file_id, symbol_id, execution_type) " +
+                "VALUES (2, 2, 1, 1, 'NATIVE')",
         )
         execute("INSERT INTO callsite(callsite_id, parent_id, frame_id) VALUES (1, NULL, 1)")
         execute("INSERT INTO callsite(callsite_id, parent_id, frame_id) VALUES (2, 1, 2)")

@@ -265,4 +265,6 @@ internal fun workspaceSnapshot(query: ProfileQuery): ProfileProjectionSnapshot =
         topFunctions = emptyList(),
         flameGraph = emptyFlameGraph(),
         callTree = emptyList(),
+        stackChart = emptyStackChart(),
+        markers = emptyMarkers(),
     )
