@@ -94,3 +94,38 @@ private fun ImplementationFilter.displayName(): String =
     }
 
 private const val STACK_SEARCH_DEBOUNCE_MILLIS = 150L
+
+internal data class FlameSearchDraftState(
+    val authoritativeQuery: String,
+    val draft: String,
+    private val pendingDispatches: List<String>,
+) {
+    val isDirty: Boolean
+        get() = draft != authoritativeQuery
+
+    fun edit(value: String): FlameSearchDraftState = copy(draft = value)
+
+    fun markDispatched(value: String): FlameSearchDraftState = copy(pendingDispatches = pendingDispatches + value)
+
+    fun acknowledge(value: String): FlameSearchDraftState {
+        if (value == authoritativeQuery) return this
+        val pendingIndex = pendingDispatches.indexOf(value)
+        return if (pendingIndex >= 0) {
+            copy(
+                authoritativeQuery = value,
+                pendingDispatches = pendingDispatches.drop(pendingIndex + 1),
+            )
+        } else {
+            initial(value)
+        }
+    }
+
+    companion object {
+        fun initial(value: String): FlameSearchDraftState =
+            FlameSearchDraftState(
+                authoritativeQuery = value,
+                draft = value,
+                pendingDispatches = emptyList(),
+            )
+    }
+}

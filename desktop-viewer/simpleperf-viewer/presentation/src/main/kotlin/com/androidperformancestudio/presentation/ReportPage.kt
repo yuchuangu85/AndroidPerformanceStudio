@@ -10,7 +10,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -24,12 +23,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.TooltipAnchorPosition
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -103,82 +96,6 @@ internal fun ReportWorkspace(
             .border(MacOsDeviceTargetDimensions.hairline, style.border),
     ) {
         ReportResultPane(state, actions, style, Modifier.fillMaxSize(), flameTooltipMode)
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "UnusedPrivateMember", "ktlint:standard:function-naming")
-private fun ReportNavigation(
-    selectedTab: ReportTab,
-    onSelectTab: (ReportTab) -> Unit,
-    style: MacOsDeviceTargetStyle,
-) {
-    Column(
-        Modifier
-            .width(IntrinsicSize.Max)
-            .fillMaxHeight()
-            .background(style.toolbar)
-            .padding(horizontal = 4.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        ReportTab.entries.forEach { tab ->
-            ReportNavigationItem(tab, tab == selectedTab, style) { onSelectTab(tab) }
-        }
-    }
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun ReportNavigationItem(
-    tab: ReportTab,
-    selected: Boolean,
-    style: MacOsDeviceTargetStyle,
-    onClick: () -> Unit,
-) {
-    val label = tab.displayName()
-    val localizedLabel = localizedSimpleperfText(label)
-    TooltipBox(
-        positionProvider =
-            TooltipDefaults.rememberTooltipPositionProvider(
-                positioning = TooltipAnchorPosition.Right,
-                spacingBetweenTooltipAndAnchor = 8.dp,
-            ),
-        tooltip = {
-            PlainTooltip(
-                containerColor = style.text,
-                contentColor = style.panel,
-                shape = RoundedCornerShape(6.dp),
-                shadowElevation = 4.dp,
-            ) {
-                Text(localizedLabel, color = style.panel, fontSize = 10.sp)
-            }
-        },
-        state = rememberTooltipState(),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(REPORT_NAVIGATION_ITEM_HEIGHT)
-                .background(
-                    if (selected) style.accent.copy(alpha = 0.16f) else style.toolbar,
-                    RoundedCornerShape(6.dp),
-                ).clickable(onClick = onClick)
-                .semantics {
-                    contentDescription = localizedLabel
-                    this.selected = selected
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                tab.iconGlyph(),
-                color = if (selected) style.accent else style.text,
-                fontSize = 18.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            )
-        }
     }
 }
 
@@ -807,17 +724,6 @@ private fun SectionTitle(
     Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
 }
 
-private fun ReportTab.iconGlyph(): String =
-    when (this) {
-        ReportTab.OVERVIEW -> "▦"
-        ReportTab.TOP_FUNCTIONS -> "ƒ"
-        ReportTab.CALL_TREE -> "↳"
-        ReportTab.FLAME_GRAPH -> "Ψ"
-        ReportTab.STACK_CHART -> "▥"
-        ReportTab.MARKER_CHART -> "⌁"
-        ReportTab.MARKER_TABLE -> "≣"
-    }
-
 private fun TopFunctionSort.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
 internal fun topFunctionItemKey(
@@ -920,4 +826,3 @@ internal fun simpleperfNavigationAction(key: Key): NavigationAction? =
 
 private const val PERCENT_MULTIPLIER = 100
 private const val OVERVIEW_ITEM_LIMIT = 8
-private val REPORT_NAVIGATION_ITEM_HEIGHT = 42.dp

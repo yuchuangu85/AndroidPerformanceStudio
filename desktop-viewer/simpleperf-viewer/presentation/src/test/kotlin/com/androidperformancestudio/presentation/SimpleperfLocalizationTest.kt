@@ -168,10 +168,10 @@ class SimpleperfLocalizationTest {
             )
         val toolbar =
             Files.readString(
-                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphToolbar.kt"),
+                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FirefoxStackToolbar.kt"),
             )
 
         assertTrue(panel.contains("localizedSimpleperfText(\"Flame graph call stacks\")"))
-        assertTrue(toolbar.contains("localizedSimpleperfText(\"Flame graph search\")"))
+        assertTrue(toolbar.contains("label = \"Filter Stacks\""))
     }
 }

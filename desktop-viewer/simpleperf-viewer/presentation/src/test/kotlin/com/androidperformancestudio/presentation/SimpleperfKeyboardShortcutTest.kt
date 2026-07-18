@@ -39,12 +39,13 @@ class SimpleperfKeyboardShortcutTest {
             )
         val toolbarSource =
             Files.readString(
-                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphToolbar.kt"),
+                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FirefoxStackToolbar.kt"),
             )
 
         assertTrue(panelSource.contains("FlameGraphPresenter.keyAction"))
+        assertTrue(toolbarSource.contains("FlameSearchDraftState"))
         assertTrue(toolbarSource.contains("LaunchedEffect(sessionIdentity, searchState.draft"))
-        assertTrue(toolbarSource.contains("delay(SEARCH_DEBOUNCE_MILLIS)"))
+        assertTrue(toolbarSource.contains("delay(STACK_SEARCH_DEBOUNCE_MILLIS)"))
         assertTrue(panelSource.contains("actions.onNavigateFlameNode"))
         assertTrue(panelSource.contains("actions.onCopyFlameFunction"))
     }

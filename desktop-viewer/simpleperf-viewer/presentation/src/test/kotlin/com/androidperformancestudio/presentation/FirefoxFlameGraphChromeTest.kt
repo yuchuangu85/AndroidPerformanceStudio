@@ -2,20 +2,16 @@ package com.androidperformancestudio.presentation
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
-import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FrameImplementation
-import com.androidperformancestudio.profileanalysis.ImplementationFilter
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameTheme
-import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -98,50 +94,6 @@ class FirefoxFlameGraphChromeTest {
             onNodeWithTag("firefox-tooltip-category-row").assertDoesNotExist()
             val tooltip = onNodeWithTag("firefox-flame-tooltip").fetchSemanticsNode().boundsInRoot
             assertTrue(tooltip.width <= 600f, "Firefox tooltip exceeded its 600px maximum: ${tooltip.width}")
-        }
-
-    @Test
-    fun `compact toolbar dispatches existing direction implementation and transform actions`() =
-        runDesktopComposeUiTest(width = 1_000, height = 120) {
-            var direction: CallStackDirection? = null
-            var implementation: ImplementationFilter? = null
-            var undoCount = 0
-            var clearCount = 0
-
-            setContent {
-                MaterialTheme {
-                    FirefoxFlameGraphToolbar(
-                        sessionIdentity = Path.of("fixture"),
-                        authoritativeSearch = "",
-                        implementation = ImplementationFilter.ALL,
-                        direction = CallStackDirection.FORWARD,
-                        style = FirefoxFlameGraphStyle.resolve(FlameTheme.LIGHT),
-                        hasTransforms = true,
-                        onSearch = {},
-                        onImplementation = { implementation = it },
-                        onDirection = { direction = it },
-                        onUndo = { undoCount++ },
-                        onClear = { clearCount++ },
-                    )
-                }
-            }
-
-            onNodeWithText("Forward").assertIsSelected()
-            assertEquals(24f, onNodeWithText("Forward").fetchSemanticsNode().boundsInRoot.height)
-            onNodeWithText("All Frames").assertIsSelected()
-            onNodeWithText("Native").fetchSemanticsNode()
-            onNodeWithText("Managed").assertDoesNotExist()
-            onNodeWithText("Kernel").assertDoesNotExist()
-            onNodeWithText("Unknown").assertDoesNotExist()
-            onNodeWithText("Inverted").performClick()
-            onNodeWithText("Script").performClick()
-            onNodeWithText("Undo").performClick()
-            onNodeWithText("Clear").performClick()
-
-            assertEquals(CallStackDirection.INVERTED, direction)
-            assertEquals(ImplementationFilter.SCRIPT, implementation)
-            assertEquals(1, undoCount)
-            assertEquals(1, clearCount)
         }
 
     @Test
