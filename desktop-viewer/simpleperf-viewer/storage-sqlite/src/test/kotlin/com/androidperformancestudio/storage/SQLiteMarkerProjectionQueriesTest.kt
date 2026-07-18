@@ -139,6 +139,17 @@ class SQLiteMarkerProjectionQueriesTest {
     }
 
     @Test
+    fun `in range markers excluded only by thread selection report filtered empty`() {
+        val snapshot =
+            queryMarkers(
+                pointMarker(20, processId = 1, threadId = 2, threadName = "other"),
+                ProfileQuery(startNanosInclusive = 10, endNanosExclusive = 30, threadIds = setOf(3)),
+            )
+
+        assertEquals(MarkerEmptyReason.FILTERED_EMPTY, snapshot.emptyReason)
+    }
+
+    @Test
     fun `query snapshots expose defensive immutable marker and lane lists`() {
         val snapshot = queryMarkers(pointMarker(30), ProfileQuery())
 

@@ -15,14 +15,14 @@ internal object SQLiteMarkerProjectionQueries {
         if (connection.isLegacySchema()) return notCollectedSnapshot()
 
         val frozenQuery = query.freeze()
-        val rangeFilter = frozenQuery.toMarkerFilter()
-        val searchFilter = rangeFilter.withSearch(markerSearch)
-        val markers = connection.queryMarkers(searchFilter)
+        val timeFilter = frozenQuery.toMarkerTimeFilter()
+        val filtered = timeFilter.withThreadSelection(frozenQuery.threadIds).withSearch(markerSearch)
+        val markers = connection.queryMarkers(filtered)
         val emptyReason =
             if (markers.isNotEmpty()) {
                 null
             } else {
-                connection.emptyReason(rangeFilter, markerSearch)
+                connection.emptyReason(timeFilter)
             }
         return MarkerProjectionSnapshot(
             availability = MarkerAvailability.AVAILABLE,
@@ -50,15 +50,11 @@ internal object SQLiteMarkerProjectionQueries {
             }
         }
 
-    private fun Connection.emptyReason(
-        rangeFilter: MarkerFilter,
-        markerSearch: String,
-    ): MarkerEmptyReason =
+    private fun Connection.emptyReason(timeFilter: MarkerFilter): MarkerEmptyReason =
         when {
             !hasMarker(MarkerFilter("", emptyList())) -> MarkerEmptyReason.PROFILE_EMPTY
-            !hasMarker(rangeFilter) -> MarkerEmptyReason.RANGE_EMPTY
-            markerSearch.isNotBlank() -> MarkerEmptyReason.FILTERED_EMPTY
-            else -> MarkerEmptyReason.RANGE_EMPTY
+            !hasMarker(timeFilter) -> MarkerEmptyReason.RANGE_EMPTY
+            else -> MarkerEmptyReason.FILTERED_EMPTY
         }
 
     private fun Connection.hasMarker(filter: MarkerFilter): Boolean =
@@ -67,7 +63,7 @@ internal object SQLiteMarkerProjectionQueries {
             statement.executeQuery().use(ResultSet::next)
         }
 
-    private fun ProfileQuery.toMarkerFilter(): MarkerFilter {
+    private fun ProfileQuery.toMarkerTimeFilter(): MarkerFilter {
         val predicates = mutableListOf<String>()
         val parameters = mutableListOf<Any>()
         startNanosInclusive?.let { rangeStart ->
@@ -81,11 +77,16 @@ internal object SQLiteMarkerProjectionQueries {
             predicates += "m.start_nanos < ?"
             parameters += rangeEnd
         }
-        if (threadIds.isNotEmpty()) {
-            predicates += "pt.thread_id IN (${threadIds.joinToString { "?" }})"
-            parameters.addAll(threadIds.sorted())
-        }
         return MarkerFilter(predicates.toWhereClause(), parameters)
+    }
+
+    private fun MarkerFilter.withThreadSelection(threadIds: Set<Int>): MarkerFilter {
+        if (threadIds.isEmpty()) return this
+        val sortedThreadIds = threadIds.sorted()
+        return withPredicate(
+            predicate = "pt.thread_id IN (${sortedThreadIds.joinToString { "?" }})",
+            predicateParameters = sortedThreadIds,
+        )
     }
 
     private fun MarkerFilter.withSearch(markerSearch: String): MarkerFilter {
@@ -95,15 +96,25 @@ internal object SQLiteMarkerProjectionQueries {
             "(LOWER(m.name) LIKE LOWER(?) ESCAPE '\\' OR " +
                 "LOWER(m.schema_name) LIKE LOWER(?) ESCAPE '\\' OR " +
                 "LOWER(m.payload_json) LIKE LOWER(?) ESCAPE '\\')"
+        return withPredicate(
+            predicate = searchPredicate,
+            predicateParameters = listOf(pattern, pattern, pattern),
+        )
+    }
+
+    private fun MarkerFilter.withPredicate(
+        predicate: String,
+        predicateParameters: List<Any>,
+    ): MarkerFilter {
         val predicates =
             if (whereClause.isEmpty()) {
-                listOf(searchPredicate)
+                listOf(predicate)
             } else {
-                listOf(whereClause.removePrefix("WHERE "), searchPredicate)
+                listOf(whereClause.removePrefix("WHERE "), predicate)
             }
         return MarkerFilter(
             whereClause = predicates.toWhereClause(),
-            parameters = parameters + listOf(pattern, pattern, pattern),
+            parameters = parameters + predicateParameters,
         )
     }
 
