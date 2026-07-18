@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -53,5 +54,6 @@ class FirefoxReportAccessibilityTest {
                         ProgressBarRangeInfo(220f, 120f..480f),
                     ),
                 )
+            onNodeWithContentDescription("Drag to resize timeline").assertExists()
         }
 }

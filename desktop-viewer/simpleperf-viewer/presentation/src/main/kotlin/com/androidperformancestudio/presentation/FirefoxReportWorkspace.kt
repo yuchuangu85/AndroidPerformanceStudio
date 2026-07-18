@@ -2,7 +2,7 @@ package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,11 +16,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -29,6 +35,7 @@ import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
+import java.awt.Cursor
 import kotlin.math.roundToInt
 
 @Composable
@@ -40,7 +47,6 @@ internal fun FirefoxReportWorkspace(
     style: MacOsDeviceTargetStyle,
     flameTooltipMode: FlameTooltipMode,
 ) {
-    val density = LocalDensity.current
     Column(
         modifier =
             Modifier
@@ -58,25 +64,10 @@ internal fun FirefoxReportWorkspace(
         ) {
             TimelineReport(state, report, actions, style)
         }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .testTag("timeline-divider")
-                .background(style.strongBorder)
-                .semantics {
-                    progressBarRangeInfo =
-                        ProgressBarRangeInfo(
-                            state.workspace.timelineHeightDp.toFloat(),
-                            MIN_TIMELINE_HEIGHT_DP.toFloat()..MAX_TIMELINE_HEIGHT_DP.toFloat(),
-                        )
-                }.pointerInput(state.workspace.timelineHeightDp, density) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        val deltaDp = with(density) { dragAmount.y.toDp().value }
-                        actions.onTimelineHeightDp((state.workspace.timelineHeightDp + deltaDp).roundToInt())
-                    }
-                },
+        TimelineResizeHandle(
+            currentHeightDp = state.workspace.timelineHeightDp,
+            onHeightChange = actions.onTimelineHeightDp,
+            style = style,
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -105,6 +96,50 @@ internal fun FirefoxReportWorkspace(
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
         Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun TimelineResizeHandle(
+    currentHeightDp: Int,
+    onHeightChange: (Int) -> Unit,
+    style: MacOsDeviceTargetStyle,
+) {
+    val density = LocalDensity.current
+    val latestHeightDp by rememberUpdatedState(currentHeightDp)
+    val latestOnHeightChange by rememberUpdatedState(onHeightChange)
+    val resizeDescription = localizedSimpleperfText("Drag to resize timeline")
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(TIMELINE_RESIZE_HANDLE_HEIGHT)
+                .testTag("timeline-divider")
+                .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+                .semantics {
+                    contentDescription = resizeDescription
+                    progressBarRangeInfo =
+                        ProgressBarRangeInfo(
+                            currentHeightDp.toFloat(),
+                            MIN_TIMELINE_HEIGHT_DP.toFloat()..MAX_TIMELINE_HEIGHT_DP.toFloat(),
+                        )
+                }.pointerInput(density) {
+                    var dragHeightDp = latestHeightDp.toFloat()
+                    detectVerticalDragGestures(
+                        onDragStart = { dragHeightDp = latestHeightDp.toFloat() },
+                    ) { change, dragAmount ->
+                        change.consume()
+                        dragHeightDp =
+                            (dragHeightDp + dragAmount / density.density)
+                                .coerceIn(MIN_TIMELINE_HEIGHT_DP.toFloat(), MAX_TIMELINE_HEIGHT_DP.toFloat())
+                        latestOnHeightChange(dragHeightDp.roundToInt())
+                    }
+                },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.fillMaxWidth().height(2.dp).background(style.strongBorder))
     }
 }
 
@@ -145,6 +180,7 @@ private fun FirefoxReportContentAndDetails(
 
 private const val MIN_TIMELINE_HEIGHT_DP = 120
 private const val MAX_TIMELINE_HEIGHT_DP = 480
+private val TIMELINE_RESIZE_HANDLE_HEIGHT = 8.dp
 private val NARROW_REPORT_WIDTH = 760.dp
 private val NARROW_DETAILS_HEIGHT = 160.dp
 private val WIDE_DETAILS_WIDTH = 300.dp

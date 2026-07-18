@@ -131,6 +131,7 @@ class SimpleperfLocalizationTest {
                 "Marker chart" to "标记图",
                 "Marker table" to "标记表",
                 "Show details" to "显示详情",
+                "Drag to resize timeline" to "拖动以调整时间线高度",
                 "All Frames" to "所有帧",
                 "Script" to "脚本",
                 "Native" to "原生",

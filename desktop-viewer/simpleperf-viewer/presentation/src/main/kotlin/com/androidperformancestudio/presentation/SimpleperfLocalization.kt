@@ -255,6 +255,7 @@ private val CHINESE_TEXT =
         "External open guide" to "外部打开指南",
         "Overview" to "概览",
         "Timeline" to "时间线",
+        "Drag to resize timeline" to "拖动以调整时间线高度",
         "Top functions" to "热门函数",
         "Call tree" to "调用树",
         "Call Tree" to "调用树",
