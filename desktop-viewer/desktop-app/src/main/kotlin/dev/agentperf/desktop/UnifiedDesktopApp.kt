@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.FrameWindowScope
+import androidx.compose.ui.window.WindowPlacement
 import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
@@ -47,6 +48,11 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
     LaunchedEffect(settingsRequest) {
         if (shouldOpenSettingsForRequest(settingsRequest)) {
             showApplicationSettings = true
+        }
+    }
+    LaunchedEffect(navigator.destination) {
+        if (navigator.destination.shouldMaximizeWindow()) {
+            window.placement = WindowPlacement.Maximized
         }
     }
 

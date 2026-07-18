@@ -10,6 +10,14 @@ enum class AppDestination {
     SIMPLEPERF,
 }
 
+internal fun AppDestination.shouldMaximizeWindow(): Boolean =
+    when (this) {
+        AppDestination.HOME -> false
+        AppDestination.LAYOUT_INSPECTOR,
+        AppDestination.SIMPLEPERF,
+        -> true
+    }
+
 class AppNavigator(
     initialDestination: AppDestination = AppDestination.HOME,
 ) {
