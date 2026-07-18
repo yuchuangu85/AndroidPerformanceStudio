@@ -65,7 +65,6 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
-import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
 import com.androidperformancestudio.visualization.NavigationAction
@@ -253,44 +252,8 @@ internal fun ReportSelectedPanel(
                 tooltipMode = flameTooltipMode,
             )
         ReportTab.STACK_CHART -> StackChartPanel(state, report.stackChart, actions, style)
-        ReportTab.MARKER_CHART -> MarkerPlaceholder(report, chart = true, style = style)
-        ReportTab.MARKER_TABLE -> MarkerPlaceholder(report, chart = false, style = style)
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun MarkerPlaceholder(
-    report: ReportData,
-    chart: Boolean,
-    style: MacOsDeviceTargetStyle,
-) {
-    val panelName = if (chart) "Marker Chart" else "Marker Table"
-    val message =
-        when (val projection = report.markers) {
-            is PanelProjection.Failed -> "${projection.code}: ${projection.message}"
-            is PanelProjection.Ready ->
-                if (projection.value.markers.isEmpty()) {
-                    "No markers are available for the current analysis filters."
-                } else {
-                    "${projection.value.markers.size} markers are ready. Interactive $panelName is coming next."
-                }
-        }
-    val tag = if (chart) "marker-chart-panel" else "marker-table-panel"
-    ReportPanelPlaceholder(panelName, message, tag, style)
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun ReportPanelPlaceholder(
-    title: String,
-    message: String,
-    tag: String,
-    style: MacOsDeviceTargetStyle,
-) {
-    MacOsPanel(Modifier.fillMaxWidth().testTag(tag), style) {
-        Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Text(message, color = style.secondaryText, fontSize = 10.sp)
+        ReportTab.MARKER_CHART -> MarkerChartPanel(state, report.markers, actions, style)
+        ReportTab.MARKER_TABLE -> MarkerTablePanel(state, report.markers, actions, style)
     }
 }
 

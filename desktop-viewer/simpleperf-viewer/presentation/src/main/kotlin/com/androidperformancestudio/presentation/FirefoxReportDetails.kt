@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.background
@@ -16,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.storage.PanelProjection
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -36,7 +39,27 @@ internal fun FirefoxReportDetails(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Details", color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Text(detailsPrompt(state, report), color = style.secondaryText, fontSize = 10.sp)
+        val marker =
+            if (state.selectedTab == ReportTab.MARKER_CHART || state.selectedTab == ReportTab.MARKER_TABLE) {
+                (report.markers as? PanelProjection.Ready)
+                    ?.value
+                    ?.markers
+                    ?.firstOrNull { it.id == state.workspace.selections.markerId }
+            } else {
+                null
+            }
+        if (marker == null) {
+            Text(detailsPrompt(state, report), color = style.secondaryText, fontSize = 10.sp)
+        } else {
+            Text(marker.name, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text("Start: ${marker.startNanos}", color = style.secondaryText, fontSize = 10.sp)
+            Text("End: ${marker.endNanosExclusive}", color = style.secondaryText, fontSize = 10.sp)
+            Text("Duration: ${marker.endNanosExclusive - marker.startNanos}", color = style.secondaryText, fontSize = 10.sp)
+            Text("Process: ${marker.processId ?: "Global"}", color = style.secondaryText, fontSize = 10.sp)
+            Text("Thread: ${marker.threadName ?: marker.threadId ?: "Global"}", color = style.secondaryText, fontSize = 10.sp)
+            Text("Schema: ${marker.schema}", color = style.secondaryText, fontSize = 10.sp)
+            Text(marker.payloadJson, color = style.text, fontSize = 9.sp)
+        }
     }
 }
 

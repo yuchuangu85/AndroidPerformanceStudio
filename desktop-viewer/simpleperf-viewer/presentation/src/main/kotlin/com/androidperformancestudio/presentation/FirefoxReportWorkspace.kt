@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
+import com.androidperformancestudio.application.ReportTab
 import kotlin.math.roundToInt
 
 @Composable
@@ -89,7 +90,11 @@ internal fun FirefoxReportWorkspace(
                 )
             }
         }
-        FirefoxStackToolbar(state, actions, style)
+        if (state.selectedTab == ReportTab.MARKER_CHART || state.selectedTab == ReportTab.MARKER_TABLE) {
+            FirefoxMarkerToolbar(state, actions, style)
+        } else {
+            FirefoxStackToolbar(state, actions, style)
+        }
         Row(Modifier.weight(1f).fillMaxWidth()) {
             Box(Modifier.weight(1f).fillMaxHeight().testTag("report-content")) {
                 ReportSelectedPanel(state, report, actions, style, flameTooltipMode)

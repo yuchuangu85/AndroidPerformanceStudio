@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -46,6 +47,9 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
+import com.androidperformancestudio.storage.MarkerProjectionSnapshot
+import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.visualization.NavigationAction
@@ -59,7 +63,7 @@ import kotlin.math.floor
 import kotlin.math.roundToLong
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("CyclomaticComplexMethod", "FunctionName", "ktlint:standard:function-naming")
 internal fun TimelineReport(
     state: ReportState,
     report: ReportData,
@@ -152,6 +156,62 @@ internal fun TimelineReport(
                                 actions = actions,
                             )
                         }
+                    }
+                }
+            }
+            (report.markers as? PanelProjection.Ready)?.value?.let { markers ->
+                FirefoxMarkerTimelineLanes(
+                    snapshot = markers,
+                    viewport = viewport,
+                    selectedMarkerId = state.workspace.selections.markerId,
+                    style = style,
+                    onSelect = actions.onSelectMarker,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxMarkerTimelineLanes(
+    snapshot: MarkerProjectionSnapshot,
+    viewport: TimeViewport,
+    selectedMarkerId: ProfileMarkerId?,
+    style: MacOsDeviceTargetStyle,
+    onSelect: (ProfileMarkerId?) -> Unit,
+) {
+    val markersById = remember(snapshot) { snapshot.markers.associateBy { it.id } }
+    snapshot.lanes.forEach { lane ->
+        Row(Modifier.fillMaxWidth().height(FIREFOX_MARKER_LANE_HEIGHT).background(style.toolbar)) {
+            Text(
+                lane.label,
+                modifier = Modifier.width(FIREFOX_TIMELINE_LABEL_WIDTH).padding(horizontal = 8.dp),
+                color = style.secondaryText,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                lane.markerIds.mapNotNull(markersById::get).forEach { marker ->
+                    if (marker.endNanosExclusive > viewport.startNanos && marker.startNanos < viewport.endNanosExclusive) {
+                        val fraction =
+                            (marker.startNanos - viewport.startNanos).toDouble() /
+                                (viewport.endNanosExclusive - viewport.startNanos).coerceAtLeast(1L)
+                        Box(
+                            Modifier
+                                .offset(x = maxWidth * fraction.toFloat())
+                                .width(if (marker.interval) 8.dp else 4.dp)
+                                .fillMaxHeight()
+                                .testTag("timeline-marker-${marker.id.value}")
+                                .background(
+                                    if (marker.id == selectedMarkerId) style.accent else style.warning,
+                                ).clickable { onSelect(marker.id) }
+                                .semantics {
+                                    contentDescription = "Timeline marker ${marker.name}"
+                                    selected = marker.id == selectedMarkerId
+                                },
+                        )
                     }
                 }
             }
@@ -467,5 +527,6 @@ private val FIREFOX_LOCAL_TRACK_MARGIN = 15.dp
 private val FIREFOX_ACTIVITY_GRAPH_HEIGHT = 25.dp
 private val FIREFOX_SAMPLE_GRAPH_HEIGHT = 5.dp
 private val FIREFOX_THREAD_TRACK_HEIGHT = 31.dp
+private val FIREFOX_MARKER_LANE_HEIGHT = 24.dp
 private val FIREFOX_RULER_MIN_NOTCH_DISTANCE = 55.dp
 private val FIREFOX_RULER_LABEL_WIDTH = 55.dp
