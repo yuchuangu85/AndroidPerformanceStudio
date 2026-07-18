@@ -1,0 +1,4 @@
+- [Firefox Profiler](https://profiler.firefox.com/)
+- [GitHub](https://github.com/firefox-devtools/profiler)
+- [_Firefox Profiler_ on Matrix](https://chat.mozilla.org/#/room/#profiler:mozilla.org)
+- [简体中文](/docs-user-zh/)

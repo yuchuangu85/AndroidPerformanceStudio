@@ -9,11 +9,21 @@ plugins {
 
 val appVersion = project.version.toString()
 val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_party/firefox-profiler/dist")
+val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
+val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
 val firefoxProfilerAppResources = layout.buildDirectory.dir("generated/firefox-profiler-app-resources")
 val prepareFirefoxProfilerAppResources =
     tasks.register<Sync>("prepareFirefoxProfilerAppResources") {
         inputs.file(firefoxProfilerDist.file("index.html"))
+        inputs.dir(userDocumentationEnglish)
+        inputs.dir(userDocumentationChinese)
         from(firefoxProfilerDist)
+        from(userDocumentationEnglish) {
+            into("docs-user")
+        }
+        from(userDocumentationChinese) {
+            into("docs-user-zh")
+        }
         into(firefoxProfilerAppResources.map { resources -> resources.dir("common") })
     }
 

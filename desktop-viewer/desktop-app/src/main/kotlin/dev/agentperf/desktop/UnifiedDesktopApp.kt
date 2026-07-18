@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,7 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
     var showApplicationSettings by remember { mutableStateOf(false) }
     val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
+    val userDocumentationLauncher = remember { UserDocumentationLauncher() }
     val coroutineScope = rememberCoroutineScope()
     var applicationSettings by remember { mutableStateOf(applicationSettingsStore.load()) }
     val updateApplicationSettings: (ApplicationUiSettings) -> Unit = { updated ->
@@ -49,6 +51,9 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
         if (shouldOpenSettingsForRequest(settingsRequest)) {
             showApplicationSettings = true
         }
+    }
+    DisposableEffect(userDocumentationLauncher) {
+        onDispose(userDocumentationLauncher::close)
     }
     LaunchedEffect(navigator.destination) {
         if (navigator.destination.shouldMaximizeWindow()) {
@@ -90,6 +95,17 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                     settings = applicationSettings,
                     chinese = chinese,
                     onSettingsChanged = updateApplicationSettings,
+                    onOpenUserGuide = {
+                        val language =
+                            if (chinese) {
+                                UserDocumentationLanguage.SIMPLIFIED_CHINESE
+                            } else {
+                                UserDocumentationLanguage.ENGLISH
+                            }
+                        coroutineScope.launch(Dispatchers.IO) {
+                            runCatching { userDocumentationLauncher.open(language) }
+                        }
+                    },
                     onDismiss = { showApplicationSettings = false },
                 )
             }

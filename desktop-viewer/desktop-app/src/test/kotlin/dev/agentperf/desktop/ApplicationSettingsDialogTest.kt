@@ -17,6 +17,9 @@ class ApplicationSettingsDialogTest {
         assertTrue(dialog.contains("ApplicationThemePreference.entries"))
         assertTrue(dialog.contains("onSettingsChanged(settings.copy(language = it))"))
         assertTrue(dialog.contains("onSettingsChanged(settings.copy(theme = it))"))
+        assertTrue(dialog.contains("onOpenUserGuide"))
+        assertTrue(dialog.contains("Open User Guide in Browser"))
+        assertTrue(dialog.contains("在浏览器中打开用户指南"))
     }
 
     @Test
