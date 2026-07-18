@@ -30,6 +30,8 @@ import com.androidperformancestudio.capture.DeviceSimpleperfManager
 import com.androidperformancestudio.capture.SimpleperfCaptureSession
 import com.androidperformancestudio.export.ReportExportService
 import com.androidperformancestudio.export.SessionPackageService
+import com.androidperformancestudio.model.ErrorCategory
+import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.parser.HostSimpleperfLocator
 import com.androidperformancestudio.parser.SimpleperfReportConverter
@@ -37,6 +39,7 @@ import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.DeviceTargetActions
 import com.androidperformancestudio.presentation.HomeScreen
 import com.androidperformancestudio.presentation.ReportActions
+import com.androidperformancestudio.presentation.SimpleperfEngine
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.launch
 import java.io.File
@@ -45,11 +48,12 @@ import java.util.Locale
 import com.androidperformancestudio.presentation.SimpleperfLanguage as PresentationLanguage
 
 @Composable
-@Suppress("FunctionName")
+@Suppress("FunctionName", "LongMethod")
 fun FrameWindowScope.SimpleperfWorkspace(
     window: ComposeWindow,
     settings: SimpleperfUiSettings = SimpleperfUiSettings(),
 ) {
+    var currentSettings by remember(settings) { mutableStateOf(settings) }
     val dependencies = remember { createWorkspaceDependencies() }
     val controller =
         remember(dependencies) {
@@ -62,6 +66,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
     val sessionPackages = remember { SessionPackageService() }
     val reportExports = remember { ReportExportService() }
     val offlineImporter = remember { createOfflineImporter() }
+    val firefoxProfilerLauncher = remember { FirefoxProfilerLauncher() }
     val state by controller.state.collectAsState()
     val captureState by controller.captureState.collectAsState()
     val reportState by reportController.state.collectAsState()
@@ -78,7 +83,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
             )
         }
     val reportActions = reportActionFactory.create(reportState)
-    val resolvedLanguage = settings.language.resolve(Locale.getDefault())
+    val resolvedLanguage = currentSettings.language.resolve(Locale.getDefault())
     var captureSettingsSection by remember { mutableStateOf<CaptureSettingsSection?>(null) }
     LaunchedEffect(controller) { controller.refreshDevices() }
     SimpleperfMenu(
@@ -93,12 +98,23 @@ fun FrameWindowScope.SimpleperfWorkspace(
         state = state,
         captureState = captureState,
         reportState = reportState,
-        actions = controller.deviceActions(scope, reportController, offlineImporter),
+        actions =
+            controller.deviceActions(
+                scope,
+                reportController,
+                offlineImporter,
+                currentSettings.simpleperfEngine,
+                firefoxProfilerLauncher,
+            ),
         reportActions = reportActions,
-        darkTheme = settings.theme.resolveDark(isSystemInDarkTheme()),
+        darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
         language = resolvedLanguage.toPresentationLanguage(),
         captureSettingsSection = captureSettingsSection,
         onCaptureSettingsSectionChange = { captureSettingsSection = it },
+        flameTooltipMode = currentSettings.flameTooltipMode,
+        onFlameTooltipModeChange = { currentSettings = currentSettings.copy(flameTooltipMode = it) },
+        simpleperfEngine = currentSettings.simpleperfEngine,
+        onSimpleperfEngineChange = { currentSettings = currentSettings.copy(simpleperfEngine = it) },
     )
 }
 
@@ -158,6 +174,8 @@ private fun DeviceTargetController.deviceActions(
     scope: kotlinx.coroutines.CoroutineScope,
     reportController: ReportController,
     offlineImporter: OfflineProfileImporter,
+    simpleperfEngine: SimpleperfEngine,
+    firefoxProfilerLauncher: FirefoxProfilerLauncher,
 ): DeviceTargetActions =
     DeviceTargetActions(
         onRefresh = { scope.launch { refreshDevices() } },
@@ -175,7 +193,25 @@ private fun DeviceTargetController.deviceActions(
                 when (val captured = startCapture()) {
                     is CaptureState.Completed ->
                         when (val imported = offlineImporter.importCapturedSession(captured.sessionDirectory)) {
-                            is StudioResult.Success -> reportController.openSession(imported.value.sessionDirectory)
+                            is StudioResult.Success ->
+                                when (simpleperfEngine) {
+                                    SimpleperfEngine.LOCAL ->
+                                        reportController.openSession(imported.value.sessionDirectory)
+                                    SimpleperfEngine.FIREFOX_PROFILER ->
+                                        try {
+                                            firefoxProfilerLauncher.open(imported.value.sessionDirectory)
+                                        } catch (exception: FirefoxProfilerLaunchException) {
+                                            reportController.showFailure(
+                                                captured.sessionDirectory,
+                                                StudioError(
+                                                    category = ErrorCategory.IO,
+                                                    code = "FIREFOX_PROFILER_OPEN_FAILED",
+                                                    message = exception.message ?: "Failed to open Firefox Profiler",
+                                                    cause = exception,
+                                                ),
+                                            )
+                                        }
+                                }
                             is StudioResult.Failure ->
                                 reportController.showFailure(captured.sessionDirectory, imported.error)
                         }

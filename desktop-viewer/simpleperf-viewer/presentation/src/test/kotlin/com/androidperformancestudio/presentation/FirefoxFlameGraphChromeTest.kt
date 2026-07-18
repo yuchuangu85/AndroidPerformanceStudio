@@ -3,12 +3,14 @@ package com.androidperformancestudio.presentation
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
+import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameTheme
@@ -18,6 +20,41 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class FirefoxFlameGraphChromeTest {
+    @Test
+    fun `frame tooltip exposes Firefox call node details and timing columns`() =
+        runDesktopComposeUiTest(width = 500, height = 260) {
+            setContent {
+                MaterialTheme {
+                    FirefoxFlameGraphTooltip(
+                        facts =
+                            FlameGraphTooltipFacts(
+                                function = "renderFrame",
+                                category = "Native",
+                                implementation = FrameImplementation.NATIVE,
+                                resource = "libui.so",
+                                inclusiveWeight = 2_200,
+                                selfWeight = 320,
+                                sampleCount = 22,
+                                threadCount = 2,
+                                percentage = 91.67,
+                                previewRangeWeight = null,
+                            ),
+                        style = FirefoxFlameGraphStyle.resolve(FlameTheme.LIGHT),
+                    )
+                }
+            }
+
+            onNodeWithText("91.67%").fetchSemanticsNode()
+            onNodeWithText("renderFrame").fetchSemanticsNode()
+            onNodeWithText("Stack Type: Native").fetchSemanticsNode()
+            onNodeWithText("Category: Native").fetchSemanticsNode()
+            onNodeWithText("Resource: libui.so").fetchSemanticsNode()
+            onNodeWithText("Running").fetchSemanticsNode()
+            onNodeWithText("Overall").fetchSemanticsNode()
+            assertEquals(2, onAllNodesWithText("2,200").fetchSemanticsNodes().size)
+            assertEquals(2, onAllNodesWithText("320").fetchSemanticsNodes().size)
+        }
+
     @Test
     fun `compact toolbar dispatches existing direction implementation and transform actions`() =
         runDesktopComposeUiTest(width = 1_000, height = 120) {

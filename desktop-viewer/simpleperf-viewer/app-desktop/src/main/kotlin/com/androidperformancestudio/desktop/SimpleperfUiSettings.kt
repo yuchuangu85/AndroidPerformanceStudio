@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.presentation.FlameTooltipMode
+import com.androidperformancestudio.presentation.SimpleperfEngine
 import java.util.Locale
 
 enum class SimpleperfThemePreference(
@@ -60,4 +62,6 @@ enum class SimpleperfLanguagePreference(
 data class SimpleperfUiSettings(
     val theme: SimpleperfThemePreference = SimpleperfThemePreference.SYSTEM,
     val language: SimpleperfLanguagePreference = SimpleperfLanguagePreference.SYSTEM,
+    val flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    val simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
 )

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -61,6 +62,8 @@ enum class CaptureSettingsSection {
     SAMPLING_TEMPLATE,
     CAPTURE_CONFIGURATION,
     ADVANCED_PARAMETERS,
+    FLAME_GRAPH,
+    SIMPLEPERF_ENGINE,
 }
 
 @Composable
@@ -75,6 +78,10 @@ internal fun CaptureSettingsDialog(
     onSelectTemplate: (SamplingTemplate) -> Unit,
     onUpdate: (SamplingParameters) -> Unit,
     onDismiss: () -> Unit,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
+    simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
+    onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -104,6 +111,10 @@ internal fun CaptureSettingsDialog(
                     onSelectTemplate = onSelectTemplate,
                     onUpdate = onUpdate,
                     onDismiss = onDismiss,
+                    flameTooltipMode = flameTooltipMode,
+                    onFlameTooltipModeChange = onFlameTooltipModeChange,
+                    simpleperfEngine = simpleperfEngine,
+                    onSimpleperfEngineChange = onSimpleperfEngineChange,
                 )
             }
         }
@@ -125,7 +136,7 @@ private fun SettingsNavigation(
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Text("Settings", color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Text("Capture setup", color = style.secondaryText, fontSize = 10.sp)
+        Text("Application", color = style.secondaryText, fontSize = 10.sp)
         Spacer(Modifier.height(8.dp))
         CaptureSettingsSection.entries.forEach { item ->
             val selected = item == section
@@ -165,6 +176,10 @@ private fun RowScope.SettingsPanel(
     onSelectTemplate: (SamplingTemplate) -> Unit,
     onUpdate: (SamplingParameters) -> Unit,
     onDismiss: () -> Unit,
+    flameTooltipMode: FlameTooltipMode,
+    onFlameTooltipModeChange: (FlameTooltipMode) -> Unit,
+    simpleperfEngine: SimpleperfEngine,
+    onSimpleperfEngineChange: (SimpleperfEngine) -> Unit,
 ) {
     Column(Modifier.weight(1f).fillMaxHeight().padding(22.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -186,6 +201,10 @@ private fun RowScope.SettingsPanel(
                     CaptureConfigurationPanel(setup, availableEvents, enabled, onUpdate, style, Modifier.fillMaxWidth())
                 CaptureSettingsSection.ADVANCED_PARAMETERS ->
                     AdvancedCaptureParameters(setup, enabled, onUpdate, style, Modifier.fillMaxWidth())
+                CaptureSettingsSection.FLAME_GRAPH ->
+                    FlameGraphSettingsPanel(flameTooltipMode, onFlameTooltipModeChange, style)
+                CaptureSettingsSection.SIMPLEPERF_ENGINE ->
+                    SimpleperfEngineSettingsPanel(simpleperfEngine, onSimpleperfEngineChange, style)
             }
         }
     }
@@ -196,6 +215,8 @@ private fun CaptureSettingsSection.label(): String =
         CaptureSettingsSection.SAMPLING_TEMPLATE -> "Sampling template"
         CaptureSettingsSection.CAPTURE_CONFIGURATION -> "Capture configuration"
         CaptureSettingsSection.ADVANCED_PARAMETERS -> "Advanced parameters"
+        CaptureSettingsSection.FLAME_GRAPH -> "Flame graph"
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> "Simpleperf engine"
     }
 
 private fun CaptureSettingsSection.title(): String =
@@ -203,6 +224,8 @@ private fun CaptureSettingsSection.title(): String =
         CaptureSettingsSection.SAMPLING_TEMPLATE -> "Sampling template"
         CaptureSettingsSection.CAPTURE_CONFIGURATION -> "Capture configuration"
         CaptureSettingsSection.ADVANCED_PARAMETERS -> "Advanced parameters"
+        CaptureSettingsSection.FLAME_GRAPH -> "Flame graph"
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> "Simpleperf engine"
     }
 
 private fun CaptureSettingsSection.subtitle(): String =
@@ -210,7 +233,57 @@ private fun CaptureSettingsSection.subtitle(): String =
         CaptureSettingsSection.SAMPLING_TEMPLATE -> "Choose a starting point for Simpleperf capture."
         CaptureSettingsSection.CAPTURE_CONFIGURATION -> "Configure event, rate, and duration."
         CaptureSettingsSection.ADVANCED_PARAMETERS -> "Tune call graph collection and event scope."
+        CaptureSettingsSection.FLAME_GRAPH -> "Choose how frame information follows pointer movement."
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> "Choose where captured Simpleperf data is analyzed."
     }
+
+@Composable
+private fun FlameGraphSettingsPanel(
+    selected: FlameTooltipMode,
+    onSelect: (FlameTooltipMode) -> Unit,
+    style: MacOsDeviceTargetStyle,
+) {
+    MacOsPanel(Modifier.fillMaxWidth(), style) {
+        Text("Frame information box", color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Keep the Firefox-style frame details fixed in the corner or follow the mouse pointer.",
+            color = style.secondaryText,
+            fontSize = 10.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MacOsChoiceChip("Fixed", selected == FlameTooltipMode.FIXED, true, style) {
+                onSelect(FlameTooltipMode.FIXED)
+            }
+            MacOsChoiceChip("Follow mouse", selected == FlameTooltipMode.FOLLOW_MOUSE, true, style) {
+                onSelect(FlameTooltipMode.FOLLOW_MOUSE)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SimpleperfEngineSettingsPanel(
+    selected: SimpleperfEngine,
+    onSelect: (SimpleperfEngine) -> Unit,
+    style: MacOsDeviceTargetStyle,
+) {
+    MacOsPanel(Modifier.fillMaxWidth(), style) {
+        Text("Analysis engine", color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "The Firefox Profiler engine converts captures to json.gz and opens them privately from localhost.",
+            color = style.secondaryText,
+            fontSize = 10.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MacOsChoiceChip("Local engine", selected == SimpleperfEngine.LOCAL, true, style) {
+                onSelect(SimpleperfEngine.LOCAL)
+            }
+            MacOsChoiceChip("Firefox Profiler", selected == SimpleperfEngine.FIREFOX_PROFILER, true, style) {
+                onSelect(SimpleperfEngine.FIREFOX_PROFILER)
+            }
+        }
+    }
+}
 
 @Composable
 private fun SamplingTemplatePanel(
@@ -356,6 +429,7 @@ internal fun MacOsTextField(
     style: MacOsDeviceTargetStyle,
     modifier: Modifier,
 ) {
+    val localizedLabel = localizedSimpleperfText(label)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = style.secondaryText, fontSize = 9.sp, maxLines = 1)
         BasicTextField(
@@ -374,8 +448,47 @@ internal fun MacOsTextField(
                         MacOsDeviceTargetDimensions.hairline,
                         style.strongBorder,
                         RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius),
-                    ).padding(horizontal = 8.dp, vertical = 7.dp),
+                    ).semantics { contentDescription = localizedLabel }
+                    .padding(horizontal = 8.dp, vertical = 7.dp),
         )
+    }
+}
+
+@Composable
+internal fun MacOsInlineTextField(
+    label: String,
+    value: String,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit,
+    style: MacOsDeviceTargetStyle,
+    fieldWidth: Dp,
+) {
+    val localizedLabel = localizedSimpleperfText(label)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = style.secondaryText, fontSize = 9.sp, maxLines = 1)
+        Box(Modifier.requiredWidth(fieldWidth).semantics { contentDescription = localizedLabel }) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                enabled = enabled,
+                singleLine = true,
+                textStyle = TextStyle(color = style.text, fontSize = 11.sp, lineHeight = 14.sp),
+                cursorBrush = SolidColor(style.accent),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(MacOsDeviceTargetDimensions.selectorHeight)
+                        .background(style.field, RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius))
+                        .border(
+                            MacOsDeviceTargetDimensions.hairline,
+                            style.strongBorder,
+                            RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius),
+                        ).padding(horizontal = 8.dp, vertical = 7.dp),
+            )
+        }
     }
 }
 

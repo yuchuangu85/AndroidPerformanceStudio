@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +37,8 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphPanelState
@@ -55,6 +58,7 @@ internal fun FlameGraphPanel(
     state: FlameGraphPanelState,
     snapshot: FlameGraphSnapshot,
     actions: ReportActions,
+    tooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
 ) {
     val style = rememberFirefoxFlameGraphStyle()
     var widthPixels by remember { mutableIntStateOf(0) }
@@ -62,6 +66,8 @@ internal fun FlameGraphPanel(
     var scrollRow by remember(snapshot) { mutableIntStateOf(0) }
     var horizontalViewport by remember(snapshot) { mutableStateOf(FlameHorizontalViewport()) }
     var contextAnchor by remember(snapshot) { mutableStateOf<Offset?>(null) }
+    var hoverAnchor by remember(snapshot) { mutableStateOf<Offset?>(null) }
+    var tooltipSize by remember(snapshot) { mutableStateOf(IntSize.Zero) }
     val focusRequester = remember { FocusRequester() }
     val callStacksDescription = localizedSimpleperfText("Flame graph call stacks")
     val requestedViewport =
@@ -129,6 +135,7 @@ internal fun FlameGraphPanel(
                     categoryForNode = { node -> snapshot.callNodes.categoryAt(node.nodeIndex) },
                     frameForNode = { node -> snapshot.callNodes.frameAt(node.nodeIndex) },
                     style = style,
+                    onHoverPosition = { hoverAnchor = it },
                     onIntent = { intent ->
                         dispatchFlameAction(
                             action = FlameGraphPresenter.actionFor(intent),
@@ -226,10 +233,23 @@ internal fun FlameGraphPanel(
                 ?.takeIf { state.contextNodeId == null && snapshot.emptyReason == null }
                 ?.let(snapshot::tooltipFacts)
                 ?.let { facts ->
+                    val tooltipModifier =
+                        when (tooltipMode) {
+                            FlameTooltipMode.FIXED -> Modifier.align(Alignment.TopEnd).padding(8.dp)
+                            FlameTooltipMode.FOLLOW_MOUSE ->
+                                Modifier
+                                    .offset {
+                                        firefoxTooltipOffset(
+                                            mouse = hoverAnchor ?: Offset.Zero,
+                                            tooltipSize = tooltipSize,
+                                            viewportSize = IntSize(widthPixels, heightPixels),
+                                        )
+                                    }.onSizeChanged { tooltipSize = it }
+                        }
                     FirefoxFlameGraphTooltip(
                         facts = facts,
                         style = style,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                        modifier = tooltipModifier,
                     )
                 }
             state.contextNodeId?.takeIf { snapshot.emptyReason == null }?.let { contextNodeId ->
@@ -248,6 +268,27 @@ internal fun FlameGraphPanel(
             }
         }
     }
+}
+
+internal fun firefoxTooltipOffset(
+    mouse: Offset,
+    tooltipSize: IntSize,
+    viewportSize: IntSize,
+): IntOffset =
+    IntOffset(
+        x = firefoxTooltipCoordinate(mouse.x, tooltipSize.width, viewportSize.width),
+        y = firefoxTooltipCoordinate(mouse.y, tooltipSize.height, viewportSize.height),
+    )
+
+private fun firefoxTooltipCoordinate(
+    mousePosition: Float,
+    tooltipLength: Int,
+    viewportLength: Int,
+): Int {
+    val after = mousePosition.toInt() + FIREFOX_TOOLTIP_MOUSE_OFFSET_PX
+    if (after + tooltipLength < viewportLength) return after
+    val before = mousePosition.toInt() - tooltipLength - FIREFOX_TOOLTIP_MOUSE_OFFSET_PX
+    return if (before >= 0) before else FIREFOX_TOOLTIP_VISUAL_MARGIN_PX
 }
 
 @Composable
@@ -329,5 +370,8 @@ private fun dispatchContextCommand(
         FlameGraphContextCommand.Clear -> actions.onClearFlameTransforms()
     }
 }
+
+private const val FIREFOX_TOOLTIP_MOUSE_OFFSET_PX = 11
+private const val FIREFOX_TOOLTIP_VISUAL_MARGIN_PX = 8
 
 private const val MINIMUM_VIEWPORT_HEIGHT_DP = 220

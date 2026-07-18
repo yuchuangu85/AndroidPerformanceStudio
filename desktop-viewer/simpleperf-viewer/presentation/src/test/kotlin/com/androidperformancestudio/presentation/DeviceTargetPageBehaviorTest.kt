@@ -22,13 +22,41 @@ import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.capture.SimpleperfTarget
 import java.nio.file.Path
-import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class DeviceTargetPageBehaviorTest {
+    @Test
+    fun `settings update flame tooltip placement and simpleperf engine`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            var tooltipMode = FlameTooltipMode.FIXED
+            var engine = SimpleperfEngine.LOCAL
+            setContent {
+                HomeScreen(
+                    state = DeviceTargetState(),
+                    captureState = CaptureState.Idle,
+                    reportState = ReportState(),
+                    actions = deviceActions(),
+                    reportActions = goldenActions(),
+                    flameTooltipMode = tooltipMode,
+                    onFlameTooltipModeChange = { tooltipMode = it },
+                    simpleperfEngine = engine,
+                    onSimpleperfEngineChange = { engine = it },
+                )
+            }
+
+            onNodeWithText("Settings").performClick()
+            onNodeWithContentDescription("Capture settings: Flame graph").performClick()
+            onNodeWithText("Follow mouse").performClick()
+            assertEquals(FlameTooltipMode.FOLLOW_MOUSE, tooltipMode)
+
+            onNodeWithContentDescription("Capture settings: Simpleperf engine").performClick()
+            onNodeWithText("Firefox Profiler").performClick()
+            assertEquals(SimpleperfEngine.FIREFOX_PROFILER, engine)
+        }
+
     @Test
     fun `device and toolbar actions remain wired`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
@@ -58,13 +86,15 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithText("Open Session").assertDoesNotExist()
             onNodeWithText("Capture target").assertDoesNotExist()
 
-            val title = onNodeWithText("Device & Target").fetchSemanticsNode().boundsInRoot
+            onNodeWithText("Device & Target").assertDoesNotExist()
             val deviceSelector = onNodeWithContentDescription("Device selector").fetchSemanticsNode().boundsInRoot
+            val appSelector = onNodeWithContentDescription("App selector").fetchSemanticsNode().boundsInRoot
             val refresh = onNodeWithText("Refresh").fetchSemanticsNode().boundsInRoot
             val getData = onNodeWithText("Get data").fetchSemanticsNode().boundsInRoot
             val capabilities = onNodeWithText("Capabilities").fetchSemanticsNode().boundsInRoot
             val settings = onNodeWithText("Settings").fetchSemanticsNode().boundsInRoot
-            assertTrue(abs(title.center.y - deviceSelector.center.y) < SAME_ROW_TOLERANCE)
+            assertTrue(deviceSelector.left < TOOLBAR_LEFT_ALIGNMENT_LIMIT)
+            assertTrue(deviceSelector.width < appSelector.width)
             assertTrue(getData.left > refresh.right)
             assertTrue(capabilities.left > getData.right)
             assertTrue(settings.left > capabilities.right)
@@ -275,4 +305,4 @@ private fun deviceActions(
     onCancelCapture = onCancelCapture,
 )
 
-private const val SAME_ROW_TOLERANCE = 4f
+private const val TOOLBAR_LEFT_ALIGNMENT_LIMIT = 20f

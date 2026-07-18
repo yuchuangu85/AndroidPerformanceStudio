@@ -3,6 +3,7 @@
 package com.androidperformancestudio.presentation
 
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasScrollAction
@@ -61,7 +62,7 @@ class ReportWorkspaceBehaviorTest {
                 )
             }
 
-            onNodeWithText("Device & Target").assertExists()
+            onNodeWithText("Device & Target").assertDoesNotExist()
             onNodeWithText("Close report").assertDoesNotExist()
             onNodeWithText("Gallery capture").assertExists()
             onNodeWithText("sessions/gallery-capture").assertExists()
@@ -85,7 +86,9 @@ class ReportWorkspaceBehaviorTest {
     fun `call tree matches Firefox columns ordering expansion and toggle behavior`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             var selectedNode: FlameCallNodeId? = null
+            var densityFactor = 1f
             setContent {
+                densityFactor = LocalDensity.current.density
                 ReportPage(
                     state = sampleReportState(ReportTab.CALL_TREE),
                     actions = goldenActions().copy(onSelectCallNode = { selectedNode = it }),
@@ -96,6 +99,16 @@ class ReportWorkspaceBehaviorTest {
             onNodeWithText("Self").assertExists()
             onNodeWithText("91.7%").assertExists()
             onNodeWithText("2,200").assertExists()
+            val reverse = onNodeWithText("Reverse Call Tree").fetchSemanticsNode().boundsInRoot
+            val searchLabel = onNodeWithText("Find function in call paths").fetchSemanticsNode().boundsInRoot
+            val searchField =
+                onNodeWithContentDescription("Find function in call paths").fetchSemanticsNode().boundsInRoot
+            assertTrue(searchLabel.left > reverse.right)
+            assertTrue(kotlin.math.abs(searchLabel.center.y - searchField.center.y) <= 2f)
+            assertTrue(
+                kotlin.math.abs(searchField.width - 160f * densityFactor) <= 1f,
+                "search width=${searchField.width}, density=$densityFactor",
+            )
             assertEquals(2, onAllNodesWithText("/system/lib64/libui.so").fetchSemanticsNodes().size)
             onNodeWithText("main").performClick()
             assertEquals(FlameCallNodeId(1), selectedNode)

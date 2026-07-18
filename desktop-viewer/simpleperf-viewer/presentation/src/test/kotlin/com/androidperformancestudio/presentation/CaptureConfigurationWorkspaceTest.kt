@@ -35,14 +35,18 @@ class CaptureConfigurationWorkspaceTest {
     }
 
     @Test
-    fun `settings dialog separates capture parameters into three sections`() {
+    fun `settings dialog includes capture flame graph and engine sections`() {
         val source = source("CaptureConfigurationWorkspace.kt")
 
         assertTrue(source.contains("SAMPLING_TEMPLATE"))
         assertTrue(source.contains("CAPTURE_CONFIGURATION"))
         assertTrue(source.contains("ADVANCED_PARAMETERS"))
+        assertTrue(source.contains("FLAME_GRAPH"))
+        assertTrue(source.contains("SIMPLEPERF_ENGINE"))
         assertTrue(source.contains("CaptureConfigurationPanel("))
         assertTrue(source.contains("AdvancedCaptureParameters("))
+        assertTrue(source.contains("FlameGraphSettingsPanel("))
+        assertTrue(source.contains("SimpleperfEngineSettingsPanel("))
     }
 
     @Test

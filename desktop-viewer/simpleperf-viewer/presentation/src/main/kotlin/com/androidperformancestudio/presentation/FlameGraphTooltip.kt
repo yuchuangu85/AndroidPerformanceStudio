@@ -2,7 +2,11 @@ package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -11,10 +15,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import java.util.Locale
 
@@ -56,33 +60,93 @@ internal fun FirefoxFlameGraphTooltip(
         border = BorderStroke(1.dp, style.surfaceBorder.toComposeColor()),
         shadowElevation = 3.dp,
     ) {
-        Column(Modifier.padding(5.dp)) {
-            Text(
-                facts.function,
-                color = style.canvasForeground.toComposeColor(),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            facts.resource?.let { FirefoxTooltipFact("Resource", it, style, maxLines = 1) }
-            facts.category?.let { FirefoxTooltipFact("Category", it, style, maxLines = 1) }
-            FirefoxTooltipFact("Implementation", localizedSimpleperfText(facts.implementation.displayName()), style)
-            Text(
-                "${localizedSimpleperfText("Inclusive")} ${facts.inclusiveWeight} · " +
-                    "${localizedSimpleperfText("Self")} ${facts.selfWeight}",
-                color = style.canvasForeground.toComposeColor(),
-                fontSize = 11.sp,
-            )
-            Text(
-                "${localizedSimpleperfText("Samples")} ${facts.sampleCount} · " +
-                    "${localizedSimpleperfText("Threads")} ${facts.threadCount} · " +
+        Column(Modifier.padding(7.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Text(
                     String.format(Locale.ROOT, "%.2f%%", facts.percentage),
-                color = style.canvasForeground.toComposeColor(),
-                fontSize = 11.sp,
-            )
-            facts.previewRangeWeight?.let { FirefoxTooltipFact("Preview range weight", it.toString(), style) }
+                    color = style.canvasForeground.toComposeColor(),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    facts.function,
+                    color = style.canvasForeground.toComposeColor(),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            FirefoxTooltipFact("Stack Type", facts.implementation.firefoxStackType(), style)
+            facts.category?.let { FirefoxTooltipFact("Category", it, style, maxLines = 1) }
+            facts.resource?.let { FirefoxTooltipFact("Resource", it, style, maxLines = 1) }
+            FirefoxTooltipTimings(facts, style)
         }
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxTooltipTimings(
+    facts: FlameGraphTooltipFacts,
+    style: FirefoxFlameGraphStyle,
+) {
+    val foreground = style.canvasForeground.toComposeColor()
+    Row(Modifier.fillMaxWidth().padding(top = 5.dp)) {
+        Text("", modifier = Modifier.width(110.dp), fontSize = 10.sp)
+        Text(
+            "Running",
+            modifier = Modifier.width(78.dp),
+            color = foreground,
+            fontSize = 10.sp,
+            textAlign = TextAlign.End,
+        )
+        Text(
+            "Self",
+            modifier = Modifier.width(62.dp),
+            color = foreground,
+            fontSize = 10.sp,
+            textAlign = TextAlign.End,
+        )
+    }
+    FirefoxTooltipTimingRow("Overall", facts.inclusiveWeight, facts.selfWeight, style, bold = true)
+    facts.category?.let { FirefoxTooltipTimingRow(it, facts.inclusiveWeight, facts.selfWeight, style) }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun FirefoxTooltipTimingRow(
+    label: String,
+    running: Long,
+    self: Long,
+    style: FirefoxFlameGraphStyle,
+    bold: Boolean = false,
+) {
+    val foreground = style.canvasForeground.toComposeColor()
+    val weight = if (bold) FontWeight.SemiBold else FontWeight.Normal
+    Row(Modifier.fillMaxWidth()) {
+        Text(
+            label,
+            modifier = Modifier.width(110.dp),
+            color = foreground,
+            fontSize = 10.sp,
+            fontWeight = weight,
+        )
+        Text(
+            running.firefoxWeight(),
+            modifier = Modifier.width(78.dp),
+            color = foreground,
+            fontSize = 10.sp,
+            textAlign = TextAlign.End,
+        )
+        Text(
+            self.firefoxWeight(),
+            modifier = Modifier.width(62.dp),
+            color = foreground,
+            fontSize = 10.sp,
+            textAlign = TextAlign.End,
+        )
     }
 }
 
@@ -103,6 +167,12 @@ private fun FirefoxTooltipFact(
     )
 }
 
-private fun FrameImplementation.displayName(): String = name.lowercase().replaceFirstChar(Char::uppercase)
+private fun com.androidperformancestudio.profileanalysis.FrameImplementation.firefoxStackType(): String =
+    when (this) {
+        com.androidperformancestudio.profileanalysis.FrameImplementation.NATIVE -> "Native"
+        com.androidperformancestudio.profileanalysis.FrameImplementation.MANAGED -> "Java / Kotlin"
+        com.androidperformancestudio.profileanalysis.FrameImplementation.KERNEL -> "Kernel"
+        com.androidperformancestudio.profileanalysis.FrameImplementation.UNKNOWN -> "Unsymbolicated"
+    }
 
 private const val TOOLTIP_MAX_WIDTH_DP = 380

@@ -64,6 +64,10 @@ internal fun DeviceTargetPage(
     darkTheme: Boolean,
     settingsSection: CaptureSettingsSection?,
     onSettingsSectionChange: (CaptureSettingsSection?) -> Unit,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
+    simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
+    onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
 ) {
     val style = macOsDeviceTargetStyle(darkTheme)
     val captureActive = captureState.isCaptureActive()
@@ -84,6 +88,7 @@ internal fun DeviceTargetPage(
                 actions = reportActions,
                 style = style,
                 modifier = Modifier.weight(1f),
+                flameTooltipMode = flameTooltipMode,
             )
         }
         WorkspaceFooter(state, captureState, reportState, actions, style)
@@ -103,6 +108,10 @@ internal fun DeviceTargetPage(
             onSelectTemplate = actions.onSelectTemplate,
             onUpdate = actions.onUpdateSamplingParameters,
             onDismiss = { onSettingsSectionChange(null) },
+            flameTooltipMode = flameTooltipMode,
+            onFlameTooltipModeChange = onFlameTooltipModeChange,
+            simpleperfEngine = simpleperfEngine,
+            onSimpleperfEngineChange = onSimpleperfEngineChange,
         )
     }
 }
@@ -147,15 +156,6 @@ private fun RowScope.ToolbarContent(
 ) {
     val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
     val selectedThreadId = (state.selectedTarget as? CaptureTarget.Thread)?.tid
-    Text(
-        "Device & Target",
-        modifier = Modifier.width(138.dp),
-        color = style.text,
-        fontSize = 15.sp,
-        lineHeight = 18.sp,
-        fontWeight = FontWeight.SemiBold,
-        maxLines = 1,
-    )
     DeviceSelector(
         selectedDevice,
         state.devices,
@@ -761,7 +761,7 @@ private const val STATUS_FILL_ALPHA = 0.16f
 private const val DISABLED_CONTAINER_ALPHA = 0.55f
 private const val DISABLED_CONTENT_ALPHA = 0.48f
 private const val DROPDOWN_GLYPH = "⌄"
-private const val DEVICE_SELECTOR_WEIGHT = 1.15f
+private const val DEVICE_SELECTOR_WEIGHT = 0.77f
 private const val APP_SELECTOR_WEIGHT = 1.1f
 private const val PROCESS_SELECTOR_WEIGHT = 1f
 private const val THREAD_SELECTOR_WEIGHT = 0.95f

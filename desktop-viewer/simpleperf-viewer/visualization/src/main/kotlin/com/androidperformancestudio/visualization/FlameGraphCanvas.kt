@@ -72,7 +72,7 @@ internal object FlameGraphInteraction {
 
 @Composable
 @OptIn(ExperimentalComposeUiApi::class)
-@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongMethod", "LongParameterList", "ktlint:standard:function-naming")
 fun FlameGraphCanvas(
     layout: VisibleFlameLayout,
     selectedNodeId: FlameCallNodeId?,
@@ -84,6 +84,7 @@ fun FlameGraphCanvas(
     categoryForNode: (VisibleFlameNode) -> String? = { null },
     frameForNode: (VisibleFlameNode) -> CallStackFrame? = { null },
     style: FirefoxFlameGraphStyle,
+    onHoverPosition: (Offset?) -> Unit = {},
 ) {
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -91,17 +92,21 @@ fun FlameGraphCanvas(
     val labelCache = remember(style.labelFontSizePx) { FlameLabelCache() }
     val categoryCache = remember(layout) { HashMap<Int, FlameCategoryRole>() }
     val currentIntent by rememberUpdatedState(onIntent)
+    val currentHoverPosition by rememberUpdatedState(onHoverPosition)
     val primaryInputModifier =
         modifier
             .onPointerEvent(PointerEventType.Enter) { event ->
                 event.changes.lastOrNull()?.position?.let { position ->
+                    currentHoverPosition(position)
                     currentIntent(FlameGraphInteraction.hover(layout, position))
                 }
             }.onPointerEvent(PointerEventType.Move) { event ->
                 event.changes.lastOrNull()?.position?.let { position ->
+                    currentHoverPosition(position)
                     currentIntent(FlameGraphInteraction.hover(layout, position))
                 }
             }.onPointerEvent(PointerEventType.Exit) {
+                currentHoverPosition(null)
                 currentIntent(FlameGraphInteraction.hoverExit())
             }.pointerInput(layout) {
                 detectTapGestures(

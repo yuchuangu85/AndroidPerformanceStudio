@@ -77,8 +77,15 @@ fun ReportPage(
     state: ReportState,
     actions: ReportActions,
     darkTheme: Boolean = false,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
 ) {
-    ReportWorkspace(state, actions, macOsDeviceTargetStyle(darkTheme), Modifier.fillMaxSize())
+    ReportWorkspace(
+        state,
+        actions,
+        macOsDeviceTargetStyle(darkTheme),
+        Modifier.fillMaxSize(),
+        flameTooltipMode,
+    )
 }
 
 @Composable
@@ -88,6 +95,7 @@ internal fun ReportWorkspace(
     actions: ReportActions,
     style: MacOsDeviceTargetStyle,
     modifier: Modifier = Modifier,
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
 ) {
     Row(
         modifier
@@ -96,7 +104,7 @@ internal fun ReportWorkspace(
             .border(MacOsDeviceTargetDimensions.hairline, style.border),
     ) {
         ReportNavigation(state.selectedTab, actions.onSelectTab, style)
-        ReportResultPane(state, actions, style, Modifier.weight(1f))
+        ReportResultPane(state, actions, style, Modifier.weight(1f), flameTooltipMode)
     }
 }
 
@@ -183,6 +191,7 @@ private fun ReportResultPane(
     actions: ReportActions,
     style: MacOsDeviceTargetStyle,
     modifier: Modifier,
+    flameTooltipMode: FlameTooltipMode,
 ) {
     Box(modifier.fillMaxHeight().padding(14.dp)) {
         when (val loadState = state.loadState) {
@@ -194,7 +203,7 @@ private fun ReportResultPane(
                     style,
                     actions.onCloseSession,
                 )
-            is ReportLoadState.Ready -> ReportContent(state, loadState.report, actions, style)
+            is ReportLoadState.Ready -> ReportContent(state, loadState.report, actions, style, flameTooltipMode)
         }
     }
 }
@@ -222,6 +231,7 @@ private fun ReportContent(
     report: ReportData,
     actions: ReportActions,
     style: MacOsDeviceTargetStyle,
+    flameTooltipMode: FlameTooltipMode,
 ) {
     Column(
         modifier =
@@ -239,7 +249,13 @@ private fun ReportContent(
                 ReportTab.TOP_FUNCTIONS -> TopFunctionsReport(state, report, actions, style)
                 ReportTab.CALL_TREE -> CallTreeReport(state, report, actions, style)
                 ReportTab.FLAME_GRAPH ->
-                    FlameGraphPanel(report.session.directory, state.flameGraph, report.flameGraph, actions)
+                    FlameGraphPanel(
+                        report.session.directory,
+                        state.flameGraph,
+                        report.flameGraph,
+                        actions,
+                        flameTooltipMode,
+                    )
                 ReportTab.DIAGNOSTICS -> DiagnosticsReport(report, actions, style)
             }
         }
@@ -453,7 +469,11 @@ private fun CallTreeReport(
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             CallStackDirection.entries.forEach { direction ->
                 MacOsChoiceChip(
                     label = if (direction == CallStackDirection.FORWARD) "Call Tree" else "Reverse Call Tree",
@@ -462,15 +482,16 @@ private fun CallTreeReport(
                     style = style,
                 ) { actions.onCallTreeDirection(direction) }
             }
+            Spacer(Modifier.weight(1f))
+            MacOsInlineTextField(
+                label = "Find function in call paths",
+                value = state.callTreeSearch,
+                enabled = true,
+                onValueChange = actions.onFocusCallTreeFunction,
+                style = style,
+                fieldWidth = CALL_TREE_SEARCH_FIELD_WIDTH,
+            )
         }
-        MacOsTextField(
-            label = "Find function in call paths",
-            value = state.callTreeSearch,
-            enabled = true,
-            onValueChange = actions.onFocusCallTreeFunction,
-            style = style,
-            modifier = Modifier.fillMaxWidth(),
-        )
         Column(
             Modifier
                 .fillMaxWidth()
@@ -909,6 +930,7 @@ private val FIREFOX_TOTAL_COLUMN_WIDTH = 70.dp
 private val FIREFOX_SELF_COLUMN_WIDTH = 80.dp
 private val FIREFOX_ICON_COLUMN_WIDTH = 20.dp
 private val FIREFOX_TOGGLE_COLUMN_WIDTH = 18.dp
+private val CALL_TREE_SEARCH_FIELD_WIDTH = 160.dp
 private const val FIREFOX_CALL_TREE_INDENT = 10
 private const val FIREFOX_INITIAL_EXPANSION_DEPTH = 18
 

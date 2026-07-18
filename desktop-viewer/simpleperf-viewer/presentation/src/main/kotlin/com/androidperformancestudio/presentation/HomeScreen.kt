@@ -28,6 +28,10 @@ fun HomeScreen(
     language: SimpleperfLanguage = SimpleperfLanguage.ENGLISH,
     captureSettingsSection: CaptureSettingsSection? = null,
     onCaptureSettingsSectionChange: (CaptureSettingsSection?) -> Unit = {},
+    flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FIXED,
+    onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
+    simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
+    onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
 ) {
     SimpleperfLocalization(language) {
         var localCaptureSettingsSection by remember { mutableStateOf(captureSettingsSection) }
@@ -50,6 +54,10 @@ fun HomeScreen(
                     darkTheme,
                     activeCaptureSettingsSection,
                     updateCaptureSettingsSection,
+                    flameTooltipMode,
+                    onFlameTooltipModeChange,
+                    simpleperfEngine,
+                    onSimpleperfEngineChange,
                 )
             }
         }
