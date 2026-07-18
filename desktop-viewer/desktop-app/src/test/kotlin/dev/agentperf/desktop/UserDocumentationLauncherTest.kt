@@ -26,6 +26,7 @@ class UserDocumentationLauncherTest {
             assertEquals(opened[0].authority, opened[1].authority)
             assertEquals("English guide", get(opened[0]))
             assertEquals("中文指南", get(opened[1]))
+            assertEquals("Docsify runtime", get(opened[0].resolve("js/docsify_v4.13.1+.min.js")))
         }
     }
 
@@ -59,6 +60,11 @@ class UserDocumentationLauncherTest {
     private fun createDocumentationSites(root: java.nio.file.Path) {
         root.resolve("docs-user").createDirectories().resolve("index.html").writeText("English guide")
         root.resolve("docs-user-zh").createDirectories().resolve("index.html").writeText("中文指南")
+        root
+            .resolve("docs-user/js")
+            .createDirectories()
+            .resolve("docsify_v4.13.1+.min.js")
+            .writeText("Docsify runtime")
     }
 
     private fun get(uri: URI): String {

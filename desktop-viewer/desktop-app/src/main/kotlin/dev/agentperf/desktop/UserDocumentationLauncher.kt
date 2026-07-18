@@ -7,7 +7,6 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
 import java.net.URI
-import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -116,7 +115,7 @@ internal class UserDocumentationServer(
     }
 
     private fun resolveFile(requestPath: String): Path? {
-        val relative = URLDecoder.decode(requestPath.removePrefix("/"), StandardCharsets.UTF_8)
+        val relative = requestPath.removePrefix("/")
         var requested = root.resolve(relative).normalize()
         if (!requested.startsWith(root)) return null
         if (Files.isDirectory(requested)) requested = requested.resolve(INDEX_FILE)
