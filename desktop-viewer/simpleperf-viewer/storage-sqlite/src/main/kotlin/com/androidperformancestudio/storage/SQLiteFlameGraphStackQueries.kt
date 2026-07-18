@@ -170,7 +170,12 @@ private fun ResultSet.callStackFrameOrNull(): CallStackFrame? {
         CallStackFrame(
             frameId = requireNotNull(frameId),
             functionId = FlameFunctionId(requireNotNull(functionId)),
-            symbolName = requireNotNull(symbolName),
+            symbolName =
+                firefoxCompatibleSymbolName(
+                    symbolName = requireNotNull(symbolName),
+                    filePath = requireNotNull(resource),
+                    virtualAddress = requireNotNull(virtualAddress),
+                ),
             resource = requireNotNull(resource),
             virtualAddress = requireNotNull(virtualAddress),
             implementation = requireNotNull(executionType).toFrameImplementation(),

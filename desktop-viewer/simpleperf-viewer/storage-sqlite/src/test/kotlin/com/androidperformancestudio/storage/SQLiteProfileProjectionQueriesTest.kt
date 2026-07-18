@@ -15,6 +15,34 @@ import kotlin.test.assertTrue
 
 class SQLiteProfileProjectionQueriesTest {
     @Test
+    fun `call tree replaces opaque vendor hashes with Firefox file offset labels`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachTwoFrameStack()
+            store.execute("UPDATE file SET path='/vendor/lib64/egl/libGLESv2_adreno.so' WHERE file_id=1")
+            store.execute(
+                "UPDATE symbol SET name='!!!0000!28254c066fd778faffa7894b1bd8b1!0c393b63cf!' " +
+                    "WHERE symbol_id=2",
+            )
+
+            val snapshot = store.projectCore()
+            val projectedLeaf =
+                snapshot.callTree.single {
+                    it.filePath.endsWith("libGLESv2_adreno.so") && it.depth == 1
+                }
+            val directLeaf = store.callTree(direction = CallStackDirection.FORWARD).single { it.depth == 1 }
+
+            assertEquals("libGLESv2_adreno.so+0x2", projectedLeaf.symbolName)
+            assertEquals("libGLESv2_adreno.so+0x2", directLeaf.symbolName)
+            assertEquals(
+                "libGLESv2_adreno.so+0x2",
+                snapshot.flameGraph.callNodes.framesById.values
+                    .single { it.virtualAddress == 2L }
+                    .symbolName,
+            )
+        }
+
+    @Test
     fun `projection distinguishes incomplete stacks from projector failures`() =
         withStore { store ->
             store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)

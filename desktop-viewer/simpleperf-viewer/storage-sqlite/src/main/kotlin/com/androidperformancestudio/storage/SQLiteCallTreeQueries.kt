@@ -28,7 +28,12 @@ internal object SQLiteCallTreeQueries {
                             threadKey = result.getString(3),
                             originalDepth = result.getInt(4),
                             frameId = result.getLong(5),
-                            symbolName = result.getString(6),
+                            symbolName =
+                                firefoxCompatibleSymbolName(
+                                    symbolName = result.getString(6),
+                                    filePath = result.getString(7),
+                                    virtualAddress = result.getLong(8),
+                                ),
                             filePath = result.getString(7),
                         ),
                     )
@@ -49,7 +54,8 @@ internal object SQLiteCallTreeQueries {
             "WHERE callsite_id IS NOT NULL UNION ALL " +
             "SELECT st.sample_id, st.event_count, st.thread_key, c.parent_id, st.depth + 1 FROM stack st " +
             "JOIN callsite c ON c.callsite_id=st.callsite_id WHERE c.parent_id IS NOT NULL" +
-            ") SELECT st.sample_id, st.event_count, st.thread_key, st.depth, c.frame_id, sy.name, fi.path " +
+            ") SELECT st.sample_id, st.event_count, st.thread_key, st.depth, c.frame_id, sy.name, fi.path, " +
+            "f.virtual_address " +
             "FROM stack st JOIN callsite c ON c.callsite_id=st.callsite_id " +
             "JOIN frame f ON f.frame_id=c.frame_id JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
             "JOIN file fi ON fi.file_id=f.file_id"
@@ -63,7 +69,8 @@ internal object SQLiteCallTreeQueries {
             "WHERE callsite_id IS NOT NULL UNION ALL " +
             "SELECT st.sample_id, st.event_count, st.thread_key, c.parent_id, st.depth + 1 FROM stack st " +
             "JOIN callsite c ON c.callsite_id=st.callsite_id WHERE c.parent_id IS NOT NULL" +
-            ") SELECT st.sample_id, st.event_count, st.thread_key, st.depth, c.frame_id, sy.name, fi.path " +
+            ") SELECT st.sample_id, st.event_count, st.thread_key, st.depth, c.frame_id, sy.name, fi.path, " +
+            "f.virtual_address " +
             "FROM stack st JOIN callsite c ON c.callsite_id=st.callsite_id " +
             "JOIN frame f ON f.frame_id=c.frame_id JOIN symbol sy ON sy.symbol_id=f.symbol_id " +
             "JOIN file fi ON fi.file_id=f.file_id"
