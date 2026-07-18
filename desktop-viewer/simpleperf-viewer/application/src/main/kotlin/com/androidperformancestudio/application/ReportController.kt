@@ -20,8 +20,13 @@ import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.FlameGraphNavigator
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.profileanalysis.StackChartBlockId
+import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.DataQualitySummary
+import com.androidperformancestudio.storage.MarkerProjectionSnapshot
+import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.ProfileOverview
 import com.androidperformancestudio.storage.ProfileProjectionRequest
 import com.androidperformancestudio.storage.ProfileProjectionSnapshot
@@ -57,15 +62,6 @@ import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.isRegularFile
 
-enum class ReportTab {
-    OVERVIEW,
-    TIMELINE,
-    TOP_FUNCTIONS,
-    CALL_TREE,
-    FLAME_GRAPH,
-    DIAGNOSTICS,
-}
-
 data class ReportArtifact(
     val name: String,
     val path: Path,
@@ -90,6 +86,8 @@ data class ReportData(
     val timeline: List<TimelineBucket>,
     val callTree: List<CallTreeNode>,
     val flameGraph: FlameGraphSnapshot,
+    val stackChart: PanelProjection<StackChartSnapshot>,
+    val markers: PanelProjection<MarkerProjectionSnapshot>,
     val diagnostics: List<DiagnosticFinding>,
     val timelineTracks: List<ThreadTimelineTrack> = emptyList(),
 )
@@ -116,21 +114,21 @@ data class ReportState(
     val lastReadyReport: ReportData? = null,
     val selectedTab: ReportTab = ReportTab.OVERVIEW,
     val filter: ProfileQuery = ProfileQuery(),
-    val topSearch: String = "",
+    val callStackQuery: CallStackAnalysisQuery = CallStackAnalysisQuery(),
     val topSort: TopFunctionSort = TopFunctionSort.INCLUSIVE_WEIGHT,
     val topDescending: Boolean = true,
-    val callTreeSearch: String = "",
+    val workspace: ReportWorkspaceUiState = ReportWorkspaceUiState(),
     val flameGraph: FlameGraphPanelState = FlameGraphPanelState(),
 ) {
     val callTreeDirection: CallStackDirection
-        get() = flameGraph.query.direction
+        get() = callStackQuery.direction
 }
 
 fun interface ReportSessionSummaryLoader {
     suspend fun load(directory: Path): ReportSessionSummary
 }
 
-@Suppress("TooManyFunctions", "LongParameterList")
+@Suppress("TooManyFunctions", "LongParameterList", "LargeClass")
 class ReportController(
     timelineBucketCount: Int = DEFAULT_TIMELINE_BUCKET_COUNT,
     topFunctionLimit: Int = DEFAULT_TOP_FUNCTION_LIMIT,
@@ -220,6 +218,68 @@ class ReportController(
         }
     }
 
+    fun setDetailsVisible(visible: Boolean) {
+        mutableState.update { current -> current.copy(workspace = current.workspace.copy(detailsVisible = visible)) }
+    }
+
+    fun setTimelineHeightDp(heightDp: Int) {
+        mutableState.update { current ->
+            current.copy(
+                workspace =
+                    current.workspace.copy(
+                        timelineHeightDp = heightDp.coerceIn(MIN_TIMELINE_HEIGHT_DP, MAX_TIMELINE_HEIGHT_DP),
+                    ),
+            )
+        }
+    }
+
+    fun selectOverviewFinding(ruleId: String?) {
+        mutateSelections { current, report ->
+            current.copy(
+                overviewFindingRuleId =
+                    ruleId?.takeIf { id -> report?.diagnostics?.any { it.ruleId == id } == true },
+            )
+        }
+    }
+
+    fun selectTopFunction(key: String?) {
+        mutateSelections { current, report ->
+            current.copy(
+                topFunctionKey =
+                    key?.takeIf { value -> report?.topFunctions?.any { it.symbolName == value } == true },
+            )
+        }
+    }
+
+    fun selectStackChartBlock(blockId: StackChartBlockId?) {
+        mutateSelections { current, report ->
+            val ready = report?.stackChart as? PanelProjection.Ready
+            current.copy(
+                stackChartBlockId = blockId?.takeIf { id -> ready?.value?.blocks?.any { it.id == id } == true },
+            )
+        }
+    }
+
+    fun selectMarker(markerId: ProfileMarkerId?) {
+        mutateSelections { current, report ->
+            val ready = report?.markers as? PanelProjection.Ready
+            current.copy(markerId = markerId?.takeIf { id -> ready?.value?.markers?.any { it.id == id } == true })
+        }
+    }
+
+    suspend fun updateMarkerSearch(searchText: String) {
+        updateProjectionState { current ->
+            current.copy(workspace = current.workspace.copy(markerSearchText = searchText))
+        }
+    }
+
+    suspend fun updateTopFunctionSort(
+        sort: TopFunctionSort,
+        descending: Boolean,
+    ) {
+        updateProjectionState { current -> current.copy(topSort = sort, topDescending = descending) }
+    }
+
     suspend fun commitRange(
         startNanosInclusive: Long?,
         endNanosExclusive: Long?,
@@ -231,10 +291,7 @@ class ReportController(
                         startNanosInclusive = startNanosInclusive,
                         endNanosExclusive = endNanosExclusive,
                     ),
-                flameGraph =
-                    current.flameGraph.copy(
-                        query = current.flameGraph.query.copy(previewRange = null),
-                    ),
+                callStackQuery = current.callStackQuery.copy(previewRange = null),
             )
         }
     }
@@ -262,7 +319,11 @@ class ReportController(
         descending: Boolean,
     ) {
         updateProjectionState { current ->
-            current.copy(topSearch = search, topSort = sort, topDescending = descending)
+            current.copy(
+                callStackQuery = current.callStackQuery.copy(searchText = search),
+                topSort = sort,
+                topDescending = descending,
+            )
         }
     }
 
@@ -303,10 +364,7 @@ class ReportController(
                                 current
                             } else {
                                 current.copy(
-                                    flameGraph =
-                                        current.flameGraph.copy(
-                                            query = current.flameGraph.query.copy(previewRange = request.range),
-                                        ),
+                                    callStackQuery = current.callStackQuery.copy(previewRange = request.range),
                                 )
                             }
                         }
@@ -323,9 +381,7 @@ class ReportController(
 
     suspend fun cancelPreview() {
         updateProjectionState { current ->
-            current.copy(
-                flameGraph = current.flameGraph.copy(query = current.flameGraph.query.copy(previewRange = null)),
-            )
+            current.copy(callStackQuery = current.callStackQuery.copy(previewRange = null))
         }
     }
 
@@ -412,9 +468,12 @@ class ReportController(
                 cancelFrameDetailsLocked()
                 mutableState.value =
                     current.copy(
+                        workspace =
+                            current.workspace.copy(
+                                selections = current.workspace.selections.copy(callNodeId = nodeId),
+                            ),
                         flameGraph =
                             current.flameGraph.copy(
-                                selectedNodeId = nodeId,
                                 hoveredNodeId = null,
                                 contextNodeId = null,
                                 details = FlameGraphDetailsState.Loading(nodeId, generation),
@@ -492,9 +551,12 @@ class ReportController(
             val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
             val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
             current.copy(
+                workspace =
+                    current.workspace.copy(
+                        selections = current.workspace.selections.copy(callNodeId = validId),
+                    ),
                 flameGraph =
                     current.flameGraph.copy(
-                        selectedNodeId = validId,
                         hoveredNodeId = null,
                         contextNodeId = null,
                     ),
@@ -506,7 +568,7 @@ class ReportController(
         val mutation =
             mutableState.mutate { current ->
                 val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
-                val selectedNodeId = current.flameGraph.selectedNodeId
+                val selectedNodeId = current.workspace.selections.callNodeId
                 val targetNodeId =
                     if (snapshot == null || selectedNodeId == null) {
                         null
@@ -517,16 +579,19 @@ class ReportController(
                     current
                 } else {
                     current.copy(
+                        workspace =
+                            current.workspace.copy(
+                                selections = current.workspace.selections.copy(callNodeId = targetNodeId),
+                            ),
                         flameGraph =
                             current.flameGraph.copy(
-                                selectedNodeId = targetNodeId,
                                 hoveredNodeId = null,
                                 contextNodeId = null,
                             ),
                     )
                 }
             }
-        return mutation.next.flameGraph.selectedNodeId
+        return mutation.next.workspace.selections.callNodeId
             .takeUnless { mutation.current == mutation.next }
     }
 
@@ -542,10 +607,7 @@ class ReportController(
                         updateProjectionStateLocked(expectedSessionEpoch) { current ->
                             current.copy(
                                 selectedTab = ReportTab.FLAME_GRAPH,
-                                flameGraph =
-                                    current.flameGraph.copy(
-                                        query = current.flameGraph.query.copy(searchText = symbolName),
-                                    ),
+                                callStackQuery = current.callStackQuery.copy(searchText = symbolName),
                             )
                         }
                     }
@@ -555,12 +617,23 @@ class ReportController(
     }
 
     fun focusCallTreeFunction(symbolName: String) {
-        mutableState.mutate { current ->
-            current
-                .copy(
-                    selectedTab = ReportTab.CALL_TREE,
-                    callTreeSearch = symbolName,
-                ).clearFlameTransients()
+        val expectedSessionEpoch = synchronized(sessionMutationLock) { sessionEpoch.get() }
+        controllerScope.launch {
+            val generation =
+                semanticMutationMutex.withLock {
+                    withPreviewAdmissionSuspended {
+                        synchronized(sessionMutationLock) { cancelFrameDetailsLocked() }
+                        invalidatePreviewWork()
+                        updateProjectionStateLocked(expectedSessionEpoch) { current ->
+                            current
+                                .copy(
+                                    selectedTab = ReportTab.CALL_TREE,
+                                    callStackQuery = current.callStackQuery.copy(searchText = symbolName),
+                                ).clearFlameTransients()
+                        }
+                    }
+                }
+            generation?.let { awaitPublication(it) }
         }
     }
 
@@ -583,8 +656,19 @@ class ReportController(
 
     private suspend fun updateCallStackQuery(transform: CallStackAnalysisQuery.() -> CallStackAnalysisQuery) {
         updateProjectionState { current ->
-            val nextQuery = current.flameGraph.query.transform()
-            current.copy(flameGraph = current.flameGraph.copy(query = nextQuery))
+            current.copy(callStackQuery = current.callStackQuery.transform())
+        }
+    }
+
+    private fun mutateSelections(transform: SelectionMutation) {
+        mutableState.mutate { current ->
+            val report = (current.loadState as? ReportLoadState.Ready)?.report
+            current.copy(
+                workspace =
+                    current.workspace.copy(
+                        selections = transform(current.workspace.selections, report),
+                    ),
+            )
         }
     }
 
@@ -698,7 +782,7 @@ class ReportController(
                 if (workspace.state.value.generation != generation) {
                     current
                 } else {
-                    val selected = retainSelection(current, report.flameGraph)
+                    val selections = retainSelections(current, report)
                     val hovered =
                         current.flameGraph.hoveredNodeId?.takeIf { nodeId ->
                             report.flameGraph.callNodes.contains(nodeId)
@@ -710,9 +794,9 @@ class ReportController(
                     current.copy(
                         loadState = ReportLoadState.Ready(report),
                         lastReadyReport = report,
+                        workspace = current.workspace.copy(selections = selections),
                         flameGraph =
                             current.flameGraph.copy(
-                                selectedNodeId = selected,
                                 hoveredNodeId = hovered,
                                 contextNodeId = context,
                                 invalidTransforms = report.flameGraph.invalidTransforms,
@@ -757,6 +841,8 @@ class ReportController(
             timeline = timeline,
             callTree = callTree,
             flameGraph = flameGraph,
+            stackChart = stackChart,
+            markers = markers,
             diagnostics =
                 diagnosticEngine.analyze(
                     AnalysisSnapshot(overview, quality, threads, topFunctions),
@@ -767,10 +853,10 @@ class ReportController(
     private fun ReportState.projectionRequest(): ProfileProjectionRequest =
         ProfileProjectionRequest(
             query = filter,
-            callStackAnalysis = flameGraph.query,
+            callStackAnalysis = callStackQuery,
             timelineBucketCount = configuration.timelineBucketCount,
             topFunctionLimit = configuration.topFunctionLimit,
-            topSearch = topSearch,
+            markerSearch = workspace.markerSearchText,
             topSort = topSort,
             topDescending = topDescending,
         )
@@ -781,8 +867,12 @@ class ReportController(
         private const val DEFAULT_TIMELINE_BUCKET_COUNT = 600
         private const val DEFAULT_TOP_FUNCTION_LIMIT = 200
         private const val PREVIEW_SAMPLE_INTERVAL_MILLIS = 16L
+        private const val MIN_TIMELINE_HEIGHT_DP = 120
+        private const val MAX_TIMELINE_HEIGHT_DP = 480
     }
 }
+
+private typealias SelectionMutation = (ReportPanelSelections, ReportData?) -> ReportPanelSelections
 
 private data class PreviewRequest(
     val range: AnalysisTimeRange,
@@ -832,11 +922,11 @@ private fun MutableMap<String, String>.addPropertyLine(line: String) {
     if (separator > 0) this[line.substring(0, separator)] = line.substring(separator + 1)
 }
 
-private fun retainSelection(
+private fun retainCallNodeSelection(
     state: ReportState,
     next: FlameGraphSnapshot,
 ): FlameCallNodeId? {
-    val selected = state.flameGraph.selectedNodeId
+    val selected = state.workspace.selections.callNodeId
     return when {
         selected == null -> null
         next.callNodes.contains(selected) -> selected
@@ -848,6 +938,44 @@ private fun retainSelection(
                 ?.nearestVisibleAncestor(next.callNodes)
     }
 }
+
+private fun retainSelections(
+    state: ReportState,
+    next: ReportData,
+): ReportPanelSelections {
+    val current = state.workspace.selections
+    return current.copy(
+        overviewFindingRuleId =
+            current.overviewFindingRuleId?.takeIf { ruleId ->
+                next.diagnostics.any { finding -> finding.ruleId == ruleId }
+            },
+        topFunctionKey =
+            current.topFunctionKey?.takeIf { key ->
+                next.topFunctions.any { function -> function.symbolName == key }
+            },
+        callNodeId = retainCallNodeSelection(state, next.flameGraph),
+        stackChartBlockId = retainStackChartSelection(current.stackChartBlockId, next.stackChart),
+        markerId = retainMarkerSelection(current.markerId, next.markers),
+    )
+}
+
+private fun retainStackChartSelection(
+    selected: StackChartBlockId?,
+    projection: PanelProjection<StackChartSnapshot>,
+): StackChartBlockId? =
+    when (projection) {
+        is PanelProjection.Failed -> selected
+        is PanelProjection.Ready -> selected?.takeIf { id -> projection.value.blocks.any { it.id == id } }
+    }
+
+private fun retainMarkerSelection(
+    selected: ProfileMarkerId?,
+    projection: PanelProjection<MarkerProjectionSnapshot>,
+): ProfileMarkerId? =
+    when (projection) {
+        is PanelProjection.Failed -> selected
+        is PanelProjection.Ready -> selected?.takeIf { id -> projection.value.markers.any { it.id == id } }
+    }
 
 private fun ReportState.clearFlameTransients(): ReportState =
     copy(

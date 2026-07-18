@@ -22,6 +22,15 @@ import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FrameImplementation
+import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.profileanalysis.StackChartBlock
+import com.androidperformancestudio.profileanalysis.StackChartBlockId
+import com.androidperformancestudio.profileanalysis.StackChartSnapshot
+import com.androidperformancestudio.storage.MarkerAvailability
+import com.androidperformancestudio.storage.MarkerProjectionRow
+import com.androidperformancestudio.storage.MarkerProjectionSnapshot
+import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.ProfileProjectionRequest
 import com.androidperformancestudio.storage.ProfileProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileQuery
@@ -53,6 +62,168 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 @Suppress("LargeClass")
 class ReportControllerTest {
+    @Test
+    fun `report tabs use the fixed Firefox order`() {
+        assertEquals(
+            listOf(
+                ReportTab.OVERVIEW,
+                ReportTab.TOP_FUNCTIONS,
+                ReportTab.CALL_TREE,
+                ReportTab.FLAME_GRAPH,
+                ReportTab.STACK_CHART,
+                ReportTab.MARKER_CHART,
+                ReportTab.MARKER_TABLE,
+            ),
+            ReportTab.entries,
+        )
+    }
+
+    @Test
+    fun `tab changes preserve global details and stack query`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+            controller.setDetailsVisible(true)
+            controller.updateImplementationFilter(ImplementationFilter.SCRIPT)
+            controller.selectTab(ReportTab.MARKER_TABLE)
+
+            assertTrue(controller.state.value.workspace.detailsVisible)
+            assertEquals(
+                ImplementationFilter.SCRIPT,
+                controller.state.value.callStackQuery.implementation,
+            )
+        }
+
+    @Test
+    fun `closing details preserves panel selection`() =
+        runTest {
+            val markerId = ProfileMarkerId(7)
+            val snapshot = workspaceSnapshot(ProfileQuery()).copy(markers = markersWith(markerId))
+            val workspace =
+                ProfileWorkspaceController(
+                    backgroundScope,
+                    ProfileProjectionLoader { _, _ -> snapshot },
+                )
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            controller.openSession(Files.createTempDirectory("aps-report-markers-"))
+            controller.selectMarker(markerId)
+            controller.setDetailsVisible(false)
+
+            assertEquals(markerId, controller.state.value.workspace.selections.markerId)
+        }
+
+    @Test
+    fun `workspace controls clamp timeline and forward shared projection options`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            controller.setTimelineHeightDp(80)
+            assertEquals(120, controller.state.value.workspace.timelineHeightDp)
+            controller.setTimelineHeightDp(900)
+            assertEquals(480, controller.state.value.workspace.timelineHeightDp)
+
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-workspace-controls-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+
+            val markerSearch = async { controller.updateMarkerSearch("gc pause") }
+            val markerRequest = loader.started.receive()
+            assertEquals("gc pause", markerRequest.request.markerSearch)
+            markerRequest.succeed(flameSnapshot(markerRequest.request))
+            runCurrent()
+            markerSearch.await()
+
+            val stackSearch = async { controller.updateFlameSearch("render,run") }
+            val stackRequest = loader.started.receive()
+            assertEquals("render,run", stackRequest.request.callStackAnalysis.searchText)
+            assertEquals("", stackRequest.request.topSearch)
+            stackRequest.succeed(flameSnapshot(stackRequest.request))
+            runCurrent()
+            stackSearch.await()
+
+            val sorting = async { controller.updateTopFunctionSort(TopFunctionSort.SYMBOL_NAME, descending = false) }
+            val sortRequest = loader.started.receive()
+            assertEquals(TopFunctionSort.SYMBOL_NAME, sortRequest.request.topSort)
+            assertEquals(false, sortRequest.request.topDescending)
+            sortRequest.succeed(flameSnapshot(sortRequest.request))
+            runCurrent()
+            sorting.await()
+        }
+
+    @Test
+    fun `failed optional panels retain selections until a ready projection removes them`() =
+        runTest {
+            val markerId = ProfileMarkerId(7)
+            val blockId = StackChartBlockId("sample:7:0")
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-panel-retention-")) }
+            val initial = loader.started.receive()
+            initial.succeed(
+                flameSnapshot(initial.request).copy(
+                    stackChart = stackChartWith(blockId),
+                    markers = markersWith(markerId),
+                ),
+            )
+            runCurrent()
+            opening.await()
+            controller.selectStackChartBlock(blockId)
+            controller.selectMarker(markerId)
+
+            val failing = async { controller.updateMarkerSearch("fail") }
+            val failedRequest = loader.started.receive()
+            failedRequest.succeed(
+                flameSnapshot(failedRequest.request).copy(
+                    stackChart = PanelProjection.Failed("STACK_FAILED", "failed"),
+                    markers = PanelProjection.Failed("MARKERS_FAILED", "failed"),
+                ),
+            )
+            runCurrent()
+            failing.await()
+            assertEquals(blockId, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(markerId, controller.state.value.workspace.selections.markerId)
+
+            val retrying = async { controller.retryProjection() }
+            val retry = loader.started.receive()
+            retry.succeed(
+                flameSnapshot(retry.request).copy(
+                    stackChart = stackChartWith(blockId),
+                    markers = markersWith(markerId),
+                ),
+            )
+            runCurrent()
+            retrying.await()
+            assertEquals(blockId, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(markerId, controller.state.value.workspace.selections.markerId)
+
+            val removing = async { controller.updateMarkerSearch("empty") }
+            val empty = loader.started.receive()
+            empty.succeed(flameSnapshot(empty.request))
+            runCurrent()
+            removing.await()
+            assertEquals(null, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(null, controller.state.value.workspace.selections.markerId)
+        }
+
+    @Test
+    fun `ready publication retains only identities still present in each core panel`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+            controller.selectOverviewFinding("data-quality")
+            controller.selectTopFunction("renderFrame")
+
+            controller.updateFlameSearch("missing-function")
+
+            val selections = controller.state.value.workspace.selections
+            assertEquals("data-quality", selections.overviewFindingRuleId)
+            assertEquals(null, selections.topFunctionKey)
+        }
+
     @Test
     fun `opens indexed session into overview timeline tree and flame report`() =
         runTest {
@@ -106,19 +277,19 @@ class ReportControllerTest {
             val report = assertIs<ReportLoadState.Ready>(state.loadState).report
             assertEquals(1L, report.overview.sampleCount)
             assertEquals(5L, report.overview.totalEventWeight)
-            assertEquals(listOf("renderFrame"), report.topFunctions.map { it.symbolName })
+            assertEquals(listOf("renderFrame", "runLoop"), report.topFunctions.map { it.symbolName })
             assertEquals("renderFrame", report.callTree.single { it.parentId == null }.symbolName)
             assertEquals(5L, report.flameGraph.totalWeight)
             assertEquals(15L, state.filter.startNanosInclusive)
             assertEquals(setOf(101), state.filter.threadIds)
 
-            assertEquals("render,run", state.flameGraph.query.searchText)
+            assertEquals("render,run", state.callStackQuery.searchText)
             assertEquals(CallStackDirection.INVERTED, state.callTreeDirection)
 
             controller.focusCallTreeFunction("renderFrame")
+            val focused = controller.state.first { it.selectedTab == ReportTab.CALL_TREE }
 
-            assertEquals(ReportTab.CALL_TREE, controller.state.value.selectedTab)
-            assertEquals("renderFrame", controller.state.value.callTreeSearch)
+            assertEquals("renderFrame", focused.callStackQuery.searchText)
         }
 
     @Test
@@ -229,16 +400,17 @@ class ReportControllerTest {
             val initial = controller.state.value
             val report = assertIs<ReportLoadState.Ready>(initial.loadState).report
             val callTreeNode = report.callTree.single { it.symbolName == "renderFrame" }
-            val initialQuery = initial.flameGraph.query
+            val initialQuery = initial.callStackQuery
 
             controller.selectCallNode(FlameCallNodeId(callTreeNode.id))
 
             val selected = controller.state.value
-            assertEquals(FlameCallNodeId(callTreeNode.id), selected.flameGraph.selectedNodeId)
-            assertEquals(initialQuery, selected.flameGraph.query)
+            val selectedNodeId = selected.workspace.selections.callNodeId
+            assertEquals(FlameCallNodeId(callTreeNode.id), selectedNodeId)
+            assertEquals(initialQuery, selected.callStackQuery)
             assertTrue(
                 assertIs<ReportLoadState.Ready>(selected.loadState).report.callTree.any { node ->
-                    node.id == selected.flameGraph.selectedNodeId?.value
+                    node.id == selectedNodeId?.value
                 },
             )
         }
@@ -269,8 +441,8 @@ class ReportControllerTest {
             val state = controller.state.value
             assertIs<ReportLoadState.Ready>(state.loadState)
             assertEquals(ReportTab.FLAME_GRAPH, state.selectedTab)
-            assertEquals(1, state.flameGraph.query.transforms.size)
-            assertEquals(FlameCallNodeId(root.id), state.flameGraph.selectedNodeId)
+            assertEquals(1, state.callStackQuery.transforms.size)
+            assertEquals(FlameCallNodeId(root.id), state.workspace.selections.callNodeId)
         }
 
     @Test
@@ -286,7 +458,7 @@ class ReportControllerTest {
                     report?.flameGraph?.query?.previewRange == AnalysisTimeRange(15, 25)
                 }
             val report = assertIs<ReportLoadState.Ready>(state.loadState).report
-            assertEquals(AnalysisTimeRange(15, 25), state.flameGraph.query.previewRange)
+            assertEquals(AnalysisTimeRange(15, 25), state.callStackQuery.previewRange)
             assertEquals(5L, report.flameGraph.totalWeight)
             assertEquals(3L, report.overview.sampleCount)
         }
@@ -320,10 +492,10 @@ class ReportControllerTest {
             controller.applyTransform(first)
             controller.applyTransform(second)
             controller.undoLastTransform()
-            assertEquals(listOf(first), controller.state.value.flameGraph.query.transforms)
+            assertEquals(listOf(first), controller.state.value.callStackQuery.transforms)
 
             controller.updateTimeRange(0, 40)
-            assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+            assertEquals(null, controller.state.value.callStackQuery.previewRange)
         }
 
     @Test
@@ -341,9 +513,9 @@ class ReportControllerTest {
             controller.openSession(indexedSession())
 
             val state = controller.state.value
-            assertEquals("", state.flameGraph.query.searchText)
-            assertEquals(emptyList(), state.flameGraph.query.transforms)
-            assertEquals(null, state.flameGraph.selectedNodeId)
+            assertEquals("", state.callStackQuery.searchText)
+            assertEquals(emptyList(), state.callStackQuery.transforms)
+            assertEquals(null, state.workspace.selections.callNodeId)
             assertEquals(null, state.flameGraph.hoveredNodeId)
             assertEquals(null, state.flameGraph.contextNodeId)
         }
@@ -366,7 +538,7 @@ class ReportControllerTest {
 
             assertEquals(FlameCallNodeId(CHILD_NODE_ID), first)
             assertEquals(FlameCallNodeId(GRANDCHILD_NODE_ID), second)
-            assertEquals(second, controller.state.value.flameGraph.selectedNodeId)
+            assertEquals(second, controller.state.value.workspace.selections.callNodeId)
             assertTrue(loader.started.tryReceive().isFailure, "local navigation must not request a projection")
         }
 
@@ -409,7 +581,7 @@ class ReportControllerTest {
             controller.selectTab(ReportTab.FLAME_GRAPH)
             controller.hoverCallNode(root)
             controller.openCallNodeContext(root)
-            controller.selectTab(ReportTab.TIMELINE)
+            controller.selectTab(ReportTab.STACK_CHART)
             assertEquals(null, controller.state.value.flameGraph.hoveredNodeId)
             assertEquals(null, controller.state.value.flameGraph.contextNodeId)
 
@@ -460,7 +632,7 @@ class ReportControllerTest {
             assertTrue(loader.started.tryReceive().isFailure, "pending preview values must be conflated")
             latest.succeed(flameSnapshot(latest.request))
             runCurrent()
-            assertEquals(AnalysisTimeRange(30, 40), controller.state.value.flameGraph.query.previewRange)
+            assertEquals(AnalysisTimeRange(30, 40), controller.state.value.callStackQuery.previewRange)
         }
 
     @Test
@@ -492,7 +664,7 @@ class ReportControllerTest {
 
             assertEquals(100, controller.state.value.filter.startNanosInclusive)
             assertEquals(200, controller.state.value.filter.endNanosExclusive)
-            assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+            assertEquals(null, controller.state.value.callStackQuery.previewRange)
         }
 
     @Test
@@ -520,7 +692,7 @@ class ReportControllerTest {
             runCurrent()
             cancellation.await()
 
-            assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+            assertEquals(null, controller.state.value.callStackQuery.previewRange)
         }
 
     @Test
@@ -561,8 +733,8 @@ class ReportControllerTest {
             runCurrent()
             nextOpen.await()
 
-            assertEquals(null, controller.state.value.flameGraph.query.previewRange)
-            assertEquals("", controller.state.value.flameGraph.query.searchText)
+            assertEquals(null, controller.state.value.callStackQuery.previewRange)
+            assertEquals("", controller.state.value.callStackQuery.searchText)
         }
 
     @Test
@@ -726,7 +898,7 @@ class ReportControllerTest {
 
             val state = controller.state.value
             val report = assertIs<ReportLoadState.Ready>(state.loadState).report
-            val selected = state.flameGraph.selectedNodeId
+            val selected = state.workspace.selections.callNodeId
             assertEquals(FlameCallNodeId(ROOT_NODE_ID), selected)
             assertTrue(
                 report.flameGraph.callNodes.ids
@@ -748,7 +920,7 @@ class ReportControllerTest {
 
             controller.focusFunction("old-profile-only")
             assertEquals(ReportTab.OVERVIEW, controller.state.value.selectedTab)
-            assertEquals("", controller.state.value.flameGraph.query.searchText)
+            assertEquals("", controller.state.value.callStackQuery.searchText)
             val secondOpen =
                 async(start = CoroutineStart.UNDISPATCHED) {
                     controller.openSession(Files.createTempDirectory("aps-focus-second-"))
@@ -761,7 +933,7 @@ class ReportControllerTest {
             secondOpen.await()
             runCurrent()
 
-            assertEquals("", controller.state.value.flameGraph.query.searchText)
+            assertEquals("", controller.state.value.callStackQuery.searchText)
             assertEquals(ReportTab.OVERVIEW, controller.state.value.selectedTab)
         }
 
@@ -874,7 +1046,7 @@ class ReportControllerTest {
             runCurrent()
 
             assertEquals(ReportTab.FLAME_GRAPH, controller.state.value.selectedTab)
-            assertEquals("render", controller.state.value.flameGraph.query.searchText)
+            assertEquals("render", controller.state.value.callStackQuery.searchText)
             assertEquals(generationBeforeFocus, workspace.state.value.generation)
             assertTrue(loader.started.tryReceive().isFailure, "tab-only focus must not submit another projection")
         }
@@ -959,7 +1131,7 @@ class ReportControllerTest {
         advanceTimeBy(32)
         runCurrent()
 
-        assertEquals(null, controller.state.value.flameGraph.query.previewRange)
+        assertEquals(null, controller.state.value.callStackQuery.previewRange)
         assertTrue(loader.started.tryReceive().isFailure, "rejected preview must not submit after mutation completion")
     }
 
@@ -1003,6 +1175,55 @@ class ReportControllerTest {
         }
         return session
     }
+
+    private fun markersWith(markerId: ProfileMarkerId): PanelProjection<MarkerProjectionSnapshot> =
+        PanelProjection.Ready(
+            MarkerProjectionSnapshot(
+                availability = MarkerAvailability.AVAILABLE,
+                emptyReason = null,
+                markers =
+                    listOf(
+                        MarkerProjectionRow(
+                            id = markerId,
+                            sourceId = "simpleperf",
+                            processId = 100,
+                            threadId = 101,
+                            threadName = "RenderThread",
+                            startNanos = 10,
+                            endNanosExclusive = 10,
+                            interval = false,
+                            schema = "test",
+                            name = "marker",
+                            payloadJson = "{}",
+                        ),
+                    ),
+                lanes = emptyList(),
+            ),
+        )
+
+    private fun stackChartWith(blockId: StackChartBlockId): PanelProjection<StackChartSnapshot> =
+        PanelProjection.Ready(
+            StackChartSnapshot(
+                framesById = emptyMap(),
+                blocks =
+                    listOf(
+                        StackChartBlock(
+                            id = blockId,
+                            sampleId = 7,
+                            startNanos = 10,
+                            endNanosExclusive = 11,
+                            depth = 0,
+                            frameId = 1,
+                            threadKey = "simpleperf:100:101",
+                            weight = 1,
+                        ),
+                    ),
+                startNanos = 10,
+                endNanosExclusive = 11,
+                maxDepth = 0,
+                emptyReason = null,
+            ),
+        )
 
     private fun sample(
         timestamp: Long,
