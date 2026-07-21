@@ -437,6 +437,15 @@ private data class EncodedMap(
             clipBounds = (get("drawing:clipBounds") as? String)?.toBoundsOrNull(),
             clipChildren = booleanOrNull("drawing:clipChildren"),
             clipToPadding = booleanOrNull("drawing:clipToPadding"),
+            background = stringOrNull("drawing:background")
+                ?: (get("drawing:background") as? EncodedMap)?.let { map ->
+                    map.namedProperties(propertyNames)["class"] as? String
+                },
+            backgroundColor = stringOrNull("drawing:backgroundColor"),
+            foreground = stringOrNull("drawing:foreground")
+                ?: (get("drawing:foreground") as? EncodedMap)?.let { map ->
+                    map.namedProperties(propertyNames)["class"] as? String
+                },
             opaque = booleanOrNull("drawing:opaque"),
             willNotDraw = booleanOrNull("drawing:willNotDraw"),
             hardwareAccelerated = booleanOrNull("drawing:hardwareAccelerated"),

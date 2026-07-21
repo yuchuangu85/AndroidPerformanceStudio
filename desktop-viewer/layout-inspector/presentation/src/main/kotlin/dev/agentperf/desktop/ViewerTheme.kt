@@ -36,6 +36,9 @@ internal data class ViewerColors(
     val warning: Color,
     val error: Color,
     val success: Color,
+    val searchMatchRow: Color,
+    val searchCurrentMatchRow: Color,
+    val searchHighlightText: Color,
 )
 
 internal object ViewerPalettes {
@@ -67,6 +70,9 @@ internal object ViewerPalettes {
         warning = Color(0xFFB45309),
         error = Color(0xFFDC2626),
         success = Color(0xFF15803D),
+        searchMatchRow = Color(0x332563EB),
+        searchCurrentMatchRow = Color(0x662563EB),
+        searchHighlightText = Color(0xFF1D4ED8),
     )
 
     private val dark = ViewerColors(
@@ -97,6 +103,9 @@ internal object ViewerPalettes {
         warning = Color(0xFFF5A524),
         error = Color(0xFFEF5350),
         success = Color(0xFF55D187),
+        searchMatchRow = Color(0x3370A5FF),
+        searchCurrentMatchRow = Color(0x6670A5FF),
+        searchHighlightText = Color(0xFFA5C8FF),
     )
 
     fun forDark(darkTheme: Boolean): ViewerColors = if (darkTheme) dark else light

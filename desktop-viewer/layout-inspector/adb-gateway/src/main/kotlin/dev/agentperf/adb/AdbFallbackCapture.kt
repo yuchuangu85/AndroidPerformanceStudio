@@ -156,6 +156,7 @@ internal object UiAutomatorHierarchyParser {
                 visibility = visibleToUser?.let {
                     if (it) "VISIBLE_TO_USER" else "NOT_VISIBLE_TO_USER"
                 },
+
                 enabled = booleanAttribute("enabled"),
                 clickable = booleanAttribute("clickable"),
                 longClickable = booleanAttribute("long-clickable"),

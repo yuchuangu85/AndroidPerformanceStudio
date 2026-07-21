@@ -1,6 +1,8 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.compiler)
@@ -54,10 +56,16 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
+val targetArch = project.findProperty("target.arch")?.toString()
+
 dependencies {
     implementation(project(":layout-inspector:presentation"))
     implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
-    implementation(compose.desktop.currentOs)
+    when (targetArch) {
+        "x64" -> implementation(compose.desktop.macos_x64)
+        "arm64" -> implementation(compose.desktop.macos_arm64)
+        else -> implementation(compose.desktop.currentOs)
+    }
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
@@ -73,6 +81,11 @@ compose.desktop {
         mainClass = "dev.agentperf.desktop.MainKt"
         jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")
         jvmArgs("-Dagentperf.version=$appVersion")
+
+        if (targetArch == "x64") {
+            javaHome = "${System.getProperty("user.home")}/Downloads/zulu21.50.19-ca-jdk21.0.11-macosx_x64/Contents/Home"
+        }
+
         nativeDistributions {
             appResourcesRootDir.set(firefoxProfilerAppResources)
             // The minimized jpackage runtime cannot infer JdkAiHttpTransport's reflective HTTP usage.
