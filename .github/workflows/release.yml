@@ -96,10 +96,53 @@ jobs:
       - name: Run tests
         run: ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
 
-  firefox-profiler-assets:
-    name: Build Firefox Profiler assets
-    needs: resolve
+  prepare-release:
+    name: Prepare draft GitHub Release
+    needs: [resolve, test]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create or reset draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          MANUAL: ${{ needs.resolve.outputs.manual }}
+          TAG_EXISTS: ${{ needs.resolve.outputs.tag_exists }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --draft \
+              --title "AndroidPerfermanceStudio $VERSION" \
+              --repo "$GITHUB_REPOSITORY"
+          elif [[ "$TAG_EXISTS" == "true" ]]; then
+            gh release create "$TAG" \
+              --draft \
+              --verify-tag \
+              --title "AndroidPerfermanceStudio $VERSION" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          elif [[ "$MANUAL" == "true" ]]; then
+            gh release create "$TAG" \
+              --draft \
+              --target "$GITHUB_SHA" \
+              --title "AndroidPerfermanceStudio $VERSION" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            echo "::error::Tag $TAG was expected to exist for tag-triggered releases."
+            exit 1
+          fi
+
+  package-windows:
+    name: Package Windows MSI and EXE
+    needs: [resolve, test, prepare-release]
+    runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -109,31 +152,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-      - name: Install Yarn Classic
-        run: npm install --global yarn@1
       - name: Build Firefox Profiler assets
-        run: ./scripts/firefox-profiler.sh all
-      - name: Upload Firefox Profiler assets
-        uses: actions/upload-artifact@v7
-        with:
-          name: firefox-profiler-dist
-          path: third_party/firefox-profiler/dist
-          if-no-files-found: error
-
-  package-windows:
-    name: Package Windows MSI and EXE
-    needs: [resolve, test, firefox-profiler-assets]
-    runs-on: windows-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.resolve.outputs.checkout_ref }}
-      - name: Download Firefox Profiler assets
-        uses: actions/download-artifact@v8
-        with:
-          name: firefox-profiler-dist
-          path: third_party/firefox-profiler/dist
+        shell: bash
+        run: |
+          npm install --global yarn@1
+          ./scripts/firefox-profiler.sh all
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
@@ -168,29 +191,33 @@ jobs:
           New-Item -ItemType Directory -Force "release-assets" | Out-Null
           Copy-Item $msiPackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.msi"
           Copy-Item $exePackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.exe"
-      - name: Upload Windows installers
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-installers
-          path: |
-            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-windows-x64.msi
-            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-windows-x64.exe
-          if-no-files-found: error
+      - name: Upload Windows installers to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
 
   package-macos:
     name: Package macOS DMG and PKG
-    needs: [resolve, test, firefox-profiler-assets]
+    needs: [resolve, test, prepare-release]
     runs-on: macos-14
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.checkout_ref }}
-      - name: Download Firefox Profiler assets
-        uses: actions/download-artifact@v8
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
         with:
-          name: firefox-profiler-dist
-          path: third_party/firefox-profiler/dist
+          node-version: "24"
+      - name: Build Firefox Profiler assets
+        shell: bash
+        run: |
+          npm install --global yarn@1
+          ./scripts/firefox-profiler.sh all
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
@@ -223,29 +250,33 @@ jobs:
           mkdir -p release-assets
           cp "${dmg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-x64.dmg"
           cp "${pkg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-x64.pkg"
-      - name: Upload macOS installers
-        uses: actions/upload-artifact@v7
-        with:
-          name: macos-installers
-          path: |
-            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-macos-x64.dmg
-            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-macos-x64.pkg
-          if-no-files-found: error
+      - name: Upload macOS installers to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
 
   package-linux:
     name: Package Linux DEB and RPM
-    needs: [resolve, test, firefox-profiler-assets]
+    needs: [resolve, test, prepare-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.checkout_ref }}
-      - name: Download Firefox Profiler assets
-        uses: actions/download-artifact@v8
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
         with:
-          name: firefox-profiler-dist
-          path: third_party/firefox-profiler/dist
+          node-version: "24"
+      - name: Build Firefox Profiler assets
+        shell: bash
+        run: |
+          npm install --global yarn@1
+          ./scripts/firefox-profiler.sh all
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
@@ -282,58 +313,55 @@ jobs:
           mkdir -p release-assets
           cp "${deb_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-x64.deb"
           cp "${rpm_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-x64.rpm"
-      - name: Upload Linux installers
-        uses: actions/upload-artifact@v7
-        with:
-          name: linux-installers
-          path: |
-            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-linux-x64.deb
-            release-assets/AndroidPerfermanceStudio-${{ needs.resolve.outputs.version }}-linux-x64.rpm
-          if-no-files-found: error
+      - name: Upload Linux installers to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
 
   publish:
     name: Publish GitHub Release
-    needs: [resolve, test, package-windows, package-macos, package-linux]
+    needs: [resolve, test, prepare-release, package-windows, package-macos, package-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download installers
-        uses: actions/download-artifact@v8
-        with:
-          path: release-assets
-          merge-multiple: true
-      - name: Create or update release
+      - name: Verify and publish release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.resolve.outputs.tag }}
           VERSION: ${{ needs.resolve.outputs.version }}
-          MANUAL: ${{ needs.resolve.outputs.manual }}
-          TAG_EXISTS: ${{ needs.resolve.outputs.tag_exists }}
         run: |
           set -euo pipefail
-          assets=(release-assets/*)
-          if [[ "${#assets[@]}" -ne 6 ]]; then
-            echo "::error::Expected exactly six native installer assets."
-            exit 1
-          fi
+          release_json="$(gh release view "$TAG" --json assets,isDraft --repo "$GITHUB_REPOSITORY")"
+          RELEASE_JSON="$release_json" python3 - <<'PY'
+          import json
+          import os
+          import sys
 
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-          elif [[ "$TAG_EXISTS" == "true" ]]; then
-            gh release create "$TAG" "${assets[@]}" \
-              --verify-tag \
-              --title "AndroidPerfermanceStudio $VERSION" \
-              --generate-notes \
-              --repo "$GITHUB_REPOSITORY"
-          elif [[ "$MANUAL" == "true" ]]; then
-            gh release create "$TAG" "${assets[@]}" \
-              --target "$GITHUB_SHA" \
-              --title "AndroidPerfermanceStudio $VERSION" \
-              --generate-notes \
-              --repo "$GITHUB_REPOSITORY"
-          else
-            echo "::error::Tag $TAG was expected to exist for tag-triggered releases."
-            exit 1
-          fi
+          release = json.loads(os.environ["RELEASE_JSON"])
+          expected = {
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-windows-x64.msi",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-windows-x64.exe",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-x64.dmg",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-x64.pkg",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-x64.deb",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-x64.rpm",
+          }
+          actual = {asset["name"] for asset in release["assets"]}
+          missing = sorted(expected - actual)
+          extra = sorted(actual - expected)
+          if missing or extra:
+              print(f"::error::Release asset mismatch. Missing={missing} Extra={extra}")
+              sys.exit(1)
+          if not release["isDraft"]:
+              print("::error::Release should remain draft until all assets are verified.")
+              sys.exit(1)
+          PY
+          gh release edit "$TAG" \
+            --draft=false \
+            --latest \
+            --title "AndroidPerfermanceStudio $VERSION" \
+            --repo "$GITHUB_REPOSITORY"
