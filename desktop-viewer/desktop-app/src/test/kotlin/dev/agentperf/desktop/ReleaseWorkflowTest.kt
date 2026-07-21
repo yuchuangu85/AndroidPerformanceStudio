@@ -30,6 +30,13 @@ class ReleaseWorkflowTest {
             ),
         )
         assertTrue(!workflow.contains("simpleperfCheck --no-daemon"))
+        assertTrue(workflow.contains("firefox-profiler-assets:"))
+        assertTrue(workflow.contains("uses: actions/setup-node@v6"))
+        assertTrue(workflow.contains("node-version: \"24\""))
+        assertTrue(workflow.contains("npm install --global yarn@1"))
+        assertTrue(workflow.contains("./scripts/firefox-profiler.sh all"))
+        assertTrue(workflow.contains("name: firefox-profiler-dist"))
+        assertTrue(workflow.contains("path: third_party/firefox-profiler/dist"))
         assertTrue(workflow.contains("package-windows:"))
         assertTrue(workflow.contains("runs-on: windows-latest"))
         assertTrue(workflow.contains(":desktop-app:packageMsi"))
@@ -42,7 +49,7 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("runs-on: ubuntu-latest"))
         assertTrue(workflow.contains(":desktop-app:packageDeb"))
         assertTrue(workflow.contains(":desktop-app:packageRpm"))
-        assertTrue(workflow.contains("needs: [resolve, test]"))
+        assertTrue(workflow.contains("needs: [resolve, test, firefox-profiler-assets]"))
         assertTrue(
             workflow.contains(
                 "needs: [resolve, test, package-windows, package-macos, package-linux]",
