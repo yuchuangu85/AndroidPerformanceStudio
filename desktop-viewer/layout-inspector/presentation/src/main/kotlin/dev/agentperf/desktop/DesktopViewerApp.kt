@@ -29,11 +29,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,8 +81,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -156,6 +164,7 @@ fun FrameWindowScope.DesktopViewerApp(
     }
     val coroutineScope = rememberCoroutineScope()
     var hiddenLayerState by remember { mutableStateOf(HiddenLayerState()) }
+    var searchState by remember { mutableStateOf(HierarchySearchState()) }
 
     LaunchedEffect(deviceListRefreshRequest) {
         val devices = withContext(Dispatchers.IO) {
@@ -643,9 +652,11 @@ fun FrameWindowScope.DesktopViewerApp(
                                         treeState = hierarchyTreeState,
                                         viewDisplayOptions = viewDisplayOptions,
                                         hiddenLayerState = hiddenLayerState,
+                                        searchState = searchState,
                                         onTreeStateChange = { hierarchyTreeState = it },
                                         onSelect = selectNode,
                                         onToggleHiddenLayer = toggleHiddenLayer,
+                                        onSearchStateChange = { searchState = it },
                                         onAction = performAction,
                                         modifier =
                                             Modifier
@@ -1269,9 +1280,11 @@ private fun HierarchyPane(
     treeState: HierarchyTreeState,
     viewDisplayOptions: ViewDisplayOptions,
     hiddenLayerState: HiddenLayerState,
+    searchState: HierarchySearchState,
     onTreeStateChange: (HierarchyTreeState) -> Unit,
     onSelect: (String) -> Unit,
     onToggleHiddenLayer: (String) -> Unit,
+    onSearchStateChange: (HierarchySearchState) -> Unit,
     onAction: (ViewerAction) -> Unit,
     modifier: Modifier,
 ) {
@@ -1285,6 +1298,8 @@ private fun HierarchyPane(
         rows = model.rows,
         hideInvisible = viewDisplayOptions.hideInvisibleHierarchyViews,
     )
+    val matchedNodeIds = searchState.matchedNodeIds(visibleRows)
+    val currentMatchedNodeId = searchState.currentMatchedNodeId(matchedNodeIds)
     LaunchedEffect(state.selectedNodeId, visibleRows) {
         val selectedIndex = visibleRows.indexOfFirst { it.id == state.selectedNodeId }
         val visibleItems = listState.layoutInfo.visibleItemsInfo
@@ -1293,6 +1308,17 @@ private fun HierarchyPane(
             firstVisibleIndex = visibleItems.firstOrNull()?.index,
             lastVisibleIndex = visibleItems.lastOrNull()?.index,
         )?.let { listState.scrollToItem(it) }
+    }
+    LaunchedEffect(currentMatchedNodeId, visibleRows) {
+        if (currentMatchedNodeId == null) return@LaunchedEffect
+        val matchIndex = visibleRows.indexOfFirst { it.id == currentMatchedNodeId }
+        if (matchIndex < 0) return@LaunchedEffect
+        val visibleItems = listState.layoutInfo.visibleItemsInfo
+        val firstVisible = visibleItems.firstOrNull()?.index ?: 0
+        val lastVisible = visibleItems.lastOrNull()?.index ?: 0
+        val viewportSize = lastVisible - firstVisible
+        val targetScroll = (matchIndex - viewportSize / 2).coerceAtLeast(0)
+        listState.scrollToItem(targetScroll)
     }
     Column(
         modifier
@@ -1325,6 +1351,29 @@ private fun HierarchyPane(
             .focusable(),
     ) {
         PanelTitle(strings.hierarchy, "${model.rows.size}")
+        HierarchySearchBar(
+            searchState = searchState,
+            matchedNodeIds = matchedNodeIds,
+            onQueryChange = { query ->
+                onSearchStateChange(searchState.withQuery(query))
+            },
+            onNavigatePrevious = {
+                val updated = searchState.navigatePrevious(matchedNodeIds)
+                onSearchStateChange(updated)
+                updated.currentMatchedNodeId(matchedNodeIds)?.let { nodeId ->
+                    onTreeStateChange(treeState.reveal(nodeId, model.rows))
+                    onSelect(nodeId)
+                }
+            },
+            onNavigateNext = {
+                val updated = searchState.navigateNext(matchedNodeIds)
+                onSearchStateChange(updated)
+                updated.currentMatchedNodeId(matchedNodeIds)?.let { nodeId ->
+                    onTreeStateChange(treeState.reveal(nodeId, model.rows))
+                    onSelect(nodeId)
+                }
+            },
+        )
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val viewportWidth = maxWidth
             Box(
@@ -1341,7 +1390,14 @@ private fun HierarchyPane(
                 ) {
                     items(visibleRows, key = { it.number }) { row ->
                         val expanded = treeState.isExpanded(row.id)
-                        val rowColor = if (row.selected) colors.selectedRow else Color.Transparent
+                        val isSearchMatch = searchState.matches(row)
+                        val isCurrentMatch = row.id == currentMatchedNodeId
+                        val rowColor = when {
+                            row.selected -> colors.selectedRow
+                            isCurrentMatch -> colors.searchCurrentMatchRow
+                            isSearchMatch -> colors.searchMatchRow
+                            else -> Color.Transparent
+                        }
                         Row(
                             modifier = Modifier
                                 .widthIn(min = viewportWidth)
@@ -1377,23 +1433,37 @@ private fun HierarchyPane(
                                 )
                                 Spacer(Modifier.width(4.dp))
                             }
-                            Text(
-                                ViewDisplayProjection.hierarchyLabel(
-                                    row = row,
-                                    hideIndex = viewDisplayOptions.hideHierarchyIndices,
-                                    showId = viewDisplayOptions.showHierarchyIds,
-                                ),
-                                color = when {
-                                    hiddenLayerState.isHidden(row.id) -> colors.hiddenRowText
-                                    row.visible -> colors.rowText
-                                    else -> colors.hiddenRowText
-                                },
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
-                                lineHeight = 11.sp,
-                                maxLines = 1,
-                                softWrap = false,
+                            val labelText = ViewDisplayProjection.hierarchyLabel(
+                                row = row,
+                                hideIndex = viewDisplayOptions.hideHierarchyIndices,
+                                showId = viewDisplayOptions.showHierarchyIds,
                             )
+                            if (isSearchMatch && searchState.isSearching) {
+                                HierarchySearchHighlightText(
+                                    text = labelText,
+                                    query = searchState.query,
+                                    baseColor = when {
+                                        hiddenLayerState.isHidden(row.id) -> colors.hiddenRowText
+                                        row.visible -> if (isCurrentMatch) colors.searchHighlightText else colors.rowText
+                                        else -> colors.hiddenRowText
+                                    },
+                                    highlightColor = colors.searchHighlightText,
+                                )
+                            } else {
+                                Text(
+                                    labelText,
+                                    color = when {
+                                        hiddenLayerState.isHidden(row.id) -> colors.hiddenRowText
+                                        row.visible -> colors.rowText
+                                        else -> colors.hiddenRowText
+                                    },
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
+                                    lineHeight = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
                         }
                     }
                 }
@@ -2170,3 +2240,176 @@ private fun FindingsResizeSeparator(onDrag: (Float) -> Unit) {
 
 private const val CAPTURE_INTERVAL_MILLIS = 1_000L
 private const val RECONNECT_INTERVAL_MILLIS = 1_000L
+
+@Composable
+private fun HierarchySearchBar(
+    searchState: HierarchySearchState,
+    matchedNodeIds: List<String>,
+    onQueryChange: (String) -> Unit,
+    onNavigatePrevious: () -> Unit,
+    onNavigateNext: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val summary = searchState.matchSummary(matchedNodeIds)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(22.dp)
+                .border(1.dp, colors.border, RoundedCornerShape(3.dp))
+                .background(colors.sectionBackground.copy(alpha = 0.3f), RoundedCornerShape(3.dp))
+                .padding(horizontal = 6.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            BasicTextField(
+                value = searchState.query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    color = colors.primaryText,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                ),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onNavigateNext() }),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.accent),
+            )
+            if (searchState.query.isEmpty()) {
+                Text(
+                    strings.searchHierarchy,
+                    color = colors.mutedText,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                )
+            }
+        }
+        if (searchState.isSearching) {
+            Spacer(Modifier.width(4.dp))
+            Text(
+                summary ?: strings.searchNoMatch,
+                color = if (matchedNodeIds.isEmpty()) colors.error else colors.mutedText,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                modifier = Modifier.widthIn(min = 32.dp),
+            )
+            Spacer(Modifier.width(2.dp))
+            SearchNavButton(
+                label = "◀",
+                contentDescription = strings.searchPrevious,
+                enabled = matchedNodeIds.isNotEmpty(),
+                onClick = onNavigatePrevious,
+            )
+            Spacer(Modifier.width(2.dp))
+            SearchNavButton(
+                label = "▶",
+                contentDescription = strings.searchNext,
+                enabled = matchedNodeIds.isNotEmpty(),
+                onClick = onNavigateNext,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchNavButton(
+    label: String,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    Box(
+        modifier = Modifier
+            .width(20.dp)
+            .height(20.dp)
+            .background(
+                color = if (enabled) colors.sectionBackground else Color.Transparent,
+                shape = RoundedCornerShape(3.dp),
+            )
+            .let { base -> if (enabled) base.clickable(onClick = onClick) else base }
+            .semantics { this.contentDescription = contentDescription },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (enabled) colors.primaryText else colors.mutedText.copy(alpha = 0.4f),
+            fontSize = 9.sp,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun HierarchySearchHighlightText(
+    text: String,
+    query: String,
+    baseColor: Color,
+    highlightColor: Color,
+) {
+    val lowerText = text.lowercase()
+    val lowerQuery = query.lowercase()
+    val spans = mutableListOf<AnnotatedRange>()
+    var searchFrom = 0
+    while (searchFrom < lowerText.length) {
+        val index = lowerText.indexOf(lowerQuery, searchFrom)
+        if (index < 0) break
+        spans += AnnotatedRange(index, index + query.length)
+        searchFrom = index + query.length
+    }
+    if (spans.isEmpty()) {
+        Text(
+            text,
+            color = baseColor,
+            fontFamily = FontFamily.Monospace,
+            fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
+            lineHeight = 11.sp,
+            maxLines = 1,
+            softWrap = false,
+        )
+        return
+    }
+    val annotatedString = buildAnnotatedString {
+        var lastEnd = 0
+        for (range in spans) {
+            if (range.start > lastEnd) {
+                withStyle(androidx.compose.ui.text.SpanStyle(color = baseColor)) {
+                    append(text.substring(lastEnd, range.start))
+                }
+            }
+            withStyle(
+                androidx.compose.ui.text.SpanStyle(
+                    color = highlightColor,
+                    fontWeight = FontWeight.Bold,
+                )
+            ) {
+                append(text.substring(range.start, range.end))
+            }
+            lastEnd = range.end
+        }
+        if (lastEnd < text.length) {
+            withStyle(androidx.compose.ui.text.SpanStyle(color = baseColor)) {
+                append(text.substring(lastEnd))
+            }
+        }
+    }
+    Text(
+        annotatedString,
+        fontFamily = FontFamily.Monospace,
+        fontSize = HierarchyRowLayout.FONT_SIZE_SP.sp,
+        lineHeight = 11.sp,
+        maxLines = 1,
+        softWrap = false,
+    )
+}
+
+private data class AnnotatedRange(val start: Int, val end: Int)

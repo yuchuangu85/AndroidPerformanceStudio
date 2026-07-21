@@ -107,6 +107,10 @@ internal class ViewerStrings private constructor(
             "Toggle this layer in canvas hit testing",
             "切换此层级是否参与画布命中测试",
         )
+    val searchHierarchy: String get() = text("Search hierarchy", "搜索层级")
+    val searchPrevious: String get() = text("Previous match", "上一个匹配")
+    val searchNext: String get() = text("Next match", "下一个匹配")
+    val searchNoMatch: String get() = text("No match", "无匹配")
 
     fun hiddenLayerSummary(count: Int): String = text(
         "Hidden $count · Clear",
