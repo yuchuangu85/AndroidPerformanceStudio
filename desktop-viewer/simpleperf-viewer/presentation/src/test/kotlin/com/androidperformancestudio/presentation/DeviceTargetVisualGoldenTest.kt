@@ -24,6 +24,7 @@ import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.capture.SimpleperfTarget
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
@@ -59,39 +60,49 @@ class DeviceTargetVisualGoldenTest {
         name: String,
         dark: Boolean,
         reportState: ReportState = ReportState(),
-    ) = runDesktopComposeUiTest(width = GOLDEN_WIDTH, height = GOLDEN_HEIGHT) {
-        setContent {
-            Box(Modifier.fillMaxSize().testTag(GOLDEN_TAG)) {
-                HomeScreen(
-                    state = macOsGoldenState(),
-                    captureState = CaptureState.Idle,
-                    reportState = reportState,
-                    actions = visualDeviceActions(),
-                    reportActions = goldenActions(),
-                    darkTheme = dark,
-                )
+    ) {
+        assumeMacOsGoldenHost()
+        runDesktopComposeUiTest(width = GOLDEN_WIDTH, height = GOLDEN_HEIGHT) {
+            setContent {
+                Box(Modifier.fillMaxSize().testTag(GOLDEN_TAG)) {
+                    HomeScreen(
+                        state = macOsGoldenState(),
+                        captureState = CaptureState.Idle,
+                        reportState = reportState,
+                        actions = visualDeviceActions(),
+                        reportActions = goldenActions(),
+                        darkTheme = dark,
+                    )
+                }
             }
+            waitForIdle()
+            val actual = onNodeWithTag(GOLDEN_TAG).captureToImage()
+            val goldenPath = Path.of("src/test/resources/goldens/macos-device-target-$name.png")
+            if (System.getenv("UPDATE_DEVICE_TARGET_GOLDENS") == "1") {
+                Files.createDirectories(goldenPath.parent)
+                ImageIO.write(actual.toBufferedImage(), "png", goldenPath.toFile())
+            }
+            assertTrue(
+                Files.exists(goldenPath),
+                "Missing golden $goldenPath; run with UPDATE_DEVICE_TARGET_GOLDENS=1",
+            )
+            val expected = ImageIO.read(goldenPath.toFile())
+            assertEquals(expected.width, actual.width)
+            assertEquals(expected.height, actual.height)
+            val mismatchRatio = actual.mismatchRatio(expected)
+            assertTrue(
+                mismatchRatio <= MAXIMUM_MISMATCH_RATIO,
+                "macOS device target golden mismatch for $name: $mismatchRatio",
+            )
         }
-        waitForIdle()
-        val actual = onNodeWithTag(GOLDEN_TAG).captureToImage()
-        val goldenPath = Path.of("src/test/resources/goldens/macos-device-target-$name.png")
-        if (System.getenv("UPDATE_DEVICE_TARGET_GOLDENS") == "1") {
-            Files.createDirectories(goldenPath.parent)
-            ImageIO.write(actual.toBufferedImage(), "png", goldenPath.toFile())
-        }
-        assertTrue(
-            Files.exists(goldenPath),
-            "Missing golden $goldenPath; run with UPDATE_DEVICE_TARGET_GOLDENS=1",
-        )
-        val expected = ImageIO.read(goldenPath.toFile())
-        assertEquals(expected.width, actual.width)
-        assertEquals(expected.height, actual.height)
-        val mismatchRatio = actual.mismatchRatio(expected)
-        assertTrue(
-            mismatchRatio <= MAXIMUM_MISMATCH_RATIO,
-            "macOS device target golden mismatch for $name: $mismatchRatio",
-        )
     }
+}
+
+private fun assumeMacOsGoldenHost() {
+    assumeTrue(
+        System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
+        "macOS visual goldens are pinned to macOS text and graphics rendering.",
+    )
 }
 
 private fun macOsGoldenState(): DeviceTargetState {

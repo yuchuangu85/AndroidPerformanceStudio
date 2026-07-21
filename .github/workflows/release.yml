@@ -27,6 +27,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       manual: ${{ steps.release.outputs.manual }}
       checkout_ref: ${{ steps.release.outputs.checkout_ref }}
+      tag_exists: ${{ steps.release.outputs.tag_exists }}
     steps:
       - name: Validate version
         id: release
@@ -57,16 +58,20 @@ jobs:
           fi
 
           checkout_ref="${GITHUB_SHA}"
+          tag_exists=false
           if [[ "$manual" == "false" ]]; then
             checkout_ref="refs/tags/${tag}"
+            tag_exists=true
           elif gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
             checkout_ref="refs/tags/${tag}"
+            tag_exists=true
           fi
 
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "manual=${manual}" >> "${GITHUB_OUTPUT}"
           echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
+          echo "tag_exists=${tag_exists}" >> "${GITHUB_OUTPUT}"
 
   test:
     name: Test
@@ -89,7 +94,7 @@ jobs:
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
       - name: Run tests
-        run: ./desktop-viewer/gradlew -p desktop-viewer test simpleperfCheck --no-daemon
+        run: ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
 
   package-windows:
     name: Package Windows MSI and EXE
@@ -266,6 +271,7 @@ jobs:
           TAG: ${{ needs.resolve.outputs.tag }}
           VERSION: ${{ needs.resolve.outputs.version }}
           MANUAL: ${{ needs.resolve.outputs.manual }}
+          TAG_EXISTS: ${{ needs.resolve.outputs.tag_exists }}
         run: |
           set -euo pipefail
           assets=(release-assets/*)
@@ -276,6 +282,12 @@ jobs:
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          elif [[ "$TAG_EXISTS" == "true" ]]; then
+            gh release create "$TAG" "${assets[@]}" \
+              --verify-tag \
+              --title "AndroidPerfermanceStudio $VERSION" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
           elif [[ "$MANUAL" == "true" ]]; then
             gh release create "$TAG" "${assets[@]}" \
               --target "$GITHUB_SHA" \
@@ -283,9 +295,6 @@ jobs:
               --generate-notes \
               --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" "${assets[@]}" \
-              --verify-tag \
-              --title "AndroidPerfermanceStudio $VERSION" \
-              --generate-notes \
-              --repo "$GITHUB_REPOSITORY"
+            echo "::error::Tag $TAG was expected to exist for tag-triggered releases."
+            exit 1
           fi

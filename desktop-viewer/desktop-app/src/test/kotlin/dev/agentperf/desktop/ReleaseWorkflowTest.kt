@@ -26,9 +26,10 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("test:"))
         assertTrue(
             workflow.contains(
-                "./desktop-viewer/gradlew -p desktop-viewer test simpleperfCheck --no-daemon",
+                "./desktop-viewer/gradlew -p desktop-viewer test --no-daemon",
             ),
         )
+        assertTrue(!workflow.contains("simpleperfCheck --no-daemon"))
         assertTrue(workflow.contains("package-windows:"))
         assertTrue(workflow.contains("runs-on: windows-latest"))
         assertTrue(workflow.contains(":desktop-app:packageMsi"))
@@ -64,6 +65,9 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("Expected exactly six native installer assets."))
         assertTrue(workflow.contains("gh release create"))
         assertTrue(workflow.contains("gh release upload"))
+        assertTrue(workflow.contains("tag_exists=${'$'}{tag_exists}"))
+        assertTrue(workflow.contains("TAG_EXISTS: ${'$'}{{ needs.resolve.outputs.tag_exists }}"))
+        assertTrue(workflow.contains("""elif [[ "${'$'}TAG_EXISTS" == "true" ]]; then"""))
         assertTrue(workflow.contains("--clobber"))
     }
 

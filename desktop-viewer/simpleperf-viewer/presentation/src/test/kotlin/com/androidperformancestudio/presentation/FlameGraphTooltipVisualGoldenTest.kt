@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameTheme
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
@@ -36,44 +37,54 @@ class FlameGraphTooltipVisualGoldenTest {
     private fun verifyGolden(
         name: String,
         dark: Boolean,
-    ) = runDesktopComposeUiTest(width = GOLDEN_WIDTH, height = GOLDEN_HEIGHT) {
-        val theme = if (dark) FlameTheme.DARK else FlameTheme.LIGHT
-        val background = if (dark) Color(0xFF18181A) else Color.White
-        setContent {
-            MaterialTheme(
-                colorScheme =
-                    if (dark) {
-                        darkColorScheme(background = background, surface = background)
-                    } else {
-                        lightColorScheme(background = background, surface = background)
-                    },
-            ) {
-                Box(Modifier.fillMaxSize().background(background).testTag(GOLDEN_TAG)) {
-                    FirefoxFlameGraphTooltip(
-                        facts = tooltipGoldenFacts(),
-                        style = FirefoxFlameGraphStyle.resolve(theme),
-                        modifier = Modifier.padding(10.dp),
-                    )
+    ) {
+        assumeMacOsGoldenHost()
+        runDesktopComposeUiTest(width = GOLDEN_WIDTH, height = GOLDEN_HEIGHT) {
+            val theme = if (dark) FlameTheme.DARK else FlameTheme.LIGHT
+            val background = if (dark) Color(0xFF18181A) else Color.White
+            setContent {
+                MaterialTheme(
+                    colorScheme =
+                        if (dark) {
+                            darkColorScheme(background = background, surface = background)
+                        } else {
+                            lightColorScheme(background = background, surface = background)
+                        },
+                ) {
+                    Box(Modifier.fillMaxSize().background(background).testTag(GOLDEN_TAG)) {
+                        FirefoxFlameGraphTooltip(
+                            facts = tooltipGoldenFacts(),
+                            style = FirefoxFlameGraphStyle.resolve(theme),
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
                 }
             }
-        }
 
-        val actual = onNodeWithTag(GOLDEN_TAG).captureToImage()
-        val goldenPath = Path.of("src/test/resources/goldens/firefox-call-node-tooltip-$name.png")
-        if (System.getenv("UPDATE_FLAME_GOLDENS") == "1") {
-            Files.createDirectories(goldenPath.parent)
-            ImageIO.write(actual.toBufferedImage(), "png", goldenPath.toFile())
+            val actual = onNodeWithTag(GOLDEN_TAG).captureToImage()
+            val goldenPath = Path.of("src/test/resources/goldens/firefox-call-node-tooltip-$name.png")
+            if (System.getenv("UPDATE_FLAME_GOLDENS") == "1") {
+                Files.createDirectories(goldenPath.parent)
+                ImageIO.write(actual.toBufferedImage(), "png", goldenPath.toFile())
+            }
+            assertTrue(Files.exists(goldenPath), "Missing golden $goldenPath; run with UPDATE_FLAME_GOLDENS=1")
+            val expected = ImageIO.read(goldenPath.toFile())
+            assertEquals(expected.width, actual.width)
+            assertEquals(expected.height, actual.height)
+            val mismatchRatio = actual.mismatchRatio(expected)
+            assertTrue(
+                mismatchRatio <= MAXIMUM_MISMATCH_RATIO,
+                "Firefox call node tooltip golden mismatch for $name: $mismatchRatio",
+            )
         }
-        assertTrue(Files.exists(goldenPath), "Missing golden $goldenPath; run with UPDATE_FLAME_GOLDENS=1")
-        val expected = ImageIO.read(goldenPath.toFile())
-        assertEquals(expected.width, actual.width)
-        assertEquals(expected.height, actual.height)
-        val mismatchRatio = actual.mismatchRatio(expected)
-        assertTrue(
-            mismatchRatio <= MAXIMUM_MISMATCH_RATIO,
-            "Firefox call node tooltip golden mismatch for $name: $mismatchRatio",
-        )
     }
+}
+
+private fun assumeMacOsGoldenHost() {
+    assumeTrue(
+        System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
+        "macOS visual goldens are pinned to macOS text and graphics rendering.",
+    )
 }
 
 private fun tooltipGoldenFacts() =
