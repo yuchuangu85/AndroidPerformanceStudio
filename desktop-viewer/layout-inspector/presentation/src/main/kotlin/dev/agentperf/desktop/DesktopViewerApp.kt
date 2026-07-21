@@ -1982,14 +1982,16 @@ private fun DetailRow(
             lineHeight = 11.sp,
             modifier = Modifier.width(108.dp),
         )
-        Text(
-            text = row.value,
-            color = color,
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.weight(1f),
-        )
+        SelectionContainer {
+            Text(
+                text = row.value,
+                color = color,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
