@@ -49,7 +49,10 @@ internal object NodeDetailsPresenter {
                     row(strings, "Class", node.className),
                     row(strings, "ID", node.id),
                     row(strings, "Resource", viewNode?.resourceName),
-                    row(strings, "Text", viewNode?.text ?: composeNode?.text),
+                    row(strings, "Text", viewNode?.text ?: composeNode?.text
+                        ?: viewNode?.attributes?.rawProperties?.let { props ->
+                            props["text:mText"] ?: props["text:text"]
+                        }),
                     row(strings, "Content description", attributes.contentDescription),
                     row(strings, "Semantics role", composeNode?.semanticsRole),
                 ),

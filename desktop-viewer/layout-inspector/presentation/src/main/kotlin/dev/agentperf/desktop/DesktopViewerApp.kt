@@ -2271,7 +2271,9 @@ private fun HierarchySearchBar(
             BasicTextField(
                 value = searchState.query,
                 onValueChange = onQueryChange,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = if (searchState.query.isNotEmpty()) 14.dp else 0.dp),
                 textStyle = androidx.compose.ui.text.TextStyle(
                     color = colors.primaryText,
                     fontSize = 10.sp,
@@ -2289,6 +2291,17 @@ private fun HierarchySearchBar(
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
+                )
+            }
+            if (searchState.query.isNotEmpty()) {
+                Text(
+                    text = "✕",
+                    color = colors.mutedText,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .clickable { onQueryChange("") }
                 )
             }
         }
