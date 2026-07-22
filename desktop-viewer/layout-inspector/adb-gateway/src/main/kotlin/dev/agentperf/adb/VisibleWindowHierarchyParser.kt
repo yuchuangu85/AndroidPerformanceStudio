@@ -148,6 +148,7 @@ internal object VisibleWindowHierarchyParser {
         "Screenshot",
         "Shell",
         "StatusBar",
+        "Taskbar",
         "VolumeDialog",
     )
 }

@@ -112,6 +112,17 @@ class VisibleWindowHierarchyParserTest {
         assertEquals(listOf("StatusBar", "Taskbar"), windows.map { it.title })
         assertTrue(windows.all { window -> window.root.id.startsWith("${window.id}/root") })
     }
+
+    @Test
+    fun `parses bare taskbar window as systemui navigation on Android 16`() {
+        val windows = VisibleWindowHierarchyParser.parseWindows(
+            zipBytes = EncodedHierarchyFixture.systemUiWithBareTaskbarZip(),
+            packageName = "com.android.systemui",
+        )
+
+        assertEquals(listOf("StatusBar", "Taskbar"), windows.map { it.title })
+        assertTrue(windows.all { window -> window.root.id.startsWith("${window.id}/root") })
+    }
 }
 
 internal object EncodedHierarchyFixture {
@@ -185,6 +196,22 @@ internal object EncodedHierarchyFixture {
             zip.putNextEntry(
                 ZipEntry("b473c9d com.google.android.apps.nexuslauncher/com.android.launcher3.taskbar.Taskbar"),
             )
+            zip.write(hierarchy())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("42177c9 com.codemx.anrdemo/com.codemx.anrdemo.MainActivity"))
+            zip.write(hierarchy())
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
+
+    fun systemUiWithBareTaskbarZip(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("a3db2af StatusBar"))
+            zip.write(hierarchy())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("b473c9d Taskbar"))
             zip.write(hierarchy())
             zip.closeEntry()
             zip.putNextEntry(ZipEntry("42177c9 com.codemx.anrdemo/com.codemx.anrdemo.MainActivity"))
