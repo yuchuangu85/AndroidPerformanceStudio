@@ -83,7 +83,7 @@ flowchart TD
 
 ```text
 ┌──────────────────────────────── NativeViewerMenuBar ─────────────────────────┐
-│ File: Import / Import Screenshot / Export                                    │
+│ File: Import / Import Screenshot / Export / Settings (Windows/Linux)         │
 │ Actions: Auto Scan / Node Navigation / Panel Toggles / Settings              │
 │ View: Hide Invisible / Hide Indices / Layer Buttons / Visible Bounds         │
 ├──────────────────────────────────── Header ──────────────────────────────────┤
@@ -96,7 +96,7 @@ flowchart TD
 │   ▸ 002 Toolbar        [hide/show layer]  │        ┌────────────────┐        │   width: ...  │
 │   ▾ 003 Content                           │        │  screenshot /   │        │ ▾ Drawing     │
 │     • 004 TextView                        │        │  layout bounds  │        │   alpha: ...  │
-│     • 005 Button                          │        └────────────────┘        │              │
+│     • 005 Button                          │        └────────────────┘ [−100%+]│              │
 ├────────────────────────────── FindingsPane / TimelineStrip ──────────────────┴──────────────┤
 │ Findings  [Info 0] [Warning 2] [Error 1]         [Run AI Analysis]  Live capture             │
 │ [Frame 1 summary] [Frame 2 summary]                                                        │
@@ -112,9 +112,9 @@ flowchart TD
 │ Import Screenshot         │   │ Previous Node                       │   │ ✓ Hide Invisible Findings        │
 │ ───────────────────────── │   │ Next Node                           │   │ ✓ Hide Hierarchy Indices         │
 │ Export Capture Archive    │   │ Toggle Selected Node                │   │ ✓ Show Layer Visibility Buttons  │
-└───────────────────────────┘   │ ─────────────────────────────────── │   │ ✓ Show Visible View Bounds       │
-                                │ ✓ Toggle Hierarchy / Findings / ... │   └─────────────────────────────────┘
-                                │ Open Settings                       │
+│ ───────────────────────── │   │ ─────────────────────────────────── │   │ ✓ Show Visible View Bounds       │
+│ Settings (Windows/Linux)  │   │ ✓ Toggle Hierarchy / Findings / ... │   └─────────────────────────────────┘
+└───────────────────────────┘   │ Open Settings                       │
                                 └─────────────────────────────────────┘
 ```
 
@@ -156,7 +156,7 @@ flowchart TD
 
 ```text
 ┌──────────────────────────── SimpleperfFileMenuBar ───────────────────────────┐
-│ File: Open / Export / Open Recent        Configuration: Templates / Config    │
+│ File: Open / Export / Open Recent / Settings (Windows/Linux)  Configuration: Templates / Config │
 ├────────────────────────────── WorkspaceToolbar ──────────────────────────────┤
 │ Device ▾ │ App ▾ │ Process ▾ │ Thread ▾ │ [Refresh] [Get data] [Capabilities] [Settings] │
 ├──────────────────────────────── ReportWorkspace ─────────────────────────────┤
@@ -176,8 +176,8 @@ flowchart TD
 │ Open…                        │     │ Session package                        │
 │ Export ▸                     ├────▶│ JSON + CSV                             │
 │ Open Recent ▸                │     │ Raw protobuf                           │
-└──────────────────────────────┘     │ Firefox Profiler JSON (.json.gz)       │
-                                     │ Screenshot                             │
+│ Settings… (Windows/Linux)    │     │ Firefox Profiler JSON (.json.gz)       │
+└──────────────────────────────┘     │ Screenshot                             │
 ┌ Open Recent ─────────────────┐     │ simpleperf report                      │
 │ session-a                    │     │ report_html.py                         │
 │ session-b                    │     │ External open                          │
@@ -464,6 +464,7 @@ flowchart LR
     File --> Import[Import Capture Archive]
     File --> ImportScreenshot[Import Screenshot]
     File --> Export[Export Capture Archive]
+    File --> FileSettings[Settings (Windows/Linux only)]
     Actions --> AutoScan[Toggle Auto Scan]
     Actions --> Nav[Previous / Next / Toggle Selected Node]
     Actions --> Panels[Toggle Hierarchy / Findings / Details]
@@ -481,6 +482,7 @@ flowchart LR
 | `onImportArchive` | File → Import | 导入 `.apc` 采集归档 |
 | `onImportScreenshot` | File → Import Screenshot | 为当前布局导入截图 |
 | `onExportArchive` | File → Export | 导出当前采集归档 |
+| `ViewerAction.OPEN_SETTINGS` | File → Settings (Windows/Linux) | 打开 Layout Inspector 设置弹窗；Windows/Linux 使用 `Ctrl+,`；macOS 不新增 File 入口 |
 | `ViewerAction.TOGGLE_AUTO_SCAN` | Actions | 开关自动扫描 |
 | `ViewerAction.PREVIOUS_NODE` / `NEXT_NODE` | Actions | 层级树上下移动选中节点 |
 | `ViewerAction.TOGGLE_SELECTED_NODE` | Actions | 展开/折叠当前节点 |
@@ -488,7 +490,7 @@ flowchart LR
 | `ViewerAction.TOGGLE_FINDINGS` | Actions | 显示/隐藏底部问题面板 |
 | `ViewerAction.TOGGLE_DETAILS` | Actions | 显示/隐藏右侧属性面板 |
 | `ViewerAction.TOGGLE_HIERARCHY_IDS` | Actions | 显示/隐藏节点 ID |
-| `ViewerAction.OPEN_SETTINGS` | Actions | 打开 Layout Inspector 设置弹窗 |
+| `ViewerAction.OPEN_SETTINGS` | Actions | 打开 Layout Inspector 设置弹窗；保留原 Actions 入口 |
 | `ViewDisplayOption.*` | View | 切换层级、问题、索引、可见性按钮、可见 View 边界显示 |
 
 源码：`NativeViewerMenuBar.kt`、`ViewerActionMenu.kt`、`ViewDisplayOptions.kt`
@@ -568,8 +570,11 @@ flowchart TD
     AppOnly[CanvasModeToggle]
     HitOrder[HitTestOrderToggle]
     Hidden[HiddenLayerSummary]
+    Viewport[Box viewport: fillMaxSize + clipToBounds]
+    PanLayer[Pan layer: offset + detectDragGestures]
     PreviewSurface[Surface: device/window canvas]
     Canvas[Canvas: screenshot + view bounds + selected/hovered overlays]
+    Zoom[PreviewZoomControls: - / scale / +]
     Waiting[Text: waitingForFrame]
 
     Pane --> Title
@@ -577,9 +582,11 @@ flowchart TD
     Title --> AppOnly
     Title --> HitOrder
     Title --> Hidden
-    Pane --> PreviewSurface
+    Pane --> Viewport
+    Viewport --> PanLayer --> PreviewSurface
     PreviewSurface --> Canvas
     PreviewSurface --> Waiting
+    Pane --> Zoom
 ```
 
 | 控件名称 | 当前文案 / 状态 | 类型 | 行为 |
@@ -587,11 +594,13 @@ flowchart TD
 | `CanvasModeToggle` | App only on/off | 文本按钮 | 切换仅应用窗口或完整窗口预览 |
 | `HitTestOrderToggle` | Small area / Z order hit testing | 文本按钮 | 切换点击命中顺序 |
 | `HiddenLayerSummary` | hidden layer count | 文本按钮 | 清空隐藏图层 |
+| `PreviewZoomControls` | `−` / `100%` / `+` | 右下角按钮组 | 以 25% 步长在 50% 到 250% 间缩放预览 |
+| `PreviewPanState` / drag viewport | - | 拖拽平移 | 放大后内容被限制在画布 viewport 内；超出可拖动查看，未溢出轴保持居中 |
 | `Canvas` pointer move | - | 指针交互 | 悬停高亮命中节点 |
 | `Canvas` pointer press | - | 指针交互 | 点击选择节点并同步层级树 |
 | `showVisibleViewBounds` overlay | - | 视图边界叠加层 | 来自 View 菜单或设置项 |
 
-源码：`DesktopViewerApp.kt` (`PreviewPane`)、`CanvasGeometry.kt`、`CanvasHitTester.kt`、`ViewBoundsOverlay.kt`
+源码：`DesktopViewerApp.kt` (`PreviewPane`、`PreviewZoomControls`、`PreviewZoomState`、`PreviewPanState`)、`CanvasGeometry.kt`、`CanvasHitTester.kt`、`ViewBoundsOverlay.kt`
 
 ### 3.6 属性面板 `DetailsPane`
 
@@ -719,6 +728,7 @@ flowchart LR
     Export --> Html[report_html.py]
     Export --> External[External open / 外部打开]
     File --> Recent[Open Recent / 最近打开]
+    File --> Settings[Settings... / 设置... (Windows/Linux only)]
     Config --> Templates[Capture Templates / 采集模板]
     Config --> CaptureConfiguration[Capture Configuration / 采集配置]
     Config --> Advanced[Advanced Parameters / 高级参数]
@@ -736,6 +746,7 @@ flowchart LR
 | `onGenerateHtmlReport` | File → Export → report_html.py | 生成 HTML 报告 |
 | `onExportExternalGuide` | File → Export → External open | 外部打开/引导 |
 | `onOpenRecent` / `onClearRecent` | File → Open Recent | 打开或清空最近会话 |
+| `onOpenSettings` | File → Settings… (Windows/Linux) | 打开采集设置弹窗，默认进入 `SAMPLING_TEMPLATE`；Windows/Linux 使用 `Ctrl+,`；macOS 不新增 File 入口 |
 | `onOpenCaptureSettings(section)` | Configuration | 打开采集设置指定分组 |
 
 源码：`SimpleperfWorkspace.kt`、`SimpleperfFileMenu.kt`

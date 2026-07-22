@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -19,7 +20,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -60,6 +63,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -1626,11 +1630,14 @@ private fun PreviewPane(
     val pointerSelection = remember { CanvasPointerSelection() }
     var canvasPixelSize by remember { mutableStateOf(IntSize.Zero) }
     var appOnly by remember { mutableStateOf(true) }
+    var previewZoom by remember { mutableStateOf(PreviewZoomState.DEFAULT_SCALE) }
+    var previewPan by remember { mutableStateOf(Offset.Zero) }
     val source = CanvasWindowSource.sourceRect(state, appOnly)
     val canvasMode = previewCanvasMode(
         hasSource = source != null,
         hasScreenshot = screenshot != null,
     )
+    val density = LocalDensity.current
     Column(modifier.background(colors.canvasBackground)) {
         PanelTitle(strings.canvas) {
             Text(
@@ -1669,128 +1676,260 @@ private fun PreviewPane(
                     portraitMaxWidth = 390f,
                 )
             }
-            Surface(
-                modifier = if (previewSize != null) {
-                    Modifier.size(previewSize.width.dp, previewSize.height.dp)
-                } else {
-                    Modifier.fillMaxHeight().widthIn(max = 390.dp)
-                },
-                shape = RoundedCornerShape(canvasCornerRadiusDp(appOnly).dp),
-                color = colors.previewSurface,
-                shadowElevation = 8.dp,
+            val scaledPreviewSize = previewSize?.let {
+                FloatSize(
+                    width = it.width * previewZoom,
+                    height = it.height * previewZoom,
+                )
+            }
+            val viewportSizePx = with(density) {
+                Size(maxWidth.toPx(), maxHeight.toPx())
+            }
+            val scaledPreviewSizePx = scaledPreviewSize?.let {
+                with(density) {
+                    Size(it.width.dp.toPx(), it.height.dp.toPx())
+                }
+            }
+            val clampedPreviewPan = scaledPreviewSizePx?.let {
+                PreviewPanState.clamp(
+                    pan = previewPan,
+                    contentWidthPx = it.width,
+                    contentHeightPx = it.height,
+                    viewportWidthPx = viewportSizePx.width,
+                    viewportHeightPx = viewportSizePx.height,
+                )
+            } ?: Offset.Zero
+            LaunchedEffect(scaledPreviewSizePx, viewportSizePx) {
+                if (previewPan != clampedPreviewPan) {
+                    previewPan = clampedPreviewPan
+                }
+            }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clipToBounds(),
+                contentAlignment = Alignment.Center,
             ) {
-                if (canvasMode != PreviewCanvasMode.WAITING && source != null) {
-                    Canvas(
-                        Modifier
-                            .fillMaxSize()
-                            .onSizeChanged { canvasPixelSize = it }
-                            .onPointerEvent(PointerEventType.Move) { event ->
-                                val point = event.changes.firstOrNull()?.position ?: return@onPointerEvent
-                                val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
-                                val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
-                                val candidates = screenPoint?.let {
-                                    state.activeRoot?.let { root ->
-                                        CanvasHitTester.hitCandidates(
-                                            root = root,
-                                            point = it,
-                                            hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
-                                            order = hitTestOrder,
-                                        )
-                                    }
-                                }.orEmpty()
-                                onHoverNode(pointerSelection.move(point, candidates))
-                            }
-                            .onPointerEvent(PointerEventType.Exit) {
-                                pointerSelection.leave()
-                                onHoverNode(null)
-                            }
-                            .onPointerEvent(PointerEventType.Press) { event ->
-                                val point = event.changes.firstOrNull()?.position ?: return@onPointerEvent
-                                val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
-                                val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
-                                val candidates = screenPoint?.let {
-                                    state.activeRoot?.let { root ->
-                                        CanvasHitTester.hitCandidates(
-                                            root = root,
-                                            point = it,
-                                            hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
-                                            order = hitTestOrder,
-                                        )
-                                    }
-                                }.orEmpty()
-                                pointerSelection.click(point, candidates)?.let(onSelectNode)
-                            },
-                    ) {
-                        drawRect(colors.previewCanvas)
-                        val destination = FloatRect(
-                            left = 0f,
-                            top = 0f,
-                            width = size.width,
-                            height = size.height,
-                        )
-                        if (canvasMode == PreviewCanvasMode.SCREENSHOT && screenshot != null) {
-                            drawImage(
-                                image = screenshot,
-                                srcOffset = IntOffset(source.left, source.top),
-                                srcSize = IntSize(source.width, source.height),
-                                dstOffset = IntOffset.Zero,
-                                dstSize = IntSize(
-                                    destination.width.roundToInt(),
-                                    destination.height.roundToInt(),
-                                ),
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                x = clampedPreviewPan.x.roundToInt(),
+                                y = clampedPreviewPan.y.roundToInt(),
                             )
                         }
-                        if (showVisibleViewBounds) {
-                            state.activeRoot?.let { root ->
-                                ViewBoundsOverlay.mappedVisibleBounds(
-                                    root = root,
-                                    selectedNodeId = state.selectedNodeId,
-                                    source = source,
-                                    destination = destination,
-                                    hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
-                                ).forEach { overlay ->
-                                    drawRect(
-                                        color = borderColors.normal.toComposeColor().copy(alpha = 0.62f),
-                                        topLeft = Offset(overlay.left, overlay.top),
-                                        size = Size(overlay.width, overlay.height),
-                                        style = Stroke(width = 1.dp.toPx()),
+                        .pointerInput(scaledPreviewSizePx, viewportSizePx) {
+                            if (scaledPreviewSizePx != null) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    previewPan = PreviewPanState.clamp(
+                                        pan = previewPan + dragAmount,
+                                        contentWidthPx = scaledPreviewSizePx.width,
+                                        contentHeightPx = scaledPreviewSizePx.height,
+                                        viewportWidthPx = viewportSizePx.width,
+                                        viewportHeightPx = viewportSizePx.height,
                                     )
                                 }
                             }
-                        }
-                        selectedBounds?.let { bounds ->
-                            val overlay = CanvasGeometry.mapBounds(
-                                bounds = bounds,
-                                source = source,
-                                destination = destination,
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Surface(
+                        modifier = if (scaledPreviewSize != null) {
+                            Modifier.requiredSize(
+                                width = scaledPreviewSize.width.dp,
+                                height = scaledPreviewSize.height.dp,
                             )
-                            overlay?.let {
-                                drawRect(
-                                    color = borderColors.selected.toComposeColor(),
-                                    topLeft = Offset(it.left, it.top),
-                                    size = Size(it.width, it.height),
-                                    style = Stroke(width = 3.dp.toPx()),
+                        } else {
+                            Modifier.fillMaxHeight().widthIn(max = 390.dp)
+                        },
+                        shape = RoundedCornerShape(canvasCornerRadiusDp(appOnly).dp),
+                        color = colors.previewSurface,
+                        shadowElevation = 8.dp,
+                    ) {
+                        if (canvasMode != PreviewCanvasMode.WAITING && source != null) {
+                            Canvas(
+                                Modifier
+                                    .fillMaxSize()
+                                    .onSizeChanged { canvasPixelSize = it }
+                                    .onPointerEvent(PointerEventType.Move) { event ->
+                                        val point = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                                        val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
+                                        val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
+                                        val candidates = screenPoint?.let {
+                                            state.activeRoot?.let { root ->
+                                                CanvasHitTester.hitCandidates(
+                                                    root = root,
+                                                    point = it,
+                                                    hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
+                                                    order = hitTestOrder,
+                                                )
+                                            }
+                                        }.orEmpty()
+                                        onHoverNode(pointerSelection.move(point, candidates))
+                                    }
+                                    .onPointerEvent(PointerEventType.Exit) {
+                                        pointerSelection.leave()
+                                        onHoverNode(null)
+                                    }
+                                    .onPointerEvent(PointerEventType.Press) { event ->
+                                        val point = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                                        val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
+                                        val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
+                                        val candidates = screenPoint?.let {
+                                            state.activeRoot?.let { root ->
+                                                CanvasHitTester.hitCandidates(
+                                                    root = root,
+                                                    point = it,
+                                                    hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
+                                                    order = hitTestOrder,
+                                                )
+                                            }
+                                        }.orEmpty()
+                                        pointerSelection.click(point, candidates)?.let(onSelectNode)
+                                    },
+                            ) {
+                                drawRect(colors.previewCanvas)
+                                val destination = FloatRect(
+                                    left = 0f,
+                                    top = 0f,
+                                    width = size.width,
+                                    height = size.height,
                                 )
+                                if (canvasMode == PreviewCanvasMode.SCREENSHOT && screenshot != null) {
+                                    drawImage(
+                                        image = screenshot,
+                                        srcOffset = IntOffset(source.left, source.top),
+                                        srcSize = IntSize(source.width, source.height),
+                                        dstOffset = IntOffset.Zero,
+                                        dstSize = IntSize(
+                                            destination.width.roundToInt(),
+                                            destination.height.roundToInt(),
+                                        ),
+                                    )
+                                }
+                                if (showVisibleViewBounds) {
+                                    state.activeRoot?.let { root ->
+                                        ViewBoundsOverlay.mappedVisibleBounds(
+                                            root = root,
+                                            selectedNodeId = state.selectedNodeId,
+                                            source = source,
+                                            destination = destination,
+                                            hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
+                                        ).forEach { overlay ->
+                                            drawRect(
+                                                color = borderColors.normal.toComposeColor().copy(alpha = 0.62f),
+                                                topLeft = Offset(overlay.left, overlay.top),
+                                                size = Size(overlay.width, overlay.height),
+                                                style = Stroke(width = 1.dp.toPx()),
+                                            )
+                                        }
+                                    }
+                                }
+                                selectedBounds?.let { bounds ->
+                                    val overlay = CanvasGeometry.mapBounds(
+                                        bounds = bounds,
+                                        source = source,
+                                        destination = destination,
+                                    )
+                                    overlay?.let {
+                                        drawRect(
+                                            color = borderColors.selected.toComposeColor(),
+                                            topLeft = Offset(it.left, it.top),
+                                            size = Size(it.width, it.height),
+                                            style = Stroke(width = 3.dp.toPx()),
+                                        )
+                                    }
+                                }
+                                hoveredBounds?.let { bounds ->
+                                    CanvasGeometry.mapBounds(bounds, source, destination)?.let {
+                                        drawRect(
+                                            color = borderColors.hovered.toComposeColor(),
+                                            topLeft = Offset(it.left, it.top),
+                                            size = Size(it.width, it.height),
+                                            style = Stroke(width = 2.dp.toPx()),
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(strings.waitingForFrame, color = colors.previewText, fontSize = 13.sp)
                             }
                         }
-                        hoveredBounds?.let { bounds ->
-                            CanvasGeometry.mapBounds(bounds, source, destination)?.let {
-                                drawRect(
-                                    color = borderColors.hovered.toComposeColor(),
-                                    topLeft = Offset(it.left, it.top),
-                                    size = Size(it.width, it.height),
-                                    style = Stroke(width = 2.dp.toPx()),
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(strings.waitingForFrame, color = colors.previewText, fontSize = 13.sp)
                     }
                 }
             }
+            PreviewZoomControls(
+                scale = previewZoom,
+                onZoomOut = { previewZoom = PreviewZoomState.zoomOut(previewZoom) },
+                onZoomIn = { previewZoom = PreviewZoomState.zoomIn(previewZoom) },
+                modifier = Modifier.align(Alignment.BottomEnd),
+            )
         }
+    }
+}
+
+@Composable
+private fun PreviewZoomControls(
+    scale: Float,
+    onZoomOut: () -> Unit,
+    onZoomIn: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        modifier = modifier
+            .background(colors.panel.copy(alpha = 0.9f), shape)
+            .border(1.dp, colors.border.copy(alpha = 0.65f), shape)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PreviewZoomButton(
+            label = "−",
+            contentDescription = strings.zoomOutPreview,
+            enabled = scale > PreviewZoomState.MIN_SCALE,
+            onClick = onZoomOut,
+        )
+        Text(
+            text = PreviewZoomState.label(scale),
+            color = colors.primaryText,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.width(42.dp),
+        )
+        PreviewZoomButton(
+            label = "+",
+            contentDescription = strings.zoomInPreview,
+            enabled = scale < PreviewZoomState.MAX_SCALE,
+            onClick = onZoomIn,
+        )
+    }
+}
+
+@Composable
+private fun PreviewZoomButton(
+    label: String,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .semantics { this.contentDescription = contentDescription }
+            .let { base -> if (enabled) base.clickable(onClick = onClick) else base },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (enabled) colors.primaryText else colors.mutedText.copy(alpha = 0.45f),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -1798,6 +1937,36 @@ internal enum class PreviewCanvasMode {
     WAITING,
     LAYOUT_ONLY,
     SCREENSHOT,
+}
+
+internal object PreviewZoomState {
+    const val MIN_SCALE = 0.5f
+    const val MAX_SCALE = 2.5f
+    const val DEFAULT_SCALE = 1f
+    private const val STEP = 0.25f
+
+    fun zoomIn(scale: Float): Float = (scale + STEP).coerceAtMost(MAX_SCALE)
+
+    fun zoomOut(scale: Float): Float = (scale - STEP).coerceAtLeast(MIN_SCALE)
+
+    fun label(scale: Float): String = "${(scale * 100).roundToInt()}%"
+}
+
+internal object PreviewPanState {
+    fun clamp(
+        pan: Offset,
+        contentWidthPx: Float,
+        contentHeightPx: Float,
+        viewportWidthPx: Float,
+        viewportHeightPx: Float,
+    ): Offset {
+        val horizontalLimit = ((contentWidthPx - viewportWidthPx) / 2f).coerceAtLeast(0f)
+        val verticalLimit = ((contentHeightPx - viewportHeightPx) / 2f).coerceAtLeast(0f)
+        return Offset(
+            x = if (horizontalLimit == 0f) 0f else pan.x.coerceIn(-horizontalLimit, horizontalLimit),
+            y = if (verticalLimit == 0f) 0f else pan.y.coerceIn(-verticalLimit, verticalLimit),
+        )
+    }
 }
 
 internal fun previewCanvasMode(

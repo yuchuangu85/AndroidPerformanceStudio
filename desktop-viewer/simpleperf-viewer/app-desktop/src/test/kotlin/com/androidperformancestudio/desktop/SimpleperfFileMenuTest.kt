@@ -5,6 +5,7 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SimpleperfFileMenuTest {
@@ -21,6 +22,7 @@ class SimpleperfFileMenuTest {
 
         assertEquals("File", model.fileTitle)
         assertEquals("Open…", model.openLabel)
+        assertNull(model.settingsLabel)
         assertEquals("Export", model.exportMenu.title)
         assertEquals("Session package", model.exportMenu.sessionPackageLabel)
         assertEquals("JSON + CSV", model.exportMenu.reportLabel)
@@ -39,6 +41,7 @@ class SimpleperfFileMenuTest {
         assertFalse(model.exportEnabled)
         assertEquals(SimpleperfMenuShortcut(Key.O, ctrl = false, meta = true), model.openShortcut)
         assertEquals(SimpleperfMenuShortcut(Key.E, ctrl = false, meta = true), model.exportShortcut)
+        assertNull(model.settingsShortcut)
     }
 
     @Test
@@ -72,5 +75,7 @@ class SimpleperfFileMenuTest {
         assertTrue(model.recentItems.all { it.label == it.path.toString() })
         assertTrue(model.exportEnabled)
         assertEquals(SimpleperfMenuShortcut(Key.O, ctrl = true, meta = false), model.openShortcut)
+        assertEquals("设置…", model.settingsLabel)
+        assertEquals(SimpleperfMenuShortcut(Key.Comma, ctrl = true, meta = false), model.settingsShortcut)
     }
 }

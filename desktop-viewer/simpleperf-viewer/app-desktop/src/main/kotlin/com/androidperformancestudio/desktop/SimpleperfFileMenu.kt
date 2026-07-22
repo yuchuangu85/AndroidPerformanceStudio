@@ -53,6 +53,7 @@ internal data class SimpleperfConfigurationMenuModel(
 internal data class SimpleperfFileMenuModel(
     val fileTitle: String,
     val openLabel: String,
+    val settingsLabel: String?,
     val exportMenu: SimpleperfExportMenuModel,
     val configurationMenu: SimpleperfConfigurationMenuModel,
     val openRecentTitle: String,
@@ -62,6 +63,7 @@ internal data class SimpleperfFileMenuModel(
     val exportEnabled: Boolean,
     val openShortcut: SimpleperfMenuShortcut,
     val exportShortcut: SimpleperfMenuShortcut,
+    val settingsShortcut: SimpleperfMenuShortcut?,
 ) {
     constructor(
         language: SimpleperfLanguage,
@@ -72,6 +74,7 @@ internal data class SimpleperfFileMenuModel(
     ) : this(
         fileTitle = language.text(english = "File", chinese = "文件"),
         openLabel = language.text(english = "Open…", chinese = "打开…"),
+        settingsLabel = language.text(english = "Settings…", chinese = "设置…").takeUnless { isMacOs },
         exportMenu =
             SimpleperfExportMenuModel(
                 title = language.text(english = "Export", chinese = "导出"),
@@ -100,6 +103,7 @@ internal data class SimpleperfFileMenuModel(
         exportEnabled = exportEnabled,
         openShortcut = primaryShortcut(Key.O, isMacOs),
         exportShortcut = primaryShortcut(Key.E, isMacOs),
+        settingsShortcut = primaryShortcut(Key.Comma, isMacOs).takeUnless { isMacOs },
     )
 }
 
@@ -116,6 +120,7 @@ internal fun FrameWindowScope.SimpleperfFileMenuBar(
     exportActions: SimpleperfExportMenuActions,
     onOpenRecent: (Path) -> Unit,
     onClearRecent: () -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenCaptureSettings: (CaptureSettingsSection) -> Unit,
 ) {
     MenuBar {
@@ -178,6 +183,16 @@ internal fun FrameWindowScope.SimpleperfFileMenuBar(
                     Separator()
                     Item(text = model.clearRecentLabel, onClick = onClearRecent)
                 }
+            }
+            val settingsLabel = model.settingsLabel
+            val settingsShortcut = model.settingsShortcut
+            if (settingsLabel != null && settingsShortcut != null) {
+                Separator()
+                Item(
+                    text = settingsLabel,
+                    shortcut = settingsShortcut.toKeyShortcut(),
+                    onClick = onOpenSettings,
+                )
             }
         }
         Menu(model.configurationMenu.title, enabled = model.configurationMenu.enabled) {

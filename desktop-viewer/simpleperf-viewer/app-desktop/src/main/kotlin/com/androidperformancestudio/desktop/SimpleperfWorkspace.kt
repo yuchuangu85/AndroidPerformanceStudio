@@ -186,6 +186,7 @@ private fun FrameWindowScope.SimpleperfMenu(
             recentSessionStore.clear()
             recentSessions = emptyList()
         },
+        onOpenSettings = { onOpenCaptureSettings(CaptureSettingsSection.SAMPLING_TEMPLATE) },
         onOpenCaptureSettings = onOpenCaptureSettings,
     )
 }

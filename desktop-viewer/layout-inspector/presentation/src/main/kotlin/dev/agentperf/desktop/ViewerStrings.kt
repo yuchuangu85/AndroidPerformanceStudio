@@ -84,6 +84,8 @@ internal class ViewerStrings private constructor(
     val aiAnalysisRunning: String get() = text("AI running…", "AI 分析中…")
     val noLiveFrame: String get() = text("No live frame", "无实时画面")
     val waitingForFrame: String get() = text("Waiting for live device frame", "等待设备实时画面")
+    val zoomOutPreview: String get() = text("Zoom out preview", "缩小预览")
+    val zoomInPreview: String get() = text("Zoom in preview", "放大预览")
     val noFindings: String get() = text("No findings", "暂无问题")
     fun aiAnalysisSummary(summary: String): String = text("AI: $summary", "AI：$summary")
     fun aiAnalysisFailed(message: String): String = text("AI failed: $message", "AI 失败：$message")

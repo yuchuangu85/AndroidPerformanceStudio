@@ -8,6 +8,47 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class CanvasOverlayWiringTest {
+
+    @Test
+    fun `preview pane clips zoomed preview and supports dragging inside viewport`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+        )
+        val preview = source
+            .substringAfter("private fun PreviewPane(")
+            .substringBefore("@Composable\nprivate fun PreviewZoomControls(")
+
+        assertTrue(preview.contains("var previewPan by remember { mutableStateOf(Offset.Zero) }"))
+        assertTrue(preview.contains(".fillMaxSize()"))
+        assertTrue(preview.contains(".clipToBounds()"))
+        assertTrue(preview.contains("PreviewPanState.clamp("))
+        assertTrue(preview.contains(".offset {"))
+        assertTrue(preview.contains("detectDragGestures"))
+        assertTrue(preview.contains("previewPan + dragAmount"))
+        assertTrue(preview.contains("change.consume()"))
+    }
+    @Test
+    fun `preview pane keeps zoom controls anchored to the lower right`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+        )
+        val preview = source
+            .substringAfter("private fun PreviewPane(")
+            .substringBefore("@Composable\nprivate fun PreviewZoomControls(")
+        val zoomControls = extractDelimited(
+            source = preview,
+            startIndex = preview.indexOf("PreviewZoomControls("),
+            opening = '(',
+            closing = ')',
+        )
+
+        assertTrue(preview.contains("var previewZoom by remember { mutableStateOf(PreviewZoomState.DEFAULT_SCALE) }"))
+        assertTrue(zoomControls.text.contains("PreviewZoomControls("))
+        assertTrue(zoomControls.text.contains("modifier = Modifier.align(Alignment.BottomEnd)"))
+        assertTrue(zoomControls.text.contains("PreviewZoomState.zoomOut(previewZoom)"))
+        assertTrue(zoomControls.text.contains("PreviewZoomState.zoomIn(previewZoom)"))
+    }
+
     @Test
     fun `general bounds are optional and hover focus is drawn last`() {
         val source = Files.readString(

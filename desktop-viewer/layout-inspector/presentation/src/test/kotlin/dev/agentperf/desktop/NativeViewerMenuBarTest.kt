@@ -77,6 +77,7 @@ class NativeViewerMenuBarTest {
         assertEquals("导入归档", model.importLabel)
         assertEquals("导入截图", model.importScreenshotLabel)
         assertEquals("导出", model.exportLabel)
+        assertNull(model.settingsLabel)
         assertTrue(model.importEnabled)
         assertTrue(model.importScreenshotEnabled)
         assertTrue(model.exportEnabled)
@@ -99,9 +100,13 @@ class NativeViewerMenuBarTest {
         assertTrue(model.importMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
         assertTrue(model.importScreenshotMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
         assertTrue(model.exportMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
+        val settingsMenuText = checkNotNull(model.settingsMenuText)
+        val settingsLabel = checkNotNull(model.settingsLabel)
+        assertTrue(settingsMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
         assertTrue(model.importMenuText.startsWith(model.importLabel))
         assertTrue(model.importScreenshotMenuText.startsWith(model.importScreenshotLabel))
         assertTrue(model.exportMenuText.startsWith(model.exportLabel))
+        assertTrue(settingsMenuText.startsWith(settingsLabel))
     }
 
     @Test
@@ -132,9 +137,14 @@ class NativeViewerMenuBarTest {
         assertEquals(NativeMenuShortcut(Key.I, ctrl = false, meta = true), macModel.importShortcut)
         assertNull(macModel.importScreenshotShortcut)
         assertEquals(NativeMenuShortcut(Key.E, ctrl = false, meta = true), macModel.exportShortcut)
+        assertNull(macModel.settingsLabel)
+        assertNull(macModel.settingsMenuText)
+        assertNull(macModel.settingsShortcut)
         assertEquals(NativeMenuShortcut(Key.I, ctrl = true, meta = false), windowsModel.importShortcut)
         assertNull(windowsModel.importScreenshotShortcut)
         assertEquals(NativeMenuShortcut(Key.E, ctrl = true, meta = false), windowsModel.exportShortcut)
+        assertEquals("Settings", windowsModel.settingsLabel)
+        assertEquals(NativeMenuShortcut(Key.Comma, ctrl = true, meta = false), windowsModel.settingsShortcut)
     }
 
     @Test

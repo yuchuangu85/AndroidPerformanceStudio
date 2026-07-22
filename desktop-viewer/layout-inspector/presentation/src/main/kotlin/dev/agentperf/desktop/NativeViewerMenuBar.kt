@@ -37,12 +37,15 @@ internal data class NativeViewerMenuModel(
     val importLabel: String,
     val importScreenshotLabel: String,
     val exportLabel: String,
+    val settingsLabel: String?,
     val importMenuText: String,
     val importScreenshotMenuText: String,
     val exportMenuText: String,
+    val settingsMenuText: String?,
     val importShortcut: NativeMenuShortcut,
     val importScreenshotShortcut: NativeMenuShortcut?,
     val exportShortcut: NativeMenuShortcut,
+    val settingsShortcut: NativeMenuShortcut?,
     val importEnabled: Boolean,
     val importScreenshotEnabled: Boolean,
     val exportEnabled: Boolean,
@@ -104,12 +107,15 @@ internal data class NativeViewerMenuModel(
         importLabel = strings.importArchive,
         importScreenshotLabel = strings.importScreenshot,
         exportLabel = strings.exportArchive,
+        settingsLabel = strings.settings.takeUnless { isMacOs },
         importMenuText = nativeMenuItemText(strings.importArchive),
         importScreenshotMenuText = nativeMenuItemText(strings.importScreenshot),
         exportMenuText = nativeMenuItemText(strings.exportArchive),
+        settingsMenuText = nativeMenuItemText(strings.settings).takeUnless { isMacOs },
         importShortcut = nativePrimaryShortcut(Key.I, isMacOs),
         importScreenshotShortcut = null,
         exportShortcut = nativePrimaryShortcut(Key.E, isMacOs),
+        settingsShortcut = nativePrimaryShortcut(Key.Comma, isMacOs).takeUnless { isMacOs },
         importEnabled = !archiveOperationInProgress,
         importScreenshotEnabled = !archiveOperationInProgress && canImportScreenshot,
         exportEnabled = !archiveOperationInProgress && canExportArchive,
@@ -185,6 +191,16 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                 shortcut = model.exportShortcut.toKeyShortcut(),
                 onClick = onExportArchive,
             )
+            val settingsMenuText = model.settingsMenuText
+            val settingsShortcut = model.settingsShortcut
+            if (settingsMenuText != null && settingsShortcut != null) {
+                Separator()
+                Item(
+                    text = settingsMenuText,
+                    shortcut = settingsShortcut.toKeyShortcut(),
+                    onClick = { onAction(ViewerAction.OPEN_SETTINGS) },
+                )
+            }
         }
         Menu(model.actionsTitle) {
             model.actions.forEachIndexed { index, item ->
