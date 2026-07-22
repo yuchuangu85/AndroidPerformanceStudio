@@ -175,12 +175,15 @@ internal class FirefoxProfilerLocalServer(
         accept: String,
         headOnly: Boolean,
     ) {
+        if (requestPath == "/" || requestPath.startsWith("/from-url/")) {
+            serveFile(socket, siteDirectory.resolve(INDEX_FILE), "text/html; charset=utf-8", headOnly, false)
+            return
+        }
         val requested = resolveSiteFile(requestPath)
         val file =
             when {
                 requested != null && Files.isRegularFile(requested) -> requested
-                requestPath == "/" || "text/html" in accept || requestPath.startsWith("/from-url/") ->
-                    siteDirectory.resolve(INDEX_FILE)
+                "text/html" in accept -> siteDirectory.resolve(INDEX_FILE)
                 else -> null
             }
         if (file == null) {
@@ -190,11 +193,12 @@ internal class FirefoxProfilerLocalServer(
         }
     }
 
-    private fun resolveSiteFile(requestPath: String): Path? {
-        val relative = URLDecoder.decode(requestPath.removePrefix("/"), StandardCharsets.UTF_8)
-        val requested = siteDirectory.resolve(relative).normalize()
-        return requested.takeIf { path -> path.startsWith(siteDirectory) }
-    }
+    private fun resolveSiteFile(requestPath: String): Path? =
+        runCatching {
+            val relative = URLDecoder.decode(requestPath.removePrefix("/"), StandardCharsets.UTF_8)
+            val requested = siteDirectory.resolve(relative).normalize()
+            requested.takeIf { path -> path.startsWith(siteDirectory) }
+        }.getOrNull()
 
     private fun serveFile(
         socket: Socket,
@@ -246,7 +250,7 @@ internal class FirefoxProfilerLocalServer(
     }
 }
 
-private fun requestPath(target: String): String? = runCatching { URI.create(target).path }.getOrNull()
+private fun requestPath(target: String): String? = runCatching { URI.create(target).rawPath }.getOrNull()
 
 private fun Path.isFirefoxProfilerSite(): Boolean = Files.isDirectory(this) && Files.isRegularFile(resolve(INDEX_FILE))
 

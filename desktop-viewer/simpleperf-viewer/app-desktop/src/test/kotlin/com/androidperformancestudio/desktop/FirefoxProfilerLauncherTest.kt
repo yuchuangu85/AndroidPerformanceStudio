@@ -1,6 +1,7 @@
 package com.androidperformancestudio.desktop
 
 import java.net.HttpURLConnection
+import java.net.Socket
 import java.net.URI
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -71,6 +72,28 @@ class FirefoxProfilerLauncherTest {
     }
 
     @Test
+    fun `local server serves profiler app routes before resolving encoded profile url as a file path`() {
+        val site = Files.createTempDirectory("firefox-profiler-site-")
+        site.resolve("index.html").writeText("<html>local profiler</html>")
+        val profile = Files.createTempFile("firefox-profiler-profile-", ".json.gz")
+        Files.write(profile, byteArrayOf(0x1f, 0x8b.toByte()))
+
+        FirefoxProfilerLocalServer(site, profile).use { server ->
+            val page = server.start()
+
+            val response =
+                getRawHttpResponse(
+                    host = page.host,
+                    port = page.port,
+                    path = "/from-url/http%00%3A%2F%2F127.0.0.1%3A2950%2Fperf_data.json.gz/flame-graph/",
+                )
+
+            assertTrue(response.startsWith("HTTP/1.1 200 OK"), response)
+            assertTrue(response.contains("<html>local profiler</html>"), response)
+        }
+    }
+
+    @Test
     fun `official profile transfer server exposes gzip with cors and private network permission`() {
         val bytes = byteArrayOf(0x1f, 0x8b.toByte(), 5, 6, 7, 8)
         val profile = Files.createTempFile("firefox-profiler-official-profile-", ".json.gz")
@@ -126,3 +149,17 @@ private inline fun URI.withConnection(block: (HttpURLConnection) -> Unit) {
         connection.disconnect()
     }
 }
+
+private fun getRawHttpResponse(
+    host: String,
+    port: Int,
+    path: String,
+): String =
+    Socket(host, port).use { socket ->
+        socket.soTimeout = 2_000
+        socket.getOutputStream().write(
+            "GET $path HTTP/1.1\r\nHost: $host:$port\r\nAccept: text/html\r\nConnection: close\r\n\r\n"
+                .toByteArray(),
+        )
+        socket.getInputStream().bufferedReader().use { reader -> reader.readText() }
+    }
