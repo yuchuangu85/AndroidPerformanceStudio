@@ -285,6 +285,37 @@ class LiveDeviceClientTest {
     }
 
     @Test
+    fun `explicit systemui connection falls back to visible window adb capture`() {
+        val runner = fakeRunner(
+            sessionResult = ProcessResult(
+                exitCode = 1,
+                stdout = "",
+                stderr = "run-as: package not debuggable: com.android.systemui",
+            ),
+            visibleHierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = EncodedHierarchyFixture.systemUiZip(),
+            ),
+            screenshotResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = pngHeader(width = 1080, height = 2400),
+            ),
+        )
+
+        val session = LiveDeviceClient(runner).connect("com.android.systemui")
+        val frame = session.capture()
+        session.close()
+        val snapshot = ProtocolCodec(supportedMajor = 1).decodeSnapshot(frame.snapshotJson)
+
+        assertEquals("com.android.systemui", session.packageName)
+        assertEquals(listOf("StatusBar", "NavigationBar"), snapshot.windows.map { it.title })
+    }
+
+    @Test
     fun `foreground application without Agent falls back to layout only when adb screencap is blocked`() {
         val runner = fakeRunner(
             foreground = """

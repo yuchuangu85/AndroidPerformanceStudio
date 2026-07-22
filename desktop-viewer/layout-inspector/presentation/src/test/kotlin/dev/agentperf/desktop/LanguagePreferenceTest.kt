@@ -65,6 +65,12 @@ class LanguagePreferenceTest {
         assertEquals("Export", english.exportArchive)
         assertEquals("捕获归档", chinese.captureArchive)
         assertEquals("Capture archive", english.captureArchive)
+        assertEquals("目标", chinese.captureTarget)
+        assertEquals("Target", english.captureTarget)
+        assertEquals("前台应用", chinese.captureTargetLabel(CaptureTargetMode.FOREGROUND_APP))
+        assertEquals("Foreground app", english.captureTargetLabel(CaptureTargetMode.FOREGROUND_APP))
+        assertEquals("系统界面", chinese.captureTargetLabel(CaptureTargetMode.SYSTEM_UI))
+        assertEquals("System UI", english.captureTargetLabel(CaptureTargetMode.SYSTEM_UI))
         assertEquals("布局快照大小上限", chinese.layoutSnapshotArchiveLimit)
         assertEquals("Layout snapshot size limit", english.layoutSnapshotArchiveLimit)
         assertEquals(

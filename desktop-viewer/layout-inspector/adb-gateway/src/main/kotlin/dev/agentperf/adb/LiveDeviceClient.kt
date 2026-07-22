@@ -39,25 +39,11 @@ class LiveDeviceClient(
     fun connectForegroundApp(serial: String? = null): ConnectedDeviceSession {
         val device = selectDevice(serial)
         val packageName = foregroundPackageName(device.serial)
-        return try {
-            connect(device, packageName)
-        } catch (_: AgentUnavailableException) {
-            ConnectedDeviceSession(
-                serial = device.serial,
-                packageName = packageName,
-                processRunner = processRunner,
-                socketConnector = socketConnector,
-                fallbackCapture = AdbFallbackCapture(
-                    serial = device.serial,
-                    packageName = packageName,
-                    processRunner = processRunner,
-                )::capture,
-            )
-        }
+        return connectWithFallback(device, packageName)
     }
 
     fun connect(packageName: String, serial: String? = null): ConnectedDeviceSession =
-        connect(selectDevice(serial), packageName)
+        connectWithFallback(selectDevice(serial), packageName)
 
     fun listAuthorizedDevices(): List<AdbDevice> = authorizedDevices()
 
@@ -101,7 +87,24 @@ class LiveDeviceClient(
             .let(AdbOutputParser::parseDevices)
             .filter { it.state == DeviceState.DEVICE }
 
-    private fun connect(device: AdbDevice, packageName: String): ConnectedDeviceSession {
+    private fun connectWithFallback(device: AdbDevice, packageName: String): ConnectedDeviceSession =
+        try {
+            connectAgent(device, packageName)
+        } catch (_: AgentUnavailableException) {
+            ConnectedDeviceSession(
+                serial = device.serial,
+                packageName = packageName,
+                processRunner = processRunner,
+                socketConnector = socketConnector,
+                fallbackCapture = AdbFallbackCapture(
+                    serial = device.serial,
+                    packageName = packageName,
+                    processRunner = processRunner,
+                )::capture,
+            )
+        }
+
+    private fun connectAgent(device: AdbDevice, packageName: String): ConnectedDeviceSession {
         val sessionDocument = try {
             checkedRun(AdbCommandFactory.readSession(device.serial, packageName)).stdout
         } catch (error: AdbCommandException) {

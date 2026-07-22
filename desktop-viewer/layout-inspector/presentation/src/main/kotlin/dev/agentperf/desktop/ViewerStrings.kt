@@ -71,6 +71,7 @@ internal class ViewerStrings private constructor(
     val dismiss: String get() = text("OK", "确定")
     val autoScan: String get() = text("Auto scan", "自动扫描")
     val autoDevice: String get() = text("Auto device", "自动设备")
+    val captureTarget: String get() = text("Target", "目标")
     val window: String get() = text("Window", "窗口")
     val selectWindow: String get() = text("Select window", "选择窗口")
     val refresh: String get() = text("Refresh", "刷新")
@@ -191,6 +192,11 @@ internal class ViewerStrings private constructor(
         ViewDisplayOption.HIDE_HIERARCHY_INDICES -> hideHierarchyIndices
         ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS -> showHierarchyLayerVisibilityButtons
         ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS -> showVisibleViewBounds
+    }
+
+    fun captureTargetLabel(mode: CaptureTargetMode): String = when (mode) {
+        CaptureTargetMode.FOREGROUND_APP -> text("Foreground app", "前台应用")
+        CaptureTargetMode.SYSTEM_UI -> text("System UI", "系统界面")
     }
 
     fun metrics(nodeCount: Int, maxDepth: Int, widestLevel: Int): String =

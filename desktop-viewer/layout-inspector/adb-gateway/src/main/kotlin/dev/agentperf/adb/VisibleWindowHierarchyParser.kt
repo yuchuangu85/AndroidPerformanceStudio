@@ -24,7 +24,7 @@ internal object VisibleWindowHierarchyParser {
             buildList {
                 while (true) {
                     val entry = zip.nextEntry ?: break
-                    if (!entry.isDirectory && entry.name.contains(packageName)) {
+                    if (!entry.isDirectory && entry.matchesTargetPackage(packageName)) {
                         val name = entry.name
                         val encoded = zip.readEntryBytes()
                         runCatching {
@@ -71,6 +71,15 @@ internal object VisibleWindowHierarchyParser {
         require(bytes.size <= MAX_ENTRY_BYTES) { "Visible-window hierarchy entry is too large" }
         return bytes
     }
+
+    private fun java.util.zip.ZipEntry.matchesTargetPackage(packageName: String): Boolean =
+        name.contains(packageName) ||
+            packageName == SYSTEM_UI_PACKAGE && systemUiWindowTitles.any { title ->
+                entryTitle().startsWith(title)
+            }
+
+    private fun java.util.zip.ZipEntry.entryTitle(): String =
+        name.substringAfter(' ', missingDelimiterValue = name).substringAfterLast('/')
 
     private fun UiNode.nodeCount(): Int = 1 + children.sumOf { it.nodeCount() }
 
@@ -119,6 +128,22 @@ internal object VisibleWindowHierarchyParser {
     }
 
     private const val MAX_ENTRY_BYTES = 16 * 1024 * 1024
+    private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+    private val systemUiWindowTitles = setOf(
+        "BackPanel",
+        "Bouncer",
+        "GlobalActions",
+        "HeadsUp",
+        "Keyguard",
+        "NavigationBar",
+        "NotificationShade",
+        "PipMenu",
+        "ScreenDecor",
+        "Screenshot",
+        "Shell",
+        "StatusBar",
+        "VolumeDialog",
+    )
 }
 
 object VisibleWindowViewsTextRenderer {

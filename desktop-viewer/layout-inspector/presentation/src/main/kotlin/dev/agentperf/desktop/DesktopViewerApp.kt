@@ -117,6 +117,12 @@ internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 // Keep the implementation available while the user-facing flow is deferred.
 // Re-enable only after completing docs/ai-analysis-roadmap.md.
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = false
+internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
+
+internal enum class CaptureTargetMode {
+    FOREGROUND_APP,
+    SYSTEM_UI,
+}
 
 @Composable
 fun FrameWindowScope.DesktopViewerApp(
@@ -130,10 +136,11 @@ fun FrameWindowScope.DesktopViewerApp(
     var manualRefreshInProgress by remember { mutableStateOf(false) }
     val deviceClient = remember { LiveDeviceClient() }
     val refreshTimingSink = remember { ConsoleRefreshTimingSink }
-    val manualRefreshSession = remember(deviceClient) {
+    var captureTargetMode by remember { mutableStateOf(CaptureTargetMode.FOREGROUND_APP) }
+    val manualRefreshSession = remember(deviceClient, captureTargetMode) {
         ReusableForegroundSession(
-            connect = deviceClient::connectForegroundApp,
-            isCurrent = ConnectedDeviceSession::isForegroundAppCurrent,
+            connect = { serial -> deviceClient.connectTarget(captureTargetMode, serial) },
+            isCurrent = { session -> captureTargetMode.isSessionCurrent(session) },
             capture = ConnectedDeviceSession::capture,
         )
     }
@@ -174,7 +181,7 @@ fun FrameWindowScope.DesktopViewerApp(
         selectedDeviceSerial = sanitizeSelectedDeviceSerial(selectedDeviceSerial, devices)
     }
 
-    LaunchedEffect(autoScanEnabled) {
+    LaunchedEffect(autoScanEnabled, captureTargetMode) {
         if (!autoScanEnabled) {
             if (store.state.connectionStatus != ConnectionStatus.ARCHIVE) {
                 store.disconnected()
@@ -192,14 +199,14 @@ fun FrameWindowScope.DesktopViewerApp(
                 store.connecting()
                 state = store.state
                 session = withContext(Dispatchers.IO) {
-                    timer.measure("connectForegroundApp") {
-                        deviceClient.connectForegroundApp(selectedDeviceSerial)
+                    timer.measure("connectTarget") {
+                        deviceClient.connectTarget(captureTargetMode, selectedDeviceSerial)
                     }
                 }
                 while (currentCoroutineContext().isActive) {
                     val isCurrent = withContext(Dispatchers.IO) {
-                        timer.measure("isForegroundAppCurrent") {
-                            session.isForegroundAppCurrent()
+                        timer.measure("isTargetCurrent") {
+                            captureTargetMode.isSessionCurrent(session)
                         }
                     }
                     if (!isCurrent) break
@@ -611,6 +618,13 @@ fun FrameWindowScope.DesktopViewerApp(
                         selectedDeviceSerial = serial
                         deviceListRefreshRequest += 1
                     },
+                    captureTargetMode = captureTargetMode,
+                    onSelectCaptureTargetMode = { mode ->
+                        if (captureTargetMode != mode) {
+                            manualRefreshSession.invalidate()
+                            captureTargetMode = mode
+                        }
+                    },
                     onSelectWindow = { windowId ->
                         if (store.selectWindow(windowId)) {
                             hierarchyTreeState = HierarchyTreeState()
@@ -830,6 +844,20 @@ fun FrameWindowScope.DesktopViewerApp(
 
 internal fun createInitialInspectorStore(): InspectorStore = InspectorStore()
 
+internal fun LiveDeviceClient.connectTarget(
+    mode: CaptureTargetMode,
+    serial: String?,
+): ConnectedDeviceSession = when (mode) {
+    CaptureTargetMode.FOREGROUND_APP -> connectForegroundApp(serial)
+    CaptureTargetMode.SYSTEM_UI -> connect(SYSTEM_UI_PACKAGE_NAME, serial)
+}
+
+internal fun CaptureTargetMode.isSessionCurrent(session: ConnectedDeviceSession): Boolean =
+    when (this) {
+        CaptureTargetMode.FOREGROUND_APP -> session.isForegroundAppCurrent()
+        CaptureTargetMode.SYSTEM_UI -> session.packageName == SYSTEM_UI_PACKAGE_NAME
+    }
+
 @Composable
 private fun Header(
     state: InspectorState,
@@ -841,6 +869,8 @@ private fun Header(
     deviceChoices: List<DeviceChoiceModel>,
     selectedDeviceSerial: String?,
     onSelectDevice: (String?) -> Unit,
+    captureTargetMode: CaptureTargetMode,
+    onSelectCaptureTargetMode: (CaptureTargetMode) -> Unit,
     onSelectWindow: (String) -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -857,6 +887,11 @@ private fun Header(
             devices = deviceChoices,
             selectedSerial = selectedDeviceSerial,
             onSelectDevice = onSelectDevice,
+        )
+        Spacer(Modifier.width(8.dp))
+        CaptureTargetSelector(
+            selectedMode = captureTargetMode,
+            onSelectMode = onSelectCaptureTargetMode,
         )
         if (model.windows.size > 1) {
             Spacer(Modifier.width(8.dp))
@@ -919,6 +954,46 @@ private fun Header(
         Spacer(Modifier.width(8.dp))
         SettingsButton {
             onAction(ViewerAction.OPEN_SETTINGS)
+        }
+    }
+}
+
+@Composable
+private fun CaptureTargetSelector(
+    selectedMode: CaptureTargetMode,
+    onSelectMode: (CaptureTargetMode) -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val strings = LocalViewerStrings.current
+    var expanded by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(4.dp)
+    Box {
+        Text(
+            text = "${strings.captureTarget}: ${strings.captureTargetLabel(selectedMode)} ▾",
+            color = colors.secondaryText,
+            fontSize = 11.sp,
+            maxLines = 1,
+            modifier = Modifier
+                .background(colors.sectionBackground, shape)
+                .border(1.dp, colors.border, shape)
+                .clickable { expanded = true }
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(colors.panel),
+        ) {
+            CaptureTargetMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(strings.captureTargetLabel(mode), fontSize = 12.sp) },
+                    onClick = {
+                        expanded = false
+                        onSelectMode(mode)
+                    },
+                    modifier = Modifier.height(32.dp),
+                )
+            }
         }
     }
 }
