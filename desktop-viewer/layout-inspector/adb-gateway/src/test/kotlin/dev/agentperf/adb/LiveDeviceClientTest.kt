@@ -296,7 +296,7 @@ class LiveDeviceClientTest {
                 exitCode = 0,
                 stdout = "",
                 stderr = "",
-                stdoutBytes = EncodedHierarchyFixture.systemUiZip(),
+                stdoutBytes = EncodedHierarchyFixture.systemUiWithLauncherTaskbarZip(),
             ),
             screenshotResult = ProcessResult(
                 exitCode = 0,
@@ -312,7 +312,7 @@ class LiveDeviceClientTest {
         val snapshot = ProtocolCodec(supportedMajor = 1).decodeSnapshot(frame.snapshotJson)
 
         assertEquals("com.android.systemui", session.packageName)
-        assertEquals(listOf("StatusBar", "NavigationBar"), snapshot.windows.map { it.title })
+        assertEquals(listOf("StatusBar", "Taskbar"), snapshot.windows.map { it.title })
     }
 
     @Test

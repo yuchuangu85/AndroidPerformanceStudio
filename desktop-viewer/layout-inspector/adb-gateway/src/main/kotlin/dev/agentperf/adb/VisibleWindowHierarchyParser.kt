@@ -76,7 +76,13 @@ internal object VisibleWindowHierarchyParser {
         name.contains(packageName) ||
             packageName == SYSTEM_UI_PACKAGE && systemUiWindowTitles.any { title ->
                 entryTitle().startsWith(title)
-            }
+            } ||
+            packageName == SYSTEM_UI_PACKAGE && isLauncherTaskbarWindow()
+
+    private fun java.util.zip.ZipEntry.isLauncherTaskbarWindow(): Boolean =
+        name.contains("launcher", ignoreCase = true) &&
+            name.contains("taskbar", ignoreCase = true) &&
+            !name.contains("com.android.systemui")
 
     private fun java.util.zip.ZipEntry.entryTitle(): String =
         name.substringAfter(' ', missingDelimiterValue = name).substringAfterLast('/')
