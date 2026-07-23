@@ -2,3 +2,8 @@
 	path = third_party/firefox-profiler
 	url = https://github.com/firefox-devtools/profiler.git
 	shallow = true
+[submodule "third_party/perfetto"]
+	path = third_party/perfetto
+	url = https://github.com/google/perfetto
+	shallow = true
+	branch = main

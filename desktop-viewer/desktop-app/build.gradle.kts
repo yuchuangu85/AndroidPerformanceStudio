@@ -61,6 +61,7 @@ val targetArch = project.findProperty("target.arch")?.toString()
 dependencies {
     implementation(project(":layout-inspector:presentation"))
     implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:perfetto-app:0.1.0-SNAPSHOT")
     when (targetArch) {
         "x64" -> implementation(compose.desktop.macos_x64)
         "arm64" -> implementation(compose.desktop.macos_arm64)

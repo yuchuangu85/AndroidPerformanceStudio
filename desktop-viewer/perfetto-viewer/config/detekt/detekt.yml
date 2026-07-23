@@ -1,0 +1,25 @@
+build:
+  maxIssues: 100
+
+style:
+  WildcardImport:
+    active: false
+  MaxLineLength:
+    maxLineLength: 200
+  FunctionMaxLength:
+    active: false
+
+complexity:
+  LongParameterList:
+    functionThreshold: 12
+    constructorThreshold: 12
+  TooManyFunctions:
+    active: false
+  LongMethod:
+    active: false
+
+naming:
+  active: true
+
+formatting:
+  active: false

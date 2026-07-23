@@ -38,8 +38,12 @@ layoutInspectorModules.forEach { module ->
     project(path).projectDir = file("layout-inspector/${module.replace(':', '/')}")
 }
 
-// CPU profiling is intentionally kept as an isolated composite build. Its plugin versions,
-// dependencies, packages, tests, and native application lifecycle do not leak into the layout viewer.
+// CPU profiling is intentionally kept as an isolated composite build.
 includeBuild("simpleperf-viewer") {
     name = "simpleperf-viewer"
+}
+
+// Perfetto trace analysis is kept as an isolated composite build.
+includeBuild("perfetto-viewer") {
+    name = "perfetto-viewer"
 }

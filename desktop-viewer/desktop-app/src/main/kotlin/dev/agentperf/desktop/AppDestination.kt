@@ -8,14 +8,17 @@ enum class AppDestination {
     HOME,
     LAYOUT_INSPECTOR,
     SIMPLEPERF,
+    PERFETTO,
+    MEMORY_PROFILER,
+    FRAME_PROFILER,
+    STARTUP_PROFILER,
+    BATTERY_PROFILER,
 }
 
 internal fun AppDestination.shouldMaximizeWindow(): Boolean =
     when (this) {
         AppDestination.HOME -> false
-        AppDestination.LAYOUT_INSPECTOR,
-        AppDestination.SIMPLEPERF,
-        -> true
+        else -> true
     }
 
 class AppNavigator(

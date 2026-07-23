@@ -21,6 +21,7 @@ import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.desktop.SimpleperfWorkspace
+import com.androidperformancestudio.perfetto.app.PerfettoWorkspace
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -67,17 +68,13 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                 AppDestination.HOME ->
                     AppHomePage(
                         chinese = chinese,
-                        onOpenLayoutInspector = {
-                            navigator.open(AppDestination.LAYOUT_INSPECTOR)
-                        },
-                        onOpenSimpleperf = {
-                            navigator.open(AppDestination.SIMPLEPERF)
-                        },
-                        onOpenPerfetto = {
-                            coroutineScope.launch(Dispatchers.IO) {
-                                runCatching(externalAnalysisLauncher::openPerfetto)
-                            }
-                        },
+                        onOpenLayoutInspector = { navigator.open(AppDestination.LAYOUT_INSPECTOR) },
+                        onOpenSimpleperf = { navigator.open(AppDestination.SIMPLEPERF) },
+                        onOpenPerfetto = { navigator.open(AppDestination.PERFETTO) },
+                        onOpenMemoryProfiler = { navigator.open(AppDestination.MEMORY_PROFILER) },
+                        onOpenFrameProfiler = { navigator.open(AppDestination.FRAME_PROFILER) },
+                        onOpenStartupProfiler = { navigator.open(AppDestination.STARTUP_PROFILER) },
+                        onOpenBatteryProfiler = { navigator.open(AppDestination.BATTERY_PROFILER) },
                     )
                 AppDestination.LAYOUT_INSPECTOR ->
                     DesktopViewerApp(
@@ -89,16 +86,44 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                         window = window,
                         settings = simpleperfSettings,
                         onOpenUserGuide = {
-                            val language =
-                                if (chinese) {
-                                    UserDocumentationLanguage.SIMPLIFIED_CHINESE
-                                } else {
-                                    UserDocumentationLanguage.ENGLISH
-                                }
+                            val lang = if (chinese) UserDocumentationLanguage.SIMPLIFIED_CHINESE else UserDocumentationLanguage.ENGLISH
                             coroutineScope.launch(Dispatchers.IO) {
-                                runCatching { userDocumentationLauncher.open(language) }
+                                runCatching { userDocumentationLauncher.open(lang) }
                             }
                         },
+                    )
+                AppDestination.PERFETTO ->
+                    PerfettoWorkspace(
+                        onOpenUserGuide = {
+                            val lang = if (chinese) UserDocumentationLanguage.SIMPLIFIED_CHINESE else UserDocumentationLanguage.ENGLISH
+                            coroutineScope.launch(Dispatchers.IO) {
+                                runCatching { userDocumentationLauncher.open(lang) }
+                            }
+                        },
+                    )
+                AppDestination.MEMORY_PROFILER ->
+                    ComingSoonPage(
+                        title = if (chinese) "Memory Profiler" else "Memory Profiler",
+                        chinese = chinese,
+                        onBack = { navigator.open(AppDestination.HOME) },
+                    )
+                AppDestination.FRAME_PROFILER ->
+                    ComingSoonPage(
+                        title = if (chinese) "Frame Profiler" else "Frame Profiler",
+                        chinese = chinese,
+                        onBack = { navigator.open(AppDestination.HOME) },
+                    )
+                AppDestination.STARTUP_PROFILER ->
+                    ComingSoonPage(
+                        title = if (chinese) "Startup Profiler" else "Startup Profiler",
+                        chinese = chinese,
+                        onBack = { navigator.open(AppDestination.HOME) },
+                    )
+                AppDestination.BATTERY_PROFILER ->
+                    ComingSoonPage(
+                        title = if (chinese) "Battery Profiler" else "Battery Profiler",
+                        chinese = chinese,
+                        onBack = { navigator.open(AppDestination.HOME) },
                     )
             }
             if (showApplicationSettings) {
