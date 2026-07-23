@@ -1633,7 +1633,7 @@ private fun PreviewPane(
     var canvasPixelSize by remember { mutableStateOf(IntSize.Zero) }
     var appOnly by remember { mutableStateOf(true) }
     var previewZoom by remember { mutableStateOf(PreviewZoomState.DEFAULT_SCALE) }
-    var previewPan by remember { mutableStateOf(Offset.Zero) }
+    val previewPan = remember { mutableStateOf(Offset.Zero) }
     val source = CanvasWindowSource.sourceRect(state, appOnly)
     val canvasMode = previewCanvasMode(
         hasSource = source != null,
@@ -1692,19 +1692,16 @@ private fun PreviewPane(
                     Size(it.width.dp.toPx(), it.height.dp.toPx())
                 }
             }
-            val clampedPreviewPan = scaledPreviewSizePx?.let {
-                PreviewPanState.clamp(
-                    pan = previewPan,
-                    contentWidthPx = it.width,
-                    contentHeightPx = it.height,
-                    viewportWidthPx = viewportSizePx.width,
-                    viewportHeightPx = viewportSizePx.height,
-                )
-            } ?: Offset.Zero
             LaunchedEffect(scaledPreviewSizePx, viewportSizePx) {
-                if (previewPan != clampedPreviewPan) {
-                    previewPan = clampedPreviewPan
-                }
+                previewPan.value = scaledPreviewSizePx?.let {
+                    PreviewPanState.clamp(
+                        pan = previewPan.value,
+                        contentWidthPx = it.width,
+                        contentHeightPx = it.height,
+                        viewportWidthPx = viewportSizePx.width,
+                        viewportHeightPx = viewportSizePx.height,
+                    )
+                } ?: Offset.Zero
             }
             Box(
                 Modifier
@@ -1728,12 +1725,13 @@ private fun PreviewPane(
                             val newContentHeight = scaledPreviewSizePx.height * ratio
                             val newCenterX = (viewportSizePx.width - newContentWidth) / 2f
                             val newCenterY = (viewportSizePx.height - newContentHeight) / 2f
+                            val currentPan = previewPan.value
                             val newPan = Offset(
-                                x = mousePos.x * (1f - ratio) + (oldCenterX + previewPan.x) * ratio - newCenterX,
-                                y = mousePos.y * (1f - ratio) + (oldCenterY + previewPan.y) * ratio - newCenterY,
+                                x = mousePos.x * (1f - ratio) + (oldCenterX + currentPan.x) * ratio - newCenterX,
+                                y = mousePos.y * (1f - ratio) + (oldCenterY + currentPan.y) * ratio - newCenterY,
                             )
                             previewZoom = newZoom
-                            previewPan = PreviewPanState.clamp(
+                            previewPan.value = PreviewPanState.clamp(
                                 pan = newPan,
                                 contentWidthPx = newContentWidth,
                                 contentHeightPx = newContentHeight,
@@ -1747,18 +1745,21 @@ private fun PreviewPane(
                             val wheelPixels = wheel.preciseWheelRotation.toFloat() * PreviewPanState.WHEEL_SCROLL_PIXELS
                             if (wheel.isShiftDown) Offset(wheelPixels, 0f) else Offset(0f, wheelPixels)
                         } ?: Offset.Zero
-                        val panDelta = scrollDelta.takeUnless { it == Offset.Zero } ?: fallbackWheelDelta
+                        // Compose Desktop reports wheel ticks as small normalized deltas; prefer the
+                        // native pixel-scaled value so one wheel notch moves the preview perceptibly.
+                        val panDelta = fallbackWheelDelta.takeUnless { it == Offset.Zero } ?: scrollDelta
+                        val currentPan = previewPan.value
                         val nextPan = PreviewPanState.scroll(
-                            pan = previewPan,
+                            pan = currentPan,
                             scrollDelta = panDelta,
                             contentWidthPx = scaledPreviewSizePx.width,
                             contentHeightPx = scaledPreviewSizePx.height,
                             viewportWidthPx = viewportSizePx.width,
                             viewportHeightPx = viewportSizePx.height,
                         )
-                        if (nextPan != previewPan) {
+                        if (nextPan != currentPan) {
                             event.changes.forEach { it.consume() }
-                            previewPan = nextPan
+                            previewPan.value = nextPan
                         }
                     },
                 contentAlignment = Alignment.Center,
@@ -1766,17 +1767,18 @@ private fun PreviewPane(
                 Box(
                     modifier = Modifier
                         .offset {
+                            val pan = previewPan.value
                             IntOffset(
-                                x = clampedPreviewPan.x.roundToInt(),
-                                y = clampedPreviewPan.y.roundToInt(),
+                                x = pan.x.roundToInt(),
+                                y = pan.y.roundToInt(),
                             )
                         }
                         .pointerInput(scaledPreviewSizePx, viewportSizePx) {
                             if (scaledPreviewSizePx != null) {
                                 detectDragGestures { change, dragAmount ->
                                     change.consume()
-                                    previewPan = PreviewPanState.clamp(
-                                        pan = previewPan + dragAmount,
+                                    previewPan.value = PreviewPanState.clamp(
+                                        pan = previewPan.value + dragAmount,
                                         contentWidthPx = scaledPreviewSizePx.width,
                                         contentHeightPx = scaledPreviewSizePx.height,
                                         viewportWidthPx = viewportSizePx.width,

@@ -18,15 +18,26 @@ class CanvasOverlayWiringTest {
             .substringAfter("private fun PreviewPane(")
             .substringBefore("@Composable\nprivate fun PreviewZoomControls(")
 
-        assertTrue(preview.contains("var previewPan by remember { mutableStateOf(Offset.Zero) }"))
+        assertTrue(preview.contains("val previewPan = remember { mutableStateOf(Offset.Zero) }"))
+        assertFalse(
+            preview.contains("val clampedPreviewPan ="),
+            "Pan must not be read during composition because every drag frame would recompose the canvas",
+        )
         assertTrue(preview.contains(".fillMaxSize()"))
         assertTrue(preview.contains(".clipToBounds()"))
         assertTrue(preview.contains("PreviewPanState.clamp("))
         assertTrue(preview.contains(".offset {"))
+        assertTrue(preview.contains("val pan = previewPan.value"))
         assertTrue(preview.contains("detectDragGestures"))
-        assertTrue(preview.contains("previewPan + dragAmount"))
+        assertTrue(preview.contains("previewPan.value + dragAmount"))
         assertTrue(preview.contains("change.consume()"))
         assertTrue(preview.contains("scrollDelta"))
+        assertTrue(
+            preview.contains(
+                "val panDelta = fallbackWheelDelta.takeUnless { it == Offset.Zero } ?: scrollDelta",
+            ),
+            "Desktop wheel rotation must use the pixel-scaled delta instead of moving one pixel per tick",
+        )
         assertTrue(preview.contains("PreviewPanState.scroll("))
     }
     @Test
