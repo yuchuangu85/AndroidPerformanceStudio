@@ -114,6 +114,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image
 import java.awt.Cursor
 import java.awt.event.MouseEvent
+import java.awt.event.MouseWheelEvent
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -1707,7 +1708,38 @@ private fun PreviewPane(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .clipToBounds(),
+                    .clipToBounds()
+                    .onPointerEvent(PointerEventType.Scroll) { event ->
+                        val nativeEvent = event.nativeEvent as? MouseWheelEvent ?: return@onPointerEvent
+                        if (!nativeEvent.isMetaDown && !nativeEvent.isControlDown) return@onPointerEvent
+                        if (scaledPreviewSizePx == null) return@onPointerEvent
+                        val mousePos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                        event.changes.forEach { it.consume() }
+                        val scrollAmount = nativeEvent.preciseWheelRotation.toFloat()
+                        val zoomDelta = -scrollAmount * 0.1f
+                        val oldZoom = previewZoom
+                        val newZoom = (oldZoom + zoomDelta).coerceIn(PreviewZoomState.MIN_SCALE, PreviewZoomState.MAX_SCALE)
+                        if (newZoom == oldZoom) return@onPointerEvent
+                        val ratio = newZoom / oldZoom
+                        val oldCenterX = (viewportSizePx.width - scaledPreviewSizePx.width) / 2f
+                        val oldCenterY = (viewportSizePx.height - scaledPreviewSizePx.height) / 2f
+                        val newContentWidth = scaledPreviewSizePx.width * ratio
+                        val newContentHeight = scaledPreviewSizePx.height * ratio
+                        val newCenterX = (viewportSizePx.width - newContentWidth) / 2f
+                        val newCenterY = (viewportSizePx.height - newContentHeight) / 2f
+                        val newPan = Offset(
+                            x = mousePos.x * (1f - ratio) + (oldCenterX + previewPan.x) * ratio - newCenterX,
+                            y = mousePos.y * (1f - ratio) + (oldCenterY + previewPan.y) * ratio - newCenterY,
+                        )
+                        previewZoom = newZoom
+                        previewPan = PreviewPanState.clamp(
+                            pan = newPan,
+                            contentWidthPx = newContentWidth,
+                            contentHeightPx = newContentHeight,
+                            viewportWidthPx = viewportSizePx.width,
+                            viewportHeightPx = viewportSizePx.height,
+                        )
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
