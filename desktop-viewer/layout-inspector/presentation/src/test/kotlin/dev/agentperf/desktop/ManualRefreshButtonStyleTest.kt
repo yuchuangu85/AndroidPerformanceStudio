@@ -11,5 +11,7 @@ class ManualRefreshButtonStyleTest {
         assertEquals(22, ManualRefreshButtonStyle.HEIGHT_DP)
         assertEquals(7, ManualRefreshButtonStyle.CORNER_RADIUS_DP)
         assertTrue(ManualRefreshButtonStyle.BORDER_ALPHA < ManualRefreshButtonStyle.BACKGROUND_ALPHA)
+        assertTrue(ManualRefreshButtonStyle.BACKGROUND_ALPHA >= 0.86f)
+        assertTrue(ManualRefreshButtonStyle.TEXT_ALPHA >= 0.95f)
     }
 }

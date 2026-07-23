@@ -1212,7 +1212,7 @@ private fun HeaderTextButton(
         modifier = Modifier
             .width(widthDp.dp)
             .height(ManualRefreshButtonStyle.HEIGHT_DP.dp)
-            .background(Color.White.copy(alpha = backgroundAlpha), shape)
+            .background(colors.accent.copy(alpha = backgroundAlpha), shape)
             .border(1.dp, borderColor, shape)
             .semantics { this.contentDescription = contentDescription }
             .let { base -> if (enabled) base.clickable(onClick = onClick) else base }
@@ -1222,7 +1222,7 @@ private fun HeaderTextButton(
     ) {
         Text(
             text = label,
-            color = if (enabled) colors.primaryText else colors.mutedText.copy(alpha = 0.55f),
+            color = if (enabled) Color.White.copy(alpha = ManualRefreshButtonStyle.TEXT_ALPHA) else colors.mutedText.copy(alpha = 0.55f),
             fontSize = 11.sp,
             maxLines = 1,
             softWrap = false,
@@ -1234,8 +1234,9 @@ internal object ManualRefreshButtonStyle {
     const val WIDTH_DP = 56
     const val HEIGHT_DP = 22
     const val CORNER_RADIUS_DP = 7
-    const val BACKGROUND_ALPHA = 0.62f
-    const val BORDER_ALPHA = 0.45f
+    const val BACKGROUND_ALPHA = 0.9f
+    const val BORDER_ALPHA = 0.72f
+    const val TEXT_ALPHA = 1f
     const val DISABLED_BACKGROUND_ALPHA = 0.24f
     const val DISABLED_BORDER_ALPHA = 0.18f
 }
@@ -1710,35 +1711,55 @@ private fun PreviewPane(
                     .fillMaxSize()
                     .clipToBounds()
                     .onPointerEvent(PointerEventType.Scroll) { event ->
-                        val nativeEvent = event.nativeEvent as? MouseWheelEvent ?: return@onPointerEvent
-                        if (!nativeEvent.isMetaDown && !nativeEvent.isControlDown) return@onPointerEvent
                         if (scaledPreviewSizePx == null) return@onPointerEvent
-                        val mousePos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
-                        event.changes.forEach { it.consume() }
-                        val scrollAmount = nativeEvent.preciseWheelRotation.toFloat()
-                        val zoomDelta = -scrollAmount * 0.1f
-                        val oldZoom = previewZoom
-                        val newZoom = (oldZoom + zoomDelta).coerceIn(PreviewZoomState.MIN_SCALE, PreviewZoomState.MAX_SCALE)
-                        if (newZoom == oldZoom) return@onPointerEvent
-                        val ratio = newZoom / oldZoom
-                        val oldCenterX = (viewportSizePx.width - scaledPreviewSizePx.width) / 2f
-                        val oldCenterY = (viewportSizePx.height - scaledPreviewSizePx.height) / 2f
-                        val newContentWidth = scaledPreviewSizePx.width * ratio
-                        val newContentHeight = scaledPreviewSizePx.height * ratio
-                        val newCenterX = (viewportSizePx.width - newContentWidth) / 2f
-                        val newCenterY = (viewportSizePx.height - newContentHeight) / 2f
-                        val newPan = Offset(
-                            x = mousePos.x * (1f - ratio) + (oldCenterX + previewPan.x) * ratio - newCenterX,
-                            y = mousePos.y * (1f - ratio) + (oldCenterY + previewPan.y) * ratio - newCenterY,
-                        )
-                        previewZoom = newZoom
-                        previewPan = PreviewPanState.clamp(
-                            pan = newPan,
-                            contentWidthPx = newContentWidth,
-                            contentHeightPx = newContentHeight,
+                        val nativeEvent = event.nativeEvent as? MouseWheelEvent
+                        if (nativeEvent?.let { it.isMetaDown || it.isControlDown } == true) {
+                            val mousePos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                            event.changes.forEach { it.consume() }
+                            val scrollAmount = nativeEvent.preciseWheelRotation.toFloat()
+                            val zoomDelta = -scrollAmount * 0.1f
+                            val oldZoom = previewZoom
+                            val newZoom = (oldZoom + zoomDelta).coerceIn(PreviewZoomState.MIN_SCALE, PreviewZoomState.MAX_SCALE)
+                            if (newZoom == oldZoom) return@onPointerEvent
+                            val ratio = newZoom / oldZoom
+                            val oldCenterX = (viewportSizePx.width - scaledPreviewSizePx.width) / 2f
+                            val oldCenterY = (viewportSizePx.height - scaledPreviewSizePx.height) / 2f
+                            val newContentWidth = scaledPreviewSizePx.width * ratio
+                            val newContentHeight = scaledPreviewSizePx.height * ratio
+                            val newCenterX = (viewportSizePx.width - newContentWidth) / 2f
+                            val newCenterY = (viewportSizePx.height - newContentHeight) / 2f
+                            val newPan = Offset(
+                                x = mousePos.x * (1f - ratio) + (oldCenterX + previewPan.x) * ratio - newCenterX,
+                                y = mousePos.y * (1f - ratio) + (oldCenterY + previewPan.y) * ratio - newCenterY,
+                            )
+                            previewZoom = newZoom
+                            previewPan = PreviewPanState.clamp(
+                                pan = newPan,
+                                contentWidthPx = newContentWidth,
+                                contentHeightPx = newContentHeight,
+                                viewportWidthPx = viewportSizePx.width,
+                                viewportHeightPx = viewportSizePx.height,
+                            )
+                            return@onPointerEvent
+                        }
+                        val scrollDelta = event.changes.firstOrNull()?.scrollDelta ?: Offset.Zero
+                        val fallbackWheelDelta = nativeEvent?.let { wheel ->
+                            val wheelPixels = wheel.preciseWheelRotation.toFloat() * PreviewPanState.WHEEL_SCROLL_PIXELS
+                            if (wheel.isShiftDown) Offset(wheelPixels, 0f) else Offset(0f, wheelPixels)
+                        } ?: Offset.Zero
+                        val panDelta = scrollDelta.takeUnless { it == Offset.Zero } ?: fallbackWheelDelta
+                        val nextPan = PreviewPanState.scroll(
+                            pan = previewPan,
+                            scrollDelta = panDelta,
+                            contentWidthPx = scaledPreviewSizePx.width,
+                            contentHeightPx = scaledPreviewSizePx.height,
                             viewportWidthPx = viewportSizePx.width,
                             viewportHeightPx = viewportSizePx.height,
                         )
+                        if (nextPan != previewPan) {
+                            event.changes.forEach { it.consume() }
+                            previewPan = nextPan
+                        }
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -1985,6 +2006,23 @@ internal object PreviewZoomState {
 }
 
 internal object PreviewPanState {
+    const val WHEEL_SCROLL_PIXELS = 64f
+
+    fun scroll(
+        pan: Offset,
+        scrollDelta: Offset,
+        contentWidthPx: Float,
+        contentHeightPx: Float,
+        viewportWidthPx: Float,
+        viewportHeightPx: Float,
+    ): Offset = clamp(
+        pan = pan - scrollDelta,
+        contentWidthPx = contentWidthPx,
+        contentHeightPx = contentHeightPx,
+        viewportWidthPx = viewportWidthPx,
+        viewportHeightPx = viewportHeightPx,
+    )
+
     fun clamp(
         pan: Offset,
         contentWidthPx: Float,

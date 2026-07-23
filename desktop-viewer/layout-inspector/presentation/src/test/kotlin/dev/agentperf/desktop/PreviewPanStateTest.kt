@@ -46,4 +46,34 @@ class PreviewPanStateTest {
             ),
         )
     }
+
+    @Test
+    fun `scrolling a zoomed preview pans on both axes`() {
+        assertEquals(
+            Offset(-80f, -120f),
+            PreviewPanState.scroll(
+                pan = Offset.Zero,
+                scrollDelta = Offset(80f, 120f),
+                contentWidthPx = 800f,
+                contentHeightPx = 900f,
+                viewportWidthPx = 400f,
+                viewportHeightPx = 500f,
+            ),
+        )
+    }
+
+    @Test
+    fun `scrolling a zoomed preview clamps at canvas edges`() {
+        assertEquals(
+            Offset(-200f, 0f),
+            PreviewPanState.scroll(
+                pan = Offset(-190f, 60f),
+                scrollDelta = Offset(80f, -120f),
+                contentWidthPx = 800f,
+                contentHeightPx = 300f,
+                viewportWidthPx = 400f,
+                viewportHeightPx = 500f,
+            ),
+        )
+    }
 }

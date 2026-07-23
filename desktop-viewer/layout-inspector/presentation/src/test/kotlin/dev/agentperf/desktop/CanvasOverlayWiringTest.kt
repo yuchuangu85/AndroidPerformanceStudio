@@ -26,6 +26,8 @@ class CanvasOverlayWiringTest {
         assertTrue(preview.contains("detectDragGestures"))
         assertTrue(preview.contains("previewPan + dragAmount"))
         assertTrue(preview.contains("change.consume()"))
+        assertTrue(preview.contains("scrollDelta"))
+        assertTrue(preview.contains("PreviewPanState.scroll("))
     }
     @Test
     fun `preview pane keeps zoom controls anchored to the lower right`() {
