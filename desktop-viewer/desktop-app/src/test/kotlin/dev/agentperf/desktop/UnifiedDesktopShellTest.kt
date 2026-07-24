@@ -2,6 +2,7 @@ package dev.agentperf.desktop
 
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -27,6 +28,7 @@ class UnifiedDesktopShellTest {
         assertFalse(shell.contains("GlobalSettingsBar("))
         assertTrue(shell.contains("SimpleperfWorkspace("))
         assertTrue(shell.contains("PerfettoWorkspace("))
+        assertTrue(shell.contains("MemoryProfilerWorkspace("))
         assertTrue(shell.contains("onOpenUserGuide"))
         assertTrue(shell.contains("commonThemePreference = applicationSettings.theme.storageValue"))
         assertTrue(shell.contains("commonLanguagePreference = applicationSettings.language.storageValue"))
@@ -44,10 +46,25 @@ class UnifiedDesktopShellTest {
         assertTrue(home.contains("CPU Profiler"))
         assertTrue(home.contains("Trace Analyzer"))
         assertTrue(home.contains("Memory Profiler"))
+        assertTrue(home.contains("Heap dump capture, object statistics, and class histogram analysis."))
         assertTrue(home.contains("Frame Profiler"))
         assertTrue(home.contains("Startup Profiler"))
         assertTrue(home.contains("Battery Profiler"))
         assertTrue(home.contains("Network Profiler"))
         assertTrue(shell.contains("ComingSoonPage("))
+    }
+
+    @Test
+    fun `memory profiler implementation modules are available at runtime`() {
+        listOf(
+            "dev.agentperf.memory.export.MemoryExportAdapters",
+            "dev.agentperf.memory.storage.SqliteMemorySessionStore",
+            "com.androidperformancestudio.memory.presentation.MemoryProfilerState",
+        ).forEach { className ->
+            assertDoesNotThrow(
+                { Class.forName(className) },
+                "Missing Memory Profiler runtime dependency: $className",
+            )
+        }
     }
 }

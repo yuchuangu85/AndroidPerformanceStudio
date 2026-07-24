@@ -104,10 +104,10 @@ fun AppHomePage(
                     title = "Memory Profiler",
                     subtitle = if (chinese) "内存分析" else "Memory",
                     description = if (chinese)
-                        "堆内存 dump、对象统计、leak suspect 检测。" else
-                        "Heap dump capture, object statistics, leak suspect detection.",
-                    actionLabel = if (chinese) "即将推出" else "Coming Soon",
-                    enabled = false,
+                        "堆内存 dump、对象统计与类直方图分析。" else
+                        "Heap dump capture, object statistics, and class histogram analysis.",
+                    actionLabel = if (chinese) "打开" else "Open",
+                    enabled = true,
                     onClick = onOpenMemoryProfiler,
                     modifier = Modifier.weight(1f),
                 )

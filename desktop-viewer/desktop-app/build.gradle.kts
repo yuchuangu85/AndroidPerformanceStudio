@@ -62,6 +62,7 @@ dependencies {
     implementation(project(":layout-inspector:presentation"))
     implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:perfetto-app:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio.memory:memory-app:0.1.0-SNAPSHOT")
     when (targetArch) {
         "x64" -> implementation(compose.desktop.macos_x64)
         "arm64" -> implementation(compose.desktop.macos_arm64)
@@ -82,6 +83,9 @@ compose.desktop {
         mainClass = "dev.agentperf.desktop.MainKt"
         jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")
         jvmArgs("-Dagentperf.version=$appVersion")
+        // Bound HPROF parsing so oversized imports fail with a recoverable Java OOME
+        // instead of letting the operating system terminate the desktop process.
+        jvmArgs("-Xmx4g")
 
         if (targetArch == "x64") {
             javaHome = "${System.getProperty("user.home")}/Downloads/zulu21.50.19-ca-jdk21.0.11-macosx_x64/Contents/Home"

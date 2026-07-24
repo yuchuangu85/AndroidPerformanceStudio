@@ -47,3 +47,8 @@ includeBuild("simpleperf-viewer") {
 includeBuild("perfetto-viewer") {
     name = "perfetto-viewer"
 }
+
+// Java/Kotlin heap capture and HPROF analysis is kept as an isolated composite build.
+includeBuild("memory-profiler") {
+    name = "memory-profiler"
+}

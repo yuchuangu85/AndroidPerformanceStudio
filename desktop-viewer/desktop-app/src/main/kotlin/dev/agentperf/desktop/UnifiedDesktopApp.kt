@@ -21,6 +21,7 @@ import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.desktop.SimpleperfWorkspace
+import com.androidperformancestudio.memory.app.MemoryProfilerWorkspace
 import com.androidperformancestudio.perfetto.app.PerfettoWorkspace
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -102,8 +103,7 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                         },
                     )
                 AppDestination.MEMORY_PROFILER ->
-                    ComingSoonPage(
-                        title = if (chinese) "Memory Profiler" else "Memory Profiler",
+                    MemoryProfilerWorkspace(
                         chinese = chinese,
                         onBack = { navigator.open(AppDestination.HOME) },
                     )

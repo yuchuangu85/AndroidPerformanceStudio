@@ -67,6 +67,28 @@ class FeatureDirectoryStructureTest {
         assertFalse(Files.exists(root.resolve("features")))
     }
 
+    @Test
+    fun `Memory Profiler code has one composite feature directory`() {
+        val feature = root.resolve("memory-profiler")
+
+        listOf(
+            "memory-model",
+            "capture-memory",
+            "parser-hprof",
+            "analysis-memory",
+            "storage-sqlite",
+            "export-adapters",
+            "presentation",
+            "memory-app",
+        ).forEach { module ->
+            assertTrue(Files.isDirectory(feature.resolve(module)), "Missing Memory Profiler module: $module")
+        }
+        val settings = Files.readString(root.resolve("settings.gradle.kts"))
+        val shellBuild = Files.readString(root.resolve("desktop-app/build.gradle.kts"))
+        assertTrue(settings.contains("includeBuild(\"memory-profiler\")"))
+        assertTrue(shellBuild.contains("com.androidperformancestudio.memory:memory-app"))
+    }
+
     private fun findGradleRoot(): Path =
         generateSequence(Path.of("").toAbsolutePath()) { it.parent }
             .first { Files.isRegularFile(it.resolve("settings.gradle.kts")) }
