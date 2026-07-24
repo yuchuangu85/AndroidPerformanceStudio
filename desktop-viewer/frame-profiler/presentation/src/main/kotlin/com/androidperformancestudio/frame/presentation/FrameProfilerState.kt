@@ -1,6 +1,7 @@
 package com.androidperformancestudio.frame.presentation
 
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
+import com.androidperformancestudio.frame.model.FrameSample
 
 public data class FrameProfilerState(
     val devices: List<FrameDeviceOption> = emptyList(),
@@ -32,4 +33,5 @@ public data class FrameProcessOption(
 
 public data class FrameProfilerActions(
     val onSelectFrame: (Long) -> Unit = {},
+    val onInspectLayout: (FrameSample) -> Unit = {},
 )

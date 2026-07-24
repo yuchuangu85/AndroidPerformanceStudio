@@ -129,10 +129,19 @@ internal enum class CaptureTargetMode {
     SYSTEM_UI,
 }
 
+data class InspectorCorrelationHint(
+    val deviceSerial: String?,
+    val targetPackageName: String,
+    val message: String,
+    val correlationNotice: String,
+    val foregroundMismatchPrefix: String,
+)
+
 @Composable
 fun FrameWindowScope.DesktopViewerApp(
     commonThemePreference: String? = null,
     commonLanguagePreference: String? = null,
+    correlationHint: InspectorCorrelationHint? = null,
 ) {
     val store = remember { createInitialInspectorStore() }
     var state by remember { mutableStateOf(store.state) }
@@ -153,7 +162,7 @@ fun FrameWindowScope.DesktopViewerApp(
         onDispose { manualRefreshSession.close() }
     }
     var availableDevices by remember { mutableStateOf<List<AdbDevice>>(emptyList()) }
-    var selectedDeviceSerial by remember { mutableStateOf<String?>(null) }
+    var selectedDeviceSerial by remember(correlationHint) { mutableStateOf(correlationHint?.deviceSerial) }
     var deviceListRefreshRequest by remember { mutableStateOf(0) }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
     val archiveFileChooser = remember { SwingCaptureArchiveFileChooser() }
@@ -639,6 +648,12 @@ fun FrameWindowScope.DesktopViewerApp(
                         }
                     },
                 )
+                correlationHint?.let { hint ->
+                    CorrelationBanner(
+                        hint = hint,
+                        capturedPackageName = state.snapshot?.packageName,
+                    )
+                }
                 HorizontalDivider(color = colors.border)
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                     val availableHeightDp = maxHeight.value
@@ -845,6 +860,27 @@ fun FrameWindowScope.DesktopViewerApp(
             }
         }
     }
+}
+
+@Composable
+private fun CorrelationBanner(
+    hint: InspectorCorrelationHint,
+    capturedPackageName: String?,
+) {
+    val colors = LocalViewerColors.current
+    val matches = capturedPackageName == null || capturedPackageName == hint.targetPackageName
+    val suffix =
+        if (matches) {
+            " · ${hint.correlationNotice}"
+        } else {
+            " · ${hint.foregroundMismatchPrefix}: $capturedPackageName"
+        }
+    Text(
+        text = hint.message + suffix,
+        modifier = Modifier.fillMaxWidth().background(colors.panel).padding(horizontal = 18.dp, vertical = 5.dp),
+        color = if (matches) colors.secondaryText else colors.warning,
+        fontSize = 12.sp,
+    )
 }
 
 internal fun createInitialInspectorStore(): InspectorStore = InspectorStore()

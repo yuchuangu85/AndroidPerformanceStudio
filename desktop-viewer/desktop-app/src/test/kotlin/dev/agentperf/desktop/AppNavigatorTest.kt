@@ -26,4 +26,25 @@ class AppNavigatorTest {
         assertTrue(AppDestination.LAYOUT_INSPECTOR.shouldMaximizeWindow())
         assertTrue(AppDestination.SIMPLEPERF.shouldMaximizeWindow())
     }
+
+    @Test
+    fun `frame correlation context is retained only for layout inspector navigation`() {
+        val navigator = AppNavigator()
+        val hint =
+            InspectorCorrelationHint(
+                deviceSerial = "device",
+                targetPackageName = "dev.example",
+                message = "Frame #7",
+                correlationNotice = "correlation only",
+                foregroundMismatchPrefix = "package differs",
+            )
+
+        navigator.openLayoutInspector(hint)
+
+        assertEquals(AppDestination.LAYOUT_INSPECTOR, navigator.destination)
+        assertEquals(hint, navigator.inspectorCorrelationHint)
+
+        navigator.open(AppDestination.HOME)
+        assertEquals(null, navigator.inspectorCorrelationHint)
+    }
 }

@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.view.FrameMetrics
 import android.view.Window
+import androidx.metrics.performance.JankStats
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameBatch
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameBatchCodec
 import com.androidperformancestudio.frame.agent.protocol.AgentExpectedDurationSource
@@ -92,6 +93,7 @@ private class AndroidFrameMetricsCollector(
     private val callbackThread = HandlerThread("agentperf-frame-metrics")
     private lateinit var callbackHandler: Handler
     private val attachedWindows = WeakHashMap<Activity, Window>()
+    private val jankStatsByWindow = WeakHashMap<Window, JankStats>()
     private val listener =
         Window.OnFrameMetricsAvailableListener { window, metrics, droppedReports ->
             val activity = synchronized(attachedWindows) { attachedWindows.entries.firstOrNull { it.value === window }?.key }
@@ -138,12 +140,25 @@ private class AndroidFrameMetricsCollector(
         if (previous !== window) {
             previous?.removeOnFrameMetricsAvailableListener(listener)
             window.addOnFrameMetricsAvailableListener(listener, callbackHandler)
+            synchronized(jankStatsByWindow) {
+                jankStatsByWindow.remove(previous)?.isTrackingEnabled = false
+                jankStatsByWindow[window] =
+                    JankStats.createAndTrack(window) { frameData ->
+                        store.annotateJank(
+                            frameStartNs = frameData.frameStartNanos,
+                            windowId = window.agentWindowId(),
+                            isJank = frameData.isJank,
+                            states = frameData.states.associate { state -> state.key to state.value },
+                        )
+                    }
+            }
         }
     }
 
     private fun detach(activity: Activity) {
         val window = synchronized(attachedWindows) { attachedWindows.remove(activity) }
         window?.removeOnFrameMetricsAvailableListener(listener)
+        window?.let { synchronized(jankStatsByWindow) { jankStatsByWindow.remove(it) } }?.isTrackingEnabled = false
     }
 }
 
@@ -172,7 +187,7 @@ private fun FrameMetrics.toAgentFrame(
         sequence = -1L,
         packageName = packageName,
         activityName = activity?.javaClass?.name,
-        windowId = "window:${System.identityHashCode(window)}",
+        windowId = window.agentWindowId(),
         intendedVsyncNs = intendedVsync,
         actualVsyncNs = metric(FrameMetrics.VSYNC_TIMESTAMP),
         frameCompletedNs =
@@ -208,5 +223,7 @@ private fun FrameMetrics.toAgentFrame(
 
 @TargetApi(Build.VERSION_CODES.N)
 private fun FrameMetrics.metric(identifier: Int): Long? = getMetric(identifier).takeIf { it >= 0L }
+
+private fun Window.agentWindowId(): String = "window:${System.identityHashCode(this)}"
 
 private const val NANOS_PER_SECOND = 1_000_000_000.0

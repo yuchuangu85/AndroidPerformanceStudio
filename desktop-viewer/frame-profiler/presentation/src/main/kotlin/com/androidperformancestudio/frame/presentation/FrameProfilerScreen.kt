@@ -1,4 +1,11 @@
-@file:Suppress("FunctionName", "MagicNumber", "MaxLineLength", "TooManyFunctions", "ktlint:standard:function-naming")
+@file:Suppress(
+    "CyclomaticComplexMethod",
+    "FunctionName",
+    "MagicNumber",
+    "MaxLineLength",
+    "TooManyFunctions",
+    "ktlint:standard:function-naming",
+)
 
 package com.androidperformancestudio.frame.presentation
 
@@ -16,11 +23,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -137,7 +147,12 @@ private fun AnalysisContent(
             }
         }
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FrameDetail(selected, chinese, Modifier.weight(1.2f).fillMaxSize())
+            FrameDetail(
+                frame = selected,
+                chinese = chinese,
+                onInspectLayout = actions.onInspectLayout,
+                modifier = Modifier.weight(1.2f).fillMaxSize(),
+            )
             ClusterList(analysis, chinese, Modifier.weight(1f).fillMaxSize())
         }
     }
@@ -234,10 +249,14 @@ private fun FrameTimeline(
 private fun FrameDetail(
     frame: AnalyzedFrame?,
     chinese: Boolean,
+    onInspectLayout: (com.androidperformancestudio.frame.model.FrameSample) -> Unit,
     modifier: Modifier,
 ) {
     Card(modifier = modifier) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
                 if (chinese) "单帧详情" else "Frame Detail",
                 style = MaterialTheme.typography.titleMedium,
@@ -245,16 +264,39 @@ private fun FrameDetail(
             )
             if (frame == null) return@Column
             DetailRow("Frame", "#${frame.sample.frameId}")
+            DetailRow(if (chinese) "来源" else "Source", frame.sample.source.name)
+            frame.sample.activityName?.let { DetailRow("Activity", it.substringAfterLast('.')) }
+            frame.sample.windowId?.let { DetailRow("Window", it) }
             DetailRow(if (chinese) "判定" else "Verdict", frame.verdict.name)
+            DetailRow(if (chinese) "平台判定" else "Platform Jank", frame.sample.platformJank?.toString() ?: "—")
             DetailRow(if (chinese) "耗时" else "Duration", frame.sample.resolvedDurationNs().formatMillis())
             DetailRow(if (chinese) "预算" else "Budget", frame.sample.expectedDurationNs.formatMillis())
             DetailRow(if (chinese) "预算来源" else "Budget Source", frame.sample.expectedDurationSource.name)
             DetailRow(if (chinese) "错过 VSync" else "Missed VSync", frame.missedVsyncCount?.toString() ?: "—")
             DetailRow(if (chinese) "主要阶段" else "Bottleneck", frame.bottleneckStage ?: "—")
+            if (frame.jankTypes.isNotEmpty()) {
+                DetailRow(if (chinese) "卡顿类型" else "Jank Types", frame.jankTypes.joinToString { it.name })
+            }
             Spacer(Modifier.height(4.dp))
             frame.sample.stages
                 .values()
                 .forEach { (name, duration) -> DetailRow(name, duration.formatMillis()) }
+            frame.sample.states.forEach { (key, value) -> DetailRow("State · $key", value) }
+            if (frame.sample.packageName != null) {
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(onClick = { onInspectLayout(frame.sample) }) {
+                    Text(if (chinese) "在 Layout Inspector 中关联查看" else "Correlate in Layout Inspector")
+                }
+                Text(
+                    if (chinese) {
+                        "打开当前前台布局用于时间与复杂度关联；该关联不表示某个 View 导致卡顿。"
+                    } else {
+                        "Opens the current foreground layout for timing correlation; it does not attribute jank to a View."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

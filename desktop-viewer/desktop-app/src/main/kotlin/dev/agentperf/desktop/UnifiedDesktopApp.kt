@@ -82,6 +82,7 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                     DesktopViewerApp(
                         commonThemePreference = applicationSettings.theme.storageValue,
                         commonLanguagePreference = applicationSettings.language.storageValue,
+                        correlationHint = navigator.inspectorCorrelationHint,
                     )
                 AppDestination.SIMPLEPERF ->
                     SimpleperfWorkspace(
@@ -112,6 +113,27 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                     FrameProfilerWorkspace(
                         chinese = chinese,
                         onBack = { navigator.open(AppDestination.HOME) },
+                        onOpenLayoutInspector = { request ->
+                            val activity = request.activityName?.substringAfterLast('.')?.let { " · $it" }.orEmpty()
+                            val message =
+                                if (chinese) {
+                                    "来自 Frame #${request.frameId} 的布局关联 · ${request.packageName}$activity"
+                                } else {
+                                    "Layout correlation from Frame #${request.frameId} · ${request.packageName}$activity"
+                                }
+                            navigator.openLayoutInspector(
+                                InspectorCorrelationHint(
+                                    deviceSerial = request.deviceSerial,
+                                    targetPackageName = request.packageName,
+                                    message = message,
+                                    correlationNotice =
+                                        if (chinese) "仅做相关性分析，不推断 View 因果关系" else
+                                            "correlation only; no View causality is inferred",
+                                    foregroundMismatchPrefix =
+                                        if (chinese) "当前前台应用不一致" else "foreground package differs",
+                                ),
+                            )
+                        },
                     )
                 AppDestination.STARTUP_PROFILER ->
                     ComingSoonPage(

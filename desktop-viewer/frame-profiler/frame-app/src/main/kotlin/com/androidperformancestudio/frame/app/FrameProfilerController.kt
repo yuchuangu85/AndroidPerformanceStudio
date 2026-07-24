@@ -5,6 +5,7 @@ package com.androidperformancestudio.frame.app
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.FrameJankAnalyzer
 import com.androidperformancestudio.frame.export.FrameCsvExporter
+import com.androidperformancestudio.frame.export.FrameJsonExporter
 import com.androidperformancestudio.frame.model.FrameCaptureSession
 import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
@@ -27,6 +28,7 @@ internal class FrameProfilerController(
     private val parser: GfxInfoFrameStatsParser = GfxInfoFrameStatsParser(),
     private val analyzer: FrameJankAnalyzer = FrameJankAnalyzer(),
     private val exporter: FrameCsvExporter = FrameCsvExporter(),
+    private val jsonExporter: FrameJsonExporter = FrameJsonExporter(),
     private val databaseFile: Path = defaultDatabaseFile(),
 ) {
     private val mutableState = MutableStateFlow(FrameProfilerState())
@@ -251,6 +253,16 @@ internal class FrameProfilerController(
                 mutableState.value = mutableState.value.copy(operationMessage = "Exported ${output.fileName}.", errorMessage = null)
             }.onFailure { error ->
                 mutableState.value = mutableState.value.copy(errorMessage = error.message ?: "CSV export failed.")
+            }
+    }
+
+    suspend fun exportJson(output: Path) {
+        val analysis = mutableState.value.analysis ?: return
+        runCatching { withContext(Dispatchers.IO) { jsonExporter.export(analysis, output) } }
+            .onSuccess {
+                mutableState.value = mutableState.value.copy(operationMessage = "Exported ${output.fileName}.", errorMessage = null)
+            }.onFailure { error ->
+                mutableState.value = mutableState.value.copy(errorMessage = error.message ?: "JSON export failed.")
             }
     }
 

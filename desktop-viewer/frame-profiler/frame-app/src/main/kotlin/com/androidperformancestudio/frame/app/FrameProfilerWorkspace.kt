@@ -39,6 +39,7 @@ import javax.swing.JFileChooser
 public fun FrameWindowScope.FrameProfilerWorkspace(
     chinese: Boolean = false,
     onBack: () -> Unit = {},
+    onOpenLayoutInspector: (FrameLayoutInspectionRequest) -> Unit = {},
 ) {
     val controller = remember { FrameProfilerController() }
     val state by controller.state.collectAsState()
@@ -114,16 +115,47 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
             Button(
                 enabled = state.analysis != null,
                 onClick = {
-                    chooseSaveFile(window)?.let { output -> scope.launch { controller.exportCsv(output.toPath()) } }
+                    chooseSaveFile(window, "frame-analysis.csv")?.let { output ->
+                        scope.launch { controller.exportCsv(output.toPath()) }
+                    }
                 },
             ) {
                 Text(if (chinese) "导出 CSV" else "Export CSV")
+            }
+            Button(
+                enabled = state.analysis != null,
+                onClick = {
+                    chooseSaveFile(window, "frame-analysis.json")?.let { output ->
+                        scope.launch { controller.exportJson(output.toPath()) }
+                    }
+                },
+            ) {
+                Text(if (chinese) "导出 JSON" else "Export JSON")
             }
             state.operationMessage?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
         }
         FrameProfilerScreen(
             state = state,
-            actions = FrameProfilerActions(onSelectFrame = controller::selectFrame),
+            actions =
+                FrameProfilerActions(
+                    onSelectFrame = controller::selectFrame,
+                    onInspectLayout = { sample ->
+                        sample.packageName?.let { packageName ->
+                            scope.launch {
+                                if (controller.state.value.isCapturing) controller.stopOnlineCapture()
+                                onOpenLayoutInspector(
+                                    FrameLayoutInspectionRequest(
+                                        deviceSerial = state.selectedDeviceSerial,
+                                        packageName = packageName,
+                                        activityName = sample.activityName,
+                                        windowId = sample.windowId,
+                                        frameId = sample.frameId,
+                                    ),
+                                )
+                            }
+                        }
+                    },
+                ),
             chinese = chinese,
             modifier = Modifier.weight(1f),
         )
@@ -197,10 +229,13 @@ private fun FrameStatsOpenFileDialog(
     )
 }
 
-private fun chooseSaveFile(parent: java.awt.Component): File? =
+private fun chooseSaveFile(
+    parent: java.awt.Component,
+    defaultName: String,
+): File? =
     JFileChooser().run {
-        dialogTitle = "Export Frame Profiler CSV"
-        selectedFile = File("frame-analysis.csv")
+        dialogTitle = "Export Frame Profiler Report"
+        selectedFile = File(defaultName)
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
 

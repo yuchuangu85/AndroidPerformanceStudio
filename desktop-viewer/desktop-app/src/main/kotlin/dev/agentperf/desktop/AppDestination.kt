@@ -26,8 +26,16 @@ class AppNavigator(
 ) {
     var destination by mutableStateOf(initialDestination)
         private set
+    var inspectorCorrelationHint by mutableStateOf<InspectorCorrelationHint?>(null)
+        private set
 
     fun open(destination: AppDestination) {
+        if (destination != AppDestination.LAYOUT_INSPECTOR) inspectorCorrelationHint = null
         this.destination = destination
+    }
+
+    fun openLayoutInspector(correlationHint: InspectorCorrelationHint?) {
+        inspectorCorrelationHint = correlationHint
+        destination = AppDestination.LAYOUT_INSPECTOR
     }
 }

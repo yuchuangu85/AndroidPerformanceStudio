@@ -50,10 +50,50 @@ class FrameMetricsStoreTest {
         assertEquals("FRAME_UNAVAILABLE", error.code)
     }
 
-    private fun frame(durationNs: Long): AgentFrameSample =
+    @Test
+    fun `merges JankStats classification that arrives after FrameMetrics`() {
+        val store = FrameMetricsStore()
+        store.add(frame(durationNs = 20, intendedVsyncNs = 100, windowId = "window:1"))
+
+        store.annotateJank(
+            frameStartNs = 100,
+            windowId = "window:1",
+            isJank = true,
+            states = mapOf("scroll" to "feed"),
+        )
+
+        val sample = store.after(-1).frames.single()
+        assertEquals(true, sample.platformJank)
+        assertEquals("feed", sample.states["scroll"])
+    }
+
+    @Test
+    fun `merges JankStats classification that arrives before FrameMetrics`() {
+        val store = FrameMetricsStore()
+        store.annotateJank(
+            frameStartNs = 200,
+            windowId = "window:2",
+            isJank = false,
+            states = mapOf("screen" to "details"),
+        )
+
+        store.add(frame(durationNs = 8, intendedVsyncNs = 200, windowId = "window:2"))
+
+        val sample = store.after(-1).frames.single()
+        assertEquals(false, sample.platformJank)
+        assertEquals("details", sample.states["screen"])
+    }
+
+    private fun frame(
+        durationNs: Long,
+        intendedVsyncNs: Long? = null,
+        windowId: String? = null,
+    ): AgentFrameSample =
         AgentFrameSample(
             sequence = -1,
             packageName = "dev.example",
             totalDurationNs = durationNs,
+            intendedVsyncNs = intendedVsyncNs,
+            windowId = windowId,
         )
 }

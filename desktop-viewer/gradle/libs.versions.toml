@@ -2,6 +2,7 @@
 agp = "9.2.0"
 androidx-activity = "1.11.0"
 androidx-startup = "1.2.0"
+androidx-metrics-performance = "1.0.0"
 compose = "1.11.1"
 coroutines = "1.10.2"
 junit = "5.13.4"
@@ -11,6 +12,7 @@ serialization = "1.9.0"
 [libraries]
 androidx-activity = { module = "androidx.activity:activity", version.ref = "androidx-activity" }
 androidx-startup = { module = "androidx.startup:startup-runtime", version.ref = "androidx-startup" }
+androidx-metrics-performance = { module = "androidx.metrics:metrics-performance", version.ref = "androidx-metrics-performance" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
