@@ -1,0 +1,18 @@
+pluginManagement {
+    repositories { gradlePluginPortal(); google(); mavenCentral() }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories { google(); mavenCentral() }
+}
+
+rootProject.name = "gpu-inspector-integration"
+
+include(
+    ":gpu-integration-model",
+    ":agi-toolchain",
+    ":agi-artifact-index",
+    ":presentation",
+    ":gpu-integration-app",
+)

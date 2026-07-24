@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -46,5 +47,21 @@ class AppNavigatorTest {
 
         navigator.open(AppDestination.HOME)
         assertEquals(null, navigator.inspectorCorrelationHint)
+    }
+
+    @Test
+    fun `ecosystem artifacts can open Perfetto with an explicit correlation notice`() {
+        val navigator = AppNavigator()
+        val trace = Path.of("capture.perfetto-trace")
+
+        navigator.openPerfettoTrace(trace, "Benchmark Regression")
+
+        assertEquals(AppDestination.PERFETTO, navigator.destination)
+        assertEquals(trace, navigator.perfettoTraceFile)
+        assertTrue(requireNotNull(navigator.perfettoTraceNotice).contains("correlation only"))
+
+        navigator.open(AppDestination.HOME)
+        assertEquals(null, navigator.perfettoTraceFile)
+        assertEquals(null, navigator.perfettoTraceNotice)
     }
 }

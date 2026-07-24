@@ -1,0 +1,26 @@
+build:
+  maxIssues: 0
+config:
+  validation: true
+complexity:
+  CyclomaticComplexMethod:
+    active: false
+  LongParameterList:
+    active: false
+  ComplexCondition:
+    active: false
+  NestedBlockDepth:
+    active: false
+style:
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: false
+  WildcardImport:
+    active: false
+exceptions:
+  TooGenericExceptionCaught:
+    active: false
+naming:
+  MatchingDeclarationName:
+    active: false

@@ -48,6 +48,8 @@ import kotlin.io.path.fileSize
 @Composable
 fun FrameWindowScope.PerfettoWorkspace(
     onOpenUserGuide: (() -> Unit)? = null,
+    initialTraceFile: Path? = null,
+    initialTraceNotice: String? = null,
 ) {
     val coroutineScope = rememberCoroutineScope()
     val captureSession = remember { PerfettoCaptureSession() }
@@ -65,6 +67,13 @@ fun FrameWindowScope.PerfettoWorkspace(
         when (val result = sessionStore.listRecent()) {
             is StudioResult.Success -> sessions = result.value
             is StudioResult.Failure -> {}
+        }
+    }
+    LaunchedEffect(initialTraceFile) {
+        initialTraceFile?.let { traceFile ->
+            activeTraceFile = traceFile
+            recentFiles = (listOf(traceFile) + recentFiles).distinct().take(10)
+            launchTraceInUi(traceFile, uiServer)
         }
     }
 
@@ -108,6 +117,19 @@ fun FrameWindowScope.PerfettoWorkspace(
         Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Perfetto Trace Analyzer", style = MaterialTheme.typography.headlineMedium)
+            }
+            if (initialTraceFile != null && initialTraceNotice != null) {
+                Spacer(Modifier.height(12.dp))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(initialTraceFile.fileName.toString(), style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            initialTraceNotice,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(24.dp))
             PerfettoCapturePage(

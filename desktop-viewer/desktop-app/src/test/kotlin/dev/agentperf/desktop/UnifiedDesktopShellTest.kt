@@ -40,6 +40,13 @@ class UnifiedDesktopShellTest {
         assertTrue(shell.contains("onOpenFrameProfiler"))
         assertTrue(shell.contains("onOpenStartupProfiler"))
         assertTrue(shell.contains("onOpenBatteryProfiler"))
+        assertTrue(shell.contains("onOpenNetworkProfiler"))
+        assertTrue(shell.contains("onOpenGpuInspector"))
+        assertTrue(shell.contains("onOpenBenchmarkRegression"))
+        assertTrue(shell.contains("NetworkProfilerWorkspace("))
+        assertTrue(shell.contains("GpuIntegrationWorkspace("))
+        assertTrue(shell.contains("BenchmarkRegressionWorkspace("))
+        assertTrue(shell.contains("navigator.openPerfettoTrace"))
 
         assertFalse(home.contains("AppSettingsControls"))
         assertTrue(home.contains("Layout Inspector"))
@@ -51,6 +58,8 @@ class UnifiedDesktopShellTest {
         assertTrue(home.contains("Startup Profiler"))
         assertTrue(home.contains("Battery Profiler"))
         assertTrue(home.contains("Network Profiler"))
+        assertTrue(home.contains("GPU Inspector"))
+        assertTrue(home.contains("Benchmark Regression"))
         assertFalse(shell.contains("ComingSoonPage("))
     }
 
@@ -74,5 +83,19 @@ class UnifiedDesktopShellTest {
             { Class.forName("com.androidperformancestudio.battery.app.BatteryProfilerWorkspaceKt") },
             "Missing Battery Profiler runtime dependency",
         )
+    }
+
+    @Test
+    fun `ecosystem profiler workspaces are available at runtime`() {
+        listOf(
+            "com.androidperformancestudio.network.app.NetworkProfilerWorkspaceKt",
+            "com.androidperformancestudio.gpu.app.GpuIntegrationWorkspaceKt",
+            "com.androidperformancestudio.benchmark.app.BenchmarkRegressionWorkspaceKt",
+        ).forEach { className ->
+            assertDoesNotThrow(
+                { Class.forName(className) },
+                "Missing ecosystem profiler runtime dependency: $className",
+            )
+        }
     }
 }

@@ -35,6 +35,9 @@ fun AppHomePage(
     onOpenFrameProfiler: () -> Unit,
     onOpenStartupProfiler: () -> Unit,
     onOpenBatteryProfiler: () -> Unit,
+    onOpenNetworkProfiler: () -> Unit,
+    onOpenGpuInspector: () -> Unit,
+    onOpenBenchmarkRegression: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
@@ -128,8 +131,8 @@ fun AppHomePage(
                     description = if (chinese)
                         "冷启动/温启动耗时分解、Baseline Profile 支持。" else
                         "Cold/warm startup breakdown and Baseline Profile support.",
-                    actionLabel = if (chinese) "即将推出" else "Coming Soon",
-                    enabled = false,
+                    actionLabel = if (chinese) "打开" else "Open",
+                    enabled = true,
                     onClick = onOpenStartupProfiler,
                     modifier = Modifier.weight(1f),
                 )
@@ -138,7 +141,7 @@ fun AppHomePage(
             Spacer(Modifier.height(20.dp))
 
             Row(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 640.dp),
+                modifier = Modifier.fillMaxWidth().widthIn(max = 960.dp),
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 FeatureEntryCard(
@@ -147,8 +150,8 @@ fun AppHomePage(
                     description = if (chinese)
                         "batterystats 解析、wakelock/alarm/network 使用统计。" else
                         "batterystats analysis with wakelock, alarm, and network usage stats.",
-                    actionLabel = if (chinese) "即将推出" else "Coming Soon",
-                    enabled = false,
+                    actionLabel = if (chinese) "打开" else "Open",
+                    enabled = true,
                     onClick = onOpenBatteryProfiler,
                     modifier = Modifier.weight(1f),
                 )
@@ -158,9 +161,39 @@ fun AppHomePage(
                     description = if (chinese)
                         "HTTP/HTTPS 流量捕获与请求时间线分析。" else
                         "HTTP/HTTPS traffic capture and request timeline analysis.",
-                    actionLabel = if (chinese) "规划中" else "Roadmap",
-                    enabled = false,
-                    onClick = {},
+                    actionLabel = if (chinese) "打开" else "Open",
+                    enabled = true,
+                    onClick = onOpenNetworkProfiler,
+                    modifier = Modifier.weight(1f),
+                )
+                FeatureEntryCard(
+                    title = "GPU Inspector",
+                    subtitle = if (chinese) "GPU / AGI 集成" else "GPU / AGI Integration",
+                    description = if (chinese)
+                        "探测并启动 Android GPU Inspector，索引和校验 GPU 分析产物。" else
+                        "Discover and launch Android GPU Inspector, then index and verify GPU artifacts.",
+                    actionLabel = if (chinese) "打开" else "Open",
+                    enabled = true,
+                    onClick = onOpenGpuInspector,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                FeatureEntryCard(
+                    title = "Benchmark Regression",
+                    subtitle = if (chinese) "Macrobenchmark 回归" else "Macrobenchmark Regression",
+                    description = if (chinese)
+                        "比较 AndroidX Benchmark 基线与当前结果，并生成 CI 回归报告。" else
+                        "Compare AndroidX Benchmark baselines and current results with CI regression reports.",
+                    actionLabel = if (chinese) "打开" else "Open",
+                    enabled = true,
+                    onClick = onOpenBenchmarkRegression,
                     modifier = Modifier.weight(1f),
                 )
             }

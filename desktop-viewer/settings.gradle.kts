@@ -69,3 +69,18 @@ includeBuild("startup-profiler") {
 includeBuild("battery-profiler") {
     name = "battery-profiler"
 }
+
+// HTTP request capture and HAR analysis is kept as an isolated composite build.
+includeBuild("network-profiler") {
+    name = "network-profiler"
+}
+
+// Android GPU Inspector tooling and artifact management is kept isolated.
+includeBuild("gpu-inspector-integration") {
+    name = "gpu-inspector-integration"
+}
+
+// AndroidX Benchmark import, comparison, and CI reporting is kept isolated.
+includeBuild("benchmark-regression") {
+    name = "benchmark-regression"
+}

@@ -22,8 +22,11 @@ import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.desktop.SimpleperfWorkspace
 import com.androidperformancestudio.battery.app.BatteryProfilerWorkspace
+import com.androidperformancestudio.benchmark.app.BenchmarkRegressionWorkspace
 import com.androidperformancestudio.frame.app.FrameProfilerWorkspace
+import com.androidperformancestudio.gpu.app.GpuIntegrationWorkspace
 import com.androidperformancestudio.memory.app.MemoryProfilerWorkspace
+import com.androidperformancestudio.network.app.NetworkProfilerWorkspace
 import com.androidperformancestudio.perfetto.app.PerfettoWorkspace
 import com.androidperformancestudio.startup.app.StartupProfilerWorkspace
 import java.util.Locale
@@ -79,6 +82,9 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                         onOpenFrameProfiler = { navigator.open(AppDestination.FRAME_PROFILER) },
                         onOpenStartupProfiler = { navigator.open(AppDestination.STARTUP_PROFILER) },
                         onOpenBatteryProfiler = { navigator.open(AppDestination.BATTERY_PROFILER) },
+                        onOpenNetworkProfiler = { navigator.open(AppDestination.NETWORK_PROFILER) },
+                        onOpenGpuInspector = { navigator.open(AppDestination.GPU_INSPECTOR) },
+                        onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
                     )
                 AppDestination.LAYOUT_INSPECTOR ->
                     DesktopViewerApp(
@@ -99,6 +105,8 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                     )
                 AppDestination.PERFETTO ->
                     PerfettoWorkspace(
+                        initialTraceFile = navigator.perfettoTraceFile,
+                        initialTraceNotice = navigator.perfettoTraceNotice,
                         onOpenUserGuide = {
                             val lang = if (chinese) UserDocumentationLanguage.SIMPLIFIED_CHINESE else UserDocumentationLanguage.ENGLISH
                             coroutineScope.launch(Dispatchers.IO) {
@@ -146,6 +154,23 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                     BatteryProfilerWorkspace(
                         chinese = chinese,
                         onBack = { navigator.open(AppDestination.HOME) },
+                    )
+                AppDestination.NETWORK_PROFILER ->
+                    NetworkProfilerWorkspace(
+                        chinese = chinese,
+                        onBack = { navigator.open(AppDestination.HOME) },
+                    )
+                AppDestination.GPU_INSPECTOR ->
+                    GpuIntegrationWorkspace(
+                        chinese = chinese,
+                        onBack = { navigator.open(AppDestination.HOME) },
+                        onOpenTrace = { path -> navigator.openPerfettoTrace(path, "GPU Inspector") },
+                    )
+                AppDestination.BENCHMARK_REGRESSION ->
+                    BenchmarkRegressionWorkspace(
+                        chinese = chinese,
+                        onBack = { navigator.open(AppDestination.HOME) },
+                        onOpenTrace = { path -> navigator.openPerfettoTrace(path, "Benchmark Regression") },
                     )
             }
             if (showApplicationSettings) {
