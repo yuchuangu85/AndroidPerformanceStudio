@@ -21,6 +21,7 @@ import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.desktop.SimpleperfWorkspace
+import com.androidperformancestudio.battery.app.BatteryProfilerWorkspace
 import com.androidperformancestudio.frame.app.FrameProfilerWorkspace
 import com.androidperformancestudio.memory.app.MemoryProfilerWorkspace
 import com.androidperformancestudio.perfetto.app.PerfettoWorkspace
@@ -142,8 +143,7 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                         onBack = { navigator.open(AppDestination.HOME) },
                     )
                 AppDestination.BATTERY_PROFILER ->
-                    ComingSoonPage(
-                        title = if (chinese) "Battery Profiler" else "Battery Profiler",
+                    BatteryProfilerWorkspace(
                         chinese = chinese,
                         onBack = { navigator.open(AppDestination.HOME) },
                     )

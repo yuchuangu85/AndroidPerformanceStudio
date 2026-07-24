@@ -35,7 +35,7 @@ class UnifiedDesktopShellTest {
         assertFalse(shell.contains("返回主页"))
         assertFalse(shell.contains("RetainedFeatureLayer"))
 
-        assertTrue(shell.contains("ComingSoonPage("))
+        assertTrue(shell.contains("BatteryProfilerWorkspace("))
         assertTrue(shell.contains("onOpenMemoryProfiler"))
         assertTrue(shell.contains("onOpenFrameProfiler"))
         assertTrue(shell.contains("onOpenStartupProfiler"))
@@ -51,7 +51,7 @@ class UnifiedDesktopShellTest {
         assertTrue(home.contains("Startup Profiler"))
         assertTrue(home.contains("Battery Profiler"))
         assertTrue(home.contains("Network Profiler"))
-        assertTrue(shell.contains("ComingSoonPage("))
+        assertFalse(shell.contains("ComingSoonPage("))
     }
 
     @Test
@@ -66,5 +66,13 @@ class UnifiedDesktopShellTest {
                 "Missing Memory Profiler runtime dependency: $className",
             )
         }
+    }
+
+    @Test
+    fun `battery profiler workspace is available at runtime`() {
+        assertDoesNotThrow(
+            { Class.forName("com.androidperformancestudio.battery.app.BatteryProfilerWorkspaceKt") },
+            "Missing Battery Profiler runtime dependency",
+        )
     }
 }

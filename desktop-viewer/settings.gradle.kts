@@ -64,3 +64,8 @@ includeBuild("frame-profiler") {
 includeBuild("startup-profiler") {
     name = "startup-profiler"
 }
+
+// Battery resource attribution and energy estimation is kept as an isolated composite build.
+includeBuild("battery-profiler") {
+    name = "battery-profiler"
+}
