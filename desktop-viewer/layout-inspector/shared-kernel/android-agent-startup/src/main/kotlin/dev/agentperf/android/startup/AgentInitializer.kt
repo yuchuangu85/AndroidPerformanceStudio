@@ -8,6 +8,7 @@ import dev.agentperf.android.core.AgentRuntime
 import dev.agentperf.android.core.AgentServer
 import dev.agentperf.android.core.StartResult
 import dev.agentperf.android.frame.FrameMetricsAgent
+import dev.agentperf.android.startup.metrics.StartupMetricsAgent
 import dev.agentperf.android.view.ActivityCaptureProvider
 import dev.agentperf.android.view.ResumedActivityTracker
 
@@ -15,6 +16,7 @@ class AgentInitializer : Initializer<StartResult> {
     override fun create(context: Context): StartResult {
         val applicationContext = context.applicationContext
         val debuggable = applicationContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (debuggable) StartupMetricsAgent.initializerEntered(applicationContext as Application)
         return runtime(applicationContext).start(debuggable)
     }
 
@@ -26,10 +28,11 @@ class AgentInitializer : Initializer<StartResult> {
                 val application = context.applicationContext as Application
                 val tracker = ResumedActivityTracker(application)
                 val frameMetricsAgent = FrameMetricsAgent(application)
+                val startupMetricsAgent = StartupMetricsAgent.create(application)
                 AgentServer(
                     context = context,
                     captureProvider = ActivityCaptureProvider(tracker),
-                    requestExtensions = listOf(frameMetricsAgent),
+                    requestExtensions = listOf(frameMetricsAgent, startupMetricsAgent),
                 ).start()
             }.also { processRuntime = it }
         }

@@ -24,6 +24,7 @@ import com.androidperformancestudio.desktop.SimpleperfWorkspace
 import com.androidperformancestudio.frame.app.FrameProfilerWorkspace
 import com.androidperformancestudio.memory.app.MemoryProfilerWorkspace
 import com.androidperformancestudio.perfetto.app.PerfettoWorkspace
+import com.androidperformancestudio.startup.app.StartupProfilerWorkspace
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -136,8 +137,7 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                         },
                     )
                 AppDestination.STARTUP_PROFILER ->
-                    ComingSoonPage(
-                        title = if (chinese) "Startup Profiler" else "Startup Profiler",
+                    StartupProfilerWorkspace(
                         chinese = chinese,
                         onBack = { navigator.open(AppDestination.HOME) },
                     )

@@ -26,6 +26,7 @@ val layoutInspectorModules =
         "shared-kernel:android-agent-core",
         "shared-kernel:android-agent-view",
         "shared-kernel:android-agent-frame",
+        "shared-kernel:android-agent-startup-metrics",
         "shared-kernel:android-agent-startup",
         "adb-gateway",
         "application",
@@ -57,4 +58,9 @@ includeBuild("memory-profiler") {
 // Frame timing and jank analysis is kept as an isolated composite build.
 includeBuild("frame-profiler") {
     name = "frame-profiler"
+}
+
+// Application startup timing and launch analysis is kept as an isolated composite build.
+includeBuild("startup-profiler") {
+    name = "startup-profiler"
 }
