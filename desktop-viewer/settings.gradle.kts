@@ -52,3 +52,8 @@ includeBuild("perfetto-viewer") {
 includeBuild("memory-profiler") {
     name = "memory-profiler"
 }
+
+// Frame timing and jank analysis is kept as an isolated composite build.
+includeBuild("frame-profiler") {
+    name = "frame-profiler"
+}

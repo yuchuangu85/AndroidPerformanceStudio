@@ -115,10 +115,10 @@ fun AppHomePage(
                     title = "Frame Profiler",
                     subtitle = if (chinese) "帧耗时分析" else "Frame Timing",
                     description = if (chinese)
-                        "JankStats、FrameMetrics 帧耗时与卡顿分析。" else
-                        "JankStats and FrameMetrics for frame timing and jank analysis.",
-                    actionLabel = if (chinese) "即将推出" else "Coming Soon",
-                    enabled = false,
+                        "在线采集或导入 gfxinfo FrameStats，分析帧耗时与卡顿区间。" else
+                        "Capture online or import gfxinfo FrameStats to analyze frame timing and jank clusters.",
+                    actionLabel = if (chinese) "打开" else "Open",
+                    enabled = true,
                     onClick = onOpenFrameProfiler,
                     modifier = Modifier.weight(1f),
                 )

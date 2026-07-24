@@ -21,6 +21,7 @@ import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.desktop.SimpleperfWorkspace
+import com.androidperformancestudio.frame.app.FrameProfilerWorkspace
 import com.androidperformancestudio.memory.app.MemoryProfilerWorkspace
 import com.androidperformancestudio.perfetto.app.PerfettoWorkspace
 import java.util.Locale
@@ -108,8 +109,7 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
                         onBack = { navigator.open(AppDestination.HOME) },
                     )
                 AppDestination.FRAME_PROFILER ->
-                    ComingSoonPage(
-                        title = if (chinese) "Frame Profiler" else "Frame Profiler",
+                    FrameProfilerWorkspace(
                         chinese = chinese,
                         onBack = { navigator.open(AppDestination.HOME) },
                     )
