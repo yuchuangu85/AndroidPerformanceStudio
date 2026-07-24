@@ -125,7 +125,7 @@ internal class FrameProfilerController(
                         analysis = null,
                         selectedFrameId = null,
                         isCapturing = true,
-                        operationMessage = "Capturing ${process.packageName}…",
+                        operationMessage = "Capturing ${process.packageName} via ${capture.metadata.source.captureLabel()}…",
                         warnings = startWarnings,
                         errorMessage = null,
                     )
@@ -149,7 +149,9 @@ internal class FrameProfilerController(
                             ?.lastOrNull()
                             ?.sample
                             ?.frameId,
-                    operationMessage = "Capturing ${capture.metadata.packageName}: ${onlineFrames.size} frames",
+                    operationMessage =
+                        "Capturing ${capture.metadata.packageName} via ${capture.metadata.source.captureLabel()}: " +
+                            "${onlineFrames.size} frames",
                     warnings = (mutableState.value.warnings + batch.warnings).distinct(),
                 )
         } catch (exception: CancellationException) {
@@ -162,6 +164,18 @@ internal class FrameProfilerController(
     suspend fun stopOnlineCapture(errorMessage: String? = null) {
         val capture = activeCapture
         activeCapture = null
+        val stopWarnings =
+            if (capture == null) {
+                emptyList()
+            } else {
+                try {
+                    capture.stop()
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Exception) {
+                    listOf("Unable to close online frame capture cleanly: ${exception.message}")
+                }
+            }
         mutableState.value =
             mutableState.value.copy(
                 isCapturing = false,
@@ -171,6 +185,7 @@ internal class FrameProfilerController(
                     } else {
                         "Capture stopped: ${onlineFrames.size} frames."
                     },
+                warnings = (mutableState.value.warnings + stopWarnings).distinct(),
                 errorMessage = errorMessage,
             )
         if (capture != null && onlineFrames.isNotEmpty()) {
@@ -259,3 +274,11 @@ internal class FrameProfilerController(
             Path.of(System.getProperty("user.home"), ".android-performance-studio", "frame-profiler", "frames.db")
     }
 }
+
+private fun FrameSource.captureLabel(): String =
+    when (this) {
+        FrameSource.FRAME_METRICS -> "FrameMetrics Agent"
+        FrameSource.GFXINFO -> "gfxinfo"
+        FrameSource.JANK_STATS -> "JankStats Agent"
+        FrameSource.PERFETTO -> "Perfetto"
+    }

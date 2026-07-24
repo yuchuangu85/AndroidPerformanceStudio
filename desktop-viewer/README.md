@@ -71,7 +71,7 @@ Set `ANDROID_HOME`, then build:
 ./gradlew :layout-inspector:samples:android-view-app:assembleDebug
 ```
 
-The sample declares the Agent only through `debugImplementation`. AndroidX Startup initializes it without changes to the sample `Application` or `Activity`.
+The sample declares the View and FrameMetrics Agent only through `debugImplementation`. AndroidX Startup initializes them without changes to the sample `Application` or `Activity`. Frame Profiler prefers authenticated FrameMetrics batches on API 24+ and automatically falls back to `dumpsys gfxinfo framestats` when the Agent is absent.
 
 ```bash
 adb install -r layout-inspector/samples/android-view-app/build/outputs/apk/debug/android-view-app-debug.apk

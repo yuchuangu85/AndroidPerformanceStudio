@@ -5,6 +5,7 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
     kotlin("jvm") version "2.4.0" apply false
+    kotlin("plugin.serialization") version "2.4.0" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.0" apply false
     id("org.jetbrains.compose") version "1.11.1" apply false
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
@@ -24,7 +25,7 @@ subprojects {
     extensions.configure<KotlinJvmProjectExtension> {
         jvmToolchain(21)
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_21)
+            jvmTarget.set(if (project.name == "frame-agent-protocol") JvmTarget.JVM_17 else JvmTarget.JVM_21)
             allWarningsAsErrors.set(true)
         }
     }

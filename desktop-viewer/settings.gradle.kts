@@ -25,6 +25,7 @@ val layoutInspectorModules =
         "shared-kernel:test-fixtures",
         "shared-kernel:android-agent-core",
         "shared-kernel:android-agent-view",
+        "shared-kernel:android-agent-frame",
         "shared-kernel:android-agent-startup",
         "adb-gateway",
         "application",

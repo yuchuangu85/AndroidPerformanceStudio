@@ -90,9 +90,9 @@ private fun EmptyState(
         Text(
             text =
                 if (chinese) {
-                    "选择设备和 debuggable 进程开始采集，或导入 gfxinfo framestats 完整输出。"
+                    "选择设备和 debuggable 进程开始采集；优先使用 FrameMetrics Agent，不可用时自动回退 gfxinfo。"
                 } else {
-                    "Select a device and debuggable process, or import complete gfxinfo framestats output."
+                    "Select a debuggable process; FrameMetrics Agent is preferred and gfxinfo is used as fallback."
                 },
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

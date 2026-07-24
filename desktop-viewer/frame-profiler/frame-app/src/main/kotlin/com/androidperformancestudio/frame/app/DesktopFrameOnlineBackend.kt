@@ -1,9 +1,12 @@
+@file:Suppress("TooGenericExceptionCaught")
+
 package com.androidperformancestudio.frame.app
 
 import com.androidperformancestudio.adb.AdbDeviceRefresher
 import com.androidperformancestudio.adb.AdbDeviceState
 import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.frame.capture.FrameMetricsAgentCaptureSession
 import com.androidperformancestudio.frame.capture.GfxInfoCaptureTarget
 import com.androidperformancestudio.frame.capture.GfxInfoPollBatch
 import com.androidperformancestudio.frame.capture.GfxInfoPollingCaptureSession
@@ -13,6 +16,7 @@ import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
+import kotlinx.coroutines.CancellationException
 import java.nio.file.Path
 import java.time.Instant
 
@@ -32,6 +36,8 @@ internal interface OnlineFrameCapture {
     suspend fun start(): List<String>
 
     suspend fun poll(): GfxInfoPollBatch
+
+    suspend fun stop(): List<String> = emptyList()
 }
 
 internal interface FrameOnlineBackend {
@@ -103,20 +109,42 @@ internal class DesktopFrameOnlineBackend(
                 packageName = process.packageName,
                 deviceSerial = serial,
             )
-        val delegate =
+        val target = GfxInfoCaptureTarget(serial, process.packageName, process.pid)
+        val gfxInfoDelegate =
             GfxInfoPollingCaptureSession(
                 adbExecutable = adb,
-                target = GfxInfoCaptureTarget(serial, process.packageName, process.pid),
+                target = target,
                 sessionId = sessionId,
             )
-        return FrameBackendResult.Success(
+        val agentDelegate =
+            FrameMetricsAgentCaptureSession(
+                adbExecutable = adb,
+                target = target,
+                sessionId = sessionId,
+            )
+        val gfxInfoCapture =
             object : OnlineFrameCapture {
                 override val metadata: FrameCaptureSession = metadata
 
-                override suspend fun start(): List<String> = delegate.start()
+                override suspend fun start(): List<String> = gfxInfoDelegate.start()
 
-                override suspend fun poll(): GfxInfoPollBatch = delegate.poll()
-            },
+                override suspend fun poll(): GfxInfoPollBatch = gfxInfoDelegate.poll()
+            }
+        val agentCapture =
+            object : OnlineFrameCapture {
+                override val metadata: FrameCaptureSession = metadata.copy(source = FrameSource.FRAME_METRICS)
+
+                override suspend fun start(): List<String> = agentDelegate.start()
+
+                override suspend fun poll(): GfxInfoPollBatch = agentDelegate.poll()
+
+                override suspend fun stop(): List<String> = agentDelegate.stop()
+            }
+        return FrameBackendResult.Success(
+            AgentPreferredOnlineFrameCapture(
+                agent = agentCapture,
+                fallback = gfxInfoCapture,
+            ),
         )
     }
 
@@ -130,5 +158,47 @@ internal class DesktopFrameOnlineBackend(
             val platform = (SystemHostPlatformDetector().detect() as? StudioResult.Success)?.value ?: return null
             return (SystemAdbLocator(platform).locate() as? StudioResult.Success)?.value?.executable
         }
+    }
+}
+
+internal class AgentPreferredOnlineFrameCapture(
+    private val agent: OnlineFrameCapture,
+    private val fallback: OnlineFrameCapture,
+) : OnlineFrameCapture {
+    private var mode = CaptureMode.AGENT
+
+    override val metadata: FrameCaptureSession
+        get() = if (mode == CaptureMode.AGENT) agent.metadata else fallback.metadata
+
+    override suspend fun start(): List<String> =
+        try {
+            val warnings = agent.start()
+            mode = CaptureMode.AGENT
+            warnings
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            mode = CaptureMode.GFXINFO
+            listOf(
+                "FrameMetrics Agent is unavailable; using gfxinfo polling: " +
+                    (exception.message ?: exception::class.simpleName.orEmpty()),
+            ) + fallback.start()
+        }
+
+    override suspend fun poll(): GfxInfoPollBatch =
+        when (mode) {
+            CaptureMode.AGENT -> agent.poll()
+            CaptureMode.GFXINFO -> fallback.poll()
+        }
+
+    override suspend fun stop(): List<String> =
+        when (mode) {
+            CaptureMode.AGENT -> agent.stop()
+            CaptureMode.GFXINFO -> fallback.stop()
+        }
+
+    private enum class CaptureMode {
+        AGENT,
+        GFXINFO,
     }
 }

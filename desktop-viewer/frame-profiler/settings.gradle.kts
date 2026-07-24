@@ -18,6 +18,7 @@ rootProject.name = "frame-profiler"
 
 include(
     ":frame-model",
+    ":frame-agent-protocol",
     ":capture-frame",
     ":parser-frame",
     ":analysis-frame",

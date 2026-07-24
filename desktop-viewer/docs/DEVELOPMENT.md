@@ -23,6 +23,7 @@ layout-inspector/
     test-fixtures/          reusable snapshot fixtures
     android-agent-core/     debug gate and authenticated local socket
     android-agent-view/     traditional View hierarchy collection
+    android-agent-frame/    API 24+ FrameMetrics collection and bounded batches
     android-agent-startup/  zero-code AndroidX Startup integration
   adb-gateway/              pure ADB parsing and argument-vector construction
   application/              inspector state and selection use cases
@@ -30,6 +31,7 @@ layout-inspector/
   samples/
     android-view-app/       API 21+ zero-code Agent integration sample
 simpleperf-viewer/          isolated Simpleperf CPU profiler build
+frame-profiler/             isolated FrameTimeline/Jank profiler build
 desktop-app/                  process entry, native window, and packaging
 ```
 
@@ -66,6 +68,7 @@ Dependencies flow inward: UI and platform adapters depend on application/domain 
 - Unknown minor fields are ignored.
 - Desktop code targets Java 17 bytecode.
 - Traditional Views use public APIs available from API 21.
+- FrameMetrics Agent capture uses public APIs on API 24+ and degrades to desktop-side `gfxinfo` polling otherwise.
 - Screenshot capture and Compose semantics are intentionally separate adapters so unsupported platform/library versions can degrade without breaking View inspection.
 
 ## Next implementation milestones

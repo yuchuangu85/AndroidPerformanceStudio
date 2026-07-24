@@ -7,6 +7,7 @@ import androidx.startup.Initializer
 import dev.agentperf.android.core.AgentRuntime
 import dev.agentperf.android.core.AgentServer
 import dev.agentperf.android.core.StartResult
+import dev.agentperf.android.frame.FrameMetricsAgent
 import dev.agentperf.android.view.ActivityCaptureProvider
 import dev.agentperf.android.view.ResumedActivityTracker
 
@@ -24,9 +25,11 @@ class AgentInitializer : Initializer<StartResult> {
             processRuntime ?: AgentRuntime {
                 val application = context.applicationContext as Application
                 val tracker = ResumedActivityTracker(application)
+                val frameMetricsAgent = FrameMetricsAgent(application)
                 AgentServer(
                     context = context,
                     captureProvider = ActivityCaptureProvider(tracker),
+                    requestExtensions = listOf(frameMetricsAgent),
                 ).start()
             }.also { processRuntime = it }
         }

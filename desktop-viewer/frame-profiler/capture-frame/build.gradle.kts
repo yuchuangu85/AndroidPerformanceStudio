@@ -1,4 +1,5 @@
 dependencies {
+    implementation(project(":frame-agent-protocol"))
     implementation(project(":frame-model"))
     implementation(project(":parser-frame"))
     implementation("com.androidperformancestudio:platform-toolchain:0.1.0-SNAPSHOT")

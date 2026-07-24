@@ -11,6 +11,7 @@ class AgentServer(
     private val captureProvider: CaptureProvider = CaptureProvider {
         throw CaptureUnavailableException("CAPTURE_UNAVAILABLE", "Capture provider is not configured")
     },
+    private val requestExtensions: List<AgentRequestExtension> = emptyList(),
 ) {
     private val applicationContext = context.applicationContext
     private val executor = Executors.newSingleThreadExecutor { runnable ->
@@ -22,13 +23,14 @@ class AgentServer(
         val socketName = "agentperf.${packageName.replace('.', '_')}"
         val descriptor = SessionDescriptor(
             protocolMajor = 1,
-            protocolMinor = 0,
+            protocolMinor = 1,
             socketName = socketName,
             token = randomToken(),
         )
         persistSession(descriptor)
         val requestHandler = AgentRequestHandler(
             token = descriptor.token,
+            extensions = requestExtensions,
             captureProvider = captureProvider,
         )
         val server = LocalServerSocket(socketName)

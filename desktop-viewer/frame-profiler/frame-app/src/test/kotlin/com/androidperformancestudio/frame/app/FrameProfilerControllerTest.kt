@@ -93,10 +93,11 @@ class FrameProfilerControllerTest {
 
             controller.pollOnlineCapture()
             assertEquals(2, assertNotNull(controller.state.value.analysis).summary.totalFrames)
-            assertEquals("Capturing dev.example.app: 2 frames", controller.state.value.operationMessage)
+            assertEquals("Capturing dev.example.app via gfxinfo: 2 frames", controller.state.value.operationMessage)
 
             controller.stopOnlineCapture()
             assertFalse(controller.state.value.isCapturing)
+            assertEquals(1, capture.stopCalls)
             assertEquals("Capture stopped: 2 frames.", controller.state.value.operationMessage)
         }
 
@@ -140,6 +141,8 @@ class FrameProfilerControllerTest {
     ) : OnlineFrameCapture {
         var startCalls: Int = 0
             private set
+        var stopCalls: Int = 0
+            private set
 
         override val metadata =
             FrameCaptureSession(
@@ -156,6 +159,11 @@ class FrameProfilerControllerTest {
         }
 
         override suspend fun poll(): GfxInfoPollBatch = batches.removeFirst()
+
+        override suspend fun stop(): List<String> {
+            stopCalls += 1
+            return emptyList()
+        }
     }
 
     private companion object {

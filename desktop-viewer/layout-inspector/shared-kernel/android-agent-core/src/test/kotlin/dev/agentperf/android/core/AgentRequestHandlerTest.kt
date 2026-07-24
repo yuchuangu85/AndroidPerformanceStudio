@@ -59,6 +59,44 @@ class AgentRequestHandlerTest {
         assertEquals("ERROR NO_ACTIVITY No resumed activity\n", output.toString())
     }
 
+    @Test
+    fun `authorized extension receives arguments without the token`() {
+        val output = ByteArrayOutputStream()
+        val extension =
+            AgentRequestExtension { command, arguments, destination ->
+                if (command != "FRAMES") return@AgentRequestExtension false
+                destination.write("${arguments.single()}\n".toByteArray())
+                true
+            }
+        val handler =
+            AgentRequestHandler(
+                token = "secret",
+                extensions = listOf(extension),
+                captureProvider = CaptureProvider { CaptureFrame("{}", byteArrayOf()) },
+            )
+
+        handler.handle("FRAMES secret 42", output)
+
+        assertEquals("42\n", output.toString())
+    }
+
+    @Test
+    fun `extension is not invoked before authorization`() {
+        var calls = 0
+        val handler =
+            AgentRequestHandler(
+                token = "secret",
+                extensions = listOf(AgentRequestExtension { _, _, _ -> calls += 1; true }),
+                captureProvider = CaptureProvider { CaptureFrame("{}", byteArrayOf()) },
+            )
+        val output = ByteArrayOutputStream()
+
+        handler.handle("FRAMES wrong 42", output)
+
+        assertEquals(0, calls)
+        assertEquals("ERROR UNAUTHORIZED Invalid session token\n", output.toString())
+    }
+
     private fun handler(
         frame: CaptureFrame = CaptureFrame("{}", byteArrayOf()),
     ) = AgentRequestHandler("secret") { frame }

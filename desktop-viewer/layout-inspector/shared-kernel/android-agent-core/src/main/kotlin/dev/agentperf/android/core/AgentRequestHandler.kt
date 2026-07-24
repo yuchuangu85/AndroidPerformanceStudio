@@ -8,6 +8,14 @@ fun interface CaptureProvider {
     fun capture(): CaptureFrame
 }
 
+fun interface AgentRequestExtension {
+    fun handle(
+        command: String,
+        arguments: List<String>,
+        output: OutputStream,
+    ): Boolean
+}
+
 class CaptureUnavailableException(
     val code: String,
     message: String,
@@ -17,12 +25,13 @@ class CaptureUnavailableException(
 class AgentRequestHandler(
     private val token: String,
     private val captureFrameCodec: CaptureFrameCodec = CaptureFrameCodec(),
+    private val extensions: List<AgentRequestExtension> = emptyList(),
     private val captureProvider: CaptureProvider,
 ) {
     fun handle(request: String, output: OutputStream) {
-        val separator = request.indexOf(' ')
-        val command = if (separator < 0) request else request.substring(0, separator)
-        val requestToken = if (separator < 0) "" else request.substring(separator + 1)
+        val parts = request.trim().split(Regex("\\s+")).filter(String::isNotEmpty)
+        val command = parts.firstOrNull().orEmpty()
+        val requestToken = parts.getOrNull(1).orEmpty()
         if (requestToken != token) {
             writeError(output, "UNAUTHORIZED", "Invalid session token")
             return
@@ -36,7 +45,10 @@ class AgentRequestHandler(
                     writeError(output, error.code, error.message ?: "Capture unavailable")
                 }
             }
-            else -> writeError(output, "UNKNOWN_REQUEST", "Unsupported request")
+            else -> {
+                val handled = extensions.any { extension -> extension.handle(command, parts.drop(2), output) }
+                if (!handled) writeError(output, "UNKNOWN_REQUEST", "Unsupported request")
+            }
         }
     }
 

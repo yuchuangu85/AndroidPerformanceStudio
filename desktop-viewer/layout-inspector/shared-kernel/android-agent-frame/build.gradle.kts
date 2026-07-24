@@ -3,12 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.agentperf.android.startup"
+    namespace = "dev.agentperf.android.frame"
     compileSdk = 37
 
     defaultConfig {
         minSdk = 21
-        consumerProguardFiles("consumer-rules.pro")
     }
 
     compileOptions {
@@ -19,9 +18,7 @@ android {
 
 dependencies {
     api(project(":layout-inspector:shared-kernel:android-agent-core"))
-    implementation(project(":layout-inspector:shared-kernel:android-agent-view"))
-    implementation(project(":layout-inspector:shared-kernel:android-agent-frame"))
-    implementation(libs.androidx.startup)
+    implementation("com.androidperformancestudio.frame:frame-agent-protocol:0.1.0-SNAPSHOT")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
