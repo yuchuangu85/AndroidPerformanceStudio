@@ -51,15 +51,16 @@ V0.1 release candidate 功能已实现，等待 GitHub Actions 三平台安装�
 ./gradlew :app-desktop:createDistributable
 ```
 
-P0 性能 PoC 的方法、结果和适用边界见 `docs/p0-performance-poc.md`。
+P0 性能 PoC 的方法、结果和适用边界见 `docs/records/p0-performance-poc.md`。
 
 示例会话：`test-fixtures/src/main/resources/sessions/golden.apsession.zip`。
 
 使用和发布资料：
 
-- [用户手册](docs/user-guide.md)
-- [故障排查](docs/troubleshooting.md)
-- [Release checklist](docs/release-checklist.md)
-- [V0.1 RC release notes](docs/release-notes-v0.1-rc.md)
+- [用户手册](docs/user/user-guide.md)
+- [故障排查](docs/user/troubleshooting.md)
+- [Release checklist](docs/records/release-checklist.md)
+- [V0.1 RC release notes](docs/records/release-notes-v0.1-rc.md)
+- [文档索引](docs/README.md)
 
 产品范围、技术决策和 WBS 以 `docs/` 下文档为准。

@@ -2,7 +2,7 @@
 
 - 文档版本：v0.1
 - 创建日期：2026-07-13
-- 关联文档：`docs/requirements.md`、`docs/technology-stack-research.md`、`docs/development-plan.md`、`docs/simpleperf_client_development_tracker.xlsx`
+- 关联文档：`docs/requirements/requirements.md`、`docs/design/technology-stack-research.md`、`docs/requirements/development-plan.md`、`docs/requirements/simpleperf_client_development_tracker.xlsx`
 
 ## 1. 产品定位
 
@@ -429,4 +429,4 @@ V0.2+：
 - ChatGPT 共享对话：https://chatgpt.com/share/6a54e924-0698-83ea-a051-ef5ff3b4db94
 - AOSP Simpleperf View the profile：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/view_the_profile.md
 - Android NDK Simpleperf：https://developer.android.com/ndk/guides/simpleperf
-- 跨平台技术栈调研：`docs/technology-stack-research.md`
+- 跨平台技术栈调研：`docs/design/technology-stack-research.md`

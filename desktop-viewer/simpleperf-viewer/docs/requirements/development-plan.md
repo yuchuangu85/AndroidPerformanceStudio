@@ -5,8 +5,8 @@
 - 目标版本：V0.1 MVP
 - 建议计划周期：18 周
 - 建议启动日期：2026-07-20
-- 关联跟踪表：`docs/simpleperf_client_development_tracker.xlsx`
-- 技术决策：`docs/technology-stack-research.md`
+- 关联跟踪表：`docs/requirements/simpleperf_client_development_tracker.xlsx`
+- 技术决策：`docs/design/technology-stack-research.md`
 
 ## 1. 技术路线
 
@@ -76,7 +76,7 @@ app-desktop
 
 ### 4.1 当前实施状态（2026-07-14）
 
-V0.1 release candidate 的代码、测试、文档和本机 macOS 发行物已完成；真机与 GitHub Actions 三平台安装验收按 `docs/release-checklist.md` 跟踪：
+V0.1 release candidate 的代码、测试、文档和本机 macOS 发行物已完成；真机与 GitHub Actions 三平台安装验收按 `docs/records/release-checklist.md` 跟踪：
 
 | WBS | 状态 | 已完成证据 |
 |---|---|---|
@@ -136,15 +136,15 @@ V0.1 release candidate 的代码、测试、文档和本机 macOS 发行物已�
 | WBS-086 | CI/真机待验收 | 三平台 check 内含空格/中文路径 Golden 导入→分析→导出→打包→重开；真实设备采集仍需硬件 |
 | WBS-087 | 已完成 | API 29/31/34/36 与 arm64-v8a/armeabi-v7a/x86_64 代表性 protobuf 流式兼容测试 |
 | WBS-088 | 已完成 | simpleperf `--sort symbol` exclusive 权重百分比容差比较与 report_html 非空验证 |
-| WBS-090 | 已完成 | `docs/user-guide.md` 覆盖安装、采集、导入、报告、快捷键和导出 |
-| WBS-091 | 已完成 | `docs/troubleshooting.md` 覆盖 ADB、权限、simpleperf、取消、符号、丢样和平台问题 |
+| WBS-090 | 已完成 | `docs/user/user-guide.md` 覆盖安装、采集、导入、报告、快捷键和导出 |
+| WBS-091 | 已完成 | `docs/user/troubleshooting.md` 覆盖 ADB、权限、simpleperf、取消、符号、丢样和平台问题 |
 | WBS-092 | 已完成 | 4 KB 可复现 Golden 会话包可导入查询；生成任务和固定 SHA-256 均有测试 |
-| WBS-093 | 已完成 | `docs/release-checklist.md` 分离自动化、真机、三平台安装和签名门禁 |
+| WBS-093 | 已完成 | `docs/records/release-checklist.md` 分离自动化、真机、三平台安装和签名门禁 |
 | WBS-094 | RC | 功能和本机自动化评审通过；正式 V0.1 仍以 clean CI、真机和签名门禁全勾选为准 |
 
 交互约束补充：Timeline/FlameGraph 导航动作统一由 `visualization` 模块提供，默认采用 Perfetto 风格的 `W/A/S/D` 与 `Ctrl + 鼠标滚轮`。
 
-WBS-008 的可复现任务、原始 JSON 和测量边界见 `docs/p0-performance-poc.md`。当前帧指标是交给 Compose Canvas 前的 CPU 侧 viewport/LOD 模型准备耗时；GPU 呈现与真实输入延迟留到 P4 UI 集成时补测。
+WBS-008 的可复现任务、原始 JSON 和测量边界见 `docs/records/p0-performance-poc.md`。当前帧指标是交给 Compose Canvas 前的 CPU 侧 viewport/LOD 模型准备耗时；GPU 呈现与真实输入延迟留到 P4 UI 集成时补测。
 
 ADB 自检可通过 `./gradlew :device-adb:runAdbSelfCheck` 复现，输出 ADB 版本、发现来源、设备数量、各设备原始状态、能力以及目标数量。`ANDROID_SDK_ROOT` 仅作为旧环境兼容回退，新配置以 `ANDROID_HOME` 为准。
 
@@ -341,11 +341,11 @@ V0.1 验证重点：
 
 | 交付物 | 路径/形式 |
 |---|---|
-| 需求文档 | `docs/requirements.md` |
-| 产品设计文档 | `docs/product-design.md` |
-| 开发计划 | `docs/development-plan.md` |
-| 技术栈调研与 ADR | `docs/technology-stack-research.md` |
-| 开发跟踪表 | `docs/simpleperf_client_development_tracker.xlsx` |
+| 需求文档 | `docs/requirements/requirements.md` |
+| 产品设计文档 | `docs/design/product-design.md` |
+| 开发计划 | `docs/requirements/development-plan.md` |
+| 技术栈调研与 ADR | `docs/design/technology-stack-research.md` |
+| 开发跟踪表 | `docs/requirements/simpleperf_client_development_tracker.xlsx` |
 | 安装包 | release artifacts |
 | 示例数据 | test fixtures / sample session package |
 | 用户手册 | docs 后续新增 |
@@ -395,4 +395,4 @@ V0.1 验证重点：
 - Android NDK Simpleperf：https://developer.android.com/ndk/guides/simpleperf
 - AOSP Simpleperf README：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/README.md
 - AOSP Simpleperf View the profile：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/view_the_profile.md
-- 跨平台技术栈调研：`docs/technology-stack-research.md`
+- 跨平台技术栈调研：`docs/design/technology-stack-research.md`

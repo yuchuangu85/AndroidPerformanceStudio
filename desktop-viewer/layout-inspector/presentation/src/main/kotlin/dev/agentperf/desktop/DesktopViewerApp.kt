@@ -121,7 +121,7 @@ import kotlin.math.roundToInt
 
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 // Keep the implementation available while the user-facing flow is deferred.
-// Re-enable only after completing docs/ai-analysis-roadmap.md.
+// Re-enable only after completing docs/requirements/ai-analysis-roadmap.md.
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = false
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
 

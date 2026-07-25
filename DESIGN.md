@@ -11,7 +11,7 @@
 - Evidence reviewed:
   - `README.md`：仓库当前只实现 Desktop 方案，目标是 Android 布局复杂度检测工具
   - `desktop-viewer/README.md`：现有三栏 hierarchy/canvas/properties UI、在线采集、离线归档、画布选中边框
-  - `desktop-viewer/docs/2026-07-02-desktop-viewer-design.md`：三栏检查器交互原则，树、截图、Finding、属性共享 `selectedNodeId`
+  - `desktop-viewer/docs/design/2026-07-02-desktop-viewer-design.md`：三栏检查器交互原则，树、截图、Finding、属性共享 `selectedNodeId`
   - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt`：`HierarchyPane`、`PreviewPane`、面板标题、Header、画布点击和 hover wiring
   - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/CanvasHitTester.kt`：命中测试当前按 z/elevation 与 child index 选择最上层命中路径
   - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/CanvasPointerSelection.kt`：同一点反复点击可在命中路径内轮选，但没有显式隐藏/忽略上层状态

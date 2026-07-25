@@ -40,8 +40,8 @@
 ## 文档与交付物
 
 - [x] `README.md`、需求、产品设计、开发计划、技术 ADR。
-- [x] `docs/user-guide.md`、`docs/troubleshooting.md`。
-- [x] `docs/release-notes-v0.1-rc.md` 记录能力、验证证据和已知限制。
+- [x] `docs/user/user-guide.md`、`docs/user/troubleshooting.md`。
+- [x] `docs/records/release-notes-v0.1-rc.md` 记录能力、验证证据和已知限制。
 - [x] 可复现生成的 `golden.apsession.zip` 示例会话。
 - [x] 安装器版本因 macOS jpackage 约束使用 `1.0.0`；产品里程碑仍为 V0.1。
 - [ ] 各平台安装包 SHA-256 随 GitHub Release artifacts 发布。

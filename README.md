@@ -10,7 +10,8 @@ Android 布局复杂度检测工具的多形态仓库。
 | [`desktop-viewer/`](desktop-viewer/) | Compose Desktop 独立应用 | 已有第一阶段可运行纵向版本 |
 | [`web-ui-http-server/`](web-ui-http-server/) | Web UI + App 内 HTTP Server | 规划占位，尚未开发 |
 
-总体规划参见 [`docs/layout-complexity-inspector-three-solutions-plan.md`](docs/layout-complexity-inspector-three-solutions-plan.md)。
+总体规划参见 [`docs/requirements/layout-complexity-inspector-three-solutions-plan.md`](docs/requirements/layout-complexity-inspector-three-solutions-plan.md)。
+完整文档分类和维护规则参见 [`docs/README.md`](docs/README.md)。
 
 Firefox Profiler 通过固定提交的 Git Submodule 存放在
 [`third_party/firefox-profiler`](third_party/firefox-profiler)，独立构建说明见

@@ -95,7 +95,8 @@ The live path currently targets one authorized device and its foreground applica
 
 See:
 
-- [Architecture and product design](docs/2026-07-02-desktop-viewer-design.md)
-- [Development guide](docs/DEVELOPMENT.md)
-- [Protocol contract](docs/PROTOCOL.md)
-- [Deferred AI analysis work](docs/ai-analysis-roadmap.md)
+- [Architecture and product design](docs/design/2026-07-02-desktop-viewer-design.md)
+- [Development guide](docs/architecture/DEVELOPMENT.md)
+- [Protocol contract](docs/architecture/PROTOCOL.md)
+- [Deferred AI analysis work](docs/requirements/ai-analysis-roadmap.md)
+- [Documentation index](docs/README.md)

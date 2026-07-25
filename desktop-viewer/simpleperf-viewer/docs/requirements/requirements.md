@@ -1,12 +1,12 @@
 # Android Performance Studio 需求文档
 
-> 2026-07-14 实施状态：V0.1 P0 功能已进入 release candidate；自动化和本机 macOS 打包证据见 `docs/development-plan.md`，未完成的真机、三平台安装与签名门禁见 `docs/release-checklist.md`。
+> 2026-07-14 实施状态：V0.1 P0 功能已进入 release candidate；自动化和本机 macOS 打包证据见 `docs/requirements/development-plan.md`，未完成的真机、三平台安装与签名门禁见 `docs/records/release-checklist.md`。
 
 - 文档版本：v0.1
 - 创建日期：2026-07-13
 - 依据来源：ChatGPT 共享对话《开源 Simpleperf 工具》及其中形成的方案规划、开发跟踪表、知乎文章分析结论
 - 目标版本：V0.1 MVP
-- 技术决策：`docs/technology-stack-research.md`
+- 技术决策：`docs/design/technology-stack-research.md`
 
 ## 1. 背景与问题
 
@@ -255,4 +255,4 @@ V0.1 完成条件：
 - Android NDK Simpleperf：https://developer.android.com/ndk/guides/simpleperf
 - AOSP Simpleperf README：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/README.md
 - AOSP Simpleperf View the profile：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/view_the_profile.md
-- 跨平台技术栈调研：`docs/technology-stack-research.md`
+- 跨平台技术栈调研：`docs/design/technology-stack-research.md`

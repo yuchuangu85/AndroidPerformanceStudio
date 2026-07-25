@@ -37,7 +37,7 @@
 
 - `README.md`：仓库当前只实现 Desktop 方案。
 - `desktop-viewer/README.md`：说明当前是 Compose Desktop inspector，包含三栏 hierarchy/canvas/properties UI，支持 Agent socket 高保真采集和 ADB fallback。
-- `desktop-viewer/docs/2026-07-02-desktop-viewer-design.md`：设计目标是三栏检查器，树、截图、Finding、属性共享同一个 `selectedNodeId`。
+- `desktop-viewer/docs/design/2026-07-02-desktop-viewer-design.md`：设计目标是三栏检查器，树、截图、Finding、属性共享同一个 `selectedNodeId`。
 - `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/CanvasHitTester.kt`：当前 Canvas 命中测试按 z/elevation 和 child index 优先选择上层/后绘制节点。
 - `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/CanvasPointerSelection.kt`：同一点反复点击可以在命中路径中轮选，但没有显式隐藏/忽略上层状态。
 - `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/ViewBoundsOverlay.kt`：当前 overlay 绘制有效可见节点，未考虑用户临时隐藏层级。

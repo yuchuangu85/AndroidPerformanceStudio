@@ -4,7 +4,7 @@
 - 调研日期：2026-07-13
 - 目标平台：Windows、Linux、macOS
 - 决策状态：Accepted（进入技术验证阶段）
-- 关联文档：`docs/requirements.md`、`docs/product-design.md`、`docs/development-plan.md`
+- 关联文档：`docs/requirements/requirements.md`、`docs/design/product-design.md`、`docs/requirements/development-plan.md`
 
 ## 1. 结论摘要
 
@@ -288,7 +288,7 @@ unit/integration tests
 - WBS-020~022 将 Simpleperf record 参数建模为不可产生 frequency/period 冲突的 sealed type；高级参数 UI 可编辑 event、frequency/period、duration/manual stop、callgraph 和 scope，执行命令与可复制预览始终由同一参数对象生成。模板仅提供初始值。
 - 在线采集成功后在原证据目录执行 host simpleperf 转换与 SQLite 索引，完成后直接打开报告；Home 同时识别会话目录、会话包、`perf.data` 和 protobuf，离线导入可选 mapping 与 symbols/binary_cache。
 - Compose `Canvas` 已接入有界 `TimelineFrame`，确保 UI 消费的是像素列级模型而不是百万条 sample。
-- 结果与复现方法见 `docs/p0-performance-poc.md`；GPU 实际绘制、窗口事件延迟以及 Windows/Linux 复测仍属于后续门禁。
+- 结果与复现方法见 `docs/records/p0-performance-poc.md`；GPU 实际绘制、窗口事件延迟以及 Windows/Linux 复测仍属于后续门禁。
 
 额外门禁：
 
