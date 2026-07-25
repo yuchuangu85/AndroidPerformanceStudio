@@ -40,6 +40,7 @@ internal val canvasColorPresets = listOf(
 
 internal class CanvasBorderColorStore(
     private val read: (String) -> String?,
+    private val flush: () -> Unit = {},
     private val write: (String, String) -> Unit,
 ) {
     fun load(): CanvasBorderColors {
@@ -51,11 +52,13 @@ internal class CanvasBorderColorStore(
         )
     }
 
-    fun save(colors: CanvasBorderColors) {
-        write(NORMAL, colors.normal.toHex())
-        write(HOVERED, colors.hovered.toHex())
-        write(SELECTED, colors.selected.toHex())
-    }
+    fun save(colors: CanvasBorderColors): Boolean =
+        runCatching {
+            write(NORMAL, colors.normal.toHex())
+            write(HOVERED, colors.hovered.toHex())
+            write(SELECTED, colors.selected.toHex())
+            flush()
+        }.isSuccess
 
     companion object {
         private const val NORMAL = "canvas.bounds.normal"
@@ -68,7 +71,11 @@ internal class CanvasBorderColorStore(
             }.getOrNull()
             return CanvasBorderColorStore(
                 read = { key -> runCatching { preferences?.get(key, null) }.getOrNull() },
-                write = { key, value -> runCatching { preferences?.put(key, value) }; Unit },
+                write = { key, value ->
+                    checkNotNull(preferences) { "Canvas border preferences are unavailable" }
+                    preferences.put(key, value)
+                },
+                flush = { checkNotNull(preferences).flush() },
             )
         }
     }

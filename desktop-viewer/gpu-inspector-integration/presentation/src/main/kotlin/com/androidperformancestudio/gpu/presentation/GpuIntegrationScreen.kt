@@ -41,12 +41,12 @@ public fun GpuIntegrationScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier.fillMaxSize().padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Card(Modifier.fillMaxWidth()) {
             Column(
-                Modifier.padding(14.dp),
+                Modifier.padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text("Android GPU Inspector", style = MaterialTheme.typography.titleLarge)
@@ -73,11 +73,11 @@ public fun GpuIntegrationScreen(
             if (chinese) "最近 GPU 产物" else "Recent GPU artifacts",
             style = MaterialTheme.typography.titleLarge,
         )
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(state.artifacts) { artifact ->
                 Card(Modifier.fillMaxWidth()) {
                     Row(
-                        Modifier.fillMaxWidth().padding(12.dp),
+                        Modifier.fillMaxWidth().padding(8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column {
@@ -90,7 +90,7 @@ public fun GpuIntegrationScreen(
                                 Text(warning, style = MaterialTheme.typography.bodySmall)
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             OutlinedButton(onClick = { actions.onVerifyArtifact(artifact) }) {
                                 Text(if (chinese) "校验" else "Verify")
                             }

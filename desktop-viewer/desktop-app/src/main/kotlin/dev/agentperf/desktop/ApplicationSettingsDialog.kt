@@ -101,7 +101,7 @@ private fun <T> PreferenceDropdown(
     }
 }
 
-private fun languagePreferenceLabel(
+internal fun languagePreferenceLabel(
     preference: ApplicationLanguagePreference,
     chinese: Boolean,
 ): String =
@@ -111,7 +111,7 @@ private fun languagePreferenceLabel(
         ApplicationLanguagePreference.ENGLISH -> if (chinese) "英文" else "English"
     }
 
-private fun themePreferenceLabel(
+internal fun themePreferenceLabel(
     preference: ApplicationThemePreference,
     chinese: Boolean,
 ): String =

@@ -37,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -123,7 +122,7 @@ private fun AnalysisContent(
     val selected =
         analysis.frames.firstOrNull { it.sample.frameId == state.selectedFrameId }
             ?: analysis.frames.firstOrNull()
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         state.importedFileName?.let {
             Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
@@ -132,7 +131,7 @@ private fun AnalysisContent(
             Text(warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.padding(8.dp)) {
                 Text(
                     if (chinese) "帧时间线" else "Frame Timeline",
                     style = MaterialTheme.typography.titleMedium,
@@ -146,7 +145,7 @@ private fun AnalysisContent(
                 )
             }
         }
-        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FrameDetail(
                 frame = selected,
                 chinese = chinese,
@@ -184,7 +183,7 @@ private fun MetricCard(
     modifier: Modifier,
 ) {
     Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(8.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
@@ -197,16 +196,11 @@ private fun FrameTimeline(
     selectedFrameId: Long?,
     onSelectFrame: (Long) -> Unit,
 ) {
-    val smoothColor = Color(0xFF4CAF50)
-    val minorColor = Color(0xFFFFB300)
-    val majorColor = Color(0xFFF57C00)
-    val severeColor = Color(0xFFD32F2F)
-    val unknownColor = MaterialTheme.colorScheme.outline
-    val selectedColor = MaterialTheme.colorScheme.onSurface
+    val colors = MaterialTheme.colorScheme
     val maxDuration = frames.maxOfOrNull { it.sample.resolvedDurationNs() ?: 0L }?.coerceAtLeast(1L) ?: 1L
     Canvas(
         modifier =
-            Modifier.fillMaxWidth().height(180.dp).pointerInput(frames) {
+            Modifier.fillMaxWidth().height(144.dp).pointerInput(frames) {
                 detectTapGestures { position ->
                     if (frames.isNotEmpty()) {
                         val index = floor(position.x / size.width * frames.size).toInt().coerceIn(frames.indices)
@@ -222,11 +216,11 @@ private fun FrameTimeline(
             val height = (duration.toFloat() / maxDuration * size.height).coerceAtLeast(2f)
             val color =
                 when (frame.severity) {
-                    JankSeverity.SMOOTH -> smoothColor
-                    JankSeverity.MINOR -> minorColor
-                    JankSeverity.MAJOR -> majorColor
-                    JankSeverity.SEVERE, JankSeverity.FROZEN -> severeColor
-                    JankSeverity.UNKNOWN -> unknownColor
+                    JankSeverity.SMOOTH -> colors.tertiary
+                    JankSeverity.MINOR -> colors.secondary
+                    JankSeverity.MAJOR -> colors.errorContainer
+                    JankSeverity.SEVERE, JankSeverity.FROZEN -> colors.error
+                    JankSeverity.UNKNOWN -> colors.outline
                 }
             drawRect(
                 color = color,
@@ -235,7 +229,7 @@ private fun FrameTimeline(
             )
             if (frame.sample.frameId == selectedFrameId) {
                 drawLine(
-                    color = selectedColor,
+                    color = colors.onSurface,
                     start = Offset(index * barWidth + barWidth / 2f, 0f),
                     end = Offset(index * barWidth + barWidth / 2f, size.height),
                     strokeWidth = 2f,
@@ -254,7 +248,7 @@ private fun FrameDetail(
 ) {
     Card(modifier = modifier) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
@@ -319,7 +313,7 @@ private fun ClusterList(
     modifier: Modifier,
 ) {
     Card(modifier = modifier) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Column(Modifier.fillMaxSize().padding(8.dp)) {
             Text(
                 if (chinese) "卡顿区间" else "Jank Clusters",
                 style = MaterialTheme.typography.titleMedium,
@@ -339,8 +333,8 @@ private fun ClusterList(
                                 .fillMaxWidth()
                                 .background(
                                     MaterialTheme.colorScheme.surfaceContainer,
-                                    RoundedCornerShape(8.dp),
-                                ).padding(10.dp),
+                                    RoundedCornerShape(4.dp),
+                                ).padding(6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Column {

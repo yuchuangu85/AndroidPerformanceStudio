@@ -4,10 +4,14 @@ package dev.agentperf.memory.hprof
 
 import dev.agentperf.memory.model.HeapClass
 import dev.agentperf.memory.model.HeapDump
+import dev.agentperf.memory.model.HeapField
 import dev.agentperf.memory.model.HeapInstance
 import dev.agentperf.memory.model.HeapObjectArray
 import dev.agentperf.memory.model.HeapPrimitiveArray
+import dev.agentperf.memory.model.HeapRoot
+import dev.agentperf.memory.model.HeapRootKind
 import dev.agentperf.memory.model.MemoryWarning
+import dev.agentperf.memory.model.ObjectReference
 import dev.agentperf.memory.model.PrimitiveType
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -21,23 +25,27 @@ class HprofParseException(
 ) : RuntimeException(message)
 
 class HprofParser {
-    fun parse(path: Path): HeapDump =
+    fun parse(
+        path: Path,
+        onProgress: (Int) -> Unit = {},
+    ): HeapDump =
         FileChannel.open(path, StandardOpenOption.READ).use { channel ->
             val size = channel.size()
             if (size > Int.MAX_VALUE) {
                 throw HprofParseException("HPROF is too large to map: $size bytes")
             }
-            parse(channel.map(FileChannel.MapMode.READ_ONLY, 0L, size), path)
+            parse(channel.map(FileChannel.MapMode.READ_ONLY, 0L, size), path, onProgress)
         }
 
     fun parse(
         bytes: ByteArray,
         rawHprofFile: Path? = null,
-    ): HeapDump = parse(ByteBuffer.wrap(bytes), rawHprofFile)
+    ): HeapDump = parse(ByteBuffer.wrap(bytes), rawHprofFile, {})
 
     private fun parse(
         buffer: ByteBuffer,
         rawHprofFile: Path?,
+        onProgress: (Int) -> Unit,
     ): HeapDump {
         val reader = HprofReader(buffer)
         val header = reader.readHeaderString()
@@ -47,6 +55,7 @@ class HprofParser {
         }
         val timestamp = reader.readLong()
         val state = ParserState(idSize = idSize)
+        onProgress(0)
 
         while (reader.hasRemaining()) {
             val recordOffset = reader.position.toLong()
@@ -58,13 +67,45 @@ class HprofParser {
             }
             val payload = reader.readSubReader(length, state.idSize)
             parseRecord(tag = tag, payload = payload, state = state, offset = recordOffset)
+            onProgress(((reader.position.toDouble() / buffer.limit()) * 100.0).toInt().coerceIn(0, 100))
         }
+        onProgress(100)
 
         val classes =
             state.classesById.values
-                .map { heapClass -> heapClass.copy(name = state.classNameForObjectId(heapClass.objectId)) }
+                .map { heapClass ->
+                    val metadata = state.classMetadataById[heapClass.objectId]
+                    heapClass.copy(
+                        name = state.classNameForObjectId(heapClass.objectId),
+                        superClassObjectId = metadata?.superClassObjectId ?: 0L,
+                        instanceFields =
+                            metadata?.instanceFields.orEmpty().map { field ->
+                                HeapField(
+                                    name = state.stringsById[field.nameStringId] ?: "<field-${field.nameStringId}>",
+                                    type = field.type,
+                                )
+                            },
+                        staticReferences =
+                            metadata?.staticReferences.orEmpty().map { reference ->
+                                ObjectReference(
+                                    fieldName =
+                                        "static ${state.stringsById[reference.nameStringId] ?: "<field-${reference.nameStringId}>"}",
+                                    targetObjectId = reference.targetObjectId,
+                                )
+                            },
+                    )
+                }
                 .sortedBy { it.objectId }
         val classesById = classes.associateBy(HeapClass::objectId)
+        val instances = state.instances.map { state.decodeInstance(it, classesById) }
+        val objectClassNames = buildMap {
+            classes.forEach { put(it.objectId, it.name) }
+            instances.forEach { put(it.objectId, it.className) }
+            state.objectArrays.forEach { array ->
+                put(array.objectId, classesById[array.arrayClassObjectId]?.name ?: HeapClass.UNKNOWN_CLASS_NAME)
+            }
+            state.primitiveArrays.forEach { put(it.objectId, it.className) }
+        }
         return HeapDump(
             rawHprofFile = rawHprofFile,
             format = header,
@@ -72,11 +113,15 @@ class HprofParser {
             timestampMillis = timestamp,
             classes = classes,
             instances =
-                state.instances.map { instance ->
-                    val heapClass = classesById[instance.classObjectId]
+                instances.map { instance ->
                     instance.copy(
-                        className = heapClass?.name ?: HeapClass.UNKNOWN_CLASS_NAME,
-                        shallowSize = heapClass?.instanceSize?.takeIf { it > 0L } ?: instance.shallowSize,
+                        references =
+                            instance.references.map { reference ->
+                                reference.copy(
+                                    targetClassName =
+                                        objectClassNames[reference.targetObjectId] ?: HeapClass.UNKNOWN_CLASS_NAME,
+                                )
+                            },
                     )
                 },
             objectArrays =
@@ -84,6 +129,7 @@ class HprofParser {
                     array.copy(className = classesById[array.arrayClassObjectId]?.name ?: HeapClass.UNKNOWN_CLASS_NAME)
                 },
             primitiveArrays = state.primitiveArrays,
+            gcRoots = state.gcRoots.distinctBy { it.objectId to it.kind },
             warnings = state.warnings,
         )
     }
@@ -141,12 +187,13 @@ class HprofParser {
         while (reader.hasRemaining()) {
             val subOffset = recordOffset + reader.relativePosition
             val subTag = reader.readUnsignedByte()
-            val metadataSize = heapMetadataPayloadSize(subTag, state.idSize)
-            if (metadataSize != null) {
-                reader.skip(metadataSize)
+            val rootKind = heapRootKind(subTag)
+            if (rootKind != null) {
+                parseHeapRoot(reader, state, subTag, rootKind)
                 continue
             }
             when (subTag) {
+                HEAP_DUMP_INFO -> reader.skip(Int.SIZE_BYTES + state.idSize)
                 CLASS_DUMP -> parseClassDump(reader, state)
                 INSTANCE_DUMP -> parseInstanceDump(reader, state)
                 OBJECT_ARRAY_DUMP -> parseObjectArrayDump(reader, state)
@@ -166,33 +213,50 @@ class HprofParser {
         }
     }
 
-    private fun heapMetadataPayloadSize(
-        tag: Int,
-        idSize: Int,
-    ): Int? =
+    private fun heapRootKind(tag: Int): HeapRootKind? =
         when (tag) {
-            ROOT_JNI_GLOBAL -> idSize * 2
-            ROOT_JNI_LOCAL,
-            ROOT_JAVA_FRAME,
-            ROOT_THREAD_OBJECT,
-            ROOT_JNI_MONITOR,
-            -> idSize + (Int.SIZE_BYTES * 2)
-            ROOT_NATIVE_STACK,
-            ROOT_THREAD_BLOCK,
-            -> idSize + Int.SIZE_BYTES
-            ROOT_STICKY_CLASS,
-            ROOT_MONITOR_USED,
-            ROOT_UNKNOWN,
-            ROOT_INTERNED_STRING,
-            ROOT_FINALIZING,
-            ROOT_DEBUGGER,
-            ROOT_REFERENCE_CLEANUP,
-            ROOT_VM_INTERNAL,
-            ROOT_UNREACHABLE,
-            -> idSize
-            HEAP_DUMP_INFO -> Int.SIZE_BYTES + idSize
+            ROOT_JNI_GLOBAL -> HeapRootKind.JNI_GLOBAL
+            ROOT_JNI_LOCAL -> HeapRootKind.JNI_LOCAL
+            ROOT_JAVA_FRAME -> HeapRootKind.JAVA_FRAME
+            ROOT_NATIVE_STACK -> HeapRootKind.NATIVE_STACK
+            ROOT_STICKY_CLASS -> HeapRootKind.STICKY_CLASS
+            ROOT_THREAD_BLOCK -> HeapRootKind.THREAD_BLOCK
+            ROOT_MONITOR_USED -> HeapRootKind.MONITOR_USED
+            ROOT_THREAD_OBJECT -> HeapRootKind.THREAD_OBJECT
+            ROOT_INTERNED_STRING -> HeapRootKind.INTERNED_STRING
+            ROOT_FINALIZING -> HeapRootKind.FINALIZING
+            ROOT_DEBUGGER -> HeapRootKind.DEBUGGER
+            ROOT_REFERENCE_CLEANUP -> HeapRootKind.REFERENCE_CLEANUP
+            ROOT_VM_INTERNAL -> HeapRootKind.VM_INTERNAL
+            ROOT_JNI_MONITOR -> HeapRootKind.JNI_MONITOR
+            ROOT_UNREACHABLE -> HeapRootKind.UNREACHABLE
+            ROOT_UNKNOWN -> HeapRootKind.UNKNOWN
             else -> null
         }
+
+    private fun parseHeapRoot(
+        reader: HprofReader,
+        state: ParserState,
+        tag: Int,
+        kind: HeapRootKind,
+    ) {
+        val objectId = reader.readId()
+        val remainingBytes =
+            when (tag) {
+                ROOT_JNI_GLOBAL -> state.idSize
+                ROOT_JNI_LOCAL,
+                ROOT_JAVA_FRAME,
+                ROOT_THREAD_OBJECT,
+                ROOT_JNI_MONITOR,
+                -> Int.SIZE_BYTES * 2
+                ROOT_NATIVE_STACK,
+                ROOT_THREAD_BLOCK,
+                -> Int.SIZE_BYTES
+                else -> 0
+            }
+        reader.skip(remainingBytes)
+        if (objectId != 0L) state.gcRoots += HeapRoot(objectId, kind)
+    }
 
     private fun parseClassDump(
         reader: HprofReader,
@@ -200,7 +264,8 @@ class HprofParser {
     ) {
         val classObjectId = reader.readId()
         reader.skip(Int.SIZE_BYTES)
-        repeat(RESERVED_CLASS_IDS) { reader.readId() }
+        val superClassObjectId = reader.readId()
+        repeat(RESERVED_CLASS_IDS - 1) { reader.readId() }
         val instanceSize = reader.readInt().toLong()
         val constantPoolCount = reader.readUnsignedShort()
         repeat(constantPoolCount) {
@@ -208,16 +273,29 @@ class HprofParser {
             reader.skipValue(reader.readUnsignedByte())
         }
         val staticFieldCount = reader.readUnsignedShort()
+        val staticReferences = mutableListOf<RawStaticReference>()
         repeat(staticFieldCount) {
-            reader.readId()
-            reader.skipValue(reader.readUnsignedByte())
+            val nameStringId = reader.readId()
+            val type = PrimitiveType.fromHprofType(reader.readUnsignedByte())
+            val value = reader.readValue(type)
+            if (type == PrimitiveType.OBJECT && value != 0L) {
+                staticReferences += RawStaticReference(nameStringId, value)
+            }
         }
         val instanceFieldCount = reader.readUnsignedShort()
+        val instanceFields = mutableListOf<RawField>()
         repeat(instanceFieldCount) {
-            reader.readId()
-            reader.skip(Byte.SIZE_BYTES)
+            instanceFields +=
+                RawField(
+                    nameStringId = reader.readId(),
+                    type = PrimitiveType.fromHprofType(reader.readUnsignedByte()),
+                )
         }
-        state.upsertClass(classObjectId, instanceSize)
+        state.upsertClass(
+            classId = classObjectId,
+            instanceSize = instanceSize,
+            metadata = ClassMetadata(superClassObjectId, instanceFields, staticReferences),
+        )
     }
 
     private fun parseInstanceDump(
@@ -228,14 +306,14 @@ class HprofParser {
         reader.skip(Int.SIZE_BYTES)
         val classObjectId = reader.readId()
         val byteCount = reader.readInt()
-        reader.skip(byteCount)
+        val fieldBytes = reader.readBytes(byteCount)
         val heapClass = state.classesById[classObjectId]
         state.instances +=
-            HeapInstance(
+            RawInstance(
                 objectId = objectId,
                 classObjectId = classObjectId,
-                className = state.classNameForObjectId(classObjectId),
                 shallowSize = heapClass?.instanceSize ?: max(byteCount, 0).toLong(),
+                fieldBytes = fieldBytes,
             )
     }
 
@@ -247,13 +325,14 @@ class HprofParser {
         reader.skip(Int.SIZE_BYTES)
         val elementCount = reader.readInt()
         val arrayClassObjectId = reader.readId()
-        reader.skipRepeated(elementCount, state.idSize)
+        val elementIds = List(elementCount) { reader.readId() }
         state.objectArrays +=
             HeapObjectArray(
                 objectId = objectId,
                 arrayClassObjectId = arrayClassObjectId,
                 className = state.classNameForObjectId(arrayClassObjectId),
                 elementCount = elementCount,
+                elementIds = elementIds,
                 shallowSize = OBJECT_ARRAY_HEADER_BYTES + (elementCount.toLong() * state.idSize),
             )
     }
@@ -284,9 +363,11 @@ class HprofParser {
         val stringsById: MutableMap<Long, String> = linkedMapOf(),
         val classNameStringIdByObjectId: MutableMap<Long, Long> = linkedMapOf(),
         val classesById: MutableMap<Long, HeapClass> = linkedMapOf(),
-        val instances: MutableList<HeapInstance> = mutableListOf(),
+        val classMetadataById: MutableMap<Long, ClassMetadata> = linkedMapOf(),
+        val instances: MutableList<RawInstance> = mutableListOf(),
         val objectArrays: MutableList<HeapObjectArray> = mutableListOf(),
         val primitiveArrays: MutableList<HeapPrimitiveArray> = mutableListOf(),
+        val gcRoots: MutableList<HeapRoot> = mutableListOf(),
         val warnings: MutableList<MemoryWarning> = mutableListOf(),
     ) {
         fun classNameForObjectId(classId: Long): String =
@@ -297,6 +378,7 @@ class HprofParser {
         fun upsertClass(
             classId: Long,
             instanceSize: Long?,
+            metadata: ClassMetadata? = null,
         ) {
             val current = classesById[classId]
             classesById[classId] =
@@ -305,8 +387,63 @@ class HprofParser {
                     name = classNameForObjectId(classId),
                     instanceSize = instanceSize ?: current?.instanceSize ?: 0L,
                 )
+            metadata?.let { classMetadataById[classId] = it }
+        }
+
+        fun decodeInstance(
+            raw: RawInstance,
+            classesById: Map<Long, HeapClass>,
+        ): HeapInstance {
+            val fields = fieldsForClass(raw.classObjectId)
+            val reader = HprofReader(ByteBuffer.wrap(raw.fieldBytes), idSize)
+            val references = mutableListOf<ObjectReference>()
+            val primitiveFields = linkedMapOf<String, Long>()
+            fields.forEach { field ->
+                if (!reader.hasRemaining()) return@forEach
+                val name = stringsById[field.nameStringId] ?: "<field-${field.nameStringId}>"
+                val value = reader.readValue(field.type)
+                if (field.type == PrimitiveType.OBJECT) {
+                    if (value != 0L) references += ObjectReference(name, value)
+                } else {
+                    primitiveFields[name] = value
+                }
+            }
+            return HeapInstance(
+                objectId = raw.objectId,
+                classObjectId = raw.classObjectId,
+                className = classesById[raw.classObjectId]?.name ?: HeapClass.UNKNOWN_CLASS_NAME,
+                shallowSize = classesById[raw.classObjectId]?.instanceSize?.takeIf { it > 0L } ?: raw.shallowSize,
+                references = references,
+                primitiveFields = primitiveFields,
+            )
+        }
+
+        private fun fieldsForClass(classObjectId: Long): List<RawField> {
+            val result = mutableListOf<RawField>()
+            val visited = hashSetOf<Long>()
+            var current = classObjectId
+            while (current != 0L && visited.add(current)) {
+                val metadata = classMetadataById[current] ?: break
+                result += metadata.instanceFields
+                current = metadata.superClassObjectId
+            }
+            return result
         }
     }
+
+    private data class RawField(val nameStringId: Long, val type: PrimitiveType)
+    private data class RawStaticReference(val nameStringId: Long, val targetObjectId: Long)
+    private data class ClassMetadata(
+        val superClassObjectId: Long,
+        val instanceFields: List<RawField>,
+        val staticReferences: List<RawStaticReference>,
+    )
+    private data class RawInstance(
+        val objectId: Long,
+        val classObjectId: Long,
+        val shallowSize: Long,
+        val fieldBytes: ByteArray,
+    )
 
     companion object {
         const val OBJECT_ARRAY_HEADER_BYTES = 16L
@@ -457,6 +594,25 @@ private class HprofReader(
         val width = PrimitiveType.fromHprofType(type).byteWidth.takeIf { it > 0 } ?: idSize
         skip(width)
     }
+
+    fun readValue(type: PrimitiveType): Long =
+        when (type) {
+            PrimitiveType.OBJECT -> readId()
+            PrimitiveType.BOOLEAN,
+            PrimitiveType.BYTE,
+            -> readUnsignedByte().toLong()
+            PrimitiveType.CHAR,
+            PrimitiveType.SHORT,
+            -> readUnsignedShort().toLong()
+            PrimitiveType.FLOAT,
+            PrimitiveType.INT,
+            -> readInt().toLong()
+            PrimitiveType.DOUBLE,
+            PrimitiveType.LONG,
+            -> readLong()
+            PrimitiveType.UNKNOWN ->
+                throw HprofParseException("Unknown HPROF value type at offset $position")
+        }
 
     private fun requireAvailable(count: Int) {
         if (count < 0) {

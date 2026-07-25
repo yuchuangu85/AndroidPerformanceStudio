@@ -55,12 +55,15 @@ internal data class CaptureArchiveLimits(
 internal class CaptureArchiveLimitsStore(
     private val readValue: () -> Int?,
     private val writeValue: (Int) -> Unit,
+    private val flush: () -> Unit = {},
 ) {
     fun load(): CaptureArchiveLimits = CaptureArchiveLimits.fromStoredMultiplier(readValue())
 
-    fun save(limits: CaptureArchiveLimits) {
-        writeValue(limits.snapshotSizeMultiplier)
-    }
+    fun save(limits: CaptureArchiveLimits): Boolean =
+        runCatching {
+            writeValue(limits.snapshotSizeMultiplier)
+            flush()
+        }.isSuccess
 
     companion object {
         private const val KEY = "archive.snapshotSizeMultiplier"
@@ -79,9 +82,10 @@ internal class CaptureArchiveLimitsStore(
                     }.getOrNull()
                 },
                 writeValue = { value ->
-                    runCatching { preferences?.putInt(KEY, value) }
-                    Unit
+                    checkNotNull(preferences) { "Capture archive preferences are unavailable" }
+                    preferences.putInt(KEY, value)
                 },
+                flush = { checkNotNull(preferences).flush() },
             )
         }
     }

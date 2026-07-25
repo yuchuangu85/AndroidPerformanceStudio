@@ -27,21 +27,30 @@ fun HomeScreen(
     darkTheme: Boolean = false,
     language: SimpleperfLanguage = SimpleperfLanguage.ENGLISH,
     captureSettingsSection: CaptureSettingsSection? = null,
+    captureSettingsManagedExternally: Boolean = false,
     onCaptureSettingsSectionChange: (CaptureSettingsSection?) -> Unit = {},
     flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit = {},
     simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
     onOpenUserGuide: (() -> Unit)? = null,
+    onNavigateHome: (() -> Unit)? = null,
 ) {
     SimpleperfLocalization(language) {
         var localCaptureSettingsSection by remember { mutableStateOf(captureSettingsSection) }
         LaunchedEffect(captureSettingsSection) {
             localCaptureSettingsSection = captureSettingsSection
         }
-        val activeCaptureSettingsSection = captureSettingsSection ?: localCaptureSettingsSection
+        val activeCaptureSettingsSection =
+            if (captureSettingsManagedExternally) {
+                captureSettingsSection
+            } else {
+                captureSettingsSection ?: localCaptureSettingsSection
+            }
         val updateCaptureSettingsSection: (CaptureSettingsSection?) -> Unit = { next ->
-            localCaptureSettingsSection = next
+            if (!captureSettingsManagedExternally) {
+                localCaptureSettingsSection = next
+            }
             onCaptureSettingsSectionChange(next)
         }
         MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
@@ -60,6 +69,7 @@ fun HomeScreen(
                     simpleperfEngine,
                     onSimpleperfEngineChange,
                     onOpenUserGuide,
+                    onNavigateHome,
                 )
             }
         }

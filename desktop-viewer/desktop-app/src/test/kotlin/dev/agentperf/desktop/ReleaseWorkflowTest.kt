@@ -36,6 +36,8 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("node-version: \"24\""))
         assertTrue(workflow.contains("npm install --global yarn@1"))
         assertTrue(workflow.contains("./scripts/firefox-profiler.sh all"))
+        assertTrue(workflow.contains("./scripts/build-perfetto-ui.sh download"))
+        assertTrue(workflow.contains("./scripts/install-trace-processor.sh"))
         assertTrue(!workflow.contains("actions/upload-artifact"))
         assertTrue(!workflow.contains("actions/download-artifact"))
         assertTrue(workflow.contains("package-windows:"))
@@ -89,5 +91,16 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("cache: gradle"))
         assertTrue(!workflow.contains("uses: actions/upload-artifact"))
         assertTrue(!workflow.contains("uses: actions/download-artifact"))
+    }
+
+    @Test
+    fun `trace processor launcher comes from the pinned Perfetto submodule`() {
+        val installer = Files.readString(Path.of("../../scripts/install-trace-processor.sh"))
+        val gitmodules = Files.readString(Path.of("../../.gitmodules"))
+
+        assertTrue(installer.contains("third_party/perfetto"))
+        assertTrue(installer.contains("tools/trace_processor"))
+        assertTrue(!installer.contains("get.perfetto.dev"))
+        assertTrue(!gitmodules.contains("branch = v57.2"))
     }
 }

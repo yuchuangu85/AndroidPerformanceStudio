@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -28,10 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureState
+import com.androidperformancestudio.perfetto.model.PerfettoDevice
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
 import java.nio.file.Path
 
 @Composable
+@Suppress("ktlint:standard:function-naming")
 fun PerfettoCapturePage(
     captureState: PerfettoCaptureState,
     adbPath: String,
@@ -39,12 +40,18 @@ fun PerfettoCapturePage(
     onStartCapture: (PerfettoCaptureConfig, String) -> Unit,
     onStopCapture: () -> Unit,
     onOpenTrace: (Path) -> Unit,
+    devices: List<PerfettoDevice> = emptyList(),
+    selectedDeviceSerial: String? = null,
+    onSelectDevice: (String) -> Unit = {},
+    onRefreshDevices: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var selectedTemplate by remember { mutableStateOf(PerfettoTraceTemplate.SYSTEM_OVERVIEW) }
     var targetPackage by remember { mutableStateOf("") }
     var durationSeconds by remember { mutableStateOf(10) }
     var bufferSizeKb by remember { mutableStateOf(32768) }
+    var additionalCategories by remember { mutableStateOf("") }
+    var customConfigText by remember { mutableStateOf("") }
 
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -58,6 +65,26 @@ fun PerfettoCapturePage(
             singleLine = true,
         )
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Device:", style = MaterialTheme.typography.labelLarge)
+            devices.forEach { device ->
+                OutlinedButton(
+                    onClick = { onSelectDevice(device.serial) },
+                    enabled = device.online,
+                ) {
+                    Text(
+                        if (device.serial == selectedDeviceSerial) "✓ ${device.model}" else device.model,
+                    )
+                }
+            }
+            if (devices.isEmpty()) Text("No online devices", color = MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick = onRefreshDevices) { Text("Refresh") }
+        }
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Trace Template", style = MaterialTheme.typography.titleSmall)
@@ -67,8 +94,11 @@ fun PerfettoCapturePage(
                         Spacer(Modifier.width(8.dp))
                         Column {
                             Text(template.displayName, style = MaterialTheme.typography.bodyLarge)
-                            Text(template.description, style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                template.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
@@ -102,21 +132,56 @@ fun PerfettoCapturePage(
                         singleLine = true,
                     )
                 }
+                OutlinedTextField(
+                    value = additionalCategories,
+                    onValueChange = { additionalCategories = it },
+                    label = { Text("Additional categories/events") },
+                    supportingText = { Text("Comma-separated atrace categories or ftrace group/event names") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                if (selectedTemplate == PerfettoTraceTemplate.CUSTOM) {
+                    OutlinedTextField(
+                        value = customConfigText,
+                        onValueChange = { customConfigText = it },
+                        label = { Text("Custom TraceConfig (text protobuf)") },
+                        supportingText = { Text("Required for the Custom template") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 8,
+                    )
+                }
             }
         }
+
+        val canStartCapture =
+            isCaptureStartAllowed(
+                state = captureState,
+                selectedDeviceSerial = selectedDeviceSerial,
+                customConfigReady = selectedTemplate != PerfettoTraceTemplate.CUSTOM || customConfigText.isNotBlank(),
+            )
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
                 onClick = {
-                    val config = PerfettoCaptureConfig(
-                        template = selectedTemplate,
-                        targetPackage = targetPackage.ifBlank { null },
-                        durationSeconds = durationSeconds,
-                        bufferSizeKb = bufferSizeKb,
-                    )
-                    onStartCapture(config, "")
+                    val config =
+                        PerfettoCaptureConfig(
+                            template = selectedTemplate,
+                            targetPackage = targetPackage.ifBlank { null },
+                            durationSeconds = durationSeconds,
+                            bufferSizeKb = bufferSizeKb,
+                            additionalCategories =
+                                additionalCategories
+                                    .split(',', '\n')
+                                    .map(String::trim)
+                                    .filter(String::isNotEmpty),
+                            customConfigText =
+                                customConfigText.takeIf {
+                                    selectedTemplate == PerfettoTraceTemplate.CUSTOM && it.isNotBlank()
+                                },
+                        )
+                    selectedDeviceSerial?.let { onStartCapture(config, it) }
                 },
-                enabled = captureState is PerfettoCaptureState.Idle,
+                enabled = canStartCapture,
             ) { Text("Start Capture") }
 
             if (captureState is PerfettoCaptureState.Recording) {
@@ -147,4 +212,15 @@ fun PerfettoCapturePage(
             is PerfettoCaptureState.Failed -> Text("Failed: ${state.error.message}", color = MaterialTheme.colorScheme.error)
         }
     }
+}
+
+private fun isCaptureStartAllowed(
+    state: PerfettoCaptureState,
+    selectedDeviceSerial: String?,
+    customConfigReady: Boolean,
+): Boolean {
+    val preparing = state is PerfettoCaptureState.Preparing
+    val recording = state is PerfettoCaptureState.Recording
+    val pulling = state is PerfettoCaptureState.Pulling
+    return selectedDeviceSerial != null && customConfigReady && !preparing && !recording && !pulling
 }

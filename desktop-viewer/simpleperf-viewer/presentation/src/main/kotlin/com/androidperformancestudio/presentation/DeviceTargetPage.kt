@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.presentation
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,7 +33,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -69,6 +73,7 @@ internal fun DeviceTargetPage(
     simpleperfEngine: SimpleperfEngine = SimpleperfEngine.LOCAL,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
     onOpenUserGuide: (() -> Unit)? = null,
+    onNavigateHome: (() -> Unit)? = null,
 ) {
     val style = macOsDeviceTargetStyle(darkTheme)
     val captureActive = captureState.isCaptureActive()
@@ -80,6 +85,7 @@ internal fun DeviceTargetPage(
             enabled = !captureActive && !state.isLoading,
             showGetData = !captureActive,
             onOpenSettings = { onSettingsSectionChange(CaptureSettingsSection.SAMPLING_TEMPLATE) },
+            onNavigateHome = onNavigateHome,
         )
         if (reportState.loadState == ReportLoadState.Closed) {
             Spacer(Modifier.weight(1f))
@@ -127,6 +133,7 @@ private fun WorkspaceToolbar(
     enabled: Boolean,
     showGetData: Boolean,
     onOpenSettings: () -> Unit,
+    onNavigateHome: (() -> Unit)?,
 ) {
     Row(
         modifier =
@@ -142,7 +149,62 @@ private fun WorkspaceToolbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        if (onNavigateHome != null) {
+            CompactHomeButton(
+                contentDescription = localizedSimpleperfText("Back to home"),
+                style = style,
+                onClick = onNavigateHome,
+            )
+        }
         ToolbarContent(state, actions, style, enabled, showGetData, onOpenSettings)
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun CompactHomeButton(
+    contentDescription: String,
+    style: MacOsDeviceTargetStyle,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier =
+            Modifier
+                .width(28.dp)
+                .height(MacOsDeviceTargetDimensions.buttonHeight)
+                .clip(RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius))
+                .background(style.panel)
+                .border(
+                    MacOsDeviceTargetDimensions.hairline,
+                    style.strongBorder,
+                    RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius),
+                ).semantics { this.contentDescription = contentDescription }
+                .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(15.dp)) {
+            val strokeWidth = 1.2.dp.toPx()
+            val roofLeft = Offset(1.5.dp.toPx(), 7.dp.toPx())
+            val roofPeak = Offset(size.width / 2f, 1.8.dp.toPx())
+            val roofRight = Offset(size.width - 1.5.dp.toPx(), 7.dp.toPx())
+            val wallLeft = 3.2.dp.toPx()
+            val wallRight = size.width - 3.2.dp.toPx()
+            val wallTop = 6.2.dp.toPx()
+            val wallBottom = size.height - 1.8.dp.toPx()
+            val doorWidth = 3.6.dp.toPx()
+
+            drawLine(style.secondaryText, roofLeft, roofPeak, strokeWidth)
+            drawLine(style.secondaryText, roofPeak, roofRight, strokeWidth)
+            drawLine(style.secondaryText, Offset(wallLeft, wallTop), Offset(wallLeft, wallBottom), strokeWidth)
+            drawLine(style.secondaryText, Offset(wallRight, wallTop), Offset(wallRight, wallBottom), strokeWidth)
+            drawLine(style.secondaryText, Offset(wallLeft, wallBottom), Offset(wallRight, wallBottom), strokeWidth)
+            drawRect(
+                color = style.secondaryText,
+                topLeft = Offset((size.width - doorWidth) / 2f, 9.dp.toPx()),
+                size = Size(doorWidth, wallBottom - 9.dp.toPx()),
+                style = Stroke(width = strokeWidth),
+            )
+        }
     }
 }
 

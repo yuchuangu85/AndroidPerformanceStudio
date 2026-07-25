@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -121,25 +122,44 @@ internal fun ViewerTheme(
     content: @Composable () -> Unit,
 ) {
     val colors = ViewerPalettes.forDark(darkTheme)
-    val colorScheme = if (darkTheme) {
+    val colorScheme = viewerMaterialColorScheme(darkTheme)
+    CompositionLocalProvider(LocalViewerColors provides colors) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            content = content,
+        )
+    }
+}
+
+public fun viewerMaterialColorScheme(darkTheme: Boolean): ColorScheme {
+    val colors = ViewerPalettes.forDark(darkTheme)
+    return if (darkTheme) {
         darkColorScheme(
             primary = colors.accent,
             background = colors.canvasBackground,
             surface = colors.panel,
+            surfaceVariant = colors.detailRowDeep,
+            primaryContainer = colors.selectedRow,
+            secondaryContainer = colors.sectionBackground,
+            outline = colors.border,
+            onBackground = colors.primaryText,
             onSurface = colors.primaryText,
+            onSurfaceVariant = colors.secondaryText,
+            error = colors.error,
         )
     } else {
         lightColorScheme(
             primary = colors.accent,
             background = colors.canvasBackground,
             surface = colors.panel,
+            surfaceVariant = colors.detailRowDeep,
+            primaryContainer = colors.selectedRow,
+            secondaryContainer = colors.sectionBackground,
+            outline = colors.border,
+            onBackground = colors.primaryText,
             onSurface = colors.primaryText,
-        )
-    }
-    CompositionLocalProvider(LocalViewerColors provides colors) {
-        MaterialTheme(
-            colorScheme = colorScheme,
-            content = content,
+            onSurfaceVariant = colors.secondaryText,
+            error = colors.error,
         )
     }
 }

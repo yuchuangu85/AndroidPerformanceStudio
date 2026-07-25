@@ -174,6 +174,7 @@ private val CHINESE_TEXT =
         "Thread selector" to "线程选择器",
         "Capabilities" to "设备能力",
         "Settings" to "设置",
+        "Back to home" to "返回主页",
         "Capture setup" to "采集设置",
         "Application" to "应用设置",
         "Done" to "完成",

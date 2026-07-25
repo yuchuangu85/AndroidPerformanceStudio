@@ -19,3 +19,7 @@ include(
     ":presentation",
     ":benchmark-app",
 )
+
+includeBuild("../simpleperf-viewer") {
+    name = "benchmark-regression-simpleperf-tooling"
+}

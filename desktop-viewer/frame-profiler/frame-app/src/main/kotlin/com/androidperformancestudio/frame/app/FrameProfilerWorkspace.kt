@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,12 +24,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
+import com.androidperformancestudio.ui.ProfilerHomeButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.awt.FileDialog
@@ -56,10 +60,12 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedButton(
+            ProfilerHomeButton(
+                contentDescription = if (chinese) "返回主页" else "Back to home",
                 onClick = {
                     if (state.isCapturing) {
                         scope.launch {
@@ -70,7 +76,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
                         onBack()
                     }
                 },
-            ) { Text(if (chinese) "返回主页" else "Back to Home") }
+            )
             TargetSelector(
                 label = if (chinese) "设备" else "Device",
                 selectedLabel =
@@ -134,6 +140,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
             }
             state.operationMessage?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         FrameProfilerScreen(
             state = state,
             actions =

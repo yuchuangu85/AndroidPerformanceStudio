@@ -50,6 +50,7 @@ internal data class ViewDisplayOptions(
 internal class ViewDisplayOptionsStore(
     private val readBoolean: (String, Boolean) -> Boolean,
     private val writeBoolean: (String, Boolean) -> Unit,
+    private val flush: () -> Unit = {},
 ) {
     fun load(): ViewDisplayOptions = ViewDisplayOptions(
         hideInvisibleHierarchyViews = readBoolean(HIDE_INVISIBLE_HIERARCHY_VIEWS_KEY, false),
@@ -68,21 +69,23 @@ internal class ViewDisplayOptionsStore(
         },
     )
 
-    fun save(options: ViewDisplayOptions) {
-        writeBoolean(HIDE_INVISIBLE_HIERARCHY_VIEWS_KEY, options.hideInvisibleHierarchyViews)
-        writeBoolean(HIDE_INVISIBLE_FINDINGS_KEY, options.hideInvisibleFindings)
-        writeBoolean(HIDE_HIERARCHY_INDICES_KEY, options.hideHierarchyIndices)
-        writeBoolean(SHOW_HIERARCHY_IDS_KEY, options.showHierarchyIds)
-        writeBoolean(
-            SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS_KEY,
-            options.showHierarchyLayerVisibilityButtons,
-        )
-        writeBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, options.showVisibleViewBounds)
-        writeBoolean(
-            CANVAS_HIT_TEST_ORDER_Z_KEY,
-            options.canvasHitTestOrder == CanvasHitTestOrder.Z_ORDER,
-        )
-    }
+    fun save(options: ViewDisplayOptions): Boolean =
+        runCatching {
+            writeBoolean(HIDE_INVISIBLE_HIERARCHY_VIEWS_KEY, options.hideInvisibleHierarchyViews)
+            writeBoolean(HIDE_INVISIBLE_FINDINGS_KEY, options.hideInvisibleFindings)
+            writeBoolean(HIDE_HIERARCHY_INDICES_KEY, options.hideHierarchyIndices)
+            writeBoolean(SHOW_HIERARCHY_IDS_KEY, options.showHierarchyIds)
+            writeBoolean(
+                SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS_KEY,
+                options.showHierarchyLayerVisibilityButtons,
+            )
+            writeBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, options.showVisibleViewBounds)
+            writeBoolean(
+                CANVAS_HIT_TEST_ORDER_Z_KEY,
+                options.canvasHitTestOrder == CanvasHitTestOrder.Z_ORDER,
+            )
+            flush()
+        }.isSuccess
 
     companion object {
         private const val HIDE_INVISIBLE_HIERARCHY_VIEWS_KEY =
@@ -105,9 +108,10 @@ internal class ViewDisplayOptionsStore(
                         .getOrDefault(default)
                 },
                 writeBoolean = { key, value ->
-                    runCatching { preferences?.putBoolean(key, value) }
-                    Unit
+                    checkNotNull(preferences) { "View display preferences are unavailable" }
+                    preferences.putBoolean(key, value)
                 },
+                flush = { checkNotNull(preferences).flush() },
             )
         }
     }

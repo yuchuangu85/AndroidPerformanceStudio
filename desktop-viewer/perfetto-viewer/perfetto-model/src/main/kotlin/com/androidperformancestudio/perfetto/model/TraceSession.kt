@@ -1,9 +1,4 @@
 package com.androidperformancestudio.perfetto.model
-import com.androidperformancestudio.model.ErrorCategory
-import com.androidperformancestudio.model.StudioError
-import com.androidperformancestudio.model.StudioResult
-
-
 import java.nio.file.Path
 import java.time.Instant
 

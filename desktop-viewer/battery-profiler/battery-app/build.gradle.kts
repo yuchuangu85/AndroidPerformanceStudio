@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 dependencies {
+    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
     implementation(project(":battery-model"))
     implementation(project(":capture-battery"))
     implementation(project(":analysis-battery"))

@@ -39,15 +39,24 @@ internal class HprofFixtureBuilder(
     fun classDump(
         classId: Long,
         instanceSize: Int,
+        superClassId: Long = 0L,
+        staticObjectFields: List<Pair<Long, Long>> = emptyList(),
+        instanceFields: List<Pair<Long, PrimitiveType>> = emptyList(),
     ): ByteArray =
         byteArrayOf(0x20) +
             id(classId) +
             int(0) +
-            id(0) + id(0) + id(0) + id(0) + id(0) + id(0) +
+            id(superClassId) + id(0) + id(0) + id(0) + id(0) + id(0) +
             int(instanceSize) +
             short(0) +
-            short(0) +
-            short(0)
+            short(staticObjectFields.size) +
+            staticObjectFields.fold(ByteArray(0)) { bytes, (nameId, targetId) ->
+                bytes + id(nameId) + byteArrayOf(PrimitiveType.OBJECT.hprofType.toByte()) + id(targetId)
+            } +
+            short(instanceFields.size) +
+            instanceFields.fold(ByteArray(0)) { bytes, (nameId, type) ->
+                bytes + id(nameId) + byteArrayOf(type.hprofType.toByte())
+            }
 
     fun instanceDump(
         objectId: Long,
@@ -94,6 +103,10 @@ internal class HprofFixtureBuilder(
             id(objectId) + int(0) + int(elementCount) + byteArrayOf(type.hprofType.toByte())
 
     fun unknownSubRecord(): ByteArray = byteArrayOf(0x7d, 1, 2, 3)
+
+    fun objectValue(value: Long): ByteArray = id(value)
+
+    fun intValue(value: Int): ByteArray = int(value)
 
     fun build(): ByteArray =
         "JAVA PROFILE 1.0.3".encodeToByteArray() +

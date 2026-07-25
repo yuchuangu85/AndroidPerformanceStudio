@@ -45,3 +45,6 @@ google-services.json
 .superpowers/
 .codeartsdoer/
 .arts/
+
+# Local Perfetto trace_processor launcher
+/trace_processor

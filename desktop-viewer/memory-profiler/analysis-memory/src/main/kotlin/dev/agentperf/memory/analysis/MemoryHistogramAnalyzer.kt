@@ -15,6 +15,8 @@ class MemoryHistogramAnalyzer {
     fun histogram(
         heapDump: HeapDump,
         sort: HistogramSort = HistogramSort.COUNT,
+        retainedSizes: Map<Long, Long> = emptyMap(),
+        immediateDominators: Map<Long, Long?> = emptyMap(),
     ): HeapHistogram {
         val totalsByClass = linkedMapOf<String, MutableClassTotals>()
         var objectCount = 0
@@ -26,7 +28,7 @@ class MemoryHistogramAnalyzer {
                 shallowSize += heapObject.shallowSize
                 totalsByClass
                     .getOrPut(heapObject.className, ::MutableClassTotals)
-                    .add(heapObject.shallowSize)
+                    .add(heapObject.objectId, heapObject.shallowSize, retainedSizes[heapObject.objectId])
             }
         }
 
@@ -41,7 +43,7 @@ class MemoryHistogramAnalyzer {
                         className = className,
                         instanceCount = totals.instanceCount,
                         shallowSize = totals.shallowSize,
-                        retainedSize = null,
+                        retainedSize = totals.combinedRetainedSize(immediateDominators),
                     )
                 }.sortedWith(sort.comparator)
 
@@ -61,10 +63,42 @@ class MemoryHistogramAnalyzer {
             private set
         var shallowSize: Long = 0L
             private set
+        private val retainedSizesByObjectId = linkedMapOf<Long, Long>()
 
-        fun add(objectShallowSize: Long) {
+        fun add(
+            objectId: Long,
+            objectShallowSize: Long,
+            objectRetainedSize: Long?,
+        ) {
             instanceCount += 1
             shallowSize += objectShallowSize
+            objectRetainedSize?.let { retainedSizesByObjectId[objectId] = it }
+        }
+
+        fun combinedRetainedSize(immediateDominators: Map<Long, Long?>): Long? {
+            val classObjectIds = retainedSizesByObjectId.keys
+            return when {
+                retainedSizesByObjectId.isEmpty() -> null
+                immediateDominators.isEmpty() -> retainedSizesByObjectId.values.sum()
+                else ->
+                    retainedSizesByObjectId
+                        .filterKeys { objectId ->
+                            !isDominatedByClassInstance(objectId, classObjectIds, immediateDominators)
+                        }.values
+                        .sum()
+            }
+        }
+
+        private fun isDominatedByClassInstance(
+            objectId: Long,
+            classObjectIds: Set<Long>,
+            immediateDominators: Map<Long, Long?>,
+        ): Boolean {
+            var ancestor = immediateDominators[objectId]
+            while (ancestor != null && ancestor !in classObjectIds) {
+                ancestor = immediateDominators[ancestor]
+            }
+            return ancestor != null
         }
     }
 

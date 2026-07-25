@@ -1,9 +1,5 @@
 package com.androidperformancestudio.perfetto.model
-import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
-import com.androidperformancestudio.model.StudioResult
-
-
 import java.nio.file.Path
 import java.time.Instant
 
@@ -38,11 +34,29 @@ data class PerfettoCaptureConfig(
 
 sealed interface PerfettoCaptureState {
     data object Idle : PerfettoCaptureState
-    data class Preparing(val config: PerfettoCaptureConfig) : PerfettoCaptureState
-    data class Recording(val startTime: Instant, val pid: Long) : PerfettoCaptureState
-    data class Pulling(val bytesTransferred: Long, val totalBytes: Long?) : PerfettoCaptureState
-    data class Completed(val traceFile: Path, val metadata: CaptureMetadata) : PerfettoCaptureState
-    data class Failed(val error: StudioError) : PerfettoCaptureState
+
+    data class Preparing(
+        val config: PerfettoCaptureConfig,
+    ) : PerfettoCaptureState
+
+    data class Recording(
+        val startTime: Instant,
+        val pid: Long,
+    ) : PerfettoCaptureState
+
+    data class Pulling(
+        val bytesTransferred: Long,
+        val totalBytes: Long?,
+    ) : PerfettoCaptureState
+
+    data class Completed(
+        val traceFile: Path,
+        val metadata: CaptureMetadata,
+    ) : PerfettoCaptureState
+
+    data class Failed(
+        val error: StudioError,
+    ) : PerfettoCaptureState
 }
 
 data class CaptureMetadata(
@@ -54,4 +68,11 @@ data class CaptureMetadata(
     val traceFileSizeBytes: Long,
     val config: PerfettoCaptureConfig,
     val command: String,
+)
+
+data class PerfettoDevice(
+    val serial: String,
+    val model: String,
+    val androidSdk: Int = 0,
+    val online: Boolean = true,
 )

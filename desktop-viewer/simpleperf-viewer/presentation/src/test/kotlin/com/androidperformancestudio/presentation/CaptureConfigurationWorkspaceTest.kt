@@ -14,6 +14,8 @@ class CaptureConfigurationWorkspaceTest {
         val configuration = source("CaptureConfigurationWorkspace.kt")
 
         assertTrue(home.contains("captureSettingsSection"))
+        assertTrue(home.contains("captureSettingsManagedExternally"))
+        assertTrue(home.contains("if (!captureSettingsManagedExternally)"))
         assertFalse(home.contains("CapturePage("))
         assertFalse(home.contains("ReportPage(reportState"))
         assertFalse(workspace.contains("TargetSummary(state, style)"))
@@ -38,6 +40,7 @@ class CaptureConfigurationWorkspaceTest {
     fun `settings dialog includes capture flame graph engine and user guide sections`() {
         val source = source("CaptureConfigurationWorkspace.kt")
 
+        assertTrue(source.contains("fun SimpleperfSettingsContent("))
         assertTrue(source.contains("SAMPLING_TEMPLATE"))
         assertTrue(source.contains("CAPTURE_CONFIGURATION"))
         assertTrue(source.contains("ADVANCED_PARAMETERS"))

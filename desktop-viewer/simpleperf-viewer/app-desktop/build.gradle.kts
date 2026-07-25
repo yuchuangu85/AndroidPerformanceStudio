@@ -20,13 +20,13 @@ tasks
 
 dependencies {
     implementation(project(":analysis-rules"))
-    implementation(project(":application"))
-    implementation(project(":capture-simpleperf"))
+    api(project(":application"))
+    api(project(":capture-simpleperf"))
     implementation(project(":device-adb"))
     implementation(project(":export-adapters"))
     implementation(project(":platform-toolchain"))
     implementation(project(":parser-simpleperf-proto"))
-    implementation(project(":presentation"))
+    api(project(":presentation"))
     implementation(project(":profile-analysis"))
     implementation(project(":profile-model"))
     implementation(project(":storage-sqlite"))

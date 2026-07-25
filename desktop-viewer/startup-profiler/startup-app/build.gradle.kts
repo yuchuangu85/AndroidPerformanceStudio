@@ -4,6 +4,7 @@ plugins {
 }
 
 dependencies {
+    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
     implementation(project(":startup-model"))
     implementation(project(":capture-startup"))
     implementation(project(":analysis-startup"))

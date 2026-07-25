@@ -4,7 +4,10 @@ package com.androidperformancestudio.network.app
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
@@ -17,6 +20,7 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerActions
 import com.androidperformancestudio.network.presentation.NetworkProfilerScreen
 import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
+import com.androidperformancestudio.ui.ProfilerHomeButton
 import kotlinx.coroutines.*
 import java.io.File
 import java.nio.file.Path
@@ -62,11 +66,18 @@ public fun FrameWindowScope.NetworkProfilerWorkspace(chinese: Boolean = false, o
         }
     }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                if (state.capturing)stop()
-                onBack()
-            }) { Text(if (chinese)"返回主页" else "Back to Home") }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ProfilerHomeButton(
+                contentDescription = if (chinese) "返回主页" else "Back to home",
+                onClick = {
+                    if (state.capturing)stop()
+                    onBack()
+                },
+            )
             OutlinedButton(enabled = !state.capturing, onClick = { chooseHar(window)?.let { file -> runCatching { HarParser().parse(file.toPath()) }.onSuccess { complete(it, "Imported ${file.name}; sensitive headers and query values were redacted.") }.onFailure { state = state.copy(error = it.message) } } }) { Text(if (chinese)"导入 HAR" else "Import HAR") }
             OutlinedTextField(state.deviceSerial, { state = state.copy(deviceSerial = it) }, label = { Text(if (chinese)"设备序列号" else "Device serial") }, enabled = !state.capturing, singleLine = true, modifier = Modifier.width(180.dp))
             OutlinedTextField(state.packageName, { state = state.copy(packageName = it) }, label = { Text(if (chinese)"包名" else "Package") }, enabled = !state.capturing, singleLine = true, modifier = Modifier.width(240.dp))
@@ -76,6 +87,7 @@ public fun FrameWindowScope.NetworkProfilerWorkspace(chinese: Boolean = false, o
             OutlinedButton(enabled = state.result != null, onClick = { chooseSave(window, "network-session.csv")?.let { exporter.writeCsv(requireNotNull(state.result), it.toPath()) } }) { Text("CSV") }
             OutlinedButton(enabled = state.result != null, onClick = { chooseSave(window, "network-raw-bundle.zip")?.let { exporter.writeRawBundle(requireNotNull(state.result), requireNotNull(state.summary), it.toPath()) } }) { Text(if (chinese)"原始包" else "Raw Bundle") }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, chinese, Modifier.weight(1f))
     }
 }

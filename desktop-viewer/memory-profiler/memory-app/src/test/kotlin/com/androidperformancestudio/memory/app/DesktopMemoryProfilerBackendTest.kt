@@ -32,8 +32,9 @@ class DesktopMemoryProfilerBackendTest {
             val hprof = root.resolve("minimal-standard.hprof")
             Files.write(hprof, minimalStandardHprof())
             val backend = DesktopMemoryProfilerBackend(root)
+            val progress = mutableListOf<Int>()
 
-            val result = backend.importHprof(hprof)
+            val result = backend.importHprof(hprof, progress::add)
 
             val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(result).value
             assertEquals(hprof, loaded.heapDump.rawHprofFile)
@@ -52,15 +53,18 @@ class DesktopMemoryProfilerBackendTest {
                     .single()
                     .shallowSize,
             )
-            assertNull(
+            assertEquals(
+                24L,
                 loaded.histogram.classes
                     .single()
                     .retainedSize,
             )
+            assertEquals(0, progress.first())
+            assertEquals(100, progress.last())
         }
 
     @Test
-    fun `oversized hprof import fails before parser allocation`() =
+    fun `large hprof import is handed to parser instead of phase one size gate`() =
         kotlinx.coroutines.test.runTest {
             val root = createTempDirectory("memory-oversized-import")
             val hprof = root.resolve("oversized.hprof")
@@ -72,8 +76,8 @@ class DesktopMemoryProfilerBackendTest {
             val result = backend.importHprof(hprof)
 
             val failure = assertIs<MemoryBackendResult.Failure>(result)
-            assertEquals("HPROF is too large", failure.title)
-            assertContains(failure.detail, "supports files up to 256 MiB")
+            assertEquals("Unable to analyze HPROF", failure.title)
+            assertContains(failure.detail, "Unsupported HPROF")
         }
 
     @Test
@@ -115,24 +119,25 @@ class DesktopMemoryProfilerBackendTest {
         }
 
     @Test
-    fun `missing converter keeps raw capture without attempting Android hprof analysis`() =
+    fun `missing converter parses raw Android hprof directly`() =
         kotlinx.coroutines.test.runTest {
             val root = createTempDirectory("memory-capture-no-converter")
             val emptySdk = createTempDirectory("empty-sdk")
-            val runner = FileWritingCaptureRunner(convertedBytes = null)
+            val rawAndroidHprof = minimalStandardHprof()
+            val runner = FileWritingCaptureRunner(convertedBytes = null, rawBytes = rawAndroidHprof)
             val backend = captureBackend(root, emptySdk, runner)
 
             val result = backend.capture("device-1", sampleProcess())
 
             val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(result).value
             assertEquals(listOf("dumpheap", "pull", "rm"), runner.commandKinds)
-            assertContentEquals(RAW_ANDROID_HPROF, Files.readAllBytes(loaded.heapDump.rawHprofFile))
+            assertContentEquals(rawAndroidHprof, Files.readAllBytes(loaded.heapDump.rawHprofFile))
             assertNull(loaded.heapDump.convertedHprofFile)
-            assertEquals("", loaded.heapDump.format)
-            assertEquals(0, loaded.histogram.summary.objectCount)
-            assertTrue(loaded.histogram.classes.isEmpty())
+            assertEquals("JAVA PROFILE 1.0.2", loaded.heapDump.format)
+            assertEquals(1, loaded.histogram.summary.objectCount)
+            assertEquals("com.example.Sample", loaded.histogram.classes.single().className)
             assertContains(loaded.warning.orEmpty(), "Install SDK Platform Tools")
-            assertContains(loaded.warning.orEmpty(), "import a standard Java HPROF")
+            assertContains(loaded.warning.orEmpty(), "parsed the Android HPROF directly")
         }
 
     private fun captureBackend(
@@ -176,6 +181,7 @@ class DesktopMemoryProfilerBackendTest {
 
     private class FileWritingCaptureRunner(
         private val convertedBytes: ByteArray?,
+        private val rawBytes: ByteArray = RAW_ANDROID_HPROF,
     ) {
         val commandKinds = mutableListOf<String>()
 
@@ -187,7 +193,7 @@ class DesktopMemoryProfilerBackendTest {
             val kind = request.commandKind()
             commandKinds += kind
             when (kind) {
-                "pull" -> Files.write(Path.of(request.arguments.last()), RAW_ANDROID_HPROF)
+                "pull" -> Files.write(Path.of(request.arguments.last()), rawBytes)
                 "hprof-conv" -> Files.write(Path.of(request.arguments.last()), checkNotNull(convertedBytes))
             }
             return ProcessRunResult.Completed(

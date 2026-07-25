@@ -1,6 +1,8 @@
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.memory.model.BitmapInstanceStats
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.HeapDiff
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
 
@@ -10,6 +12,7 @@ public data class MemoryProfilerState(
     val processes: List<MemoryProcessOption> = emptyList(),
     val selectedProcessId: Int? = null,
     val summary: HeapSummary = HeapSummary(),
+    val activityCount: Int = 0,
     val classes: List<ClassStats> = emptyList(),
     val leakSuspects: List<LeakSuspect> = emptyList(),
     val sort: MemoryHistogramSort = MemoryHistogramSort.Count,
@@ -18,6 +21,9 @@ public data class MemoryProfilerState(
     val error: MemoryProfilerError? = null,
     val warning: String? = null,
     val cleanupWarning: String? = null,
+    val heapDiff: HeapDiff? = null,
+    val bitmapInstances: List<BitmapInstanceStats> = emptyList(),
+    val highlightedClassName: String? = null,
 )
 
 public data class MemoryDeviceOption(
@@ -50,4 +56,5 @@ public data class MemoryProfilerActions(
     val onImportHprof: () -> Unit = {},
     val onSortHistogram: (MemoryHistogramSort) -> Unit = {},
     val onRetry: () -> Unit = {},
+    val onHighlightClass: (String) -> Unit = {},
 )

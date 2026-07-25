@@ -11,27 +11,36 @@ plugins {
 
 val appVersion = project.version.toString()
 val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_party/firefox-profiler/dist")
+val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/perfetto/out/ui/dist")
+val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
-val firefoxProfilerAppResources = layout.buildDirectory.dir("generated/firefox-profiler-app-resources")
-val prepareFirefoxProfilerAppResources =
-    tasks.register<Sync>("prepareFirefoxProfilerAppResources") {
+val profilerAppResources = layout.buildDirectory.dir("generated/profiler-app-resources")
+val prepareProfilerAppResources =
+    tasks.register<Sync>("prepareProfilerAppResources") {
         inputs.file(firefoxProfilerDist.file("index.html"))
+        inputs.file(perfettoUiDist.file("index.html"))
         inputs.dir(userDocumentationEnglish)
         inputs.dir(userDocumentationChinese)
         from(firefoxProfilerDist)
+        from(perfettoUiDist) {
+            into("perfetto-ui")
+        }
+        from(perfettoTools) {
+            into("perfetto-tools")
+        }
         from(userDocumentationEnglish) {
             into("docs-user")
         }
         from(userDocumentationChinese) {
             into("docs-user-zh")
         }
-        into(firefoxProfilerAppResources.map { resources -> resources.dir("common") })
+        into(profilerAppResources.map { resources -> resources.dir("common") })
     }
 
 tasks
     .matching { task -> task.name == "prepareAppResources" }
-    .configureEach { dependsOn(prepareFirefoxProfilerAppResources) }
+    .configureEach { dependsOn(prepareProfilerAppResources) }
 
 fun macOsPackageVersion(version: String): String {
     val numericComponents = version.split(".")
@@ -98,7 +107,7 @@ compose.desktop {
         }
 
         nativeDistributions {
-            appResourcesRootDir.set(firefoxProfilerAppResources)
+            appResourcesRootDir.set(profilerAppResources)
             // The minimized jpackage runtime cannot infer JdkAiHttpTransport's reflective HTTP usage.
             modules("java.net.http")
             modules("java.sql")

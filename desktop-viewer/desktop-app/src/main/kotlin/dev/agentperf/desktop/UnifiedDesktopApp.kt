@@ -1,12 +1,12 @@
 package dev.agentperf.desktop
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,9 +15,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
+import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.desktop.SimpleperfWorkspace
@@ -28,23 +30,46 @@ import com.androidperformancestudio.gpu.app.GpuIntegrationWorkspace
 import com.androidperformancestudio.memory.app.MemoryProfilerWorkspace
 import com.androidperformancestudio.network.app.NetworkProfilerWorkspace
 import com.androidperformancestudio.perfetto.app.PerfettoWorkspace
+import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.startup.app.StartupProfilerWorkspace
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Composable
-fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
+public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? = null) {
     val navigator = remember { AppNavigator() }
-    var showApplicationSettings by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var settingsPage by remember { mutableStateOf(SettingsPage.GENERAL) }
+    var layoutInspectorSettingsRevision by remember { mutableStateOf(0L) }
+    var simpleperfCaptureSettingsContext by remember {
+        mutableStateOf<SimpleperfCaptureSettingsContext?>(null)
+    }
+    var simpleperfSettingsSection by remember {
+        mutableStateOf(CaptureSettingsSection.SAMPLING_TEMPLATE)
+    }
+    var memoryHighlightClassName by remember { mutableStateOf<String?>(null) }
     val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
+    val simpleperfPreferencesStore = remember { SimpleperfPreferencesStore.desktop() }
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
     val userDocumentationLauncher = remember { UserDocumentationLauncher() }
     val coroutineScope = rememberCoroutineScope()
     var applicationSettings by remember { mutableStateOf(applicationSettingsStore.load()) }
+    var simpleperfPreferences by remember { mutableStateOf(simpleperfPreferencesStore.load()) }
+    var settingsPersistenceErrorPage by remember { mutableStateOf<SettingsPage?>(null) }
     val updateApplicationSettings: (ApplicationUiSettings) -> Unit = { updated ->
         applicationSettings = updated
-        applicationSettingsStore.save(updated)
+        settingsPersistenceErrorPage =
+            if (applicationSettingsStore.save(updated)) null else SettingsPage.GENERAL
+    }
+    val updateSimpleperfPreferences: (SimpleperfUiSettings) -> Unit = { updated ->
+        simpleperfPreferences = updated
+        settingsPersistenceErrorPage =
+            if (simpleperfPreferencesStore.save(updated)) null else SettingsPage.SIMPLEPERF
+    }
+    val openSettings: (SettingsPage) -> Unit = { page ->
+        settingsPage = page
+        showSettings = true
     }
     val chinese =
         applicationSettings.language.resolve(Locale.getDefault()) == ApplicationLanguage.SIMPLIFIED_CHINESE
@@ -53,11 +78,13 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
         SimpleperfUiSettings(
             theme = SimpleperfThemePreference.parse(applicationSettings.theme.storageValue),
             language = SimpleperfLanguagePreference.parse(applicationSettings.language.storageValue),
+            flameTooltipMode = simpleperfPreferences.flameTooltipMode,
+            simpleperfEngine = simpleperfPreferences.simpleperfEngine,
         )
 
-    LaunchedEffect(settingsRequest) {
+    LaunchedEffect(settingsRequest?.requestId) {
         if (shouldOpenSettingsForRequest(settingsRequest)) {
-            showApplicationSettings = true
+            settingsRequest?.let { openSettings(it.page) }
         }
     }
     DisposableEffect(userDocumentationLauncher) {
@@ -69,117 +96,179 @@ fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: Long = 0L) {
         }
     }
 
-    MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
-        Box(Modifier.fillMaxSize()) {
-            when (navigator.destination) {
-                AppDestination.HOME ->
-                    AppHomePage(
-                        chinese = chinese,
-                        onOpenLayoutInspector = { navigator.open(AppDestination.LAYOUT_INSPECTOR) },
-                        onOpenSimpleperf = { navigator.open(AppDestination.SIMPLEPERF) },
-                        onOpenPerfetto = { navigator.open(AppDestination.PERFETTO) },
-                        onOpenMemoryProfiler = { navigator.open(AppDestination.MEMORY_PROFILER) },
-                        onOpenFrameProfiler = { navigator.open(AppDestination.FRAME_PROFILER) },
-                        onOpenStartupProfiler = { navigator.open(AppDestination.STARTUP_PROFILER) },
-                        onOpenBatteryProfiler = { navigator.open(AppDestination.BATTERY_PROFILER) },
-                        onOpenNetworkProfiler = { navigator.open(AppDestination.NETWORK_PROFILER) },
-                        onOpenGpuInspector = { navigator.open(AppDestination.GPU_INSPECTOR) },
-                        onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
-                    )
-                AppDestination.LAYOUT_INSPECTOR ->
-                    DesktopViewerApp(
-                        commonThemePreference = applicationSettings.theme.storageValue,
-                        commonLanguagePreference = applicationSettings.language.storageValue,
-                        correlationHint = navigator.inspectorCorrelationHint,
-                    )
-                AppDestination.SIMPLEPERF ->
-                    SimpleperfWorkspace(
-                        window = window,
-                        settings = simpleperfSettings,
-                        onOpenUserGuide = {
-                            val lang = if (chinese) UserDocumentationLanguage.SIMPLIFIED_CHINESE else UserDocumentationLanguage.ENGLISH
-                            coroutineScope.launch(Dispatchers.IO) {
-                                runCatching { userDocumentationLauncher.open(lang) }
-                            }
-                        },
-                    )
-                AppDestination.PERFETTO ->
-                    PerfettoWorkspace(
-                        initialTraceFile = navigator.perfettoTraceFile,
-                        initialTraceNotice = navigator.perfettoTraceNotice,
-                        onOpenUserGuide = {
-                            val lang = if (chinese) UserDocumentationLanguage.SIMPLIFIED_CHINESE else UserDocumentationLanguage.ENGLISH
-                            coroutineScope.launch(Dispatchers.IO) {
-                                runCatching { userDocumentationLauncher.open(lang) }
-                            }
-                        },
-                    )
-                AppDestination.MEMORY_PROFILER ->
-                    MemoryProfilerWorkspace(
-                        chinese = chinese,
-                        onBack = { navigator.open(AppDestination.HOME) },
-                    )
-                AppDestination.FRAME_PROFILER ->
-                    FrameProfilerWorkspace(
-                        chinese = chinese,
-                        onBack = { navigator.open(AppDestination.HOME) },
-                        onOpenLayoutInspector = { request ->
-                            val activity = request.activityName?.substringAfterLast('.')?.let { " · $it" }.orEmpty()
-                            val message =
-                                if (chinese) {
-                                    "来自 Frame #${request.frameId} 的布局关联 · ${request.packageName}$activity"
-                                } else {
-                                    "Layout correlation from Frame #${request.frameId} · ${request.packageName}$activity"
+    MaterialTheme(
+        colorScheme = viewerMaterialColorScheme(darkTheme),
+        typography = compactDesktopTypography(),
+        shapes = compactDesktopShapes(),
+    ) {
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 32.dp) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+            ) {
+                when (navigator.destination) {
+                    AppDestination.HOME ->
+                        AppHomePage(
+                            chinese = chinese,
+                            onOpenLayoutInspector = { navigator.open(AppDestination.LAYOUT_INSPECTOR) },
+                            onOpenSimpleperf = { navigator.open(AppDestination.SIMPLEPERF) },
+                            onOpenPerfetto = { navigator.open(AppDestination.PERFETTO) },
+                            onOpenMemoryProfiler = { navigator.open(AppDestination.MEMORY_PROFILER) },
+                            onOpenFrameProfiler = { navigator.open(AppDestination.FRAME_PROFILER) },
+                            onOpenStartupProfiler = { navigator.open(AppDestination.STARTUP_PROFILER) },
+                            onOpenBatteryProfiler = { navigator.open(AppDestination.BATTERY_PROFILER) },
+                            onOpenNetworkProfiler = { navigator.open(AppDestination.NETWORK_PROFILER) },
+                            onOpenGpuInspector = { navigator.open(AppDestination.GPU_INSPECTOR) },
+                            onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
+                        )
+                    AppDestination.LAYOUT_INSPECTOR ->
+                        DesktopViewerApp(
+                            commonThemePreference = applicationSettings.theme.storageValue,
+                            commonLanguagePreference = applicationSettings.language.storageValue,
+                            settingsRevision = layoutInspectorSettingsRevision,
+                            onNavigateHome = { navigator.open(AppDestination.HOME) },
+                            onOpenUnifiedSettings = {
+                                openSettings(SettingsPage.LAYOUT_INSPECTOR)
+                            },
+                            onOpenMemoryProfiler = { className ->
+                                memoryHighlightClassName = className
+                                navigator.open(AppDestination.MEMORY_PROFILER)
+                            },
+                            correlationHint = navigator.inspectorCorrelationHint,
+                        )
+                    AppDestination.SIMPLEPERF ->
+                        SimpleperfWorkspace(
+                            window = window,
+                            settings = simpleperfSettings,
+                            onSettingsChanged = updateSimpleperfPreferences,
+                            onNavigateHome = { navigator.open(AppDestination.HOME) },
+                            onOpenPreferences = { section ->
+                                simpleperfSettingsSection = section
+                                openSettings(SettingsPage.SIMPLEPERF)
+                            },
+                            onCaptureSettingsContextChanged = { simpleperfCaptureSettingsContext = it },
+                            onOpenUserGuide = {
+                                val lang =
+                                    if (chinese) {
+                                        UserDocumentationLanguage.SIMPLIFIED_CHINESE
+                                    } else {
+                                        UserDocumentationLanguage.ENGLISH
+                                    }
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    runCatching { userDocumentationLauncher.open(lang) }
                                 }
-                            navigator.openLayoutInspector(
-                                InspectorCorrelationHint(
-                                    deviceSerial = request.deviceSerial,
-                                    targetPackageName = request.packageName,
-                                    message = message,
-                                    correlationNotice =
-                                        if (chinese) "仅做相关性分析，不推断 View 因果关系" else
-                                            "correlation only; no View causality is inferred",
-                                    foregroundMismatchPrefix =
-                                        if (chinese) "当前前台应用不一致" else "foreground package differs",
-                                ),
-                            )
+                            },
+                        )
+                    AppDestination.PERFETTO ->
+                        PerfettoWorkspace(
+                            onNavigateHome = { navigator.open(AppDestination.HOME) },
+                            initialTraceFile = navigator.perfettoTraceFile,
+                            initialTraceNotice = navigator.perfettoTraceNotice,
+                            onOpenUserGuide = {
+                                val lang =
+                                    if (chinese) {
+                                        UserDocumentationLanguage.SIMPLIFIED_CHINESE
+                                    } else {
+                                        UserDocumentationLanguage.ENGLISH
+                                    }
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    runCatching { userDocumentationLauncher.open(lang) }
+                                }
+                            },
+                        )
+                    AppDestination.MEMORY_PROFILER ->
+                        MemoryProfilerWorkspace(
+                            chinese = chinese,
+                            highlightClassName = memoryHighlightClassName,
+                            onBack = { navigator.open(AppDestination.HOME) },
+                        )
+                    AppDestination.FRAME_PROFILER ->
+                        FrameProfilerWorkspace(
+                            chinese = chinese,
+                            onBack = { navigator.open(AppDestination.HOME) },
+                            onOpenLayoutInspector = { request ->
+                                val activity =
+                                    request.activityName
+                                        ?.substringAfterLast('.')
+                                        ?.let { " · $it" }
+                                        .orEmpty()
+                                val message =
+                                    if (chinese) {
+                                        "来自 Frame #${request.frameId} 的布局关联 · ${request.packageName}$activity"
+                                    } else {
+                                        "Layout correlation from Frame #${request.frameId} · ${request.packageName}$activity"
+                                    }
+                                navigator.openLayoutInspector(
+                                    InspectorCorrelationHint(
+                                        deviceSerial = request.deviceSerial,
+                                        targetPackageName = request.packageName,
+                                        message = message,
+                                        correlationNotice =
+                                            if (chinese) "仅做相关性分析，不推断 View 因果关系" else
+                                                "correlation only; no View causality is inferred",
+                                        foregroundMismatchPrefix =
+                                            if (chinese) "当前前台应用不一致" else "foreground package differs",
+                                    ),
+                                )
+                            },
+                        )
+                    AppDestination.STARTUP_PROFILER ->
+                        StartupProfilerWorkspace(
+                            chinese = chinese,
+                            onBack = { navigator.open(AppDestination.HOME) },
+                        )
+                    AppDestination.BATTERY_PROFILER ->
+                        BatteryProfilerWorkspace(
+                            chinese = chinese,
+                            onBack = { navigator.open(AppDestination.HOME) },
+                        )
+                    AppDestination.NETWORK_PROFILER ->
+                        NetworkProfilerWorkspace(
+                            chinese = chinese,
+                            onBack = { navigator.open(AppDestination.HOME) },
+                        )
+                    AppDestination.GPU_INSPECTOR ->
+                        GpuIntegrationWorkspace(
+                            chinese = chinese,
+                            onBack = { navigator.open(AppDestination.HOME) },
+                            onOpenTrace = { path -> navigator.openPerfettoTrace(path, "GPU Inspector") },
+                        )
+                    AppDestination.BENCHMARK_REGRESSION ->
+                        BenchmarkRegressionWorkspace(
+                            chinese = chinese,
+                            onBack = { navigator.open(AppDestination.HOME) },
+                            onOpenTrace = { path -> navigator.openPerfettoTrace(path, "Benchmark Regression") },
+                        )
+                }
+                if (showSettings) {
+                    UnifiedSettingsDialog(
+                        selectedPage = settingsPage,
+                        applicationSettings = applicationSettings,
+                        simpleperfSettings = simpleperfSettings,
+                        simpleperfCaptureSettingsContext = simpleperfCaptureSettingsContext,
+                        simpleperfInitialSection = simpleperfSettingsSection,
+                        darkTheme = darkTheme,
+                        chinese = chinese,
+                        onPageSelected = { settingsPage = it },
+                        onApplicationSettingsChanged = updateApplicationSettings,
+                        onSimpleperfSettingsChanged = updateSimpleperfPreferences,
+                        onLayoutInspectorSettingsChanged = { layoutInspectorSettingsRevision += 1 },
+                        onOpenUserGuide = {
+                            val lang =
+                                if (chinese) {
+                                    UserDocumentationLanguage.SIMPLIFIED_CHINESE
+                                } else {
+                                    UserDocumentationLanguage.ENGLISH
+                                }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                runCatching { userDocumentationLauncher.open(lang) }
+                            }
                         },
+                        persistenceErrorPage = settingsPersistenceErrorPage,
+                        onDismiss = { showSettings = false },
                     )
-                AppDestination.STARTUP_PROFILER ->
-                    StartupProfilerWorkspace(
-                        chinese = chinese,
-                        onBack = { navigator.open(AppDestination.HOME) },
-                    )
-                AppDestination.BATTERY_PROFILER ->
-                    BatteryProfilerWorkspace(
-                        chinese = chinese,
-                        onBack = { navigator.open(AppDestination.HOME) },
-                    )
-                AppDestination.NETWORK_PROFILER ->
-                    NetworkProfilerWorkspace(
-                        chinese = chinese,
-                        onBack = { navigator.open(AppDestination.HOME) },
-                    )
-                AppDestination.GPU_INSPECTOR ->
-                    GpuIntegrationWorkspace(
-                        chinese = chinese,
-                        onBack = { navigator.open(AppDestination.HOME) },
-                        onOpenTrace = { path -> navigator.openPerfettoTrace(path, "GPU Inspector") },
-                    )
-                AppDestination.BENCHMARK_REGRESSION ->
-                    BenchmarkRegressionWorkspace(
-                        chinese = chinese,
-                        onBack = { navigator.open(AppDestination.HOME) },
-                        onOpenTrace = { path -> navigator.openPerfettoTrace(path, "Benchmark Regression") },
-                    )
-            }
-            if (showApplicationSettings) {
-                ApplicationSettingsDialog(
-                    settings = applicationSettings,
-                    chinese = chinese,
-                    onSettingsChanged = updateApplicationSettings,
-                    onDismiss = { showApplicationSettings = false },
-                )
+                }
             }
         }
     }

@@ -110,4 +110,23 @@ class MemoryHistogramAnalyzerTest {
 
         assertNull(histogram.classes.single().retainedSize)
     }
+
+    @Test
+    fun `class retained size does not double count nested instances`() {
+        val histogram =
+            analyzer.histogram(
+                heapDump =
+                    HeapDump(
+                        instances =
+                            listOf(
+                                HeapInstance(1, 10, "Node", 10, references = emptyList()),
+                                HeapInstance(2, 10, "Node", 10, references = emptyList()),
+                            ),
+                    ),
+                retainedSizes = mapOf(1L to 20L, 2L to 10L),
+                immediateDominators = mapOf(1L to null, 2L to 1L),
+            )
+
+        assertEquals(20L, histogram.classes.single().retainedSize)
+    }
 }

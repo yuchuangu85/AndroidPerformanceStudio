@@ -13,6 +13,7 @@ class UnifiedDesktopShellTest {
     @Test
     fun `main opens the unified shell`() {
         val main = Files.readString(sourceRoot.resolve("Main.kt"))
+        assertTrue(main.contains("SettingsRequest(SettingsPage.GENERAL, nextSettingsRequestId)"))
         assertTrue(main.contains("UnifiedDesktopApp(settingsRequest = settingsRequest)"))
     }
 
@@ -20,14 +21,25 @@ class UnifiedDesktopShellTest {
     fun `shell exposes all feature destinations`() {
         val shell = Files.readString(sourceRoot.resolve("UnifiedDesktopApp.kt"))
         val home = Files.readString(sourceRoot.resolve("AppHomePage.kt"))
+        val simpleperfRoute =
+            shell.substringAfter("AppDestination.SIMPLEPERF ->")
+                .substringBefore("AppDestination.PERFETTO ->")
+        val perfettoRoute =
+            shell.substringAfter("AppDestination.PERFETTO ->")
+                .substringBefore("AppDestination.MEMORY_PROFILER ->")
 
         assertTrue(shell.contains("DesktopViewerApp("))
+        assertTrue(shell.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("ApplicationUiSettingsStore.desktop()"))
-        assertTrue(shell.contains("ApplicationSettingsDialog("))
-        assertTrue(shell.contains("LaunchedEffect(settingsRequest)"))
+        assertTrue(shell.contains("UnifiedSettingsDialog("))
+        assertTrue(shell.contains("LaunchedEffect(settingsRequest?.requestId)"))
+        assertTrue(shell.contains("openSettings(SettingsPage.LAYOUT_INSPECTOR)"))
+        assertTrue(shell.contains("openSettings(SettingsPage.SIMPLEPERF)"))
         assertFalse(shell.contains("GlobalSettingsBar("))
         assertTrue(shell.contains("SimpleperfWorkspace("))
+        assertTrue(simpleperfRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("PerfettoWorkspace("))
+        assertTrue(perfettoRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("MemoryProfilerWorkspace("))
         assertTrue(shell.contains("onOpenUserGuide"))
         assertTrue(shell.contains("commonThemePreference = applicationSettings.theme.storageValue"))

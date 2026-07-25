@@ -92,8 +92,11 @@ private fun ResultsPane(
     modifier: Modifier,
 ) {
     val selected = analysis.runs.firstOrNull { it.id == state.selectedRunId } ?: analysis.runs.first()
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 6.dp, horizontal = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MetricCard(if (chinese) "平台总耗时中位数" else "Median TotalTime", analysis.totalTime)
             MetricCard(if (chinese) "首帧中位数" else "Median First Frame", analysis.firstFrame)
             MetricCard(if (chinese) "完全绘制中位数" else "Median Fully Drawn", analysis.fullyDrawn)
@@ -120,8 +123,8 @@ private fun MetricCard(
     title: String,
     statistics: StartupStatistics,
 ) {
-    Card(Modifier.width(210.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Card(Modifier.width(172.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
             Text(statistics.medianMs.formatMs(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("p90 ${statistics.p90Ms.formatMs()} · n=${statistics.count}", style = MaterialTheme.typography.bodySmall)
@@ -144,8 +147,8 @@ private fun StabilityCard(
             ratio <= 0.15 -> if (chinese) "有波动" else "Variable"
             else -> if (chinese) "波动较大" else "Unstable"
         }
-    Card(Modifier.width(180.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Card(Modifier.width(156.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(if (chinese) "稳定性" else "Stability", style = MaterialTheme.typography.labelLarge)
             Text(label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("MAD ${deviation.formatMs()}", style = MaterialTheme.typography.bodySmall)
@@ -177,14 +180,14 @@ private fun BaselineComparison(
             } else {
                 "Compared with previous experiment: ${change.formatPercent()} (difference only; no statistical significance inferred)"
             },
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
         )
     }
 }
 
 @Composable
 private fun RunRowHeader(chinese: Boolean) {
-    Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp)) {
+    Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
         TableCell(if (chinese) "轮次" else "Run", 70)
         TableCell(if (chinese) "实际类型" else "Observed", 100)
         TableCell("Total", 100)
@@ -201,7 +204,7 @@ private fun RunRow(
     onSelect: (String) -> Unit,
 ) {
     val background = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-    Row(Modifier.background(background).clickable { onSelect(run.id) }.padding(8.dp)) {
+    Row(Modifier.background(background).clickable { onSelect(run.id) }.padding(vertical = 6.dp, horizontal = 8.dp)) {
         TableCell(run.iteration.toString(), 70)
         TableCell(run.observedType.name, 100)
         TableCell(run.platform.totalTimeMs.formatMs(), 100)
@@ -243,7 +246,7 @@ private fun RunDetail(
         Text(if (chinese) "无可用 Agent 阶段" else "No Agent phases available")
     } else {
         run.phases.forEach { phase ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(phase.name, Modifier.width(220.dp))
                 Text((phase.durationNs / 1_000_000.0).formatMs())
                 ConfidenceBadge(phase.confidence)
@@ -257,7 +260,14 @@ private fun RunDetail(
         }
     }
     Text(if (chinese) "原始 am start -W 证据" else "Raw am start -W Evidence", fontWeight = FontWeight.SemiBold)
-    Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)).padding(12.dp)) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant,
+                RoundedCornerShape(4.dp),
+            ).padding(vertical = 6.dp, horizontal = 8.dp),
+    ) {
         Text(run.rawEvidence.amStartOutput, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
     }
 }

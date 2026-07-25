@@ -15,6 +15,7 @@ Commands:
   install  Install Node.js + pnpm + dependencies via tools/install-build-deps --ui.
   build    Build the Perfetto UI (JS/CSS/HTML only, no WASM).
            Optionally download pre-built WASM from GitHub Releases.
+  download Download the version-pinned UI bundle from GitHub Releases.
   all      Initialize, install, and build (full bootstrap).
   full     Initialize, install, and full build (includes C++ WASM, needs gn/ninja/clang).
 
@@ -31,12 +32,16 @@ EOF
 # ---- submodule ----
 
 initialize_submodule() {
-  if [[ ! -f "$perfetto_path/ui/package.json" ]]; then
-    echo "Perfetto submodule is not present. Add it first:" >&2
-    echo "  git submodule add --depth 1 https://github.com/google/perfetto third_party/perfetto" >&2
+  if [[ -z "$(expected_revision)" ]]; then
+    echo "Perfetto submodule has no pinned gitlink. Add it first:" >&2
+    echo "  git submodule add https://github.com/google/perfetto third_party/perfetto" >&2
     exit 1
   fi
   git -C "$repository_root" submodule update --init --depth 1 -- third_party/perfetto
+  if [[ ! -f "$perfetto_path/ui/package.json" ]]; then
+    echo "Perfetto submodule initialization did not produce ui/package.json" >&2
+    exit 1
+  fi
 }
 
 expected_revision() {
@@ -75,8 +80,15 @@ install_dependencies() {
 
 verify_toolchain() {
   verify_checkout
-  local node_bin="$perfetto_path/buildtools/nodejs"
-  if [[ ! -x "$node_bin" ]]; then
+  local node_bin=""
+  for candidate in \
+    "$perfetto_path/buildtools/mac/nodejs/bin/node" \
+    "$perfetto_path/buildtools/linux64/nodejs/bin/node" \
+    "$perfetto_path/buildtools/nodejs"; do
+    if [[ -x "$candidate" ]]; then node_bin="$candidate"; break; fi
+  done
+  if [[ -z "$node_bin" ]] && command -v node >/dev/null 2>&1; then node_bin="$(command -v node)"; fi
+  if [[ -z "$node_bin" ]]; then
     echo "Node.js is not installed. Run: scripts/build-perfetto-ui.sh install" >&2
     exit 1
   fi
@@ -90,12 +102,16 @@ verify_toolchain() {
 
 build_ui() {
   verify_toolchain
+  if [[ -f "$perfetto_path/out/ui/dist/index.html" ]]; then
+    echo "Using existing Perfetto UI bundle: $perfetto_path/out/ui/dist/"
+    return 0
+  fi
   if [[ ! -d "$perfetto_path/ui/node_modules" ]]; then
     echo "Dependencies are not installed. Run: scripts/build-perfetto-ui.sh install" >&2
     exit 1
   fi
   echo "=== Building Perfetto UI (JS/CSS/HTML only, --no-wasm) ==="
-  (cd "$perfetto_path" && ui/build --no-wasm)
+  (cd "$perfetto_path" && ui/build --no-wasm --no-depscheck)
   echo ""
   echo "Build complete. Output: $perfetto_path/out/ui/dist/"
   echo ""
@@ -104,6 +120,22 @@ build_ui() {
   echo "  B) Download pre-built from GitHub Releases:"
   echo "     curl -sL https://github.com/google/perfetto/releases/download/v57.2/perfetto-ui.zip |"
   echo "     bsdtar -xf - -C $perfetto_path/out/ui/dist/ --strip-components 1"
+}
+
+download_ui_release() {
+  initialize_submodule
+  verify_checkout
+  local archive
+  archive="$(mktemp -t perfetto-ui.XXXXXX.zip)"
+  echo "=== Downloading Perfetto UI v57.2 release bundle ==="
+  curl --fail --location --silent --show-error \
+    "https://github.com/google/perfetto/releases/download/v57.2/perfetto-ui.zip" \
+    --output "$archive"
+  rm -rf "$perfetto_path/out/ui/dist"
+  mkdir -p "$perfetto_path/out/ui/dist"
+  unzip -q "$archive" -d "$perfetto_path/out/ui/dist"
+  rm -f "$archive"
+  echo "UI bundle ready: $perfetto_path/out/ui/dist/"
 }
 
 build_ui_full() {
@@ -155,6 +187,9 @@ case "$command" in
     ;;
   all)
     all_in_one
+    ;;
+  download)
+    download_ui_release
     ;;
   *)
     usage >&2

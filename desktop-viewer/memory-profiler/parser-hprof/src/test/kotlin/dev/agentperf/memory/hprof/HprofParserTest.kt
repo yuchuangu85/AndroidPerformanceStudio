@@ -146,7 +146,7 @@ class HprofParserTest {
         assertEquals(32L, instance.shallowSize)
         assertTrue(instance.fieldBytes.isEmpty())
         assertEquals(24L, objectArray.shallowSize)
-        assertTrue(objectArray.elementIds.isEmpty())
+        assertEquals(listOf(3L, 3L), objectArray.elementIds)
         assertEquals(20L, heap.primitiveArrays.single().shallowSize)
     }
 
@@ -207,6 +207,43 @@ class HprofParserTest {
         assertEquals(10, heap.primitiveArrays.single().elementCount)
         assertEquals(26L, heap.primitiveArrays.single().shallowSize)
         assertEquals(emptyList(), heap.warnings)
+    }
+
+    @Test
+    fun `retains gc roots static references and decoded instance fields`() {
+        val builder = HprofFixtureBuilder()
+        val fixture =
+            builder
+                .string(1, "com.example.Holder")
+                .string(2, "child")
+                .string(3, "count")
+                .loadClass(10, 1)
+                .heapDump(
+                    builder.androidRoot(0x05, 10),
+                    builder.classDump(
+                        classId = 10,
+                        instanceSize = 24,
+                        staticObjectFields = listOf(2L to 20L),
+                        instanceFields =
+                            listOf(
+                                2L to PrimitiveType.OBJECT,
+                                3L to PrimitiveType.INT,
+                            ),
+                    ),
+                    builder.instanceDump(
+                        objectId = 20,
+                        classId = 10,
+                        bytes = builder.objectValue(21) + builder.intValue(42),
+                    ),
+                    builder.instanceDump(objectId = 21, classId = 10),
+                ).build()
+
+        val heap = parser.parse(fixture)
+
+        assertEquals(10L, heap.gcRoots.single().objectId)
+        assertEquals(20L, heap.classes.single().staticReferences.single().targetObjectId)
+        assertEquals(21L, heap.instances.first { it.objectId == 20L }.references.single().targetObjectId)
+        assertEquals(42L, heap.instances.first { it.objectId == 20L }.primitiveFields["count"])
     }
 
     private fun rootJniGlobal(): ByteArray = byteArrayOf(0x01) + id(1) + id(2)

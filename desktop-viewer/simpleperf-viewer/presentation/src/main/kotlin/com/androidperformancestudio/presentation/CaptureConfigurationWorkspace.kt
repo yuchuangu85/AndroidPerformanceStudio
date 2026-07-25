@@ -67,6 +67,56 @@ enum class CaptureSettingsSection {
     USER_GUIDE,
 }
 
+/** Complete Simpleperf settings surface that can be embedded in the unified desktop settings window. */
+@Composable
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
+fun SimpleperfSettingsContent(
+    setup: CaptureSetup?,
+    availableEvents: List<String>,
+    enabled: Boolean,
+    darkTheme: Boolean,
+    flameTooltipMode: FlameTooltipMode,
+    onFlameTooltipModeChange: (FlameTooltipMode) -> Unit,
+    simpleperfEngine: SimpleperfEngine,
+    onSimpleperfEngineChange: (SimpleperfEngine) -> Unit,
+    onSelectTemplate: (SamplingTemplate) -> Unit,
+    onUpdate: (SamplingParameters) -> Unit,
+    onOpenUserGuide: (() -> Unit)?,
+    initialSection: CaptureSettingsSection = CaptureSettingsSection.SAMPLING_TEMPLATE,
+    modifier: Modifier = Modifier,
+) {
+    val style = macOsDeviceTargetStyle(darkTheme)
+    var section by remember(initialSection) { mutableStateOf(initialSection) }
+    Row(
+        modifier =
+            modifier
+                .background(style.workspace, RoundedCornerShape(8.dp))
+                .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(8.dp)),
+    ) {
+        SettingsNavigation(
+            section = section,
+            style = style,
+            onSectionChange = { section = it },
+            showUserGuide = onOpenUserGuide != null,
+        )
+        SettingsPanel(
+            section = section,
+            setup = setup,
+            availableEvents = availableEvents,
+            style = style,
+            enabled = enabled,
+            onSelectTemplate = onSelectTemplate,
+            onUpdate = onUpdate,
+            onDismiss = null,
+            flameTooltipMode = flameTooltipMode,
+            onFlameTooltipModeChange = onFlameTooltipModeChange,
+            simpleperfEngine = simpleperfEngine,
+            onSimpleperfEngineChange = onSimpleperfEngineChange,
+            onOpenUserGuide = onOpenUserGuide,
+        )
+    }
+}
+
 @Composable
 @Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 internal fun CaptureSettingsDialog(
@@ -179,7 +229,7 @@ private fun RowScope.SettingsPanel(
     enabled: Boolean,
     onSelectTemplate: (SamplingTemplate) -> Unit,
     onUpdate: (SamplingParameters) -> Unit,
-    onDismiss: () -> Unit,
+    onDismiss: (() -> Unit)?,
     flameTooltipMode: FlameTooltipMode,
     onFlameTooltipModeChange: (FlameTooltipMode) -> Unit,
     simpleperfEngine: SimpleperfEngine,
@@ -192,7 +242,7 @@ private fun RowScope.SettingsPanel(
                 Text(section.title(), color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(section.subtitle(), color = style.secondaryText, fontSize = 10.sp)
             }
-            MacOsButton("Done", onDismiss, style, primary = true)
+            onDismiss?.let { MacOsButton("Done", it, style, primary = true) }
         }
         Spacer(Modifier.height(14.dp))
         Column(

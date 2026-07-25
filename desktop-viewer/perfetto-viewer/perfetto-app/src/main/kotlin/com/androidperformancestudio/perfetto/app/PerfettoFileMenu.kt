@@ -8,6 +8,7 @@ import androidx.compose.ui.window.MenuBar
 import java.nio.file.Path
 
 @Composable
+@Suppress("ktlint:standard:function-naming")
 internal fun FrameWindowScope.PerfettoFileMenuBar(
     canExport: Boolean,
     recentFiles: List<Path>,

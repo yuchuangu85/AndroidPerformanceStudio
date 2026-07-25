@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 dependencies {
+    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
     implementation(project(":benchmark-model"))
     implementation(project(":parser-benchmark-json"))
     implementation(project(":analysis-regression"))

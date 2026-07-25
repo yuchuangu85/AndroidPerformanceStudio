@@ -22,3 +22,7 @@ include(
     ":presentation",
     ":network-app",
 )
+
+includeBuild("../simpleperf-viewer") {
+    name = "network-profiler-simpleperf-tooling"
+}

@@ -5,7 +5,7 @@ package dev.agentperf.memory.model
 import java.nio.file.Path
 import java.time.Instant
 
-/** Phase 1 heap dump metadata and parsed-content container. */
+/** Heap dump metadata, parsed object graph, and derived analysis results. */
 data class HeapDump(
     val id: String = "",
     val packageName: String = "",
@@ -20,10 +20,13 @@ data class HeapDump(
     val instances: List<HeapInstance> = emptyList(),
     val objectArrays: List<HeapObjectArray> = emptyList(),
     val primitiveArrays: List<HeapPrimitiveArray> = emptyList(),
+    val gcRoots: List<HeapRoot> = emptyList(),
     val warnings: List<MemoryWarning> = emptyList(),
     val heapSummary: HeapSummary = HeapSummary(),
     val topClasses: List<ClassStats> = emptyList(),
     val leakSuspects: List<LeakSuspect> = emptyList(),
+    val objectRetainedSizes: Map<Long, Long> = emptyMap(),
+    val bitmapInstances: List<BitmapInstanceStats> = emptyList(),
 )
 
 data class MemoryWarning(
@@ -35,10 +38,42 @@ data class HeapClass(
     val objectId: Long,
     val name: String = UNKNOWN_CLASS_NAME,
     val instanceSize: Long = 0L,
+    val superClassObjectId: Long = 0L,
+    val instanceFields: List<HeapField> = emptyList(),
+    val staticReferences: List<ObjectReference> = emptyList(),
 ) {
     companion object {
         const val UNKNOWN_CLASS_NAME = "<unknown>"
     }
+}
+
+data class HeapField(
+    val name: String,
+    val type: PrimitiveType,
+)
+
+data class HeapRoot(
+    val objectId: Long,
+    val kind: HeapRootKind,
+)
+
+enum class HeapRootKind {
+    JNI_GLOBAL,
+    JNI_LOCAL,
+    JAVA_FRAME,
+    NATIVE_STACK,
+    STICKY_CLASS,
+    THREAD_BLOCK,
+    MONITOR_USED,
+    THREAD_OBJECT,
+    INTERNED_STRING,
+    FINALIZING,
+    DEBUGGER,
+    REFERENCE_CLEANUP,
+    VM_INTERNAL,
+    JNI_MONITOR,
+    UNREACHABLE,
+    UNKNOWN,
 }
 
 sealed interface HeapObject {
@@ -63,6 +98,8 @@ data class HeapInstance(
     override val className: String = HeapClass.UNKNOWN_CLASS_NAME,
     override val shallowSize: Long = 0L,
     val fieldBytes: ByteArray = ByteArray(0),
+    override val references: List<ObjectReference> = emptyList(),
+    val primitiveFields: Map<String, Long> = emptyMap(),
 ) : HeapObject {
     override fun equals(other: Any?): Boolean =
         other is HeapInstance &&
@@ -70,7 +107,9 @@ data class HeapInstance(
             classObjectId == other.classObjectId &&
             className == other.className &&
             shallowSize == other.shallowSize &&
-            fieldBytes.contentEquals(other.fieldBytes)
+            fieldBytes.contentEquals(other.fieldBytes) &&
+            references == other.references &&
+            primitiveFields == other.primitiveFields
 
     override fun hashCode(): Int {
         var result = objectId.hashCode()
@@ -78,6 +117,8 @@ data class HeapInstance(
         result = 31 * result + className.hashCode()
         result = 31 * result + shallowSize.hashCode()
         result = 31 * result + fieldBytes.contentHashCode()
+        result = 31 * result + references.hashCode()
+        result = 31 * result + primitiveFields.hashCode()
         return result
     }
 }
@@ -89,7 +130,15 @@ data class HeapObjectArray(
     val elementCount: Int = 0,
     val elementIds: List<Long> = emptyList(),
     override val shallowSize: Long = 0L,
-) : HeapObject
+) : HeapObject {
+    override val references: List<ObjectReference>
+        get() =
+            elementIds.mapIndexedNotNull { index, targetObjectId ->
+                targetObjectId.takeIf { it != 0L }?.let {
+                    ObjectReference(fieldName = "[$index]", targetObjectId = it)
+                }
+            }
+}
 
 data class HeapPrimitiveArray(
     override val objectId: Long,
@@ -165,3 +214,32 @@ data class LeakSuspect(
     val leakReason: String
         get() = reason
 }
+
+data class HeapDiffEntry(
+    val className: String,
+    val beforeCount: Int,
+    val afterCount: Int,
+    val countDelta: Int,
+    val beforeShallowSize: Long,
+    val afterShallowSize: Long,
+    val shallowSizeDelta: Long,
+)
+
+data class HeapDiff(
+    val entries: List<HeapDiffEntry> = emptyList(),
+) {
+    val added: List<HeapDiffEntry>
+        get() = entries.filter { it.beforeCount == 0 && it.afterCount > 0 }
+    val removed: List<HeapDiffEntry>
+        get() = entries.filter { it.beforeCount > 0 && it.afterCount == 0 }
+    val changed: List<HeapDiffEntry>
+        get() = entries.filter { it.beforeCount > 0 && it.afterCount > 0 && it.countDelta != 0 }
+}
+
+data class BitmapInstanceStats(
+    val objectId: Long,
+    val width: Int?,
+    val height: Int?,
+    val retainedSize: Long,
+    val referenceChain: List<ObjectReference> = emptyList(),
+)

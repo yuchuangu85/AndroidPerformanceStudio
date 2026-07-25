@@ -12,7 +12,10 @@ import com.androidperformancestudio.toolchain.ProcessCancellationSignal
 import com.androidperformancestudio.toolchain.ProcessRequest
 import com.androidperformancestudio.toolchain.ProcessRunResult
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,9 +25,10 @@ import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import kotlin.time.Duration.Companion.seconds
 
 private const val DEVICE_CONFIG_PATH = "/data/local/tmp/perfetto-config.pbtxt"
-private const val DEVICE_TRACE_PATH = "/data/misc/perfetto-traces/trace.pftrace"
+private const val DEVICE_TRACE_PATH = "/data/local/tmp/aps-perfetto-trace.pftrace"
 
 class PerfettoCaptureSession(
     private val processRunner: JvmProcessRunner = JvmProcessRunner(),
@@ -34,8 +38,13 @@ class PerfettoCaptureSession(
     val state: StateFlow<PerfettoCaptureState> = _state.asStateFlow()
 
     private val stateMutex = Mutex()
-    private val cancellationSignal = ProcessCancellationSignal()
+    private val captureScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var cancellationSignal: ProcessCancellationSignal? = null
+    private var recordingJob: Deferred<ProcessRunResult>? = null
     private var activeConfig: PerfettoCaptureConfig? = null
+    private var activeAdbPath: String? = null
+    private var activeDeviceSerial: String? = null
+    private var recordingStartedAt: Instant? = null
 
     suspend fun startCapture(
         adbPath: String,
@@ -71,6 +80,9 @@ class PerfettoCaptureSession(
         when (startResult) {
             is StudioResult.Success -> {
                 val (startTime, pid) = startResult.value
+                activeAdbPath = adbPath
+                activeDeviceSerial = deviceSerial
+                recordingStartedAt = startTime
                 _state.value = PerfettoCaptureState.Recording(startTime, pid)
                 return@withContext StudioResult.Success(Unit)
             }
@@ -102,18 +114,30 @@ class PerfettoCaptureSession(
                 )
             }
 
-            cancellationSignal.cancel()
-            delay(2000)
-
+            cancellationSignal?.cancel()
+            val recordingResult = recordingJob?.await()
+            if (recordingResult is ProcessRunResult.Failed && recordingResult.error.code != "PROCESS_CANCELLED") {
+                setFailed(recordingResult.error)
+                return@withContext StudioResult.Failure(recordingResult.error)
+            }
             _state.value = PerfettoCaptureState.Pulling(0, null)
 
             val traceFile = sessionDir.resolve("trace.pftrace")
+            val adb = activeAdbPath.orEmpty()
+            val serial = activeDeviceSerial.orEmpty()
+            val pullResult = pullTrace(adb, serial, traceFile)
+            if (pullResult is StudioResult.Failure) {
+                setFailed(pullResult.error)
+                return@withContext pullResult
+            }
+            cleanupDeviceTrace(adb, serial)
+            val capturedAt = recordingStartedAt ?: Instant.now()
             val metadata = CaptureMetadata(
-                deviceSerial = "",
+                deviceSerial = serial,
                 deviceModel = "unknown",
                 androidSdk = 0,
-                capturedAt = Instant.now(),
-                durationNanos = 0,
+                capturedAt = capturedAt,
+                durationNanos = (Instant.now().toEpochMilli() - capturedAt.toEpochMilli()).coerceAtLeast(0) * 1_000_000,
                 traceFileSizeBytes = Files.size(traceFile),
                 config = config,
                 command = "perfetto -c - --txt",
@@ -121,11 +145,14 @@ class PerfettoCaptureSession(
 
             val completed = PerfettoCaptureState.Completed(traceFile, metadata)
             _state.value = completed
+            recordingJob = null
+            cancellationSignal = null
+            activeConfig = null
             StudioResult.Success(completed)
         }
 
     fun cancelCapture() {
-        cancellationSignal.cancel()
+        cancellationSignal?.cancel()
     }
 
     private suspend fun pushConfig(
@@ -163,14 +190,54 @@ class PerfettoCaptureSession(
         val request = ProcessRequest(
             executable = Path.of(adbPath),
             arguments = listOf("-s", deviceSerial, "shell", shellCommand),
+            timeout = (config.durationSeconds + 30).seconds,
         )
-
-        return when (val result = processRunner.run(request, cancellationSignal)) {
-            is ProcessRunResult.Completed -> {
-                StudioResult.Success(Pair(Instant.now(), result.output.pid))
+        val startedAt = Instant.now()
+        val signal = ProcessCancellationSignal()
+        cancellationSignal = signal
+        val job = captureScope.async { processRunner.run(request, signal) }
+        recordingJob = job
+        captureScope.async {
+            val result = job.await()
+            if (result is ProcessRunResult.Failed && _state.value is PerfettoCaptureState.Recording) {
+                setFailed(result.error)
             }
+        }
+        return StudioResult.Success(Pair(startedAt, 0L))
+    }
+
+    private suspend fun pullTrace(
+        adbPath: String,
+        deviceSerial: String,
+        traceFile: Path,
+    ): StudioResult<Unit> {
+        if (adbPath.isBlank() || deviceSerial.isBlank()) {
+            return StudioResult.Failure(
+                StudioError(
+                    category = ErrorCategory.CONFIGURATION,
+                    code = "CAPTURE_TARGET_MISSING",
+                    message = "Select an online Android device before starting a capture",
+                ),
+            )
+        }
+        val request = ProcessRequest(
+            executable = Path.of(adbPath),
+            arguments = listOf("-s", deviceSerial, "pull", DEVICE_TRACE_PATH, traceFile.toString()),
+        )
+        return when (val result = processRunner.run(request)) {
+            is ProcessRunResult.Completed -> StudioResult.Success(Unit)
             is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
         }
+    }
+
+    private suspend fun cleanupDeviceTrace(adbPath: String, deviceSerial: String) {
+        if (adbPath.isBlank() || deviceSerial.isBlank()) return
+        processRunner.run(
+            ProcessRequest(
+                executable = Path.of(adbPath),
+                arguments = listOf("-s", deviceSerial, "shell", "rm", "-f", DEVICE_TRACE_PATH),
+            ),
+        )
     }
 
     private fun generateConfigText(config: PerfettoCaptureConfig): String = buildString {
@@ -236,5 +303,6 @@ class PerfettoCaptureSession(
 
     private fun setFailed(error: StudioError) {
         _state.value = PerfettoCaptureState.Failed(error)
+        activeConfig = null
     }
 }

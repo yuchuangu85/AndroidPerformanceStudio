@@ -10,6 +10,7 @@ internal class ViewerStrings private constructor(
         get() = language == ViewerLanguage.SIMPLIFIED_CHINESE
 
     val settings: String get() = text("Settings", "设置")
+    val backToHome: String get() = text("Back to home", "返回主页")
     val layoutInspectorSettings: String
         get() = text("Layout Inspector Settings", "布局检查器设置")
     val canvasBorderColors: String get() = text("Canvas border colors", "画布边框颜色")

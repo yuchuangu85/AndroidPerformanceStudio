@@ -92,7 +92,10 @@ private fun ResultsPane(
     modifier: Modifier,
 ) {
     val selected = analysis.runs.firstOrNull { it.runId == state.selectedRunId } ?: analysis.runs.first()
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 6.dp, horizontal = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             MetricCard(if (chinese) "Wakelock 中位数" else "Median Wakelock", analysis.wakelockDurationMs, "ms")
             MetricCard(if (chinese) "唤醒 Alarm 中位数" else "Median Wakeup Alarms", analysis.wakeupAlarmCount, "")
@@ -104,14 +107,14 @@ private fun ResultsPane(
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Text(
                     if (chinese) "能力：${it.capabilities.level} · 归因：${it.attributionScope} · UID ${it.uid}" else "Capability: ${it.capabilities.level} · Attribution: ${it.attributionScope} · UID ${it.uid}",
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
                 )
             }
         }
         state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, chinese) }
         Text(if (chinese) "实验轮次" else "Experiment Runs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp)) {
+            Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
                 Cell(if (chinese) "轮次" else "Run", 70)
                 Cell(if (chinese) "时长" else "Duration", 100)
                 Cell("Wakelock", 110)
@@ -141,8 +144,8 @@ private fun MetricCard(
     statistics: BatteryStatistics,
     unit: String,
 ) {
-    Card(Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Card(Modifier.width(168.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
             Text(statistics.median.format(unit), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("p90 ${statistics.p90.format(unit)} · n=${statistics.count}", style = MaterialTheme.typography.bodySmall)
@@ -170,7 +173,7 @@ private fun BaselineComparison(
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Text(
             if (chinese) "网络用量与上次兼容实验相比：${change.percent()}（仅表示差异）" else "Network use vs previous compatible experiment: ${change.percent()} (difference only)",
-            Modifier.padding(12.dp),
+            Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
         )
     }
 }
@@ -186,7 +189,7 @@ private fun RunRow(
             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
             .clickable {
                 onSelect(run.runId)
-            }.padding(8.dp),
+            }.padding(vertical = 6.dp, horizontal = 8.dp),
     ) {
         Cell(run.iteration.toString(), 70)
         Cell("${run.durationMs / 1000}s", 100)

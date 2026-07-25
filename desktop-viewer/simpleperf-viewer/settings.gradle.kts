@@ -18,6 +18,7 @@ rootProject.name = "android-performance-studio"
 
 include(
     ":app-desktop",
+    ":desktop-ui",
     ":presentation",
     ":application",
     ":platform-toolchain",

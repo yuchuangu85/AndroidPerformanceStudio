@@ -1,5 +1,8 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.desktop.SimpleperfUiSettings
+import com.androidperformancestudio.presentation.FlameTooltipMode
+import com.androidperformancestudio.presentation.SimpleperfEngine
 import java.util.Locale
 import java.util.prefs.Preferences
 
@@ -59,6 +62,7 @@ internal data class ApplicationUiSettings(
 internal class ApplicationUiSettingsStore(
     private val readValue: (String) -> String?,
     private val writeValue: (String, String) -> Unit,
+    private val flush: () -> Unit = {},
 ) {
     fun load(): ApplicationUiSettings =
         ApplicationUiSettings(
@@ -66,10 +70,12 @@ internal class ApplicationUiSettingsStore(
             language = ApplicationLanguagePreference.parse(readValue(LANGUAGE_KEY)),
         )
 
-    fun save(settings: ApplicationUiSettings) {
-        writeValue(THEME_KEY, settings.theme.storageValue)
-        writeValue(LANGUAGE_KEY, settings.language.storageValue)
-    }
+    fun save(settings: ApplicationUiSettings): Boolean =
+        runCatching {
+            writeValue(THEME_KEY, settings.theme.storageValue)
+            writeValue(LANGUAGE_KEY, settings.language.storageValue)
+            flush()
+        }.isSuccess
 
     companion object {
         private const val THEME_KEY = "application.theme"
@@ -83,8 +89,52 @@ internal class ApplicationUiSettingsStore(
             return ApplicationUiSettingsStore(
                 readValue = { key -> runCatching { preferences?.get(key, null) }.getOrNull() },
                 writeValue = { key, value ->
-                    runCatching { preferences?.put(key, value) }.getOrNull()
+                    checkNotNull(preferences) { "Application preferences are unavailable" }
+                    preferences.put(key, value)
                 },
+                flush = { checkNotNull(preferences).flush() },
+            )
+        }
+    }
+}
+
+internal class SimpleperfPreferencesStore(
+    private val readValue: (String) -> String?,
+    private val writeValue: (String, String) -> Unit,
+    private val flush: () -> Unit = {},
+) {
+    fun load(): SimpleperfUiSettings =
+        SimpleperfUiSettings(
+            flameTooltipMode =
+                FlameTooltipMode.entries.firstOrNull { it.name == readValue(TOOLTIP_MODE_KEY) }
+                    ?: FlameTooltipMode.FOLLOW_MOUSE,
+            simpleperfEngine =
+                SimpleperfEngine.entries.firstOrNull { it.name == readValue(ENGINE_KEY) }
+                    ?: SimpleperfEngine.LOCAL,
+        )
+
+    fun save(settings: SimpleperfUiSettings): Boolean =
+        runCatching {
+            writeValue(TOOLTIP_MODE_KEY, settings.flameTooltipMode.name)
+            writeValue(ENGINE_KEY, settings.simpleperfEngine.name)
+            flush()
+        }.isSuccess
+
+    companion object {
+        private const val TOOLTIP_MODE_KEY = "simpleperf.tooltipMode"
+        private const val ENGINE_KEY = "simpleperf.engine"
+
+        fun desktop(): SimpleperfPreferencesStore {
+            val preferences = runCatching {
+                Preferences.userNodeForPackage(SimpleperfPreferencesStore::class.java)
+            }.getOrNull()
+            return SimpleperfPreferencesStore(
+                readValue = { key -> runCatching { preferences?.get(key, null) }.getOrNull() },
+                writeValue = { key, value ->
+                    checkNotNull(preferences) { "Simpleperf preferences are unavailable" }
+                    preferences.put(key, value)
+                },
+                flush = { checkNotNull(preferences).flush() },
             )
         }
     }

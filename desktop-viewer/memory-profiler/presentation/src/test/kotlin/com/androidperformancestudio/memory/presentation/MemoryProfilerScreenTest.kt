@@ -13,9 +13,33 @@ import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class MemoryProfilerScreenTest {
+    @Test
+    fun `toolbar controls use layout inspector compact heights`() =
+        runDesktopComposeUiTest(width = 1000, height = 700) {
+            setContent {
+                MemoryProfilerScreen(
+                    state = loadedState(),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            val device = onNodeWithContentDescription("Device selector").fetchSemanticsNode().boundsInRoot
+            val process = onNodeWithContentDescription("Process selector").fetchSemanticsNode().boundsInRoot
+            val dump = onNodeWithText("Dump Heap").fetchSemanticsNode().boundsInRoot
+            val import = onNodeWithText("Import hprof").fetchSemanticsNode().boundsInRoot
+
+            assertEquals(29, MEMORY_TOOLBAR_HEIGHT_DP)
+            assertEquals(22, MEMORY_TOOLBAR_BUTTON_HEIGHT_DP)
+            assertTrue(device.height <= MEMORY_TOOLBAR_BUTTON_HEIGHT_DP + 1f)
+            assertEquals(device.height, process.height)
+            assertEquals(device.height, dump.height)
+            assertEquals(device.height, import.height)
+        }
+
     @Test
     fun `initial state displays selectors dump and import entry`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
@@ -33,7 +57,7 @@ class MemoryProfilerScreenTest {
         }
 
     @Test
-    fun `loaded heap shows overview histogram and phase two placeholders`() =
+    fun `loaded heap shows overview histogram and phase two analysis sections`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
             setContent {
                 MemoryProfilerScreen(
@@ -49,8 +73,9 @@ class MemoryProfilerScreenTest {
             onNodeWithText("java.lang.String").assertExists()
             onNodeWithText("byte[]").assertExists()
             onNodeWithText("Retained").assertExists()
-            onAllNodesWithText("Phase 2 available")[0].assertExists()
+            onAllNodesWithText("Unavailable")[0].assertExists()
             onNodeWithText("Leak Suspects").assertExists()
+            onNodeWithText("No leak suspects detected.").assertExists()
         }
 
     @Test

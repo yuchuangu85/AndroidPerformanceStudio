@@ -8,7 +8,7 @@ import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
-import dev.agentperf.memory.analysis.MemoryHistogramAnalyzer
+import dev.agentperf.memory.analysis.MemoryDeepAnalyzer
 import dev.agentperf.memory.capture.MemoryCaptureRequest
 import dev.agentperf.memory.capture.MemoryHeapDumpCaptureSession
 import dev.agentperf.memory.export.MemoryExportAdapters
@@ -36,7 +36,7 @@ internal class DesktopMemoryProfilerBackend(
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
-    private val analyzer = MemoryHistogramAnalyzer()
+    private val analyzer = MemoryDeepAnalyzer()
     private val exports = MemoryExportAdapters()
 
     override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
@@ -119,11 +119,17 @@ internal class DesktopMemoryProfilerBackend(
                     )
                 val convertedFile = capture.convertedHprofFile
                 if (convertedFile == null) {
-                    retainUnconvertedCapture(
-                        rawFile = capture.rawHprofFile,
-                        warning = warning,
-                        cleanupWarning = cleanupWarning,
-                        identity = identity,
+                    loadHeap(
+                        HeapLoadRequest(
+                            file = capture.rawHprofFile,
+                            rawFile = capture.rawHprofFile,
+                            warning = listOfNotNull(
+                                warning,
+                                "hprof-conv was unavailable; parsed the Android HPROF directly.",
+                            ).joinToString("\n"),
+                            cleanupWarning = cleanupWarning,
+                            sessionMetadata = identity,
+                        ),
                     )
                 } else {
                     loadHeap(
@@ -142,18 +148,18 @@ internal class DesktopMemoryProfilerBackend(
     }
 
     @Suppress("ktlint:standard:function-expression-body")
-    override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap> {
+    override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap> =
+        importHprof(file) {}
+
+    override suspend fun importHprof(
+        file: Path,
+        onProgress: (Int) -> Unit,
+    ): MemoryBackendResult<LoadedHeap> {
         return withContext(Dispatchers.IO) {
-            val fileSize = Files.size(file)
-            if (fileSize > MAX_PHASE_ONE_HPROF_BYTES) {
-                MemoryBackendResult.Failure(
-                    title = "HPROF is too large",
-                    detail =
-                        "${file.fileName} is ${fileSize / MEBIBYTE} MiB. " +
-                            "The Phase 1 parser supports files up to ${MAX_PHASE_ONE_HPROF_BYTES / MEBIBYTE} MiB.",
-                )
+            if (!Files.isRegularFile(file)) {
+                MemoryBackendResult.Failure("HPROF file not found", "${file.fileName} is not a readable regular file.")
             } else {
-                loadHeap(HeapLoadRequest(file = file, rawFile = file))
+                loadHeap(HeapLoadRequest(file = file, rawFile = file), onProgress)
             }
         }
     }
@@ -179,14 +185,18 @@ internal class DesktopMemoryProfilerBackend(
         exports.exportClassHistogramCsv(histogram, output)
     }
 
-    private fun loadHeap(request: HeapLoadRequest): MemoryBackendResult<LoadedHeap> =
+    private fun loadHeap(
+        request: HeapLoadRequest,
+        onProgress: (Int) -> Unit = {},
+    ): MemoryBackendResult<LoadedHeap> =
         try {
             val parsedFile =
-                parser.parse(request.file).copy(
+                parser.parse(request.file, onProgress).copy(
                     rawHprofFile = request.rawFile,
                     convertedHprofFile = request.convertedFile,
                 )
-            val histogram = analyzer.histogram(parsedFile)
+            val deepAnalysis = analyzer.analyze(parsedFile)
+            val histogram = deepAnalysis.histogram
             val parserWarning =
                 parsedFile.warnings
                     .joinToString(separator = "\n", transform = { it.message })
@@ -207,6 +217,9 @@ internal class DesktopMemoryProfilerBackend(
                     capturedAt = capturedAt,
                     heapSummary = histogram.summary,
                     topClasses = histogram.classes,
+                    leakSuspects = deepAnalysis.leakSuspects,
+                    objectRetainedSizes = deepAnalysis.dominatorTree.retainedSizes,
+                    bitmapInstances = deepAnalysis.bitmapInstances,
                 )
             request.sessionMetadata?.let { metadata ->
                 persistSession(metadata, capturedAt, request.rawFile, request.convertedFile, histogram.summary)
@@ -226,44 +239,11 @@ internal class DesktopMemoryProfilerBackend(
             analysisFailure(exception)
         } catch (exception: IOException) {
             analysisFailure(exception)
+        } catch (exception: IllegalArgumentException) {
+            analysisFailure(exception)
         } catch (exception: SQLException) {
             analysisFailure(exception)
         }
-
-    private fun retainUnconvertedCapture(
-        rawFile: Path,
-        warning: String?,
-        cleanupWarning: String?,
-        identity: CapturedSessionIdentity,
-    ): MemoryBackendResult<LoadedHeap> {
-        val capturedAt = Instant.now()
-        val summary = HeapSummary()
-        val storageWarning =
-            try {
-                persistSession(identity, capturedAt, rawFile, convertedFile = null, summary)
-                null
-            } catch (exception: IOException) {
-                "Session metadata could not be saved: ${exception.message.orEmpty()}"
-            } catch (exception: SQLException) {
-                "Session metadata could not be saved: ${exception.message.orEmpty()}"
-            }
-        return MemoryBackendResult.Success(
-            LoadedHeap(
-                heapDump =
-                    HeapDump(
-                        id = identity.sessionId,
-                        packageName = identity.packageName,
-                        pid = identity.pid,
-                        capturedAt = capturedAt,
-                        rawHprofFile = rawFile,
-                        heapSummary = summary,
-                    ),
-                histogram = HeapHistogram(summary = summary),
-                warning = listOfNotNull(warning, storageWarning).joinToString("\n").ifBlank { null },
-                cleanupWarning = cleanupWarning,
-            ),
-        )
-    }
 
     private fun persistSession(
         metadata: CapturedSessionIdentity,
@@ -324,7 +304,6 @@ internal class DesktopMemoryProfilerBackend(
 
     companion object {
         private const val MEBIBYTE = 1024L * 1024L
-        private const val MAX_PHASE_ONE_HPROF_BYTES = 256L * MEBIBYTE
         private val SESSION_ID_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").withZone(ZoneOffset.UTC)
 
         private fun defaultDataRoot(): Path =

@@ -6,4 +6,3 @@
 	path = third_party/perfetto
 	url = https://github.com/google/perfetto
 	shallow = true
-	branch = main

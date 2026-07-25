@@ -31,8 +31,8 @@ public data class NetworkProfilerActions(
 
 @Composable
 public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkProfilerActions, chinese: Boolean, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Summary(if (chinese)"请求" else "Calls", state.summary?.callCount?.toString() ?: "—", Modifier.weight(1f))
             Summary(if (chinese)"失败" else "Failures", state.summary?.failureCount?.toString() ?: "—", Modifier.weight(1f))
             Summary("p50", state.summary?.medianDurationMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
@@ -45,11 +45,12 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
         }
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { items(state.result?.calls.orEmpty()) { call -> CallCard(call, call.callId == state.selectedCallId) { actions.selectCall(call.callId) } } }
+            VerticalDivider(color = MaterialTheme.colorScheme.outline)
             val selected = state.result?.calls?.firstOrNull { it.callId == state.selectedCallId }
             Card(Modifier.weight(1f).fillMaxHeight()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(if (chinese)"请求详情" else "Request details", style = MaterialTheme.typography.titleLarge)
                     if (selected == null) {
                         Text(if (chinese)"选择请求查看阶段证据" else "Select a call to inspect phase evidence")
@@ -69,7 +70,7 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
 
 @Composable private fun Summary(label: String, value: String, modifier: Modifier) {
     Card(modifier) {
-        Column(Modifier.padding(10.dp)) {
+        Column(Modifier.padding(6.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium)
             Text(value, style = MaterialTheme.typography.titleMedium)
         }
@@ -78,7 +79,7 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
 
 @Composable private fun CallCard(call: HttpCall, selected: Boolean, onClick: () -> Unit) {
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = if (selected)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(10.dp)) {
+        Column(Modifier.padding(6.dp)) {
             Text("${call.method} · ${call.outcome}")
             Text(call.redactedUrl, maxLines = 1, style = MaterialTheme.typography.bodySmall)
             Text(call.durationNs?.div(1_000_000.0)?.let { "%.2f ms".format(it) } ?: "incomplete")

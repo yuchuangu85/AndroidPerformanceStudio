@@ -6,8 +6,6 @@ style:
     active: false
   MaxLineLength:
     maxLineLength: 200
-  FunctionMaxLength:
-    active: false
 
 complexity:
   LongParameterList:
@@ -20,6 +18,3 @@ complexity:
 
 naming:
   active: true
-
-formatting:
-  active: false

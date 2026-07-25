@@ -4,6 +4,7 @@ plugins {
 }
 
 dependencies {
+    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
     implementation(project(":frame-model"))
     implementation(project(":capture-frame"))
     implementation(project(":parser-frame"))

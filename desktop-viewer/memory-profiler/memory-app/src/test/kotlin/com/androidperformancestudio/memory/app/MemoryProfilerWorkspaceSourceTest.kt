@@ -31,4 +31,11 @@ class MemoryProfilerWorkspaceSourceTest {
         assertTrue(workspace.contains("onCloseRequest(files.firstOrNull())"))
         assertTrue(backend.contains("withContext(Dispatchers.IO)"))
     }
+
+    @Test
+    fun `workspace toolbar matches layout inspector compact heights`() {
+        assertTrue(workspace.contains("MEMORY_WORKSPACE_TOOLBAR_HEIGHT_DP = 29"))
+        assertTrue(workspace.contains("MEMORY_TOOLBAR_BUTTON_HEIGHT_DP = 22"))
+        assertTrue(workspace.contains("LocalMinimumInteractiveComponentSize provides 0.dp"))
+    }
 }

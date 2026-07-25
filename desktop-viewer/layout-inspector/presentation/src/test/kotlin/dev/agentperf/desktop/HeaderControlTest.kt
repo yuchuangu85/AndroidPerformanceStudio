@@ -9,6 +9,32 @@ import org.junit.jupiter.api.Test
 
 class HeaderControlTest {
     @Test
+    fun `home button is the first header control and exposes a localized description`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+        )
+        val header = source
+            .substringAfter("private fun Header(")
+            .substringBefore("private fun CaptureTargetSelector(")
+        val homeButton = header
+            .substringAfter("private fun HomeButton(")
+
+        assertTrue(header.indexOf("HomeButton(") < header.indexOf("Text(packageName"))
+        assertTrue(header.contains("if (onNavigateHome != null)"))
+        assertTrue(homeButton.contains("ProfilerHomeButton("))
+        assertTrue(homeButton.contains("contentDescription = contentDescription"))
+        assertTrue(homeButton.contains("onClick = onClick"))
+        assertEquals(
+            "Back to home",
+            ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).backToHome,
+        )
+        assertEquals(
+            "返回主页",
+            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).backToHome,
+        )
+    }
+
+    @Test
     fun `manual refresh control is a labeled text button without an icon`() {
         assertTrue(ManualRefreshButtonStyle.WIDTH_DP >= 54)
         assertEquals(22, ManualRefreshButtonStyle.HEIGHT_DP)

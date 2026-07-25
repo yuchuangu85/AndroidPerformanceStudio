@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.ui.ProfilerHomeButton
 import dev.agentperf.application.ConnectionStatus
 import dev.agentperf.application.InspectorState
 import dev.agentperf.application.InspectorStore
@@ -141,6 +142,10 @@ data class InspectorCorrelationHint(
 fun FrameWindowScope.DesktopViewerApp(
     commonThemePreference: String? = null,
     commonLanguagePreference: String? = null,
+    settingsRevision: Long = 0L,
+    onNavigateHome: (() -> Unit)? = null,
+    onOpenUnifiedSettings: (() -> Unit)? = null,
+    onOpenMemoryProfiler: ((String) -> Unit)? = null,
     correlationHint: InspectorCorrelationHint? = null,
 ) {
     val store = remember { createInitialInspectorStore() }
@@ -313,6 +318,13 @@ fun FrameWindowScope.DesktopViewerApp(
     val strings = remember(viewerLanguage) { ViewerStrings.forLanguage(viewerLanguage) }
     var settingsVisible by remember { mutableStateOf(false) }
     val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
+    LaunchedEffect(settingsRevision) {
+        if (settingsRevision > 0L) {
+            archiveLimits = archiveLimitsStore.load()
+            viewDisplayOptions = viewDisplayOptionsStore.load()
+            canvasBorderColors = canvasBorderColorStore.load()
+        }
+    }
     val appFocusRequester = remember { FocusRequester() }
     val exportCaptureArchive: () -> Unit = exportCaptureArchive@{
         if (archiveUiState is CaptureArchiveUiState.Working) {
@@ -541,7 +553,9 @@ fun FrameWindowScope.DesktopViewerApp(
                 viewDisplayOptions = updatedOptions
                 viewDisplayOptionsStore.save(updatedOptions)
             }
-            ViewerAction.OPEN_SETTINGS -> settingsVisible = true
+            ViewerAction.OPEN_SETTINGS -> {
+                if (onOpenUnifiedSettings == null) settingsVisible = true else onOpenUnifiedSettings()
+            }
         }
     }
     val toggleCanvasHitTestOrder: () -> Unit = {
@@ -613,6 +627,7 @@ fun FrameWindowScope.DesktopViewerApp(
             Column {
                 Header(
                     state = state,
+                    onNavigateHome = onNavigateHome,
                     autoScanEnabled = autoScanEnabled,
                     manualRefreshInProgress = manualRefreshInProgress,
                     onManualRefresh = {
@@ -735,10 +750,11 @@ fun FrameWindowScope.DesktopViewerApp(
                                         )
                                     }
                                     DetailsPane(
-                                        state,
-                                        Modifier
+                                        state = state,
+                                        modifier = Modifier
                                             .width(normalizedPaneWidths.properties.dp)
                                             .fillMaxHeight(),
+                                        onOpenMemoryProfiler = onOpenMemoryProfiler,
                                     )
                                 }
                             }
@@ -902,6 +918,7 @@ internal fun CaptureTargetMode.isSessionCurrent(session: ConnectedDeviceSession)
 @Composable
 private fun Header(
     state: InspectorState,
+    onNavigateHome: (() -> Unit)?,
     autoScanEnabled: Boolean,
     manualRefreshInProgress: Boolean,
     onManualRefresh: () -> Unit,
@@ -922,6 +939,15 @@ private fun Header(
         modifier = Modifier.fillMaxWidth().height(29.dp).background(colors.panel).padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (onNavigateHome != null) {
+            HomeButton(
+                contentDescription = strings.backToHome,
+                onClick = onNavigateHome,
+            )
+            Spacer(Modifier.width(8.dp))
+            HeaderSeparator()
+            Spacer(Modifier.width(10.dp))
+        }
         Text(packageName, color = colors.primaryText, fontFamily = FontFamily.Monospace)
         Spacer(Modifier.width(8.dp))
         DeviceSelector(
@@ -997,6 +1023,17 @@ private fun Header(
             onAction(ViewerAction.OPEN_SETTINGS)
         }
     }
+}
+
+@Composable
+private fun HomeButton(
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    ProfilerHomeButton(
+        contentDescription = contentDescription,
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -2211,13 +2248,30 @@ private fun rememberScreenshot(bytes: ByteArray?): ImageBitmap? =
     }
 
 @Composable
-private fun DetailsPane(state: InspectorState, modifier: Modifier) {
+private fun DetailsPane(
+    state: InspectorState,
+    modifier: Modifier,
+    onOpenMemoryProfiler: ((String) -> Unit)? = null,
+) {
     val colors = LocalViewerColors.current
     val strings = LocalViewerStrings.current
     val details = InspectorPresenter.present(state, strings).details
     var expansionState by remember { mutableStateOf(DetailSectionExpansionState()) }
     Column(modifier.background(colors.panel)) {
-        PanelTitle(strings.properties, details.id)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.weight(1f)) {
+                PanelTitle(strings.properties, details.id)
+            }
+            val className = details.className.takeUnless { it == "—" || it.isBlank() }
+            if (onOpenMemoryProfiler != null && className != null) {
+                TextButton(onClick = { onOpenMemoryProfiler(className) }) {
+                    Text("Find in Memory Profiler", fontSize = 10.sp)
+                }
+            }
+        }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(details.sections, key = { it.title }) { section ->
                 DetailSection(

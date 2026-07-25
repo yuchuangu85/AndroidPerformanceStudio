@@ -48,11 +48,15 @@ import java.util.Locale
 import com.androidperformancestudio.presentation.SimpleperfLanguage as PresentationLanguage
 
 @Composable
-@Suppress("FunctionName", "LongMethod")
+@Suppress("FunctionName", "LongMethod", "LongParameterList")
 fun FrameWindowScope.SimpleperfWorkspace(
     window: ComposeWindow,
     settings: SimpleperfUiSettings = SimpleperfUiSettings(),
+    onSettingsChanged: (SimpleperfUiSettings) -> Unit = {},
+    onNavigateHome: (() -> Unit)? = null,
+    onOpenPreferences: ((CaptureSettingsSection) -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,
+    onCaptureSettingsContextChanged: (SimpleperfCaptureSettingsContext?) -> Unit = {},
 ) {
     var currentSettings by remember(settings) { mutableStateOf(settings) }
     val dependencies = remember { createWorkspaceDependencies() }
@@ -111,6 +115,34 @@ fun FrameWindowScope.SimpleperfWorkspace(
     val reportActions = reportActionFactory.create(reportState)
     val resolvedLanguage = currentSettings.language.resolve(Locale.getDefault())
     var captureSettingsSection by remember { mutableStateOf<CaptureSettingsSection?>(null) }
+    val availableEvents =
+        state.selection
+            ?.capabilities
+            ?.eventNames
+            .orEmpty()
+    val captureSettingsEnabled =
+        !state.isLoading &&
+            captureState !is CaptureState.Preparing &&
+            captureState !is CaptureState.Recording &&
+            captureState !is CaptureState.Stopping &&
+            captureState !is CaptureState.Pulling
+    val captureSettingsContext =
+        remember(controller, state.captureSetup, availableEvents, captureSettingsEnabled) {
+            SimpleperfCaptureSettingsContext(
+                setup = state.captureSetup,
+                availableEvents = availableEvents,
+                enabled = captureSettingsEnabled,
+                onSelectTemplate = controller::selectSamplingTemplate,
+                onUpdateSamplingParameters = controller::updateSamplingParameters,
+            )
+        }
+    val currentOnCaptureSettingsContextChanged by rememberUpdatedState(onCaptureSettingsContextChanged)
+    LaunchedEffect(captureSettingsContext) {
+        currentOnCaptureSettingsContextChanged(captureSettingsContext)
+    }
+    DisposableEffect(Unit) {
+        onDispose { currentOnCaptureSettingsContextChanged(null) }
+    }
     LaunchedEffect(controller) { controller.refreshDevices() }
     SimpleperfMenu(
         resolvedLanguage,
@@ -118,7 +150,10 @@ fun FrameWindowScope.SimpleperfWorkspace(
         reportActions,
         sessionOpener::open,
         scope,
-        onOpenCaptureSettings = { captureSettingsSection = it },
+        onOpenCaptureSettings = { section ->
+            onOpenPreferences?.invoke(section) ?: run { captureSettingsSection = section }
+        },
+        onOpenPreferences = onOpenPreferences,
     )
     HomeScreen(
         state = state,
@@ -135,12 +170,26 @@ fun FrameWindowScope.SimpleperfWorkspace(
         darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
         language = resolvedLanguage.toPresentationLanguage(),
         captureSettingsSection = captureSettingsSection,
-        onCaptureSettingsSectionChange = { captureSettingsSection = it },
+        captureSettingsManagedExternally = onOpenPreferences != null,
+        onCaptureSettingsSectionChange = { section ->
+            if (section != null && onOpenPreferences != null) {
+                onOpenPreferences(section)
+            } else {
+                captureSettingsSection = section
+            }
+        },
         flameTooltipMode = currentSettings.flameTooltipMode,
-        onFlameTooltipModeChange = { currentSettings = currentSettings.copy(flameTooltipMode = it) },
+        onFlameTooltipModeChange = {
+            currentSettings = currentSettings.copy(flameTooltipMode = it)
+            onSettingsChanged(currentSettings)
+        },
         simpleperfEngine = currentSettings.simpleperfEngine,
-        onSimpleperfEngineChange = { currentSettings = currentSettings.copy(simpleperfEngine = it) },
+        onSimpleperfEngineChange = {
+            currentSettings = currentSettings.copy(simpleperfEngine = it)
+            onSettingsChanged(currentSettings)
+        },
         onOpenUserGuide = onOpenUserGuide,
+        onNavigateHome = onNavigateHome,
     )
 }
 
@@ -153,6 +202,7 @@ private fun FrameWindowScope.SimpleperfMenu(
     sessionOpener: suspend (Path) -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
     onOpenCaptureSettings: (CaptureSettingsSection) -> Unit,
+    onOpenPreferences: ((CaptureSettingsSection) -> Unit)?,
 ) {
     val recentSessionStore = remember { RecentSimpleperfSessionStore.desktop() }
     var recentSessions by remember { mutableStateOf(recentSessionStore.load()) }
@@ -186,7 +236,10 @@ private fun FrameWindowScope.SimpleperfMenu(
             recentSessionStore.clear()
             recentSessions = emptyList()
         },
-        onOpenSettings = { onOpenCaptureSettings(CaptureSettingsSection.SAMPLING_TEMPLATE) },
+        onOpenSettings = {
+            onOpenPreferences?.invoke(CaptureSettingsSection.FLAME_GRAPH)
+                ?: onOpenCaptureSettings(CaptureSettingsSection.SAMPLING_TEMPLATE)
+        },
         onOpenCaptureSettings = onOpenCaptureSettings,
     )
 }

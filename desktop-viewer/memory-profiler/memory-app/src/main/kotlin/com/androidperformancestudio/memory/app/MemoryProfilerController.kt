@@ -7,6 +7,7 @@ import com.androidperformancestudio.memory.presentation.MemoryProfilerError
 import com.androidperformancestudio.memory.presentation.MemoryProfilerState
 import dev.agentperf.memory.model.HeapDump
 import dev.agentperf.memory.model.HeapHistogram
+import dev.agentperf.memory.analysis.HeapDiffAnalyzer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +43,11 @@ internal interface MemoryProfilerBackend {
     ): MemoryBackendResult<LoadedHeap>
 
     suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap>
+
+    suspend fun importHprof(
+        file: Path,
+        onProgress: (Int) -> Unit,
+    ): MemoryBackendResult<LoadedHeap> = importHprof(file)
 
     fun exportRaw(
         heapDump: HeapDump,
@@ -113,6 +119,10 @@ internal class MemoryProfilerController(
         mutableState.value = mutableState.value.copy(sort = sort)
     }
 
+    fun highlightClass(className: String) {
+        mutableState.value = mutableState.value.copy(highlightedClassName = className)
+    }
+
     suspend fun dumpHeap() {
         val snapshot = mutableState.value
         val serial = snapshot.selectedDeviceSerial ?: return
@@ -140,15 +150,18 @@ internal class MemoryProfilerController(
             )
         val result =
             try {
-                backend.importHprof(file)
+                backend.importHprof(file) { progress ->
+                    mutableState.value =
+                        mutableState.value.copy(operationMessage = "Importing ${file.fileName}… $progress%")
+                }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: OutOfMemoryError) {
                 MemoryBackendResult.Failure(
-                    title = "HPROF is too large",
+                    title = "Unable to analyze HPROF",
                     detail =
-                        "The Phase 1 parser ran out of memory while loading this file. " +
-                            "Use a smaller standard HPROF or increase the desktop application's maximum heap size.",
+                        "The parser ran out of memory while analyzing this file. " +
+                            "Try closing other workspaces or increase the desktop application's maximum heap size.",
                 )
             } catch (exception: Exception) {
                 MemoryBackendResult.Failure(
@@ -175,17 +188,23 @@ internal class MemoryProfilerController(
         when (result) {
             is MemoryBackendResult.Failure -> showFailure(result)
             is MemoryBackendResult.Success -> {
+                val previous = loadedHeap
                 loadedHeap = result.value
                 mutableState.value =
                     mutableState.value.copy(
                         summary = result.value.histogram.summary,
                         classes = result.value.histogram.classes,
-                        leakSuspects = emptyList(),
+                        activityCount = result.value.histogram.classes
+                            .filter { it.className.endsWith("Activity") }
+                            .sumOf { it.instanceCount },
+                        leakSuspects = result.value.heapDump.leakSuspects,
                         isDumping = false,
                         operationMessage = null,
                         error = null,
                         warning = result.value.warning,
                         cleanupWarning = result.value.cleanupWarning,
+                        heapDiff = previous?.let { HeapDiffAnalyzer().diff(it.histogram.classes, result.value.histogram.classes) },
+                        bitmapInstances = result.value.heapDump.bitmapInstances,
                     )
             }
         }

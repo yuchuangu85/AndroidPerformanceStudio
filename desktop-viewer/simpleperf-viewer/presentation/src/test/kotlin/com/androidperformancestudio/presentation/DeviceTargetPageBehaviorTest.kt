@@ -29,6 +29,25 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class DeviceTargetPageBehaviorTest {
     @Test
+    fun `home button invokes navigation callback`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            var navigationCount = 0
+            setContent {
+                HomeScreen(
+                    state = DeviceTargetState(),
+                    captureState = CaptureState.Idle,
+                    reportState = ReportState(),
+                    actions = deviceActions(),
+                    reportActions = goldenActions(),
+                    onNavigateHome = { navigationCount++ },
+                )
+            }
+
+            onNodeWithContentDescription("Back to home").performClick()
+            assertEquals(1, navigationCount)
+        }
+
+    @Test
     fun `settings update flame tooltip placement and simpleperf engine`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             var tooltipMode = FlameTooltipMode.FIXED

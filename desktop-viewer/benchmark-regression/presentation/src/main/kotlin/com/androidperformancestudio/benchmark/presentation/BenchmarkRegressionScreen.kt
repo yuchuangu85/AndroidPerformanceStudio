@@ -30,8 +30,8 @@ public data class BenchmarkRegressionState(
 
 @Composable
 public fun BenchmarkRegressionScreen(state: BenchmarkRegressionState, chinese: Boolean, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             SummaryCard(if (chinese) "当前结果" else "Current", state.current?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
             SummaryCard(if (chinese) "基线" else "Baseline", state.baseline?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
             SummaryCard(if (chinese) "回归数" else "Regressions", state.report?.regressionCount?.toString() ?: "—", Modifier.weight(1f))
@@ -40,10 +40,10 @@ public fun BenchmarkRegressionScreen(state: BenchmarkRegressionState, chinese: B
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Text(if (chinese) "指标比较" else "Metric comparisons", style = MaterialTheme.typography.titleLarge)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(state.report?.comparisons.orEmpty()) { comparison ->
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("${comparison.classification} · ${comparison.caseIdentity}", style = MaterialTheme.typography.titleMedium)
                         Text("${comparison.metricName} (${comparison.unit}) · ${comparison.baselineValue ?: "—"} → ${comparison.currentValue ?: "—"}")
                         Text("Δ ${comparison.absoluteDelta ?: "—"} · ${comparison.relativeDeltaPercent?.let { "%.2f%%".format(it) } ?: "—"} · ${comparison.confidence}")
@@ -58,7 +58,7 @@ public fun BenchmarkRegressionScreen(state: BenchmarkRegressionState, chinese: B
 @Composable
 private fun SummaryCard(label: String, value: String, modifier: Modifier) {
     Card(modifier) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(8.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium)
             Text(value, style = MaterialTheme.typography.titleMedium)
         }

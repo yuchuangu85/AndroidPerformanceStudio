@@ -16,3 +16,7 @@ include(
     ":presentation",
     ":gpu-integration-app",
 )
+
+includeBuild("../simpleperf-viewer") {
+    name = "gpu-inspector-simpleperf-tooling"
+}

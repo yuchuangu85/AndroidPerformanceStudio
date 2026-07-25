@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
@@ -37,6 +40,7 @@ import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.StartupProfilerActions
 import com.androidperformancestudio.startup.presentation.StartupProfilerScreen
+import com.androidperformancestudio.ui.ProfilerHomeButton
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
@@ -56,16 +60,20 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
 
     Column(Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ProfilerHomeButton(
+                    contentDescription = if (chinese) "返回主页" else "Back to home",
                     onClick = {
                         experimentJob?.cancel()
                         onBack()
                     },
-                ) { Text(if (chinese) "返回主页" else "Back to Home") }
+                )
                 Selector(
                     label = if (chinese) "设备" else "Device",
                     selectedLabel = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
@@ -122,7 +130,7 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
                     },
                 ) { Text(if (chinese) "导出 JSON" else "Export JSON") }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Selector(
                     label = if (chinese) "启动类型" else "Startup Type",
                     selectedLabel = state.config.requestedType.label(chinese),
@@ -167,6 +175,7 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
                 )
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         StartupProfilerScreen(
             state = state,
             actions = StartupProfilerActions(onSelectRun = controller::selectRun),

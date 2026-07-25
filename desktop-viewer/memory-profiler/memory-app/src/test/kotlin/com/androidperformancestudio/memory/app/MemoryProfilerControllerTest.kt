@@ -102,7 +102,7 @@ class MemoryProfilerControllerTest {
             controller.importHprof(Path.of("huge.hprof"))
 
             val error = assertNotNull(controller.state.value.error)
-            assertEquals("HPROF is too large", error.title)
+            assertEquals("Unable to analyze HPROF", error.title)
             assertTrue(error.detail.contains("increase the desktop application's maximum heap size"))
             assertFalse(controller.state.value.isDumping)
             assertNull(controller.state.value.operationMessage)
@@ -120,6 +120,20 @@ class MemoryProfilerControllerTest {
                 .isEmpty(),
         )
     }
+
+    @Test
+    fun `second heap load exposes diff and layout inspector class highlight`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend())
+
+            controller.importHprof(Path.of("before.hprof"))
+            controller.importHprof(Path.of("after.hprof"))
+            controller.highlightClass("com.example.Sample")
+
+            assertNotNull(controller.state.value.heapDiff)
+            assertTrue(controller.state.value.heapDiff?.entries.orEmpty().all { it.countDelta == 0 })
+            assertEquals("com.example.Sample", controller.state.value.highlightedClassName)
+        }
 
     private class FakeBackend(
         private val importFails: Boolean = false,

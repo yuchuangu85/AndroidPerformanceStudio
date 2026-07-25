@@ -22,7 +22,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +42,7 @@ import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
 import com.androidperformancestudio.battery.presentation.BatteryProfilerScreen
+import com.androidperformancestudio.ui.ProfilerHomeButton
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -69,12 +72,15 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = {
-                    experimentJob?.cancel()
-                    onBack()
-                }) { Text(if (chinese) "返回主页" else "Back to Home") }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProfilerHomeButton(
+                    contentDescription = if (chinese) "返回主页" else "Back to home",
+                    onClick = {
+                        experimentJob?.cancel()
+                        onBack()
+                    },
+                )
                 Selector(
                     if (chinese) "设备" else "Device",
                     state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
@@ -119,7 +125,7 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Selector(
                     if (chinese) "采集模式" else "Capture Mode",
                     state.config.mode.label(chinese),
@@ -162,7 +168,7 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                 Text(if (chinese) "自动启动 Launcher Activity" else "Launch app automatically")
                 state.operationMessage?.let { Text(it, modifier = Modifier.padding(start = 8.dp)) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 OutlinedButton(enabled = state.analysis != null && !state.isRunning, onClick = {
                     chooseSaveFile(window, "battery-analysis.json")?.let { file ->
                         scope.launch { controller.exportJson(file.toPath()) }
@@ -194,6 +200,7 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                 )
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         BatteryProfilerScreen(state, BatteryProfilerActions(controller::selectRun), chinese, Modifier.weight(1f))
     }
 

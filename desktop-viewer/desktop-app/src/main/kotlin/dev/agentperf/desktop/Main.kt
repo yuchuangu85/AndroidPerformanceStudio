@@ -19,13 +19,15 @@ fun main() = application {
         icon = appIcon,
         title = APP_DISPLAY_NAME,
     ) {
-        var settingsRequest by remember { mutableStateOf(0L) }
+        var settingsRequest by remember { mutableStateOf<SettingsRequest?>(null) }
+        var nextSettingsRequestId by remember { mutableStateOf(0L) }
         val settingsMenuInstaller = remember {
             ApplicationSettingsMenuInstaller.desktop()
         }
         DisposableEffect(settingsMenuInstaller) {
             val registration = settingsMenuInstaller.install {
-                settingsRequest += 1
+                nextSettingsRequestId += 1
+                settingsRequest = SettingsRequest(SettingsPage.GENERAL, nextSettingsRequestId)
             }
             onDispose(registration::close)
         }
@@ -33,5 +35,3 @@ fun main() = application {
         UnifiedDesktopApp(settingsRequest = settingsRequest)
     }
 }
-
-internal fun shouldOpenSettingsForRequest(request: Long): Boolean = request > 0L
