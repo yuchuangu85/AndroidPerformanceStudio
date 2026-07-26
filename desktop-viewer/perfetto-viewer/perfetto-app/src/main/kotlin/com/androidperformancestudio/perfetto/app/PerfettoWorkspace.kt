@@ -9,16 +9,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +41,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.analysis.DiagnosticQuery
@@ -50,6 +54,10 @@ import com.androidperformancestudio.perfetto.model.PerfettoDevice
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
 import com.androidperformancestudio.perfetto.model.TraceSession
 import com.androidperformancestudio.perfetto.presentation.PerfettoCapturePage
+import com.androidperformancestudio.perfetto.presentation.PerfettoCompactButton
+import com.androidperformancestudio.perfetto.presentation.PerfettoCompactTextField
+import com.androidperformancestudio.perfetto.presentation.PerfettoStatusDot
+import com.androidperformancestudio.perfetto.presentation.PerfettoWorkspacePanel
 import com.androidperformancestudio.perfetto.storage.TraceSessionStore
 import com.androidperformancestudio.perfetto.traceprocessor.TraceProcessorLocator
 import com.androidperformancestudio.perfetto.traceprocessor.TraceProcessorSession
@@ -207,34 +215,10 @@ fun FrameWindowScope.PerfettoWorkspace(
         onClearRecent = { recentFiles = emptyList() },
     )
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (onNavigateHome != null) {
-                    PerfettoHomeButton(onClick = onNavigateHome)
-                }
-                Text("Perfetto Trace Analyzer", style = MaterialTheme.typography.headlineMedium)
-            }
-            if (initialTraceFile != null && initialTraceNotice != null) {
-                Spacer(Modifier.height(12.dp))
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(initialTraceFile.fileName.toString(), style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            initialTraceNotice,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(24.dp))
-            PerfettoCapturePage(
-                captureState = captureState,
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            PerfettoToolbar(
+                onNavigateHome = onNavigateHome,
                 adbPath = adbPath,
                 onAdbPathChange = { adbPath = it },
                 devices = devices,
@@ -247,94 +231,95 @@ fun FrameWindowScope.PerfettoWorkspace(
                         selectedDeviceSerial = refreshed.firstOrNull { it.online }?.serial
                     }
                 },
-                onStartCapture = { config, deviceSerial ->
-                    coroutineScope.launch { captureSession.startCapture(adbPath, deviceSerial, config) }
-                },
-                onStopCapture = { coroutineScope.launch { captureSession.stopCapture() } },
-                onOpenTrace = { traceFile ->
-                    activeTraceFile = traceFile
-                    when (val opened = launchTraceInUi(traceFile, uiServer)) {
-                        is StudioResult.Failure -> diagnosticError = opened.error.message
-                        is StudioResult.Success -> diagnosticError = null
-                    }
-                },
-                modifier = Modifier.weight(1f),
             )
-            activeTraceFile?.let { traceFile ->
-                TraceDiagnosticsPanel(
-                    traceFile = traceFile,
-                    selectedQuery = diagnosticQuery,
-                    result = diagnosticResult,
-                    error = diagnosticError,
-                    onRun = { query ->
-                        diagnosticQuery = query
-                        diagnosticResult = null
-                        diagnosticError = null
-                        coroutineScope.launch(Dispatchers.IO) {
-                            val session =
-                                analysisSession ?: when (val located = TraceProcessorLocator().locate()) {
-                                    is StudioResult.Failure -> {
-                                        diagnosticError = located.error.message
-                                        return@launch
-                                    }
-                                    is StudioResult.Success ->
-                                        TraceProcessorSession(located.value, traceFile).also {
-                                            when (val started = it.start()) {
-                                                is StudioResult.Failure -> {
-                                                    diagnosticError = started.error.message
-                                                    return@launch
-                                                }
-                                                is StudioResult.Success -> analysisSession = it
-                                            }
-                                        }
-                                }
-                            when (val result = session.query(query.sql)) {
-                                is StudioResult.Success -> diagnosticResult = result.value
-                                is StudioResult.Failure -> diagnosticError = result.error.message
-                            }
-                        }
-                    },
+            if (initialTraceFile != null && initialTraceNotice != null) {
+                InitialTraceNotice(
+                    traceFile = initialTraceFile,
+                    notice = initialTraceNotice,
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 8.dp, end = 8.dp),
                 )
             }
-            if (sessions.isNotEmpty()) {
-                Spacer(Modifier.height(24.dp))
-                Text("Recent Sessions", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                sessions.take(10).forEach { session ->
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column {
-                                Text(session.captureConfig.template.displayName)
-                                Text(
-                                    "${session.deviceModel} ${session.capturedAt} ${session.fileSizeBytes / 1024 / 1024}MB",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+            Column(
+                modifier = Modifier.fillMaxSize().padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().weight(if (activeTraceFile == null) 1f else 0.62f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PerfettoCapturePage(
+                        captureState = captureState,
+                        selectedDeviceSerial = selectedDeviceSerial,
+                        onStartCapture = { config, deviceSerial ->
+                            coroutineScope.launch {
+                                captureSession.startCapture(adbPath, deviceSerial, config)
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(
-                                    onClick = {
-                                        when (val opened = launchTraceInUi(session.traceFile, uiServer)) {
-                                            is StudioResult.Failure -> diagnosticError = opened.error.message
-                                            is StudioResult.Success -> diagnosticError = null
+                        },
+                        onStopCapture = { coroutineScope.launch { captureSession.stopCapture() } },
+                        onOpenTrace = { traceFile ->
+                            activeTraceFile = traceFile
+                            when (val opened = launchTraceInUi(traceFile, uiServer)) {
+                                is StudioResult.Failure -> diagnosticError = opened.error.message
+                                is StudioResult.Success -> diagnosticError = null
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    RecentSessionsPanel(
+                        sessions = sessions,
+                        onOpen = { session ->
+                            when (val opened = launchTraceInUi(session.traceFile, uiServer)) {
+                                is StudioResult.Failure -> diagnosticError = opened.error.message
+                                is StudioResult.Success -> diagnosticError = null
+                            }
+                        },
+                        onDelete = { session ->
+                            coroutineScope.launch {
+                                when (val deleted = sessionStore.delete(session.id)) {
+                                    is StudioResult.Success -> sessions = sessions.filter { it.id != session.id }
+                                    is StudioResult.Failure -> diagnosticError = deleted.error.message
+                                }
+                            }
+                        },
+                        modifier = Modifier.width(320.dp).fillMaxHeight(),
+                    )
+                }
+                activeTraceFile?.let { traceFile ->
+                    TraceDiagnosticsWorkspacePanel(
+                        traceFile = traceFile,
+                        selectedQuery = diagnosticQuery,
+                        result = diagnosticResult,
+                        error = diagnosticError,
+                        onRun = { query ->
+                            diagnosticQuery = query
+                            diagnosticResult = null
+                            diagnosticError = null
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val session =
+                                    analysisSession ?: when (val located = TraceProcessorLocator().locate()) {
+                                        is StudioResult.Failure -> {
+                                            diagnosticError = located.error.message
+                                            return@launch
                                         }
-                                    },
-                                ) { Text("Open") }
-                                OutlinedButton(onClick = {
-                                    coroutineScope.launch {
-                                        when (val deleted = sessionStore.delete(session.id)) {
-                                            is StudioResult.Success -> sessions = sessions.filter { it.id != session.id }
-                                            is StudioResult.Failure -> diagnosticError = deleted.error.message
-                                        }
+                                        is StudioResult.Success ->
+                                            TraceProcessorSession(located.value, traceFile).also {
+                                                when (val started = it.start()) {
+                                                    is StudioResult.Failure -> {
+                                                        diagnosticError = started.error.message
+                                                        return@launch
+                                                    }
+                                                    is StudioResult.Success -> analysisSession = it
+                                                }
+                                            }
                                     }
-                                }) { Text("Delete") }
+                                when (val queryResult = session.query(query.sql)) {
+                                    is StudioResult.Success -> diagnosticResult = queryResult.value
+                                    is StudioResult.Failure -> diagnosticError = queryResult.error.message
+                                }
                             }
-                        }
-                    }
+                        },
+                        modifier = Modifier.fillMaxWidth().weight(0.38f),
+                    )
                 }
             }
         }
@@ -349,6 +334,221 @@ fun FrameWindowScope.PerfettoWorkspace(
 }
 
 @Composable
+@Suppress("LongParameterList", "ktlint:standard:function-naming")
+private fun PerfettoToolbar(
+    onNavigateHome: (() -> Unit)?,
+    adbPath: String,
+    onAdbPathChange: (String) -> Unit,
+    devices: List<PerfettoDevice>,
+    selectedDeviceSerial: String?,
+    onSelectDevice: (String) -> Unit,
+    onRefreshDevices: () -> Unit,
+) {
+    val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(29.dp)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                .padding(horizontal = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onNavigateHome != null) {
+            PerfettoHomeButton(onClick = onNavigateHome)
+            Box(
+                modifier =
+                    Modifier
+                        .width(1.dp)
+                        .height(16.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+        }
+        Text(
+            text = "ADB Path",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+        )
+        PerfettoCompactTextField(
+            value = adbPath,
+            onValueChange = onAdbPathChange,
+            modifier = Modifier.width(250.dp),
+            placeholder = "adb",
+        )
+        DeviceSelector(
+            devices = devices,
+            selectedDeviceSerial = selectedDeviceSerial,
+            onSelectDevice = onSelectDevice,
+        )
+        PerfettoCompactButton(text = "Refresh", onClick = onRefreshDevices)
+        Spacer(Modifier.weight(1f))
+        PerfettoStatusDot(
+            color =
+                if (selectedDevice?.online == true) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+        )
+        Text(
+            text = selectedDevice?.let { "${it.model} connected" } ?: "No online device",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
+private fun DeviceSelector(
+    devices: List<PerfettoDevice>,
+    selectedDeviceSerial: String?,
+    onSelectDevice: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
+    Box {
+        PerfettoCompactButton(
+            text = selectedDevice?.model ?: "Select device",
+            onClick = { expanded = true },
+            enabled = devices.isNotEmpty(),
+            modifier = Modifier.width(170.dp),
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            devices.forEach { device ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = "${device.model} · ${device.serial}",
+                            fontSize = 11.sp,
+                        )
+                    },
+                    onClick = {
+                        onSelectDevice(device.serial)
+                        expanded = false
+                    },
+                    enabled = device.online,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
+private fun InitialTraceNotice(
+    traceFile: Path,
+    notice: String,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(4.dp)
+    Row(
+        modifier =
+            modifier
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = traceFile.fileName.toString(),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.sp,
+        )
+        Text(
+            text = notice,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
+private fun RecentSessionsPanel(
+    sessions: List<TraceSession>,
+    onOpen: (TraceSession) -> Unit,
+    onDelete: (TraceSession) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PerfettoWorkspacePanel(
+        title = "RECENT SESSIONS",
+        modifier = modifier,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (sessions.isEmpty()) {
+                Text(
+                    text = "Captured traces will appear here.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+            }
+            sessions.take(10).forEach { session ->
+                RecentSessionRow(
+                    session = session,
+                    onOpen = { onOpen(session) },
+                    onDelete = { onDelete(session) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
+private fun RecentSessionRow(
+    session: TraceSession,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val shape = RoundedCornerShape(4.dp)
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                .padding(7.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = session.captureConfig.template.displayName,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.sp,
+        )
+        Text(
+            text =
+                "${session.deviceModel} · ${session.fileSizeBytes / 1024 / 1024} MB\n" +
+                    session.capturedAt,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PerfettoCompactButton(text = "Open", onClick = onOpen)
+            PerfettoCompactButton(text = "Delete", onClick = onDelete)
+        }
+    }
+}
+
+@Composable
 @Suppress("FunctionName", "MagicNumber", "ktlint:standard:function-naming")
 private fun PerfettoHomeButton(onClick: () -> Unit) {
     val shape = RoundedCornerShape(6.dp)
@@ -356,11 +556,11 @@ private fun PerfettoHomeButton(onClick: () -> Unit) {
     Box(
         modifier =
             Modifier
-                .width(30.dp)
+                .width(28.dp)
                 .height(28.dp)
                 .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
                 .semantics { contentDescription = "Back to home" }
                 .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -420,27 +620,124 @@ private suspend fun discoverPerfettoDevices(adbPath: String): List<PerfettoDevic
 
 @Composable
 @Suppress("ktlint:standard:function-naming")
-private fun TraceDiagnosticsPanel(
+private fun TraceDiagnosticsWorkspacePanel(
     traceFile: Path,
     selectedQuery: DiagnosticQuery?,
     result: String?,
     error: String?,
     onRun: (DiagnosticQuery) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Trace diagnostics", style = MaterialTheme.typography.titleSmall)
-            Text(traceFile.fileName.toString(), style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                PerfettoDiagnostics.all.take(6).forEach { query ->
-                    OutlinedButton(onClick = { onRun(query) }) {
-                        Text(query.title, maxLines = 1)
-                    }
-                }
-            }
-            selectedQuery?.let { Text("${it.title}: ${it.description}", style = MaterialTheme.typography.bodySmall) }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            result?.let { Text(it.take(8_000), style = MaterialTheme.typography.bodySmall) }
+    PerfettoWorkspacePanel(
+        title = "TRACE DIAGNOSTICS · ${traceFile.fileName}",
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            TraceDiagnosticNavigation(
+                queries = PerfettoDiagnostics.all,
+                selectedQuery = selectedQuery,
+                onSelect = onRun,
+                modifier = Modifier.width(240.dp).fillMaxHeight(),
+            )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxHeight()
+                        .width(1.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+            TraceDiagnosticContent(
+                selectedQuery = selectedQuery,
+                result = result,
+                error = error,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            )
+        }
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
+private fun TraceDiagnosticNavigation(
+    queries: List<DiagnosticQuery>,
+    selectedQuery: DiagnosticQuery?,
+    onSelect: (DiagnosticQuery) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier =
+            modifier
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .verticalScroll(rememberScrollState())
+                .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        queries.forEach { query ->
+            PerfettoCompactButton(
+                text = query.title,
+                onClick = { onSelect(query) },
+                modifier = Modifier.fillMaxWidth(),
+                selected = selectedQuery == query,
+            )
+        }
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
+private fun TraceDiagnosticContent(
+    selectedQuery: DiagnosticQuery?,
+    result: String?,
+    error: String?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier =
+            modifier
+                .verticalScroll(rememberScrollState())
+                .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (selectedQuery == null) {
+            Text(
+                text = "Select a diagnostic on the left to view its result.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+            )
+            return@Column
+        }
+        Text(
+            text = selectedQuery.title,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 12.sp,
+        )
+        Text(
+            text = selectedQuery.description,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+        )
+        when {
+            error != null ->
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 11.sp,
+                )
+            result != null ->
+                Text(
+                    text = result.take(8_000),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                )
+            else ->
+                Text(
+                    text = "Running diagnostic…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                )
         }
     }
 }
