@@ -68,6 +68,81 @@ class ProfilerThemeSupportTest {
         }
     }
 
+    @Test
+    fun `every feature uses the CPU profiler home button style`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val sharedButton =
+            Files.readString(
+                desktopViewer.resolve(
+                    "simpleperf-viewer/desktop-ui/src/main/kotlin/" +
+                        "com/androidperformancestudio/ui/ProfilerHomeButton.kt",
+                ),
+            )
+        val cpuProfiler =
+            Files.readString(
+                desktopViewer.resolve(
+                    "simpleperf-viewer/presentation/src/main/kotlin/" +
+                        "com/androidperformancestudio/presentation/DeviceTargetPage.kt",
+                ),
+            )
+        val cpuProfilerDimensions =
+            Files.readString(
+                desktopViewer.resolve(
+                    "simpleperf-viewer/presentation/src/main/kotlin/" +
+                        "com/androidperformancestudio/presentation/MacOsDeviceTargetStyle.kt",
+                ),
+            )
+        val perfetto =
+            Files.readString(
+                desktopViewer.resolve(
+                    "perfetto-viewer/perfetto-app/src/main/kotlin/" +
+                        "com/androidperformancestudio/perfetto/app/PerfettoWorkspace.kt",
+                ),
+            )
+
+        assertTrue(cpuProfiler.contains(".width(28.dp)"))
+        assertTrue(cpuProfiler.contains(".height(MacOsDeviceTargetDimensions.buttonHeight)"))
+        assertTrue(cpuProfiler.contains("RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius)"))
+        assertTrue(cpuProfilerDimensions.contains("buttonHeight = 28.dp"))
+        assertTrue(cpuProfilerDimensions.contains("controlRadius = 6.dp"))
+        assertTrue(cpuProfiler.contains(".background(style.panel)"))
+        assertTrue(cpuProfiler.contains(".border("))
+        assertCpuHomeButtonStyle(sharedButton, "shared profiler home button")
+        assertCpuHomeButtonStyle(perfetto, "Perfetto")
+
+        profilerHomeButtonConsumers().forEach { source ->
+            assertTrue(
+                Files.readString(source).contains("ProfilerHomeButton("),
+                "$source must use the shared CPU Profiler home button style",
+            )
+        }
+    }
+
+    private fun assertCpuHomeButtonStyle(
+        source: String,
+        owner: String,
+    ) {
+        assertTrue(source.contains(".width(28.dp)"), "$owner home button must be 28dp wide")
+        assertTrue(source.contains(".height(28.dp)"), "$owner home button must be 28dp high")
+        assertTrue(source.contains("RoundedCornerShape(6.dp)"), "$owner home button must use a 6dp radius")
+        assertTrue(source.contains(".background("), "$owner home button must have a panel background")
+        assertTrue(source.contains(".border("), "$owner home button must have a visible border")
+    }
+
+    private fun profilerHomeButtonConsumers(): List<Path> {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        return listOf(
+            "layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt",
+            "memory-profiler/memory-app/src/main/kotlin/com/androidperformancestudio/memory/app/MemoryProfilerWorkspace.kt",
+            "frame-profiler/frame-app/src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerWorkspace.kt",
+            "startup-profiler/startup-app/src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerWorkspace.kt",
+            "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerWorkspace.kt",
+            "network-profiler/network-app/src/main/kotlin/com/androidperformancestudio/network/app/NetworkProfilerWorkspace.kt",
+            "gpu-inspector-integration/gpu-integration-app/src/main/kotlin/com/androidperformancestudio/gpu/app/GpuIntegrationWorkspace.kt",
+            "benchmark-regression/benchmark-app/src/main/kotlin/com/androidperformancestudio/benchmark/app/BenchmarkRegressionWorkspace.kt",
+        ).map(desktopViewer::resolve)
+    }
+
     private fun profilerPresentationSources(): List<Path> {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         return listOf(
