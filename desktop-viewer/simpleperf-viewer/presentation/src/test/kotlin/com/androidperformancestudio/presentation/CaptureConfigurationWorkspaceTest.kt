@@ -41,6 +41,9 @@ class CaptureConfigurationWorkspaceTest {
         val source = source("CaptureConfigurationWorkspace.kt")
 
         assertTrue(source.contains("fun SimpleperfSettingsContent("))
+        assertTrue(source.contains("fun SimpleperfSettingsSectionContent("))
+        assertTrue(source.contains("section = section"))
+        assertTrue(source.contains("modifier = modifier"))
         assertTrue(source.contains("SAMPLING_TEMPLATE"))
         assertTrue(source.contains("CAPTURE_CONFIGURATION"))
         assertTrue(source.contains("ADVANCED_PARAMETERS"))

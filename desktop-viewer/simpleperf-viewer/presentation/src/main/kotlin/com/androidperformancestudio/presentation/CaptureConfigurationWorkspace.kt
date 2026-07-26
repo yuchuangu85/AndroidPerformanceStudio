@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -113,8 +112,45 @@ fun SimpleperfSettingsContent(
             simpleperfEngine = simpleperfEngine,
             onSimpleperfEngineChange = onSimpleperfEngineChange,
             onOpenUserGuide = onOpenUserGuide,
+            modifier = Modifier.weight(1f),
         )
     }
+}
+
+/** Content for one Simpleperf settings section without an embedded navigation sidebar. */
+@Composable
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
+fun SimpleperfSettingsSectionContent(
+    section: CaptureSettingsSection,
+    setup: CaptureSetup?,
+    availableEvents: List<String>,
+    enabled: Boolean,
+    darkTheme: Boolean,
+    flameTooltipMode: FlameTooltipMode,
+    onFlameTooltipModeChange: (FlameTooltipMode) -> Unit,
+    simpleperfEngine: SimpleperfEngine,
+    onSimpleperfEngineChange: (SimpleperfEngine) -> Unit,
+    onSelectTemplate: (SamplingTemplate) -> Unit,
+    onUpdate: (SamplingParameters) -> Unit,
+    onOpenUserGuide: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    SettingsPanel(
+        section = section,
+        setup = setup,
+        availableEvents = availableEvents,
+        style = macOsDeviceTargetStyle(darkTheme),
+        enabled = enabled,
+        onSelectTemplate = onSelectTemplate,
+        onUpdate = onUpdate,
+        onDismiss = null,
+        flameTooltipMode = flameTooltipMode,
+        onFlameTooltipModeChange = onFlameTooltipModeChange,
+        simpleperfEngine = simpleperfEngine,
+        onSimpleperfEngineChange = onSimpleperfEngineChange,
+        onOpenUserGuide = onOpenUserGuide,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -168,6 +204,7 @@ internal fun CaptureSettingsDialog(
                     simpleperfEngine = simpleperfEngine,
                     onSimpleperfEngineChange = onSimpleperfEngineChange,
                     onOpenUserGuide = onOpenUserGuide,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -221,7 +258,7 @@ private fun SettingsNavigation(
 }
 
 @Composable
-private fun RowScope.SettingsPanel(
+private fun SettingsPanel(
     section: CaptureSettingsSection,
     setup: CaptureSetup?,
     availableEvents: List<String>,
@@ -235,8 +272,9 @@ private fun RowScope.SettingsPanel(
     simpleperfEngine: SimpleperfEngine,
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit,
     onOpenUserGuide: (() -> Unit)?,
+    modifier: Modifier = Modifier,
 ) {
-    Column(Modifier.weight(1f).fillMaxHeight().padding(22.dp)) {
+    Column(modifier.fillMaxHeight().padding(22.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(section.title(), color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
