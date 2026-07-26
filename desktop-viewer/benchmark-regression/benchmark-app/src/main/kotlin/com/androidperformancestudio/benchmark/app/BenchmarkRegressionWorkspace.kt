@@ -2,24 +2,17 @@
 
 package com.androidperformancestudio.benchmark.app
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.benchmark.analysis.RegressionAnalyzer
 import com.androidperformancestudio.benchmark.export.BenchmarkReportExporter
@@ -28,7 +21,10 @@ import com.androidperformancestudio.benchmark.parser.BenchmarkJsonParser
 import com.androidperformancestudio.benchmark.presentation.BenchmarkRegressionScreen
 import com.androidperformancestudio.benchmark.presentation.BenchmarkRegressionState
 import com.androidperformancestudio.benchmark.storage.SqliteBenchmarkStore
+import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerHomeButton
+import com.androidperformancestudio.ui.ProfilerMacOsToolbar
+import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import java.io.File
 import java.nio.file.Path
 import javax.swing.JFileChooser
@@ -57,19 +53,40 @@ public fun FrameWindowScope.BenchmarkRegressionWorkspace(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        ProfilerMacOsToolbar {
             ProfilerHomeButton(
                 contentDescription = if (chinese) "返回主页" else "Back to home",
                 onClick = onBack,
             )
-            OutlinedButton(onClick = { chooseJson(window)?.let { import(it, false) } }) { Text(if (chinese) "导入当前结果" else "Import Current") }
-            OutlinedButton(onClick = { chooseJson(window)?.let { import(it, true) } }) { Text(if (chinese) "导入基线" else "Import Baseline") }
-            OutlinedButton(enabled = state.report != null, onClick = { chooseSave(window, "benchmark-regression.json")?.let { exporter.writeJson(requireNotNull(state.report), it.toPath()) } }) { Text(if (chinese) "导出报告" else "Export Report") }
-            OutlinedButton(enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true, onClick = { state.current?.cases?.flatMap { it.traceArtifacts }?.firstOrNull()?.let(onOpenTrace) }) { Text(if (chinese) "在 Perfetto 打开 Trace" else "Open Trace in Perfetto") }
+            ProfilerCompactButton(
+                text = if (chinese) "导入当前结果" else "Import Current",
+                onClick = { chooseJson(window)?.let { import(it, false) } },
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "导入基线" else "Import Baseline",
+                onClick = { chooseJson(window)?.let { import(it, true) } },
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "导出报告" else "Export Report",
+                enabled = state.report != null,
+                onClick = {
+                    chooseSave(window, "benchmark-regression.json")
+                        ?.let { exporter.writeJson(requireNotNull(state.report), it.toPath()) }
+                },
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "在 Perfetto 打开 Trace" else "Open Trace in Perfetto",
+                enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
+                onClick = {
+                    state.current
+                        ?.cases
+                        ?.flatMap { it.traceArtifacts }
+                        ?.firstOrNull()
+                        ?.let(onOpenTrace)
+                },
+            )
+            Spacer(Modifier.weight(1f))
+            ProfilerToolbarStatus(state.message, state.error)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         BenchmarkRegressionScreen(state, chinese, Modifier.weight(1f))

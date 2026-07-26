@@ -2,24 +2,17 @@
 
 package com.androidperformancestudio.gpu.app
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.gpu.artifact.AgiArtifactIndexer
 import com.androidperformancestudio.gpu.artifact.JsonAgiArtifactStore
@@ -29,7 +22,10 @@ import com.androidperformancestudio.gpu.presentation.GpuIntegrationActions
 import com.androidperformancestudio.gpu.presentation.GpuIntegrationScreen
 import com.androidperformancestudio.gpu.presentation.GpuIntegrationState
 import com.androidperformancestudio.gpu.toolchain.AgiLocator
+import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerHomeButton
+import com.androidperformancestudio.ui.ProfilerMacOsToolbar
+import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import java.awt.Desktop
 import java.io.File
 import java.nio.file.Path
@@ -87,16 +83,13 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        ProfilerMacOsToolbar {
             ProfilerHomeButton(
                 contentDescription = if (chinese) "返回主页" else "Back to home",
                 onClick = onBack,
             )
-            OutlinedButton(
+            ProfilerCompactButton(
+                text = if (chinese) "刷新 AGI" else "Refresh AGI",
                 onClick = {
                     state =
                         state.copy(
@@ -105,10 +98,9 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                             error = null,
                         )
                 },
-            ) {
-                Text(if (chinese) "刷新 AGI" else "Refresh AGI")
-            }
-            OutlinedButton(
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "配置 AGI" else "Configure AGI",
                 onClick = {
                     chooseExecutable(window)?.let { file ->
                         state =
@@ -116,22 +108,20 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                                 capability = locator.locate(file.toPath()),
                                 message = "Configured ${file.name}",
                                 error = null,
-                            )
+                        )
                     }
                 },
-            ) {
-                Text(if (chinese) "配置 AGI" else "Configure AGI")
-            }
-            OutlinedButton(
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "启动 AGI" else "Launch AGI",
                 enabled = state.capability?.launchSupported == true,
                 onClick = {
                     runCatching { locator.launch(requireNotNull(state.capability)) }
                         .onFailure { state = state.copy(error = it.message) }
                 },
-            ) {
-                Text(if (chinese) "启动 AGI" else "Launch AGI")
-            }
-            OutlinedButton(
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "导入产物" else "Import Artifact",
                 onClick = {
                     chooseArtifact(window)?.let { file ->
                         runCatching {
@@ -155,9 +145,9 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                         }
                     }
                 },
-            ) {
-                Text(if (chinese) "导入产物" else "Import Artifact")
-            }
+            )
+            Spacer(Modifier.weight(1f))
+            ProfilerToolbarStatus(state.message, state.error)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         GpuIntegrationScreen(

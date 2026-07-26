@@ -33,9 +33,11 @@ class MemoryProfilerWorkspaceSourceTest {
     }
 
     @Test
-    fun `workspace toolbar matches layout inspector compact heights`() {
-        assertTrue(workspace.contains("MEMORY_WORKSPACE_TOOLBAR_HEIGHT_DP = 29"))
-        assertTrue(workspace.contains("MEMORY_TOOLBAR_BUTTON_HEIGHT_DP = 22"))
-        assertTrue(workspace.contains("LocalMinimumInteractiveComponentSize provides 0.dp"))
+    fun `workspace toolbar uses shared compact chrome`() {
+        assertTrue(workspace.contains("ProfilerMacOsToolbar"))
+        assertTrue(workspace.contains("ProfilerCompactButton"))
+        assertFalse(workspace.contains("import androidx.compose.material3.OutlinedButton"))
+        assertFalse(workspace.contains("import androidx.compose.material3.Button"))
+        assertTrue(workspace.contains("MemoryProfilerScreen("))
     }
 }
