@@ -13,7 +13,9 @@ class AppHomePageLayoutTest {
 
         assertEquals(4, HOME_GRID_COLUMN_COUNT)
         assertTrue(HOME_CARD_HEIGHT_DP < 220)
+        assertEquals(18, HOME_ITEM_TITLE_FONT_SIZE_SP)
         assertTrue(source.contains("entries.chunked(HOME_GRID_COLUMN_COUNT)"))
         assertTrue(source.contains("height(HOME_CARD_HEIGHT_DP.dp)"))
+        assertTrue(source.contains("fontSize = HOME_ITEM_TITLE_FONT_SIZE_SP.sp"))
     }
 }

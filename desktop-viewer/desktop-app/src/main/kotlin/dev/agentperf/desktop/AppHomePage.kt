@@ -24,9 +24,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 internal const val HOME_GRID_COLUMN_COUNT = 4
 internal const val HOME_CARD_HEIGHT_DP = 172
+internal const val HOME_ITEM_TITLE_FONT_SIZE_SP = 18
 
 @Composable
 fun AppHomePage(
@@ -237,6 +239,7 @@ private fun FeatureEntryCard(
                 Text(
                     text = entry.title,
                     style = MaterialTheme.typography.titleSmall,
+                    fontSize = HOME_ITEM_TITLE_FONT_SIZE_SP.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
