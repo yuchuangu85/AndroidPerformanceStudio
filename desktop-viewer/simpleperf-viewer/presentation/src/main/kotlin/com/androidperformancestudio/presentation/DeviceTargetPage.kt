@@ -255,7 +255,74 @@ private fun RowScope.ToolbarContent(
     Spacer(Modifier.width(2.dp))
     ToolbarCaptureActions(state, actions, style, enabled, showGetData)
     CapabilityPopupButton(state.selection, style)
-    MacOsButton("Settings", onOpenSettings, style, enabled = enabled)
+    MacOsSettingsButton(
+        contentDescription = localizedSimpleperfText("Settings"),
+        onClick = onOpenSettings,
+        style = style,
+        enabled = enabled,
+    )
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun MacOsSettingsButton(
+    contentDescription: String,
+    onClick: () -> Unit,
+    style: MacOsDeviceTargetStyle,
+    enabled: Boolean,
+) {
+    val iconColor = style.secondaryText.copy(alpha = if (enabled) 1f else DISABLED_CONTENT_ALPHA)
+    Box(
+        modifier =
+            Modifier
+                .width(26.dp)
+                .height(21.dp)
+                .semantics { this.contentDescription = contentDescription }
+                .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(15.dp)) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val strokeWidth = 1.2.dp.toPx()
+            val innerRadius = 2.2.dp.toPx()
+            val outerRadius = 5.2.dp.toPx()
+            drawCircle(
+                color = iconColor,
+                radius = innerRadius,
+                center = center,
+                style = Stroke(width = strokeWidth),
+            )
+            drawCircle(
+                color = iconColor,
+                radius = outerRadius,
+                center = center,
+                style = Stroke(width = strokeWidth),
+            )
+            repeat(SETTINGS_GEAR_TOOTH_COUNT) { index ->
+                val angle =
+                    Math.toRadians(
+                        (index * SETTINGS_GEAR_TOOTH_ANGLE_DEGREES) + SETTINGS_GEAR_START_ANGLE_DEGREES,
+                    )
+                val start =
+                    Offset(
+                        x = center.x + kotlin.math.cos(angle).toFloat() * outerRadius,
+                        y = center.y + kotlin.math.sin(angle).toFloat() * outerRadius,
+                    )
+                val endRadius = outerRadius + 2.dp.toPx()
+                val end =
+                    Offset(
+                        x = center.x + kotlin.math.cos(angle).toFloat() * endRadius,
+                        y = center.y + kotlin.math.sin(angle).toFloat() * endRadius,
+                    )
+                drawLine(
+                    color = iconColor,
+                    start = start,
+                    end = end,
+                    strokeWidth = strokeWidth,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -824,6 +891,9 @@ private const val MAX_VISIBLE_EVENTS = 8
 private const val STATUS_FILL_ALPHA = 0.16f
 private const val DISABLED_CONTAINER_ALPHA = 0.55f
 private const val DISABLED_CONTENT_ALPHA = 0.48f
+private const val SETTINGS_GEAR_TOOTH_COUNT = 8
+private const val SETTINGS_GEAR_TOOTH_ANGLE_DEGREES = 45.0
+private const val SETTINGS_GEAR_START_ANGLE_DEGREES = -90.0
 private const val DROPDOWN_GLYPH = "⌄"
 private const val DEVICE_SELECTOR_WEIGHT = 0.77f
 private const val APP_SELECTOR_WEIGHT = 1.1f

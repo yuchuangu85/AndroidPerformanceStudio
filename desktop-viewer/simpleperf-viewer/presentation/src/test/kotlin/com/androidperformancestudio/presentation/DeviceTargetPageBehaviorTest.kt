@@ -68,7 +68,8 @@ class DeviceTargetPageBehaviorTest {
                 )
             }
 
-            onNodeWithText("Settings").performClick()
+            onNodeWithText("Settings").assertDoesNotExist()
+            onNodeWithContentDescription("Settings").performClick()
             onNodeWithContentDescription("Capture settings: Flame graph").performClick()
             onNodeWithText("Follow mouse").performClick()
             assertEquals(FlameTooltipMode.FOLLOW_MOUSE, tooltipMode)
@@ -119,13 +120,14 @@ class DeviceTargetPageBehaviorTest {
             val refresh = onNodeWithText("Refresh").fetchSemanticsNode().boundsInRoot
             val getData = onNodeWithText("Get data").fetchSemanticsNode().boundsInRoot
             val capabilities = onNodeWithText("Capabilities").fetchSemanticsNode().boundsInRoot
-            val settings = onNodeWithText("Settings").fetchSemanticsNode().boundsInRoot
+            val settings = onNodeWithContentDescription("Settings").fetchSemanticsNode().boundsInRoot
             assertTrue(deviceSelector.left < TOOLBAR_LEFT_ALIGNMENT_LIMIT)
             assertTrue(deviceSelector.width < appSelector.width)
             assertTrue(getData.left > refresh.right)
             assertTrue(capabilities.left > getData.right)
             assertTrue(settings.left > capabilities.right)
-            onNodeWithText("Settings").performClick()
+            onNodeWithText("Settings").assertDoesNotExist()
+            onNodeWithContentDescription("Settings").performClick()
             onNodeWithContentDescription("Capture settings: Sampling template").assertExists()
 
             assertEquals(listOf("emulator-5554"), selectedDevices)
@@ -210,7 +212,7 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithText("Get data").performClick()
             onNodeWithText("Device capability").assertDoesNotExist()
             onNodeWithText("Capture Configuration").assertDoesNotExist()
-            onNodeWithText("Settings").performClick()
+            onNodeWithContentDescription("Settings").performClick()
             onNodeWithContentDescription("Capture settings: Sampling template").assertExists()
             onNodeWithContentDescription("Capture settings: Capture configuration").performClick()
             onNodeWithText("Event and rate").assertExists()
