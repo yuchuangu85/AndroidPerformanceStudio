@@ -10,18 +10,13 @@
 
 package com.androidperformancestudio.battery.app
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -35,14 +30,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
 import com.androidperformancestudio.battery.presentation.BatteryProfilerScreen
+import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.ProfilerCompactSelector
 import com.androidperformancestudio.ui.ProfilerHomeButton
+import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
+import com.androidperformancestudio.ui.ProfilerMacOsToolbar
+import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -72,133 +70,174 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                ProfilerHomeButton(
-                    contentDescription = if (chinese) "返回主页" else "Back to home",
-                    onClick = {
-                        experimentJob?.cancel()
-                        onBack()
-                    },
-                )
-                Selector(
-                    if (chinese) "设备" else "Device",
-                    state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
+        ProfilerMacOsToolbar {
+            ProfilerHomeButton(
+                contentDescription = if (chinese) "返回主页" else "Back to home",
+                onClick = {
+                    experimentJob?.cancel()
+                    onBack()
+                },
+            )
+            ProfilerCompactSelector(
+                label = if (chinese) "设备" else "Device",
+                selectedLabel = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
+                options =
                     state.devices.filter { it.online }.map {
                         it.serial to
                             it.name
                     },
-                    !state.isRunning,
-                ) { serial -> scope.launch { controller.selectDevice(serial) } }
-                Selector(
-                    if (chinese) "应用 / UID" else "App / UID",
+                enabled = !state.isRunning,
+                onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
+            )
+            ProfilerCompactSelector(
+                label = if (chinese) "应用 / UID" else "App / UID",
+                selectedLabel =
                     state.targets
                         .firstOrNull {
                             it.packageName == state.selectedPackageName
                         }?.let { "${it.packageName} · ${it.uid}${if (it.sharedUid) " · shared" else ""}" },
-                    state.targets.map { it.packageName to "${it.packageName} · UID ${it.uid}${if (it.sharedUid) " · shared" else ""}" },
-                    !state.isRunning && state.selectedDeviceSerial != null,
-                    controller::selectTarget,
-                )
-                OutlinedButton(enabled = !state.isRunning && !state.isRefreshing, onClick = {
-                    scope.launch { controller.refreshDevices() }
-                }) { Text(if (chinese) "刷新" else "Refresh") }
-                Button(
-                    enabled = state.selectedPackageName != null,
-                    onClick = {
-                        when {
-                            state.isInteractiveActive -> experimentJob = scope.launch { controller.stopInteractive() }
-                            state.isRunning -> experimentJob?.cancel()
-                            state.config.mode == BatteryCaptureMode.INTERACTIVE || state.config.mode == BatteryCaptureMode.ONLINE ->
-                                experimentJob =
-                                    scope.launch { controller.startInteractive() }
-                            else -> experimentJob = scope.launch { controller.runAutomatic() }
-                        }
+                options =
+                    state.targets.map {
+                        it.packageName to "${it.packageName} · UID ${it.uid}${if (it.sharedUid) " · shared" else ""}"
                     },
-                ) {
-                    Text(
-                        when {
-                            state.isInteractiveActive -> if (chinese) "停止并分析" else "Stop & Analyze"
-                            state.isRunning -> if (chinese) "取消实验" else "Cancel Experiment"
-                            else -> if (chinese) "开始实验" else "Run Experiment"
-                        },
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Selector(
-                    if (chinese) "采集模式" else "Capture Mode",
-                    state.config.mode.label(chinese),
+                enabled = !state.isRunning && state.selectedDeviceSerial != null,
+                onSelected = controller::selectTarget,
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "刷新" else "Refresh",
+                enabled = !state.isRunning && !state.isRefreshing,
+                onClick = { scope.launch { controller.refreshDevices() } },
+            )
+            ProfilerCompactButton(
+                text =
+                    when {
+                        state.isInteractiveActive -> if (chinese) "停止并分析" else "Stop & Analyze"
+                        state.isRunning -> if (chinese) "取消实验" else "Cancel Experiment"
+                        else -> if (chinese) "开始实验" else "Run Experiment"
+                    },
+                enabled = state.selectedPackageName != null,
+                onClick = {
+                    when {
+                        state.isInteractiveActive -> experimentJob = scope.launch { controller.stopInteractive() }
+                        state.isRunning -> experimentJob?.cancel()
+                        state.config.mode == BatteryCaptureMode.INTERACTIVE || state.config.mode == BatteryCaptureMode.ONLINE ->
+                            experimentJob =
+                                scope.launch { controller.startInteractive() }
+                        else -> experimentJob = scope.launch { controller.runAutomatic() }
+                    }
+                },
+            )
+        }
+        ProfilerMacOsSecondaryToolbar {
+            ProfilerCompactSelector(
+                label = if (chinese) "采集模式" else "Capture Mode",
+                selectedLabel = state.config.mode.label(chinese),
+                options =
                     BatteryCaptureMode.entries.map {
                         it.name to
                             it.label(chinese)
                     },
-                    !state.isRunning,
-                ) { value -> controller.updateConfig { it.copy(mode = BatteryCaptureMode.valueOf(value)) } }
-                Selector(
-                    if (chinese) "时长" else "Duration",
-                    "${state.config.durationSeconds}s",
+                enabled = !state.isRunning,
+                onSelected = { value ->
+                    controller.updateConfig { it.copy(mode = BatteryCaptureMode.valueOf(value)) }
+                },
+            )
+            ProfilerCompactSelector(
+                label = if (chinese) "时长" else "Duration",
+                selectedLabel = "${state.config.durationSeconds}s",
+                options =
                     listOf(15, 30, 60, 120, 300, 600).map {
                         it.toString() to
                             "${it}s"
                     },
-                    !state.isRunning,
-                ) { value -> controller.updateConfig { it.copy(durationSeconds = value.toInt()) } }
-                Selector(
-                    if (chinese) "轮询" else "Polling",
-                    "${state.config.pollingIntervalSeconds}s",
+                enabled = !state.isRunning,
+                onSelected = { value -> controller.updateConfig { it.copy(durationSeconds = value.toInt()) } },
+            )
+            ProfilerCompactSelector(
+                label = if (chinese) "轮询" else "Polling",
+                selectedLabel = "${state.config.pollingIntervalSeconds}s",
+                options =
                     listOf(5, 10, 15, 30, 60).map {
                         it.toString() to
                             "${it}s"
                     },
-                    !state.isRunning,
-                ) { value -> controller.updateConfig { it.copy(pollingIntervalSeconds = value.toInt()) } }
-                Selector(
-                    if (chinese) "轮次" else "Runs",
-                    state.config.measuredRuns.toString(),
+                enabled = !state.isRunning,
+                onSelected = { value ->
+                    controller.updateConfig { it.copy(pollingIntervalSeconds = value.toInt()) }
+                },
+            )
+            ProfilerCompactSelector(
+                label = if (chinese) "轮次" else "Runs",
+                selectedLabel = state.config.measuredRuns.toString(),
+                options =
                     listOf(1, 3, 5, 10).map {
                         it.toString() to
                             it.toString()
                     },
-                    !state.isRunning,
-                ) { value -> controller.updateConfig { it.copy(measuredRuns = value.toInt()) } }
-                Checkbox(checked = state.config.launchApp, enabled = !state.isRunning, onCheckedChange = { checked ->
+                enabled = !state.isRunning,
+                onSelected = { value -> controller.updateConfig { it.copy(measuredRuns = value.toInt()) } },
+            )
+            Checkbox(
+                checked = state.config.launchApp,
+                enabled = !state.isRunning,
+                onCheckedChange = { checked ->
                     controller.updateConfig { it.copy(launchApp = checked) }
-                })
-                Text(if (chinese) "自动启动 Launcher Activity" else "Launch app automatically")
-                state.operationMessage?.let { Text(it, modifier = Modifier.padding(start = 8.dp)) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(enabled = state.analysis != null && !state.isRunning, onClick = {
+                },
+            )
+            Text(if (chinese) "自动启动 Launcher Activity" else "Launch app automatically")
+        }
+        ProfilerMacOsSecondaryToolbar {
+            ProfilerCompactButton(
+                text = if (chinese) "导出 JSON" else "Export JSON",
+                enabled = state.analysis != null && !state.isRunning,
+                onClick = {
                     chooseSaveFile(window, "battery-analysis.json")?.let { file ->
                         scope.launch { controller.exportJson(file.toPath()) }
                     }
-                }) { Text(if (chinese) "导出 JSON" else "Export JSON") }
-                OutlinedButton(enabled = state.analysis != null && !state.isRunning, onClick = {
+                },
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "导出 CSV" else "Export CSV",
+                enabled = state.analysis != null && !state.isRunning,
+                onClick = {
                     chooseSaveFile(window, "battery-analysis.csv")?.let { file ->
                         scope.launch { controller.exportCsv(file.toPath()) }
                     }
-                }) { Text(if (chinese) "导出 CSV" else "Export CSV") }
-                OutlinedButton(enabled = state.analysis != null && !state.isRunning, onClick = {
+                },
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "导出原始证据" else "Export Raw Bundle",
+                enabled = state.analysis != null && !state.isRunning,
+                onClick = {
                     chooseSaveFile(window, "battery-raw-evidence.zip")?.let { file ->
                         scope.launch { controller.exportRawBundle(file.toPath()) }
                     }
-                }) { Text(if (chinese) "导出原始证据" else "Export Raw Bundle") }
-                OutlinedButton(enabled = state.selectedDeviceSerial != null && !state.isRunning, onClick = {
+                },
+            )
+            ProfilerCompactButton(
+                text = "Battery Historian",
+                enabled = state.selectedDeviceSerial != null && !state.isRunning,
+                onClick = {
                     confirmBugreport = true
-                }) { Text("Battery Historian") }
-                OutlinedButton(enabled = state.selectedDeviceSerial != null && !state.isRunning, onClick = {
+                },
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "高级：重置统计" else "Advanced: Reset Stats",
+                enabled = state.selectedDeviceSerial != null && !state.isRunning,
+                onClick = {
                     confirmReset = true
-                }) { Text(if (chinese) "高级：重置统计" else "Advanced: Reset Stats") }
-            }
-            if (state.isRunning &&
-                state.totalSteps > 0
-            ) {
-                LinearProgressIndicator(
-                    progress = { state.completedSteps.toFloat() / state.totalSteps.toFloat() },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+                },
+            )
+            Spacer(Modifier.weight(1f))
+            ProfilerToolbarStatus(state.operationMessage, state.errorMessage)
+        }
+        if (state.isRunning &&
+            state.totalSteps > 0
+        ) {
+            LinearProgressIndicator(
+                progress = { state.completedSteps.toFloat() / state.totalSteps.toFloat() },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         BatteryProfilerScreen(state, BatteryProfilerActions(controller::selectRun), chinese, Modifier.weight(1f))
@@ -241,35 +280,6 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
             },
             dismissButton = { OutlinedButton(onClick = { confirmBugreport = false }) { Text(if (chinese) "取消" else "Cancel") } },
         )
-    }
-}
-
-@Composable
-private fun Selector(
-    label: String,
-    selectedLabel: String?,
-    options: List<Pair<String, String>>,
-    enabled: Boolean,
-    onSelected: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    androidx.compose.foundation.layout.Box {
-        OutlinedButton(enabled = enabled && options.isNotEmpty(), onClick = {
-            expanded = true
-        }, modifier = Modifier.widthIn(min = 110.dp, max = 280.dp)) {
-            Text(
-                selectedLabel ?: label,
-                maxLines = 1,
-            )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (value, optionLabel) ->
-                DropdownMenuItem(text = { Text(optionLabel) }, onClick = {
-                    expanded = false
-                    onSelected(value)
-                })
-            }
-        }
     }
 }
 
