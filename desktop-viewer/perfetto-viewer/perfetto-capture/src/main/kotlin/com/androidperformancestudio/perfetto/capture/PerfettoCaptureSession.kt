@@ -29,7 +29,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 private const val DEVICE_CONFIG_PATH = "/data/local/tmp/perfetto-config.pbtxt"
-private const val DEVICE_TRACE_PATH = "/data/local/tmp/aps-perfetto-trace.pftrace"
+private const val DEVICE_TRACE_PATH = "/data/misc/perfetto-traces/aps-perfetto-trace.pftrace"
 private const val MILLISECONDS_PER_SECOND = 1_000L
 private val CUSTOM_DURATION_PATTERN = Regex("(?m)^\\s*duration_ms\\s*:\\s*(\\d+)\\s*$")
 
