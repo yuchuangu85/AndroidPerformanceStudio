@@ -2,6 +2,7 @@ package dev.agentperf.desktop
 
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -53,8 +54,16 @@ class UnifiedSettingsMigrationTest {
             "SIMPLEPERF_ENGINE",
             "USER_GUIDE",
         ).forEach { section -> assertTrue(settings.contains(section), "Missing Simpleperf section: $section") }
-        assertTrue(settings.contains("fun SimpleperfSettingsContent("))
-        assertTrue(dialog.contains("SimpleperfSettingsContent("))
+        assertTrue(settings.contains("fun SimpleperfSettingsSectionContent("))
+        assertTrue(dialog.contains("SimpleperfSettingsSectionContent("))
+        assertTrue(dialog.contains("simpleperfExpanded"))
+        assertTrue(dialog.contains("CaptureSettingsSection.entries.forEach"))
+        assertTrue(dialog.contains("onSimpleperfSectionSelected"))
+        assertTrue(dialog.contains("width(UNIFIED_SETTINGS_SIDEBAR_WIDTH_DP.dp)"))
+        assertTrue(dialog.contains("UNIFIED_SETTINGS_SIDEBAR_WIDTH_DP = 220"))
+        assertFalse(
+            dialog.contains("import com.androidperformancestudio.presentation.SimpleperfSettingsContent"),
+        )
         assertTrue(dialog.contains("context?.onSelectTemplate"))
         assertTrue(dialog.contains("context?.onUpdateSamplingParameters"))
         assertTrue(workspace.contains("onCaptureSettingsContextChanged"))

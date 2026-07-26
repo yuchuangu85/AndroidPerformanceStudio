@@ -34,7 +34,7 @@ import androidx.compose.ui.window.rememberDialogState
 import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.presentation.CaptureSettingsSection
-import com.androidperformancestudio.presentation.SimpleperfSettingsContent
+import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
 
 public enum class SettingsPage {
     GENERAL,
@@ -59,6 +59,17 @@ internal fun UnifiedSettingsDialog(
     persistenceErrorPage: SettingsPage?,
     onDismiss: () -> Unit,
 ) {
+    var simpleperfExpanded by remember {
+        mutableStateOf(selectedPage == SettingsPage.SIMPLEPERF)
+    }
+    var activeSimpleperfSection by remember(simpleperfInitialSection) {
+        mutableStateOf(simpleperfInitialSection)
+    }
+    LaunchedEffect(selectedPage) {
+        if (selectedPage == SettingsPage.SIMPLEPERF) {
+            simpleperfExpanded = true
+        }
+    }
     DialogWindow(
         onCloseRequest = onDismiss,
         title = if (chinese) "设置" else "Settings",
@@ -82,7 +93,19 @@ internal fun UnifiedSettingsDialog(
                 SettingsHeader(chinese, onDismiss)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 Row(Modifier.weight(1f)) {
-                    SettingsSidebar(selectedPage, chinese, onPageSelected)
+                    SettingsSidebar(
+                        selectedPage = selectedPage,
+                        selectedSimpleperfSection = activeSimpleperfSection,
+                        simpleperfExpanded = simpleperfExpanded,
+                        chinese = chinese,
+                        onPageSelected = onPageSelected,
+                        onSimpleperfExpandedChange = { simpleperfExpanded = it },
+                        onSimpleperfSectionSelected = { section ->
+                            activeSimpleperfSection = section
+                            simpleperfExpanded = true
+                            onPageSelected(SettingsPage.SIMPLEPERF)
+                        },
+                    )
                     VerticalDivider(color = MaterialTheme.colorScheme.outline)
                     Box(
                         modifier =
@@ -121,7 +144,7 @@ internal fun UnifiedSettingsDialog(
                                     CompleteSimpleperfSettingsContent(
                                         settings = simpleperfSettings,
                                         context = simpleperfCaptureSettingsContext,
-                                        initialSection = simpleperfInitialSection,
+                                        section = activeSimpleperfSection,
                                         darkTheme = darkTheme,
                                         chinese = chinese,
                                         onSettingsChanged = onSimpleperfSettingsChanged,
@@ -156,30 +179,102 @@ private fun SettingsHeader(chinese: Boolean, onDismiss: () -> Unit) {
 @Composable
 private fun SettingsSidebar(
     selectedPage: SettingsPage,
+    selectedSimpleperfSection: CaptureSettingsSection,
+    simpleperfExpanded: Boolean,
     chinese: Boolean,
     onPageSelected: (SettingsPage) -> Unit,
+    onSimpleperfExpandedChange: (Boolean) -> Unit,
+    onSimpleperfSectionSelected: (CaptureSettingsSection) -> Unit,
 ) {
     Column(
-        modifier = Modifier.width(160.dp).fillMaxHeight().padding(vertical = 8.dp),
+        modifier =
+            Modifier
+                .width(UNIFIED_SETTINGS_SIDEBAR_WIDTH_DP.dp)
+                .fillMaxHeight()
+                .padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        SettingsPage.entries.forEach { page ->
-            val selected = page == selectedPage
+        listOf(SettingsPage.GENERAL, SettingsPage.LAYOUT_INSPECTOR).forEach { page ->
+            SettingsSidebarRow(
+                label = page.label(chinese),
+                selected = page == selectedPage,
+                onClick = { onPageSelected(page) },
+            )
+        }
+        SettingsSidebarRow(
+            label = SettingsPage.SIMPLEPERF.label(chinese),
+            selected = selectedPage == SettingsPage.SIMPLEPERF && !simpleperfExpanded,
+            leadingText = if (simpleperfExpanded) "⌄" else "›",
+            fontWeight = FontWeight.Medium,
+            onClick = {
+                if (selectedPage == SettingsPage.SIMPLEPERF) {
+                    onSimpleperfExpandedChange(!simpleperfExpanded)
+                } else {
+                    onPageSelected(SettingsPage.SIMPLEPERF)
+                    onSimpleperfExpandedChange(true)
+                }
+            },
+        )
+        if (simpleperfExpanded) {
+            CaptureSettingsSection.entries.forEach { section ->
+                SettingsSidebarRow(
+                    label = section.settingsLabel(chinese),
+                    selected =
+                        selectedPage == SettingsPage.SIMPLEPERF &&
+                            section == selectedSimpleperfSection,
+                    nested = true,
+                    onClick = { onSimpleperfSectionSelected(section) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSidebarRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    nested: Boolean = false,
+    leadingText: String? = null,
+    fontWeight: FontWeight = FontWeight.Normal,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                    MaterialTheme.shapes.small,
+                )
+                .clickable(onClick = onClick)
+                .padding(
+                    start = if (nested) 32.dp else 12.dp,
+                    end = 12.dp,
+                    top = 7.dp,
+                    bottom = 7.dp,
+                ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        leadingText?.let {
             Text(
-                text = page.label(chinese),
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                            MaterialTheme.shapes.small,
-                        )
-                        .clickable { onPageSelected(page) }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                text = it,
+                color =
+                    if (selected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+        Text(
+            text = label,
+            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (selected) FontWeight.SemiBold else fontWeight,
+        )
     }
 }
 
@@ -216,7 +311,7 @@ private fun GeneralSettingsContent(
 private fun CompleteSimpleperfSettingsContent(
     settings: SimpleperfUiSettings,
     context: SimpleperfCaptureSettingsContext?,
-    initialSection: CaptureSettingsSection,
+    section: CaptureSettingsSection,
     darkTheme: Boolean,
     chinese: Boolean,
     onSettingsChanged: (SimpleperfUiSettings) -> Unit,
@@ -236,7 +331,8 @@ private fun CompleteSimpleperfSettingsContent(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        SimpleperfSettingsContent(
+        SimpleperfSettingsSectionContent(
+            section = section,
             setup = context?.setup,
             availableEvents = context?.availableEvents.orEmpty(),
             enabled = context?.enabled == true,
@@ -252,7 +348,6 @@ private fun CompleteSimpleperfSettingsContent(
             onSelectTemplate = context?.onSelectTemplate ?: {},
             onUpdate = context?.onUpdateSamplingParameters ?: {},
             onOpenUserGuide = onOpenUserGuide,
-            initialSection = initialSection,
             modifier = Modifier.fillMaxSize(),
         )
     }
@@ -292,5 +387,16 @@ private fun SettingsPage.label(chinese: Boolean): String =
         SettingsPage.SIMPLEPERF -> "Simpleperf"
     }
 
+private fun CaptureSettingsSection.settingsLabel(chinese: Boolean): String =
+    when (this) {
+        CaptureSettingsSection.SAMPLING_TEMPLATE -> if (chinese) "采样模板" else "Sampling template"
+        CaptureSettingsSection.CAPTURE_CONFIGURATION -> if (chinese) "采集配置" else "Capture configuration"
+        CaptureSettingsSection.ADVANCED_PARAMETERS -> if (chinese) "高级参数" else "Advanced parameters"
+        CaptureSettingsSection.FLAME_GRAPH -> if (chinese) "火焰图" else "Flame graph"
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> if (chinese) "分析引擎" else "Simpleperf engine"
+        CaptureSettingsSection.USER_GUIDE -> if (chinese) "用户指南" else "User guide"
+    }
+
 internal const val UNIFIED_SETTINGS_WIDTH_DP = 1100
 internal const val UNIFIED_SETTINGS_HEIGHT_DP = 760
+internal const val UNIFIED_SETTINGS_SIDEBAR_WIDTH_DP = 220
