@@ -30,4 +30,18 @@ class ProfilerMacOsControlsSourceTest {
         assertTrue(source.contains("fun ProfilerCompactTextField("))
         assertTrue(source.contains("fun ProfilerToolbarStatus("))
     }
+
+    @Test
+    fun `selector gates an expanded menu and callbacks on current availability`() {
+        val selector =
+            source
+                .substringAfter("public fun ProfilerCompactSelector(")
+                .substringBefore("/** Compact single-line input")
+
+        assertTrue(selector.contains("val available = enabled && options.isNotEmpty()"))
+        assertTrue(selector.contains("LaunchedEffect(available)"))
+        assertTrue(selector.contains("expanded = expanded && available"))
+        assertTrue(selector.contains("enabled = available"))
+        assertTrue(selector.contains("if (available) {\n                            onSelected(value)\n"))
+    }
 }

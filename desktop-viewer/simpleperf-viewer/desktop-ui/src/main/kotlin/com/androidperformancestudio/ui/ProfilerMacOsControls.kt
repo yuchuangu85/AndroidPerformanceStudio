@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -139,15 +140,19 @@ public fun ProfilerCompactSelector(
     onSelected: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val available = enabled && options.isNotEmpty()
+    LaunchedEffect(available) {
+        if (!available) expanded = false
+    }
     Box(modifier = modifier.widthIn(min = 110.dp, max = 280.dp)) {
         ProfilerCompactButton(
             text = selectedLabel ?: label,
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
-            enabled = enabled && options.isNotEmpty(),
+            enabled = available,
         )
         DropdownMenu(
-            expanded = expanded,
+            expanded = expanded && available,
             onDismissRequest = { expanded = false },
         ) {
             options.forEach { (value, optionLabel) ->
@@ -162,8 +167,11 @@ public fun ProfilerCompactSelector(
                     },
                     onClick = {
                         expanded = false
-                        onSelected(value)
+                        if (available) {
+                            onSelected(value)
+                        }
                     },
+                    enabled = available,
                 )
             }
         }
