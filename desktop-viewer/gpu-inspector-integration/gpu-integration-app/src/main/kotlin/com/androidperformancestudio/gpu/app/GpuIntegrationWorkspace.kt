@@ -108,7 +108,7 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                                 capability = locator.locate(file.toPath()),
                                 message = "Configured ${file.name}",
                                 error = null,
-                        )
+                            )
                     }
                 },
             )
