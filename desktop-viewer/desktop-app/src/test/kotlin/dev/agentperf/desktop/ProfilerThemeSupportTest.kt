@@ -31,21 +31,10 @@ class ProfilerThemeSupportTest {
     fun `profiler workspaces retain the compact inspector toolbar boundary`() {
         profilerWorkspaceSources().forEach { source ->
             val content = Files.readString(source)
-            if (source.fileName.toString() == "MemoryProfilerWorkspace.kt") {
-                assertTrue(
-                    content.contains("MEMORY_WORKSPACE_TOOLBAR_HEIGHT_DP = 29"),
-                    "$source must align its toolbar height with Layout Inspector",
-                )
-                assertTrue(
-                    content.contains("MEMORY_TOOLBAR_BUTTON_HEIGHT_DP = 22"),
-                    "$source must align its button height with Layout Inspector",
-                )
-            } else {
-                assertTrue(
-                    content.contains("padding(horizontal = 8.dp, vertical = 4.dp)"),
-                    "$source must use compact desktop toolbar spacing",
-                )
-            }
+            assertTrue(
+                content.contains("ProfilerMacOsToolbar {"),
+                "$source must use the shared 32dp profiler toolbar",
+            )
             assertTrue(
                 content.contains("HorizontalDivider(color = MaterialTheme.colorScheme.outline)"),
                 "$source must separate the toolbar from its inspector panes",
