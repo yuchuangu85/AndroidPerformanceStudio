@@ -2,20 +2,11 @@
 
 package com.androidperformancestudio.frame.app
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -24,14 +15,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.AwtWindow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
+import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.ProfilerCompactSelector
 import com.androidperformancestudio.ui.ProfilerHomeButton
+import com.androidperformancestudio.ui.ProfilerMacOsToolbar
+import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.awt.FileDialog
@@ -59,11 +52,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        ProfilerMacOsToolbar {
             ProfilerHomeButton(
                 contentDescription = if (chinese) "返回主页" else "Back to home",
                 onClick = {
@@ -77,7 +66,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
                     }
                 },
             )
-            TargetSelector(
+            ProfilerCompactSelector(
                 label = if (chinese) "设备" else "Device",
                 selectedLabel =
                     state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
@@ -85,7 +74,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
                 enabled = !state.isCapturing,
                 onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
             )
-            TargetSelector(
+            ProfilerCompactSelector(
                 label = if (chinese) "进程" else "Process",
                 selectedLabel =
                     state.processes.firstOrNull { it.pid == state.selectedProcessId }?.let { "${it.name} (${it.pid})" },
@@ -93,52 +82,53 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
                 enabled = !state.isCapturing && state.selectedDeviceSerial != null,
                 onSelected = { pid -> pid.toIntOrNull()?.let(controller::selectProcess) },
             )
-            OutlinedButton(
+            ProfilerCompactButton(
+                text = if (chinese) "刷新" else "Refresh",
                 enabled = !state.isCapturing && !state.isRefreshingDevices,
                 onClick = { scope.launch { controller.refreshDevices() } },
-            ) {
-                Text(if (chinese) "刷新" else "Refresh")
-            }
-            Button(
+            )
+            ProfilerCompactButton(
+                text =
+                    if (state.isCapturing) {
+                        if (chinese) "停止采集" else "Stop Capture"
+                    } else {
+                        if (chinese) "开始采集" else "Start Capture"
+                    },
                 enabled = state.selectedProcessId != null,
                 onClick = {
                     scope.launch {
                         if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()
                     }
                 },
-            ) {
-                Text(
-                    if (state.isCapturing) {
-                        if (chinese) "停止采集" else "Stop Capture"
-                    } else {
-                        if (chinese) "开始采集" else "Start Capture"
-                    },
-                )
-            }
-            Button(enabled = !state.isCapturing, onClick = { showImportDialog = true }) {
-                Text(if (chinese) "导入 FrameStats" else "Import FrameStats")
-            }
-            Button(
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "导入 FrameStats" else "Import FrameStats",
+                enabled = !state.isCapturing,
+                onClick = { showImportDialog = true },
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "导出 CSV" else "Export CSV",
                 enabled = state.analysis != null,
                 onClick = {
                     chooseSaveFile(window, "frame-analysis.csv")?.let { output ->
                         scope.launch { controller.exportCsv(output.toPath()) }
                     }
                 },
-            ) {
-                Text(if (chinese) "导出 CSV" else "Export CSV")
-            }
-            Button(
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "导出 JSON" else "Export JSON",
                 enabled = state.analysis != null,
                 onClick = {
                     chooseSaveFile(window, "frame-analysis.json")?.let { output ->
                         scope.launch { controller.exportJson(output.toPath()) }
                     }
                 },
-            ) {
-                Text(if (chinese) "导出 JSON" else "Export JSON")
-            }
-            state.operationMessage?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
+            )
+            Spacer(Modifier.weight(1f))
+            ProfilerToolbarStatus(
+                message = state.operationMessage,
+                error = state.errorMessage,
+            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         FrameProfilerScreen(
@@ -176,37 +166,6 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
                 selected?.let { file -> scope.launch { controller.importFrameStats(file.toPath()) } }
             },
         )
-    }
-}
-
-@Composable
-private fun TargetSelector(
-    label: String,
-    selectedLabel: String?,
-    options: List<Pair<String, String>>,
-    enabled: Boolean,
-    onSelected: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    androidx.compose.foundation.layout.Box {
-        OutlinedButton(
-            enabled = enabled && options.isNotEmpty(),
-            onClick = { expanded = true },
-            modifier = Modifier.widthIn(min = 150.dp, max = 250.dp),
-        ) {
-            Text(selectedLabel ?: label, maxLines = 1)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (value, optionLabel) ->
-                DropdownMenuItem(
-                    text = { Text(optionLabel) },
-                    onClick = {
-                        expanded = false
-                        onSelected(value)
-                    },
-                )
-            }
-        }
     }
 }
 

@@ -2,12 +2,18 @@
 
 package com.androidperformancestudio.network.app
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
@@ -20,8 +26,18 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerActions
 import com.androidperformancestudio.network.presentation.NetworkProfilerScreen
 import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
+import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.ProfilerCompactTextField
 import com.androidperformancestudio.ui.ProfilerHomeButton
-import kotlinx.coroutines.*
+import com.androidperformancestudio.ui.ProfilerMacOsToolbar
+import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Path
 import javax.swing.JFileChooser
@@ -66,11 +82,7 @@ public fun FrameWindowScope.NetworkProfilerWorkspace(chinese: Boolean = false, o
         }
     }
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        ProfilerMacOsToolbar {
             ProfilerHomeButton(
                 contentDescription = if (chinese) "返回主页" else "Back to home",
                 onClick = {
@@ -78,14 +90,91 @@ public fun FrameWindowScope.NetworkProfilerWorkspace(chinese: Boolean = false, o
                     onBack()
                 },
             )
-            OutlinedButton(enabled = !state.capturing, onClick = { chooseHar(window)?.let { file -> runCatching { HarParser().parse(file.toPath()) }.onSuccess { complete(it, "Imported ${file.name}; sensitive headers and query values were redacted.") }.onFailure { state = state.copy(error = it.message) } } }) { Text(if (chinese)"导入 HAR" else "Import HAR") }
-            OutlinedTextField(state.deviceSerial, { state = state.copy(deviceSerial = it) }, label = { Text(if (chinese)"设备序列号" else "Device serial") }, enabled = !state.capturing, singleLine = true, modifier = Modifier.width(180.dp))
-            OutlinedTextField(state.packageName, { state = state.copy(packageName = it) }, label = { Text(if (chinese)"包名" else "Package") }, enabled = !state.capturing, singleLine = true, modifier = Modifier.width(240.dp))
-            Button(enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(), onClick = { if (state.capturing)stop() else start() }) { Text(if (state.capturing)(if (chinese)"停止采集" else "Stop Capture") else (if (chinese)"在线采集" else "Live Capture")) }
-            OutlinedButton(enabled = state.result != null, onClick = { chooseSave(window, "network-session.json")?.let { exporter.writeJson(requireNotNull(state.result), requireNotNull(state.summary), it.toPath()) } }) { Text("JSON") }
-            OutlinedButton(enabled = state.result != null, onClick = { chooseSave(window, "network-session.har")?.let { exporter.writePartialHar(requireNotNull(state.result), it.toPath()) } }) { Text("HAR") }
-            OutlinedButton(enabled = state.result != null, onClick = { chooseSave(window, "network-session.csv")?.let { exporter.writeCsv(requireNotNull(state.result), it.toPath()) } }) { Text("CSV") }
-            OutlinedButton(enabled = state.result != null, onClick = { chooseSave(window, "network-raw-bundle.zip")?.let { exporter.writeRawBundle(requireNotNull(state.result), requireNotNull(state.summary), it.toPath()) } }) { Text(if (chinese)"原始包" else "Raw Bundle") }
+            ProfilerCompactButton(
+                text = if (chinese) "导入 HAR" else "Import HAR",
+                enabled = !state.capturing,
+                onClick = {
+                    chooseHar(window)?.let { file ->
+                        runCatching { HarParser().parse(file.toPath()) }
+                            .onSuccess {
+                                complete(
+                                    it,
+                                    "Imported ${file.name}; sensitive headers and query values were redacted.",
+                                )
+                            }.onFailure { state = state.copy(error = it.message) }
+                    }
+                },
+            )
+            ProfilerCompactTextField(
+                label = if (chinese) "设备序列号" else "Device serial",
+                value = state.deviceSerial,
+                onValueChange = { state = state.copy(deviceSerial = it) },
+                enabled = !state.capturing,
+                modifier = Modifier.width(180.dp),
+            )
+            ProfilerCompactTextField(
+                label = if (chinese) "包名" else "Package",
+                value = state.packageName,
+                onValueChange = { state = state.copy(packageName = it) },
+                enabled = !state.capturing,
+                modifier = Modifier.width(240.dp),
+            )
+            ProfilerCompactButton(
+                text =
+                    if (state.capturing) {
+                        if (chinese) "停止采集" else "Stop Capture"
+                    } else {
+                        if (chinese) "在线采集" else "Live Capture"
+                    },
+                enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(),
+                onClick = { if (state.capturing) stop() else start() },
+            )
+            ProfilerCompactButton(
+                text = "JSON",
+                enabled = state.result != null,
+                onClick = {
+                    chooseSave(window, "network-session.json")?.let {
+                        exporter.writeJson(
+                            requireNotNull(state.result),
+                            requireNotNull(state.summary),
+                            it.toPath(),
+                        )
+                    }
+                },
+            )
+            ProfilerCompactButton(
+                text = "HAR",
+                enabled = state.result != null,
+                onClick = {
+                    chooseSave(window, "network-session.har")?.let {
+                        exporter.writePartialHar(requireNotNull(state.result), it.toPath())
+                    }
+                },
+            )
+            ProfilerCompactButton(
+                text = "CSV",
+                enabled = state.result != null,
+                onClick = {
+                    chooseSave(window, "network-session.csv")?.let {
+                        exporter.writeCsv(requireNotNull(state.result), it.toPath())
+                    }
+                },
+            )
+            ProfilerCompactButton(
+                text = if (chinese) "原始包" else "Raw Bundle",
+                enabled = state.result != null,
+                onClick = {
+                    chooseSave(window, "network-raw-bundle.zip")?.let {
+                        exporter.writeRawBundle(
+                            requireNotNull(state.result),
+                            requireNotNull(state.summary),
+                            it.toPath(),
+                        )
+                    }
+                },
+            )
+            Spacer(Modifier.weight(1f))
+            ProfilerToolbarStatus(state.message, state.error)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, chinese, Modifier.weight(1f))
