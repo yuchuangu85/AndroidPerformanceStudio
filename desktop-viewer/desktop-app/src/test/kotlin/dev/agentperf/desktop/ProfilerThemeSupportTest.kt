@@ -36,7 +36,7 @@ class ProfilerThemeSupportTest {
                 "$source must use the shared 32dp profiler toolbar",
             )
             assertTrue(
-                content.contains("HorizontalDivider(color = MaterialTheme.colorScheme.outline)"),
+                OUTLINE_DIVIDER.containsMatchIn(content),
                 "$source must separate the toolbar from its inspector panes",
             )
         }
@@ -160,5 +160,9 @@ class ProfilerThemeSupportTest {
 
     private companion object {
         val FIXED_HEX_COLOR = Regex("Color\\(0x[0-9A-Fa-f]+")
+        val OUTLINE_DIVIDER =
+            Regex(
+                """HorizontalDivider\(\s*(?:thickness = 1\.dp,\s*)?color = MaterialTheme\.colorScheme\.outline,?\s*\)""",
+            )
     }
 }

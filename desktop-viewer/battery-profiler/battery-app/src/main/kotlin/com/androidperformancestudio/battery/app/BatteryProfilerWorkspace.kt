@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
@@ -128,6 +129,10 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                 },
             )
         }
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        )
         ProfilerMacOsSecondaryToolbar {
             ProfilerCompactSelector(
                 label = if (chinese) "采集模式" else "Capture Mode",
@@ -186,6 +191,10 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
             )
             Text(if (chinese) "自动启动 Launcher Activity" else "Launch app automatically")
         }
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        )
         ProfilerMacOsSecondaryToolbar {
             ProfilerCompactButton(
                 text = if (chinese) "导出 JSON" else "Export JSON",
@@ -231,6 +240,10 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
             Spacer(Modifier.weight(1f))
             ProfilerToolbarStatus(state.operationMessage, state.errorMessage)
         }
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        )
         if (state.isRunning &&
             state.totalSteps > 0
         ) {
@@ -239,7 +252,10 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        )
         BatteryProfilerScreen(state, BatteryProfilerActions(controller::selectRun), chinese, Modifier.weight(1f))
     }
 

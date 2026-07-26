@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.StartupType
@@ -124,6 +125,10 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
                 error = state.errorMessage,
             )
         }
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        )
         ProfilerMacOsSecondaryToolbar {
             ProfilerCompactSelector(
                 label = if (chinese) "启动类型" else "Startup Type",
@@ -161,13 +166,20 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
                 onSelected = { value -> controller.updateTimeout(value.toInt()) },
             )
         }
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        )
         if (state.isRunning && state.totalRuns > 0) {
             LinearProgressIndicator(
                 progress = { state.completedRuns.toFloat() / state.totalRuns.toFloat() },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        )
         StartupProfilerScreen(
             state = state,
             actions = StartupProfilerActions(onSelectRun = controller::selectRun),
