@@ -36,9 +36,14 @@ class BatteryProfilerWorkspaceSourceTest {
                 .findAll(source)
                 .map { it.range.first }
                 .toList()
-        val progress = source.indexOf("if (state.isRunning &&")
+        val progressCondition = source.indexOf("if (state.isRunning &&")
+        val progressBlockRange = source.blockRangeStartingAt(progressCondition)
+        val progressBlock = source.substring(progressBlockRange)
+        val progress = progressBlock.indexOf("LinearProgressIndicator(")
         val screen = source.indexOf("BatteryProfilerScreen(")
         val dividers = outlineDivider.findAll(source).map { it.range.first }.toList()
+        val conditionalDividers = outlineDivider.findAll(progressBlock).map { it.range.first }.toList()
+        val contentBoundary = source.substring(progressBlockRange.last + 1, screen)
 
         assertEquals(2, secondaryToolbars.size)
         assertEquals(4, dividers.size)
@@ -46,10 +51,26 @@ class BatteryProfilerWorkspaceSourceTest {
         assertTrue(dividers[0] < secondaryToolbars[0])
         assertTrue(secondaryToolbars[0] < dividers[1])
         assertTrue(dividers[1] < secondaryToolbars[1])
-        assertTrue(secondaryToolbars[1] < dividers[2])
-        assertTrue(dividers[2] < progress)
-        assertTrue(progress < dividers[3])
+        assertTrue(secondaryToolbars[1] < progressCondition)
+        assertEquals(1, conditionalDividers.size)
+        assertTrue(conditionalDividers.single() < progress)
+        assertEquals(1, outlineDivider.findAll(contentBoundary).count())
         assertTrue(dividers[3] < screen)
+    }
+
+    private fun String.blockRangeStartingAt(startIndex: Int): IntRange {
+        val openingBrace = indexOf('{', startIndex)
+        var depth = 0
+        for (index in openingBrace..lastIndex) {
+            when (this[index]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return startIndex..index
+                }
+            }
+        }
+        error("Unclosed block at $startIndex")
     }
 
     private companion object {

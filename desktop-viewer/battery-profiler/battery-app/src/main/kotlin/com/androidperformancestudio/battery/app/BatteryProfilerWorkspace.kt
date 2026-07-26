@@ -240,13 +240,13 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
             Spacer(Modifier.weight(1f))
             ProfilerToolbarStatus(state.operationMessage, state.errorMessage)
         }
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = MaterialTheme.colorScheme.outline,
-        )
         if (state.isRunning &&
             state.totalSteps > 0
         ) {
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+            )
             LinearProgressIndicator(
                 progress = { state.completedSteps.toFloat() / state.totalSteps.toFloat() },
                 modifier = Modifier.fillMaxWidth(),

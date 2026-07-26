@@ -166,11 +166,11 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
                 onSelected = { value -> controller.updateTimeout(value.toInt()) },
             )
         }
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = MaterialTheme.colorScheme.outline,
-        )
         if (state.isRunning && state.totalRuns > 0) {
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+            )
             LinearProgressIndicator(
                 progress = { state.completedRuns.toFloat() / state.totalRuns.toFloat() },
                 modifier = Modifier.fillMaxWidth(),
