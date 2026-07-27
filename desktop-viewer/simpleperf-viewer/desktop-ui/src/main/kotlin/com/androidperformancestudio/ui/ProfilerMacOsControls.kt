@@ -36,7 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-public const val PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP: Int = 32
+public const val PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP: Int = 40
 public const val PROFILER_SECONDARY_TOOLBAR_HEIGHT_DP: Int = 28
 
 private const val DISABLED_CONTENT_ALPHA: Float = 0.38f

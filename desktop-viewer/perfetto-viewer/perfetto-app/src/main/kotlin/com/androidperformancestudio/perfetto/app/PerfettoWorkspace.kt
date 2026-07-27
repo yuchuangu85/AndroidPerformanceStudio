@@ -349,7 +349,7 @@ private fun PerfettoToolbar(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(29.dp)
+                .height(40.dp)
                 .background(MaterialTheme.colorScheme.surface)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 .padding(horizontal = 5.dp),

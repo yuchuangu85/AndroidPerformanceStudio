@@ -936,7 +936,7 @@ private fun Header(
     val model = InspectorPresenter.present(state, strings)
     val (packageName, separator, connectionLabel) = headerTextSegments(model, strings)
     Row(
-        modifier = Modifier.fillMaxWidth().height(29.dp).background(colors.panel).padding(horizontal = 18.dp),
+        modifier = Modifier.fillMaxWidth().height(40.dp).background(colors.panel).padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onNavigateHome != null) {

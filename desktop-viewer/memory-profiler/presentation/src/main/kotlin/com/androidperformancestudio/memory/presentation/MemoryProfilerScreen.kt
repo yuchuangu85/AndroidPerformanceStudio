@@ -220,7 +220,7 @@ private fun ProcessSelector(
     }
 }
 
-internal const val MEMORY_TOOLBAR_HEIGHT_DP = 29
+internal const val MEMORY_TOOLBAR_HEIGHT_DP = 40
 internal const val MEMORY_TOOLBAR_BUTTON_HEIGHT_DP = 22
 private const val MEMORY_TOOLBAR_BUTTON_RADIUS_DP = 7
 private val MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING = PaddingValues(horizontal = 8.dp)
