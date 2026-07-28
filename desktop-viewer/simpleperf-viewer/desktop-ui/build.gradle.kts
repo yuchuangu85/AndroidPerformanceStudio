@@ -19,4 +19,5 @@ java {
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
+    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
 }

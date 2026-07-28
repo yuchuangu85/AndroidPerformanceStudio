@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileMarkerId
 
@@ -40,6 +41,7 @@ internal fun MarkerChartCanvas(
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    val markerChartDescription = localizedSimpleperfText("Marker chart")
     val byId = remember(snapshot) { snapshot.markers.associateBy { it.id } }
     val visibleLanes =
         remember(snapshot, viewport) {
@@ -60,7 +62,7 @@ internal fun MarkerChartCanvas(
                 heightPixels = it.height
             },
     ) {
-        Canvas(Modifier.fillMaxSize().semantics { contentDescription = "Marker chart" }) {
+        Canvas(Modifier.fillMaxSize().semantics { contentDescription = markerChartDescription }) {
             visibleLanes.forEachIndexed { laneIndex, (_, markers) ->
                 val centerY = laneIndex * MARKER_LANE_HEIGHT_DP.dp.toPx() + MARKER_LANE_HEIGHT_DP.dp.toPx() / 2f
                 drawLine(
@@ -99,6 +101,8 @@ internal fun MarkerChartCanvas(
         }
         visibleLanes.forEachIndexed { laneIndex, (_, markers) ->
             markers.forEach { marker ->
+                val markerDescription =
+                    localizedSimpleperfResource(ViewerRes.sp_dynamic_marker_description, marker.name, marker.schema)
                 val glyph = MarkerPresenter.glyph(marker, viewport, widthPixels.toFloat())
                 val left =
                     when (glyph) {
@@ -118,7 +122,7 @@ internal fun MarkerChartCanvas(
                         .testTag("marker-glyph-${marker.id.value}")
                         .clickable { onSelect(marker.id) }
                         .semantics {
-                            contentDescription = "${marker.name}, ${marker.schema}"
+                            contentDescription = markerDescription
                             selected = marker.id == selectedMarkerId
                         },
                 )

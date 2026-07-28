@@ -2,6 +2,10 @@
 
 package com.androidperformancestudio.benchmark.presentation
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.benchmark.presentation.generated.resources.Res
+import com.androidperformancestudio.benchmark.presentation.generated.resources.*
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,21 +36,21 @@ public data class BenchmarkRegressionState(
 public fun BenchmarkRegressionScreen(state: BenchmarkRegressionState, chinese: Boolean, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SummaryCard(if (chinese) "当前结果" else "Current", state.current?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
-            SummaryCard(if (chinese) "基线" else "Baseline", state.baseline?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
-            SummaryCard(if (chinese) "回归数" else "Regressions", state.report?.regressionCount?.toString() ?: "—", Modifier.weight(1f))
-            SummaryCard(if (chinese) "阈值" else "Threshold", state.thresholdPercent?.let { "$it%" } ?: if (chinese) "未配置" else "Not configured", Modifier.weight(1f))
+            SummaryCard(localizedStringResource(Res.string.current, chinese), state.current?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
+            SummaryCard(localizedStringResource(Res.string.baseline, chinese), state.baseline?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
+            SummaryCard(localizedStringResource(Res.string.regressions, chinese), state.report?.regressionCount?.toString() ?: "—", Modifier.weight(1f))
+            SummaryCard(localizedStringResource(Res.string.threshold, chinese), state.thresholdPercent?.let { "$it%" } ?: localizedStringResource(Res.string.not_configured, chinese), Modifier.weight(1f))
         }
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text(if (chinese) "指标比较" else "Metric comparisons", style = MaterialTheme.typography.titleLarge)
+        Text(localizedStringResource(Res.string.metric_comparisons, chinese), style = MaterialTheme.typography.titleLarge)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(state.report?.comparisons.orEmpty()) { comparison ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("${comparison.classification} · ${comparison.caseIdentity}", style = MaterialTheme.typography.titleMedium)
-                        Text("${comparison.metricName} (${comparison.unit}) · ${comparison.baselineValue ?: "—"} → ${comparison.currentValue ?: "—"}")
-                        Text("Δ ${comparison.absoluteDelta ?: "—"} · ${comparison.relativeDeltaPercent?.let { "%.2f%%".format(it) } ?: "—"} · ${comparison.confidence}")
+                        Text(localizedStringResource(Res.string.text, chinese, comparison.classification, comparison.caseIdentity), style = MaterialTheme.typography.titleMedium)
+                        Text(localizedStringResource(Res.string.metric_values, chinese, comparison.metricName, comparison.unit, comparison.baselineValue ?: "—", comparison.currentValue ?: "—"))
+                        Text(localizedStringResource(Res.string.metric_delta, chinese, comparison.absoluteDelta ?: "—", comparison.relativeDeltaPercent?.let { "%.2f%%".format(it) } ?: "—", comparison.confidence))
                         comparison.reasons.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }

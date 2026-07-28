@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="analyze_wakelocks_alarms_jobs_network_sensors_and_system_energy_estima">通过前后快照差分分析 Wakelock、Alarm、Job、Network、Sensor 与系统能耗估算。</string>
+    <string name="every_energy_value_exposes_its_source_scope_and_confidence_global">所有能耗值都会显示来源、归因范围和置信度；不会默认重置全局 batterystats。</string>
+    <string name="median_wakelock">Wakelock 中位数</string>
+    <string name="median_wakeup_alarms">唤醒 Alarm 中位数</string>
+    <string name="median_network">网络中位数</string>
+    <string name="modeled_energy">系统能耗估算</string>
+    <string name="capability_attribution_uid">能力：%1$s · 归因：%2$s · UID %3$s</string>
+    <string name="experiment_runs">实验轮次</string>
+    <string name="run">轮次</string>
+    <string name="duration">时长</string>
+    <string name="diagnostics_and_warnings">诊断与警告</string>
+    <string name="network_use_vs_previous_compatible_experiment_difference_only">网络用量与上次兼容实验相比：%1$s（仅表示差异）</string>
+    <string name="run_resource_details">第 %1$s 轮资源明细</string>
+    <string name="energy_evidence">能耗证据</string>
+    <string name="no_attributable_energy_data_was_provided_by_this_device">当前设备未提供可归因能耗数据</string>
+    <string name="history_timeline_events">History 时间线事件：%1$s</string>
+    <string name="no_delta_or_unavailable">无增量或设备未提供</string>
+    <string name="battery_energy_profiler">Battery / Energy Profiler</string>
+    <string name="text">• %1$s</string>
+    <string name="p90_n">p90 %1$s · n=%2$s</string>
+    <string name="network_b_mobile_radio_ms">Network · %1$s B · mobile radio %2$s ms</string>
+    <string name="ms">%1$s · %2$s ms · %3$s× · %4$s</string>
+    <string name="wakelock">Wakelock</string>
+    <string name="alarm">Alarm</string>
+    <string name="network">Network</string>
+    <string name="energy">Energy</string>
+    <string name="s">%1$ss</string>
+    <string name="wakelocks">Wakelocks</string>
+    <string name="alarms">Alarms</string>
+    <string name="jobs">Jobs</string>
+    <string name="sensors">Sensors</string>
+    <string name="energy_evidence_detail">%1$s: %2$s / %3$s µWs · %4$s · %5$s · %6$s</string>
+    <string name="history_event_detail">%1$s ms · %2$s · %3$s · %4$s</string>
+</resources>

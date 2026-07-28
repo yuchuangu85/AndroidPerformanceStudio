@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- String resources for this module.
+         Add <string name="key">value</string> entries here.
+         Qualifier variants (e.g. values-zh/strings.xml) provide locale overrides. -->
+    <string name="android_performance_studio">Android Performance Studio</string>
+    <string name="file">File</string>
+    <string name="open">Open…</string>
+    <string name="settings">Settings…</string>
+    <string name="export">Export</string>
+    <string name="session_package">Session package</string>
+    <string name="json_csv">JSON + CSV</string>
+    <string name="firefox_profiler_json">Firefox Profiler JSON (.json.gz)</string>
+    <string name="raw_protobuf">Raw protobuf</string>
+    <string name="screenshot">Screenshot</string>
+    <string name="simpleperf_report">simpleperf report</string>
+    <string name="report_html_py">report_html.py</string>
+    <string name="external_open">External open</string>
+    <string name="configuration">Configuration</string>
+    <string name="capture_templates">Capture Templates</string>
+    <string name="capture_configuration">Capture Configuration</string>
+    <string name="advanced_parameters">Advanced Parameters</string>
+    <string name="open_recent">Open Recent</string>
+    <string name="no_recent_sessions">No Recent Sessions</string>
+    <string name="clear_menu">Clear Menu</string>
+</resources>

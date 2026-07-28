@@ -18,6 +18,8 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.VisibleFlameLayout
 import com.androidperformancestudio.visualization.VisibleFlameNode
 import kotlin.math.roundToInt
@@ -40,16 +42,17 @@ internal object FlameGraphSemanticsPresenter {
         selectedNodeId: FlameCallNodeId?,
         hoveredNodeId: FlameCallNodeId? = null,
         contextNodeId: FlameCallNodeId? = null,
+        language: SimpleperfLanguage = SimpleperfLanguage.ENGLISH,
     ): List<FlameGraphSemanticNode> {
         val visibleNodes =
             layout.nodes.mapNotNull { node ->
-                node.toSemanticNode(snapshot, selectedNodeId, hoveredNodeId, contextNodeId)
+                node.toSemanticNode(snapshot, selectedNodeId, hoveredNodeId, contextNodeId, language)
             }
         val visibleIds = visibleNodes.mapTo(mutableSetOf()) { it.nodeId }
         val selectedNode =
             selectedNodeId
                 ?.takeUnless(visibleIds::contains)
-                ?.let { selected -> selected.toSemanticNode(snapshot) }
+                ?.let { selected -> selected.toSemanticNode(snapshot, language) }
         return visibleNodes + listOfNotNull(selectedNode)
     }
 
@@ -58,13 +61,15 @@ internal object FlameGraphSemanticsPresenter {
         selectedNodeId: FlameCallNodeId?,
         hoveredNodeId: FlameCallNodeId?,
         contextNodeId: FlameCallNodeId?,
+        language: SimpleperfLanguage,
     ): FlameGraphSemanticNode? {
-        val node = semanticFacts(snapshot, nodeId) ?: return null
+        val node = semanticFacts(snapshot, nodeId, language) ?: return null
+        val chinese = language == SimpleperfLanguage.SIMPLIFIED_CHINESE
         val states =
             listOfNotNull(
-                "selected".takeIf { nodeId == selectedNodeId },
-                "hovered".takeIf { nodeId == hoveredNodeId },
-                "context menu open".takeIf { nodeId == contextNodeId },
+                localizedStringResource(ViewerRes.sp_semantic_selected, chinese).takeIf { nodeId == selectedNodeId },
+                localizedStringResource(ViewerRes.sp_semantic_hovered, chinese).takeIf { nodeId == hoveredNodeId },
+                localizedStringResource(ViewerRes.sp_semantic_context_menu_open, chinese).takeIf { nodeId == contextNodeId },
             )
         val stateDescription =
             listOf(node.stateDescription, states.joinToString())
@@ -82,8 +87,11 @@ internal object FlameGraphSemanticsPresenter {
         )
     }
 
-    private fun FlameCallNodeId.toSemanticNode(snapshot: FlameGraphSnapshot): FlameGraphSemanticNode? {
-        val node = semanticFacts(snapshot, this) ?: return null
+    private fun FlameCallNodeId.toSemanticNode(
+        snapshot: FlameGraphSnapshot,
+        language: SimpleperfLanguage,
+    ): FlameGraphSemanticNode? {
+        val node = semanticFacts(snapshot, this, language) ?: return null
         return FlameGraphSemanticNode(
             nodeId = this,
             contentDescription = node.contentDescription,
@@ -111,8 +119,19 @@ internal fun FlameGraphSemanticsOverlay(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
+    val selectLabel = localizedSimpleperfText("Select")
+    val openDetailsLabel = localizedSimpleperfText("Open details")
+    val openContextMenuLabel = localizedSimpleperfText("Open context menu")
     Box(modifier) {
-        val nodes = FlameGraphSemanticsPresenter.nodes(snapshot, layout, selectedNodeId, hoveredNodeId, contextNodeId)
+        val nodes =
+            FlameGraphSemanticsPresenter.nodes(
+                snapshot,
+                layout,
+                selectedNodeId,
+                hoveredNodeId,
+                contextNodeId,
+                currentSimpleperfLanguage(),
+            )
         nodes.forEach { node ->
             Box(
                 modifier =
@@ -126,17 +145,17 @@ internal fun FlameGraphSemanticsOverlay(
                             contentDescription = node.contentDescription
                             stateDescription = node.stateDescription
                             selected = node.selected
-                            onClick(label = "Select") {
+                            onClick(label = selectLabel) {
                                 onSelect(node.nodeId)
                                 true
                             }
                             customActions =
                                 listOf(
-                                    CustomAccessibilityAction("Open details") {
+                                    CustomAccessibilityAction(openDetailsLabel) {
                                         onOpenDetails(node.nodeId)
                                         true
                                     },
-                                    CustomAccessibilityAction("Open context menu") {
+                                    CustomAccessibilityAction(openContextMenuLabel) {
                                         onOpenContextMenu(node.nodeId, Offset(node.x.toFloat(), node.y.toFloat()))
                                         true
                                     },
@@ -156,6 +175,7 @@ private data class SemanticFacts(
 private fun semanticFacts(
     snapshot: FlameGraphSnapshot,
     nodeId: FlameCallNodeId,
+    language: SimpleperfLanguage,
 ): SemanticFacts? {
     val index = snapshot.callNodes.indexOf(nodeId) ?: return null
     val frame = snapshot.callNodes.frameAt(index) ?: return null
@@ -163,11 +183,28 @@ private fun semanticFacts(
     val inclusiveWeight = snapshot.callNodes.inclusiveWeightAt(index) ?: return null
     val sampleCount = snapshot.callNodes.sampleCountAt(index) ?: 0L
     val percent = percentage(inclusiveWeight, snapshot.totalWeight)
+    val chinese = language == SimpleperfLanguage.SIMPLIFIED_CHINESE
     return SemanticFacts(
-        contentDescription = "${frame.symbolName}, $percent%, $category",
+        contentDescription =
+            localizedStringResource(
+                ViewerRes.sp_semantic_flame_content,
+                chinese,
+                frame.symbolName,
+                percent,
+                category,
+            ),
         stateDescription =
-            "${frame.implementation.label}, inclusive weight $inclusiveWeight, " +
-                "$sampleCount ${if (sampleCount == 1L) "sample" else "samples"}",
+            localizedStringResource(
+                if (sampleCount == 1L) {
+                    ViewerRes.sp_semantic_flame_state_single
+                } else {
+                    ViewerRes.sp_semantic_flame_state_multiple
+                },
+                chinese,
+                frame.implementation.label,
+                inclusiveWeight,
+                sampleCount,
+            ),
     )
 }
 

@@ -4,7 +4,9 @@ plugins {
 }
 
 dependencies {
+    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
     implementation(project(":startup-model"))
     implementation(project(":analysis-startup"))
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
+    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
 }

@@ -1,5 +1,9 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.localizedStringResource
+import dev.agentperf.desktop_app.generated.resources.Res
+import dev.agentperf.desktop_app.generated.resources.*
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -72,7 +76,7 @@ internal fun UnifiedSettingsDialog(
     }
     DialogWindow(
         onCloseRequest = onDismiss,
-        title = if (chinese) "设置" else "Settings",
+        title = localizedStringResource(Res.string.settings, chinese),
         state =
             rememberDialogState(
                 width = UNIFIED_SETTINGS_WIDTH_DP.dp,
@@ -116,12 +120,7 @@ internal fun UnifiedSettingsDialog(
                         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (persistenceErrorPage != null) {
                                 Text(
-                                    if (chinese) {
-                                        "${persistenceErrorPage.label(chinese)}设置未能保存；本次会话中的更改仍然有效。"
-                                    } else {
-                                        "${persistenceErrorPage.label(chinese)} settings could not be saved; " +
-                                            "the current session still uses the change."
-                                    },
+                                    localizedStringResource(Res.string.settings_could_not_be_saved_the_current_session_still_uses, chinese, persistenceErrorPage.label(chinese)),
                                     color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall,
                                 )
@@ -167,12 +166,12 @@ private fun SettingsHeader(chinese: Boolean, onDismiss: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            if (chinese) "设置" else "Settings",
+            localizedStringResource(Res.string.settings, chinese),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
         )
         androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-        OutlinedButton(onClick = onDismiss) { Text(if (chinese) "完成" else "Done") }
+        OutlinedButton(onClick = onDismiss) { Text(localizedStringResource(Res.string.done, chinese)) }
     }
 }
 
@@ -289,16 +288,18 @@ private fun GeneralSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(if (chinese) "通用" else "General", style = MaterialTheme.typography.titleLarge)
+        Text(localizedStringResource(Res.string.general, chinese), style = MaterialTheme.typography.titleLarge)
         SettingsChoice(
-            label = if (chinese) "语言" else "Language",
+            chinese = chinese,
+            label = localizedStringResource(Res.string.language, chinese),
             current = settings.language,
             options = ApplicationLanguagePreference.entries,
             optionLabel = { languagePreferenceLabel(it, chinese) },
             onSelected = { onSettingsChanged(settings.copy(language = it)) },
         )
         SettingsChoice(
-            label = if (chinese) "主题" else "Theme",
+            chinese = chinese,
+            label = localizedStringResource(Res.string.theme, chinese),
             current = settings.theme,
             options = ApplicationThemePreference.entries,
             optionLabel = { themePreferenceLabel(it, chinese) },
@@ -321,12 +322,7 @@ private fun CompleteSimpleperfSettingsContent(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (context == null) {
             Text(
-                if (chinese) {
-                    "采集参数会在打开 CPU Profiler 后连接到当前设备和目标；Flame 图与分析引擎设置仍可立即修改。"
-                } else {
-                    "Capture parameters connect to the current device and target after CPU Profiler is opened; " +
-                        "flame graph and engine preferences remain available."
-                },
+                localizedStringResource(Res.string.capture_parameters_connect_to_the_current_device_and_target_after, chinese),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -355,6 +351,7 @@ private fun CompleteSimpleperfSettingsContent(
 
 @Composable
 private fun <T> SettingsChoice(
+    chinese: Boolean,
     label: String,
     current: T,
     options: List<T>,
@@ -364,7 +361,7 @@ private fun <T> SettingsChoice(
     var expanded by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth()) {
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text("$label: ${optionLabel(current)}")
+            Text(localizedStringResource(Res.string.text, chinese, label, optionLabel(current)))
         }
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
@@ -382,19 +379,19 @@ private fun <T> SettingsChoice(
 
 private fun SettingsPage.label(chinese: Boolean): String =
     when (this) {
-        SettingsPage.GENERAL -> if (chinese) "通用" else "General"
-        SettingsPage.LAYOUT_INSPECTOR -> "Layout Inspector"
-        SettingsPage.SIMPLEPERF -> "Simpleperf"
+        SettingsPage.GENERAL -> localizedStringResource(Res.string.general, chinese)
+        SettingsPage.LAYOUT_INSPECTOR -> localizedStringResource(Res.string.layout_inspector, chinese)
+        SettingsPage.SIMPLEPERF -> localizedStringResource(Res.string.simpleperf, chinese)
     }
 
 private fun CaptureSettingsSection.settingsLabel(chinese: Boolean): String =
     when (this) {
-        CaptureSettingsSection.SAMPLING_TEMPLATE -> if (chinese) "采样模板" else "Sampling template"
-        CaptureSettingsSection.CAPTURE_CONFIGURATION -> if (chinese) "采集配置" else "Capture configuration"
-        CaptureSettingsSection.ADVANCED_PARAMETERS -> if (chinese) "高级参数" else "Advanced parameters"
-        CaptureSettingsSection.FLAME_GRAPH -> if (chinese) "火焰图" else "Flame graph"
-        CaptureSettingsSection.SIMPLEPERF_ENGINE -> if (chinese) "分析引擎" else "Simpleperf engine"
-        CaptureSettingsSection.USER_GUIDE -> if (chinese) "用户指南" else "User guide"
+        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(Res.string.sampling_template, chinese)
+        CaptureSettingsSection.CAPTURE_CONFIGURATION -> localizedStringResource(Res.string.capture_configuration, chinese)
+        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(Res.string.advanced_parameters, chinese)
+        CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(Res.string.flame_graph, chinese)
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(Res.string.simpleperf_engine, chinese)
+        CaptureSettingsSection.USER_GUIDE -> localizedStringResource(Res.string.user_guide, chinese)
     }
 
 internal const val UNIFIED_SETTINGS_WIDTH_DP = 1100

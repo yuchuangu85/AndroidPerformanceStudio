@@ -11,6 +11,10 @@
 
 package com.androidperformancestudio.battery.presentation
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.battery.presentation.generated.resources.Res
+import com.androidperformancestudio.battery.presentation.generated.resources.*
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -71,12 +75,12 @@ private fun EmptyPane(
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Battery / Energy Profiler", style = MaterialTheme.typography.headlineMedium)
+        Text(localizedStringResource(Res.string.battery_energy_profiler, chinese), style = MaterialTheme.typography.headlineMedium)
         Text(
-            if (chinese) "通过前后快照差分分析 Wakelock、Alarm、Job、Network、Sensor 与系统能耗估算。" else "Analyze Wakelocks, alarms, jobs, network, sensors, and system energy estimates using snapshot deltas.",
+            localizedStringResource(Res.string.analyze_wakelocks_alarms_jobs_network_sensors_and_system_energy_estima, chinese),
         )
         Text(
-            if (chinese) "所有能耗值都会显示来源、归因范围和置信度；不会默认重置全局 batterystats。" else "Every energy value exposes its source, scope, and confidence. Global batterystats are never reset by default.",
+            localizedStringResource(Res.string.every_energy_value_exposes_its_source_scope_and_confidence_global, chinese),
         )
         state.operationMessage?.let { Text(it) }
         state.warnings.forEach { Text(it, color = MaterialTheme.colorScheme.tertiary) }
@@ -97,42 +101,42 @@ private fun ResultsPane(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricCard(if (chinese) "Wakelock 中位数" else "Median Wakelock", analysis.wakelockDurationMs, "ms")
-            MetricCard(if (chinese) "唤醒 Alarm 中位数" else "Median Wakeup Alarms", analysis.wakeupAlarmCount, "")
-            MetricCard(if (chinese) "网络中位数" else "Median Network", analysis.networkBytes, "B")
-            MetricCard(if (chinese) "系统能耗估算" else "Modeled Energy", analysis.energyMah, "mAh")
+            MetricCard(localizedStringResource(Res.string.median_wakelock, chinese), analysis.wakelockDurationMs, "ms", chinese)
+            MetricCard(localizedStringResource(Res.string.median_wakeup_alarms, chinese), analysis.wakeupAlarmCount, "", chinese)
+            MetricCard(localizedStringResource(Res.string.median_network, chinese), analysis.networkBytes, "B", chinese)
+            MetricCard(localizedStringResource(Res.string.modeled_energy, chinese), analysis.energyMah, "mAh", chinese)
         }
         val session = state.experiment?.session
         session?.let {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Text(
-                    if (chinese) "能力：${it.capabilities.level} · 归因：${it.attributionScope} · UID ${it.uid}" else "Capability: ${it.capabilities.level} · Attribution: ${it.attributionScope} · UID ${it.uid}",
+                    localizedStringResource(Res.string.capability_attribution_uid, chinese, it.capabilities.level, it.attributionScope, it.uid),
                     modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
                 )
             }
         }
         state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, chinese) }
-        Text(if (chinese) "实验轮次" else "Experiment Runs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.experiment_runs, chinese), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
-                Cell(if (chinese) "轮次" else "Run", 70)
-                Cell(if (chinese) "时长" else "Duration", 100)
-                Cell("Wakelock", 110)
-                Cell("Alarm", 90)
-                Cell("Network", 110)
-                Cell("Energy", 100)
+                Cell(localizedStringResource(Res.string.run, chinese), 70)
+                Cell(localizedStringResource(Res.string.duration, chinese), 100)
+                Cell(localizedStringResource(Res.string.wakelock, chinese), 110)
+                Cell(localizedStringResource(Res.string.alarm, chinese), 90)
+                Cell(localizedStringResource(Res.string.network, chinese), 110)
+                Cell(localizedStringResource(Res.string.energy, chinese), 100)
             }
-            analysis.runs.forEach { run -> RunRow(run, run.runId == selected.runId, actions.onSelectRun) }
+            analysis.runs.forEach { run -> RunRow(run, run.runId == selected.runId, actions.onSelectRun, chinese) }
         }
         HorizontalDivider()
         RunDetail(selected, chinese)
         if (analysis.warnings.isNotEmpty()) {
             Text(
-                if (chinese) "诊断与警告" else "Diagnostics and Warnings",
+                localizedStringResource(Res.string.diagnostics_and_warnings, chinese),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
-            analysis.warnings.forEach { Text("• $it", color = MaterialTheme.colorScheme.tertiary) }
+            analysis.warnings.forEach { Text(localizedStringResource(Res.string.text, chinese, it), color = MaterialTheme.colorScheme.tertiary) }
         }
         state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
@@ -143,12 +147,13 @@ private fun MetricCard(
     title: String,
     statistics: BatteryStatistics,
     unit: String,
+    chinese: Boolean,
 ) {
     Card(Modifier.width(168.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
             Text(statistics.median.format(unit), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("p90 ${statistics.p90.format(unit)} · n=${statistics.count}", style = MaterialTheme.typography.bodySmall)
+            Text(localizedStringResource(Res.string.p90_n, chinese, statistics.p90.format(unit), statistics.count), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -172,7 +177,7 @@ private fun BaselineComparison(
         }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Text(
-            if (chinese) "网络用量与上次兼容实验相比：${change.percent()}（仅表示差异）" else "Network use vs previous compatible experiment: ${change.percent()} (difference only)",
+            localizedStringResource(Res.string.network_use_vs_previous_compatible_experiment_difference_only, chinese, change.percent()),
             Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
         )
     }
@@ -183,6 +188,7 @@ private fun RunRow(
     run: BatteryRunDelta,
     selected: Boolean,
     onSelect: (String) -> Unit,
+    chinese: Boolean,
 ) {
     Row(
         Modifier
@@ -192,7 +198,7 @@ private fun RunRow(
             }.padding(vertical = 6.dp, horizontal = 8.dp),
     ) {
         Cell(run.iteration.toString(), 70)
-        Cell("${run.durationMs / 1000}s", 100)
+        Cell(localizedStringResource(Res.string.s, chinese, run.durationMs / 1000), 100)
         Cell(run.wakelocks.sumOf(ResourceTimer::durationMs).toString(), 110)
         Cell(run.alarms.sumOf(ResourceTimer::count).toString(), 90)
         Cell(run.network.totalBytes.toString(), 110)
@@ -212,36 +218,50 @@ private fun RunDetail(
     chinese: Boolean,
 ) {
     Text(
-        if (chinese) "第 ${run.iteration} 轮资源明细" else "Run ${run.iteration} Resource Details",
+        localizedStringResource(Res.string.run_resource_details, chinese, run.iteration),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
     )
-    ResourceSection("Wakelocks", run.wakelocks, chinese)
-    ResourceSection("Alarms", run.alarms, chinese)
-    ResourceSection("Jobs", run.jobs, chinese)
-    ResourceSection("Sensors", run.sensors, chinese)
-    Text("Network · ${run.network.totalBytes} B · mobile radio ${run.network.mobileRadioActiveMs} ms", fontWeight = FontWeight.SemiBold)
-    Text(if (chinese) "能耗证据" else "Energy Evidence", fontWeight = FontWeight.SemiBold)
-    if (run.energy.isEmpty()) Text(if (chinese) "当前设备未提供可归因能耗数据" else "No attributable energy data was provided by this device")
+    ResourceSection(localizedStringResource(Res.string.wakelocks, chinese), run.wakelocks, chinese)
+    ResourceSection(localizedStringResource(Res.string.alarms, chinese), run.alarms, chinese)
+    ResourceSection(localizedStringResource(Res.string.jobs, chinese), run.jobs, chinese)
+    ResourceSection(localizedStringResource(Res.string.sensors, chinese), run.sensors, chinese)
+    Text(localizedStringResource(Res.string.network_b_mobile_radio_ms, chinese, run.network.totalBytes, run.network.mobileRadioActiveMs), fontWeight = FontWeight.SemiBold)
+    Text(localizedStringResource(Res.string.energy_evidence, chinese), fontWeight = FontWeight.SemiBold)
+    if (run.energy.isEmpty()) Text(localizedStringResource(Res.string.no_attributable_energy_data_was_provided_by_this_device, chinese))
     run.energy.forEach { energy ->
         Text(
-            "${energy.component}: ${energy.energyMah.format(
-                "mAh",
-            )} / ${energy.energyUws ?: "—"} µWs · ${energy.source} · ${energy.attributionScope} · ${energy.confidence}",
+            localizedStringResource(
+                Res.string.energy_evidence_detail,
+                chinese,
+                energy.component,
+                energy.energyMah.format("mAh"),
+                energy.energyUws ?: "—",
+                energy.source,
+                energy.attributionScope,
+                energy.confidence,
+            ),
         )
     }
     Text(
-        if (chinese) "History 时间线事件：${run.history.size}" else "History timeline events: ${run.history.size}",
+        localizedStringResource(Res.string.history_timeline_events, chinese, run.history.size),
         fontWeight = FontWeight.SemiBold,
     )
     run.history.take(100).forEach { event ->
         Text(
-            "${event.elapsedMs ?: "—"} ms · ${event.kind} · ${event.active ?: "?"} · ${event.name.orEmpty()}",
+            localizedStringResource(
+                Res.string.history_event_detail,
+                chinese,
+                event.elapsedMs ?: "—",
+                event.kind,
+                event.active ?: "?",
+                event.name.orEmpty(),
+            ),
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall,
         )
     }
-    run.warnings.forEach { Text("• $it", color = MaterialTheme.colorScheme.tertiary) }
+    run.warnings.forEach { Text(localizedStringResource(Res.string.text, chinese, it), color = MaterialTheme.colorScheme.tertiary) }
 }
 
 @Composable
@@ -251,8 +271,8 @@ private fun ResourceSection(
     chinese: Boolean,
 ) {
     Text(title, fontWeight = FontWeight.SemiBold)
-    if (resources.isEmpty()) Text(if (chinese) "无增量或设备未提供" else "No delta or unavailable")
-    resources.take(100).forEach { timer -> Text("${timer.name} · ${timer.durationMs} ms · ${timer.count}× · ${timer.confidence}") }
+    if (resources.isEmpty()) Text(localizedStringResource(Res.string.no_delta_or_unavailable, chinese))
+    resources.take(100).forEach { timer -> Text(localizedStringResource(Res.string.ms, chinese, timer.name, timer.durationMs, timer.count, timer.confidence)) }
 }
 
 @Composable

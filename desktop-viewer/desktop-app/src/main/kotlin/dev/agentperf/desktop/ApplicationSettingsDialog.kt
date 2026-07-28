@@ -1,5 +1,9 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.localizedStringResource
+import dev.agentperf.desktop_app.generated.resources.Res
+import dev.agentperf.desktop_app.generated.resources.*
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,7 +38,7 @@ internal fun ApplicationSettingsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (chinese) "通用设置" else "General Settings") },
+        title = { Text(localizedStringResource(Res.string.general_settings, chinese)) },
         text = {
             Column(
                 modifier =
@@ -44,14 +48,16 @@ internal fun ApplicationSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 PreferenceDropdown(
-                    label = if (chinese) "语言" else "Language",
+                    chinese = chinese,
+                    label = localizedStringResource(Res.string.language, chinese),
                     selected = settings.language,
                     options = ApplicationLanguagePreference.entries,
                     optionLabel = { languagePreferenceLabel(it, chinese) },
                     onSelected = { onSettingsChanged(settings.copy(language = it)) },
                 )
                 PreferenceDropdown(
-                    label = if (chinese) "主题" else "Theme",
+                    chinese = chinese,
+                    label = localizedStringResource(Res.string.theme, chinese),
                     selected = settings.theme,
                     options = ApplicationThemePreference.entries,
                     optionLabel = { themePreferenceLabel(it, chinese) },
@@ -61,7 +67,7 @@ internal fun ApplicationSettingsDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(if (chinese) "完成" else "Done")
+                Text(localizedStringResource(Res.string.done, chinese))
             }
         },
     )
@@ -69,6 +75,7 @@ internal fun ApplicationSettingsDialog(
 
 @Composable
 private fun <T> PreferenceDropdown(
+    chinese: Boolean,
     label: String,
     selected: T,
     options: List<T>,
@@ -81,7 +88,7 @@ private fun <T> PreferenceDropdown(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("$label: ${optionLabel(selected)}")
+            Text(localizedStringResource(Res.string.text, chinese, label, optionLabel(selected)))
         }
         DropdownMenu(
             expanded = expanded,
@@ -106,9 +113,9 @@ internal fun languagePreferenceLabel(
     chinese: Boolean,
 ): String =
     when (preference) {
-        ApplicationLanguagePreference.SYSTEM -> if (chinese) "跟随系统" else "System"
-        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> if (chinese) "简体中文" else "Simplified Chinese"
-        ApplicationLanguagePreference.ENGLISH -> if (chinese) "英文" else "English"
+        ApplicationLanguagePreference.SYSTEM -> localizedStringResource(Res.string.system, chinese)
+        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> localizedStringResource(Res.string.simplified_chinese, chinese)
+        ApplicationLanguagePreference.ENGLISH -> localizedStringResource(Res.string.english, chinese)
     }
 
 internal fun themePreferenceLabel(
@@ -116,7 +123,7 @@ internal fun themePreferenceLabel(
     chinese: Boolean,
 ): String =
     when (preference) {
-        ApplicationThemePreference.SYSTEM -> if (chinese) "跟随系统" else "System"
-        ApplicationThemePreference.LIGHT -> if (chinese) "浅色" else "Light"
-        ApplicationThemePreference.DARK -> if (chinese) "深色" else "Dark"
+        ApplicationThemePreference.SYSTEM -> localizedStringResource(Res.string.system, chinese)
+        ApplicationThemePreference.LIGHT -> localizedStringResource(Res.string.light, chinese)
+        ApplicationThemePreference.DARK -> localizedStringResource(Res.string.dark, chinese)
     }

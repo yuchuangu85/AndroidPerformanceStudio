@@ -2,6 +2,10 @@
 
 package com.androidperformancestudio.gpu.app
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.Res
+import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.*
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -75,45 +79,45 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                         listOf(artifact.path.toString()),
                     )
                 ArtifactOpenCapability.DESKTOP -> Desktop.getDesktop().open(artifact.path.toFile())
-                ArtifactOpenCapability.NONE -> error("No compatible viewer is available")
+                ArtifactOpenCapability.NONE -> error(localizedStringResource(Res.string.no_compatible_viewer, chinese))
             }
         }.onFailure {
-            state = state.copy(error = it.message ?: "Unable to open artifact")
+            state = state.copy(error = it.message ?: localizedStringResource(Res.string.unable_to_open_artifact, chinese))
         }
     }
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = if (chinese) "返回主页" else "Back to home",
+                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
                 onClick = onBack,
             )
             ProfilerCompactButton(
-                text = if (chinese) "刷新 AGI" else "Refresh AGI",
+                text = localizedStringResource(Res.string.refresh_agi, chinese),
                 onClick = {
                     state =
                         state.copy(
                             capability = locator.locate(),
-                            message = "AGI capability refreshed.",
+                            message = localizedStringResource(Res.string.agi_capability_refreshed, chinese),
                             error = null,
                         )
                 },
             )
             ProfilerCompactButton(
-                text = if (chinese) "配置 AGI" else "Configure AGI",
+                text = localizedStringResource(Res.string.configure_agi, chinese),
                 onClick = {
-                    chooseExecutable(window)?.let { file ->
+                    chooseExecutable(window, chinese)?.let { file ->
                         state =
                             state.copy(
                                 capability = locator.locate(file.toPath()),
-                                message = "Configured ${file.name}",
+                                message = localizedStringResource(Res.string.configured_file, chinese, file.name),
                                 error = null,
                             )
                     }
                 },
             )
             ProfilerCompactButton(
-                text = if (chinese) "启动 AGI" else "Launch AGI",
+                text = localizedStringResource(Res.string.launch_agi, chinese),
                 enabled = state.capability?.launchSupported == true,
                 onClick = {
                     runCatching { locator.launch(requireNotNull(state.capability)) }
@@ -121,9 +125,9 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                 },
             )
             ProfilerCompactButton(
-                text = if (chinese) "导入产物" else "Import Artifact",
+                text = localizedStringResource(Res.string.import_artifact, chinese),
                 onClick = {
-                    chooseArtifact(window)?.let { file ->
+                    chooseArtifact(window, chinese)?.let { file ->
                         runCatching {
                             indexer.import(
                                 file.toPath(),
@@ -137,7 +141,7 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                             state =
                                 state.copy(
                                     artifacts = updated,
-                                    message = "Imported ${file.name}",
+                                    message = localizedStringResource(Res.string.imported_file, chinese, file.name),
                                     error = null,
                                 )
                         }.onFailure {
@@ -159,9 +163,9 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                         state.copy(
                             message =
                                 if (indexer.verify(artifact)) {
-                                    "Artifact hash verified."
+                                    localizedStringResource(Res.string.artifact_hash_verified, chinese)
                                 } else {
-                                    "Artifact is missing or changed."
+                                    localizedStringResource(Res.string.artifact_missing_or_changed, chinese)
                                 },
                         )
                 },
@@ -172,14 +176,14 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
     }
 }
 
-private fun chooseExecutable(parent: java.awt.Component): File? =
+private fun chooseExecutable(parent: java.awt.Component, chinese: Boolean): File? =
     JFileChooser().run {
-        dialogTitle = "Select Android GPU Inspector executable"
+        dialogTitle = localizedStringResource(Res.string.select_android_gpu_inspector_executable, chinese)
         if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
 
-private fun chooseArtifact(parent: java.awt.Component): File? =
+private fun chooseArtifact(parent: java.awt.Component, chinese: Boolean): File? =
     JFileChooser().run {
-        dialogTitle = "Import AGI / Perfetto artifact"
+        dialogTitle = localizedStringResource(Res.string.import_agi_perfetto_artifact, chinese)
         if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }

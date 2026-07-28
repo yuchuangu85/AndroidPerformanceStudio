@@ -53,12 +53,11 @@ class AppNavigator(
 
     fun openPerfettoTrace(
         path: Path,
-        sourceTool: String,
+        notice: String,
     ) {
         inspectorCorrelationHint = null
         perfettoTraceFile = path
-        perfettoTraceNotice =
-            "Opened from $sourceTool for correlation only; no causal relationship is inferred."
+        perfettoTraceNotice = notice
         destination = AppDestination.PERFETTO
     }
 }

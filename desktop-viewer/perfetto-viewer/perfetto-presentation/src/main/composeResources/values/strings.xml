@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="trace_template">TRACE TEMPLATE</string>
+    <string name="configuration">CONFIGURATION</string>
+    <string name="system_wide_for_example_com_example_app">System-wide (for example com.example.app)</string>
+    <string name="comma_separated_atrace_categories_or_ftrace_events">Comma-separated atrace categories or ftrace events</string>
+    <string name="paste_a_valid_perfetto_traceconfig">Paste a valid Perfetto TraceConfig</string>
+    <string name="target_package">Target package</string>
+    <string name="duration_seconds">Duration (seconds)</string>
+    <string name="buffer_mb">Buffer (MB)</string>
+    <string name="additional_categories_events">Additional categories / events</string>
+    <string name="custom_traceconfig_text_protobuf">Custom TraceConfig (text protobuf)</string>
+    <string name="start_capture">Start Capture</string>
+    <string name="stop">Stop</string>
+    <string name="open_in_perfetto_ui">Open in Perfetto UI</string>
+    <string name="ready">Ready</string>
+    <string name="preparing_capture">Preparing capture…</string>
+    <string name="recording_since">Recording since %1$s</string>
+    <string name="pulling_trace_from_device">Pulling trace from device…</string>
+    <string name="completed_mb">Completed · %1$s MB</string>
+    <string name="failed">Failed: %1$s</string>
+    <string name="system_overview">System Overview</string>
+    <string name="app_performance">App Performance</string>
+    <string name="graphics_pipeline">Graphics Pipeline</string>
+    <string name="input_latency">Input Latency</string>
+    <string name="memory_profile">Memory Profile</string>
+    <string name="custom">Custom</string>
+    <string name="system_overview_description">sched, freq, binder, memory, gfx — full system trace</string>
+    <string name="app_performance_description">atrace for target app + sched + binder</string>
+    <string name="graphics_pipeline_description">SurfaceFlinger, HWUI, frame timeline, vsync</string>
+    <string name="input_latency_description">input dispatcher + app response + binder</string>
+    <string name="memory_profile_description">meminfo, heapprofd, Java heap sampling</string>
+    <string name="custom_description">User-defined trace config</string>
+</resources>

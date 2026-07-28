@@ -52,6 +52,7 @@ internal fun StackChartCanvas(
     onSelect: (StackChartBlockId?) -> Unit,
     onCommitRange: (Long, Long) -> Unit,
 ) {
+    val callStacksDescription = localizedSimpleperfText("Stack chart call stacks")
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
     var dragStartX by remember { mutableFloatStateOf(Float.NaN) }
@@ -100,7 +101,7 @@ internal fun StackChartCanvas(
                 )
             },
     ) {
-        Canvas(Modifier.fillMaxSize().semantics { contentDescription = "Stack chart call stacks" }) {
+        Canvas(Modifier.fillMaxSize().semantics { contentDescription = callStacksDescription }) {
             visible.forEach { block ->
                 val rect = StackChartPresenter.blockRect(block, viewport, size.width, rowHeightPx)
                 val right = (rect.right - STACK_CHART_GAP_PX).coerceAtLeast(rect.left)

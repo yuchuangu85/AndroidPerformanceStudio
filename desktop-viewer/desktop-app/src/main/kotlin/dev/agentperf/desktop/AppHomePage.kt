@@ -1,5 +1,9 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.localizedStringResource
+import dev.agentperf.desktop_app.generated.resources.Res
+import dev.agentperf.desktop_app.generated.resources.*
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -47,123 +51,83 @@ fun AppHomePage(
     val entries =
         listOf(
             HomeFeatureEntry(
-                title = "Layout Inspector",
-                subtitle = if (chinese) "布局检查" else "Layout Inspection",
+                title = localizedStringResource(Res.string.layout_inspector, chinese),
+                subtitle = localizedStringResource(Res.string.layout_inspection, chinese),
                 description =
-                    if (chinese) {
-                        "检查 Android View 层级、截图、边界与属性。"
-                    } else {
-                        "Inspect Android View hierarchies, screenshots, bounds, and properties."
-                    },
-                actionLabel = if (chinese) "进入" else "Open",
+                    localizedStringResource(Res.string.inspect_android_view_hierarchies_screenshots_bounds_and_properties, chinese),
+                actionLabel = localizedStringResource(Res.string.open, chinese),
                 onClick = onOpenLayoutInspector,
             ),
             HomeFeatureEntry(
-                title = "CPU Profiler",
-                subtitle = if (chinese) "CPU 分析" else "CPU Profiling",
+                title = localizedStringResource(Res.string.cpu_profiler, chinese),
+                subtitle = localizedStringResource(Res.string.cpu_profiling, chinese),
                 description =
-                    if (chinese) {
-                        "Simpleperf 采集、FlameGraph、CallTree 分析 CPU 样本。"
-                    } else {
-                        "Simpleperf-based CPU sampling, flame graphs, call tree analysis."
-                    },
-                actionLabel = if (chinese) "进入" else "Open",
+                    localizedStringResource(Res.string.simpleperf_based_cpu_sampling_flame_graphs_call_tree_analysis, chinese),
+                actionLabel = localizedStringResource(Res.string.open, chinese),
                 onClick = onOpenSimpleperf,
             ),
             HomeFeatureEntry(
-                title = "Trace Analyzer",
-                subtitle = if (chinese) "系统 Trace" else "System Trace",
+                title = localizedStringResource(Res.string.trace_analyzer, chinese),
+                subtitle = localizedStringResource(Res.string.system_trace, chinese),
                 description =
-                    if (chinese) {
-                        "Perfetto 系统级 Trace 采集、调度/Binder/图形管线分析。"
-                    } else {
-                        "Perfetto system-level trace capture with scheduling, binder, and graphics analysis."
-                    },
-                actionLabel = if (chinese) "进入" else "Open",
+                    localizedStringResource(Res.string.perfetto_system_level_trace_capture_with_scheduling_binder_and_graphic, chinese),
+                actionLabel = localizedStringResource(Res.string.open, chinese),
                 onClick = onOpenPerfetto,
             ),
             HomeFeatureEntry(
-                title = "Memory Profiler",
-                subtitle = if (chinese) "内存分析" else "Memory",
+                title = localizedStringResource(Res.string.memory_profiler, chinese),
+                subtitle = localizedStringResource(Res.string.memory, chinese),
                 description =
-                    if (chinese) {
-                        "堆内存 dump、对象统计与类直方图分析。"
-                    } else {
-                        "Heap dump capture, object statistics, and class histogram analysis."
-                    },
-                actionLabel = if (chinese) "打开" else "Open",
+                    localizedStringResource(Res.string.heap_dump_capture_object_statistics_and_class_histogram_analysis, chinese),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
                 onClick = onOpenMemoryProfiler,
             ),
             HomeFeatureEntry(
-                title = "Frame Profiler",
-                subtitle = if (chinese) "帧耗时分析" else "Frame Timing",
+                title = localizedStringResource(Res.string.frame_profiler, chinese),
+                subtitle = localizedStringResource(Res.string.frame_timing, chinese),
                 description =
-                    if (chinese) {
-                        "在线采集或导入 gfxinfo FrameStats，分析帧耗时与卡顿区间。"
-                    } else {
-                        "Capture online or import gfxinfo FrameStats to analyze frame timing and jank clusters."
-                    },
-                actionLabel = if (chinese) "打开" else "Open",
+                    localizedStringResource(Res.string.capture_online_or_import_gfxinfo_framestats_to_analyze_frame_timing, chinese),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
                 onClick = onOpenFrameProfiler,
             ),
             HomeFeatureEntry(
-                title = "Startup Profiler",
-                subtitle = if (chinese) "启动分析" else "Startup",
+                title = localizedStringResource(Res.string.startup_profiler, chinese),
+                subtitle = localizedStringResource(Res.string.startup, chinese),
                 description =
-                    if (chinese) {
-                        "冷启动/温启动耗时分解、Baseline Profile 支持。"
-                    } else {
-                        "Cold/warm startup breakdown and Baseline Profile support."
-                    },
-                actionLabel = if (chinese) "打开" else "Open",
+                    localizedStringResource(Res.string.cold_warm_startup_breakdown_and_baseline_profile_support, chinese),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
                 onClick = onOpenStartupProfiler,
             ),
             HomeFeatureEntry(
-                title = "Battery Profiler",
-                subtitle = if (chinese) "电量分析" else "Battery",
+                title = localizedStringResource(Res.string.battery_profiler, chinese),
+                subtitle = localizedStringResource(Res.string.battery, chinese),
                 description =
-                    if (chinese) {
-                        "batterystats 解析、wakelock/alarm/network 使用统计。"
-                    } else {
-                        "batterystats analysis with wakelock, alarm, and network usage stats."
-                    },
-                actionLabel = if (chinese) "打开" else "Open",
+                    localizedStringResource(Res.string.batterystats_analysis_with_wakelock_alarm_and_network_usage_stats, chinese),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
                 onClick = onOpenBatteryProfiler,
             ),
             HomeFeatureEntry(
-                title = "Network Profiler",
-                subtitle = if (chinese) "网络分析" else "Network",
+                title = localizedStringResource(Res.string.network_profiler, chinese),
+                subtitle = localizedStringResource(Res.string.network, chinese),
                 description =
-                    if (chinese) {
-                        "HTTP/HTTPS 流量捕获与请求时间线分析。"
-                    } else {
-                        "HTTP/HTTPS traffic capture and request timeline analysis."
-                    },
-                actionLabel = if (chinese) "打开" else "Open",
+                    localizedStringResource(Res.string.http_https_traffic_capture_and_request_timeline_analysis, chinese),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
                 onClick = onOpenNetworkProfiler,
             ),
             HomeFeatureEntry(
-                title = "GPU Inspector",
-                subtitle = if (chinese) "GPU / AGI 集成" else "GPU / AGI Integration",
+                title = localizedStringResource(Res.string.gpu_inspector, chinese),
+                subtitle = localizedStringResource(Res.string.gpu_agi_integration, chinese),
                 description =
-                    if (chinese) {
-                        "探测并启动 Android GPU Inspector，索引和校验 GPU 分析产物。"
-                    } else {
-                        "Discover and launch Android GPU Inspector, then index and verify GPU artifacts."
-                    },
-                actionLabel = if (chinese) "打开" else "Open",
+                    localizedStringResource(Res.string.discover_and_launch_android_gpu_inspector_then_index_and_verify, chinese),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
                 onClick = onOpenGpuInspector,
             ),
             HomeFeatureEntry(
-                title = "Benchmark Regression",
-                subtitle = if (chinese) "Macrobenchmark 回归" else "Macrobenchmark Regression",
+                title = localizedStringResource(Res.string.benchmark_regression, chinese),
+                subtitle = localizedStringResource(Res.string.macrobenchmark_regression, chinese),
                 description =
-                    if (chinese) {
-                        "比较 AndroidX Benchmark 基线与当前结果，并生成 CI 回归报告。"
-                    } else {
-                        "Compare AndroidX Benchmark baselines and current results with CI regression reports."
-                    },
-                actionLabel = if (chinese) "打开" else "Open",
+                    localizedStringResource(Res.string.compare_androidx_benchmark_baselines_and_current_results_with_ci_regre, chinese),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
                 onClick = onOpenBenchmarkRegression,
             ),
         )
@@ -178,13 +142,13 @@ fun AppHomePage(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Android Performance Studio",
+                text = localizedStringResource(Res.string.android_performance_studio, chinese),
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = if (chinese) "选择要使用的性能分析工具" else "Choose a performance analysis tool",
+                text = localizedStringResource(Res.string.choose_a_performance_analysis_tool, chinese),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

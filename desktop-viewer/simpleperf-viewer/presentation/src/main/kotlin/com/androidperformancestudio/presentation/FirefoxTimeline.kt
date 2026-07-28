@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.storage.ProfileMarkerId
@@ -195,6 +196,8 @@ private fun FirefoxMarkerTimelineLanes(
             BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                 lane.markerIds.mapNotNull(markersById::get).forEach { marker ->
                     if (marker.endNanosExclusive > viewport.startNanos && marker.startNanos < viewport.endNanosExclusive) {
+                        val markerDescription =
+                            localizedSimpleperfResource(ViewerRes.sp_dynamic_timeline_marker, marker.name)
                         val fraction =
                             (marker.startNanos - viewport.startNanos).toDouble() /
                                 (viewport.endNanosExclusive - viewport.startNanos).coerceAtLeast(1L)
@@ -208,7 +211,7 @@ private fun FirefoxMarkerTimelineLanes(
                                     if (marker.id == selectedMarkerId) style.accent else style.warning,
                                 ).clickable { onSelect(marker.id) }
                                 .semantics {
-                                    contentDescription = "Timeline marker ${marker.name}"
+                                    contentDescription = markerDescription
                                     selected = marker.id == selectedMarkerId
                                 },
                         )
@@ -228,6 +231,8 @@ private fun FirefoxTimelineHeader(
     zeroAtNanos: Long,
     style: MacOsDeviceTargetStyle,
 ) {
+    val visibleTracksDescription =
+        localizedSimpleperfResource(ViewerRes.sp_dynamic_visible_tracks, visibleTrackCount, totalTrackCount)
     Row(
         Modifier
             .fillMaxWidth()
@@ -244,7 +249,7 @@ private fun FirefoxTimelineHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "$visibleTrackCount / $totalTrackCount tracks",
+                visibleTracksDescription,
                 modifier = Modifier.weight(1f),
                 color = style.text,
                 fontSize = 9.sp,
@@ -309,6 +314,8 @@ private fun FirefoxThreadTrack(
     style: MacOsDeviceTargetStyle,
     actions: ReportActions,
 ) {
+    val trackDescription =
+        localizedSimpleperfResource(ViewerRes.sp_dynamic_timeline_track, track.name, track.threadId)
     val rowBackground = if (selected) style.accent.copy(alpha = 0.10f) else Color.Transparent
     Row(
         Modifier
@@ -321,7 +328,7 @@ private fun FirefoxThreadTrack(
                 if (selected) drawRect(style.accent, size = Size(3.dp.toPx(), size.height))
                 if (local) drawLine(style.border, Offset(0f, 0f), Offset(0f, size.height))
             }.semantics {
-                contentDescription = "Timeline track ${track.name} (${track.threadId})"
+                contentDescription = trackDescription
                 this.selected = selected
             },
     ) {
@@ -382,6 +389,8 @@ private fun FirefoxTrackGraph(
     actions: ReportActions,
     modifier: Modifier,
 ) {
+    val graphDescription =
+        localizedSimpleperfResource(ViewerRes.sp_dynamic_thread_activity_graph, track.name)
     val overlayModifier =
         modifier
             .fillMaxHeight()
@@ -410,7 +419,7 @@ private fun FirefoxTrackGraph(
                         )
                     }
                 }
-            }.semantics { contentDescription = "Thread activity graph ${track.name}" }
+            }.semantics { contentDescription = graphDescription }
     Column(overlayModifier) {
         TimelineCanvas(
             frame = TimelineFrame(track.buckets.map { TimelineColumn(it.eventWeight) }),

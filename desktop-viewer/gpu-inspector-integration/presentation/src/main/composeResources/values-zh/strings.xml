@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="agi_is_not_configured">未配置 AGI</string>
+    <string name="recent_gpu_artifacts">最近 GPU 产物</string>
+    <string name="verify">校验</string>
+    <string name="open">打开</string>
+    <string name="android_gpu_inspector">Android GPU Inspector</string>
+    <string name="text">%1$s · %2$s</string>
+    <string name="kib">%1$s KiB · %2$s…</string>
+    <string name="capability_summary">%1$s · %2$s</string>
+    <string name="unknown_version">Unknown version</string>
+    <string name="unavailable">UNAVAILABLE</string>
+</resources>

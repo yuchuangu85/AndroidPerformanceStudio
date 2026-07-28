@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf">Select a debuggable process; FrameMetrics Agent is preferred and gfxinfo is used as fallback.</string>
+    <string name="opens_the_current_foreground_layout_for_timing_correlation_it_does">Opens the current foreground layout for timing correlation; it does not attribute jank to a View.</string>
+    <string name="waiting_for_live_frame_data">Waiting for live frame data</string>
+    <string name="capture_online_or_import_framestats">Capture online or import FrameStats</string>
+    <string name="frame_timeline">Frame Timeline</string>
+    <string name="frames">Frames</string>
+    <string name="jank_rate">Jank Rate</string>
+    <string name="worst">Worst</string>
+    <string name="frame_detail">Frame Detail</string>
+    <string name="source">Source</string>
+    <string name="verdict">Verdict</string>
+    <string name="platform_jank">Platform Jank</string>
+    <string name="duration">Duration</string>
+    <string name="budget">Budget</string>
+    <string name="budget_source">Budget Source</string>
+    <string name="missed_vsync">Missed VSync</string>
+    <string name="bottleneck">Bottleneck</string>
+    <string name="jank_types">Jank Types</string>
+    <string name="correlate_in_layout_inspector">Correlate in Layout Inspector</string>
+    <string name="jank_clusters">Jank Clusters</string>
+    <string name="no_jank_clusters_detected">No jank clusters detected</string>
+    <string name="text">#%1$s – #%2$s</string>
+    <string name="p50">P50</string>
+    <string name="p95">P95</string>
+    <string name="frame">Frame</string>
+    <string name="activity">Activity</string>
+    <string name="window">Window</string>
+    <string name="state_detail">State · %1$s</string>
+    <string name="jank_cluster_summary">%1$s jank · %2$s</string>
+    <string name="unknown_stage">unknown stage</string>
+</resources>

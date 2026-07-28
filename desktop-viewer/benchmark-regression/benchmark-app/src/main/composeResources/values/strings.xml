@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="back_to_home">Back to home</string>
+    <string name="import_current">Import Current</string>
+    <string name="import_baseline">Import Baseline</string>
+    <string name="export_report">Export Report</string>
+    <string name="open_trace_in_perfetto">Open Trace in Perfetto</string>
+    <string name="import_androidx_benchmark_json">Import AndroidX Benchmark JSON</string>
+    <string name="imported_baseline">Imported baseline %1$s</string>
+    <string name="imported_current">Imported current result %1$s</string>
+    <string name="import_failed">Import failed</string>
+    <string name="benchmark_json">Benchmark JSON</string>
+</resources>

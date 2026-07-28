@@ -19,6 +19,7 @@ tasks
     .configureEach { dependsOn(prepareFirefoxProfilerAppResources) }
 
 dependencies {
+    implementation(project(":desktop-ui"))
     implementation(project(":analysis-rules"))
     api(project(":application"))
     api(project(":capture-simpleperf"))
@@ -33,6 +34,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     testImplementation(project(":test-fixtures"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
 }
 
 compose.desktop {

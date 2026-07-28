@@ -27,7 +27,11 @@ class MemoryProfilerWorkspaceSourceTest {
         assertTrue(launchParser > requestDialog)
         assertFalse(workspace.contains("Dispatchers.IO"))
         assertFalse(workspace.contains("chooseHprofFile"))
-        assertTrue(workspace.contains("FileDialog(parent, \"Import HPROF\", FileDialog.LOAD)"))
+        assertTrue(
+            workspace.contains(
+                "FileDialog(parent, localizedStringResource(Res.string.import_hprof, chinese), FileDialog.LOAD)",
+            ),
+        )
         assertTrue(workspace.contains("onCloseRequest(files.firstOrNull())"))
         assertTrue(backend.contains("withContext(Dispatchers.IO)"))
     }

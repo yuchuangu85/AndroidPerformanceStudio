@@ -4,6 +4,7 @@ plugins {
 }
 
 dependencies {
+    implementation(project(":desktop-ui"))
     implementation(project(":analysis-rules"))
     api(project(":application"))
     api(project(":capture-simpleperf"))
@@ -15,4 +16,5 @@ dependencies {
     testImplementation(compose.desktop.currentOs)
     testImplementation("org.jetbrains.compose.ui:ui-test-junit4:1.11.1")
     testImplementation("org.jetbrains.compose.ui:ui-test:1.11.1")
+    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
 }

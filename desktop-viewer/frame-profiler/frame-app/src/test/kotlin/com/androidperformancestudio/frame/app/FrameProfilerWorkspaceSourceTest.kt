@@ -35,27 +35,27 @@ class FrameProfilerWorkspaceSourceTest {
         assertTrue(homeBlock.contains("onBack()"))
 
         assertBlockContains(
-            "text = if (chinese) \"刷新\" else \"Refresh\"",
+            "localizedStringResource(Res.string.refresh, chinese)",
             "enabled = !state.isCapturing && !state.isRefreshingDevices",
             "controller.refreshDevices()",
         )
         assertBlockContains(
-            "if (chinese) \"开始采集\" else \"Start Capture\"",
+            "localizedStringResource(Res.string.start_capture, chinese)",
             "enabled = state.selectedProcessId != null",
             "if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()",
         )
         assertBlockContains(
-            "text = if (chinese) \"导入 FrameStats\" else \"Import FrameStats\"",
+            "localizedStringResource(Res.string.import_framestats, chinese)",
             "enabled = !state.isCapturing",
             "showImportDialog = true",
         )
         assertBlockContains(
-            "text = if (chinese) \"导出 CSV\" else \"Export CSV\"",
+            "localizedStringResource(Res.string.export_csv, chinese)",
             "enabled = state.analysis != null",
             "controller.exportCsv(output.toPath())",
         )
         assertBlockContains(
-            "text = if (chinese) \"导出 JSON\" else \"Export JSON\"",
+            "localizedStringResource(Res.string.export_json, chinese)",
             "enabled = state.analysis != null",
             "controller.exportJson(output.toPath())",
         )
@@ -71,12 +71,12 @@ class FrameProfilerWorkspaceSourceTest {
     @Test
     fun `selectors preserve controller callbacks and capture enabled predicates`() {
         assertBlockContains(
-            "label = if (chinese) \"设备\" else \"Device\"",
+            "localizedStringResource(Res.string.device, chinese)",
             "enabled = !state.isCapturing",
             "controller.selectDevice(serial)",
         )
         assertBlockContains(
-            "label = if (chinese) \"进程\" else \"Process\"",
+            "localizedStringResource(Res.string.process, chinese)",
             "enabled = !state.isCapturing && state.selectedDeviceSerial != null",
             "controller::selectProcess",
         )

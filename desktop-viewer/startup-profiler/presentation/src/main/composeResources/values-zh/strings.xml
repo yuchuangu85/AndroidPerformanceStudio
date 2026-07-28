@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="choose_a_device_and_app_to_run_repeatable_cold_warm">选择设备和应用后运行可重复的冷、温或热启动实验。</string>
+    <string name="compared_with_previous_experiment_difference_only_no_statistical_signi">与上一次实验相比：%1$s（仅表示差异，不声明统计显著）</string>
+    <string name="startup_profiler">Startup Profiler</string>
+    <string name="median_totaltime">平台总耗时中位数</string>
+    <string name="median_first_frame">首帧中位数</string>
+    <string name="median_fully_drawn">完全绘制中位数</string>
+    <string name="measured_runs">采样轮次</string>
+    <string name="warnings">警告</string>
+    <string name="insufficient">数据不足</string>
+    <string name="stable">稳定</string>
+    <string name="variable">有波动</string>
+    <string name="unstable">波动较大</string>
+    <string name="stability">稳定性</string>
+    <string name="run">轮次</string>
+    <string name="observed">实际类型</string>
+    <string name="run_detail">第 %1$s 轮详情 · %2$s</string>
+    <string name="platform_timeline">平台时间轨</string>
+    <string name="agent_phases_separate_clock_domain">Agent 阶段（独立时钟域）</string>
+    <string name="no_agent_phases_available">无可用 Agent 阶段</string>
+    <string name="milestones">里程碑</string>
+    <string name="raw_am_start_w_evidence">原始 am start -W 证据</string>
+    <string name="text">%1$s/%2$s</string>
+    <string name="text_45f5c8ce">• %1$s</string>
+    <string name="p90_n">p90 %1$s · n=%2$s</string>
+    <string name="mad">MAD %1$s</string>
+    <string name="text_aeb7e472">%1$s · %2$s · %3$s</string>
+    <string name="total">Total</string>
+    <string name="displayed">Displayed</string>
+    <string name="fully_drawn">Fully Drawn</string>
+    <string name="agent">Agent</string>
+    <string name="full">Full</string>
+    <string name="fallback">Fallback</string>
+    <string name="this_time">ThisTime</string>
+    <string name="total_time">TotalTime</string>
+    <string name="wait_time">WaitTime</string>
+    <string name="fully_drawn_time">Fully Drawn</string>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="back_to_home">返回主页</string>
+    <string name="refresh_agi">刷新 AGI</string>
+    <string name="configure_agi">配置 AGI</string>
+    <string name="launch_agi">启动 AGI</string>
+    <string name="import_artifact">导入产物</string>
+    <string name="select_android_gpu_inspector_executable">Select Android GPU Inspector executable</string>
+    <string name="import_agi_perfetto_artifact">Import AGI / Perfetto artifact</string>
+    <string name="no_compatible_viewer">No compatible viewer is available</string>
+    <string name="unable_to_open_artifact">Unable to open artifact</string>
+    <string name="agi_capability_refreshed">AGI capability refreshed.</string>
+    <string name="configured_file">Configured %1$s</string>
+    <string name="imported_file">Imported %1$s</string>
+    <string name="artifact_hash_verified">Artifact hash verified.</string>
+    <string name="artifact_missing_or_changed">Artifact is missing or changed.</string>
+</resources>

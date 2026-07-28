@@ -61,17 +61,19 @@ class UnifiedDesktopShellTest {
         assertTrue(shell.contains("navigator.openPerfettoTrace"))
 
         assertFalse(home.contains("AppSettingsControls"))
-        assertTrue(home.contains("Layout Inspector"))
-        assertTrue(home.contains("CPU Profiler"))
-        assertTrue(home.contains("Trace Analyzer"))
-        assertTrue(home.contains("Memory Profiler"))
-        assertTrue(home.contains("Heap dump capture, object statistics, and class histogram analysis."))
-        assertTrue(home.contains("Frame Profiler"))
-        assertTrue(home.contains("Startup Profiler"))
-        assertTrue(home.contains("Battery Profiler"))
-        assertTrue(home.contains("Network Profiler"))
-        assertTrue(home.contains("GPU Inspector"))
-        assertTrue(home.contains("Benchmark Regression"))
+        listOf(
+            "Res.string.layout_inspector",
+            "Res.string.cpu_profiler",
+            "Res.string.trace_analyzer",
+            "Res.string.memory_profiler",
+            "Res.string.heap_dump_capture_object_statistics_and_class_histogram_analysis",
+            "Res.string.frame_profiler",
+            "Res.string.startup_profiler",
+            "Res.string.battery_profiler",
+            "Res.string.network_profiler",
+            "Res.string.gpu_inspector",
+            "Res.string.benchmark_regression",
+        ).forEach { resource -> assertTrue(home.contains(resource), "Missing home resource reference: $resource") }
         assertFalse(shell.contains("ComingSoonPage("))
     }
 

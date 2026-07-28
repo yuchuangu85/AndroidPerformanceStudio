@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- String resources for this module.
+         Add <string name="key">value</string> entries here.
+         Qualifier variants (e.g. values-zh/strings.xml) provide locale overrides. -->
+    <string name="android_performance_studio">Android Performance Studio</string>
+    <string name="file">文件</string>
+    <string name="open">打开…</string>
+    <string name="settings">设置…</string>
+    <string name="export">导出</string>
+    <string name="session_package">会话包</string>
+    <string name="json_csv">JSON + CSV</string>
+    <string name="firefox_profiler_json">Firefox Profiler JSON (.json.gz)</string>
+    <string name="raw_protobuf">原始 protobuf</string>
+    <string name="screenshot">截图</string>
+    <string name="simpleperf_report">simpleperf report</string>
+    <string name="report_html_py">report_html.py</string>
+    <string name="external_open">外部打开</string>
+    <string name="configuration">配置</string>
+    <string name="capture_templates">采集模板</string>
+    <string name="capture_configuration">采集配置</string>
+    <string name="advanced_parameters">高级参数</string>
+    <string name="open_recent">最近打开</string>
+    <string name="no_recent_sessions">没有最近会话</string>
+    <string name="clear_menu">清除菜单</string>
+</resources>

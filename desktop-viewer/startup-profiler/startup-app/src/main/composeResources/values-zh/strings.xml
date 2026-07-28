@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="back_to_home">返回主页</string>
+    <string name="device">设备</string>
+    <string name="app_activity">应用 / Activity</string>
+    <string name="refresh">刷新</string>
+    <string name="stop_experiment">停止实验</string>
+    <string name="run_experiment">开始实验</string>
+    <string name="export_csv">导出 CSV</string>
+    <string name="export_json">导出 JSON</string>
+    <string name="startup_type">启动类型</string>
+    <string name="compilation">编译模式</string>
+    <string name="warm_ups">预热次数</string>
+    <string name="measured_runs">采样次数</string>
+    <string name="timeout">超时</string>
+    <string name="cold">冷启动</string>
+    <string name="warm">温启动</string>
+    <string name="hot">热启动</string>
+    <string name="unknown">未知</string>
+    <string name="found_launchable_activities">Found %1$s launchable activities.</string>
+    <string name="preparing_startup_experiment">Preparing startup experiment…</string>
+    <string name="startup_experiment_completed_measured_runs">Startup experiment completed: %1$s measured runs.</string>
+    <string name="startup_experiment_cancelled">Startup experiment cancelled.</string>
+    <string name="exported_report_to">Exported %1$s report to %2$s.</string>
+    <string name="export_startup_profiler_report">Export Startup Profiler Report</string>
+    <string name="package_agent">%1$s · Agent</string>
+    <string name="package_activity">%1$s · %2$s</string>
+    <string name="seconds_short">%1$ss</string>
+    <string name="current">Current</string>
+    <string name="reset">Reset</string>
+    <string name="verify">Verify</string>
+    <string name="speed_profile">Speed Profile</string>
+    <string name="speed">Speed</string>
+    <string name="startup_experiment_failed">Startup experiment failed.</string>
+    <string name="format_export_failed">%1$s export failed.</string>
+    <string name="session_persistence_failed">Analysis succeeded, but session persistence failed: %1$s</string>
+</resources>

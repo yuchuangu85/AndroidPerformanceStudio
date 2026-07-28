@@ -9,6 +9,10 @@
 
 package com.androidperformancestudio.frame.presentation
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.frame.presentation.generated.resources.Res
+import com.androidperformancestudio.frame.presentation.generated.resources.*
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -88,9 +92,9 @@ private fun EmptyState(
         Text(
             text =
                 if (state.isCapturing) {
-                    if (chinese) "正在等待设备帧数据" else "Waiting for live frame data"
+                    localizedStringResource(Res.string.waiting_for_live_frame_data, chinese)
                 } else {
-                    if (chinese) "在线采集或导入 FrameStats" else "Capture online or import FrameStats"
+                    localizedStringResource(Res.string.capture_online_or_import_framestats, chinese)
                 },
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
@@ -98,11 +102,7 @@ private fun EmptyState(
         Spacer(Modifier.height(12.dp))
         Text(
             text =
-                if (chinese) {
-                    "选择设备和 debuggable 进程开始采集；优先使用 FrameMetrics Agent，不可用时自动回退 gfxinfo。"
-                } else {
-                    "Select a debuggable process; FrameMetrics Agent is preferred and gfxinfo is used as fallback."
-                },
+                localizedStringResource(Res.string.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf, chinese),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         state.operationMessage?.let { Text(it, modifier = Modifier.padding(top = 16.dp)) }
@@ -133,7 +133,7 @@ private fun AnalysisContent(
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
             Column(Modifier.padding(8.dp)) {
                 Text(
-                    if (chinese) "帧时间线" else "Frame Timeline",
+                    localizedStringResource(Res.string.frame_timeline, chinese),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -164,15 +164,15 @@ private fun SummaryCards(
 ) {
     val summary = analysis.summary
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        MetricCard(if (chinese) "总帧数" else "Frames", summary.totalFrames.toString(), Modifier.weight(1f))
+        MetricCard(localizedStringResource(Res.string.frames, chinese), summary.totalFrames.toString(), Modifier.weight(1f))
         MetricCard(
-            if (chinese) "卡顿率" else "Jank Rate",
+            localizedStringResource(Res.string.jank_rate, chinese),
             "%.1f%%".format(summary.jankRate * 100.0),
             Modifier.weight(1f),
         )
-        MetricCard("P50", summary.p50DurationNs.formatMillis(), Modifier.weight(1f))
-        MetricCard("P95", summary.p95DurationNs.formatMillis(), Modifier.weight(1f))
-        MetricCard(if (chinese) "最差帧" else "Worst", summary.worstDurationNs.formatMillis(), Modifier.weight(1f))
+        MetricCard(localizedStringResource(Res.string.p50, chinese), summary.p50DurationNs.formatMillis(), Modifier.weight(1f))
+        MetricCard(localizedStringResource(Res.string.p95, chinese), summary.p95DurationNs.formatMillis(), Modifier.weight(1f))
+        MetricCard(localizedStringResource(Res.string.worst, chinese), summary.worstDurationNs.formatMillis(), Modifier.weight(1f))
     }
 }
 
@@ -252,41 +252,39 @@ private fun FrameDetail(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                if (chinese) "单帧详情" else "Frame Detail",
+                localizedStringResource(Res.string.frame_detail, chinese),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             if (frame == null) return@Column
-            DetailRow("Frame", "#${frame.sample.frameId}")
-            DetailRow(if (chinese) "来源" else "Source", frame.sample.source.name)
-            frame.sample.activityName?.let { DetailRow("Activity", it.substringAfterLast('.')) }
-            frame.sample.windowId?.let { DetailRow("Window", it) }
-            DetailRow(if (chinese) "判定" else "Verdict", frame.verdict.name)
-            DetailRow(if (chinese) "平台判定" else "Platform Jank", frame.sample.platformJank?.toString() ?: "—")
-            DetailRow(if (chinese) "耗时" else "Duration", frame.sample.resolvedDurationNs().formatMillis())
-            DetailRow(if (chinese) "预算" else "Budget", frame.sample.expectedDurationNs.formatMillis())
-            DetailRow(if (chinese) "预算来源" else "Budget Source", frame.sample.expectedDurationSource.name)
-            DetailRow(if (chinese) "错过 VSync" else "Missed VSync", frame.missedVsyncCount?.toString() ?: "—")
-            DetailRow(if (chinese) "主要阶段" else "Bottleneck", frame.bottleneckStage ?: "—")
+            DetailRow(localizedStringResource(Res.string.frame, chinese), "#${frame.sample.frameId}")
+            DetailRow(localizedStringResource(Res.string.source, chinese), frame.sample.source.name)
+            frame.sample.activityName?.let { DetailRow(localizedStringResource(Res.string.activity, chinese), it.substringAfterLast('.')) }
+            frame.sample.windowId?.let { DetailRow(localizedStringResource(Res.string.window, chinese), it) }
+            DetailRow(localizedStringResource(Res.string.verdict, chinese), frame.verdict.name)
+            DetailRow(localizedStringResource(Res.string.platform_jank, chinese), frame.sample.platformJank?.toString() ?: "—")
+            DetailRow(localizedStringResource(Res.string.duration, chinese), frame.sample.resolvedDurationNs().formatMillis())
+            DetailRow(localizedStringResource(Res.string.budget, chinese), frame.sample.expectedDurationNs.formatMillis())
+            DetailRow(localizedStringResource(Res.string.budget_source, chinese), frame.sample.expectedDurationSource.name)
+            DetailRow(localizedStringResource(Res.string.missed_vsync, chinese), frame.missedVsyncCount?.toString() ?: "—")
+            DetailRow(localizedStringResource(Res.string.bottleneck, chinese), frame.bottleneckStage ?: "—")
             if (frame.jankTypes.isNotEmpty()) {
-                DetailRow(if (chinese) "卡顿类型" else "Jank Types", frame.jankTypes.joinToString { it.name })
+                DetailRow(localizedStringResource(Res.string.jank_types, chinese), frame.jankTypes.joinToString { it.name })
             }
             Spacer(Modifier.height(4.dp))
             frame.sample.stages
                 .values()
                 .forEach { (name, duration) -> DetailRow(name, duration.formatMillis()) }
-            frame.sample.states.forEach { (key, value) -> DetailRow("State · $key", value) }
+            frame.sample.states.forEach { (key, value) ->
+                DetailRow(localizedStringResource(Res.string.state_detail, chinese, key), value)
+            }
             if (frame.sample.packageName != null) {
                 Spacer(Modifier.height(4.dp))
                 OutlinedButton(onClick = { onInspectLayout(frame.sample) }) {
-                    Text(if (chinese) "在 Layout Inspector 中关联查看" else "Correlate in Layout Inspector")
+                    Text(localizedStringResource(Res.string.correlate_in_layout_inspector, chinese))
                 }
                 Text(
-                    if (chinese) {
-                        "打开当前前台布局用于时间与复杂度关联；该关联不表示某个 View 导致卡顿。"
-                    } else {
-                        "Opens the current foreground layout for timing correlation; it does not attribute jank to a View."
-                    },
+                    localizedStringResource(Res.string.opens_the_current_foreground_layout_for_timing_correlation_it_does, chinese),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -315,14 +313,14 @@ private fun ClusterList(
     Card(modifier = modifier) {
         Column(Modifier.fillMaxSize().padding(8.dp)) {
             Text(
-                if (chinese) "卡顿区间" else "Jank Clusters",
+                localizedStringResource(Res.string.jank_clusters, chinese),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(8.dp))
             if (analysis.clusters.isEmpty()) {
                 Text(
-                    if (chinese) "未检测到卡顿区间" else "No jank clusters detected",
+                    localizedStringResource(Res.string.no_jank_clusters_detected, chinese),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
@@ -338,9 +336,14 @@ private fun ClusterList(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Column {
-                                Text("#${cluster.firstFrameId} – #${cluster.lastFrameId}", fontWeight = FontWeight.Medium)
+                                Text(localizedStringResource(Res.string.text, chinese, cluster.firstFrameId, cluster.lastFrameId), fontWeight = FontWeight.Medium)
                                 Text(
-                                    "${cluster.jankFrameIds.size} jank · ${cluster.dominantStage ?: "unknown stage"}",
+                                    localizedStringResource(
+                                        Res.string.jank_cluster_summary,
+                                        chinese,
+                                        cluster.jankFrameIds.size,
+                                        cluster.dominantStage ?: localizedStringResource(Res.string.unknown_stage, chinese),
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

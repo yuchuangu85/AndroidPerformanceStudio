@@ -48,6 +48,7 @@ public fun LayoutInspectorSettingsContent(
     var archiveLimits by remember { mutableStateOf(archiveLimitsStore.load()) }
     var borderColors by remember { mutableStateOf(borderColorStore.load()) }
     var persistenceError by remember { mutableStateOf(false) }
+    val strings = ViewerStrings.forLanguage(if (chinese) ViewerLanguage.SIMPLIFIED_CHINESE else ViewerLanguage.ENGLISH)
 
     fun notifySaved(saved: Boolean) {
         persistenceError = !saved
@@ -68,56 +69,48 @@ public fun LayoutInspectorSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()).padding(end = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Layout Inspector", style = MaterialTheme.typography.titleLarge)
+        Text(strings.layoutInspector, style = MaterialTheme.typography.titleLarge)
         if (persistenceError) {
             Text(
-                if (chinese) {
-                    "设置未能保存，请检查系统偏好设置权限。"
-                } else {
-                    "Settings could not be saved; check the system preferences permissions."
-                },
+                strings.settingsSaveFailed,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
 
-        SettingsSection(if (chinese) "视图与层级" else "View and hierarchy") {
+        SettingsSection(strings.viewAndHierarchy) {
             SettingsToggleRow(
-                label = if (chinese) "隐藏层级中的不可见 View" else "Hide invisible views in hierarchy",
+                label = strings.hideInvisibleHierarchyViews,
                 checked = viewOptions.hideInvisibleHierarchyViews,
             ) { updateViewOptions(viewOptions.copy(hideInvisibleHierarchyViews = it)) }
             SettingsToggleRow(
-                label = if (chinese) "隐藏不可见 View 的问题" else "Hide findings for invisible views",
+                label = strings.hideInvisibleFindings,
                 checked = viewOptions.hideInvisibleFindings,
             ) { updateViewOptions(viewOptions.copy(hideInvisibleFindings = it)) }
             SettingsToggleRow(
-                label = if (chinese) "隐藏层级序号" else "Hide hierarchy indices",
+                label = strings.hideHierarchyIndices,
                 checked = viewOptions.hideHierarchyIndices,
             ) { updateViewOptions(viewOptions.copy(hideHierarchyIndices = it)) }
             SettingsToggleRow(
-                label = if (chinese) "显示层级 View ID" else "Show hierarchy view IDs",
+                label = strings.showHierarchyIds,
                 checked = viewOptions.showHierarchyIds,
             ) { updateViewOptions(viewOptions.copy(showHierarchyIds = it)) }
             SettingsToggleRow(
-                label = if (chinese) "显示层级可见性控制" else "Show hierarchy layer visibility controls",
+                label = strings.showHierarchyLayerVisibilityButtons,
                 checked = viewOptions.showHierarchyLayerVisibilityButtons,
             ) { updateViewOptions(viewOptions.copy(showHierarchyLayerVisibilityButtons = it)) }
             SettingsToggleRow(
-                label = if (chinese) "显示可见 View 边界" else "Show visible view bounds",
+                label = strings.showVisibleViewBounds,
                 checked = viewOptions.showVisibleViewBounds,
             ) { updateViewOptions(viewOptions.copy(showVisibleViewBounds = it)) }
-            CanvasHitTestOrderSetting(viewOptions.canvasHitTestOrder, chinese) {
+            CanvasHitTestOrderSetting(viewOptions.canvasHitTestOrder, strings) {
                 updateViewOptions(viewOptions.copy(canvasHitTestOrder = it))
             }
         }
 
-        SettingsSection(if (chinese) "采集存档" else "Capture archive") {
+        SettingsSection(strings.captureArchive) {
             Text(
-                if (chinese) {
-                    "快照存档上限 · ${archiveLimits.maxSnapshotSizeMiB} MiB"
-                } else {
-                    "Snapshot archive limit · ${archiveLimits.maxSnapshotSizeMiB} MiB"
-                },
+                strings.snapshotArchiveLimit(archiveLimits.maxSnapshotSizeMiB),
                 style = MaterialTheme.typography.labelLarge,
             )
             Slider(
@@ -144,31 +137,27 @@ public fun LayoutInspectorSettingsContent(
                         CaptureArchiveLimits.MIN_SNAPSHOT_SIZE_MULTIPLIER - 1,
             )
             Text(
-                if (chinese) {
-                    "提高上限可导入更大的布局快照，但会增加内存占用。"
-                } else {
-                    "Higher limits allow larger layout snapshots but increase memory usage."
-                },
+                strings.layoutSnapshotArchiveLimitHint,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
 
-        SettingsSection(if (chinese) "画布边框颜色" else "Canvas border colors") {
+        SettingsSection(strings.canvasBorderColors) {
             CanvasColorField(
-                label = if (chinese) "普通" else "Normal",
+                label = strings.normal,
                 color = borderColors.normal,
                 defaultColor = CanvasBorderColors().normal,
                 chinese = chinese,
             ) { updateBorderColors(borderColors.copy(normal = it)) }
             CanvasColorField(
-                label = if (chinese) "悬停" else "Hovered",
+                label = strings.hovered,
                 color = borderColors.hovered,
                 defaultColor = CanvasBorderColors().hovered,
                 chinese = chinese,
             ) { updateBorderColors(borderColors.copy(hovered = it)) }
             CanvasColorField(
-                label = if (chinese) "选中" else "Selected",
+                label = strings.selected,
                 color = borderColors.selected,
                 defaultColor = CanvasBorderColors().selected,
                 chinese = chinese,
@@ -215,17 +204,17 @@ private fun SettingsToggleRow(
 @Composable
 private fun CanvasHitTestOrderSetting(
     selected: CanvasHitTestOrder,
-    chinese: Boolean,
+    strings: ViewerStrings,
     onSelected: (CanvasHitTestOrder) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(if (chinese) "画布点击命中顺序" else "Canvas hit-test order", style = MaterialTheme.typography.bodyMedium)
+        Text(strings.canvasHitTestOrder, style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CanvasHitTestOrder.entries.forEach { option ->
                 val label =
                     when (option) {
-                        CanvasHitTestOrder.SMALL_AREA_FIRST -> if (chinese) "小面积优先" else "Small area first"
-                        CanvasHitTestOrder.Z_ORDER -> if (chinese) "Z 轴顺序" else "Z order"
+                        CanvasHitTestOrder.SMALL_AREA_FIRST -> strings.smallAreaFirst
+                        CanvasHitTestOrder.Z_ORDER -> strings.zOrder
                     }
                 if (option == selected) {
                     Button(onClick = { onSelected(option) }) { Text(label) }
@@ -269,7 +258,7 @@ private fun CanvasColorField(
                     onColorChanged(defaultColor)
                 },
             ) {
-                Text(if (chinese) "重置" else "Reset")
+                Text(ViewerStrings.forLanguage(if (chinese) ViewerLanguage.SIMPLIFIED_CHINESE else ViewerLanguage.ENGLISH).reset)
             }
         }
         Row(

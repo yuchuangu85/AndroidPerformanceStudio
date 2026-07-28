@@ -2,6 +2,10 @@
 
 package com.androidperformancestudio.gpu.presentation
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.gpu.presentation.generated.resources.Res
+import com.androidperformancestudio.gpu.presentation.generated.resources.*
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,14 +53,18 @@ public fun GpuIntegrationScreen(
                 Modifier.padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("Android GPU Inspector", style = MaterialTheme.typography.titleLarge)
+                Text(localizedStringResource(Res.string.android_gpu_inspector, chinese), style = MaterialTheme.typography.titleLarge)
                 Text(
                     state.capability?.executable?.toString()
-                        ?: if (chinese) "未配置 AGI" else "AGI is not configured",
+                        ?: localizedStringResource(Res.string.agi_is_not_configured, chinese),
                 )
                 Text(
-                    "${state.capability?.version ?: "Unknown version"} · " +
-                        "${state.capability?.launchMode ?: "UNAVAILABLE"}",
+                    localizedStringResource(
+                        Res.string.capability_summary,
+                        chinese,
+                        state.capability?.version ?: localizedStringResource(Res.string.unknown_version, chinese),
+                        state.capability?.launchMode ?: localizedStringResource(Res.string.unavailable, chinese),
+                    ),
                 )
                 state.capability?.warnings.orEmpty().forEach { warning ->
                     Text(
@@ -70,7 +78,7 @@ public fun GpuIntegrationScreen(
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Text(
-            if (chinese) "最近 GPU 产物" else "Recent GPU artifacts",
+            localizedStringResource(Res.string.recent_gpu_artifacts, chinese),
             style = MaterialTheme.typography.titleLarge,
         )
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -81,9 +89,9 @@ public fun GpuIntegrationScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column {
-                            Text("${artifact.kind} · ${artifact.path.fileName}")
+                            Text(localizedStringResource(Res.string.text, chinese, artifact.kind, artifact.path.fileName))
                             Text(
-                                "${artifact.sizeBytes / 1024} KiB · ${artifact.sha256.take(12)}…",
+                                localizedStringResource(Res.string.kib, chinese, artifact.sizeBytes / 1024, artifact.sha256.take(12)),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             artifact.warnings.forEach { warning ->
@@ -92,13 +100,13 @@ public fun GpuIntegrationScreen(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             OutlinedButton(onClick = { actions.onVerifyArtifact(artifact) }) {
-                                Text(if (chinese) "校验" else "Verify")
+                                Text(localizedStringResource(Res.string.verify, chinese))
                             }
                             OutlinedButton(
                                 enabled = artifact.openCapability != ArtifactOpenCapability.NONE,
                                 onClick = { actions.onOpenArtifact(artifact) },
                             ) {
-                                Text(if (chinese) "打开" else "Open")
+                                Text(localizedStringResource(Res.string.open, chinese))
                             }
                         }
                     }

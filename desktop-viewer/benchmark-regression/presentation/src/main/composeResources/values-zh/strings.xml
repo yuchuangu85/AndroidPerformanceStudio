@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="current">当前结果</string>
+    <string name="baseline">基线</string>
+    <string name="regressions">回归数</string>
+    <string name="threshold">阈值</string>
+    <string name="not_configured">未配置</string>
+    <string name="metric_comparisons">指标比较</string>
+    <string name="text">%1$s · %2$s</string>
+    <string name="metric_values">%1$s (%2$s) · %3$s → %4$s</string>
+    <string name="metric_delta">Δ %1$s · %2$s · %3$s</string>
+</resources>

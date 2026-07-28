@@ -2,6 +2,10 @@
 
 package com.androidperformancestudio.frame.app
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.frame.frame_app.generated.resources.Res
+import com.androidperformancestudio.frame.frame_app.generated.resources.*
+
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.FrameJankAnalyzer
 import com.androidperformancestudio.frame.export.FrameCsvExporter
@@ -24,6 +28,7 @@ import java.time.Instant
 import java.util.UUID
 
 internal class FrameProfilerController(
+    private val chinese: Boolean = false,
     private val onlineBackend: FrameOnlineBackend = DesktopFrameOnlineBackend(),
     private val parser: GfxInfoFrameStatsParser = GfxInfoFrameStatsParser(),
     private val analyzer: FrameJankAnalyzer = FrameJankAnalyzer(),
@@ -116,7 +121,10 @@ internal class FrameProfilerController(
                     } catch (exception: CancellationException) {
                         throw exception
                     } catch (exception: Exception) {
-                        mutableState.value = snapshot.copy(errorMessage = exception.message ?: "Unable to start capture.")
+                        mutableState.value =
+                            snapshot.copy(
+                                errorMessage = exception.message ?: localizedStringResource(Res.string.unable_to_start_capture, chinese),
+                            )
                         return
                     }
                 onlineFrames.clear()
@@ -127,7 +135,7 @@ internal class FrameProfilerController(
                         analysis = null,
                         selectedFrameId = null,
                         isCapturing = true,
-                        operationMessage = "Capturing ${process.packageName} via ${capture.metadata.source.captureLabel()}…",
+                        operationMessage = localizedStringResource(Res.string.capturing_via, chinese, process.packageName, capture.metadata.source.captureLabel()),
                         warnings = startWarnings,
                         errorMessage = null,
                     )
@@ -152,14 +160,19 @@ internal class FrameProfilerController(
                             ?.sample
                             ?.frameId,
                     operationMessage =
-                        "Capturing ${capture.metadata.packageName} via ${capture.metadata.source.captureLabel()}: " +
-                            "${onlineFrames.size} frames",
+                        localizedStringResource(
+                            Res.string.capturing_frame_count,
+                            chinese,
+                            capture.metadata.packageName,
+                            capture.metadata.source.captureLabel(),
+                            onlineFrames.size,
+                        ),
                     warnings = (mutableState.value.warnings + batch.warnings).distinct(),
                 )
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            stopOnlineCapture(exception.message ?: "Online frame capture failed.")
+            stopOnlineCapture(exception.message ?: localizedStringResource(Res.string.online_frame_capture_failed, chinese))
         }
     }
 
@@ -175,7 +188,7 @@ internal class FrameProfilerController(
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Exception) {
-                    listOf("Unable to close online frame capture cleanly: ${exception.message}")
+                    listOf(localizedStringResource(Res.string.unable_to_close_capture_cleanly, chinese, exception.message))
                 }
             }
         mutableState.value =
@@ -183,9 +196,9 @@ internal class FrameProfilerController(
                 isCapturing = false,
                 operationMessage =
                     if (onlineFrames.isEmpty()) {
-                        "Capture stopped without receiving frames."
+                        localizedStringResource(Res.string.capture_stopped_without_frames, chinese)
                     } else {
-                        "Capture stopped: ${onlineFrames.size} frames."
+                        localizedStringResource(Res.string.capture_stopped_with_frames, chinese, onlineFrames.size)
                     },
                 warnings = (mutableState.value.warnings + stopWarnings).distinct(),
                 errorMessage = errorMessage,
@@ -204,7 +217,9 @@ internal class FrameProfilerController(
             withContext(Dispatchers.IO) {
                 val sessionId = UUID.randomUUID().toString()
                 val parsed = parser.parse(Files.readString(file), sessionId)
-                require(parsed.frames.isNotEmpty()) { "No usable frame rows were found in ${file.fileName}." }
+                require(parsed.frames.isNotEmpty()) {
+                    localizedStringResource(Res.string.no_usable_frame_rows, chinese, file.fileName)
+                }
                 val analysis = analyzer.analyze(parsed.frames)
                 val session =
                     FrameCaptureSession(
@@ -229,7 +244,7 @@ internal class FrameProfilerController(
                             ?.sample
                             ?.frameId,
                     isLoading = false,
-                    operationMessage = "Imported ${loaded.analysis.summary.totalFrames} frames.",
+                    operationMessage = localizedStringResource(Res.string.imported_frames, chinese, loaded.analysis.summary.totalFrames),
                     warnings = loaded.warnings,
                     errorMessage = null,
                 )
@@ -237,7 +252,7 @@ internal class FrameProfilerController(
             mutableState.value =
                 mutableState.value.copy(
                     isLoading = false,
-                    errorMessage = error.message ?: "FrameStats import failed.",
+                    errorMessage = error.message ?: localizedStringResource(Res.string.framestats_import_failed, chinese),
                 )
         }
     }
@@ -250,9 +265,12 @@ internal class FrameProfilerController(
         val analysis = mutableState.value.analysis ?: return
         runCatching { withContext(Dispatchers.IO) { exporter.export(analysis, output) } }
             .onSuccess {
-                mutableState.value = mutableState.value.copy(operationMessage = "Exported ${output.fileName}.", errorMessage = null)
+                mutableState.value = mutableState.value.copy(operationMessage = localizedStringResource(Res.string.exported, chinese, output.fileName), errorMessage = null)
             }.onFailure { error ->
-                mutableState.value = mutableState.value.copy(errorMessage = error.message ?: "CSV export failed.")
+                mutableState.value =
+                    mutableState.value.copy(
+                        errorMessage = error.message ?: localizedStringResource(Res.string.csv_export_failed, chinese),
+                    )
             }
     }
 
@@ -260,9 +278,12 @@ internal class FrameProfilerController(
         val analysis = mutableState.value.analysis ?: return
         runCatching { withContext(Dispatchers.IO) { jsonExporter.export(analysis, output) } }
             .onSuccess {
-                mutableState.value = mutableState.value.copy(operationMessage = "Exported ${output.fileName}.", errorMessage = null)
+                mutableState.value = mutableState.value.copy(operationMessage = localizedStringResource(Res.string.exported, chinese, output.fileName), errorMessage = null)
             }.onFailure { error ->
-                mutableState.value = mutableState.value.copy(errorMessage = error.message ?: "JSON export failed.")
+                mutableState.value =
+                    mutableState.value.copy(
+                        errorMessage = error.message ?: localizedStringResource(Res.string.json_export_failed, chinese),
+                    )
             }
     }
 
@@ -273,7 +294,9 @@ internal class FrameProfilerController(
         withContext(Dispatchers.IO) {
             runCatching {
                 SqliteFrameSessionStore.open(databaseFile).use { it.save(session, frames) }
-            }.exceptionOrNull()?.let { "Analysis succeeded, but the session database could not be updated: ${it.message}" }
+            }.exceptionOrNull()?.let {
+                localizedStringResource(Res.string.session_database_update_failed, chinese, it.message)
+            }
         }
 
     private data class LoadedFrameStats(

@@ -9,6 +9,10 @@
 
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.memory.presentation.generated.resources.Res
+import com.androidperformancestudio.memory.presentation.generated.resources.*
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -60,6 +64,7 @@ import java.util.Locale
 public fun MemoryProfilerScreen(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
+    chinese: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val presentedState = MemoryProfilerPresenter.present(state)
@@ -73,18 +78,19 @@ public fun MemoryProfilerScreen(
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            MemoryToolbar(presentedState, actions)
-            ErrorAndWarnings(presentedState, actions)
-            Overview(summary = presentedState.summary, activityCount = presentedState.activityCount)
+            MemoryToolbar(presentedState, actions, chinese)
+            ErrorAndWarnings(presentedState, actions, chinese)
+            Overview(summary = presentedState.summary, activityCount = presentedState.activityCount, chinese = chinese)
             Histogram(
                 classes = presentedState.classes,
                 sort = presentedState.sort,
                 actions = actions,
                 highlightedClassName = presentedState.highlightedClassName,
+                chinese = chinese,
             )
-            LeakSuspectsPhaseTwo(presentedState)
-            HeapDiffSection(presentedState.heapDiff)
-            BitmapSection(presentedState.bitmapInstances)
+            LeakSuspectsPhaseTwo(presentedState, chinese)
+            HeapDiffSection(presentedState.heapDiff, chinese)
+            BitmapSection(presentedState.bitmapInstances, chinese)
         }
     }
 }
@@ -93,6 +99,7 @@ public fun MemoryProfilerScreen(
 private fun MemoryToolbar(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
+    chinese: Boolean,
 ) {
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
         Row(
@@ -100,8 +107,8 @@ private fun MemoryToolbar(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DeviceSelector(state, actions)
-            ProcessSelector(state, actions)
+            DeviceSelector(state, actions, chinese)
+            ProcessSelector(state, actions, chinese)
             Button(
                 onClick = actions.onDumpHeap,
                 enabled =
@@ -112,7 +119,10 @@ private fun MemoryToolbar(
                 shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
                 contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
             ) {
-                Text(if (state.isDumping) "Dumping…" else "Dump Heap", fontSize = 11.sp)
+                Text(
+                    localizedStringResource(if (state.isDumping) Res.string.dumping else Res.string.dump_heap, chinese),
+                    fontSize = 11.sp,
+                )
             }
             Button(
                 onClick = actions.onImportHprof,
@@ -121,7 +131,10 @@ private fun MemoryToolbar(
                 shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
                 contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
             ) {
-                Text(if (state.isDumping) "Working…" else "Import hprof", fontSize = 11.sp)
+                Text(
+                    localizedStringResource(if (state.isDumping) Res.string.working else Res.string.import_hprof, chinese),
+                    fontSize = 11.sp,
+                )
             }
         }
     }
@@ -131,6 +144,7 @@ private fun MemoryToolbar(
 private fun DeviceSelector(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
+    chinese: Boolean,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }
@@ -140,12 +154,12 @@ private fun DeviceSelector(
             modifier =
                 Modifier
                     .height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp)
-                    .semantics { contentDescription = "Device selector" },
+                    .semantics { contentDescription = localizedStringResource(Res.string.device_selector, chinese) },
             shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
             contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
         ) {
             Text(
-                text = selected?.name ?: "Select device ▼",
+                text = selected?.name ?: localizedStringResource(Res.string.select_device, chinese),
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -154,7 +168,7 @@ private fun DeviceSelector(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (state.devices.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text("No devices") },
+                    text = { Text(localizedStringResource(Res.string.no_devices, chinese)) },
                     onClick = {},
                     enabled = false,
                 )
@@ -162,7 +176,10 @@ private fun DeviceSelector(
             state.devices.forEach { device ->
                 DropdownMenuItem(
                     text = {
-                        Text(if (device.online) device.name else "${device.name} (offline)")
+                        Text(
+                            if (device.online) device.name
+                            else localizedStringResource(Res.string.device_offline, chinese, device.name)
+                        )
                     },
                     enabled = device.online,
                     onClick = {
@@ -179,6 +196,7 @@ private fun DeviceSelector(
 private fun ProcessSelector(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
+    chinese: Boolean,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = state.processes.firstOrNull { it.pid == state.selectedProcessId }
@@ -188,12 +206,12 @@ private fun ProcessSelector(
             modifier =
                 Modifier
                     .height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp)
-                    .semantics { contentDescription = "Process selector" },
+                    .semantics { contentDescription = localizedStringResource(Res.string.process_selector, chinese) },
             shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
             contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
         ) {
             Text(
-                text = selected?.name ?: "Select process ▼",
+                text = selected?.name ?: localizedStringResource(Res.string.select_process, chinese),
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -202,14 +220,14 @@ private fun ProcessSelector(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (state.processes.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text("No processes") },
+                    text = { Text(localizedStringResource(Res.string.no_processes, chinese)) },
                     onClick = {},
                     enabled = false,
                 )
             }
             state.processes.forEach { process ->
                 DropdownMenuItem(
-                    text = { Text("${process.name} (${process.pid})") },
+                    text = { Text(localizedStringResource(Res.string.text, chinese, process.name, process.pid)) },
                     onClick = {
                         expanded = false
                         actions.onSelectProcess(process.pid)
@@ -229,10 +247,11 @@ private val MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING = PaddingValues(horizontal = 8
 private fun ErrorAndWarnings(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
+    chinese: Boolean,
 ) {
     state.operationMessage?.let { message ->
         MessageCard(
-            title = "In progress",
+            title = localizedStringResource(Res.string.in_progress, chinese),
             body = message,
             tone = MessageTone.INFO,
         ) {
@@ -250,14 +269,14 @@ private fun ErrorAndWarnings(
     }
     state.cleanupWarning?.let { warning ->
         MessageCard(
-            title = "Cleanup warning",
+            title = localizedStringResource(Res.string.cleanup_warning, chinese),
             body = warning,
             tone = MessageTone.WARNING,
         )
     }
     state.warning?.let { warning ->
         MessageCard(
-            title = "Warning",
+            title = localizedStringResource(Res.string.warning, chinese),
             body = warning,
             tone = MessageTone.WARNING,
         )
@@ -322,17 +341,22 @@ private data class MessageCardPalette(
 private fun Overview(
     summary: HeapSummary,
     activityCount: Int,
+    chinese: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Overview", fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.overview, chinese), fontWeight = FontWeight.Bold)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            MetricCard("Heap Size", formatBytes(summary.shallowSize), Modifier.weight(1f))
-            MetricCard("Objects", integer(summary.objectCount), Modifier.weight(1f))
-            MetricCard("Classes", integer(summary.classCount), Modifier.weight(1f))
-            MetricCard("Activity", "Count: ${integer(activityCount)}", Modifier.weight(1f))
+            MetricCard(localizedStringResource(Res.string.heap_size, chinese), formatBytes(summary.shallowSize), Modifier.weight(1f))
+            MetricCard(localizedStringResource(Res.string.objects, chinese), integer(summary.objectCount), Modifier.weight(1f))
+            MetricCard(localizedStringResource(Res.string.classes, chinese), integer(summary.classCount), Modifier.weight(1f))
+            MetricCard(
+                localizedStringResource(Res.string.activity, chinese),
+                localizedStringResource(Res.string.count_value, chinese, integer(activityCount)),
+                Modifier.weight(1f),
+            )
         }
     }
 }
@@ -366,6 +390,7 @@ private fun Histogram(
     sort: MemoryHistogramSort,
     actions: MemoryProfilerActions,
     highlightedClassName: String?,
+    chinese: Boolean,
 ) {
     Column(
         modifier =
@@ -376,10 +401,10 @@ private fun Histogram(
                 .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Class histogram", fontWeight = FontWeight.Bold)
-        HistogramHeader(sort, actions)
+        Text(localizedStringResource(Res.string.class_histogram, chinese), fontWeight = FontWeight.Bold)
+        HistogramHeader(sort, actions, chinese)
         if (classes.isEmpty()) {
-            Text("Import or dump an hprof file to show class histogram data.")
+            Text(localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, chinese))
         } else {
             LazyColumn(Modifier.fillMaxWidth()) {
                 items(classes, key = { it.className }) { stats ->
@@ -387,6 +412,7 @@ private fun Histogram(
                         stats = stats,
                         highlighted = stats.className == highlightedClassName,
                         onClick = { actions.onHighlightClass(stats.className) },
+                        chinese = chinese,
                     )
                 }
             }
@@ -398,6 +424,7 @@ private fun Histogram(
 private fun HistogramHeader(
     sort: MemoryHistogramSort,
     actions: MemoryProfilerActions,
+    chinese: Boolean,
 ) {
     Row(
         modifier =
@@ -406,22 +433,22 @@ private fun HistogramHeader(
                 .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Class Name", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.class_name, chinese), Modifier.weight(1f), fontWeight = FontWeight.Bold)
         SortHeader(
-            label = "Count",
+            label = localizedStringResource(Res.string.count, chinese),
             headerSort = MemoryHistogramSort.Count,
             currentSort = sort,
             actions = actions,
             modifier = Modifier.width(96.dp),
         )
         SortHeader(
-            label = "Shallow",
+            label = localizedStringResource(Res.string.shallow, chinese),
             headerSort = MemoryHistogramSort.Shallow,
             currentSort = sort,
             actions = actions,
             modifier = Modifier.width(112.dp),
         )
-        Text("Retained", Modifier.width(140.dp), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.retained, chinese), Modifier.width(140.dp), fontWeight = FontWeight.Bold)
     }
 }
 
@@ -445,6 +472,7 @@ private fun HistogramRow(
     stats: ClassStats,
     highlighted: Boolean,
     onClick: () -> Unit,
+    chinese: Boolean,
 ) {
     Row(
         Modifier
@@ -467,14 +495,14 @@ private fun HistogramRow(
         Text(integer(stats.instanceCount), Modifier.width(96.dp))
         Text(formatBytes(stats.shallowSize), Modifier.width(112.dp))
         Text(
-            text = stats.retainedSize?.let(::formatBytes) ?: "Unavailable",
+            text = stats.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, chinese),
             modifier = Modifier.width(140.dp),
         )
     }
 }
 
 @Composable
-private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState) {
+private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState, chinese: Boolean) {
     Column(
         modifier =
             Modifier
@@ -483,9 +511,9 @@ private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState) {
                 .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text("Leak Suspects", fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.leak_suspects, chinese), fontWeight = FontWeight.Bold)
         if (state.leakSuspects.isEmpty()) {
-            Text("No leak suspects detected.")
+            Text(localizedStringResource(Res.string.no_leak_suspects_detected, chinese))
         } else {
             state.leakSuspects.forEach { suspect ->
                 var expanded by remember(suspect) { mutableStateOf(false) }
@@ -501,19 +529,34 @@ private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState) {
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
-                        "${if (expanded) "▾" else "▸"} ${suspect.className}: ${suspect.reason}",
+                        localizedStringResource(
+                            Res.string.leak_suspect_title,
+                            chinese,
+                            if (expanded) "▾" else "▸",
+                            suspect.className,
+                            suspect.reason,
+                        ),
                         fontWeight = FontWeight.Medium,
                     )
                     Text(
-                        "retained ${suspect.retainedSize?.let(::formatBytes) ?: "—"} · " +
-                            "confidence ${(suspect.confidence * 100).toInt()}%",
+                        localizedStringResource(
+                            Res.string.leak_suspect_summary,
+                            chinese,
+                            suspect.retainedSize?.let(::formatBytes) ?: "—",
+                            (suspect.confidence * 100).toInt(),
+                        ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (expanded) {
                         suspect.referenceChain.forEachIndexed { index, reference ->
                             Text(
-                                "${"  ".repeat(index)}↳ ${reference.fieldName} → " +
-                                    (reference.targetClassName.ifBlank { reference.targetObjectId.toString() }),
+                                localizedStringResource(
+                                    Res.string.reference_chain_entry,
+                                    chinese,
+                                    "  ".repeat(index),
+                                    reference.fieldName,
+                                    reference.targetClassName.ifBlank { reference.targetObjectId.toString() },
+                                ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -525,21 +568,28 @@ private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState) {
 }
 
 @Composable
-private fun HeapDiffSection(diff: com.androidperformancestudio.memory.model.HeapDiff?) {
+private fun HeapDiffSection(diff: com.androidperformancestudio.memory.model.HeapDiff?, chinese: Boolean) {
     if (diff == null) return
     val changedEntries = diff.entries.filter { it.countDelta != 0 || it.shallowSizeDelta != 0L }
     Column(
         modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp)).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text("Heap diff", fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.heap_diff, chinese), fontWeight = FontWeight.Bold)
         if (changedEntries.isEmpty()) {
-            Text("No class changes between the latest two heap dumps.")
+            Text(localizedStringResource(Res.string.no_class_changes_between_the_latest_two_heap_dumps, chinese))
         } else {
             changedEntries.take(10).forEach { entry ->
                 Text(
-                    "${entry.className}: ${entry.beforeCount} → ${entry.afterCount} " +
-                        "(${entry.countDelta.withSign()}) · ${entry.shallowSizeDelta.withSign()} B",
+                    localizedStringResource(
+                        Res.string.heap_diff_entry,
+                        chinese,
+                        entry.className,
+                        entry.beforeCount,
+                        entry.afterCount,
+                        entry.countDelta.withSign(),
+                        entry.shallowSizeDelta.withSign(),
+                    ),
                 )
             }
         }
@@ -547,17 +597,23 @@ private fun HeapDiffSection(diff: com.androidperformancestudio.memory.model.Heap
 }
 
 @Composable
-private fun BitmapSection(bitmaps: List<com.androidperformancestudio.memory.model.BitmapInstanceStats>) {
+private fun BitmapSection(bitmaps: List<com.androidperformancestudio.memory.model.BitmapInstanceStats>, chinese: Boolean) {
     if (bitmaps.isEmpty()) return
     Column(
         modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp)).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text("Bitmap analysis", fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.bitmap_analysis, chinese), fontWeight = FontWeight.Bold)
         bitmaps.take(8).forEach { bitmap ->
             Text(
-                "#${bitmap.objectId} ${bitmap.width ?: "?"}×${bitmap.height ?: "?"} · " +
+                localizedStringResource(
+                    Res.string.bitmap_entry,
+                    chinese,
+                    bitmap.objectId,
+                    bitmap.width ?: "?",
+                    bitmap.height ?: "?",
                     formatBytes(bitmap.retainedSize),
+                ),
             )
         }
     }

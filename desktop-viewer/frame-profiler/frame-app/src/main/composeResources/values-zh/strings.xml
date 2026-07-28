@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="back_to_home">返回主页</string>
+    <string name="device">设备</string>
+    <string name="process">进程</string>
+    <string name="refresh">刷新</string>
+    <string name="stop_capture">停止采集</string>
+    <string name="start_capture">开始采集</string>
+    <string name="import_framestats">导入 FrameStats</string>
+    <string name="export_csv">导出 CSV</string>
+    <string name="export_json">导出 JSON</string>
+    <string name="capturing_via">Capturing %1$s via %2$s…</string>
+    <string name="capturing_frame_count">Capturing %1$s via %2$s: %3$s frames</string>
+    <string name="imported_frames">Imported %1$s frames.</string>
+    <string name="exported">Exported %1$s.</string>
+    <string name="export_frame_profiler_report">Export Frame Profiler Report</string>
+    <string name="process_with_pid">%1$s (%2$s)</string>
+    <string name="import_gfxinfo_framestats">Import gfxinfo FrameStats</string>
+    <string name="unable_to_start_capture">Unable to start capture.</string>
+    <string name="online_frame_capture_failed">Online frame capture failed.</string>
+    <string name="unable_to_close_capture_cleanly">Unable to close online frame capture cleanly: %1$s</string>
+    <string name="capture_stopped_without_frames">Capture stopped without receiving frames.</string>
+    <string name="capture_stopped_with_frames">Capture stopped: %1$s frames.</string>
+    <string name="no_usable_frame_rows">No usable frame rows were found in %1$s.</string>
+    <string name="framestats_import_failed">FrameStats import failed.</string>
+    <string name="csv_export_failed">CSV export failed.</string>
+    <string name="json_export_failed">JSON export failed.</string>
+    <string name="session_database_update_failed">Analysis succeeded, but the session database could not be updated: %1$s</string>
+</resources>

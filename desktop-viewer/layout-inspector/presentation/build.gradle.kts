@@ -26,6 +26,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(compose.desktop.currentOs)
+    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     testImplementation(project(":layout-inspector:shared-kernel:test-fixtures"))
     testImplementation(platform(libs.junit.bom))

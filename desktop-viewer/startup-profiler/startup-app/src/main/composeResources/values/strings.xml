@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="back_to_home">Back to home</string>
+    <string name="device">Device</string>
+    <string name="app_activity">App / Activity</string>
+    <string name="refresh">Refresh</string>
+    <string name="stop_experiment">Stop Experiment</string>
+    <string name="run_experiment">Run Experiment</string>
+    <string name="export_csv">Export CSV</string>
+    <string name="export_json">Export JSON</string>
+    <string name="startup_type">Startup Type</string>
+    <string name="compilation">Compilation</string>
+    <string name="warm_ups">Warm-ups</string>
+    <string name="measured_runs">Measured Runs</string>
+    <string name="timeout">Timeout</string>
+    <string name="cold">Cold</string>
+    <string name="warm">Warm</string>
+    <string name="hot">Hot</string>
+    <string name="unknown">Unknown</string>
+    <string name="found_launchable_activities">Found %1$s launchable activities.</string>
+    <string name="preparing_startup_experiment">Preparing startup experiment…</string>
+    <string name="startup_experiment_completed_measured_runs">Startup experiment completed: %1$s measured runs.</string>
+    <string name="startup_experiment_cancelled">Startup experiment cancelled.</string>
+    <string name="exported_report_to">Exported %1$s report to %2$s.</string>
+    <string name="export_startup_profiler_report">Export Startup Profiler Report</string>
+    <string name="package_agent">%1$s · Agent</string>
+    <string name="package_activity">%1$s · %2$s</string>
+    <string name="seconds_short">%1$ss</string>
+    <string name="current">Current</string>
+    <string name="reset">Reset</string>
+    <string name="verify">Verify</string>
+    <string name="speed_profile">Speed Profile</string>
+    <string name="speed">Speed</string>
+    <string name="startup_experiment_failed">Startup experiment failed.</string>
+    <string name="format_export_failed">%1$s export failed.</string>
+    <string name="session_persistence_failed">Analysis succeeded, but session persistence failed: %1$s</string>
+</resources>

@@ -2,6 +2,10 @@
 
 package com.androidperformancestudio.startup.app
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.startup.startup_app.generated.resources.Res
+import com.androidperformancestudio.startup.startup_app.generated.resources.*
+
 import com.androidperformancestudio.startup.analysis.StartupAnalyzer
 import com.androidperformancestudio.startup.export.StartupCsvExporter
 import com.androidperformancestudio.startup.export.StartupJsonExporter
@@ -20,6 +24,7 @@ import kotlinx.coroutines.withContext
 import java.nio.file.Path
 
 internal class StartupProfilerController(
+    private val chinese: Boolean = false,
     private val backend: StartupBackend = DesktopStartupBackend(),
     private val analyzer: StartupAnalyzer = StartupAnalyzer(),
     private val csvExporter: StartupCsvExporter = StartupCsvExporter(),
@@ -77,7 +82,7 @@ internal class StartupProfilerController(
                         targets = result.value,
                         selectedComponentName = result.value.singleOrNull()?.componentName,
                         isRefreshing = false,
-                        operationMessage = "Found ${result.value.size} launchable activities.",
+                        operationMessage = localizedStringResource(Res.string.found_launchable_activities, chinese, result.value.size),
                     )
         }
     }
@@ -130,7 +135,7 @@ internal class StartupProfilerController(
                 isRunning = true,
                 completedRuns = 0,
                 totalRuns = snapshot.config.warmupRuns + snapshot.config.measuredRuns,
-                operationMessage = "Preparing startup experiment…",
+                operationMessage = localizedStringResource(Res.string.preparing_startup_experiment, chinese),
                 warnings = emptyList(),
                 errorMessage = null,
             )
@@ -153,17 +158,17 @@ internal class StartupProfilerController(
                     selectedRunId = analysis.runs.firstOrNull()?.id,
                     isRunning = false,
                     completedRuns = snapshot.config.warmupRuns + snapshot.config.measuredRuns,
-                    operationMessage = "Startup experiment completed: ${analysis.runs.size} measured runs.",
+                    operationMessage = localizedStringResource(Res.string.startup_experiment_completed_measured_runs, chinese, analysis.runs.size),
                     warnings = (result.warnings + analysis.warnings + listOfNotNull(persistenceWarning)).distinct(),
                 )
         } catch (exception: CancellationException) {
-            mutableState.value = mutableState.value.copy(isRunning = false, operationMessage = "Startup experiment cancelled.")
+            mutableState.value = mutableState.value.copy(isRunning = false, operationMessage = localizedStringResource(Res.string.startup_experiment_cancelled, chinese))
             throw exception
         } catch (exception: Exception) {
             mutableState.value =
                 mutableState.value.copy(
                     isRunning = false,
-                    errorMessage = exception.message ?: "Startup experiment failed.",
+                    errorMessage = exception.message ?: localizedStringResource(Res.string.startup_experiment_failed, chinese),
                 )
         }
     }
@@ -195,8 +200,13 @@ internal class StartupProfilerController(
         runCatching { withContext(Dispatchers.IO) { block() } }
             .onSuccess {
                 mutableState.value =
-                    mutableState.value.copy(operationMessage = "Exported $format report to ${output.fileName}.", errorMessage = null)
-            }.onFailure { mutableState.value = mutableState.value.copy(errorMessage = it.message ?: "$format export failed.") }
+                    mutableState.value.copy(operationMessage = localizedStringResource(Res.string.exported_report_to, chinese, format, output.fileName), errorMessage = null)
+            }.onFailure {
+                mutableState.value =
+                    mutableState.value.copy(
+                        errorMessage = it.message ?: localizedStringResource(Res.string.format_export_failed, chinese, format),
+                    )
+            }
     }
 
     private suspend fun persist(
@@ -206,7 +216,7 @@ internal class StartupProfilerController(
         withContext(Dispatchers.IO) {
             runCatching { SqliteStartupSessionStore.open(databaseFile).use { it.save(session, runs) } }
                 .exceptionOrNull()
-                ?.let { "Analysis succeeded, but session persistence failed: ${it.message}" }
+                ?.let { localizedStringResource(Res.string.session_persistence_failed, chinese, it.message) }
         }
 
     private companion object {

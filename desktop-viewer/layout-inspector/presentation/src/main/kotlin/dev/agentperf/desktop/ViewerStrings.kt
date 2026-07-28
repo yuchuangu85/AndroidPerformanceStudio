@@ -1,169 +1,143 @@
 package dev.agentperf.desktop
 
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.androidperformancestudio.ui.localizedStringResource
+import dev.agentperf.presentation.generated.resources.ViewerRes
+import org.jetbrains.compose.resources.StringResource
 import kotlin.math.roundToInt
 
+/**
+ * Language-aware string facade backed by Compose Multiplatform Resources.
+ *
+ * Simple strings are loaded from [composeResources/values/strings.xml] (English)
+ * and [composeResources/values-zh/strings.xml] (Simplified Chinese) via language qualifiers.
+ *
+ * The public API remains identical to the previous hardcoded version so that all
+ * existing Compose and presenter call sites compile without changes.
+ *
+ * Complex methods (finding messages, detail label lookups, etc.) continue to use
+ * parameterized resource strings with runtime arguments.
+ */
 internal class ViewerStrings private constructor(
     val language: ViewerLanguage,
 ) {
     private val chinese: Boolean
         get() = language == ViewerLanguage.SIMPLIFIED_CHINESE
 
-    val settings: String get() = text("Settings", "设置")
-    val backToHome: String get() = text("Back to home", "返回主页")
-    val layoutInspectorSettings: String
-        get() = text("Layout Inspector Settings", "布局检查器设置")
-    val canvasBorderColors: String get() = text("Canvas border colors", "画布边框颜色")
-    val defaultViewBoundsColor: String get() = text("Default view bounds", "默认视图边框")
-    val hoveredViewBoundsColor: String get() = text("Hovered view bounds", "鼠标悬停边框")
-    val selectedViewBoundsColor: String get() = text("Selected view bounds", "点击选中边框")
-    val captureArchive: String get() = text("Capture archive", "捕获归档")
-    val layoutSnapshotArchiveLimit: String
-        get() = text("Layout snapshot size limit", "布局快照大小上限")
-    val layoutSnapshotArchiveLimitHint: String
-        get() = text(
-            "Adjusts import and export limits from 32 to 320 MiB; higher limits may use more memory.",
-            "可将导入和导出上限从 32 MiB 调至 320 MiB；更高上限可能占用更多内存。",
-        )
-    val reset: String get() = text("Reset", "恢复默认")
-    val actions: String get() = text("Actions", "操作")
-    val view: String get() = text("View", "视图")
-    val file: String get() = text("File", "文件")
-    val importArchive: String get() = text("Import archive", "导入归档")
-    val importScreenshot: String get() = text("Import screenshot", "导入截图")
-    val exportArchive: String get() = text("Export", "导出")
-    val chooseArchiveToImport: String
-        get() = text("Choose archive to import", "选择要导入的归档")
-    val chooseArchiveExportFile: String
-        get() = text("Choose export file", "选择导出文件")
-    val chooseScreenshotToImport: String
-        get() = text("Choose screenshot to import", "选择要导入的截图")
-    val importArchiveSucceededTitle: String
-        get() = text("Import succeeded", "导入成功")
-    val importArchiveFailedTitle: String
-        get() = text("Import failed", "导入失败")
-    val importScreenshotSucceededTitle: String
-        get() = text("Screenshot imported", "截图已导入")
-    val importScreenshotFailedTitle: String
-        get() = text("Screenshot import failed", "截图导入失败")
-    val exportArchiveSucceededTitle: String
-        get() = text("Export succeeded", "导出成功")
-    val exportArchiveFailedTitle: String
-        get() = text("Export failed", "导出失败")
-    val hideInvisibleHierarchyViews: String
-        get() = text(
-            "Hide invisible views in hierarchy",
-            "隐藏层级结构中的不可见视图",
-        )
-    val hideInvisibleFindings: String
-        get() = text(
-            "Hide invisible-view findings",
-            "隐藏问题列表中的不可见视图内容",
-        )
-    val hideHierarchyIndices: String
-        get() = text("Hide hierarchy indices", "隐藏层级索引")
-    val showHierarchyLayerVisibilityButtons: String
-        get() = text(
-            "Show visibility buttons in hierarchy",
-            "显示层级结构中的显示按钮",
-        )
-    val showVisibleViewBounds: String
-        get() = text("Show all visible view bounds", "显示全部可见视图边缘")
-    val dismiss: String get() = text("OK", "确定")
-    val autoScan: String get() = text("Auto scan", "自动扫描")
-    val autoDevice: String get() = text("Auto device", "自动设备")
-    val captureTarget: String get() = text("Target", "目标")
-    val window: String get() = text("Window", "窗口")
-    val selectWindow: String get() = text("Select window", "选择窗口")
-    val refresh: String get() = text("Refresh", "刷新")
-    val refreshOnce: String get() = text("Refresh once", "刷新一次")
-    val hierarchy: String get() = text("HIERARCHY", "层级结构")
-    val canvas: String get() = text("CANVAS", "画布")
-    val properties: String get() = text("PROPERTIES", "属性")
-    val findings: String get() = text("FINDINGS", "问题")
-    val runAiAnalysis: String get() = text("Run AI", "AI 分析")
-    val aiAnalysisRunning: String get() = text("AI running…", "AI 分析中…")
-    val noLiveFrame: String get() = text("No live frame", "无实时画面")
-    val waitingForFrame: String get() = text("Waiting for live device frame", "等待设备实时画面")
-    val zoomOutPreview: String get() = text("Zoom out preview", "缩小预览")
-    val zoomInPreview: String get() = text("Zoom in preview", "放大预览")
-    val noFindings: String get() = text("No findings", "暂无问题")
-    fun aiAnalysisSummary(summary: String): String = text("AI: $summary", "AI：$summary")
-    fun aiAnalysisFailed(message: String): String = text("AI failed: $message", "AI 失败：$message")
-    val timelineLiveCapture: String get() = text("TIMELINE  Live capture", "时间线  实时采集")
-    val noApp: String get() = text("No app", "无应用")
-    val noAvailableWindows: String get() = text("No available windows", "无可用窗口")
-    val noSnapshotLoaded: String get() = text("No snapshot loaded", "尚未加载布局快照")
-    val disconnected: String get() = text("Disconnected", "未连接")
-    val connecting: String get() = text("Connecting", "连接中")
-    val live: String get() = text("Live", "实时")
-    val offlineArchive: String get() = text("Offline archive", "离线归档")
-    val connectionFailed: String get() = text("Connection failed", "连接失败")
-    val unavailable: String get() = text("Unavailable", "不可用")
-    val appOnlyOn: String get() = text("APP ONLY ON", "仅应用 开")
-    val appOnlyOff: String get() = text("APP ONLY OFF", "仅应用 关")
-    val smallAreaHitTesting: String get() = text("SMALL HITS", "小面积优先")
-    val zOrderHitTesting: String get() = text("Z-ORDER HITS", "Z 序优先")
-    val hideLayer: String get() = text("Hide", "隐藏")
-    val showLayer: String get() = text("Show", "显示")
-    val toggleLayerVisibility: String
-        get() = text(
-            "Toggle this layer in canvas hit testing",
-            "切换此层级是否参与画布命中测试",
-        )
-    val searchHierarchy: String get() = text("Search hierarchy", "搜索层级")
-    val searchPrevious: String get() = text("Previous match", "上一个匹配")
-    val searchNext: String get() = text("Next match", "下一个匹配")
-    val searchNoMatch: String get() = text("No match", "无匹配")
+    // ---- Simple strings (loaded from resources) ----
 
-    fun hiddenLayerSummary(count: Int): String = text(
-        "Hidden $count · Clear",
-        "已隐藏 $count · 清除",
-    )
+    val settings: String get() = str(ViewerRes.settings)
+    val backToHome: String get() = str(ViewerRes.back_to_home)
+    val layoutInspectorSettings: String get() = str(ViewerRes.layout_inspector_settings)
+    val layoutInspector: String get() = str(ViewerRes.layout_inspector)
+    val settingsSaveFailed: String get() = str(ViewerRes.settings_save_failed)
+    val viewAndHierarchy: String get() = str(ViewerRes.view_and_hierarchy)
+    val showHierarchyIds: String get() = str(ViewerRes.show_hierarchy_ids)
+    val canvasBorderColors: String get() = str(ViewerRes.canvas_border_colors)
+    val defaultViewBoundsColor: String get() = str(ViewerRes.default_view_bounds_color)
+    val hoveredViewBoundsColor: String get() = str(ViewerRes.hovered_view_bounds_color)
+    val selectedViewBoundsColor: String get() = str(ViewerRes.selected_view_bounds_color)
+    val captureArchive: String get() = str(ViewerRes.capture_archive)
+    val layoutSnapshotArchiveLimit: String get() = str(ViewerRes.layout_snapshot_archive_limit)
+    val layoutSnapshotArchiveLimitHint: String get() = str(ViewerRes.layout_snapshot_archive_limit_hint)
+    val reset: String get() = str(ViewerRes.reset)
+    val normal: String get() = str(ViewerRes.normal)
+    val hovered: String get() = str(ViewerRes.hovered)
+    val selected: String get() = str(ViewerRes.selected)
+    val canvasHitTestOrder: String get() = str(ViewerRes.canvas_hit_test_order)
+    val smallAreaFirst: String get() = str(ViewerRes.small_area_first)
+    val zOrder: String get() = str(ViewerRes.z_order)
+    val actions: String get() = str(ViewerRes.actions)
+    val view: String get() = str(ViewerRes.view)
+    val file: String get() = str(ViewerRes.file)
+    val importArchive: String get() = str(ViewerRes.import_archive)
+    val importScreenshot: String get() = str(ViewerRes.import_screenshot)
+    val exportArchive: String get() = str(ViewerRes.export_archive)
+    val chooseArchiveToImport: String get() = str(ViewerRes.choose_archive_to_import)
+    val chooseArchiveExportFile: String get() = str(ViewerRes.choose_archive_export_file)
+    val chooseScreenshotToImport: String get() = str(ViewerRes.choose_screenshot_to_import)
+    val importArchiveSucceededTitle: String get() = str(ViewerRes.import_archive_succeeded_title)
+    val importArchiveFailedTitle: String get() = str(ViewerRes.import_archive_failed_title)
+    val importScreenshotSucceededTitle: String get() = str(ViewerRes.import_screenshot_succeeded_title)
+    val importScreenshotFailedTitle: String get() = str(ViewerRes.import_screenshot_failed_title)
+    val exportArchiveSucceededTitle: String get() = str(ViewerRes.export_archive_succeeded_title)
+    val exportArchiveFailedTitle: String get() = str(ViewerRes.export_archive_failed_title)
+    val hideInvisibleHierarchyViews: String get() = str(ViewerRes.hide_invisible_hierarchy_views)
+    val hideInvisibleFindings: String get() = str(ViewerRes.hide_invisible_findings)
+    val hideHierarchyIndices: String get() = str(ViewerRes.hide_hierarchy_indices)
+    val showHierarchyLayerVisibilityButtons: String get() = str(ViewerRes.show_hierarchy_layer_visibility_buttons)
+    val showVisibleViewBounds: String get() = str(ViewerRes.show_visible_view_bounds)
+    val dismiss: String get() = str(ViewerRes.dismiss)
+    val autoScan: String get() = str(ViewerRes.auto_scan)
+    val autoDevice: String get() = str(ViewerRes.auto_device)
+    val captureTarget: String get() = str(ViewerRes.capture_target)
+    val window: String get() = str(ViewerRes.window)
+    val selectWindow: String get() = str(ViewerRes.select_window)
+    val refresh: String get() = str(ViewerRes.refresh)
+    val refreshOnce: String get() = str(ViewerRes.refresh_once)
+    val hierarchy: String get() = str(ViewerRes.hierarchy)
+    val canvas: String get() = str(ViewerRes.canvas)
+    val properties: String get() = str(ViewerRes.properties)
+    val findings: String get() = str(ViewerRes.findings)
+    val runAiAnalysis: String get() = str(ViewerRes.run_ai_analysis)
+    val aiAnalysisRunning: String get() = str(ViewerRes.ai_analysis_running)
+    val noLiveFrame: String get() = str(ViewerRes.no_live_frame)
+    val waitingForFrame: String get() = str(ViewerRes.waiting_for_frame)
+    val zoomOutPreview: String get() = str(ViewerRes.zoom_out_preview)
+    val zoomInPreview: String get() = str(ViewerRes.zoom_in_preview)
+    val noFindings: String get() = str(ViewerRes.no_findings)
+    val findInMemoryProfiler: String get() = str(ViewerRes.find_in_memory_profiler)
+    val timelineLiveCapture: String get() = str(ViewerRes.timeline_live_capture)
+    val noApp: String get() = str(ViewerRes.no_app)
+    val noAvailableWindows: String get() = str(ViewerRes.no_available_windows)
+    val noSnapshotLoaded: String get() = str(ViewerRes.no_snapshot_loaded)
+    val disconnected: String get() = str(ViewerRes.disconnected)
+    val connecting: String get() = str(ViewerRes.connecting)
+    val live: String get() = str(ViewerRes.live)
+    val offlineArchive: String get() = str(ViewerRes.offline_archive)
+    val connectionFailed: String get() = str(ViewerRes.connection_failed)
+    val unavailable: String get() = str(ViewerRes.unavailable)
+    val appOnlyOn: String get() = str(ViewerRes.app_only_on)
+    val appOnlyOff: String get() = str(ViewerRes.app_only_off)
+    val smallAreaHitTesting: String get() = str(ViewerRes.small_area_hit_testing)
+    val zOrderHitTesting: String get() = str(ViewerRes.z_order_hit_testing)
+    val hideLayer: String get() = str(ViewerRes.hide_layer)
+    val showLayer: String get() = str(ViewerRes.show_layer)
+    val toggleLayerVisibility: String get() = str(ViewerRes.toggle_layer_visibility)
+    val searchHierarchy: String get() = str(ViewerRes.search_hierarchy)
+    val searchPrevious: String get() = str(ViewerRes.search_previous)
+    val searchNext: String get() = str(ViewerRes.search_next)
+    val searchNoMatch: String get() = str(ViewerRes.search_no_match)
+    val noHighOverlapPairsStr: String get() = str(ViewerRes.no_high_overlap_pairs)
+    val timelineBaseline: String get() = str(ViewerRes.timeline_baseline)
 
-    fun archiveImportSucceeded(path: String): String = text(
-        "Archive imported:\n$path",
-        "归档已导入：\n$path",
-    )
+    // ---- Parameterized / format strings ----
 
-    fun archiveImportFailed(message: String): String = text(
-        "Unable to import archive:\n$message",
-        "无法导入归档：\n$message",
-    )
+    fun aiAnalysisSummary(summary: String): String = fmt(ViewerRes.ai_analysis_summary, summary)
+    fun aiAnalysisFailed(message: String): String = fmt(ViewerRes.ai_analysis_failed, message)
 
-    fun screenshotImportSucceeded(path: String): String = text(
-        "Screenshot imported for the current layout:\n$path",
-        "已为当前布局导入截图：\n$path",
-    )
+    fun hiddenLayerSummary(count: Int): String = fmt(ViewerRes.hidden_layer_summary, count)
+    fun snapshotArchiveLimit(sizeMiB: Int): String = fmt(ViewerRes.snapshot_archive_limit_value, sizeMiB)
 
-    fun screenshotImportFailed(message: String): String = text(
-        "Unable to import screenshot:\n$message",
-        "无法导入截图：\n$message",
-    )
+    fun archiveImportSucceeded(path: String): String = fmt(ViewerRes.archive_import_succeeded, path)
+    fun archiveImportFailed(message: String): String = fmt(ViewerRes.archive_import_failed, message)
+    fun screenshotImportSucceeded(path: String): String = fmt(ViewerRes.screenshot_import_succeeded, path)
+    fun screenshotImportFailed(message: String): String = fmt(ViewerRes.screenshot_import_failed, message)
 
     fun archiveExportSucceeded(
         path: String,
         rawArtifactsIncluded: Boolean,
     ): String =
         if (rawArtifactsIncluded) {
-            text(
-                "Archive exported:\n$path",
-                "归档已导出：\n$path",
-            )
+            fmt(ViewerRes.archive_export_succeeded, path)
         } else {
-            text(
-                "Archive exported without raw Visible Window Views attachments:\n$path",
-                "归档已导出，但未包含原始 Visible Window Views 附件：\n$path",
-            )
+            fmt(ViewerRes.archive_export_succeeded_no_attachments, path)
         }
 
-    fun archiveExportFailed(message: String): String = text(
-        "Unable to export archive:\n$message",
-        "无法导出归档：\n$message",
-    )
+    fun archiveExportFailed(message: String): String = fmt(ViewerRes.archive_export_failed, message)
 
     fun archiveLimitValue(limits: CaptureArchiveLimits): String =
-        "${limits.maxSnapshotSizeMiB} MiB (${limits.snapshotSizeMultiplier}×)"
+        fmt(ViewerRes.archive_limit_value, limits.maxSnapshotSizeMiB, limits.snapshotSizeMultiplier)
 
     fun connectionError(message: String): String {
         val deviceCount = authorizedDeviceCountError
@@ -171,21 +145,50 @@ internal class ViewerStrings private constructor(
             ?.groupValues
             ?.get(1)
             ?: return message
-        return text(
-            message,
-            "需要且只能连接一台已授权设备，当前检测到 $deviceCount 台",
-        )
+        return fmt(ViewerRes.connection_error_device_count, deviceCount)
     }
+
+    fun metrics(nodeCount: Int, maxDepth: Int, widestLevel: Int): String =
+        fmt(ViewerRes.metrics_summary, nodeCount, maxDepth, widestLevel)
+
+    fun timelineDiff(added: Int, removed: Int, moved: Int): String =
+        fmt(ViewerRes.timeline_diff, added, removed, moved)
+
+    fun timelineFrameSummary(added: Int, removed: Int, moved: Int): String =
+        fmt(ViewerRes.timeline_frame_summary, added, removed, moved)
+
+    fun infoBadge(count: Int): String = fmt(ViewerRes.info_badge, count)
+    fun warningBadge(count: Int): String = fmt(ViewerRes.warning_badge, count)
+    fun errorBadge(count: Int): String = fmt(ViewerRes.error_badge, count)
+
+    fun subtreeComplexity(descendants: Int, depth: Int): String =
+        fmt(ViewerRes.subtree_complexity, descendants, depth)
+
+    fun noHighOverlapPairs(): String = noHighOverlapPairsStr
+
+    fun overlapPairs(pairs: Int, maxRatio: Float): String {
+        val pct = (maxRatio * 100).roundToInt()
+        return if (pairs == 1) {
+            fmt(ViewerRes.overlap_pair_single, pairs, pct)
+        } else {
+            fmt(ViewerRes.overlap_pairs, pairs, pct)
+        }
+    }
+
+    fun blending(alpha: Float): String =
+        if (alpha < 1f) fmt(ViewerRes.blending_alpha, alpha.toString()) else str(ViewerRes.alpha_one)
+
+    // ---- Enum-to-string mappings ----
 
     fun actionLabel(action: ViewerAction): String = when (action) {
         ViewerAction.TOGGLE_AUTO_SCAN -> autoScan
-        ViewerAction.PREVIOUS_NODE -> text("Previous node", "上一个节点")
-        ViewerAction.NEXT_NODE -> text("Next node", "下一个节点")
-        ViewerAction.TOGGLE_SELECTED_NODE -> text("Collapse/expand node", "折叠/展开节点")
-        ViewerAction.TOGGLE_HIERARCHY -> text("Hide left panel", "隐藏左侧栏")
-        ViewerAction.TOGGLE_FINDINGS -> text("Hide bottom panel", "隐藏底部栏")
-        ViewerAction.TOGGLE_DETAILS -> text("Hide right panel", "隐藏右侧栏")
-        ViewerAction.TOGGLE_HIERARCHY_IDS -> text("Show layout IDs", "显示布局 ID")
+        ViewerAction.PREVIOUS_NODE -> str(ViewerRes.previous_node)
+        ViewerAction.NEXT_NODE -> str(ViewerRes.next_node)
+        ViewerAction.TOGGLE_SELECTED_NODE -> str(ViewerRes.toggle_selected_node)
+        ViewerAction.TOGGLE_HIERARCHY -> str(ViewerRes.toggle_hierarchy)
+        ViewerAction.TOGGLE_FINDINGS -> str(ViewerRes.toggle_findings)
+        ViewerAction.TOGGLE_DETAILS -> str(ViewerRes.toggle_details)
+        ViewerAction.TOGGLE_HIERARCHY_IDS -> str(ViewerRes.toggle_hierarchy_ids)
         ViewerAction.OPEN_SETTINGS -> settings
     }
 
@@ -198,42 +201,17 @@ internal class ViewerStrings private constructor(
     }
 
     fun captureTargetLabel(mode: CaptureTargetMode): String = when (mode) {
-        CaptureTargetMode.FOREGROUND_APP -> text("Foreground app", "前台应用")
-        CaptureTargetMode.SYSTEM_UI -> text("System UI", "系统界面")
+        CaptureTargetMode.FOREGROUND_APP -> str(ViewerRes.foreground_app)
+        CaptureTargetMode.SYSTEM_UI -> str(ViewerRes.system_ui)
     }
 
-    fun metrics(nodeCount: Int, maxDepth: Int, widestLevel: Int): String =
-        if (chinese) {
-            "$nodeCount 个节点 · 深度 $maxDepth · 最大宽度 $widestLevel"
-        } else {
-            "$nodeCount nodes · depth $maxDepth · width $widestLevel"
-        }
-
-    fun timelineDiff(added: Int, removed: Int, moved: Int): String =
-        if (chinese) {
-            "Δ +$added -$removed 移动 $moved"
-        } else {
-            "Δ +$added -$removed moved $moved"
-        }
-
-    val timelineBaseline: String get() = text("baseline", "基线")
-
-    fun timelineFrameSummary(added: Int, removed: Int, moved: Int): String =
-        if (chinese) {
-            "+$added -$removed 移动 $moved"
-        } else {
-            "+$added -$removed moved $moved"
-        }
-
-    fun infoBadge(count: Int): String = text("INFO $count", "信息 $count")
-    fun warningBadge(count: Int): String = text("WARN $count", "警告 $count")
-    fun errorBadge(count: Int): String = text("ERROR $count", "错误 $count")
+    // ---- Finding logic (rule-based routing) ----
 
     fun findingTitle(ruleId: String): String = when (ruleId) {
-        "layout.invisible-node" -> text("Invisible node", "不可见节点")
-        "layout.excessive-children" -> text("Too many children", "子节点过多")
-        "layout.overlapping-siblings" -> text("Overlapping sibling bounds", "兄弟节点区域重叠")
-        "layout.deep-hierarchy" -> text("Deep hierarchy", "层级过深")
+        "layout.invisible-node" -> str(ViewerRes.finding_invisible_node)
+        "layout.excessive-children" -> str(ViewerRes.finding_excessive_children)
+        "layout.overlapping-siblings" -> str(ViewerRes.finding_overlapping_siblings)
+        "layout.deep-hierarchy" -> str(ViewerRes.finding_deep_hierarchy)
         else -> ruleId
     }
 
@@ -243,19 +221,13 @@ internal class ViewerStrings private constructor(
         fallback: String,
     ): String = when (ruleId) {
         "layout.invisible-node" -> arguments["className"]?.let { className ->
-            text(
-                "$className exists but is currently invisible",
-                "$className 节点存在但当前不可见",
-            )
+            fmt(ViewerRes.finding_invisible_node_message, className)
         }
         "layout.excessive-children" -> {
             val count = arguments["count"]
             val threshold = arguments["threshold"]
             if (count != null && threshold != null) {
-                text(
-                    "$count direct children, exceeding the threshold of $threshold",
-                    "直接子节点数量 $count，超过阈值 $threshold",
-                )
+                fmt(ViewerRes.finding_excessive_children_message, count, threshold)
             } else {
                 null
             }
@@ -264,10 +236,7 @@ internal class ViewerStrings private constructor(
             val count = arguments["count"]
             val ratio = arguments["ratioPercent"]
             if (count != null && ratio != null) {
-                text(
-                    "$count siblings overlap by at least $ratio%; this is a structural rendering risk—confirm with GPU tools",
-                    "$count 个兄弟节点的边界重叠比例至少为 $ratio%；这是结构性渲染风险，请使用 GPU 工具进一步确认",
-                )
+                fmt(ViewerRes.finding_overlapping_siblings_message, count, ratio)
             } else {
                 null
             }
@@ -276,10 +245,7 @@ internal class ViewerStrings private constructor(
             val depth = arguments["depth"]
             val threshold = arguments["threshold"]
             if (depth != null && threshold != null) {
-                text(
-                    "Hierarchy depth $depth exceeds the threshold of $threshold",
-                    "层级深度 $depth，超过阈值 $threshold",
-                )
+                fmt(ViewerRes.finding_deep_hierarchy_message, depth, threshold)
             } else {
                 null
             }
@@ -288,109 +254,89 @@ internal class ViewerStrings private constructor(
     } ?: fallback
 
     fun detailSection(english: String): String =
-        if (!chinese) english else detailSectionsChinese[english] ?: english
+        detailSectionResources[english]?.let(::str) ?: english
 
     fun detailLabel(english: String): String =
-        if (!chinese) english else detailLabelsChinese[english] ?: english
+        detailLabelResources[english]?.let(::str) ?: english
 
-    fun noHighOverlapPairs(): String =
-        text("No high-overlap child pairs · structural", "无高重叠子节点对 · 结构估算")
+    // ---- Resource loading ----
 
-    fun overlapPairs(pairs: Int, maxRatio: Float): String =
-        if (chinese) {
-            "$pairs 对 · 最大 ${(maxRatio * 100).roundToInt()}% · 结构估算"
-        } else {
-            "$pairs ${if (pairs == 1) "pair" else "pairs"} · " +
-                "max ${(maxRatio * 100).roundToInt()}% · structural"
-        }
+    private fun str(resource: StringResource): String = localizedStringResource(resource, chinese)
 
-    fun subtreeComplexity(descendants: Int, depth: Int): String =
-        text(
-            "$descendants descendants · depth $depth",
-            "$descendants 个后代 · 深度 $depth",
-        )
-
-    fun blending(alpha: Float): String =
-        if (alpha < 1f) {
-            text("Alpha $alpha requires blending", "Alpha $alpha 需要混合")
-        } else {
-            "Alpha 1.0"
-        }
-
-    private fun text(english: String, simplifiedChinese: String): String =
-        if (chinese) simplifiedChinese else english
+    private fun fmt(resource: StringResource, vararg args: Any?): String =
+        localizedStringResource(resource, chinese, *args)
 
     companion object {
         fun forLanguage(language: ViewerLanguage): ViewerStrings = ViewerStrings(language)
 
         val English: ViewerStrings = ViewerStrings(ViewerLanguage.ENGLISH)
+
+        private val authorizedDeviceCountError =
+            Regex("""Expected exactly one authorized device, found (\d+)""")
     }
 }
 
 internal val LocalViewerStrings = staticCompositionLocalOf { ViewerStrings.English }
 
-private val authorizedDeviceCountError =
-    Regex("""Expected exactly one authorized device, found (\d+)""")
-
-private val detailSectionsChinese = mapOf(
-    "RENDER RISKS" to "渲染风险",
-    "IDENTITY" to "标识",
-    "LAYOUT" to "布局",
-    "DRAWING" to "绘制",
-    "INTERACTION" to "交互",
-    "RAW PROPERTIES" to "原始属性",
+private val detailSectionResources: Map<String, StringResource> = mapOf(
+    "RENDER RISKS" to ViewerRes.detail_section_render_risks,
+    "IDENTITY" to ViewerRes.detail_section_identity,
+    "LAYOUT" to ViewerRes.detail_section_layout,
+    "DRAWING" to ViewerRes.detail_section_drawing,
+    "INTERACTION" to ViewerRes.detail_section_interaction,
+    "RAW PROPERTIES" to ViewerRes.detail_section_raw_properties,
 )
 
-private val detailLabelsChinese = mapOf(
-    "Class" to "类",
-    "ID" to "ID",
-    "Resource" to "资源",
-    "Text" to "文本",
-    "Content description" to "内容描述",
-    "Bounds" to "边界",
-    "Size" to "尺寸",
-    "Local layout bounds" to "本地布局边界",
-    "Local layout size" to "本地布局尺寸",
-    "Visibility" to "可见性",
-    "Tree depth" to "树深度",
-    "Direct children" to "直接子节点",
-    "Descendants" to "后代节点",
-    "Subtree depth" to "子树深度",
-    "Layout width" to "布局宽度",
-    "Layout height" to "布局高度",
-    "Layout params class" to "布局参数类",
-    "Measured size" to "测量尺寸",
-    "Minimum size" to "最小尺寸",
-    "Padding" to "内边距",
-    "Margin" to "外边距",
-    "Scroll" to "滚动偏移",
-    "Layout requested" to "请求布局",
-    "Alpha" to "透明度",
-    "Z" to "Z",
-    "Elevation" to "高度",
-    "Translation" to "位移",
-    "Rotation" to "旋转",
-    "Scale" to "缩放",
-    "Pivot" to "轴心",
-    "Background" to "背景",
-    "Background color" to "背景色",
-    "Foreground" to "前景",
-    "Clip bounds" to "裁剪边界",
-    "Clip children" to "裁剪子节点",
-    "Clip to padding" to "裁剪到内边距",
-    "Opaque" to "不透明",
-    "Will not draw" to "不执行绘制",
-    "Hardware accelerated" to "硬件加速",
-    "Layer type" to "图层类型",
-    "Enabled" to "启用",
-    "Clickable" to "可点击",
-    "Long clickable" to "可长按",
-    "Focusable" to "可聚焦",
-    "Focused" to "已聚焦",
-    "Selected" to "已选中",
-    "Overdraw estimate" to "过度绘制估算",
-    "Subtree complexity" to "子树复杂度",
-    "Hidden descendants" to "隐藏后代",
-    "Blending" to "混合",
-    "Layer cost" to "图层成本",
+private val detailLabelResources: Map<String, StringResource> = mapOf(
+    "Class" to ViewerRes.detail_label_class,
+    "ID" to ViewerRes.detail_label_id,
+    "Resource" to ViewerRes.detail_label_resource,
+    "Text" to ViewerRes.detail_label_text,
+    "Content description" to ViewerRes.detail_label_content_description,
+    "Bounds" to ViewerRes.detail_label_bounds,
+    "Size" to ViewerRes.detail_label_size,
+    "Local layout bounds" to ViewerRes.detail_label_local_layout_bounds,
+    "Local layout size" to ViewerRes.detail_label_local_layout_size,
+    "Visibility" to ViewerRes.detail_label_visibility,
+    "Tree depth" to ViewerRes.detail_label_tree_depth,
+    "Direct children" to ViewerRes.detail_label_direct_children,
+    "Descendants" to ViewerRes.detail_label_descendants,
+    "Subtree depth" to ViewerRes.detail_label_subtree_depth,
+    "Layout width" to ViewerRes.detail_label_layout_width,
+    "Layout height" to ViewerRes.detail_label_layout_height,
+    "Layout params class" to ViewerRes.detail_label_layout_params_class,
+    "Measured size" to ViewerRes.detail_label_measured_size,
+    "Minimum size" to ViewerRes.detail_label_minimum_size,
+    "Padding" to ViewerRes.detail_label_padding,
+    "Margin" to ViewerRes.detail_label_margin,
+    "Scroll" to ViewerRes.detail_label_scroll,
+    "Layout requested" to ViewerRes.detail_label_layout_requested,
+    "Alpha" to ViewerRes.detail_label_alpha,
+    "Z" to ViewerRes.detail_label_z,
+    "Elevation" to ViewerRes.detail_label_elevation,
+    "Translation" to ViewerRes.detail_label_translation,
+    "Rotation" to ViewerRes.detail_label_rotation,
+    "Scale" to ViewerRes.detail_label_scale,
+    "Pivot" to ViewerRes.detail_label_pivot,
+    "Background" to ViewerRes.detail_label_background,
+    "Background color" to ViewerRes.detail_label_background_color,
+    "Foreground" to ViewerRes.detail_label_foreground,
+    "Clip bounds" to ViewerRes.detail_label_clip_bounds,
+    "Clip children" to ViewerRes.detail_label_clip_children,
+    "Clip to padding" to ViewerRes.detail_label_clip_to_padding,
+    "Opaque" to ViewerRes.detail_label_opaque,
+    "Will not draw" to ViewerRes.detail_label_will_not_draw,
+    "Hardware accelerated" to ViewerRes.detail_label_hardware_accelerated,
+    "Layer type" to ViewerRes.detail_label_layer_type,
+    "Enabled" to ViewerRes.detail_label_enabled,
+    "Clickable" to ViewerRes.detail_label_clickable,
+    "Long clickable" to ViewerRes.detail_label_long_clickable,
+    "Focusable" to ViewerRes.detail_label_focusable,
+    "Focused" to ViewerRes.detail_label_focused,
+    "Selected" to ViewerRes.detail_label_selected,
+    "Overdraw estimate" to ViewerRes.detail_label_overdraw_estimate,
+    "Subtree complexity" to ViewerRes.detail_label_subtree_complexity,
+    "Hidden descendants" to ViewerRes.detail_label_hidden_descendants,
+    "Blending" to ViewerRes.detail_label_blending,
+    "Layer cost" to ViewerRes.detail_label_layer_cost,
 )

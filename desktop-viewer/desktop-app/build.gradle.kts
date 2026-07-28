@@ -68,6 +68,7 @@ java {
 val targetArch = project.findProperty("target.arch")?.toString()
 
 dependencies {
+    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
     implementation(project(":layout-inspector:presentation"))
     implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:perfetto-app:0.1.0-SNAPSHOT")
@@ -83,6 +84,7 @@ dependencies {
         "arm64" -> implementation(compose.desktop.macos_arm64)
         else -> implementation(compose.desktop.currentOs)
     }
+    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

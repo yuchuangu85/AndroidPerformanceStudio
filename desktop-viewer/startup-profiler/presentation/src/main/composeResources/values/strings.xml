@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="choose_a_device_and_app_to_run_repeatable_cold_warm">Choose a device and app to run repeatable cold, warm, or hot startup experiments.</string>
+    <string name="compared_with_previous_experiment_difference_only_no_statistical_signi">Compared with previous experiment: %1$s (difference only; no statistical significance inferred)</string>
+    <string name="startup_profiler">Startup Profiler</string>
+    <string name="median_totaltime">Median TotalTime</string>
+    <string name="median_first_frame">Median First Frame</string>
+    <string name="median_fully_drawn">Median Fully Drawn</string>
+    <string name="measured_runs">Measured Runs</string>
+    <string name="warnings">Warnings</string>
+    <string name="insufficient">Insufficient</string>
+    <string name="stable">Stable</string>
+    <string name="variable">Variable</string>
+    <string name="unstable">Unstable</string>
+    <string name="stability">Stability</string>
+    <string name="run">Run</string>
+    <string name="observed">Observed</string>
+    <string name="run_detail">Run %1$s Detail · %2$s</string>
+    <string name="platform_timeline">Platform Timeline</string>
+    <string name="agent_phases_separate_clock_domain">Agent Phases (separate clock domain)</string>
+    <string name="no_agent_phases_available">No Agent phases available</string>
+    <string name="milestones">Milestones</string>
+    <string name="raw_am_start_w_evidence">Raw am start -W Evidence</string>
+    <string name="text">%1$s/%2$s</string>
+    <string name="text_45f5c8ce">• %1$s</string>
+    <string name="p90_n">p90 %1$s · n=%2$s</string>
+    <string name="mad">MAD %1$s</string>
+    <string name="text_aeb7e472">%1$s · %2$s · %3$s</string>
+    <string name="total">Total</string>
+    <string name="displayed">Displayed</string>
+    <string name="fully_drawn">Fully Drawn</string>
+    <string name="agent">Agent</string>
+    <string name="full">Full</string>
+    <string name="fallback">Fallback</string>
+    <string name="this_time">ThisTime</string>
+    <string name="total_time">TotalTime</string>
+    <string name="wait_time">WaitTime</string>
+    <string name="fully_drawn_time">Fully Drawn</string>
+</resources>

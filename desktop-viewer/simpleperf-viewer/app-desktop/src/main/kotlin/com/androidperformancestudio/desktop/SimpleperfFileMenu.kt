@@ -6,6 +6,10 @@ import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
 import com.androidperformancestudio.presentation.CaptureSettingsSection
+import com.androidperformancestudio.app_desktop.generated.resources.Res
+import com.androidperformancestudio.app_desktop.generated.resources.*
+import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.StringResource
 import java.nio.file.Path
 
 internal data class SimpleperfMenuShortcut(
@@ -72,33 +76,32 @@ internal data class SimpleperfFileMenuModel(
         isMacOs: Boolean,
         configurationEnabled: Boolean = true,
     ) : this(
-        fileTitle = language.text(english = "File", chinese = "文件"),
-        openLabel = language.text(english = "Open…", chinese = "打开…"),
-        settingsLabel = language.text(english = "Settings…", chinese = "设置…").takeUnless { isMacOs },
+        fileTitle = language.string(Res.string.file),
+        openLabel = language.string(Res.string.open),
+        settingsLabel = language.string(Res.string.settings).takeUnless { isMacOs },
         exportMenu =
             SimpleperfExportMenuModel(
-                title = language.text(english = "Export", chinese = "导出"),
-                sessionPackageLabel = language.text(english = "Session package", chinese = "会话包"),
-                reportLabel = "JSON + CSV",
-                geckoProfileLabel = "Firefox Profiler JSON (.json.gz)",
-                rawProtobufLabel = language.text(english = "Raw protobuf", chinese = "原始 protobuf"),
-                screenshotLabel = language.text(english = "Screenshot", chinese = "截图"),
-                simpleperfReportLabel = "simpleperf report",
-                htmlReportLabel = "report_html.py",
-                externalOpenLabel = language.text(english = "External open", chinese = "外部打开"),
+                title = language.string(Res.string.export),
+                sessionPackageLabel = language.string(Res.string.session_package),
+                reportLabel = language.string(Res.string.json_csv),
+                geckoProfileLabel = language.string(Res.string.firefox_profiler_json),
+                rawProtobufLabel = language.string(Res.string.raw_protobuf),
+                screenshotLabel = language.string(Res.string.screenshot),
+                simpleperfReportLabel = language.string(Res.string.simpleperf_report),
+                htmlReportLabel = language.string(Res.string.report_html_py),
+                externalOpenLabel = language.string(Res.string.external_open),
             ),
         configurationMenu =
             SimpleperfConfigurationMenuModel(
-                title = language.text(english = "Configuration", chinese = "配置"),
-                samplingTemplateLabel = language.text(english = "Capture Templates", chinese = "采集模板"),
-                captureConfigurationLabel =
-                    language.text(english = "Capture Configuration", chinese = "采集配置"),
-                advancedParametersLabel = language.text(english = "Advanced Parameters", chinese = "高级参数"),
+                title = language.string(Res.string.configuration),
+                samplingTemplateLabel = language.string(Res.string.capture_templates),
+                captureConfigurationLabel = language.string(Res.string.capture_configuration),
+                advancedParametersLabel = language.string(Res.string.advanced_parameters),
                 enabled = configurationEnabled,
             ),
-        openRecentTitle = language.text(english = "Open Recent", chinese = "最近打开"),
-        noRecentLabel = language.text(english = "No Recent Sessions", chinese = "没有最近会话"),
-        clearRecentLabel = language.text(english = "Clear Menu", chinese = "清除菜单"),
+        openRecentTitle = language.string(Res.string.open_recent),
+        noRecentLabel = language.string(Res.string.no_recent_sessions),
+        clearRecentLabel = language.string(Res.string.clear_menu),
         recentItems = recentSessions.toRecentMenuItems(),
         exportEnabled = exportEnabled,
         openShortcut = primaryShortcut(Key.O, isMacOs),
@@ -229,14 +232,8 @@ private fun List<Path>.toRecentMenuItems(): List<SimpleperfRecentMenuItem> {
     }
 }
 
-private fun SimpleperfLanguage.text(
-    english: String,
-    chinese: String,
-): String =
-    when (this) {
-        SimpleperfLanguage.SIMPLIFIED_CHINESE -> chinese
-        SimpleperfLanguage.ENGLISH -> english
-    }
+private fun SimpleperfLanguage.string(resource: StringResource): String =
+    localizedStringResource(resource, chinese = this == SimpleperfLanguage.SIMPLIFIED_CHINESE)
 
 private fun primaryShortcut(
     key: Key,

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="back_to_home">返回主页</string>
+    <string name="import_har">Import HAR</string>
+    <string name="device_serial">设备序列号</string>
+    <string name="package">包名</string>
+    <string name="stop_capture">停止采集</string>
+    <string name="live_capture">在线采集</string>
+    <string name="raw_bundle">原始包</string>
+    <string name="agent_session_started">Authenticated Network Agent session started.</string>
+    <string name="captured_raw_events">Captured %1$s raw events. Bodies are not collected.</string>
+    <string name="capture_completed">Online capture completed with %1$s observed OkHttp calls.</string>
+    <string name="imported_redacted">Imported %1$s; sensitive headers and query values were redacted.</string>
+    <string name="json">JSON</string>
+    <string name="har">HAR</string>
+    <string name="csv">CSV</string>
+    <string name="http_archive">HTTP Archive</string>
+</resources>

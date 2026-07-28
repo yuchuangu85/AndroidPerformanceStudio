@@ -54,11 +54,12 @@ class AppNavigatorTest {
         val navigator = AppNavigator()
         val trace = Path.of("capture.perfetto-trace")
 
-        navigator.openPerfettoTrace(trace, "Benchmark Regression")
+        val notice = "Opened from Benchmark Regression for correlation only; no causal relationship is inferred."
+        navigator.openPerfettoTrace(trace, notice)
 
         assertEquals(AppDestination.PERFETTO, navigator.destination)
         assertEquals(trace, navigator.perfettoTraceFile)
-        assertTrue(requireNotNull(navigator.perfettoTraceNotice).contains("correlation only"))
+        assertEquals(notice, navigator.perfettoTraceNotice)
 
         navigator.open(AppDestination.HOME)
         assertEquals(null, navigator.perfettoTraceFile)

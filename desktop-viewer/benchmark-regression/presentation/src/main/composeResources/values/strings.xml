@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="current">Current</string>
+    <string name="baseline">Baseline</string>
+    <string name="regressions">Regressions</string>
+    <string name="threshold">Threshold</string>
+    <string name="not_configured">Not configured</string>
+    <string name="metric_comparisons">Metric comparisons</string>
+    <string name="text">%1$s · %2$s</string>
+    <string name="metric_values">%1$s (%2$s) · %3$s → %4$s</string>
+    <string name="metric_delta">Δ %1$s · %2$s · %3$s</string>
+</resources>

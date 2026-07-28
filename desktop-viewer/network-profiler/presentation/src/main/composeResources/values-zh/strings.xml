@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="calls">请求</string>
+    <string name="failures">失败</string>
+    <string name="dropped">丢弃事件</string>
+    <string name="not_covered">覆盖范围不包括：%1$s</string>
+    <string name="request_details">请求详情</string>
+    <string name="select_a_call_to_inspect_phase_evidence">选择请求查看阶段证据</string>
+    <string name="text">%1$s · %2$s · %3$s</string>
+    <string name="text_b8cc21ae">%1$s %2$s</string>
+    <string name="text_c08282b1">%1$s: %2$s</string>
+    <string name="text_fb68e1ae">%1$s · %2$s</string>
+    <string name="p50">p50</string>
+    <string name="p95">p95</string>
+    <string name="http_exchange">HTTP %1$s · %2$s · connection %3$s</string>
+    <string name="reused_unknown">reused/unknown</string>
+    <string name="phase_detail">%1$s: %2$s · %3$s</string>
+    <string name="unavailable">unavailable</string>
+    <string name="incomplete">incomplete</string>
+</resources>

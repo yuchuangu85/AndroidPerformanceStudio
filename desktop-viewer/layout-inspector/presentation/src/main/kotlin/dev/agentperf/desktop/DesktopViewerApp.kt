@@ -2268,7 +2268,7 @@ private fun DetailsPane(
             val className = details.className.takeUnless { it == "—" || it.isBlank() }
             if (onOpenMemoryProfiler != null && className != null) {
                 TextButton(onClick = { onOpenMemoryProfiler(className) }) {
-                    Text("Find in Memory Profiler", fontSize = 10.sp)
+                    Text(strings.findInMemoryProfiler, fontSize = 10.sp)
                 }
             }
         }

@@ -1,5 +1,9 @@
 package com.androidperformancestudio.memory.app
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.memory.memory_app.generated.resources.Res
+import com.androidperformancestudio.memory.memory_app.generated.resources.*
+
 import com.androidperformancestudio.adb.AdbDeviceRefresher
 import com.androidperformancestudio.adb.AdbDeviceState
 import com.androidperformancestudio.adb.AdbTargetCatalog
@@ -34,6 +38,7 @@ internal class DesktopMemoryProfilerBackend(
     private val dataRoot: Path = defaultDataRoot(),
     private val adbLocator: () -> Path? = ::locateSystemAdb,
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
+    private val chinese: Boolean = false,
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
     private val analyzer = MemoryDeepAnalyzer()
@@ -42,7 +47,8 @@ internal class DesktopMemoryProfilerBackend(
     override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
         val adb = adbLocator() ?: return missingAdb()
         return when (val result = AdbDeviceRefresher(adb).refresh()) {
-            is StudioResult.Failure -> result.toBackendFailure("Unable to list Android devices")
+            is StudioResult.Failure ->
+                result.toBackendFailure(localizedStringResource(Res.string.unable_to_list_android_devices, chinese))
             is StudioResult.Success ->
                 MemoryBackendResult.Success(
                     result.value.map { device ->
@@ -59,7 +65,8 @@ internal class DesktopMemoryProfilerBackend(
     override suspend fun listProcesses(serial: String): MemoryBackendResult<List<MemoryProcessOption>> {
         val adb = adbLocator() ?: return missingAdb()
         return when (val result = AdbTargetCatalog(adb).refresh(serial)) {
-            is StudioResult.Failure -> result.toBackendFailure("Unable to list device processes")
+            is StudioResult.Failure ->
+                result.toBackendFailure(localizedStringResource(Res.string.unable_to_list_device_processes, chinese))
             is StudioResult.Success -> {
                 val debuggablePackages =
                     result.value.packages
@@ -98,7 +105,7 @@ internal class DesktopMemoryProfilerBackend(
                     ),
                 )
         ) {
-            is StudioResult.Failure -> result.toBackendFailure("Heap dump failed")
+            is StudioResult.Failure -> result.toBackendFailure(localizedStringResource(Res.string.heap_dump_failed, chinese))
             is StudioResult.Success -> {
                 val capture = result.value
                 val warning =
@@ -125,7 +132,7 @@ internal class DesktopMemoryProfilerBackend(
                             rawFile = capture.rawHprofFile,
                             warning = listOfNotNull(
                                 warning,
-                                "hprof-conv was unavailable; parsed the Android HPROF directly.",
+                                localizedStringResource(Res.string.hprof_conv_unavailable, chinese),
                             ).joinToString("\n"),
                             cleanupWarning = cleanupWarning,
                             sessionMetadata = identity,
@@ -157,7 +164,10 @@ internal class DesktopMemoryProfilerBackend(
     ): MemoryBackendResult<LoadedHeap> {
         return withContext(Dispatchers.IO) {
             if (!Files.isRegularFile(file)) {
-                MemoryBackendResult.Failure("HPROF file not found", "${file.fileName} is not a readable regular file.")
+                MemoryBackendResult.Failure(
+                    localizedStringResource(Res.string.hprof_file_not_found, chinese),
+                    localizedStringResource(Res.string.hprof_file_not_readable, chinese, file.fileName),
+                )
             } else {
                 loadHeap(HeapLoadRequest(file = file, rawFile = file), onProgress)
             }
@@ -203,8 +213,7 @@ internal class DesktopMemoryProfilerBackend(
                     .ifBlank { null }
             val emptyHeapWarning =
                 if (histogram.summary.objectCount == 0) {
-                    "No heap objects were parsed from ${request.file.fileName}. " +
-                        "The file may use unsupported HPROF records or may not contain a heap dump."
+                    localizedStringResource(Res.string.no_heap_objects_parsed, chinese, request.file.fileName)
                 } else {
                     null
                 }
@@ -271,7 +280,7 @@ internal class DesktopMemoryProfilerBackend(
 
     private fun analysisFailure(exception: Exception): MemoryBackendResult.Failure =
         MemoryBackendResult.Failure(
-            title = "Unable to analyze HPROF",
+            title = localizedStringResource(Res.string.unable_to_analyze_hprof, chinese),
             detail = exception.message ?: exception::class.simpleName.orEmpty(),
         )
 
@@ -280,8 +289,8 @@ internal class DesktopMemoryProfilerBackend(
 
     private fun missingAdb(): MemoryBackendResult.Failure =
         MemoryBackendResult.Failure(
-            title = "Android SDK Platform Tools not found",
-            detail = "Install SDK Platform Tools or configure ANDROID_HOME/ANDROID_SDK_ROOT so adb is available.",
+            title = localizedStringResource(Res.string.android_sdk_platform_tools_not_found, chinese),
+            detail = localizedStringResource(Res.string.install_sdk_platform_tools, chinese),
         )
 
     private fun sessionId(): String = SESSION_ID_FORMAT.format(Instant.now())

@@ -1,5 +1,9 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.localizedStringResource
+import dev.agentperf.desktop_app.generated.resources.Res
+import dev.agentperf.desktop_app.generated.resources.*
+
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -162,6 +166,7 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                         )
                     AppDestination.PERFETTO ->
                         PerfettoWorkspace(
+                            chinese = chinese,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
                             initialTraceNotice = navigator.perfettoTraceNotice,
@@ -194,21 +199,16 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                                         ?.let { " · $it" }
                                         .orEmpty()
                                 val message =
-                                    if (chinese) {
-                                        "来自 Frame #${request.frameId} 的布局关联 · ${request.packageName}$activity"
-                                    } else {
-                                        "Layout correlation from Frame #${request.frameId} · ${request.packageName}$activity"
-                                    }
+                                    localizedStringResource(Res.string.layout_correlation_from_frame, chinese, request.frameId, request.packageName, activity)
                                 navigator.openLayoutInspector(
                                     InspectorCorrelationHint(
                                         deviceSerial = request.deviceSerial,
                                         targetPackageName = request.packageName,
                                         message = message,
                                         correlationNotice =
-                                            if (chinese) "仅做相关性分析，不推断 View 因果关系" else
-                                                "correlation only; no View causality is inferred",
+                                            localizedStringResource(Res.string.correlation_only_no_view_causality_is_inferred, chinese),
                                         foregroundMismatchPrefix =
-                                            if (chinese) "当前前台应用不一致" else "foreground package differs",
+                                            localizedStringResource(Res.string.foreground_package_differs, chinese),
                                     ),
                                 )
                             },
@@ -232,13 +232,31 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                         GpuIntegrationWorkspace(
                             chinese = chinese,
                             onBack = { navigator.open(AppDestination.HOME) },
-                            onOpenTrace = { path -> navigator.openPerfettoTrace(path, "GPU Inspector") },
+                            onOpenTrace = { path ->
+                                navigator.openPerfettoTrace(
+                                    path,
+                                    localizedStringResource(
+                                        Res.string.opened_from_tool_for_correlation_only,
+                                        chinese,
+                                        localizedStringResource(Res.string.gpu_inspector, chinese),
+                                    ),
+                                )
+                            },
                         )
                     AppDestination.BENCHMARK_REGRESSION ->
                         BenchmarkRegressionWorkspace(
                             chinese = chinese,
                             onBack = { navigator.open(AppDestination.HOME) },
-                            onOpenTrace = { path -> navigator.openPerfettoTrace(path, "Benchmark Regression") },
+                            onOpenTrace = { path ->
+                                navigator.openPerfettoTrace(
+                                    path,
+                                    localizedStringResource(
+                                        Res.string.opened_from_tool_for_correlation_only,
+                                        chinese,
+                                        localizedStringResource(Res.string.benchmark_regression, chinese),
+                                    ),
+                                )
+                            },
                         )
                 }
                 if (showSettings) {

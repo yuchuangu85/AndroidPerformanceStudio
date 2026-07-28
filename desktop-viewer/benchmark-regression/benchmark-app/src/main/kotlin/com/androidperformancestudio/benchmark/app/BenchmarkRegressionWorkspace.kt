@@ -2,6 +2,10 @@
 
 package com.androidperformancestudio.benchmark.app
 
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.Res
+import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.*
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,29 +49,29 @@ public fun FrameWindowScope.BenchmarkRegressionWorkspace(
     fun import(file: File, baseline: Boolean) {
         runCatching { parser.parse(file.toPath()) }.onSuccess { run ->
             runCatching { SqliteBenchmarkStore.open(storePath).use { it.save(run) } }
-            state = if (baseline) state.copy(baseline = run, message = "Imported baseline ${file.name}", error = null) else state.copy(current = run, message = "Imported current result ${file.name}", error = null)
+            state = if (baseline) state.copy(baseline = run, message = localizedStringResource(Res.string.imported_baseline, chinese, file.name), error = null) else state.copy(current = run, message = localizedStringResource(Res.string.imported_current, chinese, file.name), error = null)
             val current = state.current
             val reference = state.baseline
             if (current != null && reference != null) state = state.copy(report = analyzer.compare(reference, current, RegressionPolicy(relativeThresholdPercent = state.thresholdPercent)))
-        }.onFailure { state = state.copy(error = it.message ?: "Import failed") }
+        }.onFailure { state = state.copy(error = it.message ?: localizedStringResource(Res.string.import_failed, chinese)) }
     }
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = if (chinese) "返回主页" else "Back to home",
+                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
                 onClick = onBack,
             )
             ProfilerCompactButton(
-                text = if (chinese) "导入当前结果" else "Import Current",
-                onClick = { chooseJson(window)?.let { import(it, false) } },
+                text = localizedStringResource(Res.string.import_current, chinese),
+                onClick = { chooseJson(window, chinese)?.let { import(it, false) } },
             )
             ProfilerCompactButton(
-                text = if (chinese) "导入基线" else "Import Baseline",
-                onClick = { chooseJson(window)?.let { import(it, true) } },
+                text = localizedStringResource(Res.string.import_baseline, chinese),
+                onClick = { chooseJson(window, chinese)?.let { import(it, true) } },
             )
             ProfilerCompactButton(
-                text = if (chinese) "导出报告" else "Export Report",
+                text = localizedStringResource(Res.string.export_report, chinese),
                 enabled = state.report != null,
                 onClick = {
                     chooseSave(window, "benchmark-regression.json")
@@ -75,7 +79,7 @@ public fun FrameWindowScope.BenchmarkRegressionWorkspace(
                 },
             )
             ProfilerCompactButton(
-                text = if (chinese) "在 Perfetto 打开 Trace" else "Open Trace in Perfetto",
+                text = localizedStringResource(Res.string.open_trace_in_perfetto, chinese),
                 enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
                 onClick = {
                     state.current
@@ -93,9 +97,9 @@ public fun FrameWindowScope.BenchmarkRegressionWorkspace(
     }
 }
 
-private fun chooseJson(parent: java.awt.Component): File? = JFileChooser().run {
-    dialogTitle = "Import AndroidX Benchmark JSON"
-    fileFilter = FileNameExtensionFilter("Benchmark JSON", "json")
+private fun chooseJson(parent: java.awt.Component, chinese: Boolean): File? = JFileChooser().run {
+    dialogTitle = localizedStringResource(Res.string.import_androidx_benchmark_json, chinese)
+    fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.benchmark_json, chinese), "json")
     if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
 }
 
