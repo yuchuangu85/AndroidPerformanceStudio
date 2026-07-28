@@ -9,7 +9,8 @@
 
 package com.androidperformancestudio.startup.app
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.startup.startup_app.generated.resources.Res
 import com.androidperformancestudio.startup.startup_app.generated.resources.*
 
@@ -55,58 +56,54 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var experimentJob by remember { mutableStateOf<Job?>(null) }
+    val saveDialogTitle = stringResource(Res.string.export_startup_profiler_report)
 
     LaunchedEffect(controller) { controller.refreshDevices() }
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
+                contentDescription = stringResource(Res.string.back_to_home),
                 onClick = {
                     experimentJob?.cancel()
                     onBack()
                 },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.device, chinese),
+                label = stringResource(Res.string.device),
                 selectedLabel = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
                 options = state.devices.filter { it.online }.map { it.serial to it.name },
                 enabled = !state.isRunning,
                 onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.app_activity, chinese),
+                label = stringResource(Res.string.app_activity),
                 selectedLabel =
                     state.targets.firstOrNull { it.componentName == state.selectedComponentName }?.let {
                         if (it.debuggable) {
-                            localizedStringResource(Res.string.package_agent, chinese, it.packageName)
+                            stringResource(Res.string.package_agent, it.packageName)
                         } else {
                             it.packageName
                         }
                     },
                 options = state.targets.map {
                     it.componentName to
-                        localizedStringResource(
-                            Res.string.package_activity,
-                            chinese,
-                            it.packageName,
-                            it.componentName.substringAfter('/'),
-                        )
+                        stringResource(Res.string.package_activity, it.packageName, it.componentName.substringAfter('/'), )
                 },
                 enabled = !state.isRunning && state.selectedDeviceSerial != null,
                 onSelected = controller::selectTarget,
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh, chinese),
+                text = stringResource(Res.string.refresh),
                 enabled = !state.isRunning && !state.isRefreshing,
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
             ProfilerCompactButton(
                 text =
                     if (state.isRunning) {
-                        localizedStringResource(Res.string.stop_experiment, chinese)
+                        stringResource(Res.string.stop_experiment)
                     } else {
-                        localizedStringResource(Res.string.run_experiment, chinese)
+                        stringResource(Res.string.run_experiment)
                     },
                 enabled = state.selectedComponentName != null,
                 onClick = {
@@ -118,19 +115,19 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, chinese),
+                text = stringResource(Res.string.export_csv),
                 enabled = state.analysis != null && !state.isRunning,
                 onClick = {
-                    chooseSaveFile(window, "startup-analysis.csv", chinese)?.let { file ->
+                    chooseSaveFile(window, "startup-analysis.csv", saveDialogTitle)?.let { file ->
                         scope.launch { controller.exportCsv(file.toPath()) }
                     }
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_json, chinese),
+                text = stringResource(Res.string.export_json),
                 enabled = state.analysis != null && !state.isRunning,
                 onClick = {
-                    chooseSaveFile(window, "startup-analysis.json", chinese)?.let { file ->
+                    chooseSaveFile(window, "startup-analysis.json", saveDialogTitle)?.let { file ->
                         scope.launch { controller.exportJson(file.toPath()) }
                     }
                 },
@@ -147,38 +144,38 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
         )
         ProfilerMacOsSecondaryToolbar {
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.startup_type, chinese),
-                selectedLabel = state.config.requestedType.label(chinese),
-                options = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT).map { it.name to it.label(chinese) },
+                label = stringResource(Res.string.startup_type),
+                selectedLabel = state.config.requestedType.label(),
+                options = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT).map { it.name to it.label() },
                 enabled = !state.isRunning,
                 onSelected = { value -> StartupType.valueOf(value).let(controller::selectStartupType) },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.compilation, chinese),
-                selectedLabel = state.config.compilationMode.label(chinese),
-                options = CompilationMode.entries.map { it.name to it.label(chinese) },
+                label = stringResource(Res.string.compilation),
+                selectedLabel = state.config.compilationMode.label(),
+                options = CompilationMode.entries.map { it.name to it.label() },
                 enabled = !state.isRunning,
                 onSelected = { value -> CompilationMode.valueOf(value).let(controller::selectCompilationMode) },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.warm_ups, chinese),
+                label = stringResource(Res.string.warm_ups),
                 selectedLabel = state.config.warmupRuns.toString(),
                 options = (0..10).map { it.toString() to it.toString() },
                 enabled = !state.isRunning,
                 onSelected = { value -> controller.updateCounts(value.toInt(), state.config.measuredRuns) },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.measured_runs, chinese),
+                label = stringResource(Res.string.measured_runs),
                 selectedLabel = state.config.measuredRuns.toString(),
                 options = listOf(1, 3, 5, 10, 20, 30).map { it.toString() to it.toString() },
                 enabled = !state.isRunning,
                 onSelected = { value -> controller.updateCounts(state.config.warmupRuns, value.toInt()) },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.timeout, chinese),
-                selectedLabel = localizedStringResource(Res.string.seconds_short, chinese, state.config.timeoutSeconds),
+                label = stringResource(Res.string.timeout),
+                selectedLabel = stringResource(Res.string.seconds_short, state.config.timeoutSeconds),
                 options = listOf(10, 20, 30, 45, 60, 120).map {
-                    it.toString() to localizedStringResource(Res.string.seconds_short, chinese, it)
+                    it.toString() to stringResource(Res.string.seconds_short, it)
                 },
                 enabled = !state.isRunning,
                 onSelected = { value -> controller.updateTimeout(value.toInt()) },
@@ -207,30 +204,32 @@ public fun FrameWindowScope.StartupProfilerWorkspace(
     }
 }
 
-private fun StartupType.label(chinese: Boolean): String =
+@Composable
+private fun StartupType.label(): String =
     when (this) {
-        StartupType.COLD -> localizedStringResource(Res.string.cold, chinese)
-        StartupType.WARM -> localizedStringResource(Res.string.warm, chinese)
-        StartupType.HOT -> localizedStringResource(Res.string.hot, chinese)
-        StartupType.UNKNOWN -> localizedStringResource(Res.string.unknown, chinese)
+        StartupType.COLD -> stringResource(Res.string.cold)
+        StartupType.WARM -> stringResource(Res.string.warm)
+        StartupType.HOT -> stringResource(Res.string.hot)
+        StartupType.UNKNOWN -> stringResource(Res.string.unknown)
     }
 
-private fun CompilationMode.label(chinese: Boolean): String =
+@Composable
+private fun CompilationMode.label(): String =
     when (this) {
-        CompilationMode.CURRENT -> localizedStringResource(Res.string.current, chinese)
-        CompilationMode.RESET -> localizedStringResource(Res.string.reset, chinese)
-        CompilationMode.VERIFY -> localizedStringResource(Res.string.verify, chinese)
-        CompilationMode.SPEED_PROFILE -> localizedStringResource(Res.string.speed_profile, chinese)
-        CompilationMode.SPEED -> localizedStringResource(Res.string.speed, chinese)
+        CompilationMode.CURRENT -> stringResource(Res.string.current)
+        CompilationMode.RESET -> stringResource(Res.string.reset)
+        CompilationMode.VERIFY -> stringResource(Res.string.verify)
+        CompilationMode.SPEED_PROFILE -> stringResource(Res.string.speed_profile)
+        CompilationMode.SPEED -> stringResource(Res.string.speed)
     }
 
 private fun chooseSaveFile(
     parent: java.awt.Component,
     defaultName: String,
-    chinese: Boolean,
+    dialogTitle: String,
 ): File? =
     JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.export_startup_profiler_report, chinese)
+        this.dialogTitle = dialogTitle
         selectedFile = File(defaultName)
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }

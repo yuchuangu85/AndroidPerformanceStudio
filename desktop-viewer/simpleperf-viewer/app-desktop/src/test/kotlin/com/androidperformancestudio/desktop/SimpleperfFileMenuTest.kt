@@ -2,6 +2,8 @@ package com.androidperformancestudio.desktop
 
 import androidx.compose.ui.input.key.Key
 import java.nio.file.Path
+import java.util.Locale
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -10,11 +12,11 @@ import kotlin.test.assertTrue
 
 class SimpleperfFileMenuTest {
     @Test
-    fun `file menu exposes open export and recent sessions with mac shortcuts`() {
+    fun `file menu exposes open export and recent sessions with mac shortcuts`() = runTest {
         val sessions = listOf(Path.of("/profiles/session-one"), Path.of("/profiles/session-two"))
         val model =
-            SimpleperfFileMenuModel(
-                language = SimpleperfLanguage.ENGLISH,
+            testSimpleperfFileMenuModel(
+                locale = Locale.ENGLISH,
                 recentSessions = sessions,
                 exportEnabled = false,
                 isMacOs = true,
@@ -45,10 +47,10 @@ class SimpleperfFileMenuTest {
     }
 
     @Test
-    fun `file menu localizes labels and disambiguates duplicate session names`() {
+    fun `file menu localizes labels and disambiguates duplicate session names`() = runTest {
         val model =
-            SimpleperfFileMenuModel(
-                language = SimpleperfLanguage.SIMPLIFIED_CHINESE,
+            testSimpleperfFileMenuModel(
+                locale = Locale.SIMPLIFIED_CHINESE,
                 recentSessions =
                     listOf(
                         Path.of("/profiles/first/session"),

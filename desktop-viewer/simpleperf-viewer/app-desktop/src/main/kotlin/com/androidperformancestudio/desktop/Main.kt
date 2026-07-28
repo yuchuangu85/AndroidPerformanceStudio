@@ -1,8 +1,9 @@
 package com.androidperformancestudio.desktop
 
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.app_desktop.generated.resources.Res
 import com.androidperformancestudio.app_desktop.generated.resources.android_performance_studio
-import com.androidperformancestudio.ui.localizedStringResource
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
@@ -14,7 +15,7 @@ fun main() =
         Window(
             onCloseRequest = ::exitApplication,
             state = windowState,
-            title = localizedStringResource(Res.string.android_performance_studio, chinese = false),
+            title = stringResource(Res.string.android_performance_studio),
         ) {
             SimpleperfWorkspace(window = window)
         }

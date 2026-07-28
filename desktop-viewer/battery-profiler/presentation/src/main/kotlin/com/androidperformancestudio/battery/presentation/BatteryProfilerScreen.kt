@@ -11,7 +11,8 @@
 
 package com.androidperformancestudio.battery.presentation
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.battery.presentation.generated.resources.Res
 import com.androidperformancestudio.battery.presentation.generated.resources.*
 
@@ -75,12 +76,12 @@ private fun EmptyPane(
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(localizedStringResource(Res.string.battery_energy_profiler, chinese), style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(Res.string.battery_energy_profiler), style = MaterialTheme.typography.headlineMedium)
         Text(
-            localizedStringResource(Res.string.analyze_wakelocks_alarms_jobs_network_sensors_and_system_energy_estima, chinese),
+            stringResource(Res.string.analyze_wakelocks_alarms_jobs_network_sensors_and_system_energy_estima),
         )
         Text(
-            localizedStringResource(Res.string.every_energy_value_exposes_its_source_scope_and_confidence_global, chinese),
+            stringResource(Res.string.every_energy_value_exposes_its_source_scope_and_confidence_global),
         )
         state.operationMessage?.let { Text(it) }
         state.warnings.forEach { Text(it, color = MaterialTheme.colorScheme.tertiary) }
@@ -101,30 +102,30 @@ private fun ResultsPane(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricCard(localizedStringResource(Res.string.median_wakelock, chinese), analysis.wakelockDurationMs, "ms", chinese)
-            MetricCard(localizedStringResource(Res.string.median_wakeup_alarms, chinese), analysis.wakeupAlarmCount, "", chinese)
-            MetricCard(localizedStringResource(Res.string.median_network, chinese), analysis.networkBytes, "B", chinese)
-            MetricCard(localizedStringResource(Res.string.modeled_energy, chinese), analysis.energyMah, "mAh", chinese)
+            MetricCard(stringResource(Res.string.median_wakelock), analysis.wakelockDurationMs, "ms", chinese)
+            MetricCard(stringResource(Res.string.median_wakeup_alarms), analysis.wakeupAlarmCount, "", chinese)
+            MetricCard(stringResource(Res.string.median_network), analysis.networkBytes, "B", chinese)
+            MetricCard(stringResource(Res.string.modeled_energy), analysis.energyMah, "mAh", chinese)
         }
         val session = state.experiment?.session
         session?.let {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Text(
-                    localizedStringResource(Res.string.capability_attribution_uid, chinese, it.capabilities.level, it.attributionScope, it.uid),
+                    stringResource(Res.string.capability_attribution_uid, it.capabilities.level, it.attributionScope, it.uid),
                     modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
                 )
             }
         }
         state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, chinese) }
-        Text(localizedStringResource(Res.string.experiment_runs, chinese), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(stringResource(Res.string.experiment_runs), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
-                Cell(localizedStringResource(Res.string.run, chinese), 70)
-                Cell(localizedStringResource(Res.string.duration, chinese), 100)
-                Cell(localizedStringResource(Res.string.wakelock, chinese), 110)
-                Cell(localizedStringResource(Res.string.alarm, chinese), 90)
-                Cell(localizedStringResource(Res.string.network, chinese), 110)
-                Cell(localizedStringResource(Res.string.energy, chinese), 100)
+                Cell(stringResource(Res.string.run), 70)
+                Cell(stringResource(Res.string.duration), 100)
+                Cell(stringResource(Res.string.wakelock), 110)
+                Cell(stringResource(Res.string.alarm), 90)
+                Cell(stringResource(Res.string.network), 110)
+                Cell(stringResource(Res.string.energy), 100)
             }
             analysis.runs.forEach { run -> RunRow(run, run.runId == selected.runId, actions.onSelectRun, chinese) }
         }
@@ -132,11 +133,11 @@ private fun ResultsPane(
         RunDetail(selected, chinese)
         if (analysis.warnings.isNotEmpty()) {
             Text(
-                localizedStringResource(Res.string.diagnostics_and_warnings, chinese),
+                stringResource(Res.string.diagnostics_and_warnings),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
-            analysis.warnings.forEach { Text(localizedStringResource(Res.string.text, chinese, it), color = MaterialTheme.colorScheme.tertiary) }
+            analysis.warnings.forEach { Text(stringResource(Res.string.text, it), color = MaterialTheme.colorScheme.tertiary) }
         }
         state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
@@ -153,7 +154,7 @@ private fun MetricCard(
         Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
             Text(statistics.median.format(unit), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(localizedStringResource(Res.string.p90_n, chinese, statistics.p90.format(unit), statistics.count), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(Res.string.p90_n, statistics.p90.format(unit), statistics.count), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -177,7 +178,7 @@ private fun BaselineComparison(
         }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Text(
-            localizedStringResource(Res.string.network_use_vs_previous_compatible_experiment_difference_only, chinese, change.percent()),
+            stringResource(Res.string.network_use_vs_previous_compatible_experiment_difference_only, change.percent()),
             Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
         )
     }
@@ -198,7 +199,7 @@ private fun RunRow(
             }.padding(vertical = 6.dp, horizontal = 8.dp),
     ) {
         Cell(run.iteration.toString(), 70)
-        Cell(localizedStringResource(Res.string.s, chinese, run.durationMs / 1000), 100)
+        Cell(stringResource(Res.string.s, run.durationMs / 1000), 100)
         Cell(run.wakelocks.sumOf(ResourceTimer::durationMs).toString(), 110)
         Cell(run.alarms.sumOf(ResourceTimer::count).toString(), 90)
         Cell(run.network.totalBytes.toString(), 110)
@@ -218,50 +219,34 @@ private fun RunDetail(
     chinese: Boolean,
 ) {
     Text(
-        localizedStringResource(Res.string.run_resource_details, chinese, run.iteration),
+        stringResource(Res.string.run_resource_details, run.iteration),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
     )
-    ResourceSection(localizedStringResource(Res.string.wakelocks, chinese), run.wakelocks, chinese)
-    ResourceSection(localizedStringResource(Res.string.alarms, chinese), run.alarms, chinese)
-    ResourceSection(localizedStringResource(Res.string.jobs, chinese), run.jobs, chinese)
-    ResourceSection(localizedStringResource(Res.string.sensors, chinese), run.sensors, chinese)
-    Text(localizedStringResource(Res.string.network_b_mobile_radio_ms, chinese, run.network.totalBytes, run.network.mobileRadioActiveMs), fontWeight = FontWeight.SemiBold)
-    Text(localizedStringResource(Res.string.energy_evidence, chinese), fontWeight = FontWeight.SemiBold)
-    if (run.energy.isEmpty()) Text(localizedStringResource(Res.string.no_attributable_energy_data_was_provided_by_this_device, chinese))
+    ResourceSection(stringResource(Res.string.wakelocks), run.wakelocks, chinese)
+    ResourceSection(stringResource(Res.string.alarms), run.alarms, chinese)
+    ResourceSection(stringResource(Res.string.jobs), run.jobs, chinese)
+    ResourceSection(stringResource(Res.string.sensors), run.sensors, chinese)
+    Text(stringResource(Res.string.network_b_mobile_radio_ms, run.network.totalBytes, run.network.mobileRadioActiveMs), fontWeight = FontWeight.SemiBold)
+    Text(stringResource(Res.string.energy_evidence), fontWeight = FontWeight.SemiBold)
+    if (run.energy.isEmpty()) Text(stringResource(Res.string.no_attributable_energy_data_was_provided_by_this_device))
     run.energy.forEach { energy ->
         Text(
-            localizedStringResource(
-                Res.string.energy_evidence_detail,
-                chinese,
-                energy.component,
-                energy.energyMah.format("mAh"),
-                energy.energyUws ?: "—",
-                energy.source,
-                energy.attributionScope,
-                energy.confidence,
-            ),
+            stringResource(Res.string.energy_evidence_detail, energy.component, energy.energyMah.format("mAh"), energy.energyUws ?: "—", energy.source, energy.attributionScope, energy.confidence, ),
         )
     }
     Text(
-        localizedStringResource(Res.string.history_timeline_events, chinese, run.history.size),
+        stringResource(Res.string.history_timeline_events, run.history.size),
         fontWeight = FontWeight.SemiBold,
     )
     run.history.take(100).forEach { event ->
         Text(
-            localizedStringResource(
-                Res.string.history_event_detail,
-                chinese,
-                event.elapsedMs ?: "—",
-                event.kind,
-                event.active ?: "?",
-                event.name.orEmpty(),
-            ),
+            stringResource(Res.string.history_event_detail, event.elapsedMs ?: "—", event.kind, event.active ?: "?", event.name.orEmpty(), ),
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall,
         )
     }
-    run.warnings.forEach { Text(localizedStringResource(Res.string.text, chinese, it), color = MaterialTheme.colorScheme.tertiary) }
+    run.warnings.forEach { Text(stringResource(Res.string.text, it), color = MaterialTheme.colorScheme.tertiary) }
 }
 
 @Composable
@@ -271,8 +256,8 @@ private fun ResourceSection(
     chinese: Boolean,
 ) {
     Text(title, fontWeight = FontWeight.SemiBold)
-    if (resources.isEmpty()) Text(localizedStringResource(Res.string.no_delta_or_unavailable, chinese))
-    resources.take(100).forEach { timer -> Text(localizedStringResource(Res.string.ms, chinese, timer.name, timer.durationMs, timer.count, timer.confidence)) }
+    if (resources.isEmpty()) Text(stringResource(Res.string.no_delta_or_unavailable))
+    resources.take(100).forEach { timer -> Text(stringResource(Res.string.ms, timer.name, timer.durationMs, timer.count, timer.confidence)) }
 }
 
 @Composable

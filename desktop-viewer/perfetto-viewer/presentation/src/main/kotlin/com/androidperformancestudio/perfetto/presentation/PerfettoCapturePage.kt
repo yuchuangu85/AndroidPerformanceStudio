@@ -1,6 +1,7 @@
 package com.androidperformancestudio.perfetto.presentation
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.perfetto.presentation.generated.resources.Res
 import com.androidperformancestudio.perfetto.presentation.generated.resources.*
 
@@ -59,7 +60,7 @@ fun PerfettoCapturePage(
         OutlinedTextField(
             value = adbPath,
             onValueChange = onAdbPathChange,
-            label = { Text(localizedStringResource(Res.string.adb_path, chinese)) },
+            label = { Text(stringResource(Res.string.adb_path)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
@@ -67,7 +68,7 @@ fun PerfettoCapturePage(
         // Template selector
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(localizedStringResource(Res.string.trace_template, chinese), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(Res.string.trace_template), style = MaterialTheme.typography.titleSmall)
                 PerfettoTraceTemplate.entries.forEach { template ->
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = selectedTemplate == template, onClick = { selectedTemplate = template })
@@ -85,27 +86,27 @@ fun PerfettoCapturePage(
         // Configuration
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(localizedStringResource(Res.string.configuration, chinese), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(Res.string.configuration), style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(
                     value = targetPackage,
                     onValueChange = { targetPackage = it },
-                    label = { Text(localizedStringResource(Res.string.target_package_empty_system_wide, chinese)) },
+                    label = { Text(stringResource(Res.string.target_package_empty_system_wide)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text(localizedStringResource(Res.string.e_g_com_example_app, chinese)) },
+                    placeholder = { Text(stringResource(Res.string.e_g_com_example_app)) },
                 )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     OutlinedTextField(
                         value = durationSeconds.toString(),
                         onValueChange = { it.toIntOrNull()?.let { v -> durationSeconds = v.coerceIn(1, 600) } },
-                        label = { Text(localizedStringResource(Res.string.duration_s, chinese)) },
+                        label = { Text(stringResource(Res.string.duration_s)) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = (bufferSizeKb / 1024).toString(),
                         onValueChange = { it.toIntOrNull()?.let { v -> bufferSizeKb = (v * 1024).coerceIn(1024, 1048576) } },
-                        label = { Text(localizedStringResource(Res.string.buffer_mb, chinese)) },
+                        label = { Text(stringResource(Res.string.buffer_mb)) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                     )
@@ -126,35 +127,35 @@ fun PerfettoCapturePage(
                     onStartCapture(config, "")
                 },
                 enabled = captureState is PerfettoCaptureState.Idle,
-            ) { Text(localizedStringResource(Res.string.start_capture, chinese)) }
+            ) { Text(stringResource(Res.string.start_capture)) }
 
             if (captureState is PerfettoCaptureState.Recording) {
-                OutlinedButton(onClick = onStopCapture) { Text(localizedStringResource(Res.string.stop, chinese)) }
+                OutlinedButton(onClick = onStopCapture) { Text(stringResource(Res.string.stop)) }
             }
         }
 
         // Status
         when (val state = captureState) {
-            is PerfettoCaptureState.Idle -> Text(localizedStringResource(Res.string.ready, chinese), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            is PerfettoCaptureState.Idle -> Text(stringResource(Res.string.ready), color = MaterialTheme.colorScheme.onSurfaceVariant)
             is PerfettoCaptureState.Preparing -> {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text(localizedStringResource(Res.string.preparing, chinese))
+                Text(stringResource(Res.string.preparing))
             }
             is PerfettoCaptureState.Recording -> {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text(localizedStringResource(Res.string.recording_since, chinese, state.startTime))
+                Text(stringResource(Res.string.recording_since, state.startTime))
             }
             is PerfettoCaptureState.Pulling -> {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text(localizedStringResource(Res.string.pulling_trace, chinese))
+                Text(stringResource(Res.string.pulling_trace))
             }
             is PerfettoCaptureState.Completed -> {
-                Text(localizedStringResource(Res.string.done_mb, chinese, state.metadata.traceFileSizeBytes / 1024 / 1024))
+                Text(stringResource(Res.string.done_mb, state.metadata.traceFileSizeBytes / 1024 / 1024))
                 Button(onClick = { onOpenTrace(state.traceFile) }) {
-                    Text(localizedStringResource(Res.string.open_in_perfetto_ui, chinese))
+                    Text(stringResource(Res.string.open_in_perfetto_ui))
                 }
             }
-            is PerfettoCaptureState.Failed -> Text(localizedStringResource(Res.string.failed, chinese, state.error.message), color = MaterialTheme.colorScheme.error)
+            is PerfettoCaptureState.Failed -> Text(stringResource(Res.string.failed, state.error.message), color = MaterialTheme.colorScheme.error)
         }
     }
 }

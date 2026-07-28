@@ -1,6 +1,7 @@
 package com.androidperformancestudio.perfetto.app
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
 import com.androidperformancestudio.perfetto_app.generated.resources.*
 
@@ -27,21 +28,21 @@ internal fun FrameWindowScope.PerfettoFileMenuBar(
     val openShortcut = KeyShortcut(Key.O, ctrl = !isMacOs, meta = isMacOs)
 
     MenuBar {
-        Menu(localizedStringResource(Res.string.file, chinese)) {
-            Item(localizedStringResource(Res.string.open_u2026, chinese), shortcut = openShortcut, onClick = onOpen)
-            Menu(localizedStringResource(Res.string.export, chinese)) {
-                Item(localizedStringResource(Res.string.session_package_zip, chinese), enabled = canExport, onClick = onExportSession)
-                Item(localizedStringResource(Res.string.raw_trace_pftrace, chinese), enabled = canExport, onClick = onExportRawTrace)
+        Menu(stringResource(Res.string.file)) {
+            Item(stringResource(Res.string.open_u2026), shortcut = openShortcut, onClick = onOpen)
+            Menu(stringResource(Res.string.export)) {
+                Item(stringResource(Res.string.session_package_zip), enabled = canExport, onClick = onExportSession)
+                Item(stringResource(Res.string.raw_trace_pftrace), enabled = canExport, onClick = onExportRawTrace)
             }
-            Menu(localizedStringResource(Res.string.open_recent, chinese)) {
+            Menu(stringResource(Res.string.open_recent)) {
                 if (recentFiles.isEmpty()) {
-                    Item(localizedStringResource(Res.string.no_recent_files, chinese), enabled = false, onClick = {})
+                    Item(stringResource(Res.string.no_recent_files), enabled = false, onClick = {})
                 } else {
                     recentFiles.forEach { path ->
                         Item(path.fileName?.toString() ?: path.toString(), onClick = { onOpenRecent(path) })
                     }
                     Separator()
-                    Item(localizedStringResource(Res.string.clear_menu, chinese), onClick = onClearRecent)
+                    Item(stringResource(Res.string.clear_menu), onClick = onClearRecent)
                 }
             }
         }

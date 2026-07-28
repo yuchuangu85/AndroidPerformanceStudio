@@ -2,7 +2,8 @@
 
 package com.androidperformancestudio.network.presentation
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.network.presentation.generated.resources.Res
 import com.androidperformancestudio.network.presentation.generated.resources.*
 
@@ -37,15 +38,15 @@ public data class NetworkProfilerActions(
 public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkProfilerActions, chinese: Boolean, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Summary(localizedStringResource(Res.string.calls, chinese), state.summary?.callCount?.toString() ?: "—", Modifier.weight(1f))
-            Summary(localizedStringResource(Res.string.failures, chinese), state.summary?.failureCount?.toString() ?: "—", Modifier.weight(1f))
-            Summary(localizedStringResource(Res.string.p50, chinese), state.summary?.medianDurationMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
-            Summary(localizedStringResource(Res.string.p95, chinese), state.summary?.p95DurationMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
-            Summary(localizedStringResource(Res.string.dropped, chinese), state.result?.session?.coverage?.droppedEvents?.toString() ?: "0", Modifier.weight(1f))
+            Summary(stringResource(Res.string.calls), state.summary?.callCount?.toString() ?: "—", Modifier.weight(1f))
+            Summary(stringResource(Res.string.failures), state.summary?.failureCount?.toString() ?: "—", Modifier.weight(1f))
+            Summary(stringResource(Res.string.p50), state.summary?.medianDurationMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
+            Summary(stringResource(Res.string.p95), state.summary?.p95DurationMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
+            Summary(stringResource(Res.string.dropped), state.result?.session?.coverage?.droppedEvents?.toString() ?: "0", Modifier.weight(1f))
         }
         state.result?.session?.coverage?.let { coverage ->
-            Text(localizedStringResource(Res.string.text, chinese, coverage.instrumentationMode, coverage.completeness, coverage.observedLibraries.joinToString()))
-            Text(localizedStringResource(Res.string.not_covered, chinese, coverage.unsupportedStacks.joinToString()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(Res.string.text, coverage.instrumentationMode, coverage.completeness, coverage.observedLibraries.joinToString()))
+            Text(stringResource(Res.string.not_covered, coverage.unsupportedStacks.joinToString()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -55,17 +56,17 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
             val selected = state.result?.calls?.firstOrNull { it.callId == state.selectedCallId }
             Card(Modifier.weight(1f).fillMaxHeight()) {
                 Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(localizedStringResource(Res.string.request_details, chinese), style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(Res.string.request_details), style = MaterialTheme.typography.titleLarge)
                     if (selected == null) {
-                        Text(localizedStringResource(Res.string.select_a_call_to_inspect_phase_evidence, chinese))
+                        Text(stringResource(Res.string.select_a_call_to_inspect_phase_evidence))
                     } else {
-                        Text(localizedStringResource(Res.string.text_b8cc21ae, chinese, selected.method, selected.redactedUrl))
+                        Text(stringResource(Res.string.text_b8cc21ae, selected.method, selected.redactedUrl))
                         selected.exchanges.forEach { exchange ->
-                            Text(localizedStringResource(Res.string.http_exchange, chinese, exchange.statusCode ?: "—", exchange.protocol ?: "—", exchange.connectionId ?: localizedStringResource(Res.string.reused_unknown, chinese)))
+                            Text(stringResource(Res.string.http_exchange, exchange.statusCode ?: "—", exchange.protocol ?: "—", exchange.connectionId ?: stringResource(Res.string.reused_unknown)))
                             exchange.phases.forEach { phase ->
-                                Text(localizedStringResource(Res.string.phase_detail, chinese, phase.kind, phase.durationNs?.div(1_000_000.0)?.let { "%.2f ms".format(it) } ?: localizedStringResource(Res.string.unavailable, chinese), phase.confidence))
+                                Text(stringResource(Res.string.phase_detail, phase.kind, phase.durationNs?.div(1_000_000.0)?.let { "%.2f ms".format(it) } ?: stringResource(Res.string.unavailable), phase.confidence))
                             }
-                            exchange.failure?.let { Text(localizedStringResource(Res.string.text_c08282b1, chinese, it.type, it.message), color = MaterialTheme.colorScheme.error) }
+                            exchange.failure?.let { Text(stringResource(Res.string.text_c08282b1, it.type, it.message ?: "null"), color = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
@@ -86,9 +87,9 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
 @Composable private fun CallCard(call: HttpCall, selected: Boolean, chinese: Boolean, onClick: () -> Unit) {
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = if (selected)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(6.dp)) {
-            Text(localizedStringResource(Res.string.text_fb68e1ae, chinese, call.method, call.outcome))
+            Text(stringResource(Res.string.text_fb68e1ae, call.method, call.outcome))
             Text(call.redactedUrl, maxLines = 1, style = MaterialTheme.typography.bodySmall)
-            Text(call.durationNs?.div(1_000_000.0)?.let { "%.2f ms".format(it) } ?: localizedStringResource(Res.string.incomplete, chinese))
+            Text(call.durationNs?.div(1_000_000.0)?.let { "%.2f ms".format(it) } ?: stringResource(Res.string.incomplete))
         }
     }
 }

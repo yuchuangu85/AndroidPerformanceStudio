@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 class ViewerActionMenuTest {
     @Test
     fun `menu exposes operations with their shortcuts in stable groups`() {
-        val strings = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
+        val strings = testViewerStrings(ViewerLanguage.SIMPLIFIED_CHINESE)
 
         assertEquals(
             listOf(

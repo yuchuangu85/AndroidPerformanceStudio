@@ -1,6 +1,7 @@
 package dev.agentperf.desktop
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import dev.agentperf.desktop_app.generated.resources.Res
 import dev.agentperf.desktop_app.generated.resources.*
 
@@ -38,7 +39,7 @@ internal fun ApplicationSettingsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(localizedStringResource(Res.string.general_settings, chinese)) },
+        title = { Text(stringResource(Res.string.general_settings)) },
         text = {
             Column(
                 modifier =
@@ -49,7 +50,7 @@ internal fun ApplicationSettingsDialog(
             ) {
                 PreferenceDropdown(
                     chinese = chinese,
-                    label = localizedStringResource(Res.string.language, chinese),
+                    label = stringResource(Res.string.language),
                     selected = settings.language,
                     options = ApplicationLanguagePreference.entries,
                     optionLabel = { languagePreferenceLabel(it, chinese) },
@@ -57,7 +58,7 @@ internal fun ApplicationSettingsDialog(
                 )
                 PreferenceDropdown(
                     chinese = chinese,
-                    label = localizedStringResource(Res.string.theme, chinese),
+                    label = stringResource(Res.string.theme),
                     selected = settings.theme,
                     options = ApplicationThemePreference.entries,
                     optionLabel = { themePreferenceLabel(it, chinese) },
@@ -67,7 +68,7 @@ internal fun ApplicationSettingsDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(localizedStringResource(Res.string.done, chinese))
+                Text(stringResource(Res.string.done))
             }
         },
     )
@@ -79,7 +80,7 @@ private fun <T> PreferenceDropdown(
     label: String,
     selected: T,
     options: List<T>,
-    optionLabel: (T) -> String,
+    optionLabel: @Composable (T) -> String,
     onSelected: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -88,7 +89,7 @@ private fun <T> PreferenceDropdown(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(localizedStringResource(Res.string.text, chinese, label, optionLabel(selected)))
+            Text(stringResource(Res.string.text, label, optionLabel(selected)))
         }
         DropdownMenu(
             expanded = expanded,
@@ -108,22 +109,24 @@ private fun <T> PreferenceDropdown(
     }
 }
 
+@Composable
 internal fun languagePreferenceLabel(
     preference: ApplicationLanguagePreference,
     chinese: Boolean,
 ): String =
     when (preference) {
-        ApplicationLanguagePreference.SYSTEM -> localizedStringResource(Res.string.system, chinese)
-        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> localizedStringResource(Res.string.simplified_chinese, chinese)
-        ApplicationLanguagePreference.ENGLISH -> localizedStringResource(Res.string.english, chinese)
+        ApplicationLanguagePreference.SYSTEM -> stringResource(Res.string.system)
+        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> stringResource(Res.string.simplified_chinese)
+        ApplicationLanguagePreference.ENGLISH -> stringResource(Res.string.english)
     }
 
+@Composable
 internal fun themePreferenceLabel(
     preference: ApplicationThemePreference,
     chinese: Boolean,
 ): String =
     when (preference) {
-        ApplicationThemePreference.SYSTEM -> localizedStringResource(Res.string.system, chinese)
-        ApplicationThemePreference.LIGHT -> localizedStringResource(Res.string.light, chinese)
-        ApplicationThemePreference.DARK -> localizedStringResource(Res.string.dark, chinese)
+        ApplicationThemePreference.SYSTEM -> stringResource(Res.string.system)
+        ApplicationThemePreference.LIGHT -> stringResource(Res.string.light)
+        ApplicationThemePreference.DARK -> stringResource(Res.string.dark)
     }

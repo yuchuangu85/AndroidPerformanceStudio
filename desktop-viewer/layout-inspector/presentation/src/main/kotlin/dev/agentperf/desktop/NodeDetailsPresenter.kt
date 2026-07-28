@@ -30,7 +30,7 @@ internal object NodeDetailsPresenter {
     fun present(
         node: UiNode,
         treeDepth: Int,
-        strings: ViewerStrings = ViewerStrings.English,
+        strings: ViewerStrings,
     ): List<DetailSectionModel> {
         val viewNode = node as? ViewNode
         val composeNode = node as? ComposeNode

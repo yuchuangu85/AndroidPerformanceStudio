@@ -35,27 +35,27 @@ class FrameProfilerWorkspaceSourceTest {
         assertTrue(homeBlock.contains("onBack()"))
 
         assertBlockContains(
-            "localizedStringResource(Res.string.refresh, chinese)",
+            "stringResource(Res.string.refresh)",
             "enabled = !state.isCapturing && !state.isRefreshingDevices",
             "controller.refreshDevices()",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.start_capture, chinese)",
+            "stringResource(Res.string.start_capture)",
             "enabled = state.selectedProcessId != null",
             "if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.import_framestats, chinese)",
+            "stringResource(Res.string.import_framestats)",
             "enabled = !state.isCapturing",
             "showImportDialog = true",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.export_csv, chinese)",
+            "stringResource(Res.string.export_csv)",
             "enabled = state.analysis != null",
             "controller.exportCsv(output.toPath())",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.export_json, chinese)",
+            "stringResource(Res.string.export_json)",
             "enabled = state.analysis != null",
             "controller.exportJson(output.toPath())",
         )
@@ -71,12 +71,12 @@ class FrameProfilerWorkspaceSourceTest {
     @Test
     fun `selectors preserve controller callbacks and capture enabled predicates`() {
         assertBlockContains(
-            "localizedStringResource(Res.string.device, chinese)",
+            "stringResource(Res.string.device)",
             "enabled = !state.isCapturing",
             "controller.selectDevice(serial)",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.process, chinese)",
+            "stringResource(Res.string.process)",
             "enabled = !state.isCapturing && state.selectedDeviceSerial != null",
             "controller::selectProcess",
         )

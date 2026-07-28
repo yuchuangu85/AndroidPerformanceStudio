@@ -212,8 +212,7 @@ private fun FrameWindowScope.SimpleperfMenu(
     }
     SimpleperfFileMenuBar(
         model =
-            SimpleperfFileMenuModel(
-                language = language,
+            simpleperfFileMenuModel(
                 recentSessions = recentSessions,
                 exportEnabled = reportState.loadState is ReportLoadState.Ready,
                 isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),

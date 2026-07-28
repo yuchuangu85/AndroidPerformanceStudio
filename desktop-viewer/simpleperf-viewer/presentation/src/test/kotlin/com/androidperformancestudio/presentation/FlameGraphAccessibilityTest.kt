@@ -1,5 +1,7 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
@@ -15,9 +17,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalTestApi::class)
 class FlameGraphAccessibilityTest {
     @Test
     fun `semantic nodes describe visible frames and preserve selected offscreen frame`() {
+        runDesktopComposeUiTest {
+            setContent {
         val snapshot = accessibilitySnapshot()
         val visibleLayout =
             FlameGraphLayout.layout(
@@ -34,10 +39,15 @@ class FlameGraphAccessibilityTest {
         assertTrue(nodes.first { it.nodeId == FlameCallNodeId(2) }.stateDescription.contains("inclusive weight 6"))
         assertTrue(nodes.first { it.nodeId == FlameCallNodeId(2) }.stateDescription.contains("1 sample"))
         assertTrue(nodes.first { it.nodeId == FlameCallNodeId(3) }.selected)
+
+            }
+        }
     }
 
     @Test
     fun `semantic descriptions expose selected hover and context states without color`() {
+        runDesktopComposeUiTest {
+            setContent {
         val snapshot = accessibilitySnapshot()
         val layout = FlameGraphLayout.layout(snapshot, FlameViewport(widthPx = 1_000, heightPx = 48, scrollRow = 0))
 
@@ -53,6 +63,9 @@ class FlameGraphAccessibilityTest {
         assertTrue(nodes.first { it.nodeId == FlameCallNodeId(1) }.stateDescription.contains("selected"))
         assertTrue(nodes.first { it.nodeId == FlameCallNodeId(2) }.stateDescription.contains("hovered"))
         assertTrue(nodes.first { it.nodeId == FlameCallNodeId(3) }.stateDescription.contains("context menu open"))
+
+            }
+        }
     }
 }
 

@@ -1,15 +1,36 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalTestApi::class)
 class SimpleperfLocalizationTest {
+    private lateinit var previousLocale: Locale
+
+    @BeforeTest
+    fun selectChineseResources() {
+        previousLocale = Locale.getDefault()
+        Locale.setDefault(Locale.SIMPLIFIED_CHINESE)
+    }
+
+    @AfterTest
+    fun restoreLocale() {
+        Locale.setDefault(previousLocale)
+    }
+
     @Test
     fun `Chinese localization covers primary workflow labels`() {
+        runDesktopComposeUiTest {
+            setContent {
         assertEquals(
             "设备和目标",
             translateSimpleperfText("Device & Target", SimpleperfLanguage.SIMPLIFIED_CHINESE),
@@ -41,18 +62,28 @@ class SimpleperfLocalizationTest {
             "丢失样本：12",
             translateSimpleperfText("Lost samples: 12", SimpleperfLanguage.SIMPLIFIED_CHINESE),
         )
+
+            }
+        }
     }
 
     @Test
     fun `English localization keeps source text`() {
+        runDesktopComposeUiTest {
+            setContent {
         assertEquals(
             "Device & Target",
             translateSimpleperfText("Device & Target", SimpleperfLanguage.ENGLISH),
         )
+
+            }
+        }
     }
 
     @Test
     fun `Chinese localization composes flame tooltip labels from structured keys`() {
+        runDesktopComposeUiTest {
+            setContent {
         assertEquals(
             "类别：Rendering",
             translateSimpleperfText("Category: Rendering", SimpleperfLanguage.SIMPLIFIED_CHINESE),
@@ -98,10 +129,15 @@ class SimpleperfLocalizationTest {
                 SimpleperfLanguage.SIMPLIFIED_CHINESE,
             ),
         )
+
+            }
+        }
     }
 
     @Test
     fun `Chinese localization covers reason specific flame empty states and recoveries`() {
+        runDesktopComposeUiTest {
+            setContent {
         val expected =
             mapOf(
                 "The selected thread has no samples." to "所选线程没有样本。",
@@ -125,10 +161,15 @@ class SimpleperfLocalizationTest {
         expected.forEach { (english, chinese) ->
             assertEquals(chinese, translateSimpleperfText(english, SimpleperfLanguage.SIMPLIFIED_CHINESE))
         }
+
+            }
+        }
     }
 
     @Test
     fun `Chinese localization covers the complete Firefox report workspace`() {
+        runDesktopComposeUiTest {
+            setContent {
         val expected =
             mapOf(
                 "Stack chart" to "堆栈图",
@@ -151,10 +192,15 @@ class SimpleperfLocalizationTest {
         expected.forEach { (english, chinese) ->
             assertEquals(chinese, translateSimpleperfText(english, SimpleperfLanguage.SIMPLIFIED_CHINESE))
         }
+
+            }
+        }
     }
 
     @Test
     fun `workspace pages do not expose language or theme controls`() {
+        runDesktopComposeUiTest {
+            setContent {
         val homeScreen =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/presentation/HomeScreen.kt"),
@@ -163,10 +209,15 @@ class SimpleperfLocalizationTest {
         assertFalse(homeScreen.contains("SimpleperfSettingsBar"))
         assertFalse(homeScreen.contains("onThemePreferenceChanged"))
         assertFalse(homeScreen.contains("onLanguagePreferenceChanged"))
+
+            }
+        }
     }
 
     @Test
     fun `flame accessibility semantics resolve through the active localization`() {
+        runDesktopComposeUiTest {
+            setContent {
         val panel =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphPanel.kt"),
@@ -178,5 +229,8 @@ class SimpleperfLocalizationTest {
 
         assertTrue(panel.contains("localizedSimpleperfText(\"Flame graph call stacks\")"))
         assertTrue(toolbar.contains("label = \"Filter Stacks\""))
+
+            }
+        }
     }
 }

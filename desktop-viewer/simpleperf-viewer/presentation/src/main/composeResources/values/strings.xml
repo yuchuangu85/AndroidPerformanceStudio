@@ -311,7 +311,7 @@
     <string name="sp_semantic_selected">selected</string>
     <string name="sp_semantic_hovered">hovered</string>
     <string name="sp_semantic_context_menu_open">context menu open</string>
-    <string name="sp_semantic_flame_content">%1$s, %2$s%%, %3$s</string>
+    <string name="sp_semantic_flame_content">%1$s, %2$s%, %3$s</string>
     <string name="sp_semantic_flame_state_single">%1$s, inclusive weight %2$s, %3$s sample</string>
     <string name="sp_semantic_flame_state_multiple">%1$s, inclusive weight %2$s, %3$s samples</string>
 </resources>

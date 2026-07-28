@@ -10,7 +10,8 @@
 
 package com.androidperformancestudio.startup.presentation
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.startup.presentation.generated.resources.Res
 import com.androidperformancestudio.startup.presentation.generated.resources.*
 
@@ -73,12 +74,12 @@ private fun EmptyPane(
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(localizedStringResource(Res.string.startup_profiler, chinese), style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(Res.string.startup_profiler), style = MaterialTheme.typography.headlineMedium)
         Text(
-            localizedStringResource(Res.string.choose_a_device_and_app_to_run_repeatable_cold_warm, chinese),
+            stringResource(Res.string.choose_a_device_and_app_to_run_repeatable_cold_warm),
         )
         state.operationMessage?.let { Text(it) }
-        if (state.isRunning && state.totalRuns > 0) Text(localizedStringResource(Res.string.text, chinese, state.completedRuns, state.totalRuns))
+        if (state.isRunning && state.totalRuns > 0) Text(stringResource(Res.string.text, state.completedRuns, state.totalRuns))
         state.warnings.forEach { Text(it, color = MaterialTheme.colorScheme.tertiary) }
     }
 }
@@ -97,13 +98,13 @@ private fun ResultsPane(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            MetricCard(localizedStringResource(Res.string.median_totaltime, chinese), analysis.totalTime, chinese)
-            MetricCard(localizedStringResource(Res.string.median_first_frame, chinese), analysis.firstFrame, chinese)
-            MetricCard(localizedStringResource(Res.string.median_fully_drawn, chinese), analysis.fullyDrawn, chinese)
+            MetricCard(stringResource(Res.string.median_totaltime), analysis.totalTime, chinese)
+            MetricCard(stringResource(Res.string.median_first_frame), analysis.firstFrame, chinese)
+            MetricCard(stringResource(Res.string.median_fully_drawn), analysis.fullyDrawn, chinese)
             StabilityCard(analysis, chinese)
         }
         state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, chinese) }
-        Text(localizedStringResource(Res.string.measured_runs, chinese), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(stringResource(Res.string.measured_runs), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             RunRowHeader(chinese)
             analysis.runs.forEach { run -> RunRow(run, run.id == selected.id, actions.onSelectRun, chinese) }
@@ -111,8 +112,8 @@ private fun ResultsPane(
         HorizontalDivider()
         RunDetail(selected, chinese)
         if (analysis.warnings.isNotEmpty()) {
-            Text(localizedStringResource(Res.string.warnings, chinese), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            analysis.warnings.forEach { Text(localizedStringResource(Res.string.text_45f5c8ce, chinese, it), color = MaterialTheme.colorScheme.tertiary) }
+            Text(stringResource(Res.string.warnings), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            analysis.warnings.forEach { Text(stringResource(Res.string.text_45f5c8ce, it), color = MaterialTheme.colorScheme.tertiary) }
         }
         state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
@@ -128,7 +129,7 @@ private fun MetricCard(
         Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
             Text(statistics.medianMs.formatMs(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(localizedStringResource(Res.string.p90_n, chinese, statistics.p90Ms.formatMs(), statistics.count), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(Res.string.p90_n, statistics.p90Ms.formatMs(), statistics.count), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -143,16 +144,16 @@ private fun StabilityCard(
     val ratio = if (median != null && median > 0 && deviation != null) deviation / median else null
     val label =
         when {
-            ratio == null -> localizedStringResource(Res.string.insufficient, chinese)
-            ratio <= 0.05 -> localizedStringResource(Res.string.stable, chinese)
-            ratio <= 0.15 -> localizedStringResource(Res.string.variable, chinese)
-            else -> localizedStringResource(Res.string.unstable, chinese)
+            ratio == null -> stringResource(Res.string.insufficient)
+            ratio <= 0.05 -> stringResource(Res.string.stable)
+            ratio <= 0.15 -> stringResource(Res.string.variable)
+            else -> stringResource(Res.string.unstable)
         }
     Card(Modifier.width(156.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(localizedStringResource(Res.string.stability, chinese), style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(Res.string.stability), style = MaterialTheme.typography.labelLarge)
             Text(label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(localizedStringResource(Res.string.mad, chinese, deviation.formatMs()), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(Res.string.mad, deviation.formatMs()), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -176,7 +177,7 @@ private fun BaselineComparison(
         }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Text(
-            localizedStringResource(Res.string.compared_with_previous_experiment_difference_only_no_statistical_signi, chinese, change.formatPercent()),
+            stringResource(Res.string.compared_with_previous_experiment_difference_only_no_statistical_signi, change.formatPercent()),
             modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
         )
     }
@@ -185,12 +186,12 @@ private fun BaselineComparison(
 @Composable
 private fun RunRowHeader(chinese: Boolean) {
     Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
-        TableCell(localizedStringResource(Res.string.run, chinese), 70)
-        TableCell(localizedStringResource(Res.string.observed, chinese), 100)
-        TableCell(localizedStringResource(Res.string.total, chinese), 100)
-        TableCell(localizedStringResource(Res.string.displayed, chinese), 100)
-        TableCell(localizedStringResource(Res.string.fully_drawn, chinese), 110)
-        TableCell(localizedStringResource(Res.string.agent, chinese), 80)
+        TableCell(stringResource(Res.string.run), 70)
+        TableCell(stringResource(Res.string.observed), 100)
+        TableCell(stringResource(Res.string.total), 100)
+        TableCell(stringResource(Res.string.displayed), 100)
+        TableCell(stringResource(Res.string.fully_drawn), 110)
+        TableCell(stringResource(Res.string.agent), 80)
     }
 }
 
@@ -209,10 +210,7 @@ private fun RunRow(
         TableCell(run.platform.displayedTimeMs.formatMs(), 100)
         TableCell(run.platform.fullyDrawnTimeMs.formatMs(), 110)
         TableCell(
-            localizedStringResource(
-                if (run.rawEvidence.agentAvailable) Res.string.full else Res.string.fallback,
-                chinese,
-            ),
+            stringResource(if (run.rawEvidence.agentAvailable) Res.string.full else Res.string.fallback, ),
             80,
         )
     }
@@ -232,22 +230,22 @@ private fun RunDetail(
     chinese: Boolean,
 ) {
     Text(
-        localizedStringResource(Res.string.run_detail, chinese, run.iteration, run.observedType.name),
+        stringResource(Res.string.run_detail, run.iteration, run.observedType.name),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
     )
-    Text(localizedStringResource(Res.string.platform_timeline, chinese), fontWeight = FontWeight.SemiBold)
+    Text(stringResource(Res.string.platform_timeline), fontWeight = FontWeight.SemiBold)
     TimelineBar(
         listOfNotNull(
-            run.platform.thisTimeMs?.let { localizedStringResource(Res.string.this_time, chinese) to it.toDouble() },
-            run.platform.totalTimeMs?.let { localizedStringResource(Res.string.total_time, chinese) to it.toDouble() },
-            run.platform.waitTimeMs?.let { localizedStringResource(Res.string.wait_time, chinese) to it.toDouble() },
-            run.platform.fullyDrawnTimeMs?.let { localizedStringResource(Res.string.fully_drawn_time, chinese) to it.toDouble() },
+            run.platform.thisTimeMs?.let { stringResource(Res.string.this_time) to it.toDouble() },
+            run.platform.totalTimeMs?.let { stringResource(Res.string.total_time) to it.toDouble() },
+            run.platform.waitTimeMs?.let { stringResource(Res.string.wait_time) to it.toDouble() },
+            run.platform.fullyDrawnTimeMs?.let { stringResource(Res.string.fully_drawn_time) to it.toDouble() },
         ),
     )
-    Text(localizedStringResource(Res.string.agent_phases_separate_clock_domain, chinese), fontWeight = FontWeight.SemiBold)
+    Text(stringResource(Res.string.agent_phases_separate_clock_domain), fontWeight = FontWeight.SemiBold)
     if (run.phases.isEmpty()) {
-        Text(localizedStringResource(Res.string.no_agent_phases_available, chinese))
+        Text(stringResource(Res.string.no_agent_phases_available))
     } else {
         run.phases.forEach { phase ->
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -258,12 +256,12 @@ private fun RunDetail(
         }
     }
     if (run.milestones.isNotEmpty()) {
-        Text(localizedStringResource(Res.string.milestones, chinese), fontWeight = FontWeight.SemiBold)
+        Text(stringResource(Res.string.milestones), fontWeight = FontWeight.SemiBold)
         run.milestones.forEach { milestone ->
-            Text(localizedStringResource(Res.string.text_aeb7e472, chinese, milestone.kind.name, milestone.confidence.name, milestone.activityName.orEmpty()))
+            Text(stringResource(Res.string.text_aeb7e472, milestone.kind.name, milestone.confidence.name, milestone.activityName.orEmpty()))
         }
     }
-    Text(localizedStringResource(Res.string.raw_am_start_w_evidence, chinese), fontWeight = FontWeight.SemiBold)
+    Text(stringResource(Res.string.raw_am_start_w_evidence), fontWeight = FontWeight.SemiBold)
     Box(
         Modifier
             .fillMaxWidth()

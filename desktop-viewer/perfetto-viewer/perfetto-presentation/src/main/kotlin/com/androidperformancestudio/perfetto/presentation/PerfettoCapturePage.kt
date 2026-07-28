@@ -1,6 +1,7 @@
 package com.androidperformancestudio.perfetto.presentation
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.perfetto_presentation.generated.resources.Res
 import com.androidperformancestudio.perfetto_presentation.generated.resources.*
 
@@ -98,7 +99,7 @@ private fun PerfettoTemplatePanel(
     chinese: Boolean,
 ) {
     PerfettoWorkspacePanel(
-        title = localizedStringResource(Res.string.trace_template, chinese),
+        title = stringResource(Res.string.trace_template),
         modifier = modifier,
     ) {
         Column(
@@ -209,7 +210,7 @@ private fun PerfettoConfigurationPanel(
         )
 
     PerfettoWorkspacePanel(
-        title = localizedStringResource(Res.string.configuration, chinese),
+        title = stringResource(Res.string.configuration),
         modifier = modifier,
     ) {
         Column(
@@ -220,11 +221,11 @@ private fun PerfettoConfigurationPanel(
                     .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            CompactFieldLabel(localizedStringResource(Res.string.target_package, chinese))
+            CompactFieldLabel(stringResource(Res.string.target_package))
             PerfettoCompactTextField(
                 value = targetPackage,
                 onValueChange = onTargetPackageChange,
-                placeholder = localizedStringResource(Res.string.system_wide_for_example_com_example_app, chinese),
+                placeholder = stringResource(Res.string.system_wide_for_example_com_example_app),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -233,7 +234,7 @@ private fun PerfettoConfigurationPanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    CompactFieldLabel(localizedStringResource(Res.string.duration_seconds, chinese))
+                    CompactFieldLabel(stringResource(Res.string.duration_seconds))
                     PerfettoCompactTextField(
                         value = durationSeconds.toString(),
                         onValueChange = {
@@ -245,7 +246,7 @@ private fun PerfettoConfigurationPanel(
                     )
                 }
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    CompactFieldLabel(localizedStringResource(Res.string.buffer_mb, chinese))
+                    CompactFieldLabel(stringResource(Res.string.buffer_mb))
                     PerfettoCompactTextField(
                         value = (bufferSizeKb / 1024).toString(),
                         onValueChange = {
@@ -258,20 +259,20 @@ private fun PerfettoConfigurationPanel(
                 }
             }
 
-            CompactFieldLabel(localizedStringResource(Res.string.additional_categories_events, chinese))
+            CompactFieldLabel(stringResource(Res.string.additional_categories_events))
             PerfettoCompactTextField(
                 value = additionalCategories,
                 onValueChange = onAdditionalCategoriesChange,
-                placeholder = localizedStringResource(Res.string.comma_separated_atrace_categories_or_ftrace_events, chinese),
+                placeholder = stringResource(Res.string.comma_separated_atrace_categories_or_ftrace_events),
                 modifier = Modifier.fillMaxWidth(),
             )
 
             if (selectedTemplate == PerfettoTraceTemplate.CUSTOM) {
-                CompactFieldLabel(localizedStringResource(Res.string.custom_traceconfig_text_protobuf, chinese))
+                CompactFieldLabel(stringResource(Res.string.custom_traceconfig_text_protobuf))
                 PerfettoCompactTextField(
                     value = customConfigText,
                     onValueChange = onCustomConfigTextChange,
-                    placeholder = localizedStringResource(Res.string.paste_a_valid_perfetto_traceconfig, chinese),
+                    placeholder = stringResource(Res.string.paste_a_valid_perfetto_traceconfig),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     height = 150.dp,
@@ -283,7 +284,7 @@ private fun PerfettoConfigurationPanel(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 PerfettoCompactButton(
-                    text = localizedStringResource(Res.string.start_capture, chinese),
+                    text = stringResource(Res.string.start_capture),
                     onClick = {
                         selectedDeviceSerial?.let { deviceSerial ->
                             onStartCapture(
@@ -303,11 +304,11 @@ private fun PerfettoConfigurationPanel(
                     selected = canStartCapture,
                 )
                 if (captureState is PerfettoCaptureState.Recording) {
-                    PerfettoCompactButton(text = localizedStringResource(Res.string.stop, chinese), onClick = onStopCapture)
+                    PerfettoCompactButton(text = stringResource(Res.string.stop), onClick = onStopCapture)
                 }
                 if (captureState is PerfettoCaptureState.Completed) {
                     PerfettoCompactButton(
-                        text = localizedStringResource(Res.string.open_in_perfetto_ui, chinese),
+                        text = stringResource(Res.string.open_in_perfetto_ui),
                         onClick = { onOpenTrace(captureState.traceFile) },
                     )
                 }
@@ -342,13 +343,13 @@ private fun CaptureStatus(state: PerfettoCaptureState, chinese: Boolean) {
     Text(
         text =
             when (state) {
-                is PerfettoCaptureState.Idle -> localizedStringResource(Res.string.ready, chinese)
-                is PerfettoCaptureState.Preparing -> localizedStringResource(Res.string.preparing_capture, chinese)
-                is PerfettoCaptureState.Recording -> localizedStringResource(Res.string.recording_since, chinese, state.startTime)
-                is PerfettoCaptureState.Pulling -> localizedStringResource(Res.string.pulling_trace_from_device, chinese)
+                is PerfettoCaptureState.Idle -> stringResource(Res.string.ready)
+                is PerfettoCaptureState.Preparing -> stringResource(Res.string.preparing_capture)
+                is PerfettoCaptureState.Recording -> stringResource(Res.string.recording_since, state.startTime)
+                is PerfettoCaptureState.Pulling -> stringResource(Res.string.pulling_trace_from_device)
                 is PerfettoCaptureState.Completed ->
-                    localizedStringResource(Res.string.completed_mb, chinese, state.metadata.traceFileSizeBytes / 1024 / 1024)
-                is PerfettoCaptureState.Failed -> localizedStringResource(Res.string.failed, chinese, state.error.message)
+                    stringResource(Res.string.completed_mb, state.metadata.traceFileSizeBytes / 1024 / 1024)
+                is PerfettoCaptureState.Failed -> stringResource(Res.string.failed, state.error.message)
             },
         color =
             if (state is PerfettoCaptureState.Failed) {
@@ -395,28 +396,24 @@ private fun isCaptureStartAllowed(
     return selectedDeviceSerial != null && customConfigReady && !preparing && !recording && !pulling
 }
 
+@Composable
 private fun PerfettoTraceTemplate.displayName(chinese: Boolean): String =
-    localizedStringResource(
-        when (this) {
+    stringResource(when (this) {
             PerfettoTraceTemplate.SYSTEM_OVERVIEW -> Res.string.system_overview
             PerfettoTraceTemplate.APP_PERFORMANCE -> Res.string.app_performance
             PerfettoTraceTemplate.GFX_PIPELINE -> Res.string.graphics_pipeline
             PerfettoTraceTemplate.INPUT_LATENCY -> Res.string.input_latency
             PerfettoTraceTemplate.MEMORY_PROFILE -> Res.string.memory_profile
             PerfettoTraceTemplate.CUSTOM -> Res.string.custom
-        },
-        chinese,
-    )
+        }, )
 
+@Composable
 private fun PerfettoTraceTemplate.description(chinese: Boolean): String =
-    localizedStringResource(
-        when (this) {
+    stringResource(when (this) {
             PerfettoTraceTemplate.SYSTEM_OVERVIEW -> Res.string.system_overview_description
             PerfettoTraceTemplate.APP_PERFORMANCE -> Res.string.app_performance_description
             PerfettoTraceTemplate.GFX_PIPELINE -> Res.string.graphics_pipeline_description
             PerfettoTraceTemplate.INPUT_LATENCY -> Res.string.input_latency_description
             PerfettoTraceTemplate.MEMORY_PROFILE -> Res.string.memory_profile_description
             PerfettoTraceTemplate.CUSTOM -> Res.string.custom_description
-        },
-        chinese,
-    )
+        }, )

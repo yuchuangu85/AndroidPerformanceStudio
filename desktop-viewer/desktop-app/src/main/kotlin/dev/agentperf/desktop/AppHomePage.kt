@@ -1,6 +1,5 @@
 package dev.agentperf.desktop
 
-import com.androidperformancestudio.ui.localizedStringResource
 import dev.agentperf.desktop_app.generated.resources.Res
 import dev.agentperf.desktop_app.generated.resources.*
 
@@ -29,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.jetbrains.compose.resources.stringResource
 
 internal const val HOME_GRID_COLUMN_COUNT = 4
 internal const val HOME_CARD_HEIGHT_DP = 172
@@ -51,83 +51,83 @@ fun AppHomePage(
     val entries =
         listOf(
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.layout_inspector, chinese),
-                subtitle = localizedStringResource(Res.string.layout_inspection, chinese),
+                title = stringResource(Res.string.layout_inspector),
+                subtitle = stringResource(Res.string.layout_inspection),
                 description =
-                    localizedStringResource(Res.string.inspect_android_view_hierarchies_screenshots_bounds_and_properties, chinese),
-                actionLabel = localizedStringResource(Res.string.open, chinese),
+                    stringResource(Res.string.inspect_android_view_hierarchies_screenshots_bounds_and_properties),
+                actionLabel = stringResource(Res.string.open),
                 onClick = onOpenLayoutInspector,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.cpu_profiler, chinese),
-                subtitle = localizedStringResource(Res.string.cpu_profiling, chinese),
+                title = stringResource(Res.string.cpu_profiler),
+                subtitle = stringResource(Res.string.cpu_profiling),
                 description =
-                    localizedStringResource(Res.string.simpleperf_based_cpu_sampling_flame_graphs_call_tree_analysis, chinese),
-                actionLabel = localizedStringResource(Res.string.open, chinese),
+                    stringResource(Res.string.simpleperf_based_cpu_sampling_flame_graphs_call_tree_analysis),
+                actionLabel = stringResource(Res.string.open),
                 onClick = onOpenSimpleperf,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.trace_analyzer, chinese),
-                subtitle = localizedStringResource(Res.string.system_trace, chinese),
+                title = stringResource(Res.string.trace_analyzer),
+                subtitle = stringResource(Res.string.system_trace),
                 description =
-                    localizedStringResource(Res.string.perfetto_system_level_trace_capture_with_scheduling_binder_and_graphic, chinese),
-                actionLabel = localizedStringResource(Res.string.open, chinese),
+                    stringResource(Res.string.perfetto_system_level_trace_capture_with_scheduling_binder_and_graphic),
+                actionLabel = stringResource(Res.string.open),
                 onClick = onOpenPerfetto,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.memory_profiler, chinese),
-                subtitle = localizedStringResource(Res.string.memory, chinese),
+                title = stringResource(Res.string.memory_profiler),
+                subtitle = stringResource(Res.string.memory),
                 description =
-                    localizedStringResource(Res.string.heap_dump_capture_object_statistics_and_class_histogram_analysis, chinese),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
+                    stringResource(Res.string.heap_dump_capture_object_statistics_and_class_histogram_analysis),
+                actionLabel = stringResource(Res.string.open_af210e3f),
                 onClick = onOpenMemoryProfiler,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.frame_profiler, chinese),
-                subtitle = localizedStringResource(Res.string.frame_timing, chinese),
+                title = stringResource(Res.string.frame_profiler),
+                subtitle = stringResource(Res.string.frame_timing),
                 description =
-                    localizedStringResource(Res.string.capture_online_or_import_gfxinfo_framestats_to_analyze_frame_timing, chinese),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
+                    stringResource(Res.string.capture_online_or_import_gfxinfo_framestats_to_analyze_frame_timing),
+                actionLabel = stringResource(Res.string.open_af210e3f),
                 onClick = onOpenFrameProfiler,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.startup_profiler, chinese),
-                subtitle = localizedStringResource(Res.string.startup, chinese),
+                title = stringResource(Res.string.startup_profiler),
+                subtitle = stringResource(Res.string.startup),
                 description =
-                    localizedStringResource(Res.string.cold_warm_startup_breakdown_and_baseline_profile_support, chinese),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
+                    stringResource(Res.string.cold_warm_startup_breakdown_and_baseline_profile_support),
+                actionLabel = stringResource(Res.string.open_af210e3f),
                 onClick = onOpenStartupProfiler,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.battery_profiler, chinese),
-                subtitle = localizedStringResource(Res.string.battery, chinese),
+                title = stringResource(Res.string.battery_profiler),
+                subtitle = stringResource(Res.string.battery),
                 description =
-                    localizedStringResource(Res.string.batterystats_analysis_with_wakelock_alarm_and_network_usage_stats, chinese),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
+                    stringResource(Res.string.batterystats_analysis_with_wakelock_alarm_and_network_usage_stats),
+                actionLabel = stringResource(Res.string.open_af210e3f),
                 onClick = onOpenBatteryProfiler,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.network_profiler, chinese),
-                subtitle = localizedStringResource(Res.string.network, chinese),
+                title = stringResource(Res.string.network_profiler),
+                subtitle = stringResource(Res.string.network),
                 description =
-                    localizedStringResource(Res.string.http_https_traffic_capture_and_request_timeline_analysis, chinese),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
+                    stringResource(Res.string.http_https_traffic_capture_and_request_timeline_analysis),
+                actionLabel = stringResource(Res.string.open_af210e3f),
                 onClick = onOpenNetworkProfiler,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.gpu_inspector, chinese),
-                subtitle = localizedStringResource(Res.string.gpu_agi_integration, chinese),
+                title = stringResource(Res.string.gpu_inspector),
+                subtitle = stringResource(Res.string.gpu_agi_integration),
                 description =
-                    localizedStringResource(Res.string.discover_and_launch_android_gpu_inspector_then_index_and_verify, chinese),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
+                    stringResource(Res.string.discover_and_launch_android_gpu_inspector_then_index_and_verify),
+                actionLabel = stringResource(Res.string.open_af210e3f),
                 onClick = onOpenGpuInspector,
             ),
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.benchmark_regression, chinese),
-                subtitle = localizedStringResource(Res.string.macrobenchmark_regression, chinese),
+                title = stringResource(Res.string.benchmark_regression),
+                subtitle = stringResource(Res.string.macrobenchmark_regression),
                 description =
-                    localizedStringResource(Res.string.compare_androidx_benchmark_baselines_and_current_results_with_ci_regre, chinese),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, chinese),
+                    stringResource(Res.string.compare_androidx_benchmark_baselines_and_current_results_with_ci_regre),
+                actionLabel = stringResource(Res.string.open_af210e3f),
                 onClick = onOpenBenchmarkRegression,
             ),
         )
@@ -142,13 +142,13 @@ fun AppHomePage(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = localizedStringResource(Res.string.android_performance_studio, chinese),
+                text = stringResource(Res.string.android_performance_studio),
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = localizedStringResource(Res.string.choose_a_performance_analysis_tool, chinese),
+                text = stringResource(Res.string.choose_a_performance_analysis_tool),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

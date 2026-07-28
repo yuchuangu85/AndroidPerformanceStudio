@@ -2,7 +2,8 @@
 
 package com.androidperformancestudio.benchmark.presentation
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.benchmark.presentation.generated.resources.Res
 import com.androidperformancestudio.benchmark.presentation.generated.resources.*
 
@@ -36,21 +37,21 @@ public data class BenchmarkRegressionState(
 public fun BenchmarkRegressionScreen(state: BenchmarkRegressionState, chinese: Boolean, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SummaryCard(localizedStringResource(Res.string.current, chinese), state.current?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
-            SummaryCard(localizedStringResource(Res.string.baseline, chinese), state.baseline?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
-            SummaryCard(localizedStringResource(Res.string.regressions, chinese), state.report?.regressionCount?.toString() ?: "—", Modifier.weight(1f))
-            SummaryCard(localizedStringResource(Res.string.threshold, chinese), state.thresholdPercent?.let { "$it%" } ?: localizedStringResource(Res.string.not_configured, chinese), Modifier.weight(1f))
+            SummaryCard(stringResource(Res.string.current), state.current?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
+            SummaryCard(stringResource(Res.string.baseline), state.baseline?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))
+            SummaryCard(stringResource(Res.string.regressions), state.report?.regressionCount?.toString() ?: "—", Modifier.weight(1f))
+            SummaryCard(stringResource(Res.string.threshold), state.thresholdPercent?.let { "$it%" } ?: stringResource(Res.string.not_configured), Modifier.weight(1f))
         }
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text(localizedStringResource(Res.string.metric_comparisons, chinese), style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(Res.string.metric_comparisons), style = MaterialTheme.typography.titleLarge)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(state.report?.comparisons.orEmpty()) { comparison ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(localizedStringResource(Res.string.text, chinese, comparison.classification, comparison.caseIdentity), style = MaterialTheme.typography.titleMedium)
-                        Text(localizedStringResource(Res.string.metric_values, chinese, comparison.metricName, comparison.unit, comparison.baselineValue ?: "—", comparison.currentValue ?: "—"))
-                        Text(localizedStringResource(Res.string.metric_delta, chinese, comparison.absoluteDelta ?: "—", comparison.relativeDeltaPercent?.let { "%.2f%%".format(it) } ?: "—", comparison.confidence))
+                        Text(stringResource(Res.string.text, comparison.classification, comparison.caseIdentity), style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(Res.string.metric_values, comparison.metricName, comparison.unit, comparison.baselineValue ?: "—", comparison.currentValue ?: "—"))
+                        Text(stringResource(Res.string.metric_delta, comparison.absoluteDelta ?: "—", comparison.relativeDeltaPercent?.let { "%.2f%%".format(it) } ?: "—", comparison.confidence))
                         comparison.reasons.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }

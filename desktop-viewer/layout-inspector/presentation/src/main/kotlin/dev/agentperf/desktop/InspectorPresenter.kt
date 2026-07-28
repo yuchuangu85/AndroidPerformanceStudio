@@ -83,7 +83,7 @@ data class InspectorScreenModel(
 internal object InspectorPresenter {
     fun present(
         state: InspectorState,
-        strings: ViewerStrings = ViewerStrings.English,
+        strings: ViewerStrings,
     ): InspectorScreenModel {
         val nodeNumbers = mutableMapOf<String, String>()
         val nextIndexByDepth = mutableMapOf<Int, Int>()

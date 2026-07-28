@@ -315,7 +315,7 @@ fun FrameWindowScope.DesktopViewerApp(
     val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
     var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
     val viewerLanguage = languagePreference.resolve(Locale.getDefault().toLanguageTag())
-    val strings = remember(viewerLanguage) { ViewerStrings.forLanguage(viewerLanguage) }
+    val strings = ViewerStrings.forLanguage(viewerLanguage)
     var settingsVisible by remember { mutableStateOf(false) }
     val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
     LaunchedEffect(settingsRevision) {
@@ -1195,7 +1195,7 @@ private fun ExportResultDialog(
 
 internal fun headerTextSegments(
     model: InspectorScreenModel,
-    strings: ViewerStrings = ViewerStrings.English,
+    strings: ViewerStrings,
 ): List<String> =
     listOf(model.packageName ?: strings.noApp, "|", model.connectionLabel)
 

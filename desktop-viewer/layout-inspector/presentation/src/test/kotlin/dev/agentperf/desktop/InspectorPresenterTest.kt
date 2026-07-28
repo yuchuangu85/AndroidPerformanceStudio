@@ -21,11 +21,18 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class InspectorPresenterTest {
+    private val strings = testViewerStrings()
+
+    private fun present(
+        state: InspectorState,
+        strings: ViewerStrings = this.strings,
+    ): InspectorScreenModel = InspectorPresenter.present(state, strings)
+
     @Test
     fun `flattens tree rows in depth first display order`() {
         val store = InspectorStore().apply { load(SampleSnapshots.dashboard) }
 
-        val model = InspectorPresenter.present(store.state)
+        val model = present(store.state)
 
         assertEquals(listOf("root", "title", "cards", "score", "legacy-placeholder"), model.rows.map { it.id })
         assertEquals(listOf(0, 1, 1, 2, 2), model.rows.map { it.depth })
@@ -65,7 +72,7 @@ class InspectorPresenterTest {
             ),
         )
 
-        val model = InspectorPresenter.present(InspectorState(snapshot = snapshot))
+        val model = present(InspectorState(snapshot = snapshot))
 
         assertEquals(
             listOf("0-0", "1-0", "2-0", "1-1", "2-1"),
@@ -80,9 +87,9 @@ class InspectorPresenterTest {
             selectNode("title")
         }
 
-        val model = InspectorPresenter.present(
+        val model = present(
             store.state,
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            testViewerStrings(ViewerLanguage.SIMPLIFIED_CHINESE),
         )
 
         assertEquals("android.widget.TextView", model.details.className)
@@ -141,7 +148,7 @@ class InspectorPresenterTest {
             ),
         )
 
-        val details = InspectorPresenter.present(
+        val details = present(
             InspectorState(
                 snapshot = SampleSnapshots.dashboard.copy(root = root),
                 selectedNodeId = "root",
@@ -191,7 +198,7 @@ class InspectorPresenterTest {
             children = listOf(composeNode),
         )
 
-        val details = InspectorPresenter.present(
+        val details = present(
             InspectorState(
                 snapshot = SampleSnapshots.dashboard.copy(
                     root = root,
@@ -217,12 +224,12 @@ class InspectorPresenterTest {
 
     @Test
     fun `localizes detail sections and fields`() {
-        val details = InspectorPresenter.present(
+        val details = present(
             InspectorState(
                 snapshot = SampleSnapshots.dashboard,
                 selectedNodeId = "root",
             ),
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            testViewerStrings(ViewerLanguage.SIMPLIFIED_CHINESE),
         ).details
 
         assertEquals(
@@ -250,7 +257,7 @@ class InspectorPresenterTest {
             ),
         )
 
-        assertEquals("—", InspectorPresenter.present(state).findings.single().nodeNumber)
+        assertEquals("—", present(state).findings.single().nodeNumber)
     }
 
     @Test
@@ -269,17 +276,17 @@ class InspectorPresenterTest {
 
         assertEquals(
             listOf(FindingTone.INFO, FindingTone.WARNING, FindingTone.ERROR),
-            InspectorPresenter.present(state).findings.map { it.tone },
+            present(state).findings.map { it.tone },
         )
         assertEquals(
             listOf("info:root:0", "warning:root:1", "error:root:2"),
-            InspectorPresenter.present(state).findings.map { it.key },
+            present(state).findings.map { it.key },
         )
     }
 
     @Test
     fun `presents timeline diff summary when available`() {
-        val model = InspectorPresenter.present(
+        val model = present(
             InspectorState(
                 snapshot = SampleSnapshots.dashboard,
                 timelineDiff = TimelineDiff(
@@ -300,7 +307,7 @@ class InspectorPresenterTest {
     fun `presents timeline frame history with selected frame`() {
         val first = SampleSnapshots.dashboard.copy(capturedAtEpochMillis = 1_000)
         val second = first.copy(capturedAtEpochMillis = 2_000)
-        val model = InspectorPresenter.present(
+        val model = present(
             InspectorState(
                 snapshot = second,
                 timelineFrames = listOf(
@@ -335,7 +342,7 @@ class InspectorPresenterTest {
 
     @Test
     fun `empty state explains how to begin`() {
-        val model = InspectorPresenter.present(InspectorState())
+        val model = present(InspectorState())
 
         assertTrue(model.rows.isEmpty())
         assertEquals("No snapshot loaded", model.emptyMessage)
@@ -343,13 +350,13 @@ class InspectorPresenterTest {
 
     @Test
     fun `connection status distinguishes progress success and failure`() {
-        val connecting = InspectorPresenter.present(
+        val connecting = present(
             InspectorState(connectionStatus = ConnectionStatus.CONNECTING),
         )
-        val connected = InspectorPresenter.present(
+        val connected = present(
             InspectorState(connectionStatus = ConnectionStatus.CONNECTED),
         )
-        val failed = InspectorPresenter.present(
+        val failed = present(
             InspectorState(
                 connectionStatus = ConnectionStatus.ERROR,
                 connectionError = "No resumed activity",
@@ -368,10 +375,10 @@ class InspectorPresenterTest {
     fun `offline archive has a neutral localized connection status`() {
         val state = InspectorState(connectionStatus = ConnectionStatus.ARCHIVE)
 
-        val english = InspectorPresenter.present(state, ViewerStrings.English)
-        val chinese = InspectorPresenter.present(
+        val english = present(state, testViewerStrings())
+        val chinese = present(
             state,
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            testViewerStrings(ViewerLanguage.SIMPLIFIED_CHINESE),
         )
 
         assertEquals("Offline archive", english.connectionLabel)
@@ -381,12 +388,12 @@ class InspectorPresenterTest {
 
     @Test
     fun `localizes the authorized device count error in the header`() {
-        val model = InspectorPresenter.present(
+        val model = present(
             InspectorState(
                 connectionStatus = ConnectionStatus.ERROR,
                 connectionError = "Expected exactly one authorized device, found 0",
             ),
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            testViewerStrings(ViewerLanguage.SIMPLIFIED_CHINESE),
         )
 
         assertEquals(
@@ -397,7 +404,7 @@ class InspectorPresenterTest {
 
     @Test
     fun `header starts with package name then separates connection status with a vertical bar`() {
-        val model = InspectorPresenter.present(
+        val model = present(
             InspectorState(
                 snapshot = SampleSnapshots.dashboard,
                 connectionStatus = ConnectionStatus.CONNECTED,
@@ -406,7 +413,7 @@ class InspectorPresenterTest {
 
         assertEquals(
             listOf("dev.agentperf.sample", "|", "Live"),
-            headerTextSegments(model),
+            headerTextSegments(model, strings),
         )
     }
 
@@ -437,7 +444,7 @@ class InspectorPresenterTest {
             ),
         )
 
-        val findings = InspectorPresenter.present(state).findings
+        val findings = present(state).findings
 
         assertEquals(listOf("rule", "AI · AI layout risk"), findings.map { it.title })
         assertEquals(listOf(FindingTone.INFO, FindingTone.WARNING), findings.map { it.tone })

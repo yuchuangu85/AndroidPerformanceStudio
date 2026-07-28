@@ -1,5 +1,7 @@
 package com.androidperformancestudio.desktop
 
+import org.jetbrains.compose.resources.stringResource
+
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
@@ -8,8 +10,6 @@ import androidx.compose.ui.window.MenuBar
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.app_desktop.generated.resources.Res
 import com.androidperformancestudio.app_desktop.generated.resources.*
-import com.androidperformancestudio.ui.localizedStringResource
-import org.jetbrains.compose.resources.StringResource
 import java.nio.file.Path
 
 internal data class SimpleperfMenuShortcut(
@@ -68,47 +68,48 @@ internal data class SimpleperfFileMenuModel(
     val openShortcut: SimpleperfMenuShortcut,
     val exportShortcut: SimpleperfMenuShortcut,
     val settingsShortcut: SimpleperfMenuShortcut?,
-) {
-    constructor(
-        language: SimpleperfLanguage,
-        recentSessions: List<Path>,
-        exportEnabled: Boolean,
-        isMacOs: Boolean,
-        configurationEnabled: Boolean = true,
-    ) : this(
-        fileTitle = language.string(Res.string.file),
-        openLabel = language.string(Res.string.open),
-        settingsLabel = language.string(Res.string.settings).takeUnless { isMacOs },
+)
+
+@Composable
+internal fun simpleperfFileMenuModel(
+    recentSessions: List<Path>,
+    exportEnabled: Boolean,
+    isMacOs: Boolean,
+    configurationEnabled: Boolean = true,
+): SimpleperfFileMenuModel =
+    SimpleperfFileMenuModel(
+        fileTitle = stringResource(Res.string.file),
+        openLabel = stringResource(Res.string.open),
+        settingsLabel = stringResource(Res.string.settings).takeUnless { isMacOs },
         exportMenu =
             SimpleperfExportMenuModel(
-                title = language.string(Res.string.export),
-                sessionPackageLabel = language.string(Res.string.session_package),
-                reportLabel = language.string(Res.string.json_csv),
-                geckoProfileLabel = language.string(Res.string.firefox_profiler_json),
-                rawProtobufLabel = language.string(Res.string.raw_protobuf),
-                screenshotLabel = language.string(Res.string.screenshot),
-                simpleperfReportLabel = language.string(Res.string.simpleperf_report),
-                htmlReportLabel = language.string(Res.string.report_html_py),
-                externalOpenLabel = language.string(Res.string.external_open),
+                title = stringResource(Res.string.export),
+                sessionPackageLabel = stringResource(Res.string.session_package),
+                reportLabel = stringResource(Res.string.json_csv),
+                geckoProfileLabel = stringResource(Res.string.firefox_profiler_json),
+                rawProtobufLabel = stringResource(Res.string.raw_protobuf),
+                screenshotLabel = stringResource(Res.string.screenshot),
+                simpleperfReportLabel = stringResource(Res.string.simpleperf_report),
+                htmlReportLabel = stringResource(Res.string.report_html_py),
+                externalOpenLabel = stringResource(Res.string.external_open),
             ),
         configurationMenu =
             SimpleperfConfigurationMenuModel(
-                title = language.string(Res.string.configuration),
-                samplingTemplateLabel = language.string(Res.string.capture_templates),
-                captureConfigurationLabel = language.string(Res.string.capture_configuration),
-                advancedParametersLabel = language.string(Res.string.advanced_parameters),
+                title = stringResource(Res.string.configuration),
+                samplingTemplateLabel = stringResource(Res.string.capture_templates),
+                captureConfigurationLabel = stringResource(Res.string.capture_configuration),
+                advancedParametersLabel = stringResource(Res.string.advanced_parameters),
                 enabled = configurationEnabled,
             ),
-        openRecentTitle = language.string(Res.string.open_recent),
-        noRecentLabel = language.string(Res.string.no_recent_sessions),
-        clearRecentLabel = language.string(Res.string.clear_menu),
+        openRecentTitle = stringResource(Res.string.open_recent),
+        noRecentLabel = stringResource(Res.string.no_recent_sessions),
+        clearRecentLabel = stringResource(Res.string.clear_menu),
         recentItems = recentSessions.toRecentMenuItems(),
         exportEnabled = exportEnabled,
         openShortcut = primaryShortcut(Key.O, isMacOs),
         exportShortcut = primaryShortcut(Key.E, isMacOs),
         settingsShortcut = primaryShortcut(Key.Comma, isMacOs).takeUnless { isMacOs },
     )
-}
 
 @Composable
 @Suppress(
@@ -215,7 +216,7 @@ internal fun FrameWindowScope.SimpleperfFileMenuBar(
     }
 }
 
-private fun List<Path>.toRecentMenuItems(): List<SimpleperfRecentMenuItem> {
+internal fun List<Path>.toRecentMenuItems(): List<SimpleperfRecentMenuItem> {
     val normalized = map { it.toAbsolutePath().normalize() }.distinct()
     val duplicateNames =
         normalized
@@ -232,10 +233,7 @@ private fun List<Path>.toRecentMenuItems(): List<SimpleperfRecentMenuItem> {
     }
 }
 
-private fun SimpleperfLanguage.string(resource: StringResource): String =
-    localizedStringResource(resource, chinese = this == SimpleperfLanguage.SIMPLIFIED_CHINESE)
-
-private fun primaryShortcut(
+internal fun primaryShortcut(
     key: Key,
     isMacOs: Boolean,
 ): SimpleperfMenuShortcut =

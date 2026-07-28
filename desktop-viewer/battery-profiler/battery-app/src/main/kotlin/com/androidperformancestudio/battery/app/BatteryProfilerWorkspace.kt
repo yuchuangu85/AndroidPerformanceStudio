@@ -10,7 +10,8 @@
 
 package com.androidperformancestudio.battery.app
 
-import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.stringResource
+
 import com.androidperformancestudio.battery.battery_app.generated.resources.Res
 import com.androidperformancestudio.battery.battery_app.generated.resources.*
 
@@ -63,6 +64,7 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
     var experimentJob by remember { mutableStateOf<Job?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmBugreport by remember { mutableStateOf(false) }
+    val saveDialogTitle = stringResource(Res.string.battery_energy_profiler)
 
     LaunchedEffect(controller) { controller.refreshDevices() }
     LaunchedEffect(state.isInteractiveActive, state.config.mode, state.config.pollingIntervalSeconds) {
@@ -77,14 +79,14 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
+                contentDescription = stringResource(Res.string.back_to_home),
                 onClick = {
                     experimentJob?.cancel()
                     onBack()
                 },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.device, chinese),
+                label = stringResource(Res.string.device),
                 selectedLabel = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
                 options =
                     state.devices.filter { it.online }.map {
@@ -95,43 +97,33 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                 onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.app_uid, chinese),
+                label = stringResource(Res.string.app_uid),
                 selectedLabel =
                     state.targets
                         .firstOrNull {
                             it.packageName == state.selectedPackageName
                         }?.let {
-                            localizedStringResource(
-                                if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
-                                chinese,
-                                it.packageName,
-                                it.uid,
-                            )
+                            stringResource(if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid, it.packageName, it.uid, )
                         },
                 options =
                     state.targets.map {
                         it.packageName to
-                            localizedStringResource(
-                                if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
-                                chinese,
-                                it.packageName,
-                                it.uid,
-                            )
+                            stringResource(if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid, it.packageName, it.uid, )
                     },
                 enabled = !state.isRunning && state.selectedDeviceSerial != null,
                 onSelected = controller::selectTarget,
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh, chinese),
+                text = stringResource(Res.string.refresh),
                 enabled = !state.isRunning && !state.isRefreshing,
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
             ProfilerCompactButton(
                 text =
                     when {
-                        state.isInteractiveActive -> localizedStringResource(Res.string.stop_analyze, chinese)
-                        state.isRunning -> localizedStringResource(Res.string.cancel_experiment, chinese)
-                        else -> localizedStringResource(Res.string.run_experiment, chinese)
+                        state.isInteractiveActive -> stringResource(Res.string.stop_analyze)
+                        state.isRunning -> stringResource(Res.string.cancel_experiment)
+                        else -> stringResource(Res.string.run_experiment)
                     },
                 enabled = state.selectedPackageName != null,
                 onClick = {
@@ -152,12 +144,12 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
         )
         ProfilerMacOsSecondaryToolbar {
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.capture_mode, chinese),
-                selectedLabel = state.config.mode.label(chinese),
+                label = stringResource(Res.string.capture_mode),
+                selectedLabel = state.config.mode.label(),
                 options =
                     BatteryCaptureMode.entries.map {
                         it.name to
-                            it.label(chinese)
+                            it.label()
                     },
                 enabled = !state.isRunning,
                 onSelected = { value ->
@@ -165,23 +157,23 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                 },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.duration, chinese),
-                selectedLabel = localizedStringResource(Res.string.seconds_short, chinese, state.config.durationSeconds),
+                label = stringResource(Res.string.duration),
+                selectedLabel = stringResource(Res.string.seconds_short, state.config.durationSeconds),
                 options =
                     listOf(15, 30, 60, 120, 300, 600).map {
                         it.toString() to
-                            localizedStringResource(Res.string.seconds_short, chinese, it)
+                            stringResource(Res.string.seconds_short, it)
                     },
                 enabled = !state.isRunning,
                 onSelected = { value -> controller.updateConfig { it.copy(durationSeconds = value.toInt()) } },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.polling, chinese),
-                selectedLabel = localizedStringResource(Res.string.seconds_short, chinese, state.config.pollingIntervalSeconds),
+                label = stringResource(Res.string.polling),
+                selectedLabel = stringResource(Res.string.seconds_short, state.config.pollingIntervalSeconds),
                 options =
                     listOf(5, 10, 15, 30, 60).map {
                         it.toString() to
-                            localizedStringResource(Res.string.seconds_short, chinese, it)
+                            stringResource(Res.string.seconds_short, it)
                     },
                 enabled = !state.isRunning,
                 onSelected = { value ->
@@ -189,7 +181,7 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                 },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.runs, chinese),
+                label = stringResource(Res.string.runs),
                 selectedLabel = state.config.measuredRuns.toString(),
                 options =
                     listOf(1, 3, 5, 10).map {
@@ -206,7 +198,7 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
                     controller.updateConfig { it.copy(launchApp = checked) }
                 },
             )
-            Text(localizedStringResource(Res.string.launch_app_automatically, chinese))
+            Text(stringResource(Res.string.launch_app_automatically))
         }
         HorizontalDivider(
             thickness = 1.dp,
@@ -214,41 +206,41 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
         )
         ProfilerMacOsSecondaryToolbar {
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_json, chinese),
+                text = stringResource(Res.string.export_json),
                 enabled = state.analysis != null && !state.isRunning,
                 onClick = {
-                    chooseSaveFile(window, "battery-analysis.json", chinese)?.let { file ->
+                    chooseSaveFile(window, "battery-analysis.json", saveDialogTitle)?.let { file ->
                         scope.launch { controller.exportJson(file.toPath()) }
                     }
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, chinese),
+                text = stringResource(Res.string.export_csv),
                 enabled = state.analysis != null && !state.isRunning,
                 onClick = {
-                    chooseSaveFile(window, "battery-analysis.csv", chinese)?.let { file ->
+                    chooseSaveFile(window, "battery-analysis.csv", saveDialogTitle)?.let { file ->
                         scope.launch { controller.exportCsv(file.toPath()) }
                     }
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_raw_bundle, chinese),
+                text = stringResource(Res.string.export_raw_bundle),
                 enabled = state.analysis != null && !state.isRunning,
                 onClick = {
-                    chooseSaveFile(window, "battery-raw-evidence.zip", chinese)?.let { file ->
+                    chooseSaveFile(window, "battery-raw-evidence.zip", saveDialogTitle)?.let { file ->
                         scope.launch { controller.exportRawBundle(file.toPath()) }
                     }
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.battery_historian, chinese),
+                text = stringResource(Res.string.battery_historian),
                 enabled = state.selectedDeviceSerial != null && !state.isRunning,
                 onClick = {
                     confirmBugreport = true
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.advanced_reset_stats, chinese),
+                text = stringResource(Res.string.advanced_reset_stats),
                 enabled = state.selectedDeviceSerial != null && !state.isRunning,
                 onClick = {
                     confirmReset = true
@@ -279,58 +271,59 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
-            title = { Text(localizedStringResource(Res.string.reset_global_batterystats, chinese)) },
+            title = { Text(stringResource(Res.string.reset_global_batterystats)) },
             text = {
                 Text(
-                    localizedStringResource(Res.string.this_clears_battery_statistics_and_battery_historian_history_for_every, chinese),
+                    stringResource(Res.string.this_clears_battery_statistics_and_battery_historian_history_for_every),
                 )
             },
             confirmButton = {
                 Button(onClick = {
                     confirmReset = false
                     scope.launch { controller.resetStatistics() }
-                }) { Text(localizedStringResource(Res.string.reset, chinese)) }
+                }) { Text(stringResource(Res.string.reset)) }
             },
-            dismissButton = { OutlinedButton(onClick = { confirmReset = false }) { Text(localizedStringResource(Res.string.cancel, chinese)) } },
+            dismissButton = { OutlinedButton(onClick = { confirmReset = false }) { Text(stringResource(Res.string.cancel)) } },
         )
     }
     if (confirmBugreport) {
         AlertDialog(
             onDismissRequest = { confirmBugreport = false },
-            title = { Text(localizedStringResource(Res.string.generate_battery_historian_input, chinese)) },
+            title = { Text(stringResource(Res.string.generate_battery_historian_input)) },
             text = {
                 Text(
-                    localizedStringResource(Res.string.bugreports_may_contain_accounts_ssids_app_lists_logs_and_device, chinese),
+                    stringResource(Res.string.bugreports_may_contain_accounts_ssids_app_lists_logs_and_device),
                 )
             },
             confirmButton = {
                 Button(onClick = {
                     confirmBugreport = false
-                    chooseSaveFile(window, "battery-historian-bugreport.zip", chinese)?.let { file ->
+                    chooseSaveFile(window, "battery-historian-bugreport.zip", saveDialogTitle)?.let { file ->
                         scope.launch { controller.generateBugreport(file.toPath()) }
                     }
-                }) { Text(localizedStringResource(Res.string.choose_location, chinese)) }
+                }) { Text(stringResource(Res.string.choose_location)) }
             },
-            dismissButton = { OutlinedButton(onClick = { confirmBugreport = false }) { Text(localizedStringResource(Res.string.cancel, chinese)) } },
+            dismissButton = { OutlinedButton(onClick = { confirmBugreport = false }) { Text(stringResource(Res.string.cancel)) } },
         )
     }
 }
 
-private fun BatteryCaptureMode.label(chinese: Boolean): String =
+@Composable
+private fun BatteryCaptureMode.label(): String =
     when (this) {
-        BatteryCaptureMode.INTERACTIVE -> localizedStringResource(Res.string.interactive, chinese)
-        BatteryCaptureMode.TIMED -> localizedStringResource(Res.string.timed, chinese)
-        BatteryCaptureMode.REPEATED -> localizedStringResource(Res.string.repeated, chinese)
-        BatteryCaptureMode.ONLINE -> localizedStringResource(Res.string.low_frequency_online, chinese)
+        BatteryCaptureMode.INTERACTIVE -> stringResource(Res.string.interactive)
+        BatteryCaptureMode.TIMED -> stringResource(Res.string.timed)
+        BatteryCaptureMode.REPEATED -> stringResource(Res.string.repeated)
+        BatteryCaptureMode.ONLINE -> stringResource(Res.string.low_frequency_online)
     }
 
 private fun chooseSaveFile(
     parent: java.awt.Component,
     defaultName: String,
-    chinese: Boolean,
+    dialogTitle: String,
 ): File? =
     JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.battery_energy_profiler, chinese)
+        this.dialogTitle = dialogTitle
         selectedFile = File(defaultName)
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
