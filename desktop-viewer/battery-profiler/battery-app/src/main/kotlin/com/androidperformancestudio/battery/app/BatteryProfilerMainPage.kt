@@ -51,9 +51,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.swing.JFileChooser
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
-public fun FrameWindowScope.BatteryProfilerWorkspace(
+public fun FrameWindowScope.BatteryProfilerMainPage(
     chinese: Boolean = false,
     onBack: () -> Unit = {},
 ) {
@@ -68,7 +69,7 @@ public fun FrameWindowScope.BatteryProfilerWorkspace(
     LaunchedEffect(state.isInteractiveActive, state.config.mode, state.config.pollingIntervalSeconds) {
         if (state.isInteractiveActive && state.config.mode == BatteryCaptureMode.ONLINE) {
             while (true) {
-                delay(state.config.pollingIntervalSeconds * 1_000L)
+                delay((state.config.pollingIntervalSeconds * 1_000L).milliseconds)
                 controller.pollInteractive()
             }
         }

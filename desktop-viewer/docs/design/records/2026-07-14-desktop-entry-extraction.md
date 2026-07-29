@@ -21,7 +21,7 @@ Inspector workspace rather than a second application.
    `:layout-inspector:presentation`.
 2. Move `Main.kt`, the application-level Preferences menu adapter, icons, packaging configuration,
    and shell-specific tests to the root module.
-3. Leave `DesktopViewerApp` and the settings-request interpretation inside the Layout Inspector
+3. Leave `LayoutInspectorMainPage` and the settings-request interpretation inside the Layout Inspector
    feature.
 4. Remove application/native-distribution ownership from the feature build script.
 5. Update run, package, release, and documentation paths.

@@ -49,7 +49,7 @@ import com.androidperformancestudio.presentation.SimpleperfLanguage as Presentat
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "LongParameterList")
-fun FrameWindowScope.SimpleperfWorkspace(
+fun FrameWindowScope.SimpleperfMainPage(
     window: ComposeWindow,
     settings: SimpleperfUiSettings = SimpleperfUiSettings(),
     androidSdkPath: Path? = null,

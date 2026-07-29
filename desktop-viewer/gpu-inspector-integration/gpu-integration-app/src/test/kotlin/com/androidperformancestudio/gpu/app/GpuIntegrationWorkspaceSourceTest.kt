@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class GpuIntegrationWorkspaceSourceTest {
     private val source =
         Files.readString(
-            Path.of("src/main/kotlin/com/androidperformancestudio/gpu/app/GpuIntegrationWorkspace.kt"),
+            Path.of("src/main/kotlin/com/androidperformancestudio/gpu/app/GpuIntegrationMainPage.kt"),
         )
 
     @Test

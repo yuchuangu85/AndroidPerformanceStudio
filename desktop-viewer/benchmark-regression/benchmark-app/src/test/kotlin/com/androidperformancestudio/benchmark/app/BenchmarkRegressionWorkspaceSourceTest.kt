@@ -10,7 +10,7 @@ class BenchmarkRegressionWorkspaceSourceTest {
     private val source =
         Files.readString(
             Path.of(
-                "src/main/kotlin/com/androidperformancestudio/benchmark/app/BenchmarkRegressionWorkspace.kt",
+                "src/main/kotlin/com/androidperformancestudio/benchmark/app/BenchmarkRegressionMainPage.kt",
             ),
         )
 

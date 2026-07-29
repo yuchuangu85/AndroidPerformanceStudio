@@ -10,7 +10,7 @@ class CommonSettingsBoundaryTest {
     @Test
     fun `viewer accepts common settings without exposing them in feature dialog`() {
         val viewer = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val dialog = Files.readString(
             Path.of("src/main/kotlin/dev/agentperf/desktop/ThemeSettingsDialog.kt"),

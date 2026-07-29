@@ -47,7 +47,7 @@ import java.io.File
 import javax.swing.JFileChooser
 
 @Composable
-public fun FrameWindowScope.StartupProfilerWorkspace(
+public fun FrameWindowScope.StartupProfilerMainPage(
     chinese: Boolean = false,
     onBack: () -> Unit = {},
 ) {

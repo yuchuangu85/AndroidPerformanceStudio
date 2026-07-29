@@ -3,7 +3,7 @@
 ## Current status
 
 The AI analysis implementation is preserved, but its user-facing entry is hidden behind
-`AI_ANALYSIS_ENTRY_VISIBLE = false` in `DesktopViewerApp.kt`. Existing analysis models,
+`AI_ANALYSIS_ENTRY_VISIBLE = false` in `LayoutInspectorMainPage.kt`. Existing analysis models,
 OpenAI client code, archive import/export support, and tests remain available for later work.
 
 ## Before re-enabling

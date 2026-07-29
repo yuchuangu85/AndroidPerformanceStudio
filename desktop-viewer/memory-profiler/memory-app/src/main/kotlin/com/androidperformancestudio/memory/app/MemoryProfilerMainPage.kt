@@ -34,7 +34,7 @@ import java.io.File
 import javax.swing.JFileChooser
 
 @Composable
-public fun FrameWindowScope.MemoryProfilerWorkspace(
+public fun FrameWindowScope.MemoryProfilerMainPage(
     chinese: Boolean = false,
     onBack: () -> Unit = {},
     highlightClassName: String? = null,

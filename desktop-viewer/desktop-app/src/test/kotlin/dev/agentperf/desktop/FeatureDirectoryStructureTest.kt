@@ -52,7 +52,7 @@ class FeatureDirectoryStructureTest {
         assertTrue(Files.isRegularFile(shellSource.resolve("ApplicationUiSettings.kt")))
         assertTrue(Files.isRegularFile(shellSource.resolve("ApplicationSettingsDialog.kt")))
         assertFalse(Files.exists(shellSource.resolve("GlobalSettingsBar.kt")))
-        assertTrue(Files.isRegularFile(shellSource.resolve("UnifiedDesktopApp.kt")))
+        assertTrue(Files.isRegularFile(shellSource.resolve("MainDesktopAppPage.kt")))
         assertFalse(Files.exists(root.resolve("layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/AppHomePage.kt")))
         assertFalse(Files.exists(root.resolve("simpleperf-viewer/app-desktop/src/main/kotlin/dev/agentperf/desktop/AppHomePage.kt")))
     }

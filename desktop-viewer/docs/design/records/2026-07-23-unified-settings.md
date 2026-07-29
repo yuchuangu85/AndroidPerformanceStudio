@@ -69,7 +69,7 @@
 ## 实施步骤（草案）
 
 ### Task 1: 创建统一设置窗口容器
-- 新建 `UnifiedSettingsDialog.kt`（`Dialog`，非 `AlertDialog`）
+- 新建 `DesktopAppSettingsDialog.kt`（`Dialog`，非 `AlertDialog`）
 - 左侧 `Column` 列表导航，右侧内容区域
 - 支持通过参数控制默认选中的模块
 

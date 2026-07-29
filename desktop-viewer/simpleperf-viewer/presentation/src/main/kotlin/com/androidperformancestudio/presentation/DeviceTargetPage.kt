@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -276,10 +277,11 @@ private fun MacOsSettingsButton(
     Box(
         modifier =
             Modifier
-                .width(26.dp)
-                .height(21.dp)
+                .width(28.dp)
+                .height(28.dp)
                 .semantics { this.contentDescription = contentDescription }
-                .clickable(enabled = enabled, onClick = onClick),
+                .clickable(enabled = enabled, onClick = onClick)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(15.dp)) {

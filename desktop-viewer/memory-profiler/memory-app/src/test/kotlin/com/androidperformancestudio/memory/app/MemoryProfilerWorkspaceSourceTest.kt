@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class MemoryProfilerWorkspaceSourceTest {
     private val workspace =
         Files.readString(
-            Path.of("src/main/kotlin/com/androidperformancestudio/memory/app/MemoryProfilerWorkspace.kt"),
+            Path.of("src/main/kotlin/com/androidperformancestudio/memory/app/MemoryProfilerMainPage.kt"),
         )
     private val backend =
         Files.readString(

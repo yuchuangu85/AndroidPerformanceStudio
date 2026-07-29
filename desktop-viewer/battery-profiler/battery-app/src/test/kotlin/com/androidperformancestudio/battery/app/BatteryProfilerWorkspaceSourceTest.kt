@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 class BatteryProfilerWorkspaceSourceTest {
     private val source =
         Files.readString(
-            Path.of("src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerWorkspace.kt"),
+            Path.of("src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerMainPage.kt"),
         )
 
     @Test

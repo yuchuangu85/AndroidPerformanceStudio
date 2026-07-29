@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class FrameProfilerWorkspaceSourceTest {
     private val source =
         Files.readString(
-            Path.of("src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerWorkspace.kt"),
+            Path.of("src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerMainPage.kt"),
         )
 
     @Test

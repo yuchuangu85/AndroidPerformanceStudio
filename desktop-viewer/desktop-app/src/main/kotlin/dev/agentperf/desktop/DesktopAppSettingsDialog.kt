@@ -54,7 +54,7 @@ public enum class SettingsPage {
 }
 
 @Composable
-internal fun UnifiedSettingsDialog(
+internal fun DesktopAppSettingsDialog(
     selectedPage: SettingsPage,
     applicationSettings: ApplicationUiSettings,
     simpleperfSettings: SimpleperfUiSettings,

@@ -26,22 +26,22 @@ import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
 import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
-import com.androidperformancestudio.desktop.SimpleperfWorkspace
-import com.androidperformancestudio.battery.app.BatteryProfilerWorkspace
-import com.androidperformancestudio.benchmark.app.BenchmarkRegressionWorkspace
-import com.androidperformancestudio.frame.app.FrameProfilerWorkspace
-import com.androidperformancestudio.gpu.app.GpuIntegrationWorkspace
-import com.androidperformancestudio.memory.app.MemoryProfilerWorkspace
-import com.androidperformancestudio.network.app.NetworkProfilerWorkspace
-import com.androidperformancestudio.perfetto.app.PerfettoWorkspace
+import com.androidperformancestudio.desktop.SimpleperfMainPage
+import com.androidperformancestudio.battery.app.BatteryProfilerMainPage
+import com.androidperformancestudio.benchmark.app.BenchmarkRegressionMainPage
+import com.androidperformancestudio.frame.app.FrameProfilerMainPage
+import com.androidperformancestudio.gpu.app.GpuIntegrationMainPage
+import com.androidperformancestudio.memory.app.MemoryProfilerMainPage
+import com.androidperformancestudio.network.app.NetworkProfilerMainPage
+import com.androidperformancestudio.perfetto.app.PerfettoMainPage
 import com.androidperformancestudio.presentation.CaptureSettingsSection
-import com.androidperformancestudio.startup.app.StartupProfilerWorkspace
+import com.androidperformancestudio.startup.app.StartupProfilerMainPage
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Composable
-public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? = null) {
+public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest? = null) {
     val navigator = remember { AppNavigator() }
     var showSettings by remember { mutableStateOf(false) }
     var settingsPage by remember { mutableStateOf(SettingsPage.GENERAL) }
@@ -127,7 +127,7 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                             onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
                         )
                     AppDestination.LAYOUT_INSPECTOR ->
-                        DesktopViewerApp(
+                        LayoutInspectorMainPage(
                             commonThemePreference = applicationSettings.theme.storageValue,
                             commonLanguagePreference = applicationSettings.language.storageValue,
                             settingsRevision = layoutInspectorSettingsRevision,
@@ -142,7 +142,7 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                             correlationHint = navigator.inspectorCorrelationHint,
                         )
                     AppDestination.SIMPLEPERF ->
-                        SimpleperfWorkspace(
+                        SimpleperfMainPage(
                             window = window,
                             settings = simpleperfSettings,
                             androidSdkPath = applicationSettings.androidSdkPath?.let { path -> runCatching { java.nio.file.Path.of(path) }.getOrNull() },
@@ -166,7 +166,7 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                             },
                         )
                     AppDestination.PERFETTO ->
-                        PerfettoWorkspace(
+                        PerfettoMainPage(
                             chinese = chinese,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
@@ -184,13 +184,13 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                             },
                         )
                     AppDestination.MEMORY_PROFILER ->
-                        MemoryProfilerWorkspace(
+                        MemoryProfilerMainPage(
                             chinese = chinese,
                             highlightClassName = memoryHighlightClassName,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.FRAME_PROFILER ->
-                        FrameProfilerWorkspace(
+                        FrameProfilerMainPage(
                             chinese = chinese,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenLayoutInspector = { request ->
@@ -215,22 +215,22 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                             },
                         )
                     AppDestination.STARTUP_PROFILER ->
-                        StartupProfilerWorkspace(
+                        StartupProfilerMainPage(
                             chinese = chinese,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.BATTERY_PROFILER ->
-                        BatteryProfilerWorkspace(
+                        BatteryProfilerMainPage(
                             chinese = chinese,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.NETWORK_PROFILER ->
-                        NetworkProfilerWorkspace(
+                        NetworkProfilerMainPage(
                             chinese = chinese,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.GPU_INSPECTOR ->
-                        GpuIntegrationWorkspace(
+                        GpuIntegrationMainPage(
                             chinese = chinese,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenTrace = { path ->
@@ -245,7 +245,7 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                             },
                         )
                     AppDestination.BENCHMARK_REGRESSION ->
-                        BenchmarkRegressionWorkspace(
+                        BenchmarkRegressionMainPage(
                             chinese = chinese,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenTrace = { path ->
@@ -261,7 +261,7 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                         )
                 }
                 if (showSettings) {
-                    UnifiedSettingsDialog(
+                    DesktopAppSettingsDialog(
                         selectedPage = settingsPage,
                         applicationSettings = applicationSettings,
                         simpleperfSettings = simpleperfSettings,

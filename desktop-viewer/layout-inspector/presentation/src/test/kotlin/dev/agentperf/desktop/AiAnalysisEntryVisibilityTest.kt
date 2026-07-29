@@ -9,7 +9,7 @@ class AiAnalysisEntryVisibilityTest {
     @Test
     fun `AI analysis entry stays hidden until roadmap work resumes`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
 
         assertTrue(source.contains("internal const val AI_ANALYSIS_ENTRY_VISIBLE = false"))

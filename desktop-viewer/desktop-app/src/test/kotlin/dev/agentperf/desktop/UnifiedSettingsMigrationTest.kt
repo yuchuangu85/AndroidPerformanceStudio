@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test
 class UnifiedSettingsMigrationTest {
     @Test
     fun `unified settings window is large and resizable`() {
-        val dialog = desktopSource("UnifiedSettingsDialog.kt")
+        val dialog = desktopSource("DesktopAppSettingsDialog.kt")
 
         assertTrue(dialog.contains("UNIFIED_SETTINGS_WIDTH_DP = 1100"))
         assertTrue(dialog.contains("UNIFIED_SETTINGS_HEIGHT_DP = 760"))
@@ -41,10 +41,10 @@ class UnifiedSettingsMigrationTest {
 
     @Test
     fun `simpleperf complete settings and live capture context are embedded`() {
-        val dialog = desktopSource("UnifiedSettingsDialog.kt")
-        val shell = desktopSource("UnifiedDesktopApp.kt")
+        val dialog = desktopSource("DesktopAppSettingsDialog.kt")
+        val shell = desktopSource("MainDesktopAppPage.kt")
         val settings = simpleperfPresentationSource("CaptureConfigurationWorkspace.kt")
-        val workspace = simpleperfDesktopSource("SimpleperfWorkspace.kt")
+        val workspace = simpleperfDesktopSource("SimpleperfMainPage.kt")
 
         listOf(
             "SAMPLING_TEMPLATE",

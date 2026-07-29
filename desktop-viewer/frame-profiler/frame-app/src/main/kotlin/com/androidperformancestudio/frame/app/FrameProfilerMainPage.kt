@@ -35,9 +35,10 @@ import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
 import javax.swing.JFileChooser
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
-public fun FrameWindowScope.FrameProfilerWorkspace(
+public fun FrameWindowScope.FrameProfilerMainPage(
     chinese: Boolean = false,
     onBack: () -> Unit = {},
     onOpenLayoutInspector: (FrameLayoutInspectionRequest) -> Unit = {},
@@ -51,7 +52,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
     LaunchedEffect(state.isCapturing) {
         while (controller.state.value.isCapturing) {
             controller.pollOnlineCapture()
-            delay(POLL_INTERVAL_MILLIS)
+            delay(POLL_INTERVAL_MILLIS.milliseconds)
         }
     }
 

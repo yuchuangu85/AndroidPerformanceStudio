@@ -77,7 +77,7 @@ outline is drawn even when the selected node is not effectively visible.
 Extend `ViewDisplayOption` with `SHOW_VISIBLE_VIEW_BOUNDS` and
 `ViewDisplayOptions` with `showVisibleViewBounds`.
 
-`DesktopViewerApp` continues to own the loaded display options and persist the
+`LayoutInspectorMainPage` continues to own the loaded display options and persist the
 complete value after each menu toggle. It passes the current option value into
 `PreviewPane`. `PreviewPane` derives mapped general outlines from the current
 snapshot, source rectangle, selected node ID, and option state, then renders

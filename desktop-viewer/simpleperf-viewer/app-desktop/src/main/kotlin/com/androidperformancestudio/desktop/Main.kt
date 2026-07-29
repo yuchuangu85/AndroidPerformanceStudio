@@ -17,6 +17,6 @@ fun main() =
             state = windowState,
             title = stringResource(Res.string.android_performance_studio),
         ) {
-            SimpleperfWorkspace(window = window)
+            SimpleperfMainPage(window = window)
         }
     }

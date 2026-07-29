@@ -25,7 +25,7 @@ Reduce vertical chrome so the live device canvas receives more space, while allo
 
 ## Layout State
 
-Add a focused `FindingsLayout` helper that owns the default, minimum, splitter, maximum-ratio, fit, and drag rules. `DesktopViewerApp` remembers only the requested FINDINGS height and normalizes it whenever the window height changes.
+Add a focused `FindingsLayout` helper that owns the default, minimum, splitter, maximum-ratio, fit, and drag rules. `LayoutInspectorMainPage` remembers only the requested FINDINGS height and normalizes it whenever the window height changes.
 
 The content below the header becomes one height-aware column:
 

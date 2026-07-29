@@ -11,7 +11,7 @@ class HeaderControlTest {
     @Test
     fun `home button is the first header control and exposes a localized description`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val header = source
             .substringAfter("private fun Header(")
@@ -42,7 +42,7 @@ class HeaderControlTest {
         assertEquals("刷新", ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).refresh)
 
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val manualRefreshButton = source
             .substringAfter("private fun ManualRefreshButton(")
@@ -55,7 +55,7 @@ class HeaderControlTest {
     @Test
     fun `manual refresh appears before auto scan in the header`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val header = source
             .substringAfter("private fun Header(")
@@ -70,7 +70,7 @@ class HeaderControlTest {
     @Test
     fun `header does not show a theme shortcut after auto scan`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val header = source
             .substringAfter("private fun Header(")
@@ -84,7 +84,7 @@ class HeaderControlTest {
     @Test
     fun `device selector appears before window selector in the header`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val header = source
             .substringAfter("private fun Header(")
@@ -105,7 +105,7 @@ class HeaderControlTest {
     @Test
     fun `window selector is explicit and only shown for multiple windows`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val header = source
             .substringAfter("private fun Header(")

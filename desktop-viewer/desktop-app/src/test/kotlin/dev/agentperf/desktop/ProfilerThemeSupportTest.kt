@@ -17,7 +17,7 @@ class ProfilerThemeSupportTest {
 
     @Test
     fun `unified shell paints an adaptive background around every profiler`() {
-        val shell = Files.readString(Path.of("src/main/kotlin/dev/agentperf/desktop/UnifiedDesktopApp.kt"))
+        val shell = Files.readString(Path.of("src/main/kotlin/dev/agentperf/desktop/MainDesktopAppPage.kt"))
 
         assertTrue(shell.contains("viewerMaterialColorScheme(darkTheme)"))
         assertTrue(shell.contains("compactDesktopTypography()"))
@@ -85,7 +85,7 @@ class ProfilerThemeSupportTest {
             Files.readString(
                 desktopViewer.resolve(
                     "perfetto-viewer/perfetto-app/src/main/kotlin/" +
-                        "com/androidperformancestudio/perfetto/app/PerfettoWorkspace.kt",
+                        "com/androidperformancestudio/perfetto/app/PerfettoMainPage.kt",
                 ),
             )
 
@@ -121,14 +121,14 @@ class ProfilerThemeSupportTest {
     private fun profilerHomeButtonConsumers(): List<Path> {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         return listOf(
-            "layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt",
-            "memory-profiler/memory-app/src/main/kotlin/com/androidperformancestudio/memory/app/MemoryProfilerWorkspace.kt",
-            "frame-profiler/frame-app/src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerWorkspace.kt",
-            "startup-profiler/startup-app/src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerWorkspace.kt",
-            "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerWorkspace.kt",
-            "network-profiler/network-app/src/main/kotlin/com/androidperformancestudio/network/app/NetworkProfilerWorkspace.kt",
-            "gpu-inspector-integration/gpu-integration-app/src/main/kotlin/com/androidperformancestudio/gpu/app/GpuIntegrationWorkspace.kt",
-            "benchmark-regression/benchmark-app/src/main/kotlin/com/androidperformancestudio/benchmark/app/BenchmarkRegressionWorkspace.kt",
+            "layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt",
+            "memory-profiler/memory-app/src/main/kotlin/com/androidperformancestudio/memory/app/MemoryProfilerMainPage.kt",
+            "frame-profiler/frame-app/src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerMainPage.kt",
+            "startup-profiler/startup-app/src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerMainPage.kt",
+            "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerMainPage.kt",
+            "network-profiler/network-app/src/main/kotlin/com/androidperformancestudio/network/app/NetworkProfilerMainPage.kt",
+            "gpu-inspector-integration/gpu-integration-app/src/main/kotlin/com/androidperformancestudio/gpu/app/GpuIntegrationMainPage.kt",
+            "benchmark-regression/benchmark-app/src/main/kotlin/com/androidperformancestudio/benchmark/app/BenchmarkRegressionMainPage.kt",
         ).map(desktopViewer::resolve)
     }
 
@@ -148,13 +148,13 @@ class ProfilerThemeSupportTest {
     private fun profilerWorkspaceSources(): List<Path> {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         return listOf(
-            "memory-profiler/memory-app/src/main/kotlin/com/androidperformancestudio/memory/app/MemoryProfilerWorkspace.kt",
-            "frame-profiler/frame-app/src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerWorkspace.kt",
-            "startup-profiler/startup-app/src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerWorkspace.kt",
-            "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerWorkspace.kt",
-            "network-profiler/network-app/src/main/kotlin/com/androidperformancestudio/network/app/NetworkProfilerWorkspace.kt",
-            "gpu-inspector-integration/gpu-integration-app/src/main/kotlin/com/androidperformancestudio/gpu/app/GpuIntegrationWorkspace.kt",
-            "benchmark-regression/benchmark-app/src/main/kotlin/com/androidperformancestudio/benchmark/app/BenchmarkRegressionWorkspace.kt",
+            "memory-profiler/memory-app/src/main/kotlin/com/androidperformancestudio/memory/app/MemoryProfilerMainPage.kt",
+            "frame-profiler/frame-app/src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerMainPage.kt",
+            "startup-profiler/startup-app/src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerMainPage.kt",
+            "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerMainPage.kt",
+            "network-profiler/network-app/src/main/kotlin/com/androidperformancestudio/network/app/NetworkProfilerMainPage.kt",
+            "gpu-inspector-integration/gpu-integration-app/src/main/kotlin/com/androidperformancestudio/gpu/app/GpuIntegrationMainPage.kt",
+            "benchmark-regression/benchmark-app/src/main/kotlin/com/androidperformancestudio/benchmark/app/BenchmarkRegressionMainPage.kt",
         ).map(desktopViewer::resolve)
     }
 

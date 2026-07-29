@@ -9,7 +9,7 @@ class HeaderMenuPlacementTest {
     @Test
     fun `header leaves actions and file commands to the native menu bar`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val header = source
             .substringAfter("private fun Header(")

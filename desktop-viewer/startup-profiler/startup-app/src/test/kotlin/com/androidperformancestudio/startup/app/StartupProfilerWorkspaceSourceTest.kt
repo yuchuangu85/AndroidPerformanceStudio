@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 class StartupProfilerWorkspaceSourceTest {
     private val source =
         Files.readString(
-            Path.of("src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerWorkspace.kt"),
+            Path.of("src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerMainPage.kt"),
         )
 
     @Test

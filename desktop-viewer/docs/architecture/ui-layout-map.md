@@ -32,11 +32,11 @@ flowchart TD
 
 | 界面 | 控件 / 入口名称 | 当前文案 | 主要行为 | 源码 |
 |---|---|---|---|---|
-| 全局壳 | `UnifiedDesktopApp` | - | 根据 `AppDestination` 切换首页、Layout Inspector、Simpleperf；进入功能工作区时最大化窗口 | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/UnifiedDesktopApp.kt` |
+| 全局壳 | `DesktopAppMainPage` | - | 根据 `AppDestination` 切换首页、Layout Inspector、Simpleperf；进入功能工作区时最大化窗口 | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/UnifiedDesktopApp.kt` |
 | 首页 | `AppHomePage` | Android Performance Studio | 展示三个功能卡片 | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/AppHomePage.kt` |
 | 通用设置 | `ApplicationSettingsDialog` | 通用设置 / General Settings | 修改全局语言、主题 | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/ApplicationSettingsDialog.kt` |
-| Layout Inspector | `DesktopViewerApp` | Layout Inspector | Android View 层级、截图、属性、问题分析 | `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt` |
-| CPU Profiler | `SimpleperfWorkspace` / `HomeScreen` | Simpleperf CPU Profiler | 采集/打开 simpleperf 会话并分析报告 | `desktop-viewer/simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfWorkspace.kt` |
+| Layout Inspector | `LayoutInspectorMainPage` | Layout Inspector | Android View 层级、截图、属性、问题分析 | `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt` |
+| CPU Profiler | `SimpleperfMainPage` / `HomeScreen` | Simpleperf CPU Profiler | 采集/打开 simpleperf 会话并分析报告 | `desktop-viewer/simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfWorkspace.kt` |
 | Perfetto | `onOpenPerfetto` | Open Perfetto | 打开外部 Perfetto Web UI | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/AppHomePage.kt` |
 
 ---
@@ -79,7 +79,7 @@ flowchart TD
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### C. Layout Inspector 主界面 `DesktopViewerApp`
+### C. Layout Inspector 主界面 `LayoutInspectorMainPage`
 
 ```text
 ┌──────────────────────────────── NativeViewerMenuBar ─────────────────────────┐
@@ -389,7 +389,7 @@ flowchart TD
 | `FeatureEntryCard(Simpleperf CPU Profiler)` | Simpleperf CPU Profiler | 卡片 + 按钮 | `navigator.open(AppDestination.SIMPLEPERF)` |
 | `FeatureEntryCard(Perfetto Trace Analyzer)` | Perfetto Trace Analyzer | 卡片 + 按钮 | `externalAnalysisLauncher.openPerfetto()` |
 
-源码：`AppHomePage.kt`、`AppDestination.kt`、`UnifiedDesktopApp.kt`
+源码：`AppHomePage.kt`、`AppDestination.kt`、`DesktopAppMainPage.kt`
 
 ---
 
@@ -451,7 +451,7 @@ flowchart TD
     App -.archive result.-> Result
 ```
 
-源码入口：`DesktopViewerApp.kt`
+源码入口：`LayoutInspectorMainPage.kt`
 
 ### 3.2 原生菜单栏
 
@@ -526,7 +526,7 @@ flowchart LR
 | `PanelToggleButton(RIGHT)` | 右侧面板图标 | 图标按钮 | 显示/隐藏 `DetailsPane` |
 | `SettingsButton` | 齿轮图标 | 图标按钮 | 打开 `SettingsDialog` |
 
-源码：`DesktopViewerApp.kt` (`Header` 及其私有控件)
+源码：`LayoutInspectorMainPage.kt` (`Header` 及其私有控件)
 
 ### 3.4 层级面板 `HierarchyPane`
 
@@ -558,7 +558,7 @@ flowchart TD
 | `LayerVisibilityButton` | Hide / Show layer | 小按钮 | 隐藏/显示对应节点图层 |
 | `Hierarchy row` | `ViewDisplayProjection.hierarchyLabel(...)` | 列表行 | 单击选中节点；上下键导航；Enter 展开/折叠；H 隐藏层 |
 
-源码：`DesktopViewerApp.kt` (`HierarchyPane`、`HierarchySearchBar`、`HierarchyDisclosure`)
+源码：`LayoutInspectorMainPage.kt` (`HierarchyPane`、`HierarchySearchBar`、`HierarchyDisclosure`)
 
 ### 3.5 画布预览面板 `PreviewPane`
 
@@ -600,7 +600,7 @@ flowchart TD
 | `Canvas` pointer press | - | 指针交互 | 点击选择节点并同步层级树 |
 | `showVisibleViewBounds` overlay | - | 视图边界叠加层 | 来自 View 菜单或设置项 |
 
-源码：`DesktopViewerApp.kt` (`PreviewPane`、`PreviewZoomControls`、`PreviewZoomState`、`PreviewPanState`)、`CanvasGeometry.kt`、`CanvasHitTester.kt`、`ViewBoundsOverlay.kt`
+源码：`LayoutInspectorMainPage.kt` (`PreviewPane`、`PreviewZoomControls`、`PreviewZoomState`、`PreviewPanState`)、`CanvasGeometry.kt`、`CanvasHitTester.kt`、`ViewBoundsOverlay.kt`
 
 ### 3.6 属性面板 `DetailsPane`
 
@@ -626,7 +626,7 @@ flowchart TD
 | `DetailRow` | 键值行 | 显示属性 label/value；value 可选择复制 |
 | `PanelTitle` | 标题栏 | 显示 Properties 与当前节点 id |
 
-源码：`DesktopViewerApp.kt` (`DetailsPane`、`DetailSection`、`DetailRow`)、`InspectorPresenter.kt`
+源码：`LayoutInspectorMainPage.kt` (`DetailsPane`、`DetailSection`、`DetailRow`)、`InspectorPresenter.kt`
 
 ### 3.7 问题与时间线面板 `FindingsPane`
 
@@ -658,7 +658,7 @@ flowchart TD
 | `FindingRow` | `[nodeNumber] title · message` | 列表行 | 双击选择对应 View 节点 |
 | `FindingsResizeSeparator` | - | 拖拽条 | 调整底部面板高度 |
 
-源码：`DesktopViewerApp.kt` (`FindingsPane`、`TimelineStrip`、`FindingRow`)
+源码：`LayoutInspectorMainPage.kt` (`FindingsPane`、`TimelineStrip`、`FindingRow`)
 
 ### 3.8 Layout Inspector 设置与结果弹窗
 
@@ -691,7 +691,7 @@ flowchart TD
 | `SettingsCloseButton` | X 图标 | 图标按钮 | 关闭设置 |
 | `ExportResultDialog` | import/export success/failure title | AlertDialog | 展示导入/导出/截图导入结果 |
 
-源码：`ThemeSettingsDialog.kt`、`DesktopViewerApp.kt`
+源码：`ThemeSettingsDialog.kt`、`LayoutInspectorMainPage.kt`
 
 ---
 
@@ -749,7 +749,7 @@ flowchart LR
 | `onOpenSettings` | File → Settings… (Windows/Linux) | 打开采集设置弹窗，默认进入 `SAMPLING_TEMPLATE`；Windows/Linux 使用 `Ctrl+,`；macOS 不新增 File 入口 |
 | `onOpenCaptureSettings(section)` | Configuration | 打开采集设置指定分组 |
 
-源码：`SimpleperfWorkspace.kt`、`SimpleperfFileMenu.kt`
+源码：`SimpleperfMainPage.kt`、`SimpleperfFileMenu.kt`
 
 ### 4.2 设备与采集页 `DeviceTargetPage`
 
@@ -1118,14 +1118,14 @@ flowchart TD
 |---|---|---|
 | 首页卡片、首页文案 | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/AppHomePage.kt` | `AppHomePage`、`FeatureEntryCard` |
 | 全局设置语言/主题 | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/ApplicationSettingsDialog.kt` | `ApplicationSettingsDialog`、`PreferenceDropdown` |
-| 功能页跳转与最大化策略 | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/UnifiedDesktopApp.kt` | `UnifiedDesktopApp`、`AppDestination.shouldMaximizeWindow` |
+| 功能页跳转与最大化策略 | `desktop-viewer/desktop-app/src/main/kotlin/dev/agentperf/desktop/UnifiedDesktopApp.kt` | `DesktopAppMainPage`、`AppDestination.shouldMaximizeWindow` |
 | Layout Inspector 主界面布局 | `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt` | `Header`、`HierarchyPane`、`PreviewPane`、`DetailsPane`、`FindingsPane` |
 | Layout Inspector 菜单 | `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/NativeViewerMenuBar.kt` | `NativeViewerMenuBar` |
 | Layout Inspector 动作/快捷键 | `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/ViewerActionMenu.kt` | `ViewerAction`、`ViewerActionMenu.items` |
 | Layout Inspector 显示选项 | `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/ViewDisplayOptions.kt` | `ViewDisplayOption`、`ViewDisplayOptions` |
 | Layout Inspector 设置弹窗 | `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/ThemeSettingsDialog.kt` | `SettingsDialog`、`CanvasColorSetting` |
 | Simpleperf 菜单 | `desktop-viewer/simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfFileMenu.kt` | `SimpleperfFileMenuBar`、`SimpleperfFileMenuModel` |
-| Simpleperf 工作区接线 | `desktop-viewer/simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfWorkspace.kt` | `SimpleperfWorkspace`、`SimpleperfMenu` |
+| Simpleperf 工作区接线 | `desktop-viewer/simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfWorkspace.kt` | `SimpleperfMainPage`、`SimpleperfMenu` |
 | 设备/目标/采集工具栏 | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/DeviceTargetPage.kt` | `DeviceTargetPage`、`WorkspaceToolbar`、`WorkspaceFooter` |
 | 采集设置弹窗 | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/CaptureConfigurationWorkspace.kt` | `CaptureSettingsDialog`、`SettingsNavigation`、`SettingsPanel` |
 | 报告整体布局 | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/FirefoxReportWorkspace.kt` | `FirefoxReportWorkspace`、`FirefoxReportContentAndDetails` |

@@ -40,8 +40,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -140,7 +139,7 @@ data class InspectorCorrelationHint(
 )
 
 @Composable
-fun FrameWindowScope.DesktopViewerApp(
+fun FrameWindowScope.LayoutInspectorMainPage(
     commonThemePreference: String? = null,
     commonLanguagePreference: String? = null,
     settingsRevision: Long = 0L,
@@ -1385,9 +1384,10 @@ private fun SettingsButton(onClick: () -> Unit) {
     val colors = LocalViewerColors.current
     Box(
         modifier = Modifier
-            .width(26.dp)
-            .height(21.dp)
-            .clickable(onClick = onClick),
+            .width(28.dp)
+            .height(28.dp)
+            .clickable(onClick = onClick)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(15.dp)) {

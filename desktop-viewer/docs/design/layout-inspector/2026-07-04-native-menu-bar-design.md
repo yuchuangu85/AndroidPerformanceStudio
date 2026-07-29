@@ -67,17 +67,17 @@ remain available everywhere.
 
 ## Architecture
 
-`DesktopViewerApp` becomes a `WindowScope` composable so it can install a
+`LayoutInspectorMainPage` becomes a `WindowScope` composable so it can install a
 Compose Desktop `MenuBar` beside the existing content. Both native and
 in-window menus receive the same action callbacks and state models.
 
 A small application-menu adapter isolates `java.awt.Desktop` capability checks
 and preferences-handler registration. It accepts an `onOpenSettings` callback
 and returns a cleanup action. `Main.kt` registers it for the lifetime of the
-application window and forwards requests to `DesktopViewerApp` through a
+application window and forwards requests to `LayoutInspectorMainPage` through a
 monotonic request counter.
 
-`DesktopViewerApp` observes the request counter and sets its existing
+`LayoutInspectorMainPage` observes the request counter and sets its existing
 `settingsVisible` state. All settings entry points therefore open one shared
 dialog and cannot create duplicate windows.
 

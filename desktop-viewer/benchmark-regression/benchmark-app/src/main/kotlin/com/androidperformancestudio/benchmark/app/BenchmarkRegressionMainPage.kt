@@ -35,7 +35,7 @@ import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
-public fun FrameWindowScope.BenchmarkRegressionWorkspace(
+public fun FrameWindowScope.BenchmarkRegressionMainPage(
     chinese: Boolean = false,
     onBack: () -> Unit = {},
     onOpenTrace: (Path) -> Unit = {},

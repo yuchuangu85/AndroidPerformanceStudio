@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class NetworkProfilerWorkspaceSourceTest {
     private val source =
         Files.readString(
-            Path.of("src/main/kotlin/com/androidperformancestudio/network/app/NetworkProfilerWorkspace.kt"),
+            Path.of("src/main/kotlin/com/androidperformancestudio/network/app/NetworkProfilerMainPage.kt"),
         )
 
     @Test

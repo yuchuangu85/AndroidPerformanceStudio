@@ -36,7 +36,7 @@ import java.nio.file.Path
 import javax.swing.JFileChooser
 
 @Composable
-public fun FrameWindowScope.GpuIntegrationWorkspace(
+public fun FrameWindowScope.GpuIntegrationMainPage(
     chinese: Boolean = false,
     onBack: () -> Unit = {},
     onOpenTrace: (Path) -> Unit = {},

@@ -86,7 +86,7 @@ The native application menu remains owned by `desktop-app`. Layout-specific sett
 
 ### Layout Inspector
 
-`DesktopViewerApp` remains the Layout Inspector workspace. The application shell wraps it without changing its domain, ADB, capture, archive, or analysis behavior.
+`LayoutInspectorMainPage` remains the Layout Inspector workspace. The application shell wraps it without changing its domain, ADB, capture, archive, or analysis behavior.
 
 The shell continues to provide the `FrameWindowScope` required by the existing viewer and its native menu integrations.
 
@@ -94,10 +94,10 @@ The shell continues to provide the `FrameWindowScope` required by the existing v
 
 The current Simpleperf `main()` composition is split into:
 
-- `SimpleperfWorkspace`, an embeddable composable containing dependency creation, controllers, state collection, actions, and `HomeScreen`.
+- `SimpleperfMainPage`, an embeddable composable containing dependency creation, controllers, state collection, actions, and `HomeScreen`.
 - The shared root application `main()`, which is the only process and window owner.
 
-`SimpleperfWorkspace` receives the current `ComposeWindow` when desktop file dialogs require it. Its controller refresh begins only when the workspace first enters composition. Existing capture, import, report, export, toolchain, and error behavior remains unchanged.
+`SimpleperfMainPage` receives the current `ComposeWindow` when desktop file dialogs require it. Its controller refresh begins only when the workspace first enters composition. Existing capture, import, report, export, toolchain, and error behavior remains unchanged.
 
 The former Simpleperf `main()` and native distribution configuration are removed because the feature is no longer independently executable or packaged.
 

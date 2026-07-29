@@ -31,6 +31,6 @@ fun main() = application {
             onDispose(registration::close)
         }
         window.minimumSize = java.awt.Dimension(1100, 720)
-        UnifiedDesktopApp(settingsRequest = settingsRequest)
+        DesktopAppMainPage(settingsRequest = settingsRequest)
     }
 }

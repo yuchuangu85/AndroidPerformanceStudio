@@ -26,7 +26,7 @@ Make the Desktop Viewer prioritize the foreground application's real visible are
 
 ### Canvas mode
 
-`DesktopViewerApp` owns a local `appOnly` Boolean state. The CANVAS panel title exposes a compact `仅应用` toggle. The state defaults to `true` for each Desktop Viewer launch.
+`LayoutInspectorMainPage` owns a local `appOnly` Boolean state. The CANVAS panel title exposes a compact `仅应用` toggle. The state defaults to `true` for each Desktop Viewer launch.
 
 The preview derives a source rectangle:
 

@@ -24,7 +24,7 @@ Allow users to resize the HIERARCHY, CANVAS, and PROPERTIES columns by dragging 
 
 ## Architecture
 
-`DesktopViewerApp` owns two remembered width values: the left pane width and the right pane width. The main content row measures its available width and delegates drag calculations to a small pure layout helper.
+`LayoutInspectorMainPage` owns two remembered width values: the left pane width and the right pane width. The main content row measures its available width and delegates drag calculations to a small pure layout helper.
 
 The helper accepts the current side widths, drag delta, available row width, splitter width, and pane minimums. It returns clamped widths that preserve both side-pane minimums and reserve the CANVAS minimum whenever the current window can satisfy all minimums.
 
@@ -32,7 +32,7 @@ The Compose separator remains responsible only for pointer input, hover cursor, 
 
 ## Data Flow
 
-1. `DesktopViewerApp` initializes remembered widths to 300 dp each.
+1. `LayoutInspectorMainPage` initializes remembered widths to 300 dp each.
 2. The content row reports its current available width.
 3. Dragging the left separator adds the horizontal delta to the HIERARCHY width.
 4. Dragging the right separator subtracts the horizontal delta from the PROPERTIES width.

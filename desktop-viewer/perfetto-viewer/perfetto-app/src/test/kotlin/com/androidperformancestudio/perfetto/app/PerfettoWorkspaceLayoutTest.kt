@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class PerfettoWorkspaceLayoutTest {
     private val source =
         Files.readString(
-            Path.of("src/main/kotlin/com/androidperformancestudio/perfetto/app/PerfettoWorkspace.kt"),
+            Path.of("src/main/kotlin/com/androidperformancestudio/perfetto/app/PerfettoMainPage.kt"),
         )
 
     @Test

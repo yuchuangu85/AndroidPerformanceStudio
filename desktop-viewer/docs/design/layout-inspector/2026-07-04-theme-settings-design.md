@@ -36,7 +36,7 @@ semantic blue, orange, and red identities.
 - `ViewerTheme.kt`: light/dark palettes, Material 3 color schemes, and
   composition-local colors.
 - `ThemeSettingsDialog.kt`: modal theme selection interface.
-- `DesktopViewerApp.kt`: preference state, settings entry, and palette usage.
+- `LayoutInspectorMainPage.kt`: preference state, settings entry, and palette usage.
 
 ## Verification
 

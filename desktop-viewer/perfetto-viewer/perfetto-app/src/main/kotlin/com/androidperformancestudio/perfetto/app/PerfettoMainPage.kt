@@ -82,7 +82,7 @@ import kotlin.time.Duration.Companion.seconds
 
 @Composable
 @Suppress("ktlint:standard:function-naming")
-fun FrameWindowScope.PerfettoWorkspace(
+fun FrameWindowScope.PerfettoMainPage(
     chinese: Boolean = false,
     onNavigateHome: (() -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,

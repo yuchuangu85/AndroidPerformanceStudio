@@ -46,9 +46,10 @@ import java.io.File
 import java.nio.file.Path
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
-public fun FrameWindowScope.NetworkProfilerWorkspace(chinese: Boolean = false, onBack: () -> Unit = {}) {
+public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, onBack: () -> Unit = {}) {
     val analyzer = remember { NetworkAnalyzer() }
     val exporter = remember { NetworkExporter() }
     val capture = remember { NetworkAgentCapture() }
@@ -70,7 +71,7 @@ public fun FrameWindowScope.NetworkProfilerWorkspace(chinese: Boolean = false, o
                 active = session
                 withContext(Dispatchers.Main) { state = state.copy(capturing = true, message = localizedStringResource(Res.string.agent_session_started, chinese), error = null) }
                 while (isActive) {
-                    delay(750)
+                    delay(750.milliseconds)
                     runCatching { capture.poll(session) }.onSuccess { events -> withContext(Dispatchers.Main) { state = state.copy(liveEventCount = state.liveEventCount + events.size, message = localizedStringResource(Res.string.captured_raw_events, chinese, state.liveEventCount + events.size)) } }.onFailure { cancel("poll failed", it) }
                 }
             }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }

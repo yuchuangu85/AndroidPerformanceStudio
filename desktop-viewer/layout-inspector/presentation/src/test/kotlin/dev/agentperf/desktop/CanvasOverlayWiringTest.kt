@@ -12,7 +12,7 @@ class CanvasOverlayWiringTest {
     @Test
     fun `preview pane clips zoomed preview and supports dragging inside viewport`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val preview = source
             .substringAfter("private fun PreviewPane(")
@@ -43,7 +43,7 @@ class CanvasOverlayWiringTest {
     @Test
     fun `preview pane keeps zoom controls anchored to the lower right`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val preview = source
             .substringAfter("private fun PreviewPane(")
@@ -65,7 +65,7 @@ class CanvasOverlayWiringTest {
     @Test
     fun `general bounds are optional and hover focus is drawn last`() {
         val source = Files.readString(
-            Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt"),
+            Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
         )
         val preview = source
             .substringAfter("private fun PreviewPane(")

@@ -107,7 +107,7 @@ implementation("com.androidperformancestudio:device-adb:0.1.0-SNAPSHOT")
 按以下顺序处理：
 
 1. 删除 Perfetto 内未纳入构建的 `platform-toolchain/` 和 `device-adb/` 旧副本。
-2. 让 Perfetto 设备发现复用现有 `device-adb` API，删除 `PerfettoWorkspace` 中的内联解析。
+2. 让 Perfetto 设备发现复用现有 `device-adb` API，删除 `PerfettoMainPage` 中的内联解析。
 3. 检查并删除 Perfetto 中未使用的 `device-adb` 依赖，或补齐实际使用关系。
 4. 评估 Layout Inspector 与其他 profiler 的 ADB 需求是否能共享稳定的最小契约，避免直接把 Layout Inspector 专用 gateway 暴露给所有功能域。
 5. 如果共享模块将长期服务多个功能域，再把 `profile-model`、`platform-toolchain`、`device-adb` 迁移到中立的独立 included build；不要再次创建一套重复实现。
@@ -118,7 +118,7 @@ implementation("com.androidperformancestudio:device-adb:0.1.0-SNAPSHOT")
 
 ## 3. 【中等】PerfettoWorkspace 同时管理 11 个状态和多类副作用
 
-`PerfettoWorkspace.kt` 当前包含 11 个独立的 Compose mutable state：
+`PerfettoMainPage.kt` 当前包含 11 个独立的 Compose mutable state：
 
 ```kotlin
 var captureState by remember { mutableStateOf<PerfettoCaptureState>(...) }

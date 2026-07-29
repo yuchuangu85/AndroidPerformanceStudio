@@ -22,11 +22,11 @@ All three options default to disabled on first launch. Each option is persisted 
 
 ## State and Data Flow
 
-Introduce an immutable `ViewDisplayOptions` value owned by `DesktopViewerApp`. It contains one Boolean for each menu option and exposes small toggle operations.
+Introduce an immutable `ViewDisplayOptions` value owned by `LayoutInspectorMainPage`. It contains one Boolean for each menu option and exposes small toggle operations.
 
-Add a `ViewDisplayOptionsStore` that follows the existing theme and language preference-store pattern. It uses `java.util.prefs.Preferences`, stores one Boolean key per option, and treats missing or unreadable values as `false`. `DesktopViewerApp` loads the complete value once at startup and saves the updated value after every menu toggle. Preference read or write failures remain non-fatal.
+Add a `ViewDisplayOptionsStore` that follows the existing theme and language preference-store pattern. It uses `java.util.prefs.Preferences`, stores one Boolean key per option, and treats missing or unreadable values as `false`. `LayoutInspectorMainPage` loads the complete value once at startup and saves the updated value after every menu toggle. Preference read or write failures remain non-fatal.
 
-`NativeViewerMenuModel` receives the current options and produces three checked menu items. Menu callbacks return a typed view action to `DesktopViewerApp`, which updates the options.
+`NativeViewerMenuModel` receives the current options and produces three checked menu items. Menu callbacks return a typed view action to `LayoutInspectorMainPage`, which updates the options.
 
 Captured snapshots, analysis results, node numbering, and the selected node remain unchanged. The options affect only presentation:
 

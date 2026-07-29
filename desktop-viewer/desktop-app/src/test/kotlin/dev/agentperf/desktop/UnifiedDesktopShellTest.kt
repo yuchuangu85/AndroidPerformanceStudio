@@ -19,7 +19,7 @@ class UnifiedDesktopShellTest {
 
     @Test
     fun `shell exposes all feature destinations`() {
-        val shell = Files.readString(sourceRoot.resolve("UnifiedDesktopApp.kt"))
+        val shell = Files.readString(sourceRoot.resolve("MainDesktopAppPage.kt"))
         val home = Files.readString(sourceRoot.resolve("AppHomePage.kt"))
         val simpleperfRoute =
             shell.substringAfter("AppDestination.SIMPLEPERF ->")
