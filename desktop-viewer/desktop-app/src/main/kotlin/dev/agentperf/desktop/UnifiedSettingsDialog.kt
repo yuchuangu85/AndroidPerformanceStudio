@@ -109,46 +109,45 @@ internal fun UnifiedSettingsDialog(
                         },
                     )
                     VerticalDivider(color = MaterialTheme.colorScheme.outline)
-                    Box(
-                        modifier =
-                            Modifier
-                                .weight(1f)
-                                .padding(16.dp),
-                    ) {
-                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (persistenceErrorPage != null) {
-                                Text(
-                                    localizedStringResource(Res.string.settings_could_not_be_saved_the_current_session_still_uses, chinese, persistenceErrorPage.label(chinese)),
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodySmall,
+                    Column(Modifier.weight(1f).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (persistenceErrorPage != null) {
+                            Text(
+                                localizedStringResource(
+                                    Res.string.settings_could_not_be_saved_the_current_session_still_uses,
+                                    chinese,
+                                    persistenceErrorPage.label(chinese)
+                                ),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        when (selectedPage) {
+                            SettingsPage.GENERAL ->
+                                GeneralSettingsContent(
+                                    settings = applicationSettings,
+                                    chinese = chinese,
+                                    onSettingsChanged = onApplicationSettingsChanged,
+                                    modifier = Modifier.weight(1f),
                                 )
-                            }
-                            when (selectedPage) {
-                                SettingsPage.GENERAL ->
-                                    GeneralSettingsContent(
-                                        settings = applicationSettings,
-                                        chinese = chinese,
-                                        onSettingsChanged = onApplicationSettingsChanged,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                SettingsPage.LAYOUT_INSPECTOR ->
-                                    LayoutInspectorSettingsContent(
-                                        chinese = chinese,
-                                        onSettingsChanged = onLayoutInspectorSettingsChanged,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                SettingsPage.SIMPLEPERF ->
-                                    CompleteSimpleperfSettingsContent(
-                                        settings = simpleperfSettings,
-                                        context = simpleperfCaptureSettingsContext,
-                                        section = activeSimpleperfSection,
-                                        darkTheme = darkTheme,
-                                        chinese = chinese,
-                                        onSettingsChanged = onSimpleperfSettingsChanged,
-                                        onOpenUserGuide = onOpenUserGuide,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                            }
+
+                            SettingsPage.LAYOUT_INSPECTOR ->
+                                LayoutInspectorSettingsContent(
+                                    chinese = chinese,
+                                    onSettingsChanged = onLayoutInspectorSettingsChanged,
+                                    modifier = Modifier.weight(1f),
+                                )
+
+                            SettingsPage.SIMPLEPERF ->
+                                CompleteSimpleperfSettingsContent(
+                                    settings = simpleperfSettings,
+                                    context = simpleperfCaptureSettingsContext,
+                                    section = activeSimpleperfSection,
+                                    darkTheme = darkTheme,
+                                    chinese = chinese,
+                                    onSettingsChanged = onSimpleperfSettingsChanged,
+                                    onOpenUserGuide = onOpenUserGuide,
+                                    modifier = Modifier.weight(1f),
+                                )
                         }
                     }
                 }
@@ -215,7 +214,7 @@ private fun SettingsSidebar(
                     label = section.settingsLabel(chinese),
                     selected =
                         selectedPage == SettingsPage.SIMPLEPERF &&
-                            section == selectedSimpleperfSection,
+                                section == selectedSimpleperfSection,
                     nested = true,
                     onClick = { onSimpleperfSectionSelected(section) },
                 )
@@ -317,7 +316,10 @@ private fun CompleteSimpleperfSettingsContent(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (context == null) {
             Text(
-                localizedStringResource(Res.string.capture_parameters_connect_to_the_current_device_and_target_after, chinese),
+                localizedStringResource(
+                    Res.string.capture_parameters_connect_to_the_current_device_and_target_after,
+                    chinese
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -382,7 +384,11 @@ private fun SettingsPage.label(chinese: Boolean): String =
 private fun CaptureSettingsSection.settingsLabel(chinese: Boolean): String =
     when (this) {
         CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(Res.string.sampling_template, chinese)
-        CaptureSettingsSection.CAPTURE_CONFIGURATION -> localizedStringResource(Res.string.capture_configuration, chinese)
+        CaptureSettingsSection.CAPTURE_CONFIGURATION -> localizedStringResource(
+            Res.string.capture_configuration,
+            chinese
+        )
+
         CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(Res.string.advanced_parameters, chinese)
         CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(Res.string.flame_graph, chinese)
         CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(Res.string.simpleperf_engine, chinese)
