@@ -1,5 +1,6 @@
 package com.androidperformancestudio.perfetto.presentation
 
+import com.androidperformancestudio.ui.UiLanguage
 import org.jetbrains.compose.resources.stringResource
 
 import com.androidperformancestudio.perfetto.presentation.generated.resources.Res
@@ -39,7 +40,7 @@ import java.nio.file.Path
 @Composable
 fun PerfettoCapturePage(
     captureState: PerfettoCaptureState,
-    chinese: Boolean = false,
+    language: UiLanguage = UiLanguage.ENGLISH,
     adbPath: String,
     onAdbPathChange: (String) -> Unit,
     onStartCapture: (PerfettoCaptureConfig, String) -> Unit,

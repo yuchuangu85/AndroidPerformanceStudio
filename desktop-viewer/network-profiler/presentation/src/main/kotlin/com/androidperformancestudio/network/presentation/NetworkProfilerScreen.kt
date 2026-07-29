@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.network.presentation
 
+import com.androidperformancestudio.ui.UiLanguage
 import org.jetbrains.compose.resources.stringResource
 
 import com.androidperformancestudio.network.presentation.generated.resources.Res
@@ -35,7 +36,7 @@ public data class NetworkProfilerActions(
 )
 
 @Composable
-public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkProfilerActions, chinese: Boolean, modifier: Modifier = Modifier) {
+public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkProfilerActions, language: UiLanguage, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Summary(stringResource(Res.string.calls), state.summary?.callCount?.toString() ?: "—", Modifier.weight(1f))
@@ -51,7 +52,7 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { items(state.result?.calls.orEmpty()) { call -> CallCard(call, call.callId == state.selectedCallId, chinese) { actions.selectCall(call.callId) } } }
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { items(state.result?.calls.orEmpty()) { call -> CallCard(call, call.callId == state.selectedCallId, language) { actions.selectCall(call.callId) } } }
             VerticalDivider(color = MaterialTheme.colorScheme.outline)
             val selected = state.result?.calls?.firstOrNull { it.callId == state.selectedCallId }
             Card(Modifier.weight(1f).fillMaxHeight()) {
@@ -84,7 +85,7 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
     }
 }
 
-@Composable private fun CallCard(call: HttpCall, selected: Boolean, chinese: Boolean, onClick: () -> Unit) {
+@Composable private fun CallCard(call: HttpCall, selected: Boolean, language: UiLanguage, onClick: () -> Unit) {
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = if (selected)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(6.dp)) {
             Text(stringResource(Res.string.text_fb68e1ae, call.method, call.outcome))

@@ -53,7 +53,7 @@ import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.visualization.NavigationAction
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineCanvas
@@ -70,7 +70,7 @@ internal fun TimelineReport(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val fullStart = report.sessionOverview.startNanos ?: 0L
     val fullEnd = (report.sessionOverview.endNanosInclusive ?: fullStart).safeTimelineIncrement()
@@ -180,7 +180,7 @@ private fun FirefoxMarkerTimelineLanes(
     snapshot: MarkerProjectionSnapshot,
     viewport: TimeViewport,
     selectedMarkerId: ProfileMarkerId?,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onSelect: (ProfileMarkerId?) -> Unit,
 ) {
     val markersById = remember(snapshot) { snapshot.markers.associateBy { it.id } }
@@ -230,7 +230,7 @@ private fun FirefoxTimelineHeader(
     totalTrackCount: Int,
     viewport: TimeViewport,
     zeroAtNanos: Long,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val visibleTracksDescription =
         localizedSimpleperfResource(ViewerRes.sp_dynamic_visible_tracks, visibleTrackCount, totalTrackCount)
@@ -268,7 +268,7 @@ private fun FirefoxTimelineHeader(
 private fun FirefoxTimelineRuler(
     viewport: TimeViewport,
     zeroAtNanos: Long,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
 ) {
     BoxWithConstraints(modifier.fillMaxHeight()) {
@@ -312,7 +312,7 @@ private fun FirefoxThreadTrack(
     selected: Boolean,
     viewport: TimeViewport,
     previewRange: AnalysisTimeRange?,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     actions: ReportActions,
 ) {
     val trackDescription =
@@ -351,7 +351,7 @@ private fun FirefoxThreadTrack(
 private fun FirefoxTrackLabel(
     track: ThreadTimelineTrack,
     local: Boolean,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     actions: ReportActions,
     modifier: Modifier,
 ) {
@@ -386,7 +386,7 @@ private fun FirefoxTrackGraph(
     track: ThreadTimelineTrack,
     viewport: TimeViewport,
     previewRange: AnalysisTimeRange?,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     actions: ReportActions,
     modifier: Modifier,
 ) {
@@ -441,7 +441,7 @@ private fun FirefoxTrackGraph(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun FirefoxSampleGraph(
     buckets: List<TimelineBucket>,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Canvas(
         Modifier
@@ -523,10 +523,10 @@ private fun formatTimelineUnit(
     return String.format(Locale.US, "%.${precision}f %s", value, unit)
 }
 
-private fun firefoxActivityColor(style: MacOsDeviceTargetStyle): Color =
+private fun firefoxActivityColor(style: ViewerColors): Color =
     if (style.panel.red < 0.5f) Color(0xFF75A7D4) else Color(0xFF5B8DB8)
 
-private fun firefoxLocalTrackBackground(style: MacOsDeviceTargetStyle): Color =
+private fun firefoxLocalTrackBackground(style: ViewerColors): Color =
     if (style.panel.red < 0.5f) Color(0xFF202124) else Color(0xFFF0F0F4)
 
 private fun Long.safeTimelineIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1

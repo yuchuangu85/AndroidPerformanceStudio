@@ -59,9 +59,10 @@ import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
-import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
-import com.androidperformancestudio.ui.macOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerThemeVariant
+import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.visualization.NavigationAction
 import androidx.compose.material3.Text as MaterialText
 
@@ -76,7 +77,7 @@ fun ReportPage(
     ReportWorkspace(
         state,
         actions,
-        macOsDeviceTargetStyle(darkTheme),
+        viewerColors(darkTheme, ViewerThemeVariant.MAC_OS),
         Modifier.fillMaxSize(),
         flameTooltipMode,
     )
@@ -87,7 +88,7 @@ fun ReportPage(
 internal fun ReportWorkspace(
     state: ReportState,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier = Modifier,
     flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
 ) {
@@ -95,7 +96,7 @@ internal fun ReportWorkspace(
         modifier
             .fillMaxSize()
             .background(style.workspace)
-            .border(MacOsDeviceTargetDimensions.hairline, style.border),
+            .border(ViewerDimensions.hairline, style.border),
     ) {
         ReportResultPane(state, actions, style, Modifier.fillMaxSize(), flameTooltipMode)
     }
@@ -106,7 +107,7 @@ internal fun ReportWorkspace(
 private fun ReportResultPane(
     state: ReportState,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
     flameTooltipMode: FlameTooltipMode,
 ) {
@@ -136,7 +137,7 @@ private fun ReportResultPane(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun ReportStatus(
     message: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onClose: (() -> Unit)? = null,
 ) {
     Column(
@@ -154,7 +155,7 @@ internal fun ReportSelectedPanel(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     flameTooltipMode: FlameTooltipMode,
 ) {
     when (state.selectedTab) {
@@ -181,7 +182,7 @@ internal fun ReportSelectedPanel(
 internal fun OverviewReport(
     report: ReportData,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -259,7 +260,7 @@ private fun MetricCard(
     title: String,
     value: String,
     modifier: Modifier,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     MacOsPanel(modifier, style) {
         Text(title, color = style.secondaryText, fontSize = 9.sp)
@@ -273,7 +274,7 @@ internal fun TopFunctionsReport(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -308,7 +309,7 @@ internal fun TopFunctionsReport(
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun TopFunctionHeader(style: MacOsDeviceTargetStyle) {
+private fun TopFunctionHeader(style: ViewerColors) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Function / Library", modifier = Modifier.weight(1f), color = style.secondaryText, fontSize = 9.sp)
         Text("Inclusive", modifier = Modifier.width(90.dp), color = style.secondaryText, fontSize = 9.sp)
@@ -326,7 +327,7 @@ private fun TopFunctionRow(
     onSelect: () -> Unit,
     onFocusCallTree: (String) -> Unit,
     onFocusFlame: (String) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Row(
         modifier =
@@ -334,7 +335,7 @@ private fun TopFunctionRow(
                 .fillMaxWidth()
                 .testTag("top-function-row-${function.symbolName}")
                 .background(style.panel, RoundedCornerShape(9.dp))
-                .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(9.dp))
+                .border(ViewerDimensions.hairline, style.border, RoundedCornerShape(9.dp))
                 .clickable(onClick = onSelect)
                 .padding(horizontal = 20.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -360,7 +361,7 @@ internal fun CallTreeReport(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     var expandedIds by remember(report.callTree) {
         mutableStateOf(report.callTree.firefoxInitialExpandedIds().toMutableSet())
@@ -401,7 +402,7 @@ internal fun CallTreeReport(
                 .fillMaxWidth()
                 .weight(1f)
                 .background(style.panel)
-                .border(MacOsDeviceTargetDimensions.hairline, style.border),
+                .border(ViewerDimensions.hairline, style.border),
         ) {
             FirefoxCallTreeHeader(report.overview.eventTypes.firefoxTotalColumnLabel(), style)
             LazyColumn(
@@ -437,14 +438,14 @@ internal fun CallTreeReport(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun FirefoxCallTreeHeader(
     totalLabel: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
             .height(FIREFOX_CALL_TREE_HEADER_HEIGHT)
             .background(style.toolbar)
-            .border(MacOsDeviceTargetDimensions.hairline, style.border),
+            .border(ViewerDimensions.hairline, style.border),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         FirefoxCallTreeHeaderCell(
@@ -470,7 +471,7 @@ private fun FirefoxCallTreeHeader(
 private fun FirefoxCallTreeHeaderCell(
     label: String,
     width: androidx.compose.ui.unit.Dp,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Text(
         text = label,
@@ -492,7 +493,7 @@ private fun FirefoxCallTreeRow(
     expanded: Boolean,
     selected: Boolean,
     search: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onSelect: () -> Unit,
     onToggle: () -> Unit,
 ) {
@@ -595,7 +596,7 @@ private fun FirefoxCallTreeValue(
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun FirefoxCallTreeDivider(style: MacOsDeviceTargetStyle) {
+private fun FirefoxCallTreeDivider(style: ViewerColors) {
     Spacer(Modifier.width(1.dp).fillMaxHeight().background(style.border))
 }
 
@@ -605,7 +606,7 @@ private fun FirefoxHighlightedText(
     text: String,
     search: String,
     color: androidx.compose.ui.graphics.Color,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier = Modifier,
 ) {
     MaterialText(
@@ -622,7 +623,7 @@ private fun FirefoxHighlightedText(
 
 private fun String.firefoxHighlight(
     search: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ): AnnotatedString {
     val matchStart = if (search.isBlank()) -1 else indexOf(search, ignoreCase = true)
     return if (matchStart < 0) {
@@ -656,7 +657,7 @@ private fun List<CallTreeNode>.expandedPathIds(search: String): Set<Long> {
 private fun DiagnosticCard(
     finding: DiagnosticFinding,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val accent =
         when (finding.severity) {
@@ -670,7 +671,7 @@ private fun DiagnosticCard(
             Modifier
                 .fillMaxWidth()
                 .background(style.panel, RoundedCornerShape(9.dp))
-                .border(MacOsDeviceTargetDimensions.hairline, accent, RoundedCornerShape(9.dp))
+                .border(ViewerDimensions.hairline, accent, RoundedCornerShape(9.dp))
                 .clickable {
                     actions.onSelectOverviewFinding(finding.ruleId)
                     navigation?.invoke()
@@ -721,7 +722,7 @@ private fun DiagnosticFinding.navigation(actions: ReportActions): (() -> Unit)? 
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun SectionTitle(
     title: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
 }

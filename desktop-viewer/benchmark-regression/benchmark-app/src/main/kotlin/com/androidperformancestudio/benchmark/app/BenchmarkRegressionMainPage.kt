@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.benchmark.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.Res
 import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.*
@@ -36,7 +37,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 public fun FrameWindowScope.BenchmarkRegressionMainPage(
-    chinese: Boolean = false,
+    language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
     onOpenTrace: (Path) -> Unit = {},
 ) {
@@ -49,29 +50,29 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
     fun import(file: File, baseline: Boolean) {
         runCatching { parser.parse(file.toPath()) }.onSuccess { run ->
             runCatching { SqliteBenchmarkStore.open(storePath).use { it.save(run) } }
-            state = if (baseline) state.copy(baseline = run, message = localizedStringResource(Res.string.imported_baseline, chinese, file.name), error = null) else state.copy(current = run, message = localizedStringResource(Res.string.imported_current, chinese, file.name), error = null)
+            state = if (baseline) state.copy(baseline = run, message = localizedStringResource(Res.string.imported_baseline, language, file.name), error = null) else state.copy(current = run, message = localizedStringResource(Res.string.imported_current, language, file.name), error = null)
             val current = state.current
             val reference = state.baseline
             if (current != null && reference != null) state = state.copy(report = analyzer.compare(reference, current, RegressionPolicy(relativeThresholdPercent = state.thresholdPercent)))
-        }.onFailure { state = state.copy(error = it.message ?: localizedStringResource(Res.string.import_failed, chinese)) }
+        }.onFailure { state = state.copy(error = it.message ?: localizedStringResource(Res.string.import_failed, language)) }
     }
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
+                contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = onBack,
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_current, chinese),
-                onClick = { chooseJson(window, chinese)?.let { import(it, false) } },
+                text = localizedStringResource(Res.string.import_current, language),
+                onClick = { chooseJson(window, language)?.let { import(it, false) } },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_baseline, chinese),
-                onClick = { chooseJson(window, chinese)?.let { import(it, true) } },
+                text = localizedStringResource(Res.string.import_baseline, language),
+                onClick = { chooseJson(window, language)?.let { import(it, true) } },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_report, chinese),
+                text = localizedStringResource(Res.string.export_report, language),
                 enabled = state.report != null,
                 onClick = {
                     chooseSave(window, "benchmark-regression.json")
@@ -79,7 +80,7 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.open_trace_in_perfetto, chinese),
+                text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
                 enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
                 onClick = {
                     state.current
@@ -93,13 +94,13 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
             ProfilerToolbarStatus(state.message, state.error)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        BenchmarkRegressionScreen(state, chinese, Modifier.weight(1f))
+        BenchmarkRegressionScreen(state, language, Modifier.weight(1f))
     }
 }
 
-private fun chooseJson(parent: java.awt.Component, chinese: Boolean): File? = JFileChooser().run {
-    dialogTitle = localizedStringResource(Res.string.import_androidx_benchmark_json, chinese)
-    fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.benchmark_json, chinese), "json")
+private fun chooseJson(parent: java.awt.Component, language: UiLanguage): File? = JFileChooser().run {
+    dialogTitle = localizedStringResource(Res.string.import_androidx_benchmark_json, language)
+    fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.benchmark_json, language), "json")
     if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
 }
 

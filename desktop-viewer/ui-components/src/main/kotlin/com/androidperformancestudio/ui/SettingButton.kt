@@ -1,3 +1,5 @@
+@file:Suppress("FunctionNaming", "MagicNumber")
+
 package com.androidperformancestudio.ui
 
 import androidx.compose.foundation.Canvas
@@ -13,55 +15,72 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SettingsButton(onClick: () -> Unit) {
-    val colors = LocalViewerColors.current
+public fun SettingsButton(
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null,
+    enabled: Boolean = true,
+    colors: ViewerColors? = null,
+    onClick: () -> Unit,
+) {
+    val iconColor =
+        (colors?.secondaryText ?: LocalViewerColors.current.mutedText)
+            .copy(alpha = if (enabled) 1f else DISABLED_SETTINGS_CONTENT_ALPHA)
+    val accessibilityModifier =
+        if (contentDescription == null) {
+            modifier
+        } else {
+            modifier.semantics { this.contentDescription = contentDescription }
+        }
     Box(
-        modifier = Modifier
-            .width(28.dp)
-            .height(28.dp)
-            .clickable(onClick = onClick)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
+        modifier =
+            accessibilityModifier
+                .width(28.dp)
+                .height(ViewerDimensions.buttonHeight)
+                .clickable(enabled = enabled, onClick = onClick)
+                .border(
+                    ViewerDimensions.hairline,
+                    MaterialTheme.colorScheme.outline,
+                    RoundedCornerShape(ViewerDimensions.controlRadius),
+                ),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(15.dp)) {
-            val center = Offset(size.width / 2f, size.height / 2f)
-            val strokeWidth = 1.2.dp.toPx()
-            val innerRadius = 2.2.dp.toPx()
-            val outerRadius = 5.2.dp.toPx()
-            drawCircle(
-                color = colors.mutedText,
-                radius = innerRadius,
-                center = center,
-                style = Stroke(width = strokeWidth),
-            )
-            drawCircle(
-                color = colors.mutedText,
-                radius = outerRadius,
-                center = center,
-                style = Stroke(width = strokeWidth),
-            )
-            repeat(8) { index ->
-                val angle = Math.toRadians((index * 45.0) - 90.0)
-                val start = Offset(
-                    x = center.x + kotlin.math.cos(angle).toFloat() * outerRadius,
-                    y = center.y + kotlin.math.sin(angle).toFloat() * outerRadius,
-                )
-                val endRadius = outerRadius + 2.dp.toPx()
-                val end = Offset(
-                    x = center.x + kotlin.math.cos(angle).toFloat() * endRadius,
-                    y = center.y + kotlin.math.sin(angle).toFloat() * endRadius,
-                )
-                drawLine(
-                    color = colors.mutedText,
-                    start = start,
-                    end = end,
-                    strokeWidth = strokeWidth,
-                )
-            }
+            drawSettingsGear(iconColor)
         }
     }
 }
+
+private fun DrawScope.drawSettingsGear(iconColor: Color) {
+    val center = Offset(size.width / 2f, size.height / 2f)
+    val strokeWidth = 1.2.dp.toPx()
+    val innerRadius = 2.2.dp.toPx()
+    val outerRadius = 5.2.dp.toPx()
+    drawCircle(iconColor, innerRadius, center, style = Stroke(width = strokeWidth))
+    drawCircle(iconColor, outerRadius, center, style = Stroke(width = strokeWidth))
+    repeat(SETTINGS_GEAR_TOOTH_COUNT) { index ->
+        val angle =
+            Math.toRadians(
+                (index * SETTINGS_GEAR_TOOTH_ANGLE_DEGREES) + SETTINGS_GEAR_START_ANGLE_DEGREES,
+            )
+        val direction = Offset(kotlin.math.cos(angle).toFloat(), kotlin.math.sin(angle).toFloat())
+        drawLine(
+            color = iconColor,
+            start = center + direction * outerRadius,
+            end = center + direction * (outerRadius + 2.dp.toPx()),
+            strokeWidth = strokeWidth,
+        )
+    }
+}
+
+private const val DISABLED_SETTINGS_CONTENT_ALPHA = 0.48f
+private const val SETTINGS_GEAR_TOOTH_COUNT = 8
+private const val SETTINGS_GEAR_TOOTH_ANGLE_DEGREES = 45.0
+private const val SETTINGS_GEAR_START_ANGLE_DEGREES = -90.0

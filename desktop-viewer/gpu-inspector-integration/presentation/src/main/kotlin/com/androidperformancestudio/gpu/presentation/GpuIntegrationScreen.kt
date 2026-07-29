@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.gpu.presentation
 
+import com.androidperformancestudio.ui.UiLanguage
 import org.jetbrains.compose.resources.stringResource
 
 import com.androidperformancestudio.gpu.presentation.generated.resources.Res
@@ -42,7 +43,7 @@ public data class GpuIntegrationActions(
 public fun GpuIntegrationScreen(
     state: GpuIntegrationState,
     actions: GpuIntegrationActions,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier = Modifier,
 ) {
     Column(

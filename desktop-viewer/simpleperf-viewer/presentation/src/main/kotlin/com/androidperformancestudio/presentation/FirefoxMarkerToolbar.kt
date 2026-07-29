@@ -10,7 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 import kotlinx.coroutines.delay
 
 @Composable
@@ -18,7 +18,7 @@ import kotlinx.coroutines.delay
 internal fun FirefoxMarkerToolbar(
     state: ReportState,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     var draft by remember(state.lastReadyReport?.session?.directory) { mutableStateOf(state.workspace.markerSearchText) }
     LaunchedEffect(state.workspace.markerSearchText) {

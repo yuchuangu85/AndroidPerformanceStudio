@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import dev.agentperf.desktop_app.generated.resources.Res
 import dev.agentperf.desktop_app.generated.resources.*
@@ -32,13 +33,13 @@ internal object ApplicationSettingsDialogStyle {
 @Composable
 internal fun ApplicationSettingsDialog(
     settings: ApplicationUiSettings,
-    chinese: Boolean,
+    language: UiLanguage,
     onSettingsChanged: (ApplicationUiSettings) -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(localizedStringResource(Res.string.general_settings, chinese)) },
+        title = { Text(localizedStringResource(Res.string.general_settings, language)) },
         text = {
             Column(
                 modifier =
@@ -48,26 +49,26 @@ internal fun ApplicationSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 PreferenceDropdown(
-                    chinese = chinese,
-                    label = localizedStringResource(Res.string.language, chinese),
+                    language = language,
+                    label = localizedStringResource(Res.string.language, language),
                     selected = settings.language,
                     options = ApplicationLanguagePreference.entries,
-                    optionLabel = { languagePreferenceLabel(it, chinese) },
+                    optionLabel = { languagePreferenceLabel(it, language) },
                     onSelected = { onSettingsChanged(settings.copy(language = it)) },
                 )
                 PreferenceDropdown(
-                    chinese = chinese,
-                    label = localizedStringResource(Res.string.theme, chinese),
+                    language = language,
+                    label = localizedStringResource(Res.string.theme, language),
                     selected = settings.theme,
                     options = ApplicationThemePreference.entries,
-                    optionLabel = { themePreferenceLabel(it, chinese) },
+                    optionLabel = { themePreferenceLabel(it, language) },
                     onSelected = { onSettingsChanged(settings.copy(theme = it)) },
                 )
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(localizedStringResource(Res.string.done, chinese))
+                Text(localizedStringResource(Res.string.done, language))
             }
         },
     )
@@ -75,7 +76,7 @@ internal fun ApplicationSettingsDialog(
 
 @Composable
 private fun <T> PreferenceDropdown(
-    chinese: Boolean,
+    language: UiLanguage,
     label: String,
     selected: T,
     options: List<T>,
@@ -88,7 +89,7 @@ private fun <T> PreferenceDropdown(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(localizedStringResource(Res.string.text, chinese, label, optionLabel(selected)))
+            Text(localizedStringResource(Res.string.text, language, label, optionLabel(selected)))
         }
         DropdownMenu(
             expanded = expanded,
@@ -110,20 +111,20 @@ private fun <T> PreferenceDropdown(
 
 internal fun languagePreferenceLabel(
     preference: ApplicationLanguagePreference,
-    chinese: Boolean,
+    language: UiLanguage,
 ): String =
     when (preference) {
-        ApplicationLanguagePreference.SYSTEM -> localizedStringResource(Res.string.system, chinese)
-        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> localizedStringResource(Res.string.simplified_chinese, chinese)
-        ApplicationLanguagePreference.ENGLISH -> localizedStringResource(Res.string.english, chinese)
+        ApplicationLanguagePreference.SYSTEM -> localizedStringResource(Res.string.system, language)
+        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> localizedStringResource(Res.string.simplified_chinese, language)
+        ApplicationLanguagePreference.ENGLISH -> localizedStringResource(Res.string.english, language)
     }
 
 internal fun themePreferenceLabel(
     preference: ApplicationThemePreference,
-    chinese: Boolean,
+    language: UiLanguage,
 ): String =
     when (preference) {
-        ApplicationThemePreference.SYSTEM -> localizedStringResource(Res.string.system, chinese)
-        ApplicationThemePreference.LIGHT -> localizedStringResource(Res.string.light, chinese)
-        ApplicationThemePreference.DARK -> localizedStringResource(Res.string.dark, chinese)
+        ApplicationThemePreference.SYSTEM -> localizedStringResource(Res.string.system, language)
+        ApplicationThemePreference.LIGHT -> localizedStringResource(Res.string.light, language)
+        ApplicationThemePreference.DARK -> localizedStringResource(Res.string.dark, language)
     }

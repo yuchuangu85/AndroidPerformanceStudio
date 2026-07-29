@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 import kotlinx.coroutines.delay
 
 @Composable
@@ -27,7 +27,7 @@ import kotlinx.coroutines.delay
 internal fun FirefoxStackToolbar(
     state: ReportState,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val sessionIdentity = state.lastReadyReport?.session?.directory
     var searchState by

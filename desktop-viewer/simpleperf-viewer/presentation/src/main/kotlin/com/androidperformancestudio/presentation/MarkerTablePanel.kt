@@ -29,7 +29,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 
 private enum class MarkerSort { START, DURATION, NAME, THREAD, SCHEMA }
 
@@ -39,7 +39,7 @@ internal fun MarkerTablePanel(
     state: ReportState,
     projection: PanelProjection<MarkerProjectionSnapshot>,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     var sort by remember { mutableStateOf(MarkerSort.START) }
     var ascending by remember { mutableStateOf(true) }
@@ -73,7 +73,7 @@ internal fun MarkerTablePanel(
 private fun MarkerTableHeader(
     sort: MarkerSort,
     ascending: Boolean,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onSort: (MarkerSort) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().background(style.toolbar).padding(6.dp)) {
@@ -102,7 +102,7 @@ private fun MarkerTableHeader(
 private fun MarkerTableRow(
     marker: MarkerProjectionRow,
     selected: Boolean,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onClick: () -> Unit,
 ) {
     Row(

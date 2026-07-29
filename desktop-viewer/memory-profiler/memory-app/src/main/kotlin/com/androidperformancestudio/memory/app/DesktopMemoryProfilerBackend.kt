@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.*
@@ -38,7 +39,7 @@ internal class DesktopMemoryProfilerBackend(
     private val dataRoot: Path = defaultDataRoot(),
     private val adbLocator: () -> Path? = ::locateSystemAdb,
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
-    private val chinese: Boolean = false,
+    private val language: UiLanguage = UiLanguage.ENGLISH,
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
     private val analyzer = MemoryDeepAnalyzer()
@@ -48,7 +49,7 @@ internal class DesktopMemoryProfilerBackend(
         val adb = adbLocator() ?: return missingAdb()
         return when (val result = AdbDeviceRefresher(adb).refresh()) {
             is StudioResult.Failure ->
-                result.toBackendFailure(localizedStringResource(Res.string.unable_to_list_android_devices, chinese))
+                result.toBackendFailure(localizedStringResource(Res.string.unable_to_list_android_devices, language))
             is StudioResult.Success ->
                 MemoryBackendResult.Success(
                     result.value.map { device ->
@@ -66,7 +67,7 @@ internal class DesktopMemoryProfilerBackend(
         val adb = adbLocator() ?: return missingAdb()
         return when (val result = AdbTargetCatalog(adb).refresh(serial)) {
             is StudioResult.Failure ->
-                result.toBackendFailure(localizedStringResource(Res.string.unable_to_list_device_processes, chinese))
+                result.toBackendFailure(localizedStringResource(Res.string.unable_to_list_device_processes, language))
             is StudioResult.Success -> {
                 val debuggablePackages =
                     result.value.packages
@@ -105,7 +106,7 @@ internal class DesktopMemoryProfilerBackend(
                     ),
                 )
         ) {
-            is StudioResult.Failure -> result.toBackendFailure(localizedStringResource(Res.string.heap_dump_failed, chinese))
+            is StudioResult.Failure -> result.toBackendFailure(localizedStringResource(Res.string.heap_dump_failed, language))
             is StudioResult.Success -> {
                 val capture = result.value
                 val warning =
@@ -132,7 +133,7 @@ internal class DesktopMemoryProfilerBackend(
                             rawFile = capture.rawHprofFile,
                             warning = listOfNotNull(
                                 warning,
-                                localizedStringResource(Res.string.hprof_conv_unavailable, chinese),
+                                localizedStringResource(Res.string.hprof_conv_unavailable, language),
                             ).joinToString("\n"),
                             cleanupWarning = cleanupWarning,
                             sessionMetadata = identity,
@@ -165,8 +166,8 @@ internal class DesktopMemoryProfilerBackend(
         return withContext(Dispatchers.IO) {
             if (!Files.isRegularFile(file)) {
                 MemoryBackendResult.Failure(
-                    localizedStringResource(Res.string.hprof_file_not_found, chinese),
-                    localizedStringResource(Res.string.hprof_file_not_readable, chinese, file.fileName),
+                    localizedStringResource(Res.string.hprof_file_not_found, language),
+                    localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
                 )
             } else {
                 loadHeap(HeapLoadRequest(file = file, rawFile = file), onProgress)
@@ -213,7 +214,7 @@ internal class DesktopMemoryProfilerBackend(
                     .ifBlank { null }
             val emptyHeapWarning =
                 if (histogram.summary.objectCount == 0) {
-                    localizedStringResource(Res.string.no_heap_objects_parsed, chinese, request.file.fileName)
+                    localizedStringResource(Res.string.no_heap_objects_parsed, language, request.file.fileName)
                 } else {
                     null
                 }
@@ -280,7 +281,7 @@ internal class DesktopMemoryProfilerBackend(
 
     private fun analysisFailure(exception: Exception): MemoryBackendResult.Failure =
         MemoryBackendResult.Failure(
-            title = localizedStringResource(Res.string.unable_to_analyze_hprof, chinese),
+            title = localizedStringResource(Res.string.unable_to_analyze_hprof, language),
             detail = exception.message ?: exception::class.simpleName.orEmpty(),
         )
 
@@ -289,8 +290,8 @@ internal class DesktopMemoryProfilerBackend(
 
     private fun missingAdb(): MemoryBackendResult.Failure =
         MemoryBackendResult.Failure(
-            title = localizedStringResource(Res.string.android_sdk_platform_tools_not_found, chinese),
-            detail = localizedStringResource(Res.string.install_sdk_platform_tools, chinese),
+            title = localizedStringResource(Res.string.android_sdk_platform_tools_not_found, language),
+            detail = localizedStringResource(Res.string.install_sdk_platform_tools, language),
         )
 
     private fun sessionId(): String = SESSION_ID_FORMAT.format(Instant.now())

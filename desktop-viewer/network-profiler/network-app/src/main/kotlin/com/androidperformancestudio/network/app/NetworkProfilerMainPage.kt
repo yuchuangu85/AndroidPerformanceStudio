@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.network.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.network.network_app.generated.resources.Res
 import com.androidperformancestudio.network.network_app.generated.resources.*
@@ -49,7 +50,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
-public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, onBack: () -> Unit = {}) {
+public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLanguage.ENGLISH, onBack: () -> Unit = {}) {
     val analyzer = remember { NetworkAnalyzer() }
     val exporter = remember { NetworkExporter() }
     val capture = remember { NetworkAgentCapture() }
@@ -69,10 +70,10 @@ public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, on
         pollJob = scope.launch(Dispatchers.IO) {
             runCatching { capture.start(state.deviceSerial, state.packageName) }.onSuccess { session ->
                 active = session
-                withContext(Dispatchers.Main) { state = state.copy(capturing = true, message = localizedStringResource(Res.string.agent_session_started, chinese), error = null) }
+                withContext(Dispatchers.Main) { state = state.copy(capturing = true, message = localizedStringResource(Res.string.agent_session_started, language), error = null) }
                 while (isActive) {
                     delay(750.milliseconds)
-                    runCatching { capture.poll(session) }.onSuccess { events -> withContext(Dispatchers.Main) { state = state.copy(liveEventCount = state.liveEventCount + events.size, message = localizedStringResource(Res.string.captured_raw_events, chinese, state.liveEventCount + events.size)) } }.onFailure { cancel("poll failed", it) }
+                    runCatching { capture.poll(session) }.onSuccess { events -> withContext(Dispatchers.Main) { state = state.copy(liveEventCount = state.liveEventCount + events.size, message = localizedStringResource(Res.string.captured_raw_events, language, state.liveEventCount + events.size)) } }.onFailure { cancel("poll failed", it) }
                 }
             }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }
         }
@@ -82,43 +83,43 @@ public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, on
         val session = active ?: return
         pollJob?.cancel()
         scope.launch(Dispatchers.IO) {
-            runCatching { capture.stop(session) }.onSuccess { withContext(Dispatchers.Main) { complete(it, localizedStringResource(Res.string.capture_completed, chinese, it.calls.size)) } }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }
+            runCatching { capture.stop(session) }.onSuccess { withContext(Dispatchers.Main) { complete(it, localizedStringResource(Res.string.capture_completed, language, it.calls.size)) } }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }
             active = null
         }
     }
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
+                contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = {
                     if (state.capturing)stop()
                     onBack()
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_har, chinese),
+                text = localizedStringResource(Res.string.import_har, language),
                 enabled = !state.capturing,
                 onClick = {
-                    chooseHar(window, chinese)?.let { file ->
+                    chooseHar(window, language)?.let { file ->
                         runCatching { HarParser().parse(file.toPath()) }
                             .onSuccess {
                                 complete(
                                     it,
-                                    localizedStringResource(Res.string.imported_redacted, chinese, file.name),
+                                    localizedStringResource(Res.string.imported_redacted, language, file.name),
                                 )
                             }.onFailure { state = state.copy(error = it.message) }
                     }
                 },
             )
             ProfilerCompactTextField(
-                label = localizedStringResource(Res.string.device_serial, chinese),
+                label = localizedStringResource(Res.string.device_serial, language),
                 value = state.deviceSerial,
                 onValueChange = { state = state.copy(deviceSerial = it) },
                 enabled = !state.capturing,
                 modifier = Modifier.width(180.dp),
             )
             ProfilerCompactTextField(
-                label = localizedStringResource(Res.string.`package`, chinese),
+                label = localizedStringResource(Res.string.`package`, language),
                 value = state.packageName,
                 onValueChange = { state = state.copy(packageName = it) },
                 enabled = !state.capturing,
@@ -127,15 +128,15 @@ public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, on
             ProfilerCompactButton(
                 text =
                     if (state.capturing) {
-                        localizedStringResource(Res.string.stop_capture, chinese)
+                        localizedStringResource(Res.string.stop_capture, language)
                     } else {
-                        localizedStringResource(Res.string.live_capture, chinese)
+                        localizedStringResource(Res.string.live_capture, language)
                     },
                 enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(),
                 onClick = { if (state.capturing) stop() else start() },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.json, chinese),
+                text = localizedStringResource(Res.string.json, language),
                 enabled = state.result != null,
                 onClick = {
                     chooseSave(window, "network-session.json")?.let {
@@ -148,7 +149,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, on
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.har, chinese),
+                text = localizedStringResource(Res.string.har, language),
                 enabled = state.result != null,
                 onClick = {
                     chooseSave(window, "network-session.har")?.let {
@@ -157,7 +158,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, on
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.csv, chinese),
+                text = localizedStringResource(Res.string.csv, language),
                 enabled = state.result != null,
                 onClick = {
                     chooseSave(window, "network-session.csv")?.let {
@@ -166,7 +167,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, on
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.raw_bundle, chinese),
+                text = localizedStringResource(Res.string.raw_bundle, language),
                 enabled = state.result != null,
                 onClick = {
                     chooseSave(window, "network-raw-bundle.zip")?.let {
@@ -182,13 +183,13 @@ public fun FrameWindowScope.NetworkProfilerMainPage(chinese: Boolean = false, on
             ProfilerToolbarStatus(state.message, state.error)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, chinese, Modifier.weight(1f))
+        NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
     }
 }
 
-private fun chooseHar(parent: java.awt.Component, chinese: Boolean): File? = JFileChooser().run {
-    dialogTitle = localizedStringResource(Res.string.import_har, chinese)
-    fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.http_archive, chinese), "har", "json")
+private fun chooseHar(parent: java.awt.Component, language: UiLanguage): File? = JFileChooser().run {
+    dialogTitle = localizedStringResource(Res.string.import_har, language)
+    fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.http_archive, language), "har", "json")
     if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION)selectedFile else null
 }
 

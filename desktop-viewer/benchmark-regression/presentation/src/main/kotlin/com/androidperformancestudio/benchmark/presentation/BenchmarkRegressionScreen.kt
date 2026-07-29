@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.benchmark.presentation
 
+import com.androidperformancestudio.ui.UiLanguage
 import org.jetbrains.compose.resources.stringResource
 
 import com.androidperformancestudio.benchmark.presentation.generated.resources.Res
@@ -34,7 +35,7 @@ public data class BenchmarkRegressionState(
 )
 
 @Composable
-public fun BenchmarkRegressionScreen(state: BenchmarkRegressionState, chinese: Boolean, modifier: Modifier = Modifier) {
+public fun BenchmarkRegressionScreen(state: BenchmarkRegressionState, language: UiLanguage, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             SummaryCard(stringResource(Res.string.current), state.current?.sourceFile?.fileName?.toString() ?: "—", Modifier.weight(1f))

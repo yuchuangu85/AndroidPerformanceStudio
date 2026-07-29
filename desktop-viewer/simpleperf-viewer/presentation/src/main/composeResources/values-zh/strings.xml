@@ -311,7 +311,7 @@
     <string name="sp_semantic_selected">已选中</string>
     <string name="sp_semantic_hovered">已悬停</string>
     <string name="sp_semantic_context_menu_open">上下文菜单已打开</string>
-    <string name="sp_semantic_flame_content">%1$s，%2$s%，%3$s</string>
+    <string name="sp_semantic_flame_content">%1$s，%2$s%%，%3$s</string>
     <string name="sp_semantic_flame_state_single">%1$s，包含权重 %2$s，%3$s 个样本</string>
     <string name="sp_semantic_flame_state_multiple">%1$s，包含权重 %2$s，%3$s 个样本</string>
     <string name="sp_adb_not_found_settings_hint">请前往“设置 &gt; 通用”手动配置 Android SDK 路径。</string>

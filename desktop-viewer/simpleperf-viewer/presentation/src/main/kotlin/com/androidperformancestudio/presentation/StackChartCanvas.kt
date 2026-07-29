@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.StackChartBlockId
 import com.androidperformancestudio.profileanalysis.StackChartSnapshot
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 import kotlin.math.max
 import kotlin.math.min
 
@@ -49,7 +49,7 @@ internal fun StackChartCanvas(
     snapshot: StackChartSnapshot,
     viewport: StackChartViewport,
     selectedBlockId: StackChartBlockId?,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onSelect: (StackChartBlockId?) -> Unit,
     onCommitRange: (Long, Long) -> Unit,
 ) {
@@ -147,7 +147,7 @@ internal fun StackChartCanvas(
 private fun stackChartColor(
     frame: CallStackFrame?,
     selected: Boolean,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ): Color {
     if (selected) return style.accent
     val palette = listOf(0xFF5B8FF9, 0xFF61DDAA, 0xFF65789B, 0xFFF6BD16, 0xFF7262FD, 0xFF78D3F8)

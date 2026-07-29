@@ -1,5 +1,6 @@
 package com.androidperformancestudio.perfetto.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
 import com.androidperformancestudio.perfetto_app.generated.resources.*
@@ -83,7 +84,7 @@ import kotlin.time.Duration.Companion.seconds
 @Composable
 @Suppress("ktlint:standard:function-naming")
 fun FrameWindowScope.PerfettoMainPage(
-    chinese: Boolean = false,
+    language: UiLanguage = UiLanguage.ENGLISH,
     onNavigateHome: (() -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,
     initialTraceFile: Path? = null,
@@ -157,12 +158,12 @@ fun FrameWindowScope.PerfettoMainPage(
     }
 
     PerfettoFileMenuBar(
-        chinese = chinese,
+        language = language,
         canExport = activeTraceFile != null,
         recentFiles = recentFiles,
         onOpen = {
             coroutineScope.launch(Dispatchers.IO) {
-                val file = chooseTraceFile(chinese) ?: return@launch
+                val file = chooseTraceFile(language) ?: return@launch
                 activeTraceFile = file.toPath()
                 recentFiles = (listOf(file.toPath()) + recentFiles).distinct().take(10)
                 when (val opened = launchTraceInUi(file.toPath(), uiServer)) {
@@ -174,7 +175,7 @@ fun FrameWindowScope.PerfettoMainPage(
         onExportSession = {
             coroutineScope.launch(Dispatchers.IO) {
                 val traceFile = activeTraceFile ?: return@launch
-                val saveFile = chooseSaveFile("perfetto-session.zip", chinese) ?: return@launch
+                val saveFile = chooseSaveFile("perfetto-session.zip", language) ?: return@launch
                 val session =
                     sessions.firstOrNull { it.traceFile == traceFile }
                         ?: TraceSession(
@@ -197,7 +198,7 @@ fun FrameWindowScope.PerfettoMainPage(
         onExportRawTrace = {
             coroutineScope.launch(Dispatchers.IO) {
                 val traceFile = activeTraceFile ?: return@launch
-                val saveFile = chooseSaveFile("trace.pftrace", chinese) ?: return@launch
+                val saveFile = chooseSaveFile("trace.pftrace", language) ?: return@launch
                 runCatching {
                     java.nio.file.Files.copy(
                         traceFile,
@@ -207,7 +208,7 @@ fun FrameWindowScope.PerfettoMainPage(
                 }.onSuccess {
                     diagnosticError = null
                 }.onFailure { exception ->
-                    diagnosticError = exception.message ?: localizedStringResource(Res.string.failed_to_export_trace, chinese)
+                    diagnosticError = exception.message ?: localizedStringResource(Res.string.failed_to_export_trace, language)
                 }
             }
         },
@@ -224,7 +225,7 @@ fun FrameWindowScope.PerfettoMainPage(
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {
             PerfettoToolbar(
-                chinese = chinese,
+                language = language,
                 onNavigateHome = onNavigateHome,
                 adbPath = adbPath,
                 onAdbPathChange = { adbPath = it },
@@ -256,7 +257,7 @@ fun FrameWindowScope.PerfettoMainPage(
                 ) {
                     PerfettoCapturePage(
                         captureState = captureState,
-                        chinese = chinese,
+                        language = language,
                         selectedDeviceSerial = selectedDeviceSerial,
                         onStartCapture = { config, deviceSerial ->
                             coroutineScope.launch {
@@ -274,7 +275,7 @@ fun FrameWindowScope.PerfettoMainPage(
                         modifier = Modifier.weight(1f),
                     )
                     RecentSessionsPanel(
-                        chinese = chinese,
+                        language = language,
                         sessions = sessions,
                         onOpen = { session ->
                             when (val opened = launchTraceInUi(session.traceFile, uiServer)) {
@@ -295,7 +296,7 @@ fun FrameWindowScope.PerfettoMainPage(
                 }
                 activeTraceFile?.let { traceFile ->
                     TraceDiagnosticsWorkspacePanel(
-                        chinese = chinese,
+                        language = language,
                         traceFile = traceFile,
                         selectedQuery = diagnosticQuery,
                         result = diagnosticResult,
@@ -346,7 +347,7 @@ fun FrameWindowScope.PerfettoMainPage(
 @Composable
 @Suppress("LongParameterList", "ktlint:standard:function-naming")
 private fun PerfettoToolbar(
-    chinese: Boolean,
+    language: UiLanguage,
     onNavigateHome: (() -> Unit)?,
     adbPath: String,
     onAdbPathChange: (String) -> Unit,
@@ -368,7 +369,7 @@ private fun PerfettoToolbar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onNavigateHome != null) {
-            PerfettoHomeButton(chinese = chinese, onClick = onNavigateHome)
+            PerfettoHomeButton(language = language, onClick = onNavigateHome)
             Box(
                 modifier =
                     Modifier
@@ -378,7 +379,7 @@ private fun PerfettoToolbar(
             )
         }
         Text(
-            text = localizedStringResource(Res.string.adb_path, chinese),
+            text = localizedStringResource(Res.string.adb_path, language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 10.sp,
         )
@@ -386,15 +387,15 @@ private fun PerfettoToolbar(
             value = adbPath,
             onValueChange = onAdbPathChange,
             modifier = Modifier.width(250.dp),
-            placeholder = localizedStringResource(Res.string.adb, chinese),
+            placeholder = localizedStringResource(Res.string.adb, language),
         )
         DeviceSelector(
             devices = devices,
             selectedDeviceSerial = selectedDeviceSerial,
             onSelectDevice = onSelectDevice,
-            chinese = chinese,
+            language = language,
         )
-        PerfettoCompactButton(text = localizedStringResource(Res.string.refresh, chinese), onClick = onRefreshDevices)
+        PerfettoCompactButton(text = localizedStringResource(Res.string.refresh, language), onClick = onRefreshDevices)
         Spacer(Modifier.weight(1f))
         PerfettoStatusDot(
             color =
@@ -405,8 +406,8 @@ private fun PerfettoToolbar(
                 },
         )
         Text(
-            text = selectedDevice?.let { localizedStringResource(Res.string.device_connected, chinese, it.model) }
-                ?: localizedStringResource(Res.string.no_online_device, chinese),
+            text = selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.model) }
+                ?: localizedStringResource(Res.string.no_online_device, language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 10.sp,
             maxLines = 1,
@@ -420,13 +421,13 @@ private fun DeviceSelector(
     devices: List<PerfettoDevice>,
     selectedDeviceSerial: String?,
     onSelectDevice: (String) -> Unit,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
     Box {
         PerfettoCompactButton(
-            text = selectedDevice?.model ?: localizedStringResource(Res.string.select_device, chinese),
+            text = selectedDevice?.model ?: localizedStringResource(Res.string.select_device, language),
             onClick = { expanded = true },
             enabled = devices.isNotEmpty(),
             modifier = Modifier.width(170.dp),
@@ -439,7 +440,7 @@ private fun DeviceSelector(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            text = localizedStringResource(Res.string.text, chinese, device.model, device.serial),
+                            text = localizedStringResource(Res.string.text, language, device.model, device.serial),
                             fontSize = 11.sp,
                         )
                     },
@@ -489,14 +490,14 @@ private fun InitialTraceNotice(
 @Composable
 @Suppress("ktlint:standard:function-naming")
 private fun RecentSessionsPanel(
-    chinese: Boolean,
+    language: UiLanguage,
     sessions: List<TraceSession>,
     onOpen: (TraceSession) -> Unit,
     onDelete: (TraceSession) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     PerfettoWorkspacePanel(
-        title = localizedStringResource(Res.string.recent_sessions, chinese),
+        title = localizedStringResource(Res.string.recent_sessions, language),
         modifier = modifier,
     ) {
         Column(
@@ -509,7 +510,7 @@ private fun RecentSessionsPanel(
         ) {
             if (sessions.isEmpty()) {
                 Text(
-                    text = localizedStringResource(Res.string.captured_traces_will_appear_here, chinese),
+                    text = localizedStringResource(Res.string.captured_traces_will_appear_here, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                 )
@@ -519,7 +520,7 @@ private fun RecentSessionsPanel(
                     session = session,
                     onOpen = { onOpen(session) },
                     onDelete = { onDelete(session) },
-                    chinese = chinese,
+                    language = language,
                 )
             }
         }
@@ -532,7 +533,7 @@ private fun RecentSessionRow(
     session: TraceSession,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val shape = RoundedCornerShape(4.dp)
     Column(
@@ -552,22 +553,22 @@ private fun RecentSessionRow(
         )
         Text(
             text =
-                localizedStringResource(Res.string.mb_n, chinese, session.deviceModel, session.fileSizeBytes / 1024 / 1024) +
+                localizedStringResource(Res.string.mb_n, language, session.deviceModel, session.fileSizeBytes / 1024 / 1024) +
                     session.capturedAt,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 10.sp,
             lineHeight = 13.sp,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PerfettoCompactButton(text = localizedStringResource(Res.string.open, chinese), onClick = onOpen)
-            PerfettoCompactButton(text = localizedStringResource(Res.string.delete, chinese), onClick = onDelete)
+            PerfettoCompactButton(text = localizedStringResource(Res.string.open, language), onClick = onOpen)
+            PerfettoCompactButton(text = localizedStringResource(Res.string.delete, language), onClick = onDelete)
         }
     }
 }
 
 @Composable
 @Suppress("FunctionName", "MagicNumber", "ktlint:standard:function-naming")
-private fun PerfettoHomeButton(chinese: Boolean, onClick: () -> Unit) {
+private fun PerfettoHomeButton(language: UiLanguage, onClick: () -> Unit) {
     val shape = RoundedCornerShape(6.dp)
     val iconColor = MaterialTheme.colorScheme.onSurfaceVariant
     Box(
@@ -578,7 +579,7 @@ private fun PerfettoHomeButton(chinese: Boolean, onClick: () -> Unit) {
                 .clip(shape)
                 .background(MaterialTheme.colorScheme.surface)
                 .border(1.dp, MaterialTheme.colorScheme.outline, shape)
-                .semantics { contentDescription = localizedStringResource(Res.string.back_to_home, chinese) }
+                .semantics { contentDescription = localizedStringResource(Res.string.back_to_home, language) }
                 .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -638,7 +639,7 @@ private suspend fun discoverPerfettoDevices(adbPath: String): List<PerfettoDevic
 @Composable
 @Suppress("ktlint:standard:function-naming")
 private fun TraceDiagnosticsWorkspacePanel(
-    chinese: Boolean,
+    language: UiLanguage,
     traceFile: Path,
     selectedQuery: DiagnosticQuery?,
     result: String?,
@@ -647,14 +648,14 @@ private fun TraceDiagnosticsWorkspacePanel(
     modifier: Modifier = Modifier,
 ) {
     PerfettoWorkspacePanel(
-        title = localizedStringResource(Res.string.trace_diagnostics, chinese, traceFile.fileName),
+        title = localizedStringResource(Res.string.trace_diagnostics, language, traceFile.fileName),
         modifier = modifier,
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
         ) {
             TraceDiagnosticNavigation(
-                chinese = chinese,
+                language = language,
                 queries = PerfettoDiagnostics.all,
                 selectedQuery = selectedQuery,
                 onSelect = onRun,
@@ -668,7 +669,7 @@ private fun TraceDiagnosticsWorkspacePanel(
                         .background(MaterialTheme.colorScheme.outlineVariant),
             )
             TraceDiagnosticContent(
-                chinese = chinese,
+                language = language,
                 selectedQuery = selectedQuery,
                 result = result,
                 error = error,
@@ -681,7 +682,7 @@ private fun TraceDiagnosticsWorkspacePanel(
 @Composable
 @Suppress("ktlint:standard:function-naming")
 private fun TraceDiagnosticNavigation(
-    chinese: Boolean,
+    language: UiLanguage,
     queries: List<DiagnosticQuery>,
     selectedQuery: DiagnosticQuery?,
     onSelect: (DiagnosticQuery) -> Unit,
@@ -697,7 +698,7 @@ private fun TraceDiagnosticNavigation(
     ) {
         queries.forEach { query ->
             PerfettoCompactButton(
-                text = query.localizedTitle(chinese),
+                text = query.localizedTitle(language),
                 onClick = { onSelect(query) },
                 modifier = Modifier.fillMaxWidth(),
                 selected = selectedQuery == query,
@@ -709,7 +710,7 @@ private fun TraceDiagnosticNavigation(
 @Composable
 @Suppress("ktlint:standard:function-naming")
 private fun TraceDiagnosticContent(
-    chinese: Boolean,
+    language: UiLanguage,
     selectedQuery: DiagnosticQuery?,
     result: String?,
     error: String?,
@@ -724,19 +725,19 @@ private fun TraceDiagnosticContent(
     ) {
         if (selectedQuery == null) {
             Text(
-                text = localizedStringResource(Res.string.select_a_diagnostic_on_the_left_to_view_its_result, chinese),
+                text = localizedStringResource(Res.string.select_a_diagnostic_on_the_left_to_view_its_result, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
             )
             return@Column
         }
         Text(
-            text = selectedQuery.localizedTitle(chinese),
+            text = selectedQuery.localizedTitle(language),
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 12.sp,
         )
         Text(
-            text = selectedQuery.localizedDescription(chinese),
+            text = selectedQuery.localizedDescription(language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 10.sp,
         )
@@ -756,7 +757,7 @@ private fun TraceDiagnosticContent(
                 )
             else ->
                 Text(
-                    text = localizedStringResource(Res.string.running_diagnostic, chinese),
+                    text = localizedStringResource(Res.string.running_diagnostic, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
                 )
@@ -764,29 +765,29 @@ private fun TraceDiagnosticContent(
     }
 }
 
-private fun DiagnosticQuery.localizedTitle(chinese: Boolean): String =
+private fun DiagnosticQuery.localizedTitle(language: UiLanguage): String =
     when (id) {
-        "cpu_hotspots" -> localizedStringResource(Res.string.diagnostic_cpu_hotspots_title, chinese)
-        "cpu_freq_dist" -> localizedStringResource(Res.string.diagnostic_cpu_frequency_title, chinese)
-        "binder_latency" -> localizedStringResource(Res.string.diagnostic_binder_latency_title, chinese)
-        "frame_jank" -> localizedStringResource(Res.string.diagnostic_frame_jank_title, chinese)
-        "mem_counters" -> localizedStringResource(Res.string.diagnostic_memory_timeline_title, chinese)
-        "input_latency" -> localizedStringResource(Res.string.diagnostic_input_latency_title, chinese)
-        "thread_states" -> localizedStringResource(Res.string.diagnostic_thread_states_title, chinese)
-        "wakeup_latency" -> localizedStringResource(Res.string.diagnostic_wakeup_latency_title, chinese)
+        "cpu_hotspots" -> localizedStringResource(Res.string.diagnostic_cpu_hotspots_title, language)
+        "cpu_freq_dist" -> localizedStringResource(Res.string.diagnostic_cpu_frequency_title, language)
+        "binder_latency" -> localizedStringResource(Res.string.diagnostic_binder_latency_title, language)
+        "frame_jank" -> localizedStringResource(Res.string.diagnostic_frame_jank_title, language)
+        "mem_counters" -> localizedStringResource(Res.string.diagnostic_memory_timeline_title, language)
+        "input_latency" -> localizedStringResource(Res.string.diagnostic_input_latency_title, language)
+        "thread_states" -> localizedStringResource(Res.string.diagnostic_thread_states_title, language)
+        "wakeup_latency" -> localizedStringResource(Res.string.diagnostic_wakeup_latency_title, language)
         else -> title
     }
 
-private fun DiagnosticQuery.localizedDescription(chinese: Boolean): String =
+private fun DiagnosticQuery.localizedDescription(language: UiLanguage): String =
     when (id) {
-        "cpu_hotspots" -> localizedStringResource(Res.string.diagnostic_cpu_hotspots_description, chinese)
-        "cpu_freq_dist" -> localizedStringResource(Res.string.diagnostic_cpu_frequency_description, chinese)
-        "binder_latency" -> localizedStringResource(Res.string.diagnostic_binder_latency_description, chinese)
-        "frame_jank" -> localizedStringResource(Res.string.diagnostic_frame_jank_description, chinese)
-        "mem_counters" -> localizedStringResource(Res.string.diagnostic_memory_timeline_description, chinese)
-        "input_latency" -> localizedStringResource(Res.string.diagnostic_input_latency_description, chinese)
-        "thread_states" -> localizedStringResource(Res.string.diagnostic_thread_states_description, chinese)
-        "wakeup_latency" -> localizedStringResource(Res.string.diagnostic_wakeup_latency_description, chinese)
+        "cpu_hotspots" -> localizedStringResource(Res.string.diagnostic_cpu_hotspots_description, language)
+        "cpu_freq_dist" -> localizedStringResource(Res.string.diagnostic_cpu_frequency_description, language)
+        "binder_latency" -> localizedStringResource(Res.string.diagnostic_binder_latency_description, language)
+        "frame_jank" -> localizedStringResource(Res.string.diagnostic_frame_jank_description, language)
+        "mem_counters" -> localizedStringResource(Res.string.diagnostic_memory_timeline_description, language)
+        "input_latency" -> localizedStringResource(Res.string.diagnostic_input_latency_description, language)
+        "thread_states" -> localizedStringResource(Res.string.diagnostic_thread_states_description, language)
+        "wakeup_latency" -> localizedStringResource(Res.string.diagnostic_wakeup_latency_description, language)
         else -> description
     }
 
@@ -800,16 +801,16 @@ private fun launchTraceInUi(
     return uiServer.openTrace(traceFile)
 }
 
-private fun chooseTraceFile(chinese: Boolean): File? =
+private fun chooseTraceFile(language: UiLanguage): File? =
     JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.open_perfetto_trace, chinese)
-        fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.perfetto_traces, chinese), "pftrace", "perfetto-trace")
+        dialogTitle = localizedStringResource(Res.string.open_perfetto_trace, language)
+        fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.perfetto_traces, language), "pftrace", "perfetto-trace")
         if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
 
-private fun chooseSaveFile(defaultName: String, chinese: Boolean): File? =
+private fun chooseSaveFile(defaultName: String, language: UiLanguage): File? =
     JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.export_trace, chinese)
+        dialogTitle = localizedStringResource(Res.string.export_trace, language)
         selectedFile = File(defaultName)
         if (showSaveDialog(null) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }

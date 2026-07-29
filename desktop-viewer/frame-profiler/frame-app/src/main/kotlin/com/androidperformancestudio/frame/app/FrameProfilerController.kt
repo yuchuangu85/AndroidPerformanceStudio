@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.frame.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.FrameJankAnalyzer
 import com.androidperformancestudio.frame.export.FrameCsvExporter
@@ -24,7 +25,7 @@ import java.time.Instant
 import java.util.UUID
 
 internal class FrameProfilerController(
-    private val chinese: Boolean = false,
+    private val language: UiLanguage = UiLanguage.ENGLISH,
     private val onlineBackend: FrameOnlineBackend = DesktopFrameOnlineBackend(),
     private val parser: GfxInfoFrameStatsParser = GfxInfoFrameStatsParser(),
     private val analyzer: FrameJankAnalyzer = FrameJankAnalyzer(),

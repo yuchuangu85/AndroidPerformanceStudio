@@ -74,11 +74,18 @@ class ProfilerThemeSupportTest {
                         "com/androidperformancestudio/presentation/DeviceTargetPage.kt",
                 ),
             )
-        val cpuProfilerDimensions =
+        val viewerTheme =
             Files.readString(
                 desktopViewer.resolve(
-                    "simpleperf-viewer/presentation/src/main/kotlin/" +
-                        "com/androidperformancestudio/ui/MacOsDeviceTargetStyle.kt",
+                    "ui-components/src/main/kotlin/" +
+                        "com/androidperformancestudio/ui/ViewerTheme.kt",
+                ),
+            )
+        val settingsButton =
+            Files.readString(
+                desktopViewer.resolve(
+                    "ui-components/src/main/kotlin/" +
+                        "com/androidperformancestudio/ui/SettingButton.kt",
                 ),
             )
         val perfetto =
@@ -89,14 +96,14 @@ class ProfilerThemeSupportTest {
                 ),
             )
 
-        assertTrue(cpuProfiler.contains(".width(28.dp)"))
-        assertTrue(cpuProfiler.contains(".height(MacOsDeviceTargetDimensions.buttonHeight)"))
-        assertTrue(cpuProfiler.contains("RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius)"))
-        assertTrue(cpuProfilerDimensions.contains("buttonHeight = 28.dp"))
-        assertTrue(cpuProfilerDimensions.contains("controlRadius = 6.dp"))
+        assertTrue(settingsButton.contains(".width(28.dp)"))
+        assertTrue(settingsButton.contains(".height(ViewerDimensions.buttonHeight)"))
+        assertTrue(settingsButton.contains("RoundedCornerShape(ViewerDimensions.controlRadius)"))
+        assertTrue(viewerTheme.contains("buttonHeight = 28.dp"))
+        assertTrue(viewerTheme.contains("controlRadius = 6.dp"))
         assertTrue(cpuProfiler.contains(".background(style.panel)"))
         assertTrue(cpuProfiler.contains(".border("))
-        assertCpuHomeButtonStyle(sharedButton, "shared profiler home button")
+        assertSharedHomeButtonStyle(sharedButton)
         assertCpuHomeButtonStyle(perfetto, "Perfetto")
 
         profilerHomeButtonConsumers().forEach { source ->
@@ -105,6 +112,14 @@ class ProfilerThemeSupportTest {
                 "$source must use the shared CPU Profiler home button style",
             )
         }
+    }
+
+    private fun assertSharedHomeButtonStyle(source: String) {
+        assertTrue(source.contains(".width(28.dp)"))
+        assertTrue(source.contains(".height(ViewerDimensions.buttonHeight)"))
+        assertTrue(source.contains("RoundedCornerShape(ViewerDimensions.controlRadius)"))
+        assertTrue(source.contains(".background("))
+        assertTrue(source.contains(".border("))
     }
 
     private fun assertCpuHomeButtonStyle(

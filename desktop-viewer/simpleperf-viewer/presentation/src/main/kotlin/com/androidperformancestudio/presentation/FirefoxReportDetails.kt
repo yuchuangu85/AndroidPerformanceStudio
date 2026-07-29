@@ -20,15 +20,15 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.PanelProjection
-import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerColors
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
 internal fun FirefoxReportDetails(
     state: ReportState,
     report: ReportData,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Column(
         modifier =
@@ -37,7 +37,7 @@ internal fun FirefoxReportDetails(
                 .fillMaxWidth()
                 .testTag("report-details")
                 .background(style.panel)
-                .border(MacOsDeviceTargetDimensions.hairline, style.border)
+                .border(ViewerDimensions.hairline, style.border)
                 .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -59,7 +59,7 @@ internal fun FirefoxReportDetails(
 private fun OverviewDetails(
     state: ReportState,
     report: ReportData,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val finding = report.diagnostics.firstOrNull { it.ruleId == state.workspace.selections.overviewFindingRuleId }
     if (finding == null) {
@@ -76,7 +76,7 @@ private fun OverviewDetails(
 private fun TopFunctionDetails(
     state: ReportState,
     report: ReportData,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val function = report.topFunctions.firstOrNull { it.symbolName == state.workspace.selections.topFunctionKey }
     if (function == null) {
@@ -94,7 +94,7 @@ private fun TopFunctionDetails(
 private fun CallStackDetails(
     state: ReportState,
     report: ReportData,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val selected = state.workspace.selections.callNodeId
     val treeNode = report.callTree.firstOrNull { it.id == selected?.value }
@@ -113,7 +113,7 @@ private fun CallStackDetails(
 private fun StackBlockDetails(
     state: ReportState,
     report: ReportData,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val snapshot = (report.stackChart as? PanelProjection.Ready)?.value
     val block = snapshot?.blocks?.firstOrNull { it.id == state.workspace.selections.stackChartBlockId }
@@ -133,7 +133,7 @@ private fun StackBlockDetails(
 private fun MarkerDetails(
     state: ReportState,
     report: ReportData,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val marker =
         (report.markers as? PanelProjection.Ready)
@@ -150,7 +150,7 @@ private fun MarkerDetails(
 @Composable
 private fun MarkerDetailsContent(
     marker: MarkerProjectionRow,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     DetailsHeading("Marker details", style)
     Text(marker.name, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -170,7 +170,7 @@ private fun MarkerDetailsContent(
 @Composable
 private fun DetailsHeading(
     title: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
 }
@@ -178,7 +178,7 @@ private fun DetailsHeading(
 @Composable
 private fun DetailsPrompt(
     prompt: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     DetailsHeading("Details", style)
     Text(prompt, color = style.secondaryText, fontSize = 10.sp)

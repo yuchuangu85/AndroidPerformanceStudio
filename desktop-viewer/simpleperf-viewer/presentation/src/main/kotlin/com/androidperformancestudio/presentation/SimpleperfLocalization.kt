@@ -23,22 +23,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import org.jetbrains.compose.resources.StringResource
 import androidx.compose.material3.Text as MaterialText
-import java.util.Locale
-
-enum class SimpleperfLanguage {
-    SIMPLIFIED_CHINESE {
-        override val locale: Locale = Locale.SIMPLIFIED_CHINESE
-    },
-    ENGLISH {
-        override val locale: Locale = Locale.ENGLISH
-    },
+enum class SimpleperfLanguage(
+    internal val uiLanguage: UiLanguage,
+) {
+    SIMPLIFIED_CHINESE(UiLanguage.SIMPLIFIED_CHINESE),
+    ENGLISH(UiLanguage.ENGLISH),
     ;
 
-    abstract val locale: Locale
+    internal val locale
+        get() = uiLanguage.locale
 }
 
 private val LocalSimpleperfLanguage = staticCompositionLocalOf { SimpleperfLanguage.ENGLISH }
@@ -61,7 +59,7 @@ internal fun localizedSimpleperfResource(
 ): String =
     localizedStringResource(
         resource,
-        locale = LocalSimpleperfLanguage.current.locale,
+        language = LocalSimpleperfLanguage.current.uiLanguage,
         *args,
     )
 
@@ -115,34 +113,34 @@ internal fun translateSimpleperfText(
 ): String {
     if (language == SimpleperfLanguage.ENGLISH) return text
     SimpleperfTranslationMap.resourceFor(text)?.let { resource ->
-        return localizedStringResource(resource, chinese = true)
+        return localizedStringResource(resource, language.uiLanguage)
     }
     INC_EXC_PATTERN.matchEntire(text)?.let { match ->
-        return localizedStringResource(ViewerRes.sp_dynamic_inc_exc, true, match.groupValues[1], match.groupValues[2])
+        return localizedStringResource(ViewerRes.sp_dynamic_inc_exc, language.uiLanguage, match.groupValues[1], match.groupValues[2])
     }
     INCLUSIVE_SELF_PATTERN.matchEntire(text)?.let { match ->
-        return localizedStringResource(ViewerRes.sp_dynamic_inc_exc, true, match.groupValues[1], match.groupValues[2])
+        return localizedStringResource(ViewerRes.sp_dynamic_inc_exc, language.uiLanguage, match.groupValues[1], match.groupValues[2])
     }
     SAMPLES_PATTERN.matchEntire(text)?.let { match ->
-        return localizedStringResource(ViewerRes.sp_dynamic_samples, true, match.groupValues[1], match.groupValues[2])
+        return localizedStringResource(ViewerRes.sp_dynamic_samples, language.uiLanguage, match.groupValues[1], match.groupValues[2])
     }
     CHINESE_PREFIXES.firstOrNull { text.startsWith(it.first) }?.let { (english, resource) ->
-        return localizedStringResource(resource, true, text.removePrefix(english))
+        return localizedStringResource(resource, language.uiLanguage, text.removePrefix(english))
     }
     EVERY_EVENTS_PATTERN.matchEntire(text)?.let { match ->
-        return localizedStringResource(ViewerRes.sp_dynamic_every_events, true, match.groupValues[1])
+        return localizedStringResource(ViewerRes.sp_dynamic_every_events, language.uiLanguage, match.groupValues[1])
     }
     if (text.endsWith(" hotspot")) {
         return localizedStringResource(
             ViewerRes.sp_dynamic_hotspot,
-            true,
+            language.uiLanguage,
             translateSimpleperfText(text.removeSuffix(" hotspot"), language),
         )
     }
     if (text.startsWith("• ")) {
         return localizedStringResource(
             ViewerRes.sp_dynamic_bullet,
-            true,
+            language.uiLanguage,
             translateSimpleperfText(text.removePrefix("• "), language),
         )
     }

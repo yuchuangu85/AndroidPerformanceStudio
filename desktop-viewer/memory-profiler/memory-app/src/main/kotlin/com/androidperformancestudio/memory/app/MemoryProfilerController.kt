@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.*
@@ -72,7 +73,7 @@ internal interface MemoryProfilerBackend {
 @Suppress("TooManyFunctions")
 internal class MemoryProfilerController(
     private val backend: MemoryProfilerBackend,
-    private val chinese: Boolean = false,
+    private val language: UiLanguage = UiLanguage.ENGLISH,
 ) {
     private val mutableState = MutableStateFlow(MemoryProfilerState())
 
@@ -135,7 +136,7 @@ internal class MemoryProfilerController(
         mutableState.value =
             snapshot.copy(
                 isDumping = true,
-                operationMessage = localizedStringResource(Res.string.dumping_heap_for, chinese, process.name),
+                operationMessage = localizedStringResource(Res.string.dumping_heap_for, language, process.name),
                 error = null,
                 warning = null,
                 cleanupWarning = null,
@@ -148,7 +149,7 @@ internal class MemoryProfilerController(
         mutableState.value =
             mutableState.value.copy(
                 isDumping = true,
-                operationMessage = localizedStringResource(Res.string.importing, chinese, file.fileName),
+                operationMessage = localizedStringResource(Res.string.importing, language, file.fileName),
                 error = null,
                 warning = null,
                 cleanupWarning = null,
@@ -157,18 +158,18 @@ internal class MemoryProfilerController(
             try {
                 backend.importHprof(file) { progress ->
                     mutableState.value =
-                        mutableState.value.copy(operationMessage = localizedStringResource(Res.string.importing_ad13e4da, chinese, file.fileName, progress))
+                        mutableState.value.copy(operationMessage = localizedStringResource(Res.string.importing_ad13e4da, language, file.fileName, progress))
                 }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: OutOfMemoryError) {
                 MemoryBackendResult.Failure(
-                    title = localizedStringResource(Res.string.unable_to_analyze_hprof, chinese),
-                    detail = localizedStringResource(Res.string.hprof_parser_out_of_memory, chinese),
+                    title = localizedStringResource(Res.string.unable_to_analyze_hprof, language),
+                    detail = localizedStringResource(Res.string.hprof_parser_out_of_memory, language),
                 )
             } catch (exception: Exception) {
                 MemoryBackendResult.Failure(
-                    title = localizedStringResource(Res.string.unable_to_analyze_hprof, chinese),
+                    title = localizedStringResource(Res.string.unable_to_analyze_hprof, language),
                     detail = exception.message ?: exception::class.simpleName.orEmpty(),
                 )
             }

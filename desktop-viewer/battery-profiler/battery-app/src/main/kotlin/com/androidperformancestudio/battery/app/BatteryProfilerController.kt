@@ -8,6 +8,7 @@
 
 package com.androidperformancestudio.battery.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.battery.battery_app.generated.resources.Res
 import com.androidperformancestudio.battery.battery_app.generated.resources.*
@@ -31,7 +32,7 @@ import kotlinx.coroutines.withContext
 import java.nio.file.Path
 
 internal class BatteryProfilerController(
-    private val chinese: Boolean = false,
+    private val language: UiLanguage = UiLanguage.ENGLISH,
     private val backend: BatteryBackend = DesktopBatteryBackend(),
     private val analyzer: BatteryAnalyzer = BatteryAnalyzer(),
     private val jsonExporter: BatteryJsonExporter = BatteryJsonExporter(),
@@ -106,7 +107,7 @@ internal class BatteryProfilerController(
                         targets = result.value,
                         selectedPackageName = result.value.singleOrNull()?.packageName,
                         isRefreshing = false,
-                        operationMessage = localizedStringResource(Res.string.found_packages_with_uid_attribution, chinese, result.value.size),
+                        operationMessage = localizedStringResource(Res.string.found_packages_with_uid_attribution, language, result.value.size),
                     )
         }
     }
@@ -129,7 +130,7 @@ internal class BatteryProfilerController(
         if (snapshot.isRunning) return
         val selectedRunner = openRunner(snapshot) ?: return
         mutableState.value =
-            snapshot.copy(isRunning = true, operationMessage = localizedStringResource(Res.string.capturing_baseline_snapshot, chinese), warnings = emptyList(), errorMessage = null)
+            snapshot.copy(isRunning = true, operationMessage = localizedStringResource(Res.string.capturing_baseline_snapshot, language), warnings = emptyList(), errorMessage = null)
         try {
             val experiment = selectedRunner.start(snapshot.config)
             runner = selectedRunner
@@ -137,7 +138,7 @@ internal class BatteryProfilerController(
             mutableState.value =
                 mutableState.value.copy(
                     isInteractiveActive = true,
-                    operationMessage = localizedStringResource(Res.string.baseline_captured_perform_the_target_scenario_then_stop_the_experiment, chinese),
+                    operationMessage = localizedStringResource(Res.string.baseline_captured_perform_the_target_scenario_then_stop_the_experiment, language),
                 )
         } catch (exception: Exception) {
             runner = null
@@ -147,7 +148,7 @@ internal class BatteryProfilerController(
                     isRunning = false,
                     isInteractiveActive = false,
                     errorMessage =
-                        exception.message ?: localizedStringResource(Res.string.unable_to_start_battery_experiment, chinese),
+                        exception.message ?: localizedStringResource(Res.string.unable_to_start_battery_experiment, language),
                 )
         }
     }
@@ -159,7 +160,7 @@ internal class BatteryProfilerController(
             val sample = selectedRunner.poll(experiment)
             mutableState.value =
                 mutableState.value.copy(
-                    operationMessage = localizedStringResource(Res.string.captured_online_sample_values_are_cumulative_deltas_not_instantaneous, chinese, sample.sequence),
+                    operationMessage = localizedStringResource(Res.string.captured_online_sample_values_are_cumulative_deltas_not_instantaneous, language, sample.sequence),
                 )
         } catch (exception: CancellationException) {
             throw exception
@@ -168,7 +169,7 @@ internal class BatteryProfilerController(
                 mutableState.value.copy(
                     warnings =
                         (mutableState.value.warnings +
-                            localizedStringResource(Res.string.online_sample_failed, chinese, exception.message.orEmpty())).distinct(),
+                            localizedStringResource(Res.string.online_sample_failed, language, exception.message.orEmpty())).distinct(),
                 )
         }
     }
@@ -176,7 +177,7 @@ internal class BatteryProfilerController(
     suspend fun stopInteractive() {
         val selectedRunner = runner ?: return
         val experiment = active ?: return
-        mutableState.value = mutableState.value.copy(operationMessage = localizedStringResource(Res.string.capturing_final_snapshot_and_history, chinese))
+        mutableState.value = mutableState.value.copy(operationMessage = localizedStringResource(Res.string.capturing_final_snapshot_and_history, language))
         try {
             complete(selectedRunner.stop(experiment))
         } catch (exception: Exception) {
@@ -185,7 +186,7 @@ internal class BatteryProfilerController(
                     isRunning = false,
                     isInteractiveActive = false,
                     errorMessage =
-                        exception.message ?: localizedStringResource(Res.string.unable_to_stop_battery_experiment, chinese),
+                        exception.message ?: localizedStringResource(Res.string.unable_to_stop_battery_experiment, language),
                 )
         } finally {
             runner = null
@@ -202,7 +203,7 @@ internal class BatteryProfilerController(
                 isRunning = true,
                 completedSteps = 0,
                 totalSteps = snapshot.config.measuredRuns * 2,
-                operationMessage = localizedStringResource(Res.string.preparing_battery_experiment, chinese),
+                operationMessage = localizedStringResource(Res.string.preparing_battery_experiment, language),
                 warnings = emptyList(),
                 errorMessage = null,
             )
@@ -218,13 +219,13 @@ internal class BatteryProfilerController(
                 }
             complete(result)
         } catch (exception: CancellationException) {
-            mutableState.value = mutableState.value.copy(isRunning = false, operationMessage = localizedStringResource(Res.string.battery_experiment_cancelled, chinese))
+            mutableState.value = mutableState.value.copy(isRunning = false, operationMessage = localizedStringResource(Res.string.battery_experiment_cancelled, language))
             throw exception
         } catch (exception: Exception) {
             mutableState.value =
                 mutableState.value.copy(
                     isRunning = false,
-                    errorMessage = exception.message ?: localizedStringResource(Res.string.battery_experiment_failed, chinese),
+                    errorMessage = exception.message ?: localizedStringResource(Res.string.battery_experiment_failed, language),
                 )
         }
     }
@@ -249,7 +250,7 @@ internal class BatteryProfilerController(
     suspend fun exportCsv(output: Path) = export(output, "CSV") { csvExporter.export(requireNotNull(mutableState.value.analysis), output) }
 
     suspend fun exportRawBundle(output: Path) =
-        export(output, localizedStringResource(Res.string.raw_bundle, chinese)) {
+        export(output, localizedStringResource(Res.string.raw_bundle, language)) {
             rawExporter.export(requireNotNull(mutableState.value.experiment), output)
         }
 
@@ -264,17 +265,17 @@ internal class BatteryProfilerController(
                 is BatteryBackendResult.Success -> result.value
             }
         mutableState.value =
-            mutableState.value.copy(operationMessage = localizedStringResource(Res.string.generating_privacy_sensitive_bugreport_for_battery_historian, chinese), errorMessage = null)
+            mutableState.value.copy(operationMessage = localizedStringResource(Res.string.generating_privacy_sensitive_bugreport_for_battery_historian, language), errorMessage = null)
         runCatching { withContext(Dispatchers.IO) { adapter.generateBugreport(output) } }
             .onSuccess { artifact ->
                 mutableState.value =
                     mutableState.value.copy(
-                        operationMessage = localizedStringResource(Res.string.generated_battery_historian_input_bytes, chinese, artifact.path.fileName, artifact.sizeBytes),
+                        operationMessage = localizedStringResource(Res.string.generated_battery_historian_input_bytes, language, artifact.path.fileName, artifact.sizeBytes),
                     )
             }.onFailure {
                 mutableState.value =
                     mutableState.value.copy(
-                        errorMessage = it.message ?: localizedStringResource(Res.string.bugreport_generation_failed, chinese),
+                        errorMessage = it.message ?: localizedStringResource(Res.string.bugreport_generation_failed, language),
                     )
             }
     }
@@ -286,7 +287,7 @@ internal class BatteryProfilerController(
             is BatteryBackendResult.Success ->
                 mutableState.value =
                     mutableState.value.copy(
-                        operationMessage = localizedStringResource(Res.string.global_device_batterystats_were_reset_start_a_new_experiment, chinese),
+                        operationMessage = localizedStringResource(Res.string.global_device_batterystats_were_reset_start_a_new_experiment, language),
                         analysis = null,
                         experiment = null,
                         baseline = null,
@@ -323,7 +324,7 @@ internal class BatteryProfilerController(
                 isRunning = false,
                 isInteractiveActive = false,
                 completedSteps = mutableState.value.totalSteps,
-                operationMessage = localizedStringResource(Res.string.battery_experiment_completed_run_s, chinese, analysis.runs.size),
+                operationMessage = localizedStringResource(Res.string.battery_experiment_completed_run_s, language, analysis.runs.size),
                 warnings = (analysis.warnings + listOfNotNull(persistenceWarning)).distinct(),
             )
     }
@@ -335,7 +336,7 @@ internal class BatteryProfilerController(
         withContext(Dispatchers.IO) {
             runCatching { SqliteBatterySessionStore.open(databaseFile).use { it.save(experiment.session, experiment.runs, deltas) } }
                 .exceptionOrNull()
-                ?.let { localizedStringResource(Res.string.session_persistence_failed, chinese, it.message.orEmpty()) }
+                ?.let { localizedStringResource(Res.string.session_persistence_failed, language, it.message.orEmpty()) }
         }
 
     private suspend fun export(
@@ -346,11 +347,11 @@ internal class BatteryProfilerController(
         runCatching { withContext(Dispatchers.IO) { block() } }
             .onSuccess {
                 mutableState.value =
-                    mutableState.value.copy(operationMessage = localizedStringResource(Res.string.exported_to, chinese, format, output.fileName), errorMessage = null)
+                    mutableState.value.copy(operationMessage = localizedStringResource(Res.string.exported_to, language, format, output.fileName), errorMessage = null)
             }.onFailure {
                 mutableState.value =
                     mutableState.value.copy(
-                        errorMessage = it.message ?: localizedStringResource(Res.string.export_failed, chinese, format),
+                        errorMessage = it.message ?: localizedStringResource(Res.string.export_failed, language, format),
                     )
             }
     }

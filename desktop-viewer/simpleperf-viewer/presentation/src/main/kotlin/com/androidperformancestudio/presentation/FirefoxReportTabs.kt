@@ -29,14 +29,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 internal fun FirefoxReportTabs(
     selectedTab: ReportTab,
     onSelectTab: (ReportTab) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Row(
         modifier =

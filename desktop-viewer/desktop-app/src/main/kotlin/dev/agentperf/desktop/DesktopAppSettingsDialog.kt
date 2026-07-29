@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import dev.agentperf.desktop_app.generated.resources.Res
 import dev.agentperf.desktop_app.generated.resources.*
@@ -61,7 +62,7 @@ internal fun DesktopAppSettingsDialog(
     simpleperfCaptureSettingsContext: SimpleperfCaptureSettingsContext?,
     simpleperfInitialSection: CaptureSettingsSection,
     darkTheme: Boolean,
-    chinese: Boolean,
+    language: UiLanguage,
     simpleperfLocale: Locale,
     onPageSelected: (SettingsPage) -> Unit,
     onApplicationSettingsChanged: (ApplicationUiSettings) -> Unit,
@@ -84,7 +85,7 @@ internal fun DesktopAppSettingsDialog(
     }
     DialogWindow(
         onCloseRequest = onDismiss,
-        title = localizedStringResource(Res.string.settings, chinese),
+        title = localizedStringResource(Res.string.settings, language),
         state =
             rememberDialogState(
                 width = UNIFIED_SETTINGS_WIDTH_DP.dp,
@@ -107,7 +108,7 @@ internal fun DesktopAppSettingsDialog(
                         selectedPage = selectedPage,
                         selectedSimpleperfSection = activeSimpleperfSection,
                         simpleperfExpanded = simpleperfExpanded,
-                        chinese = chinese,
+                        language = language,
                         onPageSelected = onPageSelected,
                         onSimpleperfExpandedChange = { simpleperfExpanded = it },
                         onSimpleperfSectionSelected = { section ->
@@ -122,8 +123,8 @@ internal fun DesktopAppSettingsDialog(
                             Text(
                                 localizedStringResource(
                                     Res.string.settings_could_not_be_saved_the_current_session_still_uses,
-                                    chinese,
-                                    persistenceErrorPage.label(chinese)
+                                    language,
+                                    persistenceErrorPage.label(language)
                                 ),
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall,
@@ -133,14 +134,14 @@ internal fun DesktopAppSettingsDialog(
                             SettingsPage.GENERAL ->
                                 GeneralSettingsContent(
                                     settings = applicationSettings,
-                                    chinese = chinese,
+                                    language = language,
                                     onSettingsChanged = onApplicationSettingsChanged,
                                     modifier = Modifier.weight(1f),
                                 )
 
                             SettingsPage.LAYOUT_INSPECTOR ->
                                 LayoutInspectorSettingsContent(
-                                    chinese = chinese,
+                                    language = language,
                                     onSettingsChanged = onLayoutInspectorSettingsChanged,
                                     modifier = Modifier.weight(1f),
                                 )
@@ -151,7 +152,7 @@ internal fun DesktopAppSettingsDialog(
                                     context = simpleperfCaptureSettingsContext,
                                     section = activeSimpleperfSection,
                                     darkTheme = darkTheme,
-                                    chinese = chinese,
+                                    language = language,
                                     locale = simpleperfLocale,
                                     onSettingsChanged = onSimpleperfSettingsChanged,
                                     onOpenUserGuide = onOpenUserGuide,
@@ -161,20 +162,20 @@ internal fun DesktopAppSettingsDialog(
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                SettingsFooter(chinese, onDismiss)
+                SettingsFooter(language, onDismiss)
             }
         }
     }
 }
 
 @Composable
-private fun SettingsFooter(chinese: Boolean, onDismiss: () -> Unit) {
+private fun SettingsFooter(language: UiLanguage, onDismiss: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-        OutlinedButton(onClick = onDismiss) { Text(localizedStringResource(Res.string.done, chinese)) }
+        OutlinedButton(onClick = onDismiss) { Text(localizedStringResource(Res.string.done, language)) }
     }
 }
 
@@ -183,7 +184,7 @@ private fun SettingsSidebar(
     selectedPage: SettingsPage,
     selectedSimpleperfSection: CaptureSettingsSection,
     simpleperfExpanded: Boolean,
-    chinese: Boolean,
+    language: UiLanguage,
     onPageSelected: (SettingsPage) -> Unit,
     onSimpleperfExpandedChange: (Boolean) -> Unit,
     onSimpleperfSectionSelected: (CaptureSettingsSection) -> Unit,
@@ -198,13 +199,13 @@ private fun SettingsSidebar(
     ) {
         listOf(SettingsPage.GENERAL, SettingsPage.LAYOUT_INSPECTOR).forEach { page ->
             SettingsSidebarRow(
-                label = page.label(chinese),
+                label = page.label(language),
                 selected = page == selectedPage,
                 onClick = { onPageSelected(page) },
             )
         }
         SettingsSidebarRow(
-            label = SettingsPage.SIMPLEPERF.label(chinese),
+            label = SettingsPage.SIMPLEPERF.label(language),
             selected = selectedPage == SettingsPage.SIMPLEPERF && !simpleperfExpanded,
             leadingText = if (simpleperfExpanded) "⌄" else "›",
             fontWeight = FontWeight.Medium,
@@ -220,7 +221,7 @@ private fun SettingsSidebar(
         if (simpleperfExpanded) {
             CaptureSettingsSection.entries.forEach { section ->
                 SettingsSidebarRow(
-                    label = section.settingsLabel(chinese),
+                    label = section.settingsLabel(language),
                     selected =
                         selectedPage == SettingsPage.SIMPLEPERF &&
                                 section == selectedSimpleperfSection,
@@ -282,7 +283,7 @@ private fun SettingsSidebarRow(
 @Composable
 private fun GeneralSettingsContent(
     settings: ApplicationUiSettings,
-    chinese: Boolean,
+    language: UiLanguage,
     onSettingsChanged: (ApplicationUiSettings) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -290,26 +291,26 @@ private fun GeneralSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(localizedStringResource(Res.string.general, chinese), style = MaterialTheme.typography.titleLarge)
+        Text(localizedStringResource(Res.string.general, language), style = MaterialTheme.typography.titleLarge)
         SettingsChoice(
-            chinese = chinese,
-            label = localizedStringResource(Res.string.language, chinese),
+            language = language,
+            label = localizedStringResource(Res.string.language, language),
             current = settings.language,
             options = ApplicationLanguagePreference.entries,
-            optionLabel = { languagePreferenceLabel(it, chinese) },
+            optionLabel = { languagePreferenceLabel(it, language) },
             onSelected = { onSettingsChanged(settings.copy(language = it)) },
         )
         SettingsChoice(
-            chinese = chinese,
-            label = localizedStringResource(Res.string.theme, chinese),
+            language = language,
+            label = localizedStringResource(Res.string.theme, language),
             current = settings.theme,
             options = ApplicationThemePreference.entries,
-            optionLabel = { themePreferenceLabel(it, chinese) },
+            optionLabel = { themePreferenceLabel(it, language) },
             onSelected = { onSettingsChanged(settings.copy(theme = it)) },
         )
         AndroidSdkPathSetting(
             settings = settings,
-            chinese = chinese,
+            language = language,
             onSettingsChanged = onSettingsChanged,
         )
     }
@@ -318,7 +319,7 @@ private fun GeneralSettingsContent(
 @Composable
 private fun AndroidSdkPathSetting(
     settings: ApplicationUiSettings,
-    chinese: Boolean,
+    language: UiLanguage,
     onSettingsChanged: (ApplicationUiSettings) -> Unit,
 ) {
     var draftPath by remember(settings.androidSdkPath) { mutableStateOf(settings.androidSdkPath.orEmpty()) }
@@ -328,14 +329,14 @@ private fun AndroidSdkPathSetting(
             onValueChange = { draftPath = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            label = { Text(localizedStringResource(Res.string.android_sdk_path, chinese)) },
-            supportingText = { Text(localizedStringResource(Res.string.android_sdk_path_hint, chinese)) },
+            label = { Text(localizedStringResource(Res.string.android_sdk_path, language)) },
+            supportingText = { Text(localizedStringResource(Res.string.android_sdk_path_hint, language)) },
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = {
                     chooseAndroidSdkDirectory(
-                        localizedStringResource(Res.string.select_android_sdk_directory, chinese),
+                        localizedStringResource(Res.string.select_android_sdk_directory, language),
                         draftPath,
                     )?.let { selected ->
                         draftPath = selected
@@ -343,7 +344,7 @@ private fun AndroidSdkPathSetting(
                     }
                 },
             ) {
-                Text(localizedStringResource(Res.string.browse, chinese))
+                Text(localizedStringResource(Res.string.browse, language))
             }
             OutlinedButton(
                 onClick = {
@@ -352,7 +353,7 @@ private fun AndroidSdkPathSetting(
                 },
                 enabled = draftPath.trim().takeIf(String::isNotEmpty) != settings.androidSdkPath,
             ) {
-                Text(localizedStringResource(Res.string.apply, chinese))
+                Text(localizedStringResource(Res.string.apply, language))
             }
             OutlinedButton(
                 onClick = {
@@ -361,7 +362,7 @@ private fun AndroidSdkPathSetting(
                 },
                 enabled = draftPath.isNotEmpty() || settings.androidSdkPath != null,
             ) {
-                Text(localizedStringResource(Res.string.clear, chinese))
+                Text(localizedStringResource(Res.string.clear, language))
             }
         }
     }
@@ -386,7 +387,7 @@ private fun CompleteSimpleperfSettingsContent(
     context: SimpleperfCaptureSettingsContext?,
     section: CaptureSettingsSection,
     darkTheme: Boolean,
-    chinese: Boolean,
+    language: UiLanguage,
     locale: Locale,
     onSettingsChanged: (SimpleperfUiSettings) -> Unit,
     onOpenUserGuide: () -> Unit,
@@ -397,7 +398,7 @@ private fun CompleteSimpleperfSettingsContent(
             Text(
                 localizedStringResource(
                     Res.string.capture_parameters_connect_to_the_current_device_and_target_after,
-                    chinese
+                    language
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
@@ -428,7 +429,7 @@ private fun CompleteSimpleperfSettingsContent(
 
 @Composable
 private fun <T> SettingsChoice(
-    chinese: Boolean,
+    language: UiLanguage,
     label: String,
     current: T,
     options: List<T>,
@@ -441,7 +442,7 @@ private fun <T> SettingsChoice(
             onClick = { expanded = true },
             modifier = Modifier.width(320.dp)
         ) {
-            Text(localizedStringResource(Res.string.text, chinese, label, optionLabel(current)))
+            Text(localizedStringResource(Res.string.text, language, label, optionLabel(current)))
         }
         androidx.compose.material3.DropdownMenu(
             expanded = expanded,
@@ -462,25 +463,25 @@ private fun <T> SettingsChoice(
     }
 }
 
-private fun SettingsPage.label(chinese: Boolean): String =
+private fun SettingsPage.label(language: UiLanguage): String =
     when (this) {
-        SettingsPage.GENERAL -> localizedStringResource(Res.string.general, chinese)
-        SettingsPage.LAYOUT_INSPECTOR -> localizedStringResource(Res.string.layout_inspector, chinese)
-        SettingsPage.SIMPLEPERF -> localizedStringResource(Res.string.simpleperf, chinese)
+        SettingsPage.GENERAL -> localizedStringResource(Res.string.general, language)
+        SettingsPage.LAYOUT_INSPECTOR -> localizedStringResource(Res.string.layout_inspector, language)
+        SettingsPage.SIMPLEPERF -> localizedStringResource(Res.string.simpleperf, language)
     }
 
-private fun CaptureSettingsSection.settingsLabel(chinese: Boolean): String =
+private fun CaptureSettingsSection.settingsLabel(language: UiLanguage): String =
     when (this) {
-        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(Res.string.sampling_template, chinese)
+        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(Res.string.sampling_template, language)
         CaptureSettingsSection.CAPTURE_CONFIGURATION -> localizedStringResource(
             Res.string.capture_configuration,
-            chinese
+            language
         )
 
-        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(Res.string.advanced_parameters, chinese)
-        CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(Res.string.flame_graph, chinese)
-        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(Res.string.simpleperf_engine, chinese)
-        CaptureSettingsSection.USER_GUIDE -> localizedStringResource(Res.string.user_guide, chinese)
+        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(Res.string.advanced_parameters, language)
+        CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(Res.string.flame_graph, language)
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(Res.string.simpleperf_engine, language)
+        CaptureSettingsSection.USER_GUIDE -> localizedStringResource(Res.string.user_guide, language)
     }
 
 internal const val UNIFIED_SETTINGS_WIDTH_DP = 1100

@@ -31,22 +31,22 @@ class GpuIntegrationWorkspaceSourceTest {
         assertTrue(homeBlock.contains("onClick = onBack"))
 
         assertButtonContains(
-            "text = if (chinese) \"刷新 AGI\" else \"Refresh AGI\"",
+            "text = localizedStringResource(Res.string.refresh_agi, language)",
             "capability = locator.locate()",
         )
         assertButtonContains(
-            "text = if (chinese) \"配置 AGI\" else \"Configure AGI\"",
-            "chooseExecutable(window)",
+            "text = localizedStringResource(Res.string.configure_agi, language)",
+            "chooseExecutable(window, language)",
             "capability = locator.locate(file.toPath())",
         )
         assertButtonContains(
-            "text = if (chinese) \"启动 AGI\" else \"Launch AGI\"",
+            "text = localizedStringResource(Res.string.launch_agi, language)",
             "enabled = state.capability?.launchSupported == true",
             "locator.launch(requireNotNull(state.capability))",
         )
         assertButtonContains(
-            "text = if (chinese) \"导入产物\" else \"Import Artifact\"",
-            "chooseArtifact(window)",
+            "text = localizedStringResource(Res.string.import_artifact, language)",
+            "chooseArtifact(window, language)",
             "indexer.import(",
             "persist(updated)",
         )

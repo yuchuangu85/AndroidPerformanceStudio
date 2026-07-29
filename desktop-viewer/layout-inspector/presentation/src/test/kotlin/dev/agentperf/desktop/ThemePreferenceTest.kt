@@ -1,6 +1,7 @@
 package dev.agentperf.desktop
 
 import androidx.compose.ui.graphics.Color
+import com.androidperformancestudio.ui.viewerColors
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -24,8 +25,8 @@ class ThemePreferenceTest {
 
     @Test
     fun `viewer palette follows resolved darkness`() {
-        val light = ViewerPalettes.forDark(false)
-        val dark = ViewerPalettes.forDark(true)
+        val light = viewerColors(false)
+        val dark = viewerColors(true)
 
         assertFalse(light.isDark)
         assertTrue(dark.isDark)
@@ -35,7 +36,7 @@ class ThemePreferenceTest {
 
     @Test
     fun `visible bounds use the approved light cyan in both themes`() {
-        listOf(ViewerPalettes.forDark(false), ViewerPalettes.forDark(true)).forEach { palette ->
+        listOf(viewerColors(false), viewerColors(true)).forEach { palette ->
             assertEquals(Color(0xFF7DD3FC), palette.visibleViewBounds)
         }
     }

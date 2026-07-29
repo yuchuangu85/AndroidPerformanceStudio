@@ -58,11 +58,12 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
-import com.androidperformancestudio.ui.MacOSHomeButton
-import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerThemeVariant
 import com.androidperformancestudio.ui.ProfilerHomeButton
-import com.androidperformancestudio.ui.macOsDeviceTargetStyle
+import com.androidperformancestudio.ui.SettingsButton
+import com.androidperformancestudio.ui.viewerColors
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -82,7 +83,7 @@ internal fun DeviceTargetPage(
     onOpenUserGuide: (() -> Unit)? = null,
     onNavigateHome: (() -> Unit)? = null,
 ) {
-    val style = macOsDeviceTargetStyle(darkTheme)
+    val style = viewerColors(darkTheme, ViewerThemeVariant.MAC_OS)
     val captureActive = captureState.isCaptureActive()
     Column(Modifier.fillMaxSize().background(style.workspace)) {
         WorkspaceToolbar(
@@ -136,7 +137,7 @@ internal fun DeviceTargetPage(
 private fun WorkspaceToolbar(
     state: DeviceTargetState,
     actions: DeviceTargetActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     enabled: Boolean,
     showGetData: Boolean,
     onOpenSettings: () -> Unit,
@@ -146,10 +147,10 @@ private fun WorkspaceToolbar(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(MacOsDeviceTargetDimensions.toolbarHeight)
+                .height(ViewerDimensions.toolbarHeight)
                 .background(style.toolbar)
                 .border(
-                    MacOsDeviceTargetDimensions.hairline,
+                    ViewerDimensions.hairline,
                     style.border,
                     RoundedCornerShape(0.dp),
                 ).padding(horizontal = 5.dp),
@@ -157,10 +158,10 @@ private fun WorkspaceToolbar(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (onNavigateHome != null) {
-            MacOSHomeButton(
+            ProfilerHomeButton(
                 contentDescription = localizedSimpleperfText("Back to home"),
-                style = style,
                 onClick = onNavigateHome,
+                colors = style,
             )
         }
         ToolbarContent(state, actions, style, enabled, showGetData, onOpenSettings)
@@ -172,7 +173,7 @@ private fun WorkspaceToolbar(
 private fun RowScope.ToolbarContent(
     state: DeviceTargetState,
     actions: DeviceTargetActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     enabled: Boolean,
     showGetData: Boolean,
     onOpenSettings: () -> Unit,
@@ -214,75 +215,12 @@ private fun RowScope.ToolbarContent(
     Spacer(Modifier.width(2.dp))
     ToolbarCaptureActions(state, actions, style, enabled, showGetData)
     CapabilityPopupButton(state.selection, style)
-    MacOsSettingsButton(
+    SettingsButton(
         contentDescription = localizedSimpleperfText("Settings"),
         onClick = onOpenSettings,
-        style = style,
         enabled = enabled,
+        colors = style,
     )
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun MacOsSettingsButton(
-    contentDescription: String,
-    onClick: () -> Unit,
-    style: MacOsDeviceTargetStyle,
-    enabled: Boolean,
-) {
-    val iconColor = style.secondaryText.copy(alpha = if (enabled) 1f else DISABLED_CONTENT_ALPHA)
-    Box(
-        modifier =
-            Modifier
-                .width(28.dp)
-                .height(28.dp)
-                .semantics { this.contentDescription = contentDescription }
-                .clickable(enabled = enabled, onClick = onClick)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.size(15.dp)) {
-            val center = Offset(size.width / 2f, size.height / 2f)
-            val strokeWidth = 1.2.dp.toPx()
-            val innerRadius = 2.2.dp.toPx()
-            val outerRadius = 5.2.dp.toPx()
-            drawCircle(
-                color = iconColor,
-                radius = innerRadius,
-                center = center,
-                style = Stroke(width = strokeWidth),
-            )
-            drawCircle(
-                color = iconColor,
-                radius = outerRadius,
-                center = center,
-                style = Stroke(width = strokeWidth),
-            )
-            repeat(SETTINGS_GEAR_TOOTH_COUNT) { index ->
-                val angle =
-                    Math.toRadians(
-                        (index * SETTINGS_GEAR_TOOTH_ANGLE_DEGREES) + SETTINGS_GEAR_START_ANGLE_DEGREES,
-                    )
-                val start =
-                    Offset(
-                        x = center.x + kotlin.math.cos(angle).toFloat() * outerRadius,
-                        y = center.y + kotlin.math.sin(angle).toFloat() * outerRadius,
-                    )
-                val endRadius = outerRadius + 2.dp.toPx()
-                val end =
-                    Offset(
-                        x = center.x + kotlin.math.cos(angle).toFloat() * endRadius,
-                        y = center.y + kotlin.math.sin(angle).toFloat() * endRadius,
-                    )
-                drawLine(
-                    color = iconColor,
-                    start = start,
-                    end = end,
-                    strokeWidth = strokeWidth,
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -290,7 +228,7 @@ private fun MacOsSettingsButton(
 private fun ToolbarCaptureActions(
     state: DeviceTargetState,
     actions: DeviceTargetActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     enabled: Boolean,
     showGetData: Boolean,
 ) {
@@ -317,7 +255,7 @@ private fun DeviceSelector(
     selected: DeviceOption?,
     devices: List<DeviceOption>,
     onSelect: (String) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
     enabled: Boolean,
 ) {
@@ -343,7 +281,7 @@ private fun AppSelector(
     selectedPackage: String?,
     packages: List<PackageOption>,
     onSelect: (String) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
     enabled: Boolean,
 ) {
@@ -365,7 +303,7 @@ private fun ProcessSelector(
     selectedPid: Int?,
     processes: List<ProcessOption>,
     onSelect: (Int) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
     enabled: Boolean,
 ) {
@@ -388,7 +326,7 @@ private fun ThreadSelector(
     selectedTid: Int?,
     threads: List<ThreadOption>,
     onSelect: (ThreadOption) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
     enabled: Boolean,
 ) {
@@ -413,7 +351,7 @@ private fun <T> ToolbarSelector(
     items: List<T>,
     itemLabel: (T) -> String,
     onSelect: (T) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
     enabled: Boolean,
     itemSecondary: (@Composable (T) -> String)? = null,
@@ -465,19 +403,19 @@ private fun SelectorControl(
     hasSelection: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(MacOsDeviceTargetDimensions.selectorHeight)
-                .clip(RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius))
+                .height(ViewerDimensions.selectorHeight)
+                .clip(RoundedCornerShape(ViewerDimensions.controlRadius))
                 .background(style.field)
                 .border(
-                    MacOsDeviceTargetDimensions.hairline,
+                    ViewerDimensions.hairline,
                     style.strongBorder,
-                    RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius),
+                    RoundedCornerShape(ViewerDimensions.controlRadius),
                 ).semantics {
                     contentDescription = selectorDescription
                     stateDescription = displayText
@@ -506,7 +444,7 @@ private fun SelectorMenuItem(
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     DropdownMenuItem(
         text = {
@@ -544,7 +482,7 @@ private fun SelectorMenuItem(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun CapabilityPopupButton(
     selection: DeviceSelection?,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -563,7 +501,7 @@ private fun CapabilityPopupButton(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun CapabilityPopup(
     selection: DeviceSelection?,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -623,7 +561,7 @@ private fun CapabilityPopup(
 private fun CapabilityPopupFact(
     label: String,
     value: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     warning: Boolean = false,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
@@ -648,7 +586,7 @@ private fun CapabilityPopupFact(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun CapabilityStatusBadge(
     status: CapabilityStatus,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val color =
         when (status) {
@@ -681,15 +619,15 @@ private fun WorkspaceFooter(
     captureState: CaptureState,
     reportState: ReportState,
     actions: DeviceTargetActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(MacOsDeviceTargetDimensions.footerHeight)
+            .height(ViewerDimensions.footerHeight)
             .background(style.toolbar)
             .border(
-                MacOsDeviceTargetDimensions.hairline,
+                ViewerDimensions.hairline,
                 style.border,
                 RoundedCornerShape(0.dp),
             ).padding(horizontal = 16.dp),
@@ -706,7 +644,7 @@ private fun CaptureStatus(
     state: DeviceTargetState,
     captureState: CaptureState,
     reportState: ReportState,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
 ) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -732,7 +670,7 @@ private fun CaptureStatus(
         )
         fileInfo?.let { info ->
             Spacer(Modifier.width(10.dp))
-            Box(Modifier.width(MacOsDeviceTargetDimensions.hairline).height(14.dp).background(style.border))
+            Box(Modifier.width(ViewerDimensions.hairline).height(14.dp).background(style.border))
             Spacer(Modifier.width(10.dp))
             Text(
                 info.name,
@@ -801,7 +739,7 @@ private fun CaptureState.footerFileInfo(): FooterFileInfo? =
 private fun CaptureActions(
     captureState: CaptureState,
     actions: DeviceTargetActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (captureState.isCaptureActive()) {
@@ -818,7 +756,7 @@ private fun CaptureActions(
 internal fun MacOsButton(
     label: String,
     onClick: () -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     enabled: Boolean = true,
     primary: Boolean = false,
 ) {
@@ -827,13 +765,13 @@ internal fun MacOsButton(
     Box(
         modifier =
             Modifier
-                .height(MacOsDeviceTargetDimensions.buttonHeight)
-                .clip(RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius))
+                .height(ViewerDimensions.buttonHeight)
+                .clip(RoundedCornerShape(ViewerDimensions.controlRadius))
                 .background(container.copy(alpha = if (enabled) 1f else DISABLED_CONTAINER_ALPHA))
                 .border(
-                    MacOsDeviceTargetDimensions.hairline,
+                    ViewerDimensions.hairline,
                     if (primary) style.accent else style.strongBorder,
-                    RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius),
+                    RoundedCornerShape(ViewerDimensions.controlRadius),
                 ).clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
@@ -852,16 +790,13 @@ internal fun MacOsButton(
 @Composable
 @Suppress("ktlint:standard:function-naming")
 private fun HorizontalHairline(color: Color) {
-    Box(Modifier.fillMaxWidth().height(MacOsDeviceTargetDimensions.hairline).background(color))
+    Box(Modifier.fillMaxWidth().height(ViewerDimensions.hairline).background(color))
 }
 
 private const val MAX_VISIBLE_EVENTS = 8
 private const val STATUS_FILL_ALPHA = 0.16f
 private const val DISABLED_CONTAINER_ALPHA = 0.55f
 private const val DISABLED_CONTENT_ALPHA = 0.48f
-private const val SETTINGS_GEAR_TOOTH_COUNT = 8
-private const val SETTINGS_GEAR_TOOTH_ANGLE_DEGREES = 45.0
-private const val SETTINGS_GEAR_START_ANGLE_DEGREES = -90.0
 private const val DROPDOWN_GLYPH = "⌄"
 private const val DEVICE_SELECTOR_WEIGHT = 0.77f
 private const val APP_SELECTOR_WEIGHT = 1.1f

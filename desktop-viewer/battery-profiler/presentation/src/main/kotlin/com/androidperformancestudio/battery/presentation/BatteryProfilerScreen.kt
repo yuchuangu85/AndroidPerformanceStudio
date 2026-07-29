@@ -11,6 +11,7 @@
 
 package com.androidperformancestudio.battery.presentation
 
+import com.androidperformancestudio.ui.UiLanguage
 import org.jetbrains.compose.resources.stringResource
 
 import com.androidperformancestudio.battery.presentation.generated.resources.Res
@@ -51,7 +52,7 @@ import java.util.Locale
 public fun BatteryProfilerScreen(
     state: BatteryProfilerState,
     actions: BatteryProfilerActions,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier = Modifier,
 ) {
     val analysis = state.analysis
@@ -60,15 +61,15 @@ public fun BatteryProfilerScreen(
             Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(state.errorMessage, color = MaterialTheme.colorScheme.error)
             }
-        analysis == null -> EmptyPane(state, chinese, modifier)
-        else -> ResultsPane(state, analysis, actions, chinese, modifier)
+        analysis == null -> EmptyPane(state, language, modifier)
+        else -> ResultsPane(state, analysis, actions, language, modifier)
     }
 }
 
 @Composable
 private fun EmptyPane(
     state: BatteryProfilerState,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier,
 ) {
     Column(
@@ -93,7 +94,7 @@ private fun ResultsPane(
     state: BatteryProfilerState,
     analysis: BatteryAnalysisResult,
     actions: BatteryProfilerActions,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier,
 ) {
     val selected = analysis.runs.firstOrNull { it.runId == state.selectedRunId } ?: analysis.runs.first()
@@ -102,10 +103,10 @@ private fun ResultsPane(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricCard(stringResource(Res.string.median_wakelock), analysis.wakelockDurationMs, "ms", chinese)
-            MetricCard(stringResource(Res.string.median_wakeup_alarms), analysis.wakeupAlarmCount, "", chinese)
-            MetricCard(stringResource(Res.string.median_network), analysis.networkBytes, "B", chinese)
-            MetricCard(stringResource(Res.string.modeled_energy), analysis.energyMah, "mAh", chinese)
+            MetricCard(stringResource(Res.string.median_wakelock), analysis.wakelockDurationMs, "ms", language)
+            MetricCard(stringResource(Res.string.median_wakeup_alarms), analysis.wakeupAlarmCount, "", language)
+            MetricCard(stringResource(Res.string.median_network), analysis.networkBytes, "B", language)
+            MetricCard(stringResource(Res.string.modeled_energy), analysis.energyMah, "mAh", language)
         }
         val session = state.experiment?.session
         session?.let {
@@ -116,7 +117,7 @@ private fun ResultsPane(
                 )
             }
         }
-        state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, chinese) }
+        state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, language) }
         Text(stringResource(Res.string.experiment_runs), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
@@ -127,10 +128,10 @@ private fun ResultsPane(
                 Cell(stringResource(Res.string.network), 110)
                 Cell(stringResource(Res.string.energy), 100)
             }
-            analysis.runs.forEach { run -> RunRow(run, run.runId == selected.runId, actions.onSelectRun, chinese) }
+            analysis.runs.forEach { run -> RunRow(run, run.runId == selected.runId, actions.onSelectRun, language) }
         }
         HorizontalDivider()
-        RunDetail(selected, chinese)
+        RunDetail(selected, language)
         if (analysis.warnings.isNotEmpty()) {
             Text(
                 stringResource(Res.string.diagnostics_and_warnings),
@@ -148,7 +149,7 @@ private fun MetricCard(
     title: String,
     statistics: BatteryStatistics,
     unit: String,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     Card(Modifier.width(168.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -163,7 +164,7 @@ private fun MetricCard(
 private fun BaselineComparison(
     current: BatteryAnalysisResult,
     baseline: BatteryAnalysisResult,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val currentValue = current.networkBytes.median
     val baselineValue = baseline.networkBytes.median
@@ -189,7 +190,7 @@ private fun RunRow(
     run: BatteryRunDelta,
     selected: Boolean,
     onSelect: (String) -> Unit,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     Row(
         Modifier
@@ -216,17 +217,17 @@ private fun RunRow(
 @Composable
 private fun RunDetail(
     run: BatteryRunDelta,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     Text(
         stringResource(Res.string.run_resource_details, run.iteration),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
     )
-    ResourceSection(stringResource(Res.string.wakelocks), run.wakelocks, chinese)
-    ResourceSection(stringResource(Res.string.alarms), run.alarms, chinese)
-    ResourceSection(stringResource(Res.string.jobs), run.jobs, chinese)
-    ResourceSection(stringResource(Res.string.sensors), run.sensors, chinese)
+    ResourceSection(stringResource(Res.string.wakelocks), run.wakelocks, language)
+    ResourceSection(stringResource(Res.string.alarms), run.alarms, language)
+    ResourceSection(stringResource(Res.string.jobs), run.jobs, language)
+    ResourceSection(stringResource(Res.string.sensors), run.sensors, language)
     Text(stringResource(Res.string.network_b_mobile_radio_ms, run.network.totalBytes, run.network.mobileRadioActiveMs), fontWeight = FontWeight.SemiBold)
     Text(stringResource(Res.string.energy_evidence), fontWeight = FontWeight.SemiBold)
     if (run.energy.isEmpty()) Text(stringResource(Res.string.no_attributable_energy_data_was_provided_by_this_device))
@@ -253,7 +254,7 @@ private fun RunDetail(
 private fun ResourceSection(
     title: String,
     resources: List<ResourceTimer>,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     Text(title, fontWeight = FontWeight.SemiBold)
     if (resources.isEmpty()) Text(stringResource(Res.string.no_delta_or_unavailable))

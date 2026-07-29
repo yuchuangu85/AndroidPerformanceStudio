@@ -26,35 +26,35 @@ class NetworkProfilerWorkspaceSourceTest {
     @Test
     fun `toolbar preserves capture import and export wiring with enabled predicates`() {
         assertButtonContains(
-            "text = if (chinese) \"导入 HAR\" else \"Import HAR\"",
+            "text = localizedStringResource(Res.string.import_har, language)",
             "enabled = !state.capturing",
-            "chooseHar(window)",
+            "chooseHar(window, language)",
             "HarParser().parse(file.toPath())",
             "complete(",
         )
         assertButtonContains(
-            "if (chinese) \"在线采集\" else \"Live Capture\"",
+            "localizedStringResource(Res.string.live_capture, language)",
             "enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank()",
             "if (state.capturing) stop() else start()",
         )
         assertButtonContains(
-            "text = \"JSON\"",
+            "text = localizedStringResource(Res.string.json, language)",
             "enabled = state.result != null",
             "exporter.writeJson(",
             "requireNotNull(state.summary)",
         )
         assertButtonContains(
-            "text = \"HAR\"",
+            "text = localizedStringResource(Res.string.har, language)",
             "enabled = state.result != null",
             "exporter.writePartialHar(",
         )
         assertButtonContains(
-            "text = \"CSV\"",
+            "text = localizedStringResource(Res.string.csv, language)",
             "enabled = state.result != null",
             "exporter.writeCsv(",
         )
         assertButtonContains(
-            "text = if (chinese) \"原始包\" else \"Raw Bundle\"",
+            "text = localizedStringResource(Res.string.raw_bundle, language)",
             "enabled = state.result != null",
             "exporter.writeRawBundle(",
             "requireNotNull(state.summary)",
@@ -72,12 +72,12 @@ class NetworkProfilerWorkspaceSourceTest {
         assertTrue(homeBlock.contains("onBack()"))
 
         assertTextFieldContains(
-            "label = if (chinese) \"设备序列号\" else \"Device serial\"",
+            "label = localizedStringResource(Res.string.device_serial, language)",
             "onValueChange = { state = state.copy(deviceSerial = it) }",
             "enabled = !state.capturing",
         )
         assertTextFieldContains(
-            "label = if (chinese) \"包名\" else \"Package\"",
+            "label = localizedStringResource(Res.string.`package`, language)",
             "onValueChange = { state = state.copy(packageName = it) }",
             "enabled = !state.capturing",
         )

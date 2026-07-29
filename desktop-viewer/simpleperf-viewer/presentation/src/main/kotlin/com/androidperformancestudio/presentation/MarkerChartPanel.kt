@@ -16,7 +16,7 @@ import com.androidperformancestudio.storage.MarkerAvailability
 import com.androidperformancestudio.storage.MarkerEmptyReason
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -24,7 +24,7 @@ internal fun MarkerChartPanel(
     state: ReportState,
     projection: PanelProjection<MarkerProjectionSnapshot>,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Column(Modifier.fillMaxSize().testTag("marker-chart-panel")) {
         when (projection) {
@@ -54,7 +54,7 @@ internal fun MarkerChartPanel(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 internal fun MarkerPanelMessage(
     message: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(message, color = style.secondaryText, fontSize = 11.sp)

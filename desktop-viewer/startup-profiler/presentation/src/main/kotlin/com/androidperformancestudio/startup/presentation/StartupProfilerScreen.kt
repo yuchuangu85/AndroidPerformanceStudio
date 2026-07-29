@@ -10,6 +10,7 @@
 
 package com.androidperformancestudio.startup.presentation
 
+import com.androidperformancestudio.ui.UiLanguage
 import org.jetbrains.compose.resources.stringResource
 
 import com.androidperformancestudio.startup.presentation.generated.resources.Res
@@ -52,21 +53,21 @@ import java.util.Locale
 public fun StartupProfilerScreen(
     state: StartupProfilerState,
     actions: StartupProfilerActions,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier = Modifier,
 ) {
     val analysis = state.analysis
     when {
         state.errorMessage != null && analysis == null -> MessagePane(state.errorMessage, MaterialTheme.colorScheme.error, modifier)
-        analysis == null -> EmptyPane(state, chinese, modifier)
-        else -> ResultsPane(state, analysis, actions, chinese, modifier)
+        analysis == null -> EmptyPane(state, language, modifier)
+        else -> ResultsPane(state, analysis, actions, language, modifier)
     }
 }
 
 @Composable
 private fun EmptyPane(
     state: StartupProfilerState,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier,
 ) {
     Column(
@@ -89,7 +90,7 @@ private fun ResultsPane(
     state: StartupProfilerState,
     analysis: StartupAnalysisResult,
     actions: StartupProfilerActions,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier,
 ) {
     val selected = analysis.runs.firstOrNull { it.id == state.selectedRunId } ?: analysis.runs.first()
@@ -98,19 +99,19 @@ private fun ResultsPane(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            MetricCard(stringResource(Res.string.median_totaltime), analysis.totalTime, chinese)
-            MetricCard(stringResource(Res.string.median_first_frame), analysis.firstFrame, chinese)
-            MetricCard(stringResource(Res.string.median_fully_drawn), analysis.fullyDrawn, chinese)
-            StabilityCard(analysis, chinese)
+            MetricCard(stringResource(Res.string.median_totaltime), analysis.totalTime, language)
+            MetricCard(stringResource(Res.string.median_first_frame), analysis.firstFrame, language)
+            MetricCard(stringResource(Res.string.median_fully_drawn), analysis.fullyDrawn, language)
+            StabilityCard(analysis, language)
         }
-        state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, chinese) }
+        state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, language) }
         Text(stringResource(Res.string.measured_runs), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            RunRowHeader(chinese)
-            analysis.runs.forEach { run -> RunRow(run, run.id == selected.id, actions.onSelectRun, chinese) }
+            RunRowHeader(language)
+            analysis.runs.forEach { run -> RunRow(run, run.id == selected.id, actions.onSelectRun, language) }
         }
         HorizontalDivider()
-        RunDetail(selected, chinese)
+        RunDetail(selected, language)
         if (analysis.warnings.isNotEmpty()) {
             Text(stringResource(Res.string.warnings), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             analysis.warnings.forEach { Text(stringResource(Res.string.text_45f5c8ce, it), color = MaterialTheme.colorScheme.tertiary) }
@@ -123,7 +124,7 @@ private fun ResultsPane(
 private fun MetricCard(
     title: String,
     statistics: StartupStatistics,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     Card(Modifier.width(172.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -137,7 +138,7 @@ private fun MetricCard(
 @Composable
 private fun StabilityCard(
     analysis: StartupAnalysisResult,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val median = analysis.totalTime.medianMs
     val deviation = analysis.totalTime.medianAbsoluteDeviationMs
@@ -162,7 +163,7 @@ private fun StabilityCard(
 private fun BaselineComparison(
     current: StartupAnalysisResult,
     baseline: StartupAnalysisResult,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val currentMedian = current.totalTime.medianMs
     val baselineMedian = baseline.totalTime.medianMs
@@ -184,7 +185,7 @@ private fun BaselineComparison(
 }
 
 @Composable
-private fun RunRowHeader(chinese: Boolean) {
+private fun RunRowHeader(language: UiLanguage) {
     Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
         TableCell(stringResource(Res.string.run), 70)
         TableCell(stringResource(Res.string.observed), 100)
@@ -200,7 +201,7 @@ private fun RunRow(
     run: StartupRun,
     selected: Boolean,
     onSelect: (String) -> Unit,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val background = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
     Row(Modifier.background(background).clickable { onSelect(run.id) }.padding(vertical = 6.dp, horizontal = 8.dp)) {
@@ -227,7 +228,7 @@ private fun TableCell(
 @Composable
 private fun RunDetail(
     run: StartupRun,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     Text(
         stringResource(Res.string.run_detail, run.iteration, run.observedType.name),

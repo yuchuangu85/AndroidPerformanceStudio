@@ -1,5 +1,6 @@
 package com.androidperformancestudio.perfetto.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import org.jetbrains.compose.resources.stringResource
 
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
@@ -15,7 +16,7 @@ import java.nio.file.Path
 @Composable
 @Suppress("ktlint:standard:function-naming")
 internal fun FrameWindowScope.PerfettoFileMenuBar(
-    chinese: Boolean,
+    language: UiLanguage,
     canExport: Boolean,
     recentFiles: List<Path>,
     onOpen: () -> Unit,

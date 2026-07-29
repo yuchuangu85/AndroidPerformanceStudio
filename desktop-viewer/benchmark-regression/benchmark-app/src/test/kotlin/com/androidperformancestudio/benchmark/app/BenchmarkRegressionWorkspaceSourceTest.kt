@@ -26,22 +26,22 @@ class BenchmarkRegressionWorkspaceSourceTest {
     @Test
     fun `toolbar preserves imports exporter and trace navigation with enabled predicates`() {
         assertButtonContains(
-            "text = if (chinese) \"导入当前结果\" else \"Import Current\"",
-            "chooseJson(window)",
+            "text = localizedStringResource(Res.string.import_current, language)",
+            "chooseJson(window, language)",
             "import(it, false)",
         )
         assertButtonContains(
-            "text = if (chinese) \"导入基线\" else \"Import Baseline\"",
-            "chooseJson(window)",
+            "text = localizedStringResource(Res.string.import_baseline, language)",
+            "chooseJson(window, language)",
             "import(it, true)",
         )
         assertButtonContains(
-            "text = if (chinese) \"导出报告\" else \"Export Report\"",
+            "text = localizedStringResource(Res.string.export_report, language)",
             "enabled = state.report != null",
             "exporter.writeJson(requireNotNull(state.report), it.toPath())",
         )
         assertButtonContains(
-            "text = if (chinese) \"在 Perfetto 打开 Trace\" else \"Open Trace in Perfetto\"",
+            "text = localizedStringResource(Res.string.open_trace_in_perfetto, language)",
             "enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true",
             "?.flatMap { it.traceArtifacts }",
             "?.firstOrNull()",

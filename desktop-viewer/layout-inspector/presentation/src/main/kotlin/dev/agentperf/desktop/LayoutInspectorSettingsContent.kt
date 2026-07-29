@@ -2,6 +2,7 @@
 
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +38,7 @@ import kotlin.math.roundToInt
 /** Complete Layout Inspector settings page used by the unified desktop settings window. */
 @Composable
 public fun LayoutInspectorSettingsContent(
-    chinese: Boolean = false,
+    language: UiLanguage = UiLanguage.ENGLISH,
     onSettingsChanged: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -48,7 +49,7 @@ public fun LayoutInspectorSettingsContent(
     var archiveLimits by remember { mutableStateOf(archiveLimitsStore.load()) }
     var borderColors by remember { mutableStateOf(borderColorStore.load()) }
     var persistenceError by remember { mutableStateOf(false) }
-    val strings = ViewerStrings.forLanguage(if (chinese) ViewerLanguage.SIMPLIFIED_CHINESE else ViewerLanguage.ENGLISH)
+    val strings = ViewerStrings.forLanguage(if (language == UiLanguage.SIMPLIFIED_CHINESE) ViewerLanguage.SIMPLIFIED_CHINESE else ViewerLanguage.ENGLISH)
 
     fun notifySaved(saved: Boolean) {
         persistenceError = !saved
@@ -148,19 +149,19 @@ public fun LayoutInspectorSettingsContent(
                 label = strings.normal,
                 color = borderColors.normal,
                 defaultColor = CanvasBorderColors().normal,
-                chinese = chinese,
+                language = language,
             ) { updateBorderColors(borderColors.copy(normal = it)) }
             CanvasColorField(
                 label = strings.hovered,
                 color = borderColors.hovered,
                 defaultColor = CanvasBorderColors().hovered,
-                chinese = chinese,
+                language = language,
             ) { updateBorderColors(borderColors.copy(hovered = it)) }
             CanvasColorField(
                 label = strings.selected,
                 color = borderColors.selected,
                 defaultColor = CanvasBorderColors().selected,
-                chinese = chinese,
+                language = language,
             ) { updateBorderColors(borderColors.copy(selected = it)) }
         }
         Spacer(Modifier.height(4.dp))
@@ -231,7 +232,7 @@ private fun CanvasColorField(
     label: String,
     color: CanvasArgb,
     defaultColor: CanvasArgb,
-    chinese: Boolean,
+    language: UiLanguage,
     onColorChanged: (CanvasArgb) -> Unit,
 ) {
     var value by remember(color) { mutableStateOf(color.toHex()) }
@@ -258,7 +259,7 @@ private fun CanvasColorField(
                     onColorChanged(defaultColor)
                 },
             ) {
-                Text(ViewerStrings.forLanguage(if (chinese) ViewerLanguage.SIMPLIFIED_CHINESE else ViewerLanguage.ENGLISH).reset)
+                Text(ViewerStrings.forLanguage(if (language == UiLanguage.SIMPLIFIED_CHINESE) ViewerLanguage.SIMPLIFIED_CHINESE else ViewerLanguage.ENGLISH).reset)
             }
         }
         Row(

@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.profileanalysis.StackChartEmptyReason
 import com.androidperformancestudio.storage.PanelProjection
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -20,7 +20,7 @@ internal fun StackChartPanel(
     state: ReportState,
     projection: PanelProjection<com.androidperformancestudio.profileanalysis.StackChartSnapshot>,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().testTag("stack-chart-panel"),
@@ -58,7 +58,7 @@ internal fun StackChartPanel(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun StackChartMessage(
     message: String,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onRetry: () -> Unit,
 ) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

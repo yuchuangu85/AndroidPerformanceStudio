@@ -29,7 +29,7 @@ class MemoryProfilerWorkspaceSourceTest {
         assertFalse(workspace.contains("chooseHprofFile"))
         assertTrue(
             workspace.contains(
-                "FileDialog(parent, localizedStringResource(Res.string.import_hprof, chinese), FileDialog.LOAD)",
+                "FileDialog(parent, localizedStringResource(Res.string.import_hprof, language), FileDialog.LOAD)",
             ),
         )
         assertTrue(workspace.contains("onCloseRequest(files.firstOrNull())"))

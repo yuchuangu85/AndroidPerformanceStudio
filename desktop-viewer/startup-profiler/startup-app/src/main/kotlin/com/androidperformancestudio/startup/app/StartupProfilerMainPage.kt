@@ -9,6 +9,7 @@
 
 package com.androidperformancestudio.startup.app
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.startup.startup_app.generated.resources.Res
 import com.androidperformancestudio.startup.startup_app.generated.resources.*
@@ -48,10 +49,10 @@ import javax.swing.JFileChooser
 
 @Composable
 public fun FrameWindowScope.StartupProfilerMainPage(
-    chinese: Boolean = false,
+    language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
 ) {
-    val controller = remember(chinese) { StartupProfilerController(chinese = chinese) }
+    val controller = remember(language) { StartupProfilerController(language = language) }
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var experimentJob by remember { mutableStateOf<Job?>(null) }
@@ -61,25 +62,25 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
+                contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = {
                     experimentJob?.cancel()
                     onBack()
                 },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.device, chinese),
+                label = localizedStringResource(Res.string.device, language),
                 selectedLabel = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
                 options = state.devices.filter { it.online }.map { it.serial to it.name },
                 enabled = !state.isRunning,
                 onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.app_activity, chinese),
+                label = localizedStringResource(Res.string.app_activity, language),
                 selectedLabel =
                     state.targets.firstOrNull { it.componentName == state.selectedComponentName }?.let {
                         if (it.debuggable) {
-                            localizedStringResource(Res.string.package_agent, chinese, it.packageName)
+                            localizedStringResource(Res.string.package_agent, language, it.packageName)
                         } else {
                             it.packageName
                         }
@@ -88,7 +89,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                     it.componentName to
                         localizedStringResource(
                             Res.string.package_activity,
-                            chinese,
+                            language,
                             it.packageName,
                             it.componentName.substringAfter('/'),
                         )
@@ -97,16 +98,16 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 onSelected = controller::selectTarget,
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh, chinese),
+                text = localizedStringResource(Res.string.refresh, language),
                 enabled = !state.isRunning && !state.isRefreshing,
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
             ProfilerCompactButton(
                 text =
                     if (state.isRunning) {
-                        localizedStringResource(Res.string.stop_experiment, chinese)
+                        localizedStringResource(Res.string.stop_experiment, language)
                     } else {
-                        localizedStringResource(Res.string.run_experiment, chinese)
+                        localizedStringResource(Res.string.run_experiment, language)
                     },
                 enabled = state.selectedComponentName != null,
                 onClick = {
@@ -118,19 +119,19 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, chinese),
+                text = localizedStringResource(Res.string.export_csv, language),
                 enabled = state.analysis != null && !state.isRunning,
                 onClick = {
-                    chooseSaveFile(window, "startup-analysis.csv", chinese)?.let { file ->
+                    chooseSaveFile(window, "startup-analysis.csv", language)?.let { file ->
                         scope.launch { controller.exportCsv(file.toPath()) }
                     }
                 },
             )
             ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_json, chinese),
+                text = localizedStringResource(Res.string.export_json, language),
                 enabled = state.analysis != null && !state.isRunning,
                 onClick = {
-                    chooseSaveFile(window, "startup-analysis.json", chinese)?.let { file ->
+                    chooseSaveFile(window, "startup-analysis.json", language)?.let { file ->
                         scope.launch { controller.exportJson(file.toPath()) }
                     }
                 },
@@ -147,38 +148,38 @@ public fun FrameWindowScope.StartupProfilerMainPage(
         )
         ProfilerMacOsSecondaryToolbar {
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.startup_type, chinese),
-                selectedLabel = state.config.requestedType.label(chinese),
-                options = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT).map { it.name to it.label(chinese) },
+                label = localizedStringResource(Res.string.startup_type, language),
+                selectedLabel = state.config.requestedType.label(language),
+                options = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT).map { it.name to it.label(language) },
                 enabled = !state.isRunning,
                 onSelected = { value -> StartupType.valueOf(value).let(controller::selectStartupType) },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.compilation, chinese),
-                selectedLabel = state.config.compilationMode.label(chinese),
-                options = CompilationMode.entries.map { it.name to it.label(chinese) },
+                label = localizedStringResource(Res.string.compilation, language),
+                selectedLabel = state.config.compilationMode.label(language),
+                options = CompilationMode.entries.map { it.name to it.label(language) },
                 enabled = !state.isRunning,
                 onSelected = { value -> CompilationMode.valueOf(value).let(controller::selectCompilationMode) },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.warm_ups, chinese),
+                label = localizedStringResource(Res.string.warm_ups, language),
                 selectedLabel = state.config.warmupRuns.toString(),
                 options = (0..10).map { it.toString() to it.toString() },
                 enabled = !state.isRunning,
                 onSelected = { value -> controller.updateCounts(value.toInt(), state.config.measuredRuns) },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.measured_runs, chinese),
+                label = localizedStringResource(Res.string.measured_runs, language),
                 selectedLabel = state.config.measuredRuns.toString(),
                 options = listOf(1, 3, 5, 10, 20, 30).map { it.toString() to it.toString() },
                 enabled = !state.isRunning,
                 onSelected = { value -> controller.updateCounts(state.config.warmupRuns, value.toInt()) },
             )
             ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.timeout, chinese),
-                selectedLabel = localizedStringResource(Res.string.seconds_short, chinese, state.config.timeoutSeconds),
+                label = localizedStringResource(Res.string.timeout, language),
+                selectedLabel = localizedStringResource(Res.string.seconds_short, language, state.config.timeoutSeconds),
                 options = listOf(10, 20, 30, 45, 60, 120).map {
-                    it.toString() to localizedStringResource(Res.string.seconds_short, chinese, it)
+                    it.toString() to localizedStringResource(Res.string.seconds_short, language, it)
                 },
                 enabled = !state.isRunning,
                 onSelected = { value -> controller.updateTimeout(value.toInt()) },
@@ -201,36 +202,36 @@ public fun FrameWindowScope.StartupProfilerMainPage(
         StartupProfilerScreen(
             state = state,
             actions = StartupProfilerActions(onSelectRun = controller::selectRun),
-            chinese = chinese,
+            language = language,
             modifier = Modifier.weight(1f),
         )
     }
 }
 
-private fun StartupType.label(chinese: Boolean): String =
+private fun StartupType.label(language: UiLanguage): String =
     when (this) {
-        StartupType.COLD -> localizedStringResource(Res.string.cold, chinese)
-        StartupType.WARM -> localizedStringResource(Res.string.warm, chinese)
-        StartupType.HOT -> localizedStringResource(Res.string.hot, chinese)
-        StartupType.UNKNOWN -> localizedStringResource(Res.string.unknown, chinese)
+        StartupType.COLD -> localizedStringResource(Res.string.cold, language)
+        StartupType.WARM -> localizedStringResource(Res.string.warm, language)
+        StartupType.HOT -> localizedStringResource(Res.string.hot, language)
+        StartupType.UNKNOWN -> localizedStringResource(Res.string.unknown, language)
     }
 
-private fun CompilationMode.label(chinese: Boolean): String =
+private fun CompilationMode.label(language: UiLanguage): String =
     when (this) {
-        CompilationMode.CURRENT -> localizedStringResource(Res.string.current, chinese)
-        CompilationMode.RESET -> localizedStringResource(Res.string.reset, chinese)
-        CompilationMode.VERIFY -> localizedStringResource(Res.string.verify, chinese)
-        CompilationMode.SPEED_PROFILE -> localizedStringResource(Res.string.speed_profile, chinese)
-        CompilationMode.SPEED -> localizedStringResource(Res.string.speed, chinese)
+        CompilationMode.CURRENT -> localizedStringResource(Res.string.current, language)
+        CompilationMode.RESET -> localizedStringResource(Res.string.reset, language)
+        CompilationMode.VERIFY -> localizedStringResource(Res.string.verify, language)
+        CompilationMode.SPEED_PROFILE -> localizedStringResource(Res.string.speed_profile, language)
+        CompilationMode.SPEED -> localizedStringResource(Res.string.speed, language)
     }
 
 private fun chooseSaveFile(
     parent: java.awt.Component,
     defaultName: String,
-    chinese: Boolean,
+    language: UiLanguage,
 ): File? =
     JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.export_startup_profiler_report, chinese)
+        dialogTitle = localizedStringResource(Res.string.export_startup_profiler_report, language)
         selectedFile = File(defaultName)
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }

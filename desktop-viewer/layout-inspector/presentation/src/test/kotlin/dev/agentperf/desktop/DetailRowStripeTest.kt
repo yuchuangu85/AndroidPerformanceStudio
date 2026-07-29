@@ -2,6 +2,7 @@ package dev.agentperf.desktop
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import com.androidperformancestudio.ui.viewerColors
 import kotlin.math.sqrt
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -20,8 +21,8 @@ class DetailRowStripeTest {
 
     @Test
     fun `both palettes distinguish deep and light property stripes`() {
-        val light = ViewerPalettes.forDark(false)
-        val dark = ViewerPalettes.forDark(true)
+        val light = viewerColors(false)
+        val dark = viewerColors(true)
 
         assertNotEquals(light.detailRowDeep, light.detailRowLight)
         assertNotEquals(dark.detailRowDeep, dark.detailRowLight)
@@ -29,8 +30,8 @@ class DetailRowStripeTest {
 
     @Test
     fun `stripe backgrounds stay visible without excessive contrast`() {
-        val light = ViewerPalettes.forDark(false)
-        val dark = ViewerPalettes.forDark(true)
+        val light = viewerColors(false)
+        val dark = viewerColors(true)
         val lightGap = light.detailRowLight.luminance() - light.detailRowDeep.luminance()
         val darkGap = dark.detailRowLight.luminance() - dark.detailRowDeep.luminance()
 
@@ -40,7 +41,7 @@ class DetailRowStripeTest {
 
     @Test
     fun `section headers stand apart from every property stripe`() {
-        listOf(ViewerPalettes.forDark(false), ViewerPalettes.forDark(true)).forEach { palette ->
+        listOf(viewerColors(false), viewerColors(true)).forEach { palette ->
             listOf(palette.sectionBackground, palette.riskSectionBackground).forEach { header ->
                 assertTrue(colorDistance(header, palette.detailRowDeep) >= 0.12f)
                 assertTrue(colorDistance(header, palette.detailRowLight) >= 0.12f)

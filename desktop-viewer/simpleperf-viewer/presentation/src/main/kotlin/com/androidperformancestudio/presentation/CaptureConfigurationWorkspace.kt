@@ -59,10 +59,11 @@ import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingRate
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
-import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerThemeVariant
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.macOsDeviceTargetStyle
+import com.androidperformancestudio.ui.viewerColors
 
 enum class CaptureSettingsSection {
     SAMPLING_TEMPLATE,
@@ -92,13 +93,13 @@ fun SimpleperfSettingsContent(
     modifier: Modifier = Modifier,
 ) {
     val locale = currentSimpleperfLanguage().locale
-    val style = macOsDeviceTargetStyle(darkTheme)
+    val style = viewerColors(darkTheme, ViewerThemeVariant.MAC_OS)
     var section by remember(initialSection) { mutableStateOf(initialSection) }
     Row(
         modifier =
             modifier
                 .background(style.workspace, RoundedCornerShape(8.dp))
-                .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(8.dp)),
+                .border(ViewerDimensions.hairline, style.border, RoundedCornerShape(8.dp)),
     ) {
         SettingsNavigation(
             section = section,
@@ -150,7 +151,7 @@ fun SimpleperfSettingsSectionContent(
         section = section,
         setup = setup,
         availableEvents = availableEvents,
-        style = macOsDeviceTargetStyle(darkTheme),
+        style = viewerColors(darkTheme, ViewerThemeVariant.MAC_OS),
         enabled = enabled,
         onSelectTemplate = onSelectTemplate,
         onUpdate = onUpdate,
@@ -171,7 +172,7 @@ internal fun CaptureSettingsDialog(
     section: CaptureSettingsSection,
     setup: CaptureSetup?,
     availableEvents: List<String>,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     enabled: Boolean,
     onSectionChange: (CaptureSettingsSection) -> Unit,
     onSelectTemplate: (SamplingTemplate) -> Unit,
@@ -200,7 +201,7 @@ internal fun CaptureSettingsDialog(
                     .fillMaxWidth()
                     .fillMaxHeight(0.84f)
                     .background(style.workspace, RoundedCornerShape(12.dp))
-                    .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(12.dp)),
+                    .border(ViewerDimensions.hairline, style.border, RoundedCornerShape(12.dp)),
             ) {
                 SettingsNavigation(section, style, onSectionChange, showUserGuide = onOpenUserGuide != null, locale = locale)
                 SettingsPanel(
@@ -228,7 +229,7 @@ internal fun CaptureSettingsDialog(
 @Composable
 private fun SettingsNavigation(
     section: CaptureSettingsSection,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onSectionChange: (CaptureSettingsSection) -> Unit,
     showUserGuide: Boolean,
     locale: java.util.Locale,
@@ -277,7 +278,7 @@ private fun SettingsPanel(
     section: CaptureSettingsSection,
     setup: CaptureSetup?,
     availableEvents: List<String>,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     enabled: Boolean,
     onSelectTemplate: (SamplingTemplate) -> Unit,
     onUpdate: (SamplingParameters) -> Unit,
@@ -346,7 +347,7 @@ private fun CaptureSettingsSection.subtitle(locale: java.util.Locale): String =
 @Composable
 private fun UserGuideSettingsPanel(
     onOpenUserGuide: () -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     locale: java.util.Locale,
 ) {
     MacOsPanel(Modifier.fillMaxWidth(), style) {
@@ -364,7 +365,7 @@ private fun UserGuideSettingsPanel(
 private fun FlameGraphSettingsPanel(
     selected: FlameTooltipMode,
     onSelect: (FlameTooltipMode) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     locale: java.util.Locale,
 ) {
     MacOsPanel(Modifier.fillMaxWidth(), style) {
@@ -389,7 +390,7 @@ private fun FlameGraphSettingsPanel(
 private fun SimpleperfEngineSettingsPanel(
     selected: SimpleperfEngine,
     onSelect: (SimpleperfEngine) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     locale: java.util.Locale,
 ) {
     MacOsPanel(Modifier.fillMaxWidth(), style) {
@@ -423,7 +424,7 @@ private fun SamplingTemplatePanel(
     setup: CaptureSetup?,
     enabled: Boolean,
     onSelectTemplate: (SamplingTemplate) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     locale: java.util.Locale,
     modifier: Modifier,
 ) {
@@ -442,7 +443,7 @@ private fun CaptureConfigurationPanel(
     availableEvents: List<String>,
     enabled: Boolean,
     onUpdate: (SamplingParameters) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     locale: java.util.Locale,
     modifier: Modifier,
 ) {
@@ -525,7 +526,7 @@ private fun AdvancedCaptureParameters(
     setup: CaptureSetup?,
     enabled: Boolean,
     onUpdate: (SamplingParameters) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     locale: java.util.Locale,
     modifier: Modifier,
 ) {
@@ -546,7 +547,7 @@ private fun AdvancedCaptureParameters(
 
 @Composable
 private fun EmptyParametersPanel(
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
     title: org.jetbrains.compose.resources.StringResource,
     locale: java.util.Locale,
@@ -563,7 +564,7 @@ internal fun MacOsTextField(
     value: String,
     enabled: Boolean,
     onValueChange: (String) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     modifier: Modifier,
 ) {
     val localizedLabel = localizedSimpleperfText(label)
@@ -579,12 +580,12 @@ internal fun MacOsTextField(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(MacOsDeviceTargetDimensions.selectorHeight)
-                    .background(style.field, RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius))
+                    .height(ViewerDimensions.selectorHeight)
+                    .background(style.field, RoundedCornerShape(ViewerDimensions.controlRadius))
                     .border(
-                        MacOsDeviceTargetDimensions.hairline,
+                        ViewerDimensions.hairline,
                         style.strongBorder,
-                        RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius),
+                        RoundedCornerShape(ViewerDimensions.controlRadius),
                     ).semantics { contentDescription = localizedLabel }
                     .padding(horizontal = 8.dp, vertical = 7.dp),
         )
@@ -597,7 +598,7 @@ internal fun MacOsInlineTextField(
     value: String,
     enabled: Boolean,
     onValueChange: (String) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     fieldWidth: Dp,
 ) {
     val localizedLabel = localizedSimpleperfText(label)
@@ -617,12 +618,12 @@ internal fun MacOsInlineTextField(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(MacOsDeviceTargetDimensions.selectorHeight)
-                        .background(style.field, RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius))
+                        .height(ViewerDimensions.selectorHeight)
+                        .background(style.field, RoundedCornerShape(ViewerDimensions.controlRadius))
                         .border(
-                            MacOsDeviceTargetDimensions.hairline,
+                            ViewerDimensions.hairline,
                             style.strongBorder,
-                            RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius),
+                            RoundedCornerShape(ViewerDimensions.controlRadius),
                         ).padding(horizontal = 8.dp, vertical = 7.dp),
             )
         }
@@ -635,7 +636,7 @@ private fun <T : Enum<T>> ParameterChoices(
     values: List<T>,
     selected: T,
     enabled: Boolean,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     locale: java.util.Locale,
     onSelect: (T) -> Unit,
 ) {
@@ -658,7 +659,7 @@ internal fun MacOsChoiceChip(
     label: String,
     selected: Boolean,
     enabled: Boolean,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onClick: () -> Unit,
 ) {
     val background = if (selected) style.accent else style.field
@@ -677,7 +678,7 @@ internal fun MacOsChoiceChip(
                     background,
                     RoundedCornerShape(5.dp),
                 ).border(
-                    MacOsDeviceTargetDimensions.hairline,
+                    ViewerDimensions.hairline,
                     if (selected) style.accent else style.strongBorder,
                     RoundedCornerShape(5.dp),
                 ).clickable(enabled = enabled, onClick = onClick)
@@ -700,7 +701,7 @@ private fun TemplateChoice(
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     locale: java.util.Locale,
 ) {
     val border = if (selected) style.accent else style.border
@@ -711,7 +712,7 @@ private fun TemplateChoice(
                 if (selected) style.accent.copy(alpha = SELECTED_TEMPLATE_ALPHA) else style.field,
                 RoundedCornerShape(6.dp),
             ).border(
-                MacOsDeviceTargetDimensions.hairline,
+                ViewerDimensions.hairline,
                 border,
                 RoundedCornerShape(6.dp),
             ).clickable(enabled = enabled, onClick = onClick)
@@ -742,7 +743,7 @@ private fun TemplateChoice(
 @Composable
 internal fun MacOsPanel(
     modifier: Modifier,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     content: @Composable () -> Unit,
 ) {
     Column(
@@ -750,7 +751,7 @@ internal fun MacOsPanel(
             .background(
                 style.panel,
                 RoundedCornerShape(9.dp),
-            ).border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(9.dp))
+            ).border(ViewerDimensions.hairline, style.border, RoundedCornerShape(9.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

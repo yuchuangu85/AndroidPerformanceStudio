@@ -1,5 +1,6 @@
 package com.androidperformancestudio.perfetto.presentation
 
+import com.androidperformancestudio.ui.UiLanguage
 import org.jetbrains.compose.resources.stringResource
 
 import com.androidperformancestudio.perfetto_presentation.generated.resources.Res
@@ -43,7 +44,7 @@ import java.nio.file.Path
 @Suppress("ktlint:standard:function-naming")
 fun PerfettoCapturePage(
     captureState: PerfettoCaptureState,
-    chinese: Boolean = false,
+    language: UiLanguage = UiLanguage.ENGLISH,
     onStartCapture: (PerfettoCaptureConfig, String) -> Unit,
     onStopCapture: () -> Unit,
     onOpenTrace: (Path) -> Unit,
@@ -65,7 +66,7 @@ fun PerfettoCapturePage(
             selectedTemplate = selectedTemplate,
             onSelectTemplate = { selectedTemplate = it },
             modifier = Modifier.width(260.dp).fillMaxHeight(),
-            chinese = chinese,
+            language = language,
         )
         PerfettoConfigurationPanel(
             captureState = captureState,
@@ -85,7 +86,7 @@ fun PerfettoCapturePage(
             onStopCapture = onStopCapture,
             onOpenTrace = onOpenTrace,
             modifier = Modifier.weight(1f).fillMaxHeight(),
-            chinese = chinese,
+            language = language,
         )
     }
 }
@@ -96,7 +97,7 @@ private fun PerfettoTemplatePanel(
     selectedTemplate: PerfettoTraceTemplate,
     onSelectTemplate: (PerfettoTraceTemplate) -> Unit,
     modifier: Modifier = Modifier,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     PerfettoWorkspacePanel(
         title = stringResource(Res.string.trace_template),
@@ -115,7 +116,7 @@ private fun PerfettoTemplatePanel(
                     template = template,
                     selected = selectedTemplate == template,
                     onClick = { onSelectTemplate(template) },
-                    chinese = chinese,
+                    language = language,
                 )
             }
         }
@@ -128,7 +129,7 @@ private fun PerfettoTemplateOption(
     template: PerfettoTraceTemplate,
     selected: Boolean,
     onClick: () -> Unit,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val shape = RoundedCornerShape(4.dp)
     Column(
@@ -148,7 +149,7 @@ private fun PerfettoTemplateOption(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
-            text = template.displayName(chinese),
+            text = template.displayName(language),
             color =
                 if (selected) {
                     MaterialTheme.colorScheme.onPrimaryContainer
@@ -161,7 +162,7 @@ private fun PerfettoTemplateOption(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = template.description(chinese),
+            text = template.description(language),
             color =
                 if (selected) {
                     MaterialTheme.colorScheme.onPrimaryContainer
@@ -198,7 +199,7 @@ private fun PerfettoConfigurationPanel(
     onStopCapture: () -> Unit,
     onOpenTrace: (Path) -> Unit,
     modifier: Modifier = Modifier,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val customConfigReady =
         selectedTemplate != PerfettoTraceTemplate.CUSTOM || customConfigText.isNotBlank()
@@ -314,7 +315,7 @@ private fun PerfettoConfigurationPanel(
                 }
             }
 
-            CaptureStatus(captureState, chinese)
+            CaptureStatus(captureState, language)
         }
     }
 }
@@ -332,7 +333,7 @@ private fun CompactFieldLabel(text: String) {
 
 @Composable
 @Suppress("ktlint:standard:function-naming")
-private fun CaptureStatus(state: PerfettoCaptureState, chinese: Boolean) {
+private fun CaptureStatus(state: PerfettoCaptureState, language: UiLanguage) {
     val inProgress =
         state is PerfettoCaptureState.Preparing ||
             state is PerfettoCaptureState.Recording ||
@@ -397,7 +398,7 @@ private fun isCaptureStartAllowed(
 }
 
 @Composable
-private fun PerfettoTraceTemplate.displayName(chinese: Boolean): String =
+private fun PerfettoTraceTemplate.displayName(language: UiLanguage): String =
     stringResource(when (this) {
             PerfettoTraceTemplate.SYSTEM_OVERVIEW -> Res.string.system_overview
             PerfettoTraceTemplate.APP_PERFORMANCE -> Res.string.app_performance
@@ -408,7 +409,7 @@ private fun PerfettoTraceTemplate.displayName(chinese: Boolean): String =
         }, )
 
 @Composable
-private fun PerfettoTraceTemplate.description(chinese: Boolean): String =
+private fun PerfettoTraceTemplate.description(language: UiLanguage): String =
     stringResource(when (this) {
             PerfettoTraceTemplate.SYSTEM_OVERVIEW -> Res.string.system_overview_description
             PerfettoTraceTemplate.APP_PERFORMANCE -> Res.string.app_performance_description

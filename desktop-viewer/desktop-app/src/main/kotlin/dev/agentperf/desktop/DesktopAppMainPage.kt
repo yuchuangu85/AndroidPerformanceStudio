@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import dev.agentperf.desktop_app.generated.resources.Res
 import dev.agentperf.desktop_app.generated.resources.*
@@ -76,8 +77,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
         settingsPage = page
         showSettings = true
     }
-    val chinese =
-        applicationSettings.language.resolve(Locale.getDefault()) == ApplicationLanguage.SIMPLIFIED_CHINESE
+    val language = applicationSettings.language.resolve(Locale.getDefault())
     val darkTheme = applicationSettings.theme.resolveDark(isSystemInDarkTheme())
     val simpleperfSettings =
         SimpleperfUiSettings(
@@ -115,7 +115,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                 when (navigator.destination) {
                     AppDestination.HOME ->
                         AppHomePage(
-                            chinese = chinese,
+                            language = language,
                             onOpenLayoutInspector = { navigator.open(AppDestination.LAYOUT_INSPECTOR) },
                             onOpenSimpleperf = { navigator.open(AppDestination.SIMPLEPERF) },
                             onOpenPerfetto = { navigator.open(AppDestination.PERFETTO) },
@@ -156,7 +156,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             onCaptureSettingsContextChanged = { simpleperfCaptureSettingsContext = it },
                             onOpenUserGuide = {
                                 val lang =
-                                    if (chinese) {
+                                    if (language == UiLanguage.SIMPLIFIED_CHINESE) {
                                         UserDocumentationLanguage.SIMPLIFIED_CHINESE
                                     } else {
                                         UserDocumentationLanguage.ENGLISH
@@ -168,13 +168,13 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                         )
                     AppDestination.PERFETTO ->
                         PerfettoMainPage(
-                            chinese = chinese,
+                            language = language,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
                             initialTraceNotice = navigator.perfettoTraceNotice,
                             onOpenUserGuide = {
                                 val lang =
-                                    if (chinese) {
+                                    if (language == UiLanguage.SIMPLIFIED_CHINESE) {
                                         UserDocumentationLanguage.SIMPLIFIED_CHINESE
                                     } else {
                                         UserDocumentationLanguage.ENGLISH
@@ -186,13 +186,13 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                         )
                     AppDestination.MEMORY_PROFILER ->
                         MemoryProfilerMainPage(
-                            chinese = chinese,
+                            language = language,
                             highlightClassName = memoryHighlightClassName,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.FRAME_PROFILER ->
                         FrameProfilerMainPage(
-                            chinese = chinese,
+                            language = language,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenLayoutInspector = { request ->
                                 val activity =
@@ -201,61 +201,61 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                                         ?.let { " · $it" }
                                         .orEmpty()
                                 val message =
-                                    localizedStringResource(Res.string.layout_correlation_from_frame, chinese, request.frameId, request.packageName, activity)
+                                    localizedStringResource(Res.string.layout_correlation_from_frame, language, request.frameId, request.packageName, activity)
                                 navigator.openLayoutInspector(
                                     InspectorCorrelationHint(
                                         deviceSerial = request.deviceSerial,
                                         targetPackageName = request.packageName,
                                         message = message,
                                         correlationNotice =
-                                            localizedStringResource(Res.string.correlation_only_no_view_causality_is_inferred, chinese),
+                                            localizedStringResource(Res.string.correlation_only_no_view_causality_is_inferred, language),
                                         foregroundMismatchPrefix =
-                                            localizedStringResource(Res.string.foreground_package_differs, chinese),
+                                            localizedStringResource(Res.string.foreground_package_differs, language),
                                     ),
                                 )
                             },
                         )
                     AppDestination.STARTUP_PROFILER ->
                         StartupProfilerMainPage(
-                            chinese = chinese,
+                            language = language,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.BATTERY_PROFILER ->
                         BatteryProfilerMainPage(
-                            chinese = chinese,
+                            language = language,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.NETWORK_PROFILER ->
                         NetworkProfilerMainPage(
-                            chinese = chinese,
+                            language = language,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.GPU_INSPECTOR ->
                         GpuIntegrationMainPage(
-                            chinese = chinese,
+                            language = language,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenTrace = { path ->
                                 navigator.openPerfettoTrace(
                                     path,
                                     localizedStringResource(
                                         Res.string.opened_from_tool_for_correlation_only,
-                                        chinese,
-                                        localizedStringResource(Res.string.gpu_inspector, chinese),
+                                        language,
+                                        localizedStringResource(Res.string.gpu_inspector, language),
                                     ),
                                 )
                             },
                         )
                     AppDestination.BENCHMARK_REGRESSION ->
                         BenchmarkRegressionMainPage(
-                            chinese = chinese,
+                            language = language,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenTrace = { path ->
                                 navigator.openPerfettoTrace(
                                     path,
                                     localizedStringResource(
                                         Res.string.opened_from_tool_for_correlation_only,
-                                        chinese,
-                                        localizedStringResource(Res.string.benchmark_regression, chinese),
+                                        language,
+                                        localizedStringResource(Res.string.benchmark_regression, language),
                                     ),
                                 )
                             },
@@ -269,15 +269,15 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                         simpleperfCaptureSettingsContext = simpleperfCaptureSettingsContext,
                         simpleperfInitialSection = simpleperfSettingsSection,
                         darkTheme = darkTheme,
-                        chinese = chinese,
-                        simpleperfLocale = if (chinese) java.util.Locale.SIMPLIFIED_CHINESE else java.util.Locale.ENGLISH,
+                        language = language,
+                        simpleperfLocale = if (language == UiLanguage.SIMPLIFIED_CHINESE) java.util.Locale.SIMPLIFIED_CHINESE else java.util.Locale.ENGLISH,
                         onPageSelected = { settingsPage = it },
                         onApplicationSettingsChanged = updateApplicationSettings,
                         onSimpleperfSettingsChanged = updateSimpleperfPreferences,
                         onLayoutInspectorSettingsChanged = { layoutInspectorSettingsRevision += 1 },
                         onOpenUserGuide = {
                             val lang =
-                                if (chinese) {
+                                if (language == UiLanguage.SIMPLIFIED_CHINESE) {
                                     UserDocumentationLanguage.SIMPLIFIED_CHINESE
                                 } else {
                                     UserDocumentationLanguage.ENGLISH

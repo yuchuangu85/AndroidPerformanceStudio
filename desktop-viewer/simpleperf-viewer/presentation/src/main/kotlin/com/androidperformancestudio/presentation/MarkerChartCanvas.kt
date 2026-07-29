@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileMarkerId
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerColors
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
@@ -36,7 +36,7 @@ internal fun MarkerChartCanvas(
     snapshot: MarkerProjectionSnapshot,
     viewport: StackChartViewport,
     selectedMarkerId: ProfileMarkerId?,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     onSelect: (ProfileMarkerId?) -> Unit,
 ) {
     var widthPixels by remember { mutableIntStateOf(0) }

@@ -3,6 +3,7 @@ package dev.agentperf.desktop
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.presentation.FlameTooltipMode
 import com.androidperformancestudio.presentation.SimpleperfEngine
+import com.androidperformancestudio.ui.UiLanguage
 import java.util.Locale
 import java.util.prefs.Preferences
 
@@ -25,27 +26,17 @@ internal enum class ApplicationThemePreference(val storageValue: String) {
     }
 }
 
-internal enum class ApplicationLanguage {
-    SIMPLIFIED_CHINESE,
-    ENGLISH,
-}
-
 internal enum class ApplicationLanguagePreference(val storageValue: String) {
     SYSTEM("system"),
     SIMPLIFIED_CHINESE("simplified_chinese"),
     ENGLISH("english"),
     ;
 
-    fun resolve(locale: Locale): ApplicationLanguage =
+    fun resolve(locale: Locale): UiLanguage =
         when (this) {
-            SYSTEM ->
-                if (locale.language.equals("zh", ignoreCase = true)) {
-                    ApplicationLanguage.SIMPLIFIED_CHINESE
-                } else {
-                    ApplicationLanguage.ENGLISH
-                }
-            SIMPLIFIED_CHINESE -> ApplicationLanguage.SIMPLIFIED_CHINESE
-            ENGLISH -> ApplicationLanguage.ENGLISH
+            SYSTEM -> UiLanguage.fromLocale(locale)
+            SIMPLIFIED_CHINESE -> UiLanguage.SIMPLIFIED_CHINESE
+            ENGLISH -> UiLanguage.ENGLISH
         }
 
     companion object {

@@ -64,12 +64,12 @@ internal object FlameGraphSemanticsPresenter {
         language: SimpleperfLanguage,
     ): FlameGraphSemanticNode? {
         val node = semanticFacts(snapshot, nodeId, language) ?: return null
-        val chinese = language == SimpleperfLanguage.SIMPLIFIED_CHINESE
+        val uiLanguage = language.uiLanguage
         val states =
             listOfNotNull(
-                localizedStringResource(ViewerRes.sp_semantic_selected, chinese).takeIf { nodeId == selectedNodeId },
-                localizedStringResource(ViewerRes.sp_semantic_hovered, chinese).takeIf { nodeId == hoveredNodeId },
-                localizedStringResource(ViewerRes.sp_semantic_context_menu_open, chinese).takeIf { nodeId == contextNodeId },
+                localizedStringResource(ViewerRes.sp_semantic_selected, uiLanguage).takeIf { nodeId == selectedNodeId },
+                localizedStringResource(ViewerRes.sp_semantic_hovered, uiLanguage).takeIf { nodeId == hoveredNodeId },
+                localizedStringResource(ViewerRes.sp_semantic_context_menu_open, uiLanguage).takeIf { nodeId == contextNodeId },
             )
         val stateDescription =
             listOf(node.stateDescription, states.joinToString())
@@ -183,12 +183,12 @@ private fun semanticFacts(
     val inclusiveWeight = snapshot.callNodes.inclusiveWeightAt(index) ?: return null
     val sampleCount = snapshot.callNodes.sampleCountAt(index) ?: 0L
     val percent = percentage(inclusiveWeight, snapshot.totalWeight)
-    val chinese = language == SimpleperfLanguage.SIMPLIFIED_CHINESE
+    val uiLanguage = language.uiLanguage
     return SemanticFacts(
         contentDescription =
             localizedStringResource(
                 ViewerRes.sp_semantic_flame_content,
-                chinese,
+                uiLanguage,
                 frame.symbolName,
                 percent,
                 category,
@@ -200,7 +200,7 @@ private fun semanticFacts(
                 } else {
                     ViewerRes.sp_semantic_flame_state_multiple
                 },
-                chinese,
+                uiLanguage,
                 frame.implementation.label,
                 inclusiveWeight,
                 sampleCount,

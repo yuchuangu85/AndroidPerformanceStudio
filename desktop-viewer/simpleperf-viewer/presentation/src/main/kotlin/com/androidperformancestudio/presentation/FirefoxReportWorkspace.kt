@@ -35,8 +35,8 @@ import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
-import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerColors
 import java.awt.Cursor
 import kotlin.math.roundToInt
 
@@ -46,7 +46,7 @@ internal fun FirefoxReportWorkspace(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     flameTooltipMode: FlameTooltipMode,
 ) {
     Column(
@@ -54,7 +54,7 @@ internal fun FirefoxReportWorkspace(
             Modifier
                 .fillMaxSize()
                 .background(style.panel, RoundedCornerShape(10.dp))
-                .border(MacOsDeviceTargetDimensions.hairline, style.border, RoundedCornerShape(10.dp))
+                .border(ViewerDimensions.hairline, style.border, RoundedCornerShape(10.dp))
                 .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -106,7 +106,7 @@ internal fun FirefoxReportWorkspace(
 private fun TimelineResizeHandle(
     currentHeightDp: Int,
     onHeightChange: (Int) -> Unit,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
 ) {
     val density = LocalDensity.current
     val latestHeightDp by rememberUpdatedState(currentHeightDp)
@@ -151,7 +151,7 @@ private fun FirefoxReportContentAndDetails(
     state: ReportState,
     report: ReportData,
     actions: ReportActions,
-    style: MacOsDeviceTargetStyle,
+    style: ViewerColors,
     flameTooltipMode: FlameTooltipMode,
     modifier: Modifier,
 ) {

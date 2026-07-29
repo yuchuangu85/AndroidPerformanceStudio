@@ -35,27 +35,27 @@ class FrameProfilerWorkspaceSourceTest {
         assertTrue(homeBlock.contains("onBack()"))
 
         assertBlockContains(
-            "localizedStringResource(Res.string.refresh, chinese)",
+            "localizedStringResource(Res.string.refresh, language)",
             "enabled = !state.isCapturing && !state.isRefreshingDevices",
             "controller.refreshDevices()",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.start_capture, chinese)",
+            "localizedStringResource(Res.string.start_capture, language)",
             "enabled = state.selectedProcessId != null",
             "if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.import_framestats, chinese)",
+            "localizedStringResource(Res.string.import_framestats, language)",
             "enabled = !state.isCapturing",
             "showImportDialog = true",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.export_csv, chinese)",
+            "localizedStringResource(Res.string.export_csv, language)",
             "enabled = state.analysis != null",
             "controller.exportCsv(output.toPath())",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.export_json, chinese)",
+            "localizedStringResource(Res.string.export_json, language)",
             "enabled = state.analysis != null",
             "controller.exportJson(output.toPath())",
         )
@@ -71,12 +71,12 @@ class FrameProfilerWorkspaceSourceTest {
     @Test
     fun `selectors preserve controller callbacks and capture enabled predicates`() {
         assertBlockContains(
-            "localizedStringResource(Res.string.device, chinese)",
+            "localizedStringResource(Res.string.device, language)",
             "enabled = !state.isCapturing",
             "controller.selectDevice(serial)",
         )
         assertBlockContains(
-            "localizedStringResource(Res.string.process, chinese)",
+            "localizedStringResource(Res.string.process, language)",
             "enabled = !state.isCapturing && state.selectedDeviceSerial != null",
             "controller::selectProcess",
         )

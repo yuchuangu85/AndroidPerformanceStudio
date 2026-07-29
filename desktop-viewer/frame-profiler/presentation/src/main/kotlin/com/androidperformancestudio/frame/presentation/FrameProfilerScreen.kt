@@ -9,6 +9,7 @@
 
 package com.androidperformancestudio.frame.presentation
 
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.frame.presentation.generated.resources.Res
 import com.androidperformancestudio.frame.presentation.generated.resources.*
@@ -53,19 +54,19 @@ import kotlin.math.floor
 public fun FrameProfilerScreen(
     state: FrameProfilerState,
     actions: FrameProfilerActions,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize()) {
         val analysis = state.analysis
         if (analysis == null) {
-            EmptyState(state = state, chinese = chinese)
+            EmptyState(state = state, language = language)
         } else {
             AnalysisContent(
                 state = state,
                 analysis = analysis,
                 actions = actions,
-                chinese = chinese,
+                language = language,
             )
         }
         if (state.isLoading) {
@@ -82,7 +83,7 @@ public fun FrameProfilerScreen(
 @Composable
 private fun EmptyState(
     state: FrameProfilerState,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(48.dp),
@@ -92,9 +93,9 @@ private fun EmptyState(
         Text(
             text =
                 if (state.isCapturing) {
-                    localizedStringResource(Res.string.waiting_for_live_frame_data, chinese)
+                    localizedStringResource(Res.string.waiting_for_live_frame_data, language)
                 } else {
-                    localizedStringResource(Res.string.capture_online_or_import_framestats, chinese)
+                    localizedStringResource(Res.string.capture_online_or_import_framestats, language)
                 },
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
@@ -102,7 +103,7 @@ private fun EmptyState(
         Spacer(Modifier.height(12.dp))
         Text(
             text =
-                localizedStringResource(Res.string.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf, chinese),
+                localizedStringResource(Res.string.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf, language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         state.operationMessage?.let { Text(it, modifier = Modifier.padding(top = 16.dp)) }
@@ -117,7 +118,7 @@ private fun AnalysisContent(
     state: FrameProfilerState,
     analysis: FrameAnalysisResult,
     actions: FrameProfilerActions,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val selected =
         analysis.frames.firstOrNull { it.sample.frameId == state.selectedFrameId }
@@ -126,14 +127,14 @@ private fun AnalysisContent(
         state.importedFileName?.let {
             Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
-        SummaryCards(analysis, chinese)
+        SummaryCards(analysis, language)
         state.warnings.forEach { warning ->
             Text(warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
             Column(Modifier.padding(8.dp)) {
                 Text(
-                    localizedStringResource(Res.string.frame_timeline, chinese),
+                    localizedStringResource(Res.string.frame_timeline, language),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -148,11 +149,11 @@ private fun AnalysisContent(
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FrameDetail(
                 frame = selected,
-                chinese = chinese,
+                language = language,
                 onInspectLayout = actions.onInspectLayout,
                 modifier = Modifier.weight(1.2f).fillMaxSize(),
             )
-            ClusterList(analysis, chinese, Modifier.weight(1f).fillMaxSize())
+            ClusterList(analysis, language, Modifier.weight(1f).fillMaxSize())
         }
     }
 }
@@ -160,19 +161,19 @@ private fun AnalysisContent(
 @Composable
 private fun SummaryCards(
     analysis: FrameAnalysisResult,
-    chinese: Boolean,
+    language: UiLanguage,
 ) {
     val summary = analysis.summary
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        MetricCard(localizedStringResource(Res.string.frames, chinese), summary.totalFrames.toString(), Modifier.weight(1f))
+        MetricCard(localizedStringResource(Res.string.frames, language), summary.totalFrames.toString(), Modifier.weight(1f))
         MetricCard(
-            localizedStringResource(Res.string.jank_rate, chinese),
+            localizedStringResource(Res.string.jank_rate, language),
             "%.1f%%".format(summary.jankRate * 100.0),
             Modifier.weight(1f),
         )
-        MetricCard(localizedStringResource(Res.string.p50, chinese), summary.p50DurationNs.formatMillis(), Modifier.weight(1f))
-        MetricCard(localizedStringResource(Res.string.p95, chinese), summary.p95DurationNs.formatMillis(), Modifier.weight(1f))
-        MetricCard(localizedStringResource(Res.string.worst, chinese), summary.worstDurationNs.formatMillis(), Modifier.weight(1f))
+        MetricCard(localizedStringResource(Res.string.p50, language), summary.p50DurationNs.formatMillis(), Modifier.weight(1f))
+        MetricCard(localizedStringResource(Res.string.p95, language), summary.p95DurationNs.formatMillis(), Modifier.weight(1f))
+        MetricCard(localizedStringResource(Res.string.worst, language), summary.worstDurationNs.formatMillis(), Modifier.weight(1f))
     }
 }
 
@@ -242,7 +243,7 @@ private fun FrameTimeline(
 @Composable
 private fun FrameDetail(
     frame: AnalyzedFrame?,
-    chinese: Boolean,
+    language: UiLanguage,
     onInspectLayout: (com.androidperformancestudio.frame.model.FrameSample) -> Unit,
     modifier: Modifier,
 ) {
@@ -252,39 +253,39 @@ private fun FrameDetail(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                localizedStringResource(Res.string.frame_detail, chinese),
+                localizedStringResource(Res.string.frame_detail, language),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             if (frame == null) return@Column
-            DetailRow(localizedStringResource(Res.string.frame, chinese), "#${frame.sample.frameId}")
-            DetailRow(localizedStringResource(Res.string.source, chinese), frame.sample.source.name)
-            frame.sample.activityName?.let { DetailRow(localizedStringResource(Res.string.activity, chinese), it.substringAfterLast('.')) }
-            frame.sample.windowId?.let { DetailRow(localizedStringResource(Res.string.window, chinese), it) }
-            DetailRow(localizedStringResource(Res.string.verdict, chinese), frame.verdict.name)
-            DetailRow(localizedStringResource(Res.string.platform_jank, chinese), frame.sample.platformJank?.toString() ?: "—")
-            DetailRow(localizedStringResource(Res.string.duration, chinese), frame.sample.resolvedDurationNs().formatMillis())
-            DetailRow(localizedStringResource(Res.string.budget, chinese), frame.sample.expectedDurationNs.formatMillis())
-            DetailRow(localizedStringResource(Res.string.budget_source, chinese), frame.sample.expectedDurationSource.name)
-            DetailRow(localizedStringResource(Res.string.missed_vsync, chinese), frame.missedVsyncCount?.toString() ?: "—")
-            DetailRow(localizedStringResource(Res.string.bottleneck, chinese), frame.bottleneckStage ?: "—")
+            DetailRow(localizedStringResource(Res.string.frame, language), "#${frame.sample.frameId}")
+            DetailRow(localizedStringResource(Res.string.source, language), frame.sample.source.name)
+            frame.sample.activityName?.let { DetailRow(localizedStringResource(Res.string.activity, language), it.substringAfterLast('.')) }
+            frame.sample.windowId?.let { DetailRow(localizedStringResource(Res.string.window, language), it) }
+            DetailRow(localizedStringResource(Res.string.verdict, language), frame.verdict.name)
+            DetailRow(localizedStringResource(Res.string.platform_jank, language), frame.sample.platformJank?.toString() ?: "—")
+            DetailRow(localizedStringResource(Res.string.duration, language), frame.sample.resolvedDurationNs().formatMillis())
+            DetailRow(localizedStringResource(Res.string.budget, language), frame.sample.expectedDurationNs.formatMillis())
+            DetailRow(localizedStringResource(Res.string.budget_source, language), frame.sample.expectedDurationSource.name)
+            DetailRow(localizedStringResource(Res.string.missed_vsync, language), frame.missedVsyncCount?.toString() ?: "—")
+            DetailRow(localizedStringResource(Res.string.bottleneck, language), frame.bottleneckStage ?: "—")
             if (frame.jankTypes.isNotEmpty()) {
-                DetailRow(localizedStringResource(Res.string.jank_types, chinese), frame.jankTypes.joinToString { it.name })
+                DetailRow(localizedStringResource(Res.string.jank_types, language), frame.jankTypes.joinToString { it.name })
             }
             Spacer(Modifier.height(4.dp))
             frame.sample.stages
                 .values()
                 .forEach { (name, duration) -> DetailRow(name, duration.formatMillis()) }
             frame.sample.states.forEach { (key, value) ->
-                DetailRow(localizedStringResource(Res.string.state_detail, chinese, key), value)
+                DetailRow(localizedStringResource(Res.string.state_detail, language, key), value)
             }
             if (frame.sample.packageName != null) {
                 Spacer(Modifier.height(4.dp))
                 OutlinedButton(onClick = { onInspectLayout(frame.sample) }) {
-                    Text(localizedStringResource(Res.string.correlate_in_layout_inspector, chinese))
+                    Text(localizedStringResource(Res.string.correlate_in_layout_inspector, language))
                 }
                 Text(
-                    localizedStringResource(Res.string.opens_the_current_foreground_layout_for_timing_correlation_it_does, chinese),
+                    localizedStringResource(Res.string.opens_the_current_foreground_layout_for_timing_correlation_it_does, language),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -307,20 +308,20 @@ private fun DetailRow(
 @Composable
 private fun ClusterList(
     analysis: FrameAnalysisResult,
-    chinese: Boolean,
+    language: UiLanguage,
     modifier: Modifier,
 ) {
     Card(modifier = modifier) {
         Column(Modifier.fillMaxSize().padding(8.dp)) {
             Text(
-                localizedStringResource(Res.string.jank_clusters, chinese),
+                localizedStringResource(Res.string.jank_clusters, language),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(8.dp))
             if (analysis.clusters.isEmpty()) {
                 Text(
-                    localizedStringResource(Res.string.no_jank_clusters_detected, chinese),
+                    localizedStringResource(Res.string.no_jank_clusters_detected, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
@@ -336,13 +337,13 @@ private fun ClusterList(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Column {
-                                Text(localizedStringResource(Res.string.text, chinese, cluster.firstFrameId, cluster.lastFrameId), fontWeight = FontWeight.Medium)
+                                Text(localizedStringResource(Res.string.text, language, cluster.firstFrameId, cluster.lastFrameId), fontWeight = FontWeight.Medium)
                                 Text(
                                     localizedStringResource(
                                         Res.string.jank_cluster_summary,
-                                        chinese,
+                                        language,
                                         cluster.jankFrameIds.size,
-                                        cluster.dominantStage ?: localizedStringResource(Res.string.unknown_stage, chinese),
+                                        cluster.dominantStage ?: localizedStringResource(Res.string.unknown_stage, language),
                                     ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,

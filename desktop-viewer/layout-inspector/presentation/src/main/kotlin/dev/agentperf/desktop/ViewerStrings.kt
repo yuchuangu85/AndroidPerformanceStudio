@@ -1,6 +1,7 @@
 package dev.agentperf.desktop
 
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import dev.agentperf.presentation.generated.resources.ViewerRes
 import org.jetbrains.compose.resources.StringResource
@@ -21,8 +22,12 @@ import kotlin.math.roundToInt
 internal class ViewerStrings private constructor(
     val language: ViewerLanguage,
 ) {
-    private val chinese: Boolean
-        get() = language == ViewerLanguage.SIMPLIFIED_CHINESE
+    private val uiLanguage: UiLanguage
+        get() =
+            when (language) {
+                ViewerLanguage.ENGLISH -> UiLanguage.ENGLISH
+                ViewerLanguage.SIMPLIFIED_CHINESE -> UiLanguage.SIMPLIFIED_CHINESE
+            }
 
     // ---- Simple strings (loaded from resources) ----
 
@@ -261,10 +266,10 @@ internal class ViewerStrings private constructor(
 
     // ---- Resource loading ----
 
-    private fun str(resource: StringResource): String = localizedStringResource(resource, chinese)
+    private fun str(resource: StringResource): String = localizedStringResource(resource, uiLanguage)
 
     private fun fmt(resource: StringResource, vararg args: Any?): String =
-        localizedStringResource(resource, chinese, *args)
+        localizedStringResource(resource, uiLanguage, *args)
 
     companion object {
         fun forLanguage(language: ViewerLanguage): ViewerStrings = ViewerStrings(language)
