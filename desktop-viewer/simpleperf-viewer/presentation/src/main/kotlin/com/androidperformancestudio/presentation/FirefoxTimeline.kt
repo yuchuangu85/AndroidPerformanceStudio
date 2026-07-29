@@ -53,6 +53,7 @@ import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 import com.androidperformancestudio.visualization.NavigationAction
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineCanvas

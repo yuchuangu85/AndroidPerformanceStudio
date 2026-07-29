@@ -20,3 +20,7 @@ include(
 includeBuild("../simpleperf-viewer") {
     name = "gpu-inspector-simpleperf-tooling"
 }
+
+includeBuild("../ui-components") {
+    name = "gpu-inspector-integration-ui-components"
+}

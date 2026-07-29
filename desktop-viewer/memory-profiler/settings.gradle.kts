@@ -31,3 +31,7 @@ include(
 includeBuild("../simpleperf-viewer") {
     name = "memory-profiler-simpleperf-tooling"
 }
+
+includeBuild("../ui-components") {
+    name = "memory-profiler-ui-components"
+}

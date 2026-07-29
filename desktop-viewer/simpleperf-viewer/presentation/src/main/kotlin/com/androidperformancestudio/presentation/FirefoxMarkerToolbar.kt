@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.ReportState
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 import kotlinx.coroutines.delay
 
 @Composable

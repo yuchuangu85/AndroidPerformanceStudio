@@ -18,6 +18,11 @@ rootProject.name = "AndroidPerfermanceStudio"
 
 include(":desktop-app")
 
+// Shared public Compose controls used by every application and presentation module.
+includeBuild("ui-components") {
+    name = "ui-components"
+}
+
 val layoutInspectorModules =
     listOf(
         "shared-kernel:protocol-model",

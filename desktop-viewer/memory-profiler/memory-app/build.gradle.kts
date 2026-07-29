@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":memory-model"))
     implementation(project(":capture-memory"))
     implementation(project(":parser-hprof"))

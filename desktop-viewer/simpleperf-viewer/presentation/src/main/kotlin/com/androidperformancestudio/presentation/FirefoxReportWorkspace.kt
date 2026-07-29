@@ -35,6 +35,8 @@ import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 import java.awt.Cursor
 import kotlin.math.roundToInt
 

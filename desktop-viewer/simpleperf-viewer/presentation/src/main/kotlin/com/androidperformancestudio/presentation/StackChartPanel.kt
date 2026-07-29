@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.profileanalysis.StackChartEmptyReason
 import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")

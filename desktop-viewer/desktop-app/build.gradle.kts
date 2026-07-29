@@ -68,7 +68,7 @@ java {
 val targetArch = project.findProperty("target.arch")?.toString()
 
 dependencies {
-    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":layout-inspector:presentation"))
     implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:perfetto-app:0.1.0-SNAPSHOT")

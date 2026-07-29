@@ -20,6 +20,8 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")

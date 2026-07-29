@@ -58,6 +58,11 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.ui.MacOSHomeButton
+import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.ProfilerHomeButton
+import com.androidperformancestudio.ui.macOsDeviceTargetStyle
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -152,61 +157,13 @@ private fun WorkspaceToolbar(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (onNavigateHome != null) {
-            CompactHomeButton(
+            MacOSHomeButton(
                 contentDescription = localizedSimpleperfText("Back to home"),
                 style = style,
                 onClick = onNavigateHome,
             )
         }
         ToolbarContent(state, actions, style, enabled, showGetData, onOpenSettings)
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun CompactHomeButton(
-    contentDescription: String,
-    style: MacOsDeviceTargetStyle,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier =
-            Modifier
-                .width(28.dp)
-                .height(MacOsDeviceTargetDimensions.buttonHeight)
-                .clip(RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius))
-                .background(style.panel)
-                .border(
-                    MacOsDeviceTargetDimensions.hairline,
-                    style.strongBorder,
-                    RoundedCornerShape(MacOsDeviceTargetDimensions.controlRadius),
-                ).semantics { this.contentDescription = contentDescription }
-                .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.size(15.dp)) {
-            val strokeWidth = 1.2.dp.toPx()
-            val roofLeft = Offset(1.5.dp.toPx(), 7.dp.toPx())
-            val roofPeak = Offset(size.width / 2f, 1.8.dp.toPx())
-            val roofRight = Offset(size.width - 1.5.dp.toPx(), 7.dp.toPx())
-            val wallLeft = 3.2.dp.toPx()
-            val wallRight = size.width - 3.2.dp.toPx()
-            val wallTop = 6.2.dp.toPx()
-            val wallBottom = size.height - 1.8.dp.toPx()
-            val doorWidth = 3.6.dp.toPx()
-
-            drawLine(style.secondaryText, roofLeft, roofPeak, strokeWidth)
-            drawLine(style.secondaryText, roofPeak, roofRight, strokeWidth)
-            drawLine(style.secondaryText, Offset(wallLeft, wallTop), Offset(wallLeft, wallBottom), strokeWidth)
-            drawLine(style.secondaryText, Offset(wallRight, wallTop), Offset(wallRight, wallBottom), strokeWidth)
-            drawLine(style.secondaryText, Offset(wallLeft, wallBottom), Offset(wallRight, wallBottom), strokeWidth)
-            drawRect(
-                color = style.secondaryText,
-                topLeft = Offset((size.width - doorWidth) / 2f, 9.dp.toPx()),
-                size = Size(doorWidth, wallBottom - 9.dp.toPx()),
-                style = Stroke(width = strokeWidth),
-            )
-        }
     }
 }
 

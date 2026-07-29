@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")

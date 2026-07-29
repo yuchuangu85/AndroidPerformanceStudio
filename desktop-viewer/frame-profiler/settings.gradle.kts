@@ -32,3 +32,7 @@ include(
 includeBuild("../simpleperf-viewer") {
     name = "frame-profiler-simpleperf-tooling"
 }
+
+includeBuild("../ui-components") {
+    name = "frame-profiler-ui-components"
+}

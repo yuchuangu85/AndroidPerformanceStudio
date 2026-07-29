@@ -22,3 +22,7 @@ include(
 )
 
 includeBuild("../simpleperf-viewer") { name = "battery-profiler-simpleperf-tooling" }
+
+includeBuild("../ui-components") {
+    name = "battery-profiler-ui-components"
+}

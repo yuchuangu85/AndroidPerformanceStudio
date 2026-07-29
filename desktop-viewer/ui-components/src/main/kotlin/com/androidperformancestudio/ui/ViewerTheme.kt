@@ -1,4 +1,4 @@
-package dev.agentperf.desktop
+package com.androidperformancestudio.ui
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -9,7 +9,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-internal data class ViewerColors(
+data class ViewerColors(
     val isDark: Boolean,
     val panel: Color,
     val canvasBackground: Color,
@@ -112,12 +112,12 @@ internal object ViewerPalettes {
     fun forDark(darkTheme: Boolean): ViewerColors = if (darkTheme) dark else light
 }
 
-internal val LocalViewerColors = staticCompositionLocalOf {
+val LocalViewerColors = staticCompositionLocalOf {
     ViewerPalettes.forDark(true)
 }
 
 @Composable
-internal fun ViewerTheme(
+fun ViewerTheme(
     darkTheme: Boolean,
     content: @Composable () -> Unit,
 ) {

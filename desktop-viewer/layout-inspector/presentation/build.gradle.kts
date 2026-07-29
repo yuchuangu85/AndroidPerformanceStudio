@@ -20,7 +20,7 @@ java {
 }
 
 dependencies {
-    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":layout-inspector:adb-gateway"))
     implementation(project(":layout-inspector:application"))
     implementation(libs.kotlinx.coroutines.core)

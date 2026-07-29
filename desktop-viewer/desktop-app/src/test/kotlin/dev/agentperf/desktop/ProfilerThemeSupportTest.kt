@@ -17,7 +17,7 @@ class ProfilerThemeSupportTest {
 
     @Test
     fun `unified shell paints an adaptive background around every profiler`() {
-        val shell = Files.readString(Path.of("src/main/kotlin/dev/agentperf/desktop/MainDesktopAppPage.kt"))
+        val shell = Files.readString(Path.of("src/main/kotlin/dev/agentperf/desktop/DesktopAppMainPage.kt"))
 
         assertTrue(shell.contains("viewerMaterialColorScheme(darkTheme)"))
         assertTrue(shell.contains("compactDesktopTypography()"))
@@ -33,7 +33,7 @@ class ProfilerThemeSupportTest {
             val content = Files.readString(source)
             assertTrue(
                 content.contains("ProfilerMacOsToolbar {"),
-                "$source must use the shared 32dp profiler toolbar",
+                "$source must use the shared compact profiler toolbar",
             )
             assertTrue(
                 OUTLINE_DIVIDER.containsMatchIn(content),
@@ -63,7 +63,7 @@ class ProfilerThemeSupportTest {
         val sharedButton =
             Files.readString(
                 desktopViewer.resolve(
-                    "simpleperf-viewer/desktop-ui/src/main/kotlin/" +
+                    "ui-components/src/main/kotlin/" +
                         "com/androidperformancestudio/ui/ProfilerHomeButton.kt",
                 ),
             )
@@ -78,7 +78,7 @@ class ProfilerThemeSupportTest {
             Files.readString(
                 desktopViewer.resolve(
                     "simpleperf-viewer/presentation/src/main/kotlin/" +
-                        "com/androidperformancestudio/presentation/MacOsDeviceTargetStyle.kt",
+                        "com/androidperformancestudio/ui/MacOsDeviceTargetStyle.kt",
                 ),
             )
         val perfetto =

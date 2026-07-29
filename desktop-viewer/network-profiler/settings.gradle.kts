@@ -26,3 +26,7 @@ include(
 includeBuild("../simpleperf-viewer") {
     name = "network-profiler-simpleperf-tooling"
 }
+
+includeBuild("../ui-components") {
+    name = "network-profiler-ui-components"
+}

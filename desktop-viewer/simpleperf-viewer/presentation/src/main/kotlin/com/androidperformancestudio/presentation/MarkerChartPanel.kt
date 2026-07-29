@@ -16,6 +16,7 @@ import com.androidperformancestudio.storage.MarkerAvailability
 import com.androidperformancestudio.storage.MarkerEmptyReason
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")

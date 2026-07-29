@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.StackChartBlockId
 import com.androidperformancestudio.profileanalysis.StackChartSnapshot
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 import kotlin.math.max
 import kotlin.math.min
 

@@ -31,3 +31,7 @@ include(
 includeBuild("../simpleperf-viewer") {
     name = "startup-profiler-simpleperf-tooling"
 }
+
+includeBuild("../ui-components") {
+    name = "startup-profiler-ui-components"
+}

@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":desktop-ui"))
+    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":analysis-rules"))
     api(project(":application"))
     api(project(":capture-simpleperf"))

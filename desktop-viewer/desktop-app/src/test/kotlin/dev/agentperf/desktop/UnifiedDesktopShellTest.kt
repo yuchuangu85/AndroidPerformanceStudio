@@ -14,12 +14,12 @@ class UnifiedDesktopShellTest {
     fun `main opens the unified shell`() {
         val main = Files.readString(sourceRoot.resolve("Main.kt"))
         assertTrue(main.contains("SettingsRequest(SettingsPage.GENERAL, nextSettingsRequestId)"))
-        assertTrue(main.contains("UnifiedDesktopApp(settingsRequest = settingsRequest)"))
+        assertTrue(main.contains("DesktopAppMainPage(settingsRequest = settingsRequest)"))
     }
 
     @Test
     fun `shell exposes all feature destinations`() {
-        val shell = Files.readString(sourceRoot.resolve("MainDesktopAppPage.kt"))
+        val shell = Files.readString(sourceRoot.resolve("DesktopAppMainPage.kt"))
         val home = Files.readString(sourceRoot.resolve("AppHomePage.kt"))
         val simpleperfRoute =
             shell.substringAfter("AppDestination.SIMPLEPERF ->")
@@ -28,26 +28,26 @@ class UnifiedDesktopShellTest {
             shell.substringAfter("AppDestination.PERFETTO ->")
                 .substringBefore("AppDestination.MEMORY_PROFILER ->")
 
-        assertTrue(shell.contains("DesktopViewerApp("))
+        assertTrue(shell.contains("LayoutInspectorMainPage("))
         assertTrue(shell.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("ApplicationUiSettingsStore.desktop()"))
-        assertTrue(shell.contains("UnifiedSettingsDialog("))
+        assertTrue(shell.contains("DesktopAppSettingsDialog("))
         assertTrue(shell.contains("LaunchedEffect(settingsRequest?.requestId)"))
         assertTrue(shell.contains("openSettings(SettingsPage.LAYOUT_INSPECTOR)"))
         assertTrue(shell.contains("openSettings(SettingsPage.SIMPLEPERF)"))
         assertFalse(shell.contains("GlobalSettingsBar("))
-        assertTrue(shell.contains("SimpleperfWorkspace("))
+        assertTrue(shell.contains("SimpleperfMainPage("))
         assertTrue(simpleperfRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
-        assertTrue(shell.contains("PerfettoWorkspace("))
+        assertTrue(shell.contains("PerfettoMainPage("))
         assertTrue(perfettoRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
-        assertTrue(shell.contains("MemoryProfilerWorkspace("))
+        assertTrue(shell.contains("MemoryProfilerMainPage("))
         assertTrue(shell.contains("onOpenUserGuide"))
         assertTrue(shell.contains("commonThemePreference = applicationSettings.theme.storageValue"))
         assertTrue(shell.contains("commonLanguagePreference = applicationSettings.language.storageValue"))
         assertFalse(shell.contains("返回主页"))
         assertFalse(shell.contains("RetainedFeatureLayer"))
 
-        assertTrue(shell.contains("BatteryProfilerWorkspace("))
+        assertTrue(shell.contains("BatteryProfilerMainPage("))
         assertTrue(shell.contains("onOpenMemoryProfiler"))
         assertTrue(shell.contains("onOpenFrameProfiler"))
         assertTrue(shell.contains("onOpenStartupProfiler"))
@@ -55,9 +55,9 @@ class UnifiedDesktopShellTest {
         assertTrue(shell.contains("onOpenNetworkProfiler"))
         assertTrue(shell.contains("onOpenGpuInspector"))
         assertTrue(shell.contains("onOpenBenchmarkRegression"))
-        assertTrue(shell.contains("NetworkProfilerWorkspace("))
-        assertTrue(shell.contains("GpuIntegrationWorkspace("))
-        assertTrue(shell.contains("BenchmarkRegressionWorkspace("))
+        assertTrue(shell.contains("NetworkProfilerMainPage("))
+        assertTrue(shell.contains("GpuIntegrationMainPage("))
+        assertTrue(shell.contains("BenchmarkRegressionMainPage("))
         assertTrue(shell.contains("navigator.openPerfettoTrace"))
 
         assertFalse(home.contains("AppSettingsControls"))
@@ -94,7 +94,7 @@ class UnifiedDesktopShellTest {
     @Test
     fun `battery profiler workspace is available at runtime`() {
         assertDoesNotThrow(
-            { Class.forName("com.androidperformancestudio.battery.app.BatteryProfilerWorkspaceKt") },
+            { Class.forName("com.androidperformancestudio.battery.app.BatteryProfilerMainPageKt") },
             "Missing Battery Profiler runtime dependency",
         )
     }
@@ -102,9 +102,9 @@ class UnifiedDesktopShellTest {
     @Test
     fun `ecosystem profiler workspaces are available at runtime`() {
         listOf(
-            "com.androidperformancestudio.network.app.NetworkProfilerWorkspaceKt",
-            "com.androidperformancestudio.gpu.app.GpuIntegrationWorkspaceKt",
-            "com.androidperformancestudio.benchmark.app.BenchmarkRegressionWorkspaceKt",
+            "com.androidperformancestudio.network.app.NetworkProfilerMainPageKt",
+            "com.androidperformancestudio.gpu.app.GpuIntegrationMainPageKt",
+            "com.androidperformancestudio.benchmark.app.BenchmarkRegressionMainPageKt",
         ).forEach { className ->
             assertDoesNotThrow(
                 { Class.forName(className) },

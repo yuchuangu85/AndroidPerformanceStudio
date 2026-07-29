@@ -23,3 +23,7 @@ include(
 includeBuild("../simpleperf-viewer") {
     name = "benchmark-regression-simpleperf-tooling"
 }
+
+includeBuild("../ui-components") {
+    name = "benchmark-regression-ui-components"
+}

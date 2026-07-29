@@ -37,6 +37,7 @@ import com.androidperformancestudio.storage.ThreadSummary
 import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.storage.TopFunction
+import com.androidperformancestudio.ui.macOsDeviceTargetStyle
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -18,7 +18,6 @@ rootProject.name = "android-performance-studio"
 
 include(
     ":app-desktop",
-    ":desktop-ui",
     ":presentation",
     ":application",
     ":platform-toolchain",
@@ -33,3 +32,7 @@ include(
     ":export-adapters",
     ":test-fixtures",
 )
+
+includeBuild("../ui-components") {
+    name = "simpleperf-ui-components"
+}

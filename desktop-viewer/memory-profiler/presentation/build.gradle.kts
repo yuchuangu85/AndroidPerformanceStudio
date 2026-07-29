@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    implementation("com.androidperformancestudio:desktop-ui:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":memory-model"))
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     testImplementation(compose.desktop.currentOs)

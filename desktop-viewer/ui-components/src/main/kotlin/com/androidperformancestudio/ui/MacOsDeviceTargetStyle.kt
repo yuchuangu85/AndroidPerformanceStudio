@@ -1,13 +1,13 @@
 @file:Suppress("MagicNumber")
 
-package com.androidperformancestudio.presentation
+package com.androidperformancestudio.ui
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 @Immutable
-internal data class MacOsDeviceTargetStyle(
+data class MacOsDeviceTargetStyle(
     val workspace: Color,
     val toolbar: Color,
     val panel: Color,
@@ -23,7 +23,7 @@ internal data class MacOsDeviceTargetStyle(
     val error: Color,
 )
 
-internal object MacOsDeviceTargetDimensions {
+object MacOsDeviceTargetDimensions {
     val toolbarHeight = 40.dp
     val footerHeight = 29.dp
     val buttonHeight = 28.dp
@@ -32,7 +32,7 @@ internal object MacOsDeviceTargetDimensions {
     val hairline = 1.dp
 }
 
-internal fun macOsDeviceTargetStyle(dark: Boolean): MacOsDeviceTargetStyle =
+fun macOsDeviceTargetStyle(dark: Boolean): MacOsDeviceTargetStyle =
     if (dark) {
         MacOsDeviceTargetStyle(
             workspace = Color(0xFF1E1E20),

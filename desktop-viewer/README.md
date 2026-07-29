@@ -54,8 +54,11 @@ Run its checks or create its native application image without changing the Layou
 
 Directory ownership is explicit: `desktop-app/` owns the unified application shell,
 `layout-inspector/` owns all layout inspection implementation, and `simpleperf-viewer/` owns the
-isolated CPU profiler build. The shell consumes each feature's public UI entry; Layout Inspector
-and Simpleperf do not depend on each other's implementation.
+isolated CPU profiler build. `ui-components/` is the independent public Compose control library;
+every application and presentation module consumes it through
+`com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT`, while domain, capture, parsing,
+storage, and analysis modules remain UI-independent. The shell consumes each feature's public UI
+entry; feature implementations do not depend on each other.
 
 Create the native application image for the current OS:
 

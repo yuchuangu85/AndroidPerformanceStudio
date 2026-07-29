@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileMarkerId
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")

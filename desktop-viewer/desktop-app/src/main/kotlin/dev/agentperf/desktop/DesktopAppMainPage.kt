@@ -36,6 +36,7 @@ import com.androidperformancestudio.network.app.NetworkProfilerMainPage
 import com.androidperformancestudio.perfetto.app.PerfettoMainPage
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.startup.app.StartupProfilerMainPage
+import com.androidperformancestudio.ui.viewerMaterialColorScheme
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

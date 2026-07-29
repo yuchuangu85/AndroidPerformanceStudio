@@ -38,7 +38,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -60,6 +59,9 @@ import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
+import com.androidperformancestudio.ui.MacOsDeviceTargetDimensions
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
+import com.androidperformancestudio.ui.macOsDeviceTargetStyle
 import com.androidperformancestudio.visualization.NavigationAction
 import androidx.compose.material3.Text as MaterialText
 

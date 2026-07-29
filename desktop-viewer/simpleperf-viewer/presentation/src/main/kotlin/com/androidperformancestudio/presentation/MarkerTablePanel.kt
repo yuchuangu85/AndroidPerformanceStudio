@@ -29,6 +29,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.ui.MacOsDeviceTargetStyle
 
 private enum class MarkerSort { START, DURATION, NAME, THREAD, SCHEMA }
 
