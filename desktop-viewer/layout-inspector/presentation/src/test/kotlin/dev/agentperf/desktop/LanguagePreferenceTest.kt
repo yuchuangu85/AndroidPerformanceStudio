@@ -33,8 +33,8 @@ class LanguagePreferenceTest {
 
     @Test
     fun `strings cover settings menu and known finding messages`() {
-        val chinese = testViewerStrings(ViewerLanguage.SIMPLIFIED_CHINESE)
-        val english = testViewerStrings(ViewerLanguage.ENGLISH)
+        val chinese = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
+        val english = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH)
         val arguments = mapOf("className" to "android.view.ViewStub")
 
         assertEquals("设置", chinese.settings)
@@ -116,11 +116,11 @@ class LanguagePreferenceTest {
 
         assertEquals(
             "需要且只能连接一台已授权设备，当前检测到 2 台",
-            testViewerStrings(ViewerLanguage.SIMPLIFIED_CHINESE).connectionError(raw),
+            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).connectionError(raw),
         )
         assertEquals(
             raw,
-            testViewerStrings(ViewerLanguage.ENGLISH).connectionError(raw),
+            ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).connectionError(raw),
         )
     }
 }

@@ -2,8 +2,7 @@
 
 package com.androidperformancestudio.startup.app
 
-import org.jetbrains.compose.resources.getString
-
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.startup.startup_app.generated.resources.Res
 import com.androidperformancestudio.startup.startup_app.generated.resources.*
 
@@ -83,7 +82,7 @@ internal class StartupProfilerController(
                         targets = result.value,
                         selectedComponentName = result.value.singleOrNull()?.componentName,
                         isRefreshing = false,
-                        operationMessage = getString(Res.string.found_launchable_activities, result.value.size),
+                        operationMessage = localizedStringResource(Res.string.found_launchable_activities, chinese, result.value.size),
                     )
         }
     }
@@ -136,7 +135,7 @@ internal class StartupProfilerController(
                 isRunning = true,
                 completedRuns = 0,
                 totalRuns = snapshot.config.warmupRuns + snapshot.config.measuredRuns,
-                operationMessage = getString(Res.string.preparing_startup_experiment),
+                operationMessage = localizedStringResource(Res.string.preparing_startup_experiment, chinese),
                 warnings = emptyList(),
                 errorMessage = null,
             )
@@ -159,17 +158,17 @@ internal class StartupProfilerController(
                     selectedRunId = analysis.runs.firstOrNull()?.id,
                     isRunning = false,
                     completedRuns = snapshot.config.warmupRuns + snapshot.config.measuredRuns,
-                    operationMessage = getString(Res.string.startup_experiment_completed_measured_runs, analysis.runs.size),
+                    operationMessage = localizedStringResource(Res.string.startup_experiment_completed_measured_runs, chinese, analysis.runs.size),
                     warnings = (result.warnings + analysis.warnings + listOfNotNull(persistenceWarning)).distinct(),
                 )
         } catch (exception: CancellationException) {
-            mutableState.value = mutableState.value.copy(isRunning = false, operationMessage = getString(Res.string.startup_experiment_cancelled))
+            mutableState.value = mutableState.value.copy(isRunning = false, operationMessage = localizedStringResource(Res.string.startup_experiment_cancelled, chinese))
             throw exception
         } catch (exception: Exception) {
             mutableState.value =
                 mutableState.value.copy(
                     isRunning = false,
-                    errorMessage = exception.message ?: getString(Res.string.startup_experiment_failed),
+                    errorMessage = exception.message ?: localizedStringResource(Res.string.startup_experiment_failed, chinese),
                 )
         }
     }
@@ -201,11 +200,11 @@ internal class StartupProfilerController(
         runCatching { withContext(Dispatchers.IO) { block() } }
             .onSuccess {
                 mutableState.value =
-                    mutableState.value.copy(operationMessage = getString(Res.string.exported_report_to, format, output.fileName), errorMessage = null)
+                    mutableState.value.copy(operationMessage = localizedStringResource(Res.string.exported_report_to, chinese, format, output.fileName), errorMessage = null)
             }.onFailure {
                 mutableState.value =
                     mutableState.value.copy(
-                        errorMessage = it.message ?: getString(Res.string.format_export_failed, format),
+                        errorMessage = it.message ?: localizedStringResource(Res.string.format_export_failed, chinese, format),
                     )
             }
     }
@@ -217,7 +216,7 @@ internal class StartupProfilerController(
         withContext(Dispatchers.IO) {
             runCatching { SqliteStartupSessionStore.open(databaseFile).use { it.save(session, runs) } }
                 .exceptionOrNull()
-                ?.let { getString(Res.string.session_persistence_failed, it.message ?: "null") }
+                ?.let { localizedStringResource(Res.string.session_persistence_failed, chinese, it.message) }
         }
 
     private companion object {

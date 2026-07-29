@@ -2,11 +2,6 @@
 
 package com.androidperformancestudio.frame.app
 
-import org.jetbrains.compose.resources.getString
-
-import com.androidperformancestudio.frame.frame_app.generated.resources.Res
-import com.androidperformancestudio.frame.frame_app.generated.resources.*
-
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.FrameJankAnalyzer
 import com.androidperformancestudio.frame.export.FrameCsvExporter
@@ -122,10 +117,7 @@ internal class FrameProfilerController(
                     } catch (exception: CancellationException) {
                         throw exception
                     } catch (exception: Exception) {
-                        mutableState.value =
-                            snapshot.copy(
-                                errorMessage = exception.message ?: getString(Res.string.unable_to_start_capture),
-                            )
+                        mutableState.value = snapshot.copy(errorMessage = exception.message ?: "Unable to start capture.")
                         return
                     }
                 onlineFrames.clear()
@@ -136,7 +128,7 @@ internal class FrameProfilerController(
                         analysis = null,
                         selectedFrameId = null,
                         isCapturing = true,
-                        operationMessage = getString(Res.string.capturing_via, process.packageName, capture.metadata.source.captureLabel()),
+                        operationMessage = "Capturing ${process.packageName} via ${capture.metadata.source.captureLabel()}…",
                         warnings = startWarnings,
                         errorMessage = null,
                     )
@@ -161,13 +153,14 @@ internal class FrameProfilerController(
                             ?.sample
                             ?.frameId,
                     operationMessage =
-                        getString(Res.string.capturing_frame_count, capture.metadata.packageName ?: "null", capture.metadata.source.captureLabel(), onlineFrames.size, ),
+                        "Capturing ${capture.metadata.packageName} via ${capture.metadata.source.captureLabel()}: " +
+                            "${onlineFrames.size} frames",
                     warnings = (mutableState.value.warnings + batch.warnings).distinct(),
                 )
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            stopOnlineCapture(exception.message ?: getString(Res.string.online_frame_capture_failed))
+            stopOnlineCapture(exception.message ?: "Online frame capture failed.")
         }
     }
 
@@ -183,7 +176,7 @@ internal class FrameProfilerController(
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Exception) {
-                    listOf(getString(Res.string.unable_to_close_capture_cleanly, exception.message ?: "null"))
+                    listOf("Unable to close online frame capture cleanly: ${exception.message}")
                 }
             }
         mutableState.value =
@@ -191,9 +184,9 @@ internal class FrameProfilerController(
                 isCapturing = false,
                 operationMessage =
                     if (onlineFrames.isEmpty()) {
-                        getString(Res.string.capture_stopped_without_frames)
+                        "Capture stopped without receiving frames."
                     } else {
-                        getString(Res.string.capture_stopped_with_frames, onlineFrames.size)
+                        "Capture stopped: ${onlineFrames.size} frames."
                     },
                 warnings = (mutableState.value.warnings + stopWarnings).distinct(),
                 errorMessage = errorMessage,
@@ -212,9 +205,7 @@ internal class FrameProfilerController(
             withContext(Dispatchers.IO) {
                 val sessionId = UUID.randomUUID().toString()
                 val parsed = parser.parse(Files.readString(file), sessionId)
-                require(parsed.frames.isNotEmpty()) {
-                    getString(Res.string.no_usable_frame_rows, file.fileName)
-                }
+                require(parsed.frames.isNotEmpty()) { "No usable frame rows were found in ${file.fileName}." }
                 val analysis = analyzer.analyze(parsed.frames)
                 val session =
                     FrameCaptureSession(
@@ -239,7 +230,7 @@ internal class FrameProfilerController(
                             ?.sample
                             ?.frameId,
                     isLoading = false,
-                    operationMessage = getString(Res.string.imported_frames, loaded.analysis.summary.totalFrames),
+                    operationMessage = "Imported ${loaded.analysis.summary.totalFrames} frames.",
                     warnings = loaded.warnings,
                     errorMessage = null,
                 )
@@ -247,7 +238,7 @@ internal class FrameProfilerController(
             mutableState.value =
                 mutableState.value.copy(
                     isLoading = false,
-                    errorMessage = error.message ?: getString(Res.string.framestats_import_failed),
+                    errorMessage = error.message ?: "FrameStats import failed.",
                 )
         }
     }
@@ -260,12 +251,9 @@ internal class FrameProfilerController(
         val analysis = mutableState.value.analysis ?: return
         runCatching { withContext(Dispatchers.IO) { exporter.export(analysis, output) } }
             .onSuccess {
-                mutableState.value = mutableState.value.copy(operationMessage = getString(Res.string.exported, output.fileName), errorMessage = null)
+                mutableState.value = mutableState.value.copy(operationMessage = "Exported ${output.fileName}.", errorMessage = null)
             }.onFailure { error ->
-                mutableState.value =
-                    mutableState.value.copy(
-                        errorMessage = error.message ?: getString(Res.string.csv_export_failed),
-                    )
+                mutableState.value = mutableState.value.copy(errorMessage = error.message ?: "CSV export failed.")
             }
     }
 
@@ -273,12 +261,9 @@ internal class FrameProfilerController(
         val analysis = mutableState.value.analysis ?: return
         runCatching { withContext(Dispatchers.IO) { jsonExporter.export(analysis, output) } }
             .onSuccess {
-                mutableState.value = mutableState.value.copy(operationMessage = getString(Res.string.exported, output.fileName), errorMessage = null)
+                mutableState.value = mutableState.value.copy(operationMessage = "Exported ${output.fileName}.", errorMessage = null)
             }.onFailure { error ->
-                mutableState.value =
-                    mutableState.value.copy(
-                        errorMessage = error.message ?: getString(Res.string.json_export_failed),
-                    )
+                mutableState.value = mutableState.value.copy(errorMessage = error.message ?: "JSON export failed.")
             }
     }
 
@@ -289,9 +274,7 @@ internal class FrameProfilerController(
         withContext(Dispatchers.IO) {
             runCatching {
                 SqliteFrameSessionStore.open(databaseFile).use { it.save(session, frames) }
-            }.exceptionOrNull()?.let {
-                getString(Res.string.session_database_update_failed, it.message ?: "null")
-            }
+            }.exceptionOrNull()?.let { "Analysis succeeded, but the session database could not be updated: ${it.message}" }
         }
 
     private data class LoadedFrameStats(

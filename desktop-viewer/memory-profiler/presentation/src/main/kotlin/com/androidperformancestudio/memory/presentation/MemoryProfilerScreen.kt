@@ -9,8 +9,7 @@
 
 package com.androidperformancestudio.memory.presentation
 
-import org.jetbrains.compose.resources.stringResource
-
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.*
 
@@ -121,7 +120,7 @@ private fun MemoryToolbar(
                 contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
             ) {
                 Text(
-                    stringResource(if (state.isDumping) Res.string.dumping else Res.string.dump_heap),
+                    localizedStringResource(if (state.isDumping) Res.string.dumping else Res.string.dump_heap, chinese),
                     fontSize = 11.sp,
                 )
             }
@@ -133,7 +132,7 @@ private fun MemoryToolbar(
                 contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
             ) {
                 Text(
-                    stringResource(if (state.isDumping) Res.string.working else Res.string.import_hprof),
+                    localizedStringResource(if (state.isDumping) Res.string.working else Res.string.import_hprof, chinese),
                     fontSize = 11.sp,
                 )
             }
@@ -149,19 +148,18 @@ private fun DeviceSelector(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }
-    val deviceSelectorDescription = stringResource(Res.string.device_selector)
     Box {
         TextButton(
             onClick = { expanded = true },
             modifier =
                 Modifier
                     .height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp)
-                    .semantics { contentDescription = deviceSelectorDescription },
+                    .semantics { contentDescription = localizedStringResource(Res.string.device_selector, chinese) },
             shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
             contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
         ) {
             Text(
-                text = selected?.name ?: stringResource(Res.string.select_device),
+                text = selected?.name ?: localizedStringResource(Res.string.select_device, chinese),
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -170,7 +168,7 @@ private fun DeviceSelector(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (state.devices.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.no_devices)) },
+                    text = { Text(localizedStringResource(Res.string.no_devices, chinese)) },
                     onClick = {},
                     enabled = false,
                 )
@@ -180,7 +178,7 @@ private fun DeviceSelector(
                     text = {
                         Text(
                             if (device.online) device.name
-                            else stringResource(Res.string.device_offline, device.name)
+                            else localizedStringResource(Res.string.device_offline, chinese, device.name)
                         )
                     },
                     enabled = device.online,
@@ -202,19 +200,18 @@ private fun ProcessSelector(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = state.processes.firstOrNull { it.pid == state.selectedProcessId }
-    val processSelectorDescription = stringResource(Res.string.process_selector)
     Box {
         TextButton(
             onClick = { expanded = true },
             modifier =
                 Modifier
                     .height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp)
-                    .semantics { contentDescription = processSelectorDescription },
+                    .semantics { contentDescription = localizedStringResource(Res.string.process_selector, chinese) },
             shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
             contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
         ) {
             Text(
-                text = selected?.name ?: stringResource(Res.string.select_process),
+                text = selected?.name ?: localizedStringResource(Res.string.select_process, chinese),
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -223,14 +220,14 @@ private fun ProcessSelector(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (state.processes.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.no_processes)) },
+                    text = { Text(localizedStringResource(Res.string.no_processes, chinese)) },
                     onClick = {},
                     enabled = false,
                 )
             }
             state.processes.forEach { process ->
                 DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.text, process.name, process.pid)) },
+                    text = { Text(localizedStringResource(Res.string.text, chinese, process.name, process.pid)) },
                     onClick = {
                         expanded = false
                         actions.onSelectProcess(process.pid)
@@ -254,7 +251,7 @@ private fun ErrorAndWarnings(
 ) {
     state.operationMessage?.let { message ->
         MessageCard(
-            title = stringResource(Res.string.in_progress),
+            title = localizedStringResource(Res.string.in_progress, chinese),
             body = message,
             tone = MessageTone.INFO,
         ) {
@@ -272,14 +269,14 @@ private fun ErrorAndWarnings(
     }
     state.cleanupWarning?.let { warning ->
         MessageCard(
-            title = stringResource(Res.string.cleanup_warning),
+            title = localizedStringResource(Res.string.cleanup_warning, chinese),
             body = warning,
             tone = MessageTone.WARNING,
         )
     }
     state.warning?.let { warning ->
         MessageCard(
-            title = stringResource(Res.string.warning),
+            title = localizedStringResource(Res.string.warning, chinese),
             body = warning,
             tone = MessageTone.WARNING,
         )
@@ -347,17 +344,17 @@ private fun Overview(
     chinese: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(Res.string.overview), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.overview, chinese), fontWeight = FontWeight.Bold)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            MetricCard(stringResource(Res.string.heap_size), formatBytes(summary.shallowSize), Modifier.weight(1f))
-            MetricCard(stringResource(Res.string.objects), integer(summary.objectCount), Modifier.weight(1f))
-            MetricCard(stringResource(Res.string.classes), integer(summary.classCount), Modifier.weight(1f))
+            MetricCard(localizedStringResource(Res.string.heap_size, chinese), formatBytes(summary.shallowSize), Modifier.weight(1f))
+            MetricCard(localizedStringResource(Res.string.objects, chinese), integer(summary.objectCount), Modifier.weight(1f))
+            MetricCard(localizedStringResource(Res.string.classes, chinese), integer(summary.classCount), Modifier.weight(1f))
             MetricCard(
-                stringResource(Res.string.activity),
-                stringResource(Res.string.count_value, integer(activityCount)),
+                localizedStringResource(Res.string.activity, chinese),
+                localizedStringResource(Res.string.count_value, chinese, integer(activityCount)),
                 Modifier.weight(1f),
             )
         }
@@ -404,10 +401,10 @@ private fun Histogram(
                 .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(stringResource(Res.string.class_histogram), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.class_histogram, chinese), fontWeight = FontWeight.Bold)
         HistogramHeader(sort, actions, chinese)
         if (classes.isEmpty()) {
-            Text(stringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram))
+            Text(localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, chinese))
         } else {
             LazyColumn(Modifier.fillMaxWidth()) {
                 items(classes, key = { it.className }) { stats ->
@@ -436,22 +433,22 @@ private fun HistogramHeader(
                 .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(stringResource(Res.string.class_name), Modifier.weight(1f), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.class_name, chinese), Modifier.weight(1f), fontWeight = FontWeight.Bold)
         SortHeader(
-            label = stringResource(Res.string.count),
+            label = localizedStringResource(Res.string.count, chinese),
             headerSort = MemoryHistogramSort.Count,
             currentSort = sort,
             actions = actions,
             modifier = Modifier.width(96.dp),
         )
         SortHeader(
-            label = stringResource(Res.string.shallow),
+            label = localizedStringResource(Res.string.shallow, chinese),
             headerSort = MemoryHistogramSort.Shallow,
             currentSort = sort,
             actions = actions,
             modifier = Modifier.width(112.dp),
         )
-        Text(stringResource(Res.string.retained), Modifier.width(140.dp), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.retained, chinese), Modifier.width(140.dp), fontWeight = FontWeight.Bold)
     }
 }
 
@@ -498,7 +495,7 @@ private fun HistogramRow(
         Text(integer(stats.instanceCount), Modifier.width(96.dp))
         Text(formatBytes(stats.shallowSize), Modifier.width(112.dp))
         Text(
-            text = stats.retainedSize?.let(::formatBytes) ?: stringResource(Res.string.unavailable),
+            text = stats.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, chinese),
             modifier = Modifier.width(140.dp),
         )
     }
@@ -514,9 +511,9 @@ private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState, chinese: Boolean) {
                 .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(stringResource(Res.string.leak_suspects), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.leak_suspects, chinese), fontWeight = FontWeight.Bold)
         if (state.leakSuspects.isEmpty()) {
-            Text(stringResource(Res.string.no_leak_suspects_detected))
+            Text(localizedStringResource(Res.string.no_leak_suspects_detected, chinese))
         } else {
             state.leakSuspects.forEach { suspect ->
                 var expanded by remember(suspect) { mutableStateOf(false) }
@@ -532,17 +529,34 @@ private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState, chinese: Boolean) {
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
-                        stringResource(Res.string.leak_suspect_title, if (expanded) "▾" else "▸", suspect.className, suspect.reason, ),
+                        localizedStringResource(
+                            Res.string.leak_suspect_title,
+                            chinese,
+                            if (expanded) "▾" else "▸",
+                            suspect.className,
+                            suspect.reason,
+                        ),
                         fontWeight = FontWeight.Medium,
                     )
                     Text(
-                        stringResource(Res.string.leak_suspect_summary, suspect.retainedSize?.let(::formatBytes) ?: "—", (suspect.confidence * 100).toInt(), ),
+                        localizedStringResource(
+                            Res.string.leak_suspect_summary,
+                            chinese,
+                            suspect.retainedSize?.let(::formatBytes) ?: "—",
+                            (suspect.confidence * 100).toInt(),
+                        ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (expanded) {
                         suspect.referenceChain.forEachIndexed { index, reference ->
                             Text(
-                                stringResource(Res.string.reference_chain_entry, "  ".repeat(index), reference.fieldName, reference.targetClassName.ifBlank { reference.targetObjectId.toString() }, ),
+                                localizedStringResource(
+                                    Res.string.reference_chain_entry,
+                                    chinese,
+                                    "  ".repeat(index),
+                                    reference.fieldName,
+                                    reference.targetClassName.ifBlank { reference.targetObjectId.toString() },
+                                ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -561,13 +575,21 @@ private fun HeapDiffSection(diff: com.androidperformancestudio.memory.model.Heap
         modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp)).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text(stringResource(Res.string.heap_diff), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.heap_diff, chinese), fontWeight = FontWeight.Bold)
         if (changedEntries.isEmpty()) {
-            Text(stringResource(Res.string.no_class_changes_between_the_latest_two_heap_dumps))
+            Text(localizedStringResource(Res.string.no_class_changes_between_the_latest_two_heap_dumps, chinese))
         } else {
             changedEntries.take(10).forEach { entry ->
                 Text(
-                    stringResource(Res.string.heap_diff_entry, entry.className, entry.beforeCount, entry.afterCount, entry.countDelta.withSign(), entry.shallowSizeDelta.withSign(), ),
+                    localizedStringResource(
+                        Res.string.heap_diff_entry,
+                        chinese,
+                        entry.className,
+                        entry.beforeCount,
+                        entry.afterCount,
+                        entry.countDelta.withSign(),
+                        entry.shallowSizeDelta.withSign(),
+                    ),
                 )
             }
         }
@@ -581,10 +603,17 @@ private fun BitmapSection(bitmaps: List<com.androidperformancestudio.memory.mode
         modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp)).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text(stringResource(Res.string.bitmap_analysis), fontWeight = FontWeight.Bold)
+        Text(localizedStringResource(Res.string.bitmap_analysis, chinese), fontWeight = FontWeight.Bold)
         bitmaps.take(8).forEach { bitmap ->
             Text(
-                stringResource(Res.string.bitmap_entry, bitmap.objectId, bitmap.width ?: "?", bitmap.height ?: "?", formatBytes(bitmap.retainedSize), ),
+                localizedStringResource(
+                    Res.string.bitmap_entry,
+                    chinese,
+                    bitmap.objectId,
+                    bitmap.width ?: "?",
+                    bitmap.height ?: "?",
+                    formatBytes(bitmap.retainedSize),
+                ),
             )
         }
     }

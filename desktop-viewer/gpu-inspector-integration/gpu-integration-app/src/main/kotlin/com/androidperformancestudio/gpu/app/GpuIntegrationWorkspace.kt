@@ -2,8 +2,7 @@
 
 package com.androidperformancestudio.gpu.app
 
-import org.jetbrains.compose.resources.stringResource
-
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.Res
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.*
 
@@ -34,7 +33,6 @@ import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import java.awt.Desktop
 import java.io.File
 import java.nio.file.Path
-import java.util.Locale
 import javax.swing.JFileChooser
 
 @Composable
@@ -65,15 +63,6 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                 ),
             )
         }
-    val noCompatibleViewer = stringResource(Res.string.no_compatible_viewer)
-    val unableToOpenArtifact = stringResource(Res.string.unable_to_open_artifact)
-    val capabilityRefreshed = stringResource(Res.string.agi_capability_refreshed)
-    val configuredFileTemplate = stringResource(Res.string.configured_file)
-    val importedFileTemplate = stringResource(Res.string.imported_file)
-    val artifactHashVerified = stringResource(Res.string.artifact_hash_verified)
-    val artifactMissingOrChanged = stringResource(Res.string.artifact_missing_or_changed)
-    val executableDialogTitle = stringResource(Res.string.select_android_gpu_inspector_executable)
-    val artifactDialogTitle = stringResource(Res.string.import_agi_perfetto_artifact)
 
     fun persist(artifacts: List<GpuArtifact>) {
         runCatching { store.save(artifacts) }
@@ -90,45 +79,45 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                         listOf(artifact.path.toString()),
                     )
                 ArtifactOpenCapability.DESKTOP -> Desktop.getDesktop().open(artifact.path.toFile())
-                ArtifactOpenCapability.NONE -> error(noCompatibleViewer)
+                ArtifactOpenCapability.NONE -> error(localizedStringResource(Res.string.no_compatible_viewer, chinese))
             }
         }.onFailure {
-            state = state.copy(error = it.message ?: unableToOpenArtifact)
+            state = state.copy(error = it.message ?: localizedStringResource(Res.string.unable_to_open_artifact, chinese))
         }
     }
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = stringResource(Res.string.back_to_home),
+                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
                 onClick = onBack,
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.refresh_agi),
+                text = localizedStringResource(Res.string.refresh_agi, chinese),
                 onClick = {
                     state =
                         state.copy(
                             capability = locator.locate(),
-                            message = capabilityRefreshed,
+                            message = localizedStringResource(Res.string.agi_capability_refreshed, chinese),
                             error = null,
                         )
                 },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.configure_agi),
+                text = localizedStringResource(Res.string.configure_agi, chinese),
                 onClick = {
-                    chooseExecutable(window, executableDialogTitle)?.let { file ->
+                    chooseExecutable(window, chinese)?.let { file ->
                         state =
                             state.copy(
                                 capability = locator.locate(file.toPath()),
-                                message = String.format(Locale.ROOT, configuredFileTemplate, file.name),
+                                message = localizedStringResource(Res.string.configured_file, chinese, file.name),
                                 error = null,
                             )
                     }
                 },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.launch_agi),
+                text = localizedStringResource(Res.string.launch_agi, chinese),
                 enabled = state.capability?.launchSupported == true,
                 onClick = {
                     runCatching { locator.launch(requireNotNull(state.capability)) }
@@ -136,9 +125,9 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                 },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.import_artifact),
+                text = localizedStringResource(Res.string.import_artifact, chinese),
                 onClick = {
-                    chooseArtifact(window, artifactDialogTitle)?.let { file ->
+                    chooseArtifact(window, chinese)?.let { file ->
                         runCatching {
                             indexer.import(
                                 file.toPath(),
@@ -152,7 +141,7 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                             state =
                                 state.copy(
                                     artifacts = updated,
-                                    message = String.format(Locale.ROOT, importedFileTemplate, file.name),
+                                    message = localizedStringResource(Res.string.imported_file, chinese, file.name),
                                     error = null,
                                 )
                         }.onFailure {
@@ -174,9 +163,9 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
                         state.copy(
                             message =
                                 if (indexer.verify(artifact)) {
-                                    artifactHashVerified
+                                    localizedStringResource(Res.string.artifact_hash_verified, chinese)
                                 } else {
-                                    artifactMissingOrChanged
+                                    localizedStringResource(Res.string.artifact_missing_or_changed, chinese)
                                 },
                         )
                 },
@@ -187,14 +176,14 @@ public fun FrameWindowScope.GpuIntegrationWorkspace(
     }
 }
 
-private fun chooseExecutable(parent: java.awt.Component, dialogTitle: String): File? =
+private fun chooseExecutable(parent: java.awt.Component, chinese: Boolean): File? =
     JFileChooser().run {
-        this.dialogTitle = dialogTitle
+        dialogTitle = localizedStringResource(Res.string.select_android_gpu_inspector_executable, chinese)
         if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
 
-private fun chooseArtifact(parent: java.awt.Component, dialogTitle: String): File? =
+private fun chooseArtifact(parent: java.awt.Component, chinese: Boolean): File? =
     JFileChooser().run {
-        this.dialogTitle = dialogTitle
+        dialogTitle = localizedStringResource(Res.string.import_agi_perfetto_artifact, chinese)
         if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }

@@ -2,8 +2,7 @@
 
 package com.androidperformancestudio.benchmark.app
 
-import org.jetbrains.compose.resources.stringResource
-
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.Res
 import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.*
 
@@ -32,7 +31,6 @@ import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import java.io.File
 import java.nio.file.Path
-import java.util.Locale
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 
@@ -47,51 +45,33 @@ public fun FrameWindowScope.BenchmarkRegressionWorkspace(
     val exporter = remember { BenchmarkReportExporter() }
     val storePath = remember { Path.of(System.getProperty("user.home"), ".android-performance-studio", "benchmark", "benchmark.db") }
     var state by remember { mutableStateOf(BenchmarkRegressionState(thresholdPercent = 5.0)) }
-    val importedBaselineTemplate = stringResource(Res.string.imported_baseline)
-    val importedCurrentTemplate = stringResource(Res.string.imported_current)
-    val importFailed = stringResource(Res.string.import_failed)
-    val importDialogTitle = stringResource(Res.string.import_androidx_benchmark_json)
-    val benchmarkJsonLabel = stringResource(Res.string.benchmark_json)
 
     fun import(file: File, baseline: Boolean) {
         runCatching { parser.parse(file.toPath()) }.onSuccess { run ->
             runCatching { SqliteBenchmarkStore.open(storePath).use { it.save(run) } }
-            state =
-                if (baseline) {
-                    state.copy(
-                        baseline = run,
-                        message = String.format(Locale.ROOT, importedBaselineTemplate, file.name),
-                        error = null,
-                    )
-                } else {
-                    state.copy(
-                        current = run,
-                        message = String.format(Locale.ROOT, importedCurrentTemplate, file.name),
-                        error = null,
-                    )
-                }
+            state = if (baseline) state.copy(baseline = run, message = localizedStringResource(Res.string.imported_baseline, chinese, file.name), error = null) else state.copy(current = run, message = localizedStringResource(Res.string.imported_current, chinese, file.name), error = null)
             val current = state.current
             val reference = state.baseline
             if (current != null && reference != null) state = state.copy(report = analyzer.compare(reference, current, RegressionPolicy(relativeThresholdPercent = state.thresholdPercent)))
-        }.onFailure { state = state.copy(error = it.message ?: importFailed) }
+        }.onFailure { state = state.copy(error = it.message ?: localizedStringResource(Res.string.import_failed, chinese)) }
     }
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = stringResource(Res.string.back_to_home),
+                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
                 onClick = onBack,
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.import_current),
-                onClick = { chooseJson(window, importDialogTitle, benchmarkJsonLabel)?.let { import(it, false) } },
+                text = localizedStringResource(Res.string.import_current, chinese),
+                onClick = { chooseJson(window, chinese)?.let { import(it, false) } },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.import_baseline),
-                onClick = { chooseJson(window, importDialogTitle, benchmarkJsonLabel)?.let { import(it, true) } },
+                text = localizedStringResource(Res.string.import_baseline, chinese),
+                onClick = { chooseJson(window, chinese)?.let { import(it, true) } },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.export_report),
+                text = localizedStringResource(Res.string.export_report, chinese),
                 enabled = state.report != null,
                 onClick = {
                     chooseSave(window, "benchmark-regression.json")
@@ -99,7 +79,7 @@ public fun FrameWindowScope.BenchmarkRegressionWorkspace(
                 },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.open_trace_in_perfetto),
+                text = localizedStringResource(Res.string.open_trace_in_perfetto, chinese),
                 enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
                 onClick = {
                     state.current
@@ -117,13 +97,9 @@ public fun FrameWindowScope.BenchmarkRegressionWorkspace(
     }
 }
 
-private fun chooseJson(
-    parent: java.awt.Component,
-    dialogTitle: String,
-    fileFilterLabel: String,
-): File? = JFileChooser().run {
-    this.dialogTitle = dialogTitle
-    fileFilter = FileNameExtensionFilter(fileFilterLabel, "json")
+private fun chooseJson(parent: java.awt.Component, chinese: Boolean): File? = JFileChooser().run {
+    dialogTitle = localizedStringResource(Res.string.import_androidx_benchmark_json, chinese)
+    fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.benchmark_json, chinese), "json")
     if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
 }
 

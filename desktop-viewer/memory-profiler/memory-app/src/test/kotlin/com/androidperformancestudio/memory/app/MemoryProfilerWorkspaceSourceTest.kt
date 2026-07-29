@@ -29,10 +29,9 @@ class MemoryProfilerWorkspaceSourceTest {
         assertFalse(workspace.contains("chooseHprofFile"))
         assertTrue(
             workspace.contains(
-                "val importDialogTitle = stringResource(Res.string.import_hprof)",
+                "FileDialog(parent, localizedStringResource(Res.string.import_hprof, chinese), FileDialog.LOAD)",
             ),
         )
-        assertTrue(workspace.contains("FileDialog(parent, dialogTitle, FileDialog.LOAD)"))
         assertTrue(workspace.contains("onCloseRequest(files.firstOrNull())"))
         assertTrue(backend.contains("withContext(Dispatchers.IO)"))
     }

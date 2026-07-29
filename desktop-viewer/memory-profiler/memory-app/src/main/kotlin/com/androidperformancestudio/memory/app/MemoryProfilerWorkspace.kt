@@ -2,8 +2,7 @@
 
 package com.androidperformancestudio.memory.app
 
-import org.jetbrains.compose.resources.stringResource
-
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.*
 
@@ -47,8 +46,6 @@ public fun FrameWindowScope.MemoryProfilerWorkspace(
     val scope = rememberCoroutineScope()
     val loaded = controller.loadedHeap
     var showHprofFileDialog by remember { mutableStateOf(false) }
-    val importDialogTitle = stringResource(Res.string.import_hprof)
-    val saveDialogTitle = stringResource(Res.string.export_memory_profiler_data)
 
     LaunchedEffect(controller) { controller.refreshDevices() }
     LaunchedEffect(highlightClassName) {
@@ -58,27 +55,27 @@ public fun FrameWindowScope.MemoryProfilerWorkspace(
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = stringResource(Res.string.back_to_home),
+                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
                 onClick = onBack,
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.refresh_devices),
+                text = localizedStringResource(Res.string.refresh_devices, chinese),
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.export_raw_hprof),
+                text = localizedStringResource(Res.string.export_raw_hprof, chinese),
                 enabled = loaded?.heapDump?.rawHprofFile != null,
-                onClick = { chooseSaveFile(window, "heap-raw.hprof", saveDialogTitle)?.let(controller::exportRaw) },
+                onClick = { chooseSaveFile(window, "heap-raw.hprof", chinese)?.let(controller::exportRaw) },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.export_standard_hprof),
+                text = localizedStringResource(Res.string.export_standard_hprof, chinese),
                 enabled = loaded?.heapDump?.convertedHprofFile != null,
-                onClick = { chooseSaveFile(window, "heap-standard.hprof", saveDialogTitle)?.let(controller::exportConverted) },
+                onClick = { chooseSaveFile(window, "heap-standard.hprof", chinese)?.let(controller::exportConverted) },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.export_csv),
+                text = localizedStringResource(Res.string.export_csv, chinese),
                 enabled = loaded != null,
-                onClick = { chooseSaveFile(window, "class-histogram.csv", saveDialogTitle)?.let(controller::exportHistogram) },
+                onClick = { chooseSaveFile(window, "class-histogram.csv", chinese)?.let(controller::exportHistogram) },
             )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -102,7 +99,7 @@ public fun FrameWindowScope.MemoryProfilerWorkspace(
     if (showHprofFileDialog) {
         HprofOpenFileDialog(
             parent = window,
-            dialogTitle = importDialogTitle,
+            chinese = chinese,
             onCloseRequest = { selectedFile ->
                 showHprofFileDialog = false
                 if (selectedFile != null) {
@@ -118,12 +115,12 @@ public fun FrameWindowScope.MemoryProfilerWorkspace(
 @Composable
 private fun HprofOpenFileDialog(
     parent: Frame,
-    dialogTitle: String,
+    chinese: Boolean,
     onCloseRequest: (File?) -> Unit,
 ) {
     AwtWindow(
         create = {
-            object : FileDialog(parent, dialogTitle, FileDialog.LOAD) {
+            object : FileDialog(parent, localizedStringResource(Res.string.import_hprof, chinese), FileDialog.LOAD) {
                 init {
                     isMultipleMode = false
                     filenameFilter = java.io.FilenameFilter { _, name -> name.endsWith(".hprof", ignoreCase = true) }
@@ -144,10 +141,10 @@ private fun HprofOpenFileDialog(
 private fun chooseSaveFile(
     parent: Component,
     defaultName: String,
-    dialogTitle: String,
+    chinese: Boolean,
 ): java.nio.file.Path? =
     JFileChooser().run {
-        this.dialogTitle = dialogTitle
+        dialogTitle = localizedStringResource(Res.string.export_memory_profiler_data, chinese)
         selectedFile = File(defaultName)
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile.toPath() else null
     }

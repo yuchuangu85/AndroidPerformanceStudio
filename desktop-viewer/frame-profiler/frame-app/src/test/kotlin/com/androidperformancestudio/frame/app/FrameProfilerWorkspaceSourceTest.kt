@@ -35,27 +35,27 @@ class FrameProfilerWorkspaceSourceTest {
         assertTrue(homeBlock.contains("onBack()"))
 
         assertBlockContains(
-            "stringResource(Res.string.refresh)",
+            "localizedStringResource(Res.string.refresh, chinese)",
             "enabled = !state.isCapturing && !state.isRefreshingDevices",
             "controller.refreshDevices()",
         )
         assertBlockContains(
-            "stringResource(Res.string.start_capture)",
+            "localizedStringResource(Res.string.start_capture, chinese)",
             "enabled = state.selectedProcessId != null",
             "if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()",
         )
         assertBlockContains(
-            "stringResource(Res.string.import_framestats)",
+            "localizedStringResource(Res.string.import_framestats, chinese)",
             "enabled = !state.isCapturing",
             "showImportDialog = true",
         )
         assertBlockContains(
-            "stringResource(Res.string.export_csv)",
+            "localizedStringResource(Res.string.export_csv, chinese)",
             "enabled = state.analysis != null",
             "controller.exportCsv(output.toPath())",
         )
         assertBlockContains(
-            "stringResource(Res.string.export_json)",
+            "localizedStringResource(Res.string.export_json, chinese)",
             "enabled = state.analysis != null",
             "controller.exportJson(output.toPath())",
         )
@@ -71,12 +71,12 @@ class FrameProfilerWorkspaceSourceTest {
     @Test
     fun `selectors preserve controller callbacks and capture enabled predicates`() {
         assertBlockContains(
-            "stringResource(Res.string.device)",
+            "localizedStringResource(Res.string.device, chinese)",
             "enabled = !state.isCapturing",
             "controller.selectDevice(serial)",
         )
         assertBlockContains(
-            "stringResource(Res.string.process)",
+            "localizedStringResource(Res.string.process, chinese)",
             "enabled = !state.isCapturing && state.selectedDeviceSerial != null",
             "controller::selectProcess",
         )

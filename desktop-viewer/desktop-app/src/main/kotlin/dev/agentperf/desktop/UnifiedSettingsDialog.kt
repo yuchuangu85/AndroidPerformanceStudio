@@ -1,7 +1,6 @@
 package dev.agentperf.desktop
 
-import org.jetbrains.compose.resources.stringResource
-
+import com.androidperformancestudio.ui.localizedStringResource
 import dev.agentperf.desktop_app.generated.resources.Res
 import dev.agentperf.desktop_app.generated.resources.*
 
@@ -77,7 +76,7 @@ internal fun UnifiedSettingsDialog(
     }
     DialogWindow(
         onCloseRequest = onDismiss,
-        title = stringResource(Res.string.settings),
+        title = localizedStringResource(Res.string.settings, chinese),
         state =
             rememberDialogState(
                 width = UNIFIED_SETTINGS_WIDTH_DP.dp,
@@ -100,6 +99,7 @@ internal fun UnifiedSettingsDialog(
                         selectedPage = selectedPage,
                         selectedSimpleperfSection = activeSimpleperfSection,
                         simpleperfExpanded = simpleperfExpanded,
+                        chinese = chinese,
                         onPageSelected = onPageSelected,
                         onSimpleperfExpandedChange = { simpleperfExpanded = it },
                         onSimpleperfSectionSelected = { section ->
@@ -118,7 +118,7 @@ internal fun UnifiedSettingsDialog(
                         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (persistenceErrorPage != null) {
                                 Text(
-                                    stringResource(Res.string.settings_could_not_be_saved_the_current_session_still_uses, persistenceErrorPage.label()),
+                                    localizedStringResource(Res.string.settings_could_not_be_saved_the_current_session_still_uses, chinese, persistenceErrorPage.label(chinese)),
                                     color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall,
                                 )
@@ -143,6 +143,7 @@ internal fun UnifiedSettingsDialog(
                                         context = simpleperfCaptureSettingsContext,
                                         section = activeSimpleperfSection,
                                         darkTheme = darkTheme,
+                                        chinese = chinese,
                                         onSettingsChanged = onSimpleperfSettingsChanged,
                                         onOpenUserGuide = onOpenUserGuide,
                                         modifier = Modifier.weight(1f),
@@ -152,20 +153,20 @@ internal fun UnifiedSettingsDialog(
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                SettingsFooter(onDismiss)
+                SettingsFooter(chinese, onDismiss)
             }
         }
     }
 }
 
 @Composable
-private fun SettingsFooter(onDismiss: () -> Unit) {
+private fun SettingsFooter(chinese: Boolean, onDismiss: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-        OutlinedButton(onClick = onDismiss) { Text(stringResource(Res.string.done)) }
+        OutlinedButton(onClick = onDismiss) { Text(localizedStringResource(Res.string.done, chinese)) }
     }
 }
 
@@ -174,6 +175,7 @@ private fun SettingsSidebar(
     selectedPage: SettingsPage,
     selectedSimpleperfSection: CaptureSettingsSection,
     simpleperfExpanded: Boolean,
+    chinese: Boolean,
     onPageSelected: (SettingsPage) -> Unit,
     onSimpleperfExpandedChange: (Boolean) -> Unit,
     onSimpleperfSectionSelected: (CaptureSettingsSection) -> Unit,
@@ -188,13 +190,13 @@ private fun SettingsSidebar(
     ) {
         listOf(SettingsPage.GENERAL, SettingsPage.LAYOUT_INSPECTOR).forEach { page ->
             SettingsSidebarRow(
-                label = page.label(),
+                label = page.label(chinese),
                 selected = page == selectedPage,
                 onClick = { onPageSelected(page) },
             )
         }
         SettingsSidebarRow(
-            label = SettingsPage.SIMPLEPERF.label(),
+            label = SettingsPage.SIMPLEPERF.label(chinese),
             selected = selectedPage == SettingsPage.SIMPLEPERF && !simpleperfExpanded,
             leadingText = if (simpleperfExpanded) "⌄" else "›",
             fontWeight = FontWeight.Medium,
@@ -210,7 +212,7 @@ private fun SettingsSidebar(
         if (simpleperfExpanded) {
             CaptureSettingsSection.entries.forEach { section ->
                 SettingsSidebarRow(
-                    label = section.settingsLabel(),
+                    label = section.settingsLabel(chinese),
                     selected =
                         selectedPage == SettingsPage.SIMPLEPERF &&
                             section == selectedSimpleperfSection,
@@ -281,10 +283,10 @@ private fun GeneralSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(stringResource(Res.string.general), style = MaterialTheme.typography.titleLarge)
+        Text(localizedStringResource(Res.string.general, chinese), style = MaterialTheme.typography.titleLarge)
         SettingsChoice(
             chinese = chinese,
-            label = stringResource(Res.string.language),
+            label = localizedStringResource(Res.string.language, chinese),
             current = settings.language,
             options = ApplicationLanguagePreference.entries,
             optionLabel = { languagePreferenceLabel(it, chinese) },
@@ -292,7 +294,7 @@ private fun GeneralSettingsContent(
         )
         SettingsChoice(
             chinese = chinese,
-            label = stringResource(Res.string.theme),
+            label = localizedStringResource(Res.string.theme, chinese),
             current = settings.theme,
             options = ApplicationThemePreference.entries,
             optionLabel = { themePreferenceLabel(it, chinese) },
@@ -307,6 +309,7 @@ private fun CompleteSimpleperfSettingsContent(
     context: SimpleperfCaptureSettingsContext?,
     section: CaptureSettingsSection,
     darkTheme: Boolean,
+    chinese: Boolean,
     onSettingsChanged: (SimpleperfUiSettings) -> Unit,
     onOpenUserGuide: () -> Unit,
     modifier: Modifier = Modifier,
@@ -314,7 +317,7 @@ private fun CompleteSimpleperfSettingsContent(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (context == null) {
             Text(
-                stringResource(Res.string.capture_parameters_connect_to_the_current_device_and_target_after),
+                localizedStringResource(Res.string.capture_parameters_connect_to_the_current_device_and_target_after, chinese),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -347,13 +350,13 @@ private fun <T> SettingsChoice(
     label: String,
     current: T,
     options: List<T>,
-    optionLabel: @Composable (T) -> String,
+    optionLabel: (T) -> String,
     onSelected: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth()) {
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(Res.string.text, label, optionLabel(current)))
+            Text(localizedStringResource(Res.string.text, chinese, label, optionLabel(current)))
         }
         androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
@@ -369,23 +372,21 @@ private fun <T> SettingsChoice(
     }
 }
 
-@Composable
-private fun SettingsPage.label(): String =
+private fun SettingsPage.label(chinese: Boolean): String =
     when (this) {
-        SettingsPage.GENERAL -> stringResource(Res.string.general)
-        SettingsPage.LAYOUT_INSPECTOR -> stringResource(Res.string.layout_inspector)
-        SettingsPage.SIMPLEPERF -> stringResource(Res.string.simpleperf)
+        SettingsPage.GENERAL -> localizedStringResource(Res.string.general, chinese)
+        SettingsPage.LAYOUT_INSPECTOR -> localizedStringResource(Res.string.layout_inspector, chinese)
+        SettingsPage.SIMPLEPERF -> localizedStringResource(Res.string.simpleperf, chinese)
     }
 
-@Composable
-private fun CaptureSettingsSection.settingsLabel(): String =
+private fun CaptureSettingsSection.settingsLabel(chinese: Boolean): String =
     when (this) {
-        CaptureSettingsSection.SAMPLING_TEMPLATE -> stringResource(Res.string.sampling_template)
-        CaptureSettingsSection.CAPTURE_CONFIGURATION -> stringResource(Res.string.capture_configuration)
-        CaptureSettingsSection.ADVANCED_PARAMETERS -> stringResource(Res.string.advanced_parameters)
-        CaptureSettingsSection.FLAME_GRAPH -> stringResource(Res.string.flame_graph)
-        CaptureSettingsSection.SIMPLEPERF_ENGINE -> stringResource(Res.string.simpleperf_engine)
-        CaptureSettingsSection.USER_GUIDE -> stringResource(Res.string.user_guide)
+        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(Res.string.sampling_template, chinese)
+        CaptureSettingsSection.CAPTURE_CONFIGURATION -> localizedStringResource(Res.string.capture_configuration, chinese)
+        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(Res.string.advanced_parameters, chinese)
+        CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(Res.string.flame_graph, chinese)
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(Res.string.simpleperf_engine, chinese)
+        CaptureSettingsSection.USER_GUIDE -> localizedStringResource(Res.string.user_guide, chinese)
     }
 
 internal const val UNIFIED_SETTINGS_WIDTH_DP = 1100

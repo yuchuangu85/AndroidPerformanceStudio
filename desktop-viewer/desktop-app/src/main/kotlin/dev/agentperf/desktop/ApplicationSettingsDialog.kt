@@ -1,7 +1,6 @@
 package dev.agentperf.desktop
 
-import org.jetbrains.compose.resources.stringResource
-
+import com.androidperformancestudio.ui.localizedStringResource
 import dev.agentperf.desktop_app.generated.resources.Res
 import dev.agentperf.desktop_app.generated.resources.*
 
@@ -39,7 +38,7 @@ internal fun ApplicationSettingsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(Res.string.general_settings)) },
+        title = { Text(localizedStringResource(Res.string.general_settings, chinese)) },
         text = {
             Column(
                 modifier =
@@ -50,7 +49,7 @@ internal fun ApplicationSettingsDialog(
             ) {
                 PreferenceDropdown(
                     chinese = chinese,
-                    label = stringResource(Res.string.language),
+                    label = localizedStringResource(Res.string.language, chinese),
                     selected = settings.language,
                     options = ApplicationLanguagePreference.entries,
                     optionLabel = { languagePreferenceLabel(it, chinese) },
@@ -58,7 +57,7 @@ internal fun ApplicationSettingsDialog(
                 )
                 PreferenceDropdown(
                     chinese = chinese,
-                    label = stringResource(Res.string.theme),
+                    label = localizedStringResource(Res.string.theme, chinese),
                     selected = settings.theme,
                     options = ApplicationThemePreference.entries,
                     optionLabel = { themePreferenceLabel(it, chinese) },
@@ -68,7 +67,7 @@ internal fun ApplicationSettingsDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(stringResource(Res.string.done))
+                Text(localizedStringResource(Res.string.done, chinese))
             }
         },
     )
@@ -80,7 +79,7 @@ private fun <T> PreferenceDropdown(
     label: String,
     selected: T,
     options: List<T>,
-    optionLabel: @Composable (T) -> String,
+    optionLabel: (T) -> String,
     onSelected: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -89,7 +88,7 @@ private fun <T> PreferenceDropdown(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(stringResource(Res.string.text, label, optionLabel(selected)))
+            Text(localizedStringResource(Res.string.text, chinese, label, optionLabel(selected)))
         }
         DropdownMenu(
             expanded = expanded,
@@ -109,24 +108,22 @@ private fun <T> PreferenceDropdown(
     }
 }
 
-@Composable
 internal fun languagePreferenceLabel(
     preference: ApplicationLanguagePreference,
     chinese: Boolean,
 ): String =
     when (preference) {
-        ApplicationLanguagePreference.SYSTEM -> stringResource(Res.string.system)
-        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> stringResource(Res.string.simplified_chinese)
-        ApplicationLanguagePreference.ENGLISH -> stringResource(Res.string.english)
+        ApplicationLanguagePreference.SYSTEM -> localizedStringResource(Res.string.system, chinese)
+        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> localizedStringResource(Res.string.simplified_chinese, chinese)
+        ApplicationLanguagePreference.ENGLISH -> localizedStringResource(Res.string.english, chinese)
     }
 
-@Composable
 internal fun themePreferenceLabel(
     preference: ApplicationThemePreference,
     chinese: Boolean,
 ): String =
     when (preference) {
-        ApplicationThemePreference.SYSTEM -> stringResource(Res.string.system)
-        ApplicationThemePreference.LIGHT -> stringResource(Res.string.light)
-        ApplicationThemePreference.DARK -> stringResource(Res.string.dark)
+        ApplicationThemePreference.SYSTEM -> localizedStringResource(Res.string.system, chinese)
+        ApplicationThemePreference.LIGHT -> localizedStringResource(Res.string.light, chinese)
+        ApplicationThemePreference.DARK -> localizedStringResource(Res.string.dark, chinese)
     }

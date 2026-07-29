@@ -1,7 +1,6 @@
 package com.androidperformancestudio.memory.app
 
-import org.jetbrains.compose.resources.getString
-
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.*
 
@@ -18,7 +17,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.file.Path
-import java.util.Locale
 
 internal data class LoadedHeap(
     val heapDump: HeapDump,
@@ -137,7 +135,7 @@ internal class MemoryProfilerController(
         mutableState.value =
             snapshot.copy(
                 isDumping = true,
-                operationMessage = getString(Res.string.dumping_heap_for, process.name),
+                operationMessage = localizedStringResource(Res.string.dumping_heap_for, chinese, process.name),
                 error = null,
                 warning = null,
                 cleanupWarning = null,
@@ -147,11 +145,10 @@ internal class MemoryProfilerController(
 
     @Suppress("TooGenericExceptionCaught")
     suspend fun importHprof(file: Path) {
-        val importingProgressTemplate = getString(Res.string.importing_ad13e4da)
         mutableState.value =
             mutableState.value.copy(
                 isDumping = true,
-                operationMessage = getString(Res.string.importing, file.fileName),
+                operationMessage = localizedStringResource(Res.string.importing, chinese, file.fileName),
                 error = null,
                 warning = null,
                 cleanupWarning = null,
@@ -160,26 +157,18 @@ internal class MemoryProfilerController(
             try {
                 backend.importHprof(file) { progress ->
                     mutableState.value =
-                        mutableState.value.copy(
-                            operationMessage =
-                                String.format(
-                                    Locale.ROOT,
-                                    importingProgressTemplate,
-                                    file.fileName,
-                                    progress,
-                                ),
-                        )
+                        mutableState.value.copy(operationMessage = localizedStringResource(Res.string.importing_ad13e4da, chinese, file.fileName, progress))
                 }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: OutOfMemoryError) {
                 MemoryBackendResult.Failure(
-                    title = getString(Res.string.unable_to_analyze_hprof),
-                    detail = getString(Res.string.hprof_parser_out_of_memory),
+                    title = localizedStringResource(Res.string.unable_to_analyze_hprof, chinese),
+                    detail = localizedStringResource(Res.string.hprof_parser_out_of_memory, chinese),
                 )
             } catch (exception: Exception) {
                 MemoryBackendResult.Failure(
-                    title = getString(Res.string.unable_to_analyze_hprof),
+                    title = localizedStringResource(Res.string.unable_to_analyze_hprof, chinese),
                     detail = exception.message ?: exception::class.simpleName.orEmpty(),
                 )
             }

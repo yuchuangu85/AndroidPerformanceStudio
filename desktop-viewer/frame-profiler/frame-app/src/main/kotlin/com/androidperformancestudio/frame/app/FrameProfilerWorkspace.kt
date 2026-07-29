@@ -2,8 +2,7 @@
 
 package com.androidperformancestudio.frame.app
 
-import org.jetbrains.compose.resources.stringResource
-
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
 import com.androidperformancestudio.frame.frame_app.generated.resources.*
 
@@ -47,8 +46,6 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var showImportDialog by remember { mutableStateOf(false) }
-    val importDialogTitle = stringResource(Res.string.import_gfxinfo_framestats)
-    val saveDialogTitle = stringResource(Res.string.export_frame_profiler_report)
 
     LaunchedEffect(controller) { controller.refreshDevices() }
     LaunchedEffect(state.isCapturing) {
@@ -61,7 +58,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
-                contentDescription = stringResource(Res.string.back_to_home),
+                contentDescription = localizedStringResource(Res.string.back_to_home, chinese),
                 onClick = {
                     if (state.isCapturing) {
                         scope.launch {
@@ -74,7 +71,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
                 },
             )
             ProfilerCompactSelector(
-                label = stringResource(Res.string.device),
+                label = localizedStringResource(Res.string.device, chinese),
                 selectedLabel =
                     state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
                 options = state.devices.filter { it.online }.map { it.serial to it.name },
@@ -82,28 +79,28 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
                 onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
             )
             ProfilerCompactSelector(
-                label = stringResource(Res.string.process),
+                label = localizedStringResource(Res.string.process, chinese),
                 selectedLabel =
                     state.processes.firstOrNull { it.pid == state.selectedProcessId }?.let {
-                        stringResource(Res.string.process_with_pid, it.name, it.pid)
+                        localizedStringResource(Res.string.process_with_pid, chinese, it.name, it.pid)
                     },
                 options = state.processes.map {
-                    it.pid.toString() to stringResource(Res.string.process_with_pid, it.name, it.pid)
+                    it.pid.toString() to localizedStringResource(Res.string.process_with_pid, chinese, it.name, it.pid)
                 },
                 enabled = !state.isCapturing && state.selectedDeviceSerial != null,
                 onSelected = { pid -> pid.toIntOrNull()?.let(controller::selectProcess) },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.refresh),
+                text = localizedStringResource(Res.string.refresh, chinese),
                 enabled = !state.isCapturing && !state.isRefreshingDevices,
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
             ProfilerCompactButton(
                 text =
                     if (state.isCapturing) {
-                        stringResource(Res.string.stop_capture)
+                        localizedStringResource(Res.string.stop_capture, chinese)
                     } else {
-                        stringResource(Res.string.start_capture)
+                        localizedStringResource(Res.string.start_capture, chinese)
                     },
                 enabled = state.selectedProcessId != null,
                 onClick = {
@@ -113,24 +110,24 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
                 },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.import_framestats),
+                text = localizedStringResource(Res.string.import_framestats, chinese),
                 enabled = !state.isCapturing,
                 onClick = { showImportDialog = true },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.export_csv),
+                text = localizedStringResource(Res.string.export_csv, chinese),
                 enabled = state.analysis != null,
                 onClick = {
-                    chooseSaveFile(window, "frame-analysis.csv", saveDialogTitle)?.let { output ->
+                    chooseSaveFile(window, "frame-analysis.csv", chinese)?.let { output ->
                         scope.launch { controller.exportCsv(output.toPath()) }
                     }
                 },
             )
             ProfilerCompactButton(
-                text = stringResource(Res.string.export_json),
+                text = localizedStringResource(Res.string.export_json, chinese),
                 enabled = state.analysis != null,
                 onClick = {
-                    chooseSaveFile(window, "frame-analysis.json", saveDialogTitle)?.let { output ->
+                    chooseSaveFile(window, "frame-analysis.json", chinese)?.let { output ->
                         scope.launch { controller.exportJson(output.toPath()) }
                     }
                 },
@@ -172,7 +169,7 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
     if (showImportDialog) {
         FrameStatsOpenFileDialog(
             parent = window,
-            dialogTitle = importDialogTitle,
+            chinese = chinese,
             onCloseRequest = { selected ->
                 showImportDialog = false
                 selected?.let { file -> scope.launch { controller.importFrameStats(file.toPath()) } }
@@ -184,12 +181,12 @@ public fun FrameWindowScope.FrameProfilerWorkspace(
 @Composable
 private fun FrameStatsOpenFileDialog(
     parent: Frame,
-    dialogTitle: String,
+    chinese: Boolean,
     onCloseRequest: (File?) -> Unit,
 ) {
     AwtWindow(
         create = {
-            object : FileDialog(parent, dialogTitle, FileDialog.LOAD) {
+            object : FileDialog(parent, localizedStringResource(Res.string.import_gfxinfo_framestats, chinese), FileDialog.LOAD) {
                 init {
                     isMultipleMode = false
                     filenameFilter =
@@ -211,10 +208,10 @@ private fun FrameStatsOpenFileDialog(
 private fun chooseSaveFile(
     parent: java.awt.Component,
     defaultName: String,
-    dialogTitle: String,
+    chinese: Boolean,
 ): File? =
     JFileChooser().run {
-        this.dialogTitle = dialogTitle
+        dialogTitle = localizedStringResource(Res.string.export_frame_profiler_report, chinese)
         selectedFile = File(defaultName)
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }

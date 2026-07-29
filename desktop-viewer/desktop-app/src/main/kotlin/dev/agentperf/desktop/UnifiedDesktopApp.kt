@@ -1,7 +1,6 @@
 package dev.agentperf.desktop
 
-import org.jetbrains.compose.resources.stringResource
-
+import com.androidperformancestudio.ui.localizedStringResource
 import dev.agentperf.desktop_app.generated.resources.Res
 import dev.agentperf.desktop_app.generated.resources.*
 
@@ -85,19 +84,6 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
             language = SimpleperfLanguagePreference.parse(applicationSettings.language.storageValue),
             flameTooltipMode = simpleperfPreferences.flameTooltipMode,
             simpleperfEngine = simpleperfPreferences.simpleperfEngine,
-        )
-    val layoutCorrelationTemplate = stringResource(Res.string.layout_correlation_from_frame)
-    val correlationNotice = stringResource(Res.string.correlation_only_no_view_causality_is_inferred)
-    val foregroundMismatchPrefix = stringResource(Res.string.foreground_package_differs)
-    val gpuCorrelationNotice =
-        stringResource(
-            Res.string.opened_from_tool_for_correlation_only,
-            stringResource(Res.string.gpu_inspector),
-        )
-    val benchmarkCorrelationNotice =
-        stringResource(
-            Res.string.opened_from_tool_for_correlation_only,
-            stringResource(Res.string.benchmark_regression),
         )
 
     LaunchedEffect(settingsRequest?.requestId) {
@@ -213,22 +199,16 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                                         ?.let { " · $it" }
                                         .orEmpty()
                                 val message =
-                                    String.format(
-                                        Locale.ROOT,
-                                        layoutCorrelationTemplate,
-                                        request.frameId,
-                                        request.packageName,
-                                        activity,
-                                    )
+                                    localizedStringResource(Res.string.layout_correlation_from_frame, chinese, request.frameId, request.packageName, activity)
                                 navigator.openLayoutInspector(
                                     InspectorCorrelationHint(
                                         deviceSerial = request.deviceSerial,
                                         targetPackageName = request.packageName,
                                         message = message,
                                         correlationNotice =
-                                            correlationNotice,
+                                            localizedStringResource(Res.string.correlation_only_no_view_causality_is_inferred, chinese),
                                         foregroundMismatchPrefix =
-                                            foregroundMismatchPrefix,
+                                            localizedStringResource(Res.string.foreground_package_differs, chinese),
                                     ),
                                 )
                             },
@@ -255,7 +235,11 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                             onOpenTrace = { path ->
                                 navigator.openPerfettoTrace(
                                     path,
-                                    gpuCorrelationNotice,
+                                    localizedStringResource(
+                                        Res.string.opened_from_tool_for_correlation_only,
+                                        chinese,
+                                        localizedStringResource(Res.string.gpu_inspector, chinese),
+                                    ),
                                 )
                             },
                         )
@@ -266,7 +250,11 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                             onOpenTrace = { path ->
                                 navigator.openPerfettoTrace(
                                     path,
-                                    benchmarkCorrelationNotice,
+                                    localizedStringResource(
+                                        Res.string.opened_from_tool_for_correlation_only,
+                                        chinese,
+                                        localizedStringResource(Res.string.benchmark_regression, chinese),
+                                    ),
                                 )
                             },
                         )

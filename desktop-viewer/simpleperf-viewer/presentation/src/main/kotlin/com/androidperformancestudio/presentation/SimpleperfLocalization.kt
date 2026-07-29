@@ -8,8 +8,6 @@
 
 package com.androidperformancestudio.presentation
 
-import org.jetbrains.compose.resources.stringResource
-
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -25,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import org.jetbrains.compose.resources.StringResource
 import androidx.compose.material3.Text as MaterialText
@@ -50,9 +49,13 @@ internal fun localizedSimpleperfText(text: String): String = translateSimpleperf
 @Composable
 internal fun localizedSimpleperfResource(
     resource: StringResource,
-    vararg args: Any,
+    vararg args: Any?,
 ): String =
-    stringResource(resource, *args, )
+    localizedStringResource(
+        resource,
+        chinese = LocalSimpleperfLanguage.current == SimpleperfLanguage.SIMPLIFIED_CHINESE,
+        *args,
+    )
 
 @Composable
 internal fun currentSimpleperfLanguage(): SimpleperfLanguage = LocalSimpleperfLanguage.current
@@ -98,45 +101,42 @@ internal fun Text(
     )
 }
 
-@Composable
 internal fun translateSimpleperfText(
     text: String,
     language: SimpleperfLanguage,
 ): String {
     if (language == SimpleperfLanguage.ENGLISH) return text
-    val directResource = SimpleperfTranslationMap.resourceFor(text)
-    if (directResource != null) {
-        return stringResource(directResource)
+    SimpleperfTranslationMap.resourceFor(text)?.let { resource ->
+        return localizedStringResource(resource, chinese = true)
     }
-    val inclusiveExclusive = INC_EXC_PATTERN.matchEntire(text)
-    if (inclusiveExclusive != null) {
-        return stringResource(
-            ViewerRes.sp_dynamic_inc_exc,
-            inclusiveExclusive.groupValues[1],
-            inclusiveExclusive.groupValues[2],
-        )
+    INC_EXC_PATTERN.matchEntire(text)?.let { match ->
+        return localizedStringResource(ViewerRes.sp_dynamic_inc_exc, true, match.groupValues[1], match.groupValues[2])
     }
-    val inclusiveSelf = INCLUSIVE_SELF_PATTERN.matchEntire(text)
-    if (inclusiveSelf != null) {
-        return stringResource(ViewerRes.sp_dynamic_inc_exc, inclusiveSelf.groupValues[1], inclusiveSelf.groupValues[2])
+    INCLUSIVE_SELF_PATTERN.matchEntire(text)?.let { match ->
+        return localizedStringResource(ViewerRes.sp_dynamic_inc_exc, true, match.groupValues[1], match.groupValues[2])
     }
-    val samples = SAMPLES_PATTERN.matchEntire(text)
-    if (samples != null) {
-        return stringResource(ViewerRes.sp_dynamic_samples, samples.groupValues[1], samples.groupValues[2])
+    SAMPLES_PATTERN.matchEntire(text)?.let { match ->
+        return localizedStringResource(ViewerRes.sp_dynamic_samples, true, match.groupValues[1], match.groupValues[2])
     }
-    val prefix = CHINESE_PREFIXES.firstOrNull { text.startsWith(it.first) }
-    if (prefix != null) {
-        return stringResource(prefix.second, text.removePrefix(prefix.first))
+    CHINESE_PREFIXES.firstOrNull { text.startsWith(it.first) }?.let { (english, resource) ->
+        return localizedStringResource(resource, true, text.removePrefix(english))
     }
-    val everyEvents = EVERY_EVENTS_PATTERN.matchEntire(text)
-    if (everyEvents != null) {
-        return stringResource(ViewerRes.sp_dynamic_every_events, everyEvents.groupValues[1])
+    EVERY_EVENTS_PATTERN.matchEntire(text)?.let { match ->
+        return localizedStringResource(ViewerRes.sp_dynamic_every_events, true, match.groupValues[1])
     }
     if (text.endsWith(" hotspot")) {
-        return stringResource(ViewerRes.sp_dynamic_hotspot, translateSimpleperfText(text.removeSuffix(" hotspot"), language), )
+        return localizedStringResource(
+            ViewerRes.sp_dynamic_hotspot,
+            true,
+            translateSimpleperfText(text.removeSuffix(" hotspot"), language),
+        )
     }
     if (text.startsWith("• ")) {
-        return stringResource(ViewerRes.sp_dynamic_bullet, translateSimpleperfText(text.removePrefix("• "), language), )
+        return localizedStringResource(
+            ViewerRes.sp_dynamic_bullet,
+            true,
+            translateSimpleperfText(text.removePrefix("• "), language),
+        )
     }
     return text
 }
