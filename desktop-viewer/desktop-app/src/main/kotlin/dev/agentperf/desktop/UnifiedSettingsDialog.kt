@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
@@ -39,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
 import java.util.Locale
+import java.io.File
+import javax.swing.JFileChooser
 import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.presentation.CaptureSettingsSection
@@ -304,8 +307,78 @@ private fun GeneralSettingsContent(
             optionLabel = { themePreferenceLabel(it, chinese) },
             onSelected = { onSettingsChanged(settings.copy(theme = it)) },
         )
+        AndroidSdkPathSetting(
+            settings = settings,
+            chinese = chinese,
+            onSettingsChanged = onSettingsChanged,
+        )
     }
 }
+
+@Composable
+private fun AndroidSdkPathSetting(
+    settings: ApplicationUiSettings,
+    chinese: Boolean,
+    onSettingsChanged: (ApplicationUiSettings) -> Unit,
+) {
+    var draftPath by remember(settings.androidSdkPath) { mutableStateOf(settings.androidSdkPath.orEmpty()) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = draftPath,
+            onValueChange = { draftPath = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text(localizedStringResource(Res.string.android_sdk_path, chinese)) },
+            supportingText = { Text(localizedStringResource(Res.string.android_sdk_path_hint, chinese)) },
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                    chooseAndroidSdkDirectory(
+                        localizedStringResource(Res.string.select_android_sdk_directory, chinese),
+                        draftPath,
+                    )?.let { selected ->
+                        draftPath = selected
+                        onSettingsChanged(settings.copy(androidSdkPath = selected))
+                    }
+                },
+            ) {
+                Text(localizedStringResource(Res.string.browse, chinese))
+            }
+            OutlinedButton(
+                onClick = {
+                    val normalized = draftPath.trim().takeIf(String::isNotEmpty)
+                    onSettingsChanged(settings.copy(androidSdkPath = normalized))
+                },
+                enabled = draftPath.trim().takeIf(String::isNotEmpty) != settings.androidSdkPath,
+            ) {
+                Text(localizedStringResource(Res.string.apply, chinese))
+            }
+            OutlinedButton(
+                onClick = {
+                    draftPath = ""
+                    onSettingsChanged(settings.copy(androidSdkPath = null))
+                },
+                enabled = draftPath.isNotEmpty() || settings.androidSdkPath != null,
+            ) {
+                Text(localizedStringResource(Res.string.clear, chinese))
+            }
+        }
+    }
+}
+
+private fun chooseAndroidSdkDirectory(
+    title: String,
+    currentPath: String,
+): String? =
+    JFileChooser().run {
+        dialogTitle = title
+        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+        currentPath.trim().takeIf(String::isNotEmpty)?.let { path ->
+            runCatching { File(path) }.getOrNull()?.takeIf(File::exists)?.let { currentDirectory = it }
+        }
+        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) selectedFile.toPath().toAbsolutePath().normalize().toString() else null
+    }
 
 @Composable
 private fun CompleteSimpleperfSettingsContent(

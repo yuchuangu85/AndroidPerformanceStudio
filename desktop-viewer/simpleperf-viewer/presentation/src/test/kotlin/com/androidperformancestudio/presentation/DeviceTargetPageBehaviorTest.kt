@@ -21,6 +21,8 @@ import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.capture.SimpleperfTarget
+import com.androidperformancestudio.model.ErrorCategory
+import com.androidperformancestudio.model.StudioError
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -28,6 +30,62 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class DeviceTargetPageBehaviorTest {
+    @Test
+    fun `adb not found error directs user to configure SDK path`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            setContent {
+                HomeScreen(
+                    state = DeviceTargetState(error = adbNotFoundError()),
+                    captureState = CaptureState.Idle,
+                    reportState = ReportState(),
+                    actions = deviceActions(),
+                    reportActions = goldenActions(),
+                )
+            }
+
+            onNodeWithText(
+                "ADB_NOT_FOUND: Configure the Android SDK path manually in Settings > General.",
+            ).assertExists()
+        }
+
+    @Test
+    fun `adb not found configuration direction is localized`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            setContent {
+                HomeScreen(
+                    state = DeviceTargetState(error = adbNotFoundError()),
+                    captureState = CaptureState.Idle,
+                    reportState = ReportState(),
+                    actions = deviceActions(),
+                    reportActions = goldenActions(),
+                    language = SimpleperfLanguage.SIMPLIFIED_CHINESE,
+                )
+            }
+
+            onNodeWithText(
+                "ADB_NOT_FOUND: 请前往“设置 > 通用”手动配置 Android SDK 路径。",
+            ).assertExists()
+        }
+
+    @Test
+    fun `unrelated errors retain their original details`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            setContent {
+                HomeScreen(
+                    state =
+                        DeviceTargetState(
+                            error = StudioError(ErrorCategory.IO, "OTHER_ERROR", "Original details"),
+                        ),
+                    captureState = CaptureState.Idle,
+                    reportState = ReportState(),
+                    actions = deviceActions(),
+                    reportActions = goldenActions(),
+                )
+            }
+
+            onNodeWithText("OTHER_ERROR: Original details").assertExists()
+        }
+
     @Test
     fun `home button invokes navigation callback`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
@@ -262,6 +320,13 @@ class DeviceTargetPageBehaviorTest {
             assertEquals(1, cancelCount)
         }
 }
+
+private fun adbNotFoundError(): StudioError =
+    StudioError(
+        category = ErrorCategory.CONFIGURATION,
+        code = "ADB_NOT_FOUND",
+        message = "adb wasn't found in Android SDK, PATH, or the default SDK directory",
+    )
 
 private fun readyState(thread: ThreadOption): DeviceTargetState {
     val capabilities =

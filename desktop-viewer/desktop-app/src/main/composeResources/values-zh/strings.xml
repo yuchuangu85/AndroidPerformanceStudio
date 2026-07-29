@@ -59,4 +59,10 @@
     <string name="text">%1$s: %2$s</string>
     <string name="opened_from_tool_for_correlation_only">Opened from %1$s for correlation only; no causal relationship is inferred.</string>
     <string name="simpleperf">Simpleperf</string>
+    <string name="android_sdk_path">Android SDK 路径</string>
+    <string name="android_sdk_path_hint">留空时自动检测 Android SDK。</string>
+    <string name="browse">浏览…</string>
+    <string name="apply">应用</string>
+    <string name="clear">清除</string>
+    <string name="select_android_sdk_directory">选择 Android SDK 目录</string>
 </resources>

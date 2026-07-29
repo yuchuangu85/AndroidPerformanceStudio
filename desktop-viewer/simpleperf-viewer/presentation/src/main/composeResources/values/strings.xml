@@ -314,4 +314,5 @@
     <string name="sp_semantic_flame_content">%1$s, %2$s%, %3$s</string>
     <string name="sp_semantic_flame_state_single">%1$s, inclusive weight %2$s, %3$s sample</string>
     <string name="sp_semantic_flame_state_multiple">%1$s, inclusive weight %2$s, %3$s samples</string>
+    <string name="sp_adb_not_found_settings_hint">Configure the Android SDK path manually in Settings &gt; General.</string>
 </resources>

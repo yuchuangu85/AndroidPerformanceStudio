@@ -57,6 +57,7 @@ internal enum class ApplicationLanguagePreference(val storageValue: String) {
 internal data class ApplicationUiSettings(
     val theme: ApplicationThemePreference = ApplicationThemePreference.SYSTEM,
     val language: ApplicationLanguagePreference = ApplicationLanguagePreference.SYSTEM,
+    val androidSdkPath: String? = null,
 )
 
 internal class ApplicationUiSettingsStore(
@@ -68,18 +69,21 @@ internal class ApplicationUiSettingsStore(
         ApplicationUiSettings(
             theme = ApplicationThemePreference.parse(readValue(THEME_KEY)),
             language = ApplicationLanguagePreference.parse(readValue(LANGUAGE_KEY)),
+            androidSdkPath = readValue(ANDROID_SDK_PATH_KEY)?.trim()?.takeIf(String::isNotEmpty),
         )
 
     fun save(settings: ApplicationUiSettings): Boolean =
         runCatching {
             writeValue(THEME_KEY, settings.theme.storageValue)
             writeValue(LANGUAGE_KEY, settings.language.storageValue)
+            writeValue(ANDROID_SDK_PATH_KEY, settings.androidSdkPath.orEmpty())
             flush()
         }.isSuccess
 
     companion object {
         private const val THEME_KEY = "application.theme"
         private const val LANGUAGE_KEY = "application.language"
+        private const val ANDROID_SDK_PATH_KEY = "application.androidSdkPath"
 
         fun desktop(): ApplicationUiSettingsStore {
             val preferences =

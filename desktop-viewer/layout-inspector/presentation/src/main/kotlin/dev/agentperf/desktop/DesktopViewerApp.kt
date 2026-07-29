@@ -118,6 +118,7 @@ import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 // Keep the implementation available while the user-facing flow is deferred.
@@ -245,14 +246,14 @@ fun FrameWindowScope.DesktopViewerApp(
                         state = store.state
                         aiAnalysisUiState = AiAnalysisUiState.Idle
                     }
-                    delay(CAPTURE_INTERVAL_MILLIS)
+                    delay(CAPTURE_INTERVAL_MILLIS.milliseconds)
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 store.connectionFailed(error.message ?: error.javaClass.simpleName)
                 state = store.state
-                delay(RECONNECT_INTERVAL_MILLIS)
+                delay(RECONNECT_INTERVAL_MILLIS.milliseconds)
             } finally {
                 withContext(NonCancellable + Dispatchers.IO) {
                     session?.close()
@@ -936,7 +937,7 @@ private fun Header(
     val model = InspectorPresenter.present(state, strings)
     val (packageName, separator, connectionLabel) = headerTextSegments(model, strings)
     Row(
-        modifier = Modifier.fillMaxWidth().height(40.dp).background(colors.panel).padding(horizontal = 18.dp),
+        modifier = Modifier.fillMaxWidth().height(40.dp).background(colors.panel).padding(horizontal = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onNavigateHome != null) {

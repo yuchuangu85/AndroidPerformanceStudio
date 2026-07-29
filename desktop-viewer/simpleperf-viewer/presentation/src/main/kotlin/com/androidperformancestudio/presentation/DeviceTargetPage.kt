@@ -56,6 +56,7 @@ import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -145,7 +146,7 @@ private fun WorkspaceToolbar(
                     MacOsDeviceTargetDimensions.hairline,
                     style.border,
                     RoundedCornerShape(0.dp),
-                ).padding(horizontal = 12.dp),
+                ).padding(horizontal = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -756,7 +757,13 @@ private fun CaptureStatus(
         StatusDot(color)
         Spacer(Modifier.width(7.dp))
         Text(
-            error?.let { "${it.code}: ${it.message}" } ?: captureState.statusText(),
+            error?.let {
+                if (it.code == ADB_NOT_FOUND_ERROR_CODE) {
+                    "$ADB_NOT_FOUND_ERROR_CODE: ${localizedSimpleperfResource(ViewerRes.sp_adb_not_found_settings_hint)}"
+                } else {
+                    "${it.code}: ${it.message}"
+                }
+            } ?: captureState.statusText(),
             modifier = if (fileInfo == null) Modifier.weight(1f) else Modifier.widthIn(max = 240.dp),
             color = color,
             fontSize = 10.sp,
@@ -798,6 +805,8 @@ private data class FooterFileInfo(
     val name: String,
     val path: String,
 )
+
+private const val ADB_NOT_FOUND_ERROR_CODE = "ADB_NOT_FOUND"
 
 private fun ReportState.footerFileInfo(): FooterFileInfo? =
     when (val current = loadState) {

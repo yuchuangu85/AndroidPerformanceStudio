@@ -50,6 +50,30 @@ class SystemAdbLocatorTest {
     }
 
     @Test
+    fun `user configured sdk resolves platform tools adb`() {
+        withTempDirectory { root ->
+            val sdk = root.resolve("custom-sdk")
+            val adb = createAdb(sdk.resolve("platform-tools"), "adb.exe")
+            val locator =
+                SystemAdbLocator(
+                    platform = HostPlatform(HostOperatingSystem.WINDOWS, CpuArchitecture.X64),
+                    environment = emptyMap(),
+                    userHome = root,
+                    pathSeparator = ";",
+                    isUsableExecutable = Files::isRegularFile,
+                )
+
+            val result =
+                assertIs<StudioResult.Success<AdbLocation>>(
+                    locator.locate(AdbConfiguration(androidSdkPath = sdk)),
+                )
+
+            assertEquals(adb, result.value.executable)
+            assertEquals(AdbLocationSource.USER_CONFIGURATION, result.value.source)
+        }
+    }
+
+    @Test
     fun `android home is preferred over path`() {
         withTempDirectory { root ->
             val androidHomeAdb = createAdb(root.resolve("sdk/platform-tools"), "adb")
@@ -93,6 +117,52 @@ class SystemAdbLocatorTest {
                 SystemAdbLocator(
                     platform = HostPlatform(HostOperatingSystem.WINDOWS, CpuArchitecture.X64),
                     environment = mapOf("PATH" to "${root.resolve("first-bin")};$secondPath"),
+                    userHome = root,
+                    pathSeparator = ";",
+                    isUsableExecutable = Files::isRegularFile,
+                )
+
+            val result = assertIs<StudioResult.Success<AdbLocation>>(locator.locate())
+
+            assertEquals(adb, result.value.executable)
+            assertEquals(AdbLocationSource.PATH, result.value.source)
+        }
+    }
+
+    @Test
+    fun `windows resolves case insensitive environment names and expanded sdk variables`() {
+        withTempDirectory { root ->
+            val localAppData = root.resolve("Local App Data")
+            val adb = createAdb(localAppData.resolve("Android/Sdk/platform-tools"), "adb.exe")
+            val locator =
+                SystemAdbLocator(
+                    platform = HostPlatform(HostOperatingSystem.WINDOWS, CpuArchitecture.X64),
+                    environment =
+                        mapOf(
+                            "localappdata" to localAppData.toString(),
+                            "android_sdk_root" to "%LOCALAPPDATA%/Android/Sdk",
+                        ),
+                    userHome = root,
+                    pathSeparator = ";",
+                    isUsableExecutable = Files::isRegularFile,
+                )
+
+            val result = assertIs<StudioResult.Success<AdbLocation>>(locator.locate())
+
+            assertEquals(adb, result.value.executable)
+            assertEquals(AdbLocationSource.ANDROID_SDK_ROOT, result.value.source)
+        }
+    }
+
+    @Test
+    fun `windows accepts quoted path entries containing spaces`() {
+        withTempDirectory { root ->
+            val platformTools = root.resolve("Android SDK/platform-tools")
+            val adb = createAdb(platformTools, "adb.exe")
+            val locator =
+                SystemAdbLocator(
+                    platform = HostPlatform(HostOperatingSystem.WINDOWS, CpuArchitecture.X64),
+                    environment = mapOf("Path" to "\"$platformTools\""),
                     userHome = root,
                     pathSeparator = ";",
                     isUsableExecutable = Files::isRegularFile,

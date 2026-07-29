@@ -145,6 +145,7 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                         SimpleperfWorkspace(
                             window = window,
                             settings = simpleperfSettings,
+                            androidSdkPath = applicationSettings.androidSdkPath?.let { path -> runCatching { java.nio.file.Path.of(path) }.getOrNull() },
                             onSettingsChanged = updateSimpleperfPreferences,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             onOpenPreferences = { section ->

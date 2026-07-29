@@ -321,4 +321,5 @@ object ViewerRes {
     val sp_semantic_flame_content: StringResource get() = Res.string.sp_semantic_flame_content
     val sp_semantic_flame_state_single: StringResource get() = Res.string.sp_semantic_flame_state_single
     val sp_semantic_flame_state_multiple: StringResource get() = Res.string.sp_semantic_flame_state_multiple
+    val sp_adb_not_found_settings_hint: StringResource get() = Res.string.sp_adb_not_found_settings_hint
 }

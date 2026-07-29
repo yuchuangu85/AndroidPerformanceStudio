@@ -52,6 +52,7 @@ import com.androidperformancestudio.presentation.SimpleperfLanguage as Presentat
 fun FrameWindowScope.SimpleperfWorkspace(
     window: ComposeWindow,
     settings: SimpleperfUiSettings = SimpleperfUiSettings(),
+    androidSdkPath: Path? = null,
     onSettingsChanged: (SimpleperfUiSettings) -> Unit = {},
     onNavigateHome: (() -> Unit)? = null,
     onOpenPreferences: ((CaptureSettingsSection) -> Unit)? = null,
@@ -59,7 +60,7 @@ fun FrameWindowScope.SimpleperfWorkspace(
     onCaptureSettingsContextChanged: (SimpleperfCaptureSettingsContext?) -> Unit = {},
 ) {
     var currentSettings by remember(settings) { mutableStateOf(settings) }
-    val dependencies = remember { createWorkspaceDependencies() }
+    val dependencies = remember(androidSdkPath) { createWorkspaceDependencies(androidSdkPath) }
     val controller =
         remember(dependencies) {
             DeviceTargetController(dependencies.deviceGateway, dependencies.captureSession)
@@ -317,12 +318,15 @@ private suspend fun ReportController.openFirefoxProfiler(
     }
 }
 
-private fun createWorkspaceDependencies(): WorkspaceDependencies {
+private fun createWorkspaceDependencies(androidSdkPath: Path? = null): WorkspaceDependencies {
     val platform = SystemHostPlatformDetector().detect()
     if (platform is StudioResult.Failure) {
         return WorkspaceDependencies(UnavailableDeviceTargetGateway(platform), null)
     }
-    val location = SystemAdbLocator((platform as StudioResult.Success).value).locate(AdbConfiguration())
+    val location =
+        SystemAdbLocator((platform as StudioResult.Success).value).locate(
+            AdbConfiguration(androidSdkPath = androidSdkPath),
+        )
     return when (location) {
         is StudioResult.Success -> {
             val adbExecutable = location.value.executable

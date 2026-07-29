@@ -17,12 +17,14 @@ class UnifiedSettingsStoreTest {
             ApplicationUiSettings(
                 theme = ApplicationThemePreference.DARK,
                 language = ApplicationLanguagePreference.SIMPLIFIED_CHINESE,
+                androidSdkPath = "D:/Android/Sdk",
             )
 
         assertTrue(store.save(settings))
 
         assertEquals("dark", values["application.theme"])
         assertEquals("simplified_chinese", values["application.language"])
+        assertEquals("D:/Android/Sdk", values["application.androidSdkPath"])
         assertEquals(settings, store.load())
     }
 

@@ -61,7 +61,7 @@ internal fun localizedSimpleperfResource(
 ): String =
     localizedStringResource(
         resource,
-        chinese = LocalSimpleperfLanguage.current == SimpleperfLanguage.SIMPLIFIED_CHINESE,
+        locale = LocalSimpleperfLanguage.current.locale,
         *args,
     )
 
