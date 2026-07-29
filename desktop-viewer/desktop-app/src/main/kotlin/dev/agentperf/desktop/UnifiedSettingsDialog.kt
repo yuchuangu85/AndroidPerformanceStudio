@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -356,11 +358,19 @@ private fun <T> SettingsChoice(
     onSelected: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+    Box(Modifier.wrapContentWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.width(320.dp)
+        ) {
             Text(localizedStringResource(Res.string.text, chinese, label, optionLabel(current)))
         }
-        androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        androidx.compose.material3.DropdownMenu(
+            expanded = expanded,
+            modifier = Modifier.wrapContentHeight().width(200.dp),
+            shape = RoundedCornerShape(10.dp),
+            onDismissRequest = { expanded = false }
+        ) {
             options.forEach { option ->
                 androidx.compose.material3.DropdownMenuItem(
                     text = { Text(optionLabel(option)) },
