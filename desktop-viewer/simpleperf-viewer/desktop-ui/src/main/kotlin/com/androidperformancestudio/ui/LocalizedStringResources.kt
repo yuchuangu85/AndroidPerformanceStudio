@@ -9,20 +9,27 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Resolves Compose string resources using the application's explicit language selection.
  *
- * Profiler workspaces receive a `chinese` flag from the unified application settings, which
+ * Profiler workspaces can receive an explicit locale from the unified application settings, which
  * can intentionally differ from the operating-system locale. Compose Resources' default
  * non-composable API follows the system locale, so resource lookup must use an explicit
- * environment. Loaded templates are cached by resource identity and language; no global locale
+ * environment. Loaded templates are cached by resource identity and locale; no global locale
  * is mutated and subsequent reads do not perform resource I/O.
  */
 public fun localizedStringResource(
     resource: StringResource,
     chinese: Boolean,
     vararg formatArgs: Any?,
+): String = localizedStringResource(resource, if (chinese) Locale.SIMPLIFIED_CHINESE else Locale.ENGLISH, *formatArgs)
+
+/** Resolves a resource for an arbitrary requested locale, falling back to the base resource when unavailable. */
+public fun localizedStringResource(
+    resource: StringResource,
+    locale: Locale,
+    vararg formatArgs: Any?,
 ): String {
-    val template = localizedStringTemplates.computeIfAbsent(ResourceCacheKey(resource, chinese)) {
+    val template = localizedStringTemplates.computeIfAbsent(ResourceCacheKey(resource, locale)) {
         runBlocking {
-            getString(ResourceEnvironmentFactory.forLanguage(chinese), resource)
+            getString(ResourceEnvironmentFactory.forLanguage(locale), resource)
         }
     }
     return if (formatArgs.isEmpty()) {
@@ -34,12 +41,12 @@ public fun localizedStringResource(
 
 private class ResourceCacheKey(
     private val resource: StringResource,
-    private val chinese: Boolean,
+    private val locale: Locale,
 ) {
     override fun equals(other: Any?): Boolean =
-        other is ResourceCacheKey && resource === other.resource && chinese == other.chinese
+        other is ResourceCacheKey && resource === other.resource && locale == other.locale
 
-    override fun hashCode(): Int = 31 * System.identityHashCode(resource) + chinese.hashCode()
+    override fun hashCode(): Int = 31 * System.identityHashCode(resource) + locale.hashCode()
 }
 
 private val localizedStringTemplates = ConcurrentHashMap<ResourceCacheKey, String>()

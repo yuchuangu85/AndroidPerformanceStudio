@@ -55,7 +55,7 @@ class CaptureConfigurationWorkspaceTest {
         assertTrue(source.contains("FlameGraphSettingsPanel("))
         assertTrue(source.contains("SimpleperfEngineSettingsPanel("))
         assertTrue(source.contains("UserGuideSettingsPanel("))
-        assertTrue(source.contains("Open User Guide in Browser"))
+        assertTrue(source.contains("ViewerRes.sp_054_365d6111"))
     }
 
     @Test

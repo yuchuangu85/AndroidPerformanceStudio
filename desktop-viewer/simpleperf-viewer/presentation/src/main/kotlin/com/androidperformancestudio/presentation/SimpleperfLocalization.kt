@@ -27,10 +27,18 @@ import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import org.jetbrains.compose.resources.StringResource
 import androidx.compose.material3.Text as MaterialText
+import java.util.Locale
 
 enum class SimpleperfLanguage {
-    SIMPLIFIED_CHINESE,
-    ENGLISH,
+    SIMPLIFIED_CHINESE {
+        override val locale: Locale = Locale.SIMPLIFIED_CHINESE
+    },
+    ENGLISH {
+        override val locale: Locale = Locale.ENGLISH
+    },
+    ;
+
+    abstract val locale: Locale
 }
 
 private val LocalSimpleperfLanguage = staticCompositionLocalOf { SimpleperfLanguage.ENGLISH }

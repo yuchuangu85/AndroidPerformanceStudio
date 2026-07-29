@@ -268,6 +268,7 @@ public fun FrameWindowScope.UnifiedDesktopApp(settingsRequest: SettingsRequest? 
                         simpleperfInitialSection = simpleperfSettingsSection,
                         darkTheme = darkTheme,
                         chinese = chinese,
+                        simpleperfLocale = if (chinese) java.util.Locale.SIMPLIFIED_CHINESE else java.util.Locale.ENGLISH,
                         onPageSelected = { settingsPage = it },
                         onApplicationSettingsChanged = updateApplicationSettings,
                         onSimpleperfSettingsChanged = updateSimpleperfPreferences,

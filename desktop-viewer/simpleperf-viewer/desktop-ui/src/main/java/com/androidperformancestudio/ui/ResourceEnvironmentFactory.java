@@ -5,26 +5,19 @@ import org.jetbrains.compose.resources.LanguageQualifier;
 import org.jetbrains.compose.resources.RegionQualifier;
 import org.jetbrains.compose.resources.ResourceEnvironment;
 import org.jetbrains.compose.resources.ThemeQualifier;
+import java.util.Locale;
 
 /** Creates an explicit resource environment without changing the JVM default locale. */
 final class ResourceEnvironmentFactory {
     private ResourceEnvironmentFactory() {}
 
-    // 缓存中文环境实例
-    private static final ResourceEnvironment CHINESE = new ResourceEnvironment(
-            new LanguageQualifier("zh"),
-            new RegionQualifier("CN"),
-            ThemeQualifier.LIGHT,
-            DensityQualifier.MDPI);
-
-    // 缓存英文环境实例
-    private static final ResourceEnvironment ENGLISH = new ResourceEnvironment(
-            new LanguageQualifier("en"),
-            new RegionQualifier("US"),
-            ThemeQualifier.LIGHT,
-            DensityQualifier.MDPI);
-
-    static ResourceEnvironment forLanguage(boolean chinese) {
-        return chinese ? CHINESE : ENGLISH;
+    static ResourceEnvironment forLanguage(Locale locale) {
+        String language = locale.getLanguage().isEmpty() ? "en" : locale.getLanguage();
+        String country = locale.getCountry().isEmpty() ? "US" : locale.getCountry();
+        return new ResourceEnvironment(
+                new LanguageQualifier(language),
+                new RegionQualifier(country),
+                ThemeQualifier.LIGHT,
+                DensityQualifier.MDPI);
     }
 }

@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
+import java.util.Locale
 import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.presentation.CaptureSettingsSection
@@ -58,6 +59,7 @@ internal fun UnifiedSettingsDialog(
     simpleperfInitialSection: CaptureSettingsSection,
     darkTheme: Boolean,
     chinese: Boolean,
+    simpleperfLocale: Locale,
     onPageSelected: (SettingsPage) -> Unit,
     onApplicationSettingsChanged: (ApplicationUiSettings) -> Unit,
     onSimpleperfSettingsChanged: (SimpleperfUiSettings) -> Unit,
@@ -147,6 +149,7 @@ internal fun UnifiedSettingsDialog(
                                     section = activeSimpleperfSection,
                                     darkTheme = darkTheme,
                                     chinese = chinese,
+                                    locale = simpleperfLocale,
                                     onSettingsChanged = onSimpleperfSettingsChanged,
                                     onOpenUserGuide = onOpenUserGuide,
                                     modifier = Modifier.weight(1f),
@@ -311,6 +314,7 @@ private fun CompleteSimpleperfSettingsContent(
     section: CaptureSettingsSection,
     darkTheme: Boolean,
     chinese: Boolean,
+    locale: Locale,
     onSettingsChanged: (SimpleperfUiSettings) -> Unit,
     onOpenUserGuide: () -> Unit,
     modifier: Modifier = Modifier,
@@ -343,6 +347,7 @@ private fun CompleteSimpleperfSettingsContent(
             onSelectTemplate = context?.onSelectTemplate ?: {},
             onUpdate = context?.onUpdateSamplingParameters ?: {},
             onOpenUserGuide = onOpenUserGuide,
+            locale = locale,
             modifier = Modifier.fillMaxSize(),
         )
     }
