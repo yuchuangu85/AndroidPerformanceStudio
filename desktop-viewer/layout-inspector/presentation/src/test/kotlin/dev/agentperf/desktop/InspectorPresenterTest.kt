@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
 import dev.agentperf.analysis.AnalysisReport
 import dev.agentperf.analysis.Finding
 import dev.agentperf.analysis.LayoutMetrics
@@ -82,7 +83,7 @@ class InspectorPresenterTest {
 
         val model = InspectorPresenter.present(
             store.state,
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
         )
 
         assertEquals("android.widget.TextView", model.details.className)
@@ -222,7 +223,7 @@ class InspectorPresenterTest {
                 snapshot = SampleSnapshots.dashboard,
                 selectedNodeId = "root",
             ),
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
         ).details
 
         assertEquals(
@@ -371,7 +372,7 @@ class InspectorPresenterTest {
         val english = InspectorPresenter.present(state, ViewerStrings.English)
         val chinese = InspectorPresenter.present(
             state,
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
         )
 
         assertEquals("Offline archive", english.connectionLabel)
@@ -386,7 +387,7 @@ class InspectorPresenterTest {
                 connectionStatus = ConnectionStatus.ERROR,
                 connectionError = "Expected exactly one authorized device, found 0",
             ),
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
         )
 
         assertEquals(

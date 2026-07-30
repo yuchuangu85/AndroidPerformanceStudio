@@ -1,6 +1,11 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.Locale
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 
 class LanguagePreferenceTest {
@@ -14,27 +19,27 @@ class LanguagePreferenceTest {
     @Test
     fun `preferences resolve explicit or system language`() {
         assertEquals(
-            ViewerLanguage.SIMPLIFIED_CHINESE,
-            LanguagePreference.SYSTEM.resolve("zh-CN"),
+            UiLanguage.SIMPLIFIED_CHINESE,
+            LanguagePreference.SYSTEM.resolve(Locale.SIMPLIFIED_CHINESE),
         )
         assertEquals(
-            ViewerLanguage.ENGLISH,
-            LanguagePreference.SYSTEM.resolve("en-US"),
+            UiLanguage.ENGLISH,
+            LanguagePreference.SYSTEM.resolve(Locale.ENGLISH),
         )
         assertEquals(
-            ViewerLanguage.SIMPLIFIED_CHINESE,
-            LanguagePreference.SIMPLIFIED_CHINESE.resolve("en-US"),
+            UiLanguage.SIMPLIFIED_CHINESE,
+            LanguagePreference.SIMPLIFIED_CHINESE.resolve(Locale.ENGLISH),
         )
         assertEquals(
-            ViewerLanguage.ENGLISH,
-            LanguagePreference.ENGLISH.resolve("zh-CN"),
+            UiLanguage.ENGLISH,
+            LanguagePreference.ENGLISH.resolve(Locale.SIMPLIFIED_CHINESE),
         )
     }
 
     @Test
     fun `strings cover settings menu and known finding messages`() {
-        val chinese = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
-        val english = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH)
+        val chinese = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE)
+        val english = ViewerStrings.forLanguage(UiLanguage.ENGLISH)
         val arguments = mapOf("className" to "android.view.ViewStub")
 
         assertEquals("设置", chinese.settings)
@@ -116,11 +121,30 @@ class LanguagePreferenceTest {
 
         assertEquals(
             "需要且只能连接一台已授权设备，当前检测到 2 台",
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).connectionError(raw),
+            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).connectionError(raw),
         )
         assertEquals(
             raw,
-            ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).connectionError(raw),
+            ViewerStrings.forLanguage(UiLanguage.ENGLISH).connectionError(raw),
         )
+    }
+
+    @Test
+    fun `detail strings use typed resources instead of English lookup maps`() {
+        val viewerStrings =
+            Files.readString(
+                Path.of("src/main/kotlin/dev/agentperf/desktop/ViewerStrings.kt"),
+            )
+        val presenter =
+            Files.readString(
+                Path.of("src/main/kotlin/dev/agentperf/desktop/NodeDetailsPresenter.kt"),
+            )
+
+        assertFalse(viewerStrings.contains("Map<String, StringResource>"))
+        assertFalse(viewerStrings.contains("detailSectionResources"))
+        assertFalse(viewerStrings.contains("detailLabelResources"))
+        assertFalse(presenter.contains("strings.detailSection(\""))
+        assertFalse(presenter.contains("strings.detailLabel(\""))
+        assertFalse(presenter.contains("row(strings, \""))
     }
 }

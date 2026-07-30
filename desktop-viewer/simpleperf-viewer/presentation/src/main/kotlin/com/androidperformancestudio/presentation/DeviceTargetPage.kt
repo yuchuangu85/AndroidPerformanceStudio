@@ -2,7 +2,6 @@
 
 package com.androidperformancestudio.presentation
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,7 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,10 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -58,12 +54,13 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
-import com.androidperformancestudio.ui.ViewerColors
-import com.androidperformancestudio.ui.ViewerDimensions
-import com.androidperformancestudio.ui.ViewerThemeVariant
 import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.SettingsButton
+import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
+import org.jetbrains.compose.resources.StringResource
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -83,7 +80,7 @@ internal fun DeviceTargetPage(
     onOpenUserGuide: (() -> Unit)? = null,
     onNavigateHome: (() -> Unit)? = null,
 ) {
-    val style = viewerColors(darkTheme, ViewerThemeVariant.MAC_OS)
+    val style = viewerColors(darkTheme)
     val captureActive = captureState.isCaptureActive()
     Column(Modifier.fillMaxSize().background(style.workspace)) {
         WorkspaceToolbar(
@@ -159,7 +156,11 @@ private fun WorkspaceToolbar(
     ) {
         if (onNavigateHome != null) {
             ProfilerHomeButton(
-                contentDescription = localizedSimpleperfText("Back to home"),
+                contentDescription =
+                    localizedStringResource(
+                        ViewerRes.sp_target_back_home,
+                        currentSimpleperfLanguage(),
+                    ),
                 onClick = onNavigateHome,
                 colors = style,
             )
@@ -216,7 +217,11 @@ private fun RowScope.ToolbarContent(
     ToolbarCaptureActions(state, actions, style, enabled, showGetData)
     CapabilityPopupButton(state.selection, style)
     SettingsButton(
-        contentDescription = localizedSimpleperfText("Settings"),
+        contentDescription =
+            localizedStringResource(
+                ViewerRes.sp_target_settings,
+                currentSimpleperfLanguage(),
+            ),
         onClick = onOpenSettings,
         enabled = enabled,
         colors = style,
@@ -232,15 +237,19 @@ private fun ToolbarCaptureActions(
     enabled: Boolean,
     showGetData: Boolean,
 ) {
+    val language = currentSimpleperfLanguage()
     MacOsButton(
-        if (state.isLoading) "Refreshing…" else "Refresh",
+        localizedStringResource(
+            if (state.isLoading) ViewerRes.sp_target_refreshing else ViewerRes.sp_target_refresh,
+            language,
+        ),
         actions.onRefresh,
         style,
         enabled = enabled && !state.isLoading,
     )
     if (showGetData) {
         MacOsButton(
-            label = "Get data",
+            label = localizedStringResource(ViewerRes.sp_capture_get_data, language),
             onClick = actions.onStartCapture,
             style = style,
             enabled = enabled && state.canEnterCapture && state.captureSetup != null,
@@ -260,12 +269,18 @@ private fun DeviceSelector(
     enabled: Boolean,
 ) {
     ToolbarSelector(
-        label = "Device",
+        label = ViewerRes.sp_target_device,
+        selectorDescription = ViewerRes.sp_target_device_selector,
         selected = selected,
         items = devices,
         itemLabel = DeviceOption::label,
         itemSecondary = { device ->
-            "${device.serial} · ${localizedSimpleperfText(if (device.isOnline) "Online" else "Unavailable")}"
+            val status =
+                localizedStringResource(
+                    if (device.isOnline) ViewerRes.sp_target_online else ViewerRes.sp_target_unavailable,
+                    currentSimpleperfLanguage(),
+                )
+            "${device.serial} · $status"
         },
         itemEnabled = DeviceOption::isOnline,
         onSelect = { onSelect(it.serial) },
@@ -286,7 +301,8 @@ private fun AppSelector(
     enabled: Boolean,
 ) {
     ToolbarSelector(
-        label = "App",
+        label = ViewerRes.sp_target_app,
+        selectorDescription = ViewerRes.sp_target_app_selector,
         selected = packages.firstOrNull { it.packageName == selectedPackage },
         items = packages,
         itemLabel = PackageOption::packageName,
@@ -308,7 +324,8 @@ private fun ProcessSelector(
     enabled: Boolean,
 ) {
     ToolbarSelector(
-        label = "Process",
+        label = ViewerRes.sp_target_process,
+        selectorDescription = ViewerRes.sp_target_process_selector,
         selected = processes.firstOrNull { it.pid == selectedPid },
         items = processes,
         itemLabel = ProcessOption::name,
@@ -331,7 +348,8 @@ private fun ThreadSelector(
     enabled: Boolean,
 ) {
     ToolbarSelector(
-        label = "Thread",
+        label = ViewerRes.sp_diagnostics_thread,
+        selectorDescription = ViewerRes.sp_target_thread_selector,
         selected = threads.firstOrNull { it.tid == selectedTid },
         items = threads,
         itemLabel = ThreadOption::name,
@@ -346,7 +364,8 @@ private fun ThreadSelector(
 @Composable
 @Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 private fun <T> ToolbarSelector(
-    label: String,
+    label: StringResource,
+    selectorDescription: StringResource,
     selected: T?,
     items: List<T>,
     itemLabel: (T) -> String,
@@ -358,12 +377,13 @@ private fun <T> ToolbarSelector(
     itemEnabled: (T) -> Boolean = { true },
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectorDescription = localizedSimpleperfText("$label selector")
-    val displayText = selected?.let(itemLabel) ?: localizedSimpleperfText(label)
+    val language = currentSimpleperfLanguage()
+    val localizedSelectorDescription = localizedStringResource(selectorDescription, language)
+    val displayText = selected?.let(itemLabel) ?: localizedStringResource(label, language)
     Box(modifier) {
         SelectorControl(
             displayText = displayText,
-            selectorDescription = selectorDescription,
+            selectorDescription = localizedSelectorDescription,
             hasSelection = selected != null,
             enabled = enabled && items.isNotEmpty(),
             onClick = { expanded = true },
@@ -486,7 +506,14 @@ private fun CapabilityPopupButton(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        MacOsButton("Capabilities", { expanded = true }, style)
+        MacOsButton(
+            localizedStringResource(
+                ViewerRes.sp_target_capabilities,
+                currentSimpleperfLanguage(),
+            ),
+            { expanded = true },
+            style,
+        )
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
@@ -498,17 +525,18 @@ private fun CapabilityPopupButton(
 }
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
 private fun CapabilityPopup(
     selection: DeviceSelection?,
     style: ViewerColors,
 ) {
+    val language = currentSimpleperfLanguage()
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            "Device capability",
+            localizedStringResource(ViewerRes.sp_target_device_capability, language),
             color = style.text,
             fontSize = 13.sp,
             lineHeight = 16.sp,
@@ -516,7 +544,7 @@ private fun CapabilityPopup(
         )
         if (selection == null) {
             Text(
-                "Select an online device to inspect its capabilities.",
+                localizedStringResource(ViewerRes.sp_target_capability_selection_hint, language),
                 color = style.secondaryText,
                 fontSize = 11.sp,
                 lineHeight = 14.sp,
@@ -536,21 +564,46 @@ private fun CapabilityPopup(
                 CapabilityStatusBadge(selection.capabilities.status, style)
             }
             HorizontalHairline(style.border)
-            CapabilityPopupFact("Android", "${selection.androidVersion} / SDK ${selection.sdkInt}", style)
-            CapabilityPopupFact("ABI", selection.abis.joinToString(), style)
-            CapabilityPopupFact("Root", selection.capabilities.root, style)
-            CapabilityPopupFact("Scope", selection.capabilities.profilingScope, style)
-            CapabilityPopupFact("Simpleperf", selection.capabilities.simpleperf, style)
             CapabilityPopupFact(
-                "Events",
+                localizedStringResource(ViewerRes.sp_target_android, language),
+                "${selection.androidVersion} / SDK ${selection.sdkInt}",
+                style,
+            )
+            CapabilityPopupFact(
+                localizedStringResource(ViewerRes.sp_target_abi_value_format, language, "").trimLabelSeparator(),
+                selection.abis.joinToString(),
+                style,
+            )
+            CapabilityPopupFact(
+                localizedStringResource(ViewerRes.sp_target_root_value_format, language, "").trimLabelSeparator(),
+                selection.capabilities.root,
+                style,
+            )
+            CapabilityPopupFact(
+                localizedStringResource(ViewerRes.sp_capture_scope, language),
+                selection.capabilities.profilingScope,
+                style,
+            )
+            CapabilityPopupFact(
+                localizedStringResource(ViewerRes.sp_target_simpleperf_value_format, language, "").trimLabelSeparator(),
+                selection.capabilities.simpleperf,
+                style,
+            )
+            CapabilityPopupFact(
+                localizedStringResource(ViewerRes.sp_target_events, language),
                 selection.capabilities.eventNames
                     .take(MAX_VISIBLE_EVENTS)
                     .joinToString()
-                    .ifBlank { "Unavailable" },
+                    .ifBlank { localizedStringResource(ViewerRes.sp_target_unavailable, language) },
                 style,
             )
             if (selection.capabilities.limitations.isNotEmpty()) {
-                CapabilityPopupFact("Limits", selection.capabilities.limitations.joinToString(), style, warning = true)
+                CapabilityPopupFact(
+                    localizedStringResource(ViewerRes.sp_target_limits, language),
+                    selection.capabilities.limitations.joinToString(),
+                    style,
+                    warning = true,
+                )
             }
         }
     }
@@ -588,6 +641,7 @@ private fun CapabilityStatusBadge(
     status: CapabilityStatus,
     style: ViewerColors,
 ) {
+    val language = currentSimpleperfLanguage()
     val color =
         when (status) {
             CapabilityStatus.READY -> style.online
@@ -602,7 +656,20 @@ private fun CapabilityStatusBadge(
     ) {
         StatusDot(color)
         Spacer(Modifier.width(5.dp))
-        Text(status.name, color = color, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
+        Text(
+            localizedStringResource(
+                when (status) {
+                    CapabilityStatus.READY -> ViewerRes.sp_target_ready
+                    CapabilityStatus.LIMITED -> ViewerRes.sp_target_limited
+                    CapabilityStatus.BLOCKED -> ViewerRes.sp_target_blocked
+                },
+                language,
+            ),
+            color = color,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -656,11 +723,16 @@ private fun CaptureStatus(
         Text(
             error?.let {
                 if (it.code == ADB_NOT_FOUND_ERROR_CODE) {
-                    "$ADB_NOT_FOUND_ERROR_CODE: ${localizedSimpleperfResource(ViewerRes.sp_adb_not_found_settings_hint)}"
+                    "$ADB_NOT_FOUND_ERROR_CODE: ${
+                        localizedStringResource(
+                            ViewerRes.sp_adb_sdk_path_settings_hint,
+                            currentSimpleperfLanguage(),
+                        )
+                    }"
                 } else {
                     "${it.code}: ${it.message}"
                 }
-            } ?: captureState.statusText(),
+            } ?: captureState.statusText(currentSimpleperfLanguage()),
             modifier = if (fileInfo == null) Modifier.weight(1f) else Modifier.widthIn(max = 240.dp),
             color = color,
             fontSize = 10.sp,
@@ -744,12 +816,29 @@ private fun CaptureActions(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (captureState.isCaptureActive()) {
             if (captureState is CaptureState.Recording) {
-                MacOsButton("Stop and analyze", actions.onStopCapture, style, primary = true)
+                MacOsButton(
+                    localizedStringResource(
+                        ViewerRes.sp_capture_stop_analyze,
+                        currentSimpleperfLanguage(),
+                    ),
+                    actions.onStopCapture,
+                    style,
+                    primary = true,
+                )
             }
-            MacOsButton("Cancel", actions.onCancelCapture, style)
+            MacOsButton(
+                localizedStringResource(
+                    ViewerRes.sp_capture_cancel,
+                    currentSimpleperfLanguage(),
+                ),
+                actions.onCancelCapture,
+                style,
+            )
         }
     }
 }
+
+private fun String.trimLabelSeparator(): String = trimEnd().trimEnd(':', '：')
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")

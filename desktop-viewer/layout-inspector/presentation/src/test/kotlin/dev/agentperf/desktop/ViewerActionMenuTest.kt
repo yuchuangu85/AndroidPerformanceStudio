@@ -1,6 +1,7 @@
 package dev.agentperf.desktop
 
 import androidx.compose.ui.input.key.Key
+import com.androidperformancestudio.ui.UiLanguage
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -8,7 +9,7 @@ import org.junit.jupiter.api.Test
 class ViewerActionMenuTest {
     @Test
     fun `menu exposes operations with their shortcuts in stable groups`() {
-        val strings = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
+        val strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE)
 
         assertEquals(
             listOf(

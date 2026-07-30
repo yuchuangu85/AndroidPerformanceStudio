@@ -56,11 +56,6 @@ public data class ViewerColors(
         get() = primaryText
 }
 
-public enum class ViewerThemeVariant {
-    STANDARD,
-    MAC_OS,
-}
-
 public object ViewerDimensions {
     public val toolbarHeight = 40.dp
     public val footerHeight = 29.dp
@@ -71,73 +66,7 @@ public object ViewerDimensions {
 }
 
 internal object ViewerPalettes {
-    private val light = ViewerColors(
-        isDark = false,
-        panel = Color(0xFFF8FAFC),
-        canvasBackground = Color(0xFFE2E8F0),
-        border = Color(0xFFCBD5E1),
-        accent = Color(0xFF2563EB),
-        primaryText = Color(0xFF0F172A),
-        rowText = Color(0xFF1E293B),
-        hiddenRowText = Color(0xFF94A3B8),
-        secondaryText = Color(0xFF475569),
-        mutedText = Color(0xFF64748B),
-        subtleText = Color(0xFF64748B),
-        selectedRow = Color(0xFFDBEAFE),
-        sectionBackground = Color(0xFFB9D1F2),
-        riskSectionBackground = Color(0xFFFFD9A1),
-        detailRowDeep = Color(0xFFE6EBF2),
-        detailRowLight = Color(0xFFF8FAFC),
-        switchTrackOff = Color(0xFFCBD5E1),
-        switchThumbOff = Color(0xFF64748B),
-        previewSurface = Color.White,
-        previewCanvas = Color(0xFFF8FAFC),
-        visibleViewBounds = Color(0xFF7DD3FC),
-        previewText = Color(0xFF475569),
-        detailLabel = Color(0xFF64748B),
-        info = Color(0xFF2563EB),
-        warning = Color(0xFFB45309),
-        error = Color(0xFFDC2626),
-        success = Color(0xFF15803D),
-        searchMatchRow = Color(0x332563EB),
-        searchCurrentMatchRow = Color(0x662563EB),
-        searchHighlightText = Color(0xFF1D4ED8),
-    )
-
-    private val dark = ViewerColors(
-        isDark = true,
-        panel = Color(0xFF141820),
-        canvasBackground = Color(0xFF0D1016),
-        border = Color(0xFF2B3240),
-        accent = Color(0xFF70A5FF),
-        primaryText = Color(0xFFDCE4F2),
-        rowText = Color(0xFFD8E0ED),
-        hiddenRowText = Color(0xFF687386),
-        secondaryText = Color(0xFF95A2B6),
-        mutedText = Color(0xFF687386),
-        subtleText = Color(0xFF8E9AAF),
-        selectedRow = Color(0xFF253B5F),
-        sectionBackground = Color(0xFF304766),
-        riskSectionBackground = Color(0xFF50351C),
-        detailRowDeep = Color(0xFF151B24),
-        detailRowLight = Color(0xFF252E3A),
-        switchTrackOff = Color(0xFF353D4B),
-        switchThumbOff = Color(0xFF8E9AAF),
-        previewSurface = Color(0xFFEEF2F6),
-        previewCanvas = Color(0xFFF8FAFC),
-        visibleViewBounds = Color(0xFF7DD3FC),
-        previewText = Color(0xFF64748B),
-        detailLabel = Color(0xFF758197),
-        info = Color(0xFF4BA3FF),
-        warning = Color(0xFFF5A524),
-        error = Color(0xFFEF5350),
-        success = Color(0xFF55D187),
-        searchMatchRow = Color(0x3370A5FF),
-        searchCurrentMatchRow = Color(0x6670A5FF),
-        searchHighlightText = Color(0xFFA5C8FF),
-    )
-
-    private val macOsLight =
+    private val light =
         ViewerColors(
             isDark = false,
             panel = Color.White,
@@ -174,7 +103,7 @@ internal object ViewerPalettes {
             strongBorder = Color(0xFFB8B8BD),
         )
 
-    private val macOsDark =
+    private val dark =
         ViewerColors(
             isDark = true,
             panel = Color(0xFF2C2C2E),
@@ -211,14 +140,7 @@ internal object ViewerPalettes {
             strongBorder = Color(0xFF636366),
         )
 
-    fun forDark(
-        darkTheme: Boolean,
-        variant: ViewerThemeVariant,
-    ): ViewerColors =
-        when (variant) {
-            ViewerThemeVariant.STANDARD -> if (darkTheme) dark else light
-            ViewerThemeVariant.MAC_OS -> if (darkTheme) macOsDark else macOsLight
-        }
+    fun forDark(darkTheme: Boolean): ViewerColors = if (darkTheme) dark else light
 }
 
 val LocalViewerColors = staticCompositionLocalOf {
@@ -228,11 +150,10 @@ val LocalViewerColors = staticCompositionLocalOf {
 @Composable
 public fun ViewerTheme(
     darkTheme: Boolean,
-    variant: ViewerThemeVariant = ViewerThemeVariant.STANDARD,
     content: @Composable () -> Unit,
 ) {
-    val colors = viewerColors(darkTheme, variant)
-    val colorScheme = viewerMaterialColorScheme(darkTheme, variant)
+    val colors = viewerColors(darkTheme)
+    val colorScheme = viewerMaterialColorScheme(darkTheme)
     CompositionLocalProvider(LocalViewerColors provides colors) {
         MaterialTheme(
             colorScheme = colorScheme,
@@ -241,16 +162,10 @@ public fun ViewerTheme(
     }
 }
 
-public fun viewerColors(
-    darkTheme: Boolean,
-    variant: ViewerThemeVariant = ViewerThemeVariant.STANDARD,
-): ViewerColors = ViewerPalettes.forDark(darkTheme, variant)
+public fun viewerColors(darkTheme: Boolean): ViewerColors = ViewerPalettes.forDark(darkTheme)
 
-public fun viewerMaterialColorScheme(
-    darkTheme: Boolean,
-    variant: ViewerThemeVariant = ViewerThemeVariant.STANDARD,
-): ColorScheme {
-    val colors = viewerColors(darkTheme, variant)
+public fun viewerMaterialColorScheme(darkTheme: Boolean): ColorScheme {
+    val colors = viewerColors(darkTheme)
     return if (darkTheme) {
         darkColorScheme(
             primary = colors.accent,

@@ -4,15 +4,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportState
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.profileanalysis.StackChartEmptyReason
 import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.localizedStringResource
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -36,7 +40,11 @@ internal fun StackChartPanel(
             is PanelProjection.Ready -> {
                 val snapshot = projection.value
                 if (snapshot.blocks.isEmpty()) {
-                    StackChartMessage(snapshot.emptyReason.message(), style, actions.onRetryFlameProjection)
+                    StackChartMessage(
+                        snapshot.emptyReason.message(currentSimpleperfLanguage()),
+                        style,
+                        actions.onRetryFlameProjection,
+                    )
                 } else {
                     val start = state.filter.startNanosInclusive ?: requireNotNull(snapshot.startNanos)
                     val end = state.filter.endNanosExclusive ?: requireNotNull(snapshot.endNanosExclusive)
@@ -67,10 +75,13 @@ private fun StackChartMessage(
     }
 }
 
-private fun StackChartEmptyReason?.message(): String =
+private fun StackChartEmptyReason?.message(language: UiLanguage = UiLanguage.ENGLISH): String =
     when (this) {
-        StackChartEmptyReason.NO_SAMPLES -> "No samples were collected for Stack Chart."
-        StackChartEmptyReason.RANGE_EMPTY -> "No stack samples overlap the selected range."
-        StackChartEmptyReason.FILTERED_ALL -> "The current stack filters removed every sample."
-        null -> "No stack blocks are available."
+        StackChartEmptyReason.NO_SAMPLES ->
+            localizedStringResource(ViewerRes.sp_stack_no_samples_collected_empty_state, language)
+        StackChartEmptyReason.RANGE_EMPTY ->
+            localizedStringResource(ViewerRes.sp_stack_no_samples_in_range_empty_state, language)
+        StackChartEmptyReason.FILTERED_ALL ->
+            localizedStringResource(ViewerRes.sp_stack_filters_removed_all_samples_empty_state, language)
+        null -> localizedStringResource(ViewerRes.sp_stack_no_stack_blocks_empty_state, language)
     }

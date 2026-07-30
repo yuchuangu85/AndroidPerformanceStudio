@@ -49,7 +49,7 @@ public fun LayoutInspectorSettingsContent(
     var archiveLimits by remember { mutableStateOf(archiveLimitsStore.load()) }
     var borderColors by remember { mutableStateOf(borderColorStore.load()) }
     var persistenceError by remember { mutableStateOf(false) }
-    val strings = ViewerStrings.forLanguage(if (language == UiLanguage.SIMPLIFIED_CHINESE) ViewerLanguage.SIMPLIFIED_CHINESE else ViewerLanguage.ENGLISH)
+    val strings = ViewerStrings.forLanguage(language)
 
     fun notifySaved(saved: Boolean) {
         persistenceError = !saved
@@ -259,7 +259,7 @@ private fun CanvasColorField(
                     onColorChanged(defaultColor)
                 },
             ) {
-                Text(ViewerStrings.forLanguage(if (language == UiLanguage.SIMPLIFIED_CHINESE) ViewerLanguage.SIMPLIFIED_CHINESE else ViewerLanguage.ENGLISH).reset)
+                Text(ViewerStrings.forLanguage(language).reset)
             }
         }
         Row(

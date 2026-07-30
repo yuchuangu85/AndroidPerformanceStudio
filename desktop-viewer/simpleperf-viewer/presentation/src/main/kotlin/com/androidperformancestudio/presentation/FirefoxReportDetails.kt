@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -18,10 +19,13 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.PanelProjection
-import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.StringResource
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
@@ -63,12 +67,22 @@ private fun OverviewDetails(
 ) {
     val finding = report.diagnostics.firstOrNull { it.ruleId == state.workspace.selections.overviewFindingRuleId }
     if (finding == null) {
-        DetailsPrompt("Select a finding to inspect details.", style)
+        DetailsPrompt(ViewerRes.sp_finding_select_finding_hint, style)
     } else {
-        DetailsHeading("Finding details", style)
+        DetailsHeading(ViewerRes.sp_finding_finding_details, style)
         Text(finding.title, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Text(finding.conclusion, color = style.secondaryText, fontSize = 10.sp)
-        finding.recommendations.forEach { Text("• $it", color = style.text, fontSize = 9.sp) }
+        finding.recommendations.forEach {
+            Text(
+                localizedStringResource(
+                    ViewerRes.sp_common_bullet_format,
+                    currentSimpleperfLanguage(),
+                    it,
+                ),
+                color = style.text,
+                fontSize = 9.sp,
+            )
+        }
     }
 }
 
@@ -80,13 +94,29 @@ private fun TopFunctionDetails(
 ) {
     val function = report.topFunctions.firstOrNull { it.symbolName == state.workspace.selections.topFunctionKey }
     if (function == null) {
-        DetailsPrompt("Select a function to inspect details.", style)
+        DetailsPrompt(ViewerRes.sp_function_select_function_hint, style)
     } else {
-        DetailsHeading("Function details", style)
+        DetailsHeading(ViewerRes.sp_function_function_details, style)
         Text(function.symbolName, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Text(function.filePath, color = style.secondaryText, fontSize = 9.sp)
-        Text("Inclusive ${function.inclusiveWeight}", color = style.text, fontSize = 10.sp)
-        Text("Exclusive ${function.exclusiveWeight}", color = style.text, fontSize = 10.sp)
+        Text(
+            localizedStringResource(
+                ViewerRes.sp_report_inclusive_value_format,
+                currentSimpleperfLanguage(),
+                function.inclusiveWeight,
+            ),
+            color = style.text,
+            fontSize = 10.sp,
+        )
+        Text(
+            localizedStringResource(
+                ViewerRes.sp_report_exclusive_value_format,
+                currentSimpleperfLanguage(),
+                function.exclusiveWeight,
+            ),
+            color = style.text,
+            fontSize = 10.sp,
+        )
     }
 }
 
@@ -101,9 +131,9 @@ private fun CallStackDetails(
     val flameFrame = selected?.let { report.flameGraph.callNodes.indexOf(it) }?.let(report.flameGraph.callNodes::frameAt)
     val symbol = treeNode?.symbolName ?: flameFrame?.symbolName
     if (symbol == null) {
-        DetailsPrompt("Select a call stack frame to inspect details.", style)
+        DetailsPrompt(ViewerRes.sp_calltree_select_call_stack_frame_hint, style)
     } else {
-        DetailsHeading("Function details", style)
+        DetailsHeading(ViewerRes.sp_function_function_details, style)
         Text(symbol, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Text(treeNode?.filePath ?: flameFrame?.resource.orEmpty(), color = style.secondaryText, fontSize = 9.sp)
     }
@@ -119,13 +149,21 @@ private fun StackBlockDetails(
     val block = snapshot?.blocks?.firstOrNull { it.id == state.workspace.selections.stackChartBlockId }
     val frame = block?.let { snapshot.framesById[it.frameId] }
     if (block == null || frame == null) {
-        DetailsPrompt("Select a stack block to inspect details.", style)
+        DetailsPrompt(ViewerRes.sp_stack_select_stack_block_hint, style)
     } else {
-        DetailsHeading("Stack block details", style)
+        DetailsHeading(ViewerRes.sp_stack_stack_block_details, style)
         Text(frame.symbolName, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Text(frame.resource, color = style.secondaryText, fontSize = 9.sp)
-        Text("Start: ${block.startNanos}", color = style.text, fontSize = 10.sp)
-        Text("End: ${block.endNanosExclusive}", color = style.text, fontSize = 10.sp)
+        Text(
+            localizedStringResource(ViewerRes.sp_marker_start_value_format, currentSimpleperfLanguage(), block.startNanos),
+            color = style.text,
+            fontSize = 10.sp,
+        )
+        Text(
+            localizedStringResource(ViewerRes.sp_marker_end_value_format, currentSimpleperfLanguage(), block.endNanosExclusive),
+            color = style.text,
+            fontSize = 10.sp,
+        )
     }
 }
 
@@ -141,7 +179,7 @@ private fun MarkerDetails(
             ?.markers
             ?.firstOrNull { it.id == state.workspace.selections.markerId }
     if (marker == null) {
-        DetailsPrompt("Select a marker to inspect details.", style)
+        DetailsPrompt(ViewerRes.sp_marker_select_marker_hint, style)
     } else {
         MarkerDetailsContent(marker, style)
     }
@@ -152,36 +190,82 @@ private fun MarkerDetailsContent(
     marker: MarkerProjectionRow,
     style: ViewerColors,
 ) {
-    DetailsHeading("Marker details", style)
+    val language = currentSimpleperfLanguage()
+    DetailsHeading(ViewerRes.sp_marker_marker_details, style)
     Text(marker.name, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-    Text("Start: ${marker.startNanos}", color = style.secondaryText, fontSize = 10.sp)
-    Text("End: ${marker.endNanosExclusive}", color = style.secondaryText, fontSize = 10.sp)
-    Text("Duration: ${marker.endNanosExclusive - marker.startNanos}", color = style.secondaryText, fontSize = 10.sp)
-    Text("Process: ${marker.processId ?: "Global"}", color = style.secondaryText, fontSize = 10.sp)
-    Text("Thread: ${marker.threadName ?: marker.threadId ?: "Global"}", color = style.secondaryText, fontSize = 10.sp)
-    Text("Schema: ${marker.schema}", color = style.secondaryText, fontSize = 10.sp)
+    Text(
+        localizedStringResource(ViewerRes.sp_marker_start_value_format, language, marker.startNanos),
+        color = style.secondaryText,
+        fontSize = 10.sp,
+    )
+    Text(
+        localizedStringResource(ViewerRes.sp_marker_end_value_format, language, marker.endNanosExclusive),
+        color = style.secondaryText,
+        fontSize = 10.sp,
+    )
+    Text(
+        localizedStringResource(
+            ViewerRes.sp_capture_duration_value_format,
+            language,
+            marker.endNanosExclusive - marker.startNanos,
+        ),
+        color = style.secondaryText,
+        fontSize = 10.sp,
+    )
+    Text(
+        localizedStringResource(ViewerRes.sp_details_process_value_format, language, marker.processId ?: "Global"),
+        color = style.secondaryText,
+        fontSize = 10.sp,
+    )
+    Text(
+        localizedStringResource(
+            ViewerRes.sp_details_thread_value_format,
+            language,
+            marker.threadName ?: marker.threadId ?: "Global",
+        ),
+        color = style.secondaryText,
+        fontSize = 10.sp,
+    )
+    Text(
+        localizedStringResource(ViewerRes.sp_marker_schema_value_format, language, marker.schema),
+        color = style.secondaryText,
+        fontSize = 10.sp,
+    )
     val formattedPayload = marker.payloadJson.prettyJsonOrNull()
     Text(formattedPayload ?: marker.payloadJson, color = style.text, fontSize = 9.sp)
     if (formattedPayload == null && marker.payloadJson.isNotBlank()) {
-        Text("Payload is not valid JSON; showing raw text.", color = style.warning, fontSize = 9.sp)
+        Text(
+            localizedStringResource(ViewerRes.sp_diagnostics_invalid_json_raw_fallback_message, language),
+            color = style.warning,
+            fontSize = 9.sp,
+        )
     }
 }
 
 @Composable
 private fun DetailsHeading(
-    title: String,
+    title: StringResource,
     style: ViewerColors,
 ) {
-    Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    Text(
+        localizedStringResource(title, currentSimpleperfLanguage()),
+        color = style.text,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
 }
 
 @Composable
 private fun DetailsPrompt(
-    prompt: String,
+    prompt: StringResource,
     style: ViewerColors,
 ) {
-    DetailsHeading("Details", style)
-    Text(prompt, color = style.secondaryText, fontSize = 10.sp)
+    DetailsHeading(ViewerRes.sp_details_details, style)
+    Text(
+        localizedStringResource(prompt, currentSimpleperfLanguage()),
+        color = style.secondaryText,
+        fontSize = 10.sp,
+    )
 }
 
 @Suppress("ComplexCondition", "CyclomaticComplexMethod", "ReturnCount")

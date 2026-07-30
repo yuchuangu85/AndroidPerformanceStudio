@@ -30,10 +30,12 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.StackChartBlockId
 import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlin.math.max
 import kotlin.math.min
 
@@ -53,7 +55,11 @@ internal fun StackChartCanvas(
     onSelect: (StackChartBlockId?) -> Unit,
     onCommitRange: (Long, Long) -> Unit,
 ) {
-    val callStacksDescription = localizedSimpleperfText("Stack chart call stacks")
+    val callStacksDescription =
+        localizedStringResource(
+            ViewerRes.sp_stack_call_stacks_description,
+            currentSimpleperfLanguage(),
+        )
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
     var dragStartX by remember { mutableFloatStateOf(Float.NaN) }

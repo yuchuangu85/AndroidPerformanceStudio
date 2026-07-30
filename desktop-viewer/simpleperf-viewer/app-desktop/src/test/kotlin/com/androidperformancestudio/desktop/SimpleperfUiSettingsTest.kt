@@ -1,6 +1,7 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.presentation.FlameTooltipMode
+import com.androidperformancestudio.ui.UiLanguage
 import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -24,11 +25,11 @@ class SimpleperfUiSettingsTest {
     @Test
     fun `language preference resolves system Chinese and English`() {
         assertEquals(
-            SimpleperfLanguage.SIMPLIFIED_CHINESE,
+            UiLanguage.SIMPLIFIED_CHINESE,
             SimpleperfLanguagePreference.SYSTEM.resolve(Locale.SIMPLIFIED_CHINESE),
         )
         assertEquals(
-            SimpleperfLanguage.ENGLISH,
+            UiLanguage.ENGLISH,
             SimpleperfLanguagePreference.SYSTEM.resolve(Locale.ENGLISH),
         )
     }

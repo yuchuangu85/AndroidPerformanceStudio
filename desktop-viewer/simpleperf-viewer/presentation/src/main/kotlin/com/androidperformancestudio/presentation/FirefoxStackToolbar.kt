@@ -17,9 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.ReportState
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
 
 @Composable
@@ -29,6 +32,7 @@ internal fun FirefoxStackToolbar(
     actions: ReportActions,
     style: ViewerColors,
 ) {
+    val language = currentSimpleperfLanguage()
     val sessionIdentity = state.lastReadyReport?.session?.directory
     var searchState by
         remember(sessionIdentity) {
@@ -54,15 +58,24 @@ internal fun FirefoxStackToolbar(
     ) {
         ImplementationFilter.entries.forEach { filter ->
             MacOsChoiceChip(
-                label = filter.displayName(),
+                label = filter.displayName(language),
                 selected = state.callStackQuery.implementation == filter,
                 enabled = true,
                 style = style,
             ) { actions.onFlameImplementation(filter) }
         }
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(8.dp))
+        MacOsInlineTextField(
+            label = localizedStringResource(ViewerRes.sp_calltree_filter_stacks, language),
+            value = searchState.draft,
+            enabled = true,
+            onValueChange = { searchState = searchState.edit(it) },
+            style = style,
+            fieldWidth = 180.dp,
+        )
+        Spacer(Modifier.width(8.dp))
         MacOsChoiceChip(
-            label = "Invert Call Stack",
+            label = localizedStringResource(ViewerRes.sp_calltree_invert_call_stack, language),
             selected = state.callStackQuery.direction == CallStackDirection.INVERTED,
             enabled = true,
             style = style,
@@ -75,23 +88,14 @@ internal fun FirefoxStackToolbar(
                 },
             )
         }
-        Spacer(Modifier.width(8.dp))
-        MacOsInlineTextField(
-            label = "Filter Stacks",
-            value = searchState.draft,
-            enabled = true,
-            onValueChange = { searchState = searchState.edit(it) },
-            style = style,
-            fieldWidth = 180.dp,
-        )
     }
 }
 
-private fun ImplementationFilter.displayName(): String =
+private fun ImplementationFilter.displayName(language: UiLanguage): String =
     when (this) {
-        ImplementationFilter.ALL -> "All Frames"
-        ImplementationFilter.SCRIPT -> "Script"
-        ImplementationFilter.NATIVE -> "Native"
+        ImplementationFilter.ALL -> localizedStringResource(ViewerRes.sp_calltree_all_frames, language)
+        ImplementationFilter.SCRIPT -> localizedStringResource(ViewerRes.sp_calltree_script, language)
+        ImplementationFilter.NATIVE -> localizedStringResource(ViewerRes.sp_flame_native, language)
     }
 
 private const val STACK_SEARCH_DEBOUNCE_MILLIS = 150L

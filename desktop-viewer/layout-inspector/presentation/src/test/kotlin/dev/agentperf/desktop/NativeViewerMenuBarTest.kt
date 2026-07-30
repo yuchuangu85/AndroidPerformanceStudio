@@ -1,6 +1,7 @@
 package dev.agentperf.desktop
 
 import androidx.compose.ui.input.key.Key
+import com.androidperformancestudio.ui.UiLanguage
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -10,7 +11,7 @@ import org.junit.jupiter.api.Test
 class NativeViewerMenuBarTest {
     @Test
     fun `native menu mirrors action ordering labels and groups`() {
-        val strings = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE)
+        val strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE)
         val model = NativeViewerMenuModel(
             strings = strings,
             selectedNodeId = "root",
@@ -86,7 +87,7 @@ class NativeViewerMenuBarTest {
     @Test
     fun `native file menu pads short localized labels to a minimum width`() {
         val model = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE),
+            strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -112,7 +113,7 @@ class NativeViewerMenuBarTest {
     @Test
     fun `native file shortcuts use the host primary modifier`() {
         val macModel = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH),
+            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -123,7 +124,7 @@ class NativeViewerMenuBarTest {
             isMacOs = true,
         )
         val windowsModel = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH),
+            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -165,7 +166,7 @@ class NativeViewerMenuBarTest {
     @Test
     fun `native file actions are disabled while an archive operation is active`() {
         val model = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH),
+            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -184,7 +185,7 @@ class NativeViewerMenuBarTest {
     @Test
     fun `native export requires a loaded capture while import remains enabled`() {
         val model = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(ViewerLanguage.ENGLISH),
+            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),

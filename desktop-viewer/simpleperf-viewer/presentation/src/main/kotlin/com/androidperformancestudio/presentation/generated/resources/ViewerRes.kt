@@ -6,320 +6,632 @@ import org.jetbrains.compose.resources.InternalResourceApi
 import org.jetbrains.compose.resources.StringResource
 
 @OptIn(InternalResourceApi::class)
+@Suppress("LargeClass")
 object ViewerRes {
-    val sp_000_168ff3b4: StringResource get() = Res.string.sp_000_168ff3b4
-    val sp_001_afd2ec18: StringResource get() = Res.string.sp_001_afd2ec18
-    val sp_002_f3246537: StringResource get() = Res.string.sp_002_f3246537
-    val sp_003_5c123dff: StringResource get() = Res.string.sp_003_5c123dff
-    val sp_004_63a6a88c: StringResource get() = Res.string.sp_004_63a6a88c
-    val sp_005_1b19626b: StringResource get() = Res.string.sp_005_1b19626b
-    val sp_006_c03ca67d: StringResource get() = Res.string.sp_006_c03ca67d
-    val sp_007_a6589fca: StringResource get() = Res.string.sp_007_a6589fca
-    val sp_008_54f664c7: StringResource get() = Res.string.sp_008_54f664c7
-    val sp_009_453e6aa3: StringResource get() = Res.string.sp_009_453e6aa3
-    val sp_010_8cff8ed2: StringResource get() = Res.string.sp_010_8cff8ed2
-    val sp_011_2c3dade0: StringResource get() = Res.string.sp_011_2c3dade0
-    val sp_012_420f49cf: StringResource get() = Res.string.sp_012_420f49cf
-    val sp_013_e37aa12f: StringResource get() = Res.string.sp_013_e37aa12f
-    val sp_014_a6f00c82: StringResource get() = Res.string.sp_014_a6f00c82
-    val sp_015_77ea79b4: StringResource get() = Res.string.sp_015_77ea79b4
-    val sp_016_03bfaee2: StringResource get() = Res.string.sp_016_03bfaee2
-    val sp_017_e0ac20ad: StringResource get() = Res.string.sp_017_e0ac20ad
-    val sp_018_ac863f34: StringResource get() = Res.string.sp_018_ac863f34
-    val sp_019_b6ec7abe: StringResource get() = Res.string.sp_019_b6ec7abe
-    val sp_021_8c4f480c: StringResource get() = Res.string.sp_021_8c4f480c
-    val sp_022_46022f0d: StringResource get() = Res.string.sp_022_46022f0d
-    val sp_023_76ad7f76: StringResource get() = Res.string.sp_023_76ad7f76
-    val sp_024_e37ada41: StringResource get() = Res.string.sp_024_e37ada41
-    val sp_025_82ec2cd6: StringResource get() = Res.string.sp_025_82ec2cd6
-    val sp_026_f4f70727: StringResource get() = Res.string.sp_026_f4f70727
-    val sp_027_6110e369: StringResource get() = Res.string.sp_027_6110e369
-    val sp_028_f5bbcf0f: StringResource get() = Res.string.sp_028_f5bbcf0f
-    val sp_029_e498749f: StringResource get() = Res.string.sp_029_e498749f
-    val sp_030_f92965e2: StringResource get() = Res.string.sp_030_f92965e2
-    val sp_031_3fa78f9f: StringResource get() = Res.string.sp_031_3fa78f9f
-    val sp_032_3ee2073f: StringResource get() = Res.string.sp_032_3ee2073f
-    val sp_033_e84e30b9: StringResource get() = Res.string.sp_033_e84e30b9
-    val sp_034_91b442d3: StringResource get() = Res.string.sp_034_91b442d3
-    val sp_035_573a70b1: StringResource get() = Res.string.sp_035_573a70b1
-    val sp_036_c41a3189: StringResource get() = Res.string.sp_036_c41a3189
-    val sp_037_6e04e3f9: StringResource get() = Res.string.sp_037_6e04e3f9
-    val sp_038_607446aa: StringResource get() = Res.string.sp_038_607446aa
-    val sp_039_87f9f735: StringResource get() = Res.string.sp_039_87f9f735
-    val sp_040_b7a95c65: StringResource get() = Res.string.sp_040_b7a95c65
-    val sp_041_8ee7a490: StringResource get() = Res.string.sp_041_8ee7a490
-    val sp_042_0b19869f: StringResource get() = Res.string.sp_042_0b19869f
-    val sp_043_3778767b: StringResource get() = Res.string.sp_043_3778767b
-    val sp_044_8acbd4f0: StringResource get() = Res.string.sp_044_8acbd4f0
-    val sp_045_0e795f61: StringResource get() = Res.string.sp_045_0e795f61
-    val sp_046_31c5af7d: StringResource get() = Res.string.sp_046_31c5af7d
-    val sp_047_9c0229a9: StringResource get() = Res.string.sp_047_9c0229a9
-    val sp_048_a75dfe30: StringResource get() = Res.string.sp_048_a75dfe30
-    val sp_049_4fa6e047: StringResource get() = Res.string.sp_049_4fa6e047
-    val sp_050_5a5d9f80: StringResource get() = Res.string.sp_050_5a5d9f80
-    val sp_051_c16ec0e9: StringResource get() = Res.string.sp_051_c16ec0e9
-    val sp_052_d6635b14: StringResource get() = Res.string.sp_052_d6635b14
-    val sp_053_ca574344: StringResource get() = Res.string.sp_053_ca574344
-    val sp_054_365d6111: StringResource get() = Res.string.sp_054_365d6111
-    val sp_055_d9dd8c47: StringResource get() = Res.string.sp_055_d9dd8c47
-    val sp_056_9acba379: StringResource get() = Res.string.sp_056_9acba379
-    val sp_057_4457d440: StringResource get() = Res.string.sp_057_4457d440
-    val sp_058_e3595aaf: StringResource get() = Res.string.sp_058_e3595aaf
-    val sp_059_27afc846: StringResource get() = Res.string.sp_059_27afc846
-    val sp_060_985db059: StringResource get() = Res.string.sp_060_985db059
-    val sp_061_4d9f6866: StringResource get() = Res.string.sp_061_4d9f6866
-    val sp_062_412a7796: StringResource get() = Res.string.sp_062_412a7796
-    val sp_063_86ddc046: StringResource get() = Res.string.sp_063_86ddc046
-    val sp_064_89f79806: StringResource get() = Res.string.sp_064_89f79806
-    val sp_065_e7234520: StringResource get() = Res.string.sp_065_e7234520
-    val sp_066_a4ecfc70: StringResource get() = Res.string.sp_066_a4ecfc70
-    val sp_067_7cf39530: StringResource get() = Res.string.sp_067_7cf39530
-    val sp_068_1901606e: StringResource get() = Res.string.sp_068_1901606e
-    val sp_069_e73f25da: StringResource get() = Res.string.sp_069_e73f25da
-    val sp_070_fbcf109b: StringResource get() = Res.string.sp_070_fbcf109b
-    val sp_071_11495b35: StringResource get() = Res.string.sp_071_11495b35
-    val sp_072_5d113f20: StringResource get() = Res.string.sp_072_5d113f20
-    val sp_073_1daf39b9: StringResource get() = Res.string.sp_073_1daf39b9
-    val sp_074_2c7fd0b7: StringResource get() = Res.string.sp_074_2c7fd0b7
-    val sp_075_ea478870: StringResource get() = Res.string.sp_075_ea478870
-    val sp_076_45b6351e: StringResource get() = Res.string.sp_076_45b6351e
-    val sp_077_461fb1ba: StringResource get() = Res.string.sp_077_461fb1ba
-    val sp_078_3225a10b: StringResource get() = Res.string.sp_078_3225a10b
-    val sp_079_bb0b02cb: StringResource get() = Res.string.sp_079_bb0b02cb
-    val sp_080_27b2af0e: StringResource get() = Res.string.sp_080_27b2af0e
-    val sp_081_6adf97f8: StringResource get() = Res.string.sp_081_6adf97f8
-    val sp_082_9d450038: StringResource get() = Res.string.sp_082_9d450038
-    val sp_083_9051b2fd: StringResource get() = Res.string.sp_083_9051b2fd
-    val sp_084_05f7fbc5: StringResource get() = Res.string.sp_084_05f7fbc5
-    val sp_085_a11a5e10: StringResource get() = Res.string.sp_085_a11a5e10
-    val sp_086_e8ef3a00: StringResource get() = Res.string.sp_086_e8ef3a00
-    val sp_087_371f963c: StringResource get() = Res.string.sp_087_371f963c
-    val sp_088_b4b4cb34: StringResource get() = Res.string.sp_088_b4b4cb34
-    val sp_089_d6dd1c6f: StringResource get() = Res.string.sp_089_d6dd1c6f
-    val sp_090_fdd1747e: StringResource get() = Res.string.sp_090_fdd1747e
-    val sp_091_b4ee7558: StringResource get() = Res.string.sp_091_b4ee7558
-    val sp_092_a5290115: StringResource get() = Res.string.sp_092_a5290115
-    val sp_093_a27db1bd: StringResource get() = Res.string.sp_093_a27db1bd
-    val sp_094_5c25560b: StringResource get() = Res.string.sp_094_5c25560b
-    val sp_095_9b00112b: StringResource get() = Res.string.sp_095_9b00112b
-    val sp_096_dadc86f4: StringResource get() = Res.string.sp_096_dadc86f4
-    val sp_097_0fe07398: StringResource get() = Res.string.sp_097_0fe07398
-    val sp_098_0557fa92: StringResource get() = Res.string.sp_098_0557fa92
-    val sp_099_6b91df06: StringResource get() = Res.string.sp_099_6b91df06
-    val sp_100_53b36e8e: StringResource get() = Res.string.sp_100_53b36e8e
-    val sp_101_41286d0e: StringResource get() = Res.string.sp_101_41286d0e
-    val sp_102_3afbd982: StringResource get() = Res.string.sp_102_3afbd982
-    val sp_103_d4912c4e: StringResource get() = Res.string.sp_103_d4912c4e
-    val sp_104_3b878279: StringResource get() = Res.string.sp_104_3b878279
-    val sp_105_3d1f92a5: StringResource get() = Res.string.sp_105_3d1f92a5
-    val sp_106_2a3ae212: StringResource get() = Res.string.sp_106_2a3ae212
-    val sp_107_80918a38: StringResource get() = Res.string.sp_107_80918a38
-    val sp_108_0a63e003: StringResource get() = Res.string.sp_108_0a63e003
-    val sp_109_dc108522: StringResource get() = Res.string.sp_109_dc108522
-    val sp_110_49bc86ef: StringResource get() = Res.string.sp_110_49bc86ef
-    val sp_111_c8a634d1: StringResource get() = Res.string.sp_111_c8a634d1
-    val sp_112_96b01412: StringResource get() = Res.string.sp_112_96b01412
-    val sp_113_15ddc1b1: StringResource get() = Res.string.sp_113_15ddc1b1
-    val sp_114_4af84412: StringResource get() = Res.string.sp_114_4af84412
-    val sp_115_a147efa6: StringResource get() = Res.string.sp_115_a147efa6
-    val sp_116_61ce4700: StringResource get() = Res.string.sp_116_61ce4700
-    val sp_117_8c473eec: StringResource get() = Res.string.sp_117_8c473eec
-    val sp_118_d53907d7: StringResource get() = Res.string.sp_118_d53907d7
-    val sp_119_b1c75753: StringResource get() = Res.string.sp_119_b1c75753
-    val sp_120_d128a43c: StringResource get() = Res.string.sp_120_d128a43c
-    val sp_121_f907e651: StringResource get() = Res.string.sp_121_f907e651
-    val sp_122_c8c6e538: StringResource get() = Res.string.sp_122_c8c6e538
-    val sp_123_ee065ffa: StringResource get() = Res.string.sp_123_ee065ffa
-    val sp_124_bb17539d: StringResource get() = Res.string.sp_124_bb17539d
-    val sp_125_3ec365dd: StringResource get() = Res.string.sp_125_3ec365dd
-    val sp_126_0088355b: StringResource get() = Res.string.sp_126_0088355b
-    val sp_127_730900f5: StringResource get() = Res.string.sp_127_730900f5
-    val sp_128_1f744645: StringResource get() = Res.string.sp_128_1f744645
-    val sp_129_2cc27481: StringResource get() = Res.string.sp_129_2cc27481
-    val sp_130_d2928df5: StringResource get() = Res.string.sp_130_d2928df5
-    val sp_131_0f10e8b6: StringResource get() = Res.string.sp_131_0f10e8b6
-    val sp_132_71dad377: StringResource get() = Res.string.sp_132_71dad377
-    val sp_133_d61d3189: StringResource get() = Res.string.sp_133_d61d3189
-    val sp_134_01815b67: StringResource get() = Res.string.sp_134_01815b67
-    val sp_135_b9a532b5: StringResource get() = Res.string.sp_135_b9a532b5
-    val sp_136_fbc78f14: StringResource get() = Res.string.sp_136_fbc78f14
-    val sp_137_d5d57545: StringResource get() = Res.string.sp_137_d5d57545
-    val sp_138_887b4f17: StringResource get() = Res.string.sp_138_887b4f17
-    val sp_139_462a46aa: StringResource get() = Res.string.sp_139_462a46aa
-    val sp_140_b1a47be3: StringResource get() = Res.string.sp_140_b1a47be3
-    val sp_141_c2bd2567: StringResource get() = Res.string.sp_141_c2bd2567
-    val sp_142_7de7eacd: StringResource get() = Res.string.sp_142_7de7eacd
-    val sp_143_d48d8246: StringResource get() = Res.string.sp_143_d48d8246
-    val sp_144_36b64aad: StringResource get() = Res.string.sp_144_36b64aad
-    val sp_145_db8d5033: StringResource get() = Res.string.sp_145_db8d5033
-    val sp_146_ad6e7652: StringResource get() = Res.string.sp_146_ad6e7652
-    val sp_147_5bda814c: StringResource get() = Res.string.sp_147_5bda814c
-    val sp_148_9c831ae0: StringResource get() = Res.string.sp_148_9c831ae0
-    val sp_149_3cec60bc: StringResource get() = Res.string.sp_149_3cec60bc
-    val sp_150_3adbdb3a: StringResource get() = Res.string.sp_150_3adbdb3a
-    val sp_151_b672f52a: StringResource get() = Res.string.sp_151_b672f52a
-    val sp_152_be8545ae: StringResource get() = Res.string.sp_152_be8545ae
-    val sp_153_80702eb8: StringResource get() = Res.string.sp_153_80702eb8
-    val sp_154_ebc7601e: StringResource get() = Res.string.sp_154_ebc7601e
-    val sp_155_62628cfd: StringResource get() = Res.string.sp_155_62628cfd
-    val sp_156_590f53e8: StringResource get() = Res.string.sp_156_590f53e8
-    val sp_157_923e9e28: StringResource get() = Res.string.sp_157_923e9e28
-    val sp_158_b0de87a9: StringResource get() = Res.string.sp_158_b0de87a9
-    val sp_159_efe8e58b: StringResource get() = Res.string.sp_159_efe8e58b
-    val sp_160_b5ece3da: StringResource get() = Res.string.sp_160_b5ece3da
-    val sp_161_08004d9d: StringResource get() = Res.string.sp_161_08004d9d
-    val sp_162_22439d6b: StringResource get() = Res.string.sp_162_22439d6b
-    val sp_163_d23eda05: StringResource get() = Res.string.sp_163_d23eda05
-    val sp_164_71fc326d: StringResource get() = Res.string.sp_164_71fc326d
-    val sp_165_74039b17: StringResource get() = Res.string.sp_165_74039b17
-    val sp_166_e3e7cfb5: StringResource get() = Res.string.sp_166_e3e7cfb5
-    val sp_167_67d2f674: StringResource get() = Res.string.sp_167_67d2f674
-    val sp_168_cf4c2a4b: StringResource get() = Res.string.sp_168_cf4c2a4b
-    val sp_169_b1c94ca2: StringResource get() = Res.string.sp_169_b1c94ca2
-    val sp_170_925641e0: StringResource get() = Res.string.sp_170_925641e0
-    val sp_171_80c202b1: StringResource get() = Res.string.sp_171_80c202b1
-    val sp_172_6ff9f444: StringResource get() = Res.string.sp_172_6ff9f444
-    val sp_173_88183b94: StringResource get() = Res.string.sp_173_88183b94
-    val sp_174_a1937a00: StringResource get() = Res.string.sp_174_a1937a00
-    val sp_175_ddb58d72: StringResource get() = Res.string.sp_175_ddb58d72
-    val sp_176_ea4efb9e: StringResource get() = Res.string.sp_176_ea4efb9e
-    val sp_177_3a08a8f7: StringResource get() = Res.string.sp_177_3a08a8f7
-    val sp_178_48464fe7: StringResource get() = Res.string.sp_178_48464fe7
-    val sp_179_05a05d89: StringResource get() = Res.string.sp_179_05a05d89
-    val sp_180_a3fa0b12: StringResource get() = Res.string.sp_180_a3fa0b12
-    val sp_181_047e1642: StringResource get() = Res.string.sp_181_047e1642
-    val sp_182_ef9661ef: StringResource get() = Res.string.sp_182_ef9661ef
-    val sp_183_91020fe0: StringResource get() = Res.string.sp_183_91020fe0
-    val sp_184_ebe49253: StringResource get() = Res.string.sp_184_ebe49253
-    val sp_185_6e751d3c: StringResource get() = Res.string.sp_185_6e751d3c
-    val sp_186_a9fc9bc6: StringResource get() = Res.string.sp_186_a9fc9bc6
-    val sp_187_9983381c: StringResource get() = Res.string.sp_187_9983381c
-    val sp_188_ac1b260b: StringResource get() = Res.string.sp_188_ac1b260b
-    val sp_189_0afa5fbe: StringResource get() = Res.string.sp_189_0afa5fbe
-    val sp_190_95a780e3: StringResource get() = Res.string.sp_190_95a780e3
-    val sp_191_0dca666b: StringResource get() = Res.string.sp_191_0dca666b
-    val sp_192_6b366145: StringResource get() = Res.string.sp_192_6b366145
-    val sp_193_64f9b924: StringResource get() = Res.string.sp_193_64f9b924
-    val sp_194_e3cf5ac1: StringResource get() = Res.string.sp_194_e3cf5ac1
-    val sp_195_cf3fb1ff: StringResource get() = Res.string.sp_195_cf3fb1ff
-    val sp_196_2faf9d9f: StringResource get() = Res.string.sp_196_2faf9d9f
-    val sp_197_0c360307: StringResource get() = Res.string.sp_197_0c360307
-    val sp_198_2ef50b4c: StringResource get() = Res.string.sp_198_2ef50b4c
-    val sp_199_49af5aca: StringResource get() = Res.string.sp_199_49af5aca
-    val sp_200_ac70412e: StringResource get() = Res.string.sp_200_ac70412e
-    val sp_201_46ae976e: StringResource get() = Res.string.sp_201_46ae976e
-    val sp_202_6ac3227c: StringResource get() = Res.string.sp_202_6ac3227c
-    val sp_203_526d688f: StringResource get() = Res.string.sp_203_526d688f
-    val sp_204_2290b17b: StringResource get() = Res.string.sp_204_2290b17b
-    val sp_205_efdc9cd5: StringResource get() = Res.string.sp_205_efdc9cd5
-    val sp_206_5259ae4a: StringResource get() = Res.string.sp_206_5259ae4a
-    val sp_207_05f0bbbb: StringResource get() = Res.string.sp_207_05f0bbbb
-    val sp_208_a45da96d: StringResource get() = Res.string.sp_208_a45da96d
-    val sp_209_9914a0ce: StringResource get() = Res.string.sp_209_9914a0ce
-    val sp_210_a18366b2: StringResource get() = Res.string.sp_210_a18366b2
-    val sp_211_4994a8ff: StringResource get() = Res.string.sp_211_4994a8ff
-    val sp_212_d7217571: StringResource get() = Res.string.sp_212_d7217571
-    val sp_213_1e81fc32: StringResource get() = Res.string.sp_213_1e81fc32
-    val sp_214_78463a38: StringResource get() = Res.string.sp_214_78463a38
-    val sp_215_2baa69ea: StringResource get() = Res.string.sp_215_2baa69ea
-    val sp_216_d9e0d83a: StringResource get() = Res.string.sp_216_d9e0d83a
-    val sp_217_eecba006: StringResource get() = Res.string.sp_217_eecba006
-    val sp_218_551b723e: StringResource get() = Res.string.sp_218_551b723e
-    val sp_219_059e9861: StringResource get() = Res.string.sp_219_059e9861
-    val sp_220_99cd1c61: StringResource get() = Res.string.sp_220_99cd1c61
-    val sp_221_54a1150b: StringResource get() = Res.string.sp_221_54a1150b
-    val sp_222_ab798db3: StringResource get() = Res.string.sp_222_ab798db3
-    val sp_223_2e40ad87: StringResource get() = Res.string.sp_223_2e40ad87
-    val sp_224_35c10219: StringResource get() = Res.string.sp_224_35c10219
-    val sp_225_6328e5e3: StringResource get() = Res.string.sp_225_6328e5e3
-    val sp_226_b099c983: StringResource get() = Res.string.sp_226_b099c983
-    val sp_227_2e3c4cae: StringResource get() = Res.string.sp_227_2e3c4cae
-    val sp_228_13c3ce48: StringResource get() = Res.string.sp_228_13c3ce48
-    val sp_229_cf7440fe: StringResource get() = Res.string.sp_229_cf7440fe
-    val sp_230_0148fd24: StringResource get() = Res.string.sp_230_0148fd24
-    val sp_231_be0f93b3: StringResource get() = Res.string.sp_231_be0f93b3
-    val sp_232_9f6d875a: StringResource get() = Res.string.sp_232_9f6d875a
-    val sp_233_86408593: StringResource get() = Res.string.sp_233_86408593
-    val sp_234_4d70254b: StringResource get() = Res.string.sp_234_4d70254b
-    val sp_235_7e7317eb: StringResource get() = Res.string.sp_235_7e7317eb
-    val sp_236_45d1dc0b: StringResource get() = Res.string.sp_236_45d1dc0b
-    val sp_237_d97477d6: StringResource get() = Res.string.sp_237_d97477d6
-    val sp_238_fa2d8fb1: StringResource get() = Res.string.sp_238_fa2d8fb1
-    val sp_239_2de5871e: StringResource get() = Res.string.sp_239_2de5871e
-    val sp_240_30439951: StringResource get() = Res.string.sp_240_30439951
-    val sp_241_79a8aa1b: StringResource get() = Res.string.sp_241_79a8aa1b
-    val sp_242_a224952a: StringResource get() = Res.string.sp_242_a224952a
-    val sp_243_00f3744f: StringResource get() = Res.string.sp_243_00f3744f
-    val sp_244_948faaf7: StringResource get() = Res.string.sp_244_948faaf7
-    val sp_245_ef272ddb: StringResource get() = Res.string.sp_245_ef272ddb
-    val sp_246_c20c70eb: StringResource get() = Res.string.sp_246_c20c70eb
-    val sp_247_6c1130dc: StringResource get() = Res.string.sp_247_6c1130dc
-    val sp_248_91d51768: StringResource get() = Res.string.sp_248_91d51768
-    val sp_249_0ef07654: StringResource get() = Res.string.sp_249_0ef07654
-    val sp_250_d3d2e617: StringResource get() = Res.string.sp_250_d3d2e617
-    val sp_251_2a2ade01: StringResource get() = Res.string.sp_251_2a2ade01
-    val sp_252_0bb7608f: StringResource get() = Res.string.sp_252_0bb7608f
+    val sp_target_device_target: StringResource
+        get() = Res.string.sp_target_device_target
+    val sp_target_selection_description: StringResource
+        get() = Res.string.sp_target_selection_description
+    val sp_target_open_session: StringResource
+        get() = Res.string.sp_target_open_session
+    val sp_target_refreshing: StringResource
+        get() = Res.string.sp_target_refreshing
+    val sp_target_refresh: StringResource
+        get() = Res.string.sp_target_refresh
+    val sp_target_continue_capture: StringResource
+        get() = Res.string.sp_target_continue_capture
+    val sp_target_devices: StringResource
+        get() = Res.string.sp_target_devices
+    val sp_target_no_usb_devices: StringResource
+        get() = Res.string.sp_target_no_usb_devices
+    val sp_target_online: StringResource
+        get() = Res.string.sp_target_online
+    val sp_target_unavailable: StringResource
+        get() = Res.string.sp_target_unavailable
+    val sp_target_device_capability: StringResource
+        get() = Res.string.sp_target_device_capability
+    val sp_target_capability_selection_hint: StringResource
+        get() = Res.string.sp_target_capability_selection_hint
+    val sp_target_profile_target_types: StringResource
+        get() = Res.string.sp_target_profile_target_types
+    val sp_target_target_search_placeholder: StringResource
+        get() = Res.string.sp_target_target_search_placeholder
+    val sp_target_apps: StringResource
+        get() = Res.string.sp_target_apps
+    val sp_target_processes: StringResource
+        get() = Res.string.sp_target_processes
+    val sp_target_threads: StringResource
+        get() = Res.string.sp_target_threads
+    val sp_target_device: StringResource
+        get() = Res.string.sp_target_device
+    val sp_target_app: StringResource
+        get() = Res.string.sp_target_app
+    val sp_target_process: StringResource
+        get() = Res.string.sp_target_process
+    val sp_target_device_selector: StringResource
+        get() = Res.string.sp_target_device_selector
+    val sp_target_app_selector: StringResource
+        get() = Res.string.sp_target_app_selector
+    val sp_target_process_selector: StringResource
+        get() = Res.string.sp_target_process_selector
+    val sp_target_thread_selector: StringResource
+        get() = Res.string.sp_target_thread_selector
+    val sp_target_capabilities: StringResource
+        get() = Res.string.sp_target_capabilities
+    val sp_target_settings: StringResource
+        get() = Res.string.sp_target_settings
+    val sp_target_back_home: StringResource
+        get() = Res.string.sp_target_back_home
+    val sp_target_capture_setup: StringResource
+        get() = Res.string.sp_target_capture_setup
+    val sp_target_application: StringResource
+        get() = Res.string.sp_target_application
+    val sp_target_done: StringResource
+        get() = Res.string.sp_target_done
+    val sp_target_profile_target: StringResource
+        get() = Res.string.sp_target_profile_target
+    val sp_target_profile_target_selection_hint: StringResource
+        get() = Res.string.sp_target_profile_target_selection_hint
+    val sp_target_android: StringResource
+        get() = Res.string.sp_target_android
+    val sp_target_selected: StringResource
+        get() = Res.string.sp_target_selected
+    val sp_target_capture_target: StringResource
+        get() = Res.string.sp_target_capture_target
+    val sp_target_target: StringResource
+        get() = Res.string.sp_target_target
+    val sp_target_not_selected: StringResource
+        get() = Res.string.sp_target_not_selected
+    val sp_target_toolbar_selection_hint: StringResource
+        get() = Res.string.sp_target_toolbar_selection_hint
+    val sp_target_events: StringResource
+        get() = Res.string.sp_target_events
+    val sp_target_limits: StringResource
+        get() = Res.string.sp_target_limits
+    val sp_settings_capture_configuration_title: StringResource
+        get() = Res.string.sp_settings_capture_configuration_title
+    val sp_settings_back_device_target: StringResource
+        get() = Res.string.sp_settings_back_device_target
+    val sp_settings_sampling_template: StringResource
+        get() = Res.string.sp_settings_sampling_template
+    val sp_settings_capture_configuration_section: StringResource
+        get() = Res.string.sp_settings_capture_configuration_section
+    val sp_settings_advanced_parameters: StringResource
+        get() = Res.string.sp_settings_advanced_parameters
+    val sp_settings_simpleperf_engine: StringResource
+        get() = Res.string.sp_settings_simpleperf_engine
+    val sp_settings_user_guide: StringResource
+        get() = Res.string.sp_settings_user_guide
+    val sp_settings_sampling_template_description: StringResource
+        get() = Res.string.sp_settings_sampling_template_description
+    val sp_settings_capture_configuration_description: StringResource
+        get() = Res.string.sp_settings_capture_configuration_description
+    val sp_settings_advanced_parameters_description: StringResource
+        get() = Res.string.sp_settings_advanced_parameters_description
+    val sp_settings_frame_information_description: StringResource
+        get() = Res.string.sp_settings_frame_information_description
+    val sp_settings_analysis_engine_description: StringResource
+        get() = Res.string.sp_settings_analysis_engine_description
+    val sp_settings_user_guide_description: StringResource
+        get() = Res.string.sp_settings_user_guide_description
+    val sp_settings_open_user_guide_browser: StringResource
+        get() = Res.string.sp_settings_open_user_guide_browser
+    val sp_settings_frame_information_box: StringResource
+        get() = Res.string.sp_settings_frame_information_box
+    val sp_settings_frame_information_behavior_description: StringResource
+        get() = Res.string.sp_settings_frame_information_behavior_description
+    val sp_settings_fixed: StringResource
+        get() = Res.string.sp_settings_fixed
+    val sp_settings_follow_mouse: StringResource
+        get() = Res.string.sp_settings_follow_mouse
+    val sp_settings_analysis_engine: StringResource
+        get() = Res.string.sp_settings_analysis_engine
+    val sp_settings_analysis_engine_options_description: StringResource
+        get() = Res.string.sp_settings_analysis_engine_options_description
+    val sp_settings_new_engine: StringResource
+        get() = Res.string.sp_settings_new_engine
+    val sp_settings_firefox_profiler_local_engine: StringResource
+        get() = Res.string.sp_settings_firefox_profiler_local_engine
+    val sp_settings_firefox_profiler: StringResource
+        get() = Res.string.sp_settings_firefox_profiler
+    val sp_capture_event_rate: StringResource
+        get() = Res.string.sp_capture_event_rate
+    val sp_capture_sampling_target_required_hint: StringResource
+        get() = Res.string.sp_capture_sampling_target_required_hint
+    val sp_capture_event: StringResource
+        get() = Res.string.sp_capture_event
+    val sp_capture_frequency: StringResource
+        get() = Res.string.sp_capture_frequency
+    val sp_capture_period: StringResource
+        get() = Res.string.sp_capture_period
+    val sp_capture_events_per_sample: StringResource
+        get() = Res.string.sp_capture_events_per_sample
+    val sp_capture_duration_seconds_hint: StringResource
+        get() = Res.string.sp_capture_duration_seconds_hint
+    val sp_capture_call_graph: StringResource
+        get() = Res.string.sp_capture_call_graph
+    val sp_capture_scope: StringResource
+        get() = Res.string.sp_capture_scope
+    val sp_capture_capture_status: StringResource
+        get() = Res.string.sp_capture_capture_status
+    val sp_capture_stop_analyze: StringResource
+        get() = Res.string.sp_capture_stop_analyze
+    val sp_capture_cancel: StringResource
+        get() = Res.string.sp_capture_cancel
+    val sp_capture_get_data: StringResource
+        get() = Res.string.sp_capture_get_data
+    val sp_capture_automatic_capture_report_hint: StringResource
+        get() = Res.string.sp_capture_automatic_capture_report_hint
+    val sp_capture_parameters: StringResource
+        get() = Res.string.sp_capture_parameters
+    val sp_capture_manual_stop: StringResource
+        get() = Res.string.sp_capture_manual_stop
+    val sp_capture_automatic_command_generation_description: StringResource
+        get() = Res.string.sp_capture_automatic_command_generation_description
+    val sp_capture_none: StringResource
+        get() = Res.string.sp_capture_none
+    val sp_capture_ready_capture: StringResource
+        get() = Res.string.sp_capture_ready_capture
+    val sp_capture_preparing_simpleperf: StringResource
+        get() = Res.string.sp_capture_preparing_simpleperf
+    val sp_capture_recording: StringResource
+        get() = Res.string.sp_capture_recording
+    val sp_capture_stopping_gracefully: StringResource
+        get() = Res.string.sp_capture_stopping_gracefully
+    val sp_capture_pulling_perf_data: StringResource
+        get() = Res.string.sp_capture_pulling_perf_data
+    val sp_capture_cancelled_logs_retained_status: StringResource
+        get() = Res.string.sp_capture_cancelled_logs_retained_status
+    val sp_capture_app_cpu_basic: StringResource
+        get() = Res.string.sp_capture_app_cpu_basic
+    val sp_capture_app_cpu_basic_description: StringResource
+        get() = Res.string.sp_capture_app_cpu_basic_description
+    val sp_capture_ui_thread_focus: StringResource
+        get() = Res.string.sp_capture_ui_thread_focus
+    val sp_capture_ui_thread_focus_description: StringResource
+        get() = Res.string.sp_capture_ui_thread_focus_description
+    val sp_capture_native_hotspot: StringResource
+        get() = Res.string.sp_capture_native_hotspot
+    val sp_capture_native_hotspot_description: StringResource
+        get() = Res.string.sp_capture_native_hotspot_description
+    val sp_capture_low_overhead: StringResource
+        get() = Res.string.sp_capture_low_overhead
+    val sp_capture_low_overhead_description: StringResource
+        get() = Res.string.sp_capture_low_overhead_description
+    val sp_capture_system_process: StringResource
+        get() = Res.string.sp_capture_system_process
+    val sp_capture_system_process_description: StringResource
+        get() = Res.string.sp_capture_system_process_description
+    val sp_capture_back: StringResource
+        get() = Res.string.sp_capture_back
+    val sp_session_open_session_report_hint: StringResource
+        get() = Res.string.sp_session_open_session_report_hint
+    val sp_session_session_package: StringResource
+        get() = Res.string.sp_session_session_package
+    val sp_session_raw_protobuf: StringResource
+        get() = Res.string.sp_session_raw_protobuf
+    val sp_session_screenshot: StringResource
+        get() = Res.string.sp_session_screenshot
+    val sp_session_external_open_guide: StringResource
+        get() = Res.string.sp_session_external_open_guide
+    val sp_report_overview: StringResource
+        get() = Res.string.sp_report_overview
+    val sp_report_timeline: StringResource
+        get() = Res.string.sp_report_timeline
+    val sp_report_resize_timeline_description: StringResource
+        get() = Res.string.sp_report_resize_timeline_description
+    val sp_report_top_functions: StringResource
+        get() = Res.string.sp_report_top_functions
+    val sp_calltree_tab: StringResource
+        get() = Res.string.sp_calltree_tab
+    val sp_calltree_forward_call_tree: StringResource
+        get() = Res.string.sp_calltree_forward_call_tree
+    val sp_calltree_reverse_call_tree: StringResource
+        get() = Res.string.sp_calltree_reverse_call_tree
+    val sp_calltree_function_path_search_placeholder: StringResource
+        get() = Res.string.sp_calltree_function_path_search_placeholder
+    val sp_calltree_total: StringResource
+        get() = Res.string.sp_calltree_total
+    val sp_calltree_total_samples: StringResource
+        get() = Res.string.sp_calltree_total_samples
+    val sp_flame_flame_graph: StringResource
+        get() = Res.string.sp_flame_flame_graph
+    val sp_stack_stack_chart: StringResource
+        get() = Res.string.sp_stack_stack_chart
+    val sp_marker_marker_chart: StringResource
+        get() = Res.string.sp_marker_marker_chart
+    val sp_marker_marker_table: StringResource
+        get() = Res.string.sp_marker_marker_table
+    val sp_report_show_details: StringResource
+        get() = Res.string.sp_report_show_details
+    val sp_report_hide_details: StringResource
+        get() = Res.string.sp_report_hide_details
+    val sp_calltree_all_frames: StringResource
+        get() = Res.string.sp_calltree_all_frames
+    val sp_calltree_script: StringResource
+        get() = Res.string.sp_calltree_script
+    val sp_calltree_invert_call_stack: StringResource
+        get() = Res.string.sp_calltree_invert_call_stack
+    val sp_calltree_filter_stacks: StringResource
+        get() = Res.string.sp_calltree_filter_stacks
+    val sp_marker_filter_markers: StringResource
+        get() = Res.string.sp_marker_filter_markers
+    val sp_details_details: StringResource
+        get() = Res.string.sp_details_details
+    val sp_finding_finding_details: StringResource
+        get() = Res.string.sp_finding_finding_details
+    val sp_function_function_details: StringResource
+        get() = Res.string.sp_function_function_details
+    val sp_stack_stack_block_details: StringResource
+        get() = Res.string.sp_stack_stack_block_details
+    val sp_marker_marker_details: StringResource
+        get() = Res.string.sp_marker_marker_details
+    val sp_finding_select_finding_hint: StringResource
+        get() = Res.string.sp_finding_select_finding_hint
+    val sp_function_select_function_hint: StringResource
+        get() = Res.string.sp_function_select_function_hint
+    val sp_calltree_select_call_stack_frame_hint: StringResource
+        get() = Res.string.sp_calltree_select_call_stack_frame_hint
+    val sp_stack_select_stack_block_hint: StringResource
+        get() = Res.string.sp_stack_select_stack_block_hint
+    val sp_marker_select_marker_hint: StringResource
+        get() = Res.string.sp_marker_select_marker_hint
+    val sp_marker_markers_not_collected_empty_state: StringResource
+        get() = Res.string.sp_marker_markers_not_collected_empty_state
+    val sp_marker_profile_has_no_markers_empty_state: StringResource
+        get() = Res.string.sp_marker_profile_has_no_markers_empty_state
+    val sp_marker_no_markers_in_range_empty_state: StringResource
+        get() = Res.string.sp_marker_no_markers_in_range_empty_state
+    val sp_marker_no_markers_match_filter_empty_state: StringResource
+        get() = Res.string.sp_marker_no_markers_match_filter_empty_state
+    val sp_marker_no_markers_available_empty_state: StringResource
+        get() = Res.string.sp_marker_no_markers_available_empty_state
+    val sp_stack_no_samples_collected_empty_state: StringResource
+        get() = Res.string.sp_stack_no_samples_collected_empty_state
+    val sp_stack_no_samples_in_range_empty_state: StringResource
+        get() = Res.string.sp_stack_no_samples_in_range_empty_state
+    val sp_stack_filters_removed_all_samples_empty_state: StringResource
+        get() = Res.string.sp_stack_filters_removed_all_samples_empty_state
+    val sp_stack_no_stack_blocks_empty_state: StringResource
+        get() = Res.string.sp_stack_no_stack_blocks_empty_state
+    val sp_diagnostics_diagnostics: StringResource
+        get() = Res.string.sp_diagnostics_diagnostics
+    val sp_report_samples: StringResource
+        get() = Res.string.sp_report_samples
+    val sp_report_self_column: StringResource
+        get() = Res.string.sp_report_self_column
+    val sp_report_running: StringResource
+        get() = Res.string.sp_report_running
+    val sp_report_overall: StringResource
+        get() = Res.string.sp_report_overall
+    val sp_report_stack_type: StringResource
+        get() = Res.string.sp_report_stack_type
+    val sp_report_category: StringResource
+        get() = Res.string.sp_report_category
+    val sp_report_implementation: StringResource
+        get() = Res.string.sp_report_implementation
+    val sp_report_resource: StringResource
+        get() = Res.string.sp_report_resource
+    val sp_report_preview_range_weight: StringResource
+        get() = Res.string.sp_report_preview_range_weight
+    val sp_report_flame_frame: StringResource
+        get() = Res.string.sp_report_flame_frame
+    val sp_report_inclusive: StringResource
+        get() = Res.string.sp_report_inclusive
+    val sp_report_self_weight_label: StringResource
+        get() = Res.string.sp_report_self_weight_label
+    val sp_report_event_weight: StringResource
+        get() = Res.string.sp_report_event_weight
+    val sp_report_lost_rate: StringResource
+        get() = Res.string.sp_report_lost_rate
+    val sp_report_data_quality: StringResource
+        get() = Res.string.sp_report_data_quality
+    val sp_report_top_threads: StringResource
+        get() = Res.string.sp_report_top_threads
+    val sp_report_artifacts: StringResource
+        get() = Res.string.sp_report_artifacts
+    val sp_flame_reset_range: StringResource
+        get() = Res.string.sp_flame_reset_range
+    val sp_flame_flame_graph_search: StringResource
+        get() = Res.string.sp_flame_flame_graph_search
+    val sp_flame_flame_graph_call_stacks: StringResource
+        get() = Res.string.sp_flame_flame_graph_call_stacks
+    val sp_flame_context_actions_unavailable_message: StringResource
+        get() = Res.string.sp_flame_context_actions_unavailable_message
+    val sp_flame_source_disassembly_unavailable_message: StringResource
+        get() = Res.string.sp_flame_source_disassembly_unavailable_message
+    val sp_flame_forward: StringResource
+        get() = Res.string.sp_flame_forward
+    val sp_flame_inverted: StringResource
+        get() = Res.string.sp_flame_inverted
+    val sp_flame_all: StringResource
+        get() = Res.string.sp_flame_all
+    val sp_flame_native: StringResource
+        get() = Res.string.sp_flame_native
+    val sp_flame_managed: StringResource
+        get() = Res.string.sp_flame_managed
+    val sp_flame_kernel: StringResource
+        get() = Res.string.sp_flame_kernel
+    val sp_flame_unknown: StringResource
+        get() = Res.string.sp_flame_unknown
+    val sp_flame_undo_transform: StringResource
+        get() = Res.string.sp_flame_undo_transform
+    val sp_flame_clear_transforms: StringResource
+        get() = Res.string.sp_flame_clear_transforms
+    val sp_flame_selected_thread_no_samples: StringResource
+        get() = Res.string.sp_flame_selected_thread_no_samples
+    val sp_flame_selected_range_no_samples: StringResource
+        get() = Res.string.sp_flame_selected_range_no_samples
+    val sp_flame_preview_range_no_samples: StringResource
+        get() = Res.string.sp_flame_preview_range_no_samples
+    val sp_flame_search_removed_all_samples: StringResource
+        get() = Res.string.sp_flame_search_removed_all_samples
+    val sp_flame_implementation_filter_removed_all_samples: StringResource
+        get() = Res.string.sp_flame_implementation_filter_removed_all_samples
+    val sp_flame_transforms_removed_all_samples: StringResource
+        get() = Res.string.sp_flame_transforms_removed_all_samples
+    val sp_flame_incomplete_call_stacks: StringResource
+        get() = Res.string.sp_flame_incomplete_call_stacks
+    val sp_flame_projection_failed: StringResource
+        get() = Res.string.sp_flame_projection_failed
+    val sp_flame_show_all_threads: StringResource
+        get() = Res.string.sp_flame_show_all_threads
+    val sp_flame_reset_time_range: StringResource
+        get() = Res.string.sp_flame_reset_time_range
+    val sp_flame_cancel_preview: StringResource
+        get() = Res.string.sp_flame_cancel_preview
+    val sp_flame_clear_search: StringResource
+        get() = Res.string.sp_flame_clear_search
+    val sp_flame_show_all_implementations: StringResource
+        get() = Res.string.sp_flame_show_all_implementations
+    val sp_flame_review_data_quality: StringResource
+        get() = Res.string.sp_flame_review_data_quality
+    val sp_flame_retry_projection: StringResource
+        get() = Res.string.sp_flame_retry_projection
+    val sp_timeline_range_selection_keyboard_shortcuts: StringResource
+        get() = Res.string.sp_timeline_range_selection_keyboard_shortcuts
+    val sp_calltree_thread_filter: StringResource
+        get() = Res.string.sp_calltree_thread_filter
+    val sp_calltree_function_library_search_placeholder: StringResource
+        get() = Res.string.sp_calltree_function_library_search_placeholder
+    val sp_calltree_descending: StringResource
+        get() = Res.string.sp_calltree_descending
+    val sp_calltree_ascending: StringResource
+        get() = Res.string.sp_calltree_ascending
+    val sp_calltree_function_library: StringResource
+        get() = Res.string.sp_calltree_function_library
+    val sp_calltree_inclusive: StringResource
+        get() = Res.string.sp_calltree_inclusive
+    val sp_calltree_exclusive: StringResource
+        get() = Res.string.sp_calltree_exclusive
+    val sp_calltree_navigate: StringResource
+        get() = Res.string.sp_calltree_navigate
+    val sp_calltree_path: StringResource
+        get() = Res.string.sp_calltree_path
+    val sp_flame_flame: StringResource
+        get() = Res.string.sp_flame_flame
+    val sp_flame_match: StringResource
+        get() = Res.string.sp_flame_match
+    val sp_flame_reset: StringResource
+        get() = Res.string.sp_flame_reset
+    val sp_flame_navigation_help: StringResource
+        get() = Res.string.sp_flame_navigation_help
+    val sp_flame_width_semantics_help: StringResource
+        get() = Res.string.sp_flame_width_semantics_help
+    val sp_finding_recommendations: StringResource
+        get() = Res.string.sp_finding_recommendations
+    val sp_finding_inspect_evidence_action: StringResource
+        get() = Res.string.sp_finding_inspect_evidence_action
+    val sp_settings_system: StringResource
+        get() = Res.string.sp_settings_system
+    val sp_settings_light: StringResource
+        get() = Res.string.sp_settings_light
+    val sp_settings_dark: StringResource
+        get() = Res.string.sp_settings_dark
+    val sp_settings_language: StringResource
+        get() = Res.string.sp_settings_language
+    val sp_settings_theme: StringResource
+        get() = Res.string.sp_settings_theme
+    val sp_settings_simplified_chinese: StringResource
+        get() = Res.string.sp_settings_simplified_chinese
+    val sp_settings_english: StringResource
+        get() = Res.string.sp_settings_english
+    val sp_target_ready: StringResource
+        get() = Res.string.sp_target_ready
+    val sp_target_limited: StringResource
+        get() = Res.string.sp_target_limited
+    val sp_target_blocked: StringResource
+        get() = Res.string.sp_target_blocked
+    val sp_diagnostics_info: StringResource
+        get() = Res.string.sp_diagnostics_info
+    val sp_diagnostics_warning: StringResource
+        get() = Res.string.sp_diagnostics_warning
+    val sp_diagnostics_critical: StringResource
+        get() = Res.string.sp_diagnostics_critical
+    val sp_capture_frame_pointer: StringResource
+        get() = Res.string.sp_capture_frame_pointer
+    val sp_capture_dwarf: StringResource
+        get() = Res.string.sp_capture_dwarf
+    val sp_capture_user: StringResource
+        get() = Res.string.sp_capture_user
+    val sp_capture_kernel: StringResource
+        get() = Res.string.sp_capture_kernel
+    val sp_capture_both: StringResource
+        get() = Res.string.sp_capture_both
+    val sp_diagnostics_sample_weight_duration_disclaimer: StringResource
+        get() = Res.string.sp_diagnostics_sample_weight_duration_disclaimer
+    val sp_diagnostics_quality_no_issues_message: StringResource
+        get() = Res.string.sp_diagnostics_quality_no_issues_message
+    val sp_diagnostics_quality_confidence_warning: StringResource
+        get() = Res.string.sp_diagnostics_quality_confidence_warning
+    val sp_diagnostics_lost_samples: StringResource
+        get() = Res.string.sp_diagnostics_lost_samples
+    val sp_diagnostics_unwind_failures: StringResource
+        get() = Res.string.sp_diagnostics_unwind_failures
+    val sp_diagnostics_unknown_symbols: StringResource
+        get() = Res.string.sp_diagnostics_unknown_symbols
+    val sp_diagnostics_empty_stacks: StringResource
+        get() = Res.string.sp_diagnostics_empty_stacks
+    val sp_diagnostics_function: StringResource
+        get() = Res.string.sp_diagnostics_function
+    val sp_diagnostics_library: StringResource
+        get() = Res.string.sp_diagnostics_library
+    val sp_diagnostics_inclusive_share: StringResource
+        get() = Res.string.sp_diagnostics_inclusive_share
+    val sp_diagnostics_exclusive_weight: StringResource
+        get() = Res.string.sp_diagnostics_exclusive_weight
+    val sp_diagnostics_thread: StringResource
+        get() = Res.string.sp_diagnostics_thread
+    val sp_diagnostics_weight_share: StringResource
+        get() = Res.string.sp_diagnostics_weight_share
+    val sp_diagnostics_sample_weight_semantics_title: StringResource
+        get() = Res.string.sp_diagnostics_sample_weight_semantics_title
+    val sp_diagnostics_sample_weight_semantics_description: StringResource
+        get() = Res.string.sp_diagnostics_sample_weight_semantics_description
+    val sp_diagnostics_keep_raw_profile_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_keep_raw_profile_recommendation
+    val sp_diagnostics_reduce_sampling_frequency_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_reduce_sampling_frequency_recommendation
+    val sp_diagnostics_provide_symbol_files_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_provide_symbol_files_recommendation
+    val sp_diagnostics_use_dwarf_call_graph_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_use_dwarf_call_graph_recommendation
+    val sp_diagnostics_inspect_callers_callees_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_inspect_callers_callees_recommendation
+    val sp_diagnostics_compare_repeated_capture_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_compare_repeated_capture_recommendation
+    val sp_diagnostics_inspect_thread_top_functions_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_inspect_thread_top_functions_recommendation
+    val sp_diagnostics_move_heavy_work_off_latency_threads_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_move_heavy_work_off_latency_threads_recommendation
+    val sp_diagnostics_use_comparable_workloads_recommendation: StringResource
+        get() = Res.string.sp_diagnostics_use_comparable_workloads_recommendation
+    val sp_details_close: StringResource
+        get() = Res.string.sp_details_close
+    val sp_details_loading_frame_details: StringResource
+        get() = Res.string.sp_details_loading_frame_details
+    val sp_details_symbol_details: StringResource
+        get() = Res.string.sp_details_symbol_details
 
     // Additional static and dynamic localization entries
-    val sp_253_dc30bc0c: StringResource get() = Res.string.sp_253_dc30bc0c
-    val sp_254_54bb40e7: StringResource get() = Res.string.sp_254_54bb40e7
-    val sp_255_ae8b838d: StringResource get() = Res.string.sp_255_ae8b838d
-    val sp_256_0a570ad8: StringResource get() = Res.string.sp_256_0a570ad8
-    val sp_257_5e5aa5cf: StringResource get() = Res.string.sp_257_5e5aa5cf
-    val sp_258_1cdc076b: StringResource get() = Res.string.sp_258_1cdc076b
-    val sp_259_e3b0c58a: StringResource get() = Res.string.sp_259_e3b0c58a
-    val sp_260_e0626222: StringResource get() = Res.string.sp_260_e0626222
-    val sp_261_0da9511b: StringResource get() = Res.string.sp_261_0da9511b
-    val sp_262_aae2a5ba: StringResource get() = Res.string.sp_262_aae2a5ba
-    val sp_prefix_loading: StringResource get() = Res.string.sp_prefix_loading
-    val sp_prefix_language: StringResource get() = Res.string.sp_prefix_language
-    val sp_prefix_theme: StringResource get() = Res.string.sp_prefix_theme
-    val sp_prefix_selected_target: StringResource get() = Res.string.sp_prefix_selected_target
-    val sp_prefix_abi: StringResource get() = Res.string.sp_prefix_abi
-    val sp_prefix_root: StringResource get() = Res.string.sp_prefix_root
-    val sp_prefix_scope: StringResource get() = Res.string.sp_prefix_scope
-    val sp_prefix_simpleperf: StringResource get() = Res.string.sp_prefix_simpleperf
-    val sp_prefix_capture_settings: StringResource get() = Res.string.sp_prefix_capture_settings
-    val sp_prefix_events: StringResource get() = Res.string.sp_prefix_events
-    val sp_prefix_limits: StringResource get() = Res.string.sp_prefix_limits
-    val sp_prefix_event: StringResource get() = Res.string.sp_prefix_event
-    val sp_prefix_rate: StringResource get() = Res.string.sp_prefix_rate
-    val sp_prefix_duration: StringResource get() = Res.string.sp_prefix_duration
-    val sp_prefix_call_graph: StringResource get() = Res.string.sp_prefix_call_graph
-    val sp_prefix_lost_samples: StringResource get() = Res.string.sp_prefix_lost_samples
-    val sp_prefix_unwind_errors: StringResource get() = Res.string.sp_prefix_unwind_errors
-    val sp_prefix_unknown_symbols: StringResource get() = Res.string.sp_prefix_unknown_symbols
-    val sp_prefix_empty_stacks: StringResource get() = Res.string.sp_prefix_empty_stacks
-    val sp_prefix_completed: StringResource get() = Res.string.sp_prefix_completed
-    val sp_prefix_category: StringResource get() = Res.string.sp_prefix_category
-    val sp_prefix_implementation: StringResource get() = Res.string.sp_prefix_implementation
-    val sp_prefix_resource: StringResource get() = Res.string.sp_prefix_resource
-    val sp_prefix_stack_type: StringResource get() = Res.string.sp_prefix_stack_type
-    val sp_prefix_preview_range_weight: StringResource get() = Res.string.sp_prefix_preview_range_weight
-    val sp_prefix_inclusive: StringResource get() = Res.string.sp_prefix_inclusive
-    val sp_prefix_exclusive: StringResource get() = Res.string.sp_prefix_exclusive
-    val sp_prefix_process: StringResource get() = Res.string.sp_prefix_process
-    val sp_prefix_thread: StringResource get() = Res.string.sp_prefix_thread
-    val sp_prefix_schema: StringResource get() = Res.string.sp_prefix_schema
-    val sp_prefix_start: StringResource get() = Res.string.sp_prefix_start
-    val sp_prefix_end: StringResource get() = Res.string.sp_prefix_end
-    val sp_dynamic_inc_exc: StringResource get() = Res.string.sp_dynamic_inc_exc
-    val sp_dynamic_samples: StringResource get() = Res.string.sp_dynamic_samples
-    val sp_dynamic_every_events: StringResource get() = Res.string.sp_dynamic_every_events
-    val sp_dynamic_hotspot: StringResource get() = Res.string.sp_dynamic_hotspot
-    val sp_dynamic_bullet: StringResource get() = Res.string.sp_dynamic_bullet
+    val sp_details_clear: StringResource
+        get() = Res.string.sp_details_clear
+    val sp_diagnostics_no_findings_empty_state: StringResource
+        get() = Res.string.sp_diagnostics_no_findings_empty_state
+    val sp_diagnostics_invalid_json_raw_fallback_message: StringResource
+        get() = Res.string.sp_diagnostics_invalid_json_raw_fallback_message
+    val sp_capture_rate_mode: StringResource
+        get() = Res.string.sp_capture_rate_mode
+    val sp_flame_transforms: StringResource
+        get() = Res.string.sp_flame_transforms
+    val sp_flame_undo: StringResource
+        get() = Res.string.sp_flame_undo
+    val sp_stack_call_stacks_description: StringResource
+        get() = Res.string.sp_stack_call_stacks_description
+    val sp_accessibility_select: StringResource
+        get() = Res.string.sp_accessibility_select
+    val sp_accessibility_open_details: StringResource
+        get() = Res.string.sp_accessibility_open_details
+    val sp_accessibility_open_context_menu: StringResource
+        get() = Res.string.sp_accessibility_open_context_menu
+    val sp_common_loading_value_format: StringResource
+        get() = Res.string.sp_common_loading_value_format
+    val sp_settings_language_value_format: StringResource
+        get() = Res.string.sp_settings_language_value_format
+    val sp_settings_theme_value_format: StringResource
+        get() = Res.string.sp_settings_theme_value_format
+    val sp_target_selected_target_value_format: StringResource
+        get() = Res.string.sp_target_selected_target_value_format
+    val sp_target_abi_value_format: StringResource
+        get() = Res.string.sp_target_abi_value_format
+    val sp_target_root_value_format: StringResource
+        get() = Res.string.sp_target_root_value_format
+    val sp_capture_scope_value_format: StringResource
+        get() = Res.string.sp_capture_scope_value_format
+    val sp_target_simpleperf_value_format: StringResource
+        get() = Res.string.sp_target_simpleperf_value_format
+    val sp_settings_capture_settings_value_format: StringResource
+        get() = Res.string.sp_settings_capture_settings_value_format
+    val sp_target_events_value_format: StringResource
+        get() = Res.string.sp_target_events_value_format
+    val sp_target_limits_value_format: StringResource
+        get() = Res.string.sp_target_limits_value_format
+    val sp_capture_event_value_format: StringResource
+        get() = Res.string.sp_capture_event_value_format
+    val sp_capture_rate_value_format: StringResource
+        get() = Res.string.sp_capture_rate_value_format
+    val sp_capture_duration_value_format: StringResource
+        get() = Res.string.sp_capture_duration_value_format
+    val sp_capture_call_graph_value_format: StringResource
+        get() = Res.string.sp_capture_call_graph_value_format
+    val sp_diagnostics_lost_samples_value_format: StringResource
+        get() = Res.string.sp_diagnostics_lost_samples_value_format
+    val sp_diagnostics_unwind_errors_value_format: StringResource
+        get() = Res.string.sp_diagnostics_unwind_errors_value_format
+    val sp_diagnostics_unknown_symbols_value_format: StringResource
+        get() = Res.string.sp_diagnostics_unknown_symbols_value_format
+    val sp_diagnostics_empty_stacks_value_format: StringResource
+        get() = Res.string.sp_diagnostics_empty_stacks_value_format
+    val sp_capture_completed_value_format: StringResource
+        get() = Res.string.sp_capture_completed_value_format
+    val sp_details_category_value_format: StringResource
+        get() = Res.string.sp_details_category_value_format
+    val sp_details_implementation_value_format: StringResource
+        get() = Res.string.sp_details_implementation_value_format
+    val sp_details_resource_value_format: StringResource
+        get() = Res.string.sp_details_resource_value_format
+    val sp_details_stack_type_value_format: StringResource
+        get() = Res.string.sp_details_stack_type_value_format
+    val sp_flame_preview_range_weight_value_format: StringResource
+        get() = Res.string.sp_flame_preview_range_weight_value_format
+    val sp_report_inclusive_value_format: StringResource
+        get() = Res.string.sp_report_inclusive_value_format
+    val sp_report_exclusive_value_format: StringResource
+        get() = Res.string.sp_report_exclusive_value_format
+    val sp_details_process_value_format: StringResource
+        get() = Res.string.sp_details_process_value_format
+    val sp_details_thread_value_format: StringResource
+        get() = Res.string.sp_details_thread_value_format
+    val sp_marker_schema_value_format: StringResource
+        get() = Res.string.sp_marker_schema_value_format
+    val sp_marker_start_value_format: StringResource
+        get() = Res.string.sp_marker_start_value_format
+    val sp_marker_end_value_format: StringResource
+        get() = Res.string.sp_marker_end_value_format
+    val sp_report_inclusive_exclusive_summary_format: StringResource
+        get() = Res.string.sp_report_inclusive_exclusive_summary_format
+    val sp_report_samples_summary_format: StringResource
+        get() = Res.string.sp_report_samples_summary_format
+    val sp_capture_every_events_format: StringResource
+        get() = Res.string.sp_capture_every_events_format
+    val sp_report_hotspot_format: StringResource
+        get() = Res.string.sp_report_hotspot_format
+    val sp_common_bullet_format: StringResource
+        get() = Res.string.sp_common_bullet_format
 
     // Accessibility and dynamic UI descriptions
-    val sp_dynamic_marker_description: StringResource get() = Res.string.sp_dynamic_marker_description
-    val sp_dynamic_timeline_marker: StringResource get() = Res.string.sp_dynamic_timeline_marker
-    val sp_dynamic_timeline_track: StringResource get() = Res.string.sp_dynamic_timeline_track
-    val sp_dynamic_thread_activity_graph: StringResource get() = Res.string.sp_dynamic_thread_activity_graph
-    val sp_dynamic_visible_tracks: StringResource get() = Res.string.sp_dynamic_visible_tracks
-    val sp_semantic_selected: StringResource get() = Res.string.sp_semantic_selected
-    val sp_semantic_hovered: StringResource get() = Res.string.sp_semantic_hovered
-    val sp_semantic_context_menu_open: StringResource get() = Res.string.sp_semantic_context_menu_open
-    val sp_semantic_flame_content: StringResource get() = Res.string.sp_semantic_flame_content
-    val sp_semantic_flame_state_single: StringResource get() = Res.string.sp_semantic_flame_state_single
-    val sp_semantic_flame_state_multiple: StringResource get() = Res.string.sp_semantic_flame_state_multiple
-    val sp_adb_not_found_settings_hint: StringResource get() = Res.string.sp_adb_not_found_settings_hint
+    val sp_marker_description_format: StringResource
+        get() = Res.string.sp_marker_description_format
+    val sp_timeline_marker_description_format: StringResource
+        get() = Res.string.sp_timeline_marker_description_format
+    val sp_timeline_track_description_format: StringResource
+        get() = Res.string.sp_timeline_track_description_format
+    val sp_timeline_thread_activity_description_format: StringResource
+        get() = Res.string.sp_timeline_thread_activity_description_format
+    val sp_timeline_visible_tracks_format: StringResource
+        get() = Res.string.sp_timeline_visible_tracks_format
+    val sp_accessibility_selected_state: StringResource
+        get() = Res.string.sp_accessibility_selected_state
+    val sp_accessibility_hovered_state: StringResource
+        get() = Res.string.sp_accessibility_hovered_state
+    val sp_accessibility_context_menu_open_state: StringResource
+        get() = Res.string.sp_accessibility_context_menu_open_state
+    val sp_accessibility_flame_content_description_format: StringResource
+        get() = Res.string.sp_accessibility_flame_content_description_format
+    val sp_accessibility_flame_single_sample_state_format: StringResource
+        get() = Res.string.sp_accessibility_flame_single_sample_state_format
+    val sp_accessibility_flame_multiple_samples_state_format: StringResource
+        get() = Res.string.sp_accessibility_flame_multiple_samples_state_format
+    val sp_adb_sdk_path_settings_hint: StringResource
+        get() = Res.string.sp_adb_sdk_path_settings_hint
 }

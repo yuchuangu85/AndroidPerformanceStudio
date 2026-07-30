@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,15 +56,18 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
-import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
-import com.androidperformancestudio.ui.ViewerThemeVariant
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.visualization.NavigationAction
+import org.jetbrains.compose.resources.StringResource
 import androidx.compose.material3.Text as MaterialText
 
 @Composable
@@ -77,7 +81,7 @@ fun ReportPage(
     ReportWorkspace(
         state,
         actions,
-        viewerColors(darkTheme, ViewerThemeVariant.MAC_OS),
+        viewerColors(darkTheme),
         Modifier.fillMaxSize(),
         flameTooltipMode,
     )
@@ -113,8 +117,23 @@ private fun ReportResultPane(
 ) {
     Box(modifier.fillMaxHeight().padding(14.dp)) {
         when (val loadState = state.loadState) {
-            ReportLoadState.Closed -> ReportStatus("Open a profile session to view its report.", style)
-            is ReportLoadState.Loading -> ReportStatus("Loading ${loadState.sessionDirectory.fileName}…", style)
+            ReportLoadState.Closed ->
+                ReportStatus(
+                    localizedStringResource(
+                        ViewerRes.sp_session_open_session_report_hint,
+                        currentSimpleperfLanguage(),
+                    ),
+                    style,
+                )
+            is ReportLoadState.Loading ->
+                ReportStatus(
+                    localizedStringResource(
+                        ViewerRes.sp_common_loading_value_format,
+                        currentSimpleperfLanguage(),
+                        "${loadState.sessionDirectory.fileName}…",
+                    ),
+                    style,
+                )
             is ReportLoadState.Failed ->
                 ReportStatus(
                     "${loadState.error.code}: ${loadState.error.message}",
@@ -145,7 +164,16 @@ private fun ReportStatus(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(message, color = style.text, fontSize = 13.sp)
-        onClose?.let { MacOsButton("Back", it, style) }
+        onClose?.let {
+            MacOsButton(
+                localizedStringResource(
+                    ViewerRes.sp_capture_back,
+                    currentSimpleperfLanguage(),
+                ),
+                it,
+                style,
+            )
+        }
     }
 }
 
@@ -184,14 +212,15 @@ internal fun OverviewReport(
     actions: ReportActions,
     style: ViewerColors,
 ) {
+    val language = currentSimpleperfLanguage()
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard("Samples", report.overview.sampleCount.toString(), Modifier.weight(1f), style)
-                MetricCard("Event weight", report.overview.totalEventWeight.toString(), Modifier.weight(1f), style)
-                MetricCard("Threads", report.overview.threadCount.toString(), Modifier.weight(1f), style)
+                MetricCard(ViewerRes.sp_report_samples, report.overview.sampleCount.toString(), Modifier.weight(1f), style)
+                MetricCard(ViewerRes.sp_report_event_weight, report.overview.totalEventWeight.toString(), Modifier.weight(1f), style)
+                MetricCard(ViewerRes.sp_target_threads, report.overview.threadCount.toString(), Modifier.weight(1f), style)
                 MetricCard(
-                    "Lost rate",
+                    ViewerRes.sp_report_lost_rate,
                     "%.2f%%".format(report.quality.lostRate * PERCENT_MULTIPLIER),
                     Modifier.weight(1f),
                     style,
@@ -200,14 +229,43 @@ internal fun OverviewReport(
         }
         item {
             MacOsPanel(Modifier.fillMaxWidth(), style) {
-                Text("Data quality", color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Text("Lost samples: ${report.quality.lostSampleCount}", color = style.text, fontSize = 10.sp)
-                Text("Unwind errors: ${report.quality.unwindErrorSamples}", color = style.text, fontSize = 10.sp)
-                Text("Unknown symbols: ${report.quality.unknownSymbolSamples}", color = style.text, fontSize = 10.sp)
-                Text("Empty stacks: ${report.quality.emptyStackSamples}", color = style.text, fontSize = 10.sp)
+                Text(
+                    localizedStringResource(ViewerRes.sp_report_data_quality, language),
+                    color = style.text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    localizedStringResource(ViewerRes.sp_diagnostics_lost_samples_value_format, language, report.quality.lostSampleCount),
+                    color = style.text,
+                    fontSize = 10.sp,
+                )
+                Text(
+                    localizedStringResource(
+                        ViewerRes.sp_diagnostics_unwind_errors_value_format,
+                        language,
+                        report.quality.unwindErrorSamples,
+                    ),
+                    color = style.text,
+                    fontSize = 10.sp,
+                )
+                Text(
+                    localizedStringResource(
+                        ViewerRes.sp_diagnostics_unknown_symbols_value_format,
+                        language,
+                        report.quality.unknownSymbolSamples,
+                    ),
+                    color = style.text,
+                    fontSize = 10.sp,
+                )
+                Text(
+                    localizedStringResource(ViewerRes.sp_diagnostics_empty_stacks_value_format, language, report.quality.emptyStackSamples),
+                    color = style.text,
+                    fontSize = 10.sp,
+                )
             }
         }
-        item { SectionTitle("Top threads", style) }
+        item { SectionTitle(ViewerRes.sp_report_top_threads, style) }
         items(report.topThreads.take(OVERVIEW_ITEM_LIMIT), key = { it.threadId }) { thread ->
             Text(
                 "${thread.name} · TID ${thread.threadId} · weight ${thread.totalEventCount}",
@@ -215,7 +273,7 @@ internal fun OverviewReport(
                 fontSize = 10.sp,
             )
         }
-        item { SectionTitle("Top functions", style) }
+        item { SectionTitle(ViewerRes.sp_report_top_functions, style) }
         itemsIndexed(
             report.topFunctions.take(OVERVIEW_ITEM_LIMIT),
             key = ::topFunctionItemKey,
@@ -229,13 +287,18 @@ internal fun OverviewReport(
             ) {
                 Text(function.symbolName, modifier = Modifier.weight(1f), color = style.text, fontSize = 10.sp)
                 Text(
-                    "inc ${function.inclusiveWeight} · exc ${function.exclusiveWeight}",
+                    localizedStringResource(
+                        ViewerRes.sp_report_inclusive_exclusive_summary_format,
+                        language,
+                        function.inclusiveWeight,
+                        function.exclusiveWeight,
+                    ),
                     color = style.secondaryText,
                     fontSize = 9.sp,
                 )
             }
         }
-        item { SectionTitle("Artifacts", style) }
+        item { SectionTitle(ViewerRes.sp_report_artifacts, style) }
         items(report.session.artifacts, key = { it.name }) { artifact ->
             Text(
                 "${if (artifact.exists) "✓" else "–"} ${artifact.name} · ${artifact.path}",
@@ -243,9 +306,15 @@ internal fun OverviewReport(
                 fontSize = 10.sp,
             )
         }
-        item { SectionTitle("Diagnostics", style) }
+        item { SectionTitle(ViewerRes.sp_diagnostics_diagnostics, style) }
         if (report.diagnostics.isEmpty()) {
-            item { Text("No diagnostic findings.", color = style.secondaryText, fontSize = 10.sp) }
+            item {
+                Text(
+                    localizedStringResource(ViewerRes.sp_diagnostics_no_findings_empty_state, language),
+                    color = style.secondaryText,
+                    fontSize = 10.sp,
+                )
+            }
         } else {
             items(report.diagnostics, key = { it.ruleId }) { finding ->
                 DiagnosticCard(finding, actions, style)
@@ -257,13 +326,17 @@ internal fun OverviewReport(
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun MetricCard(
-    title: String,
+    title: StringResource,
     value: String,
     modifier: Modifier,
     style: ViewerColors,
 ) {
     MacOsPanel(modifier, style) {
-        Text(title, color = style.secondaryText, fontSize = 9.sp)
+        Text(
+            localizedStringResource(title, currentSimpleperfLanguage()),
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
         Text(value, color = style.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -276,18 +349,22 @@ internal fun TopFunctionsReport(
     actions: ReportActions,
     style: ViewerColors,
 ) {
+    val language = currentSimpleperfLanguage()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TopFunctionSort.entries.forEach { sort ->
                 MacOsChoiceChip(
-                    label = sort.displayName(),
+                    label = sort.displayName(language),
                     selected = state.topSort == sort,
                     enabled = true,
                     style = style,
                 ) { actions.onTopFunctionSort(sort, state.topDescending) }
             }
             MacOsButton(
-                if (state.topDescending) "Descending" else "Ascending",
+                localizedStringResource(
+                    if (state.topDescending) ViewerRes.sp_calltree_descending else ViewerRes.sp_calltree_ascending,
+                    language,
+                ),
                 { actions.onTopFunctionSort(state.topSort, !state.topDescending) },
                 style,
             )
@@ -310,13 +387,44 @@ internal fun TopFunctionsReport(
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun TopFunctionHeader(style: ViewerColors) {
+    val language = currentSimpleperfLanguage()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Function / Library", modifier = Modifier.weight(1f), color = style.secondaryText, fontSize = 9.sp)
-        Text("Inclusive", modifier = Modifier.width(90.dp), color = style.secondaryText, fontSize = 9.sp)
-        Text("Exclusive", modifier = Modifier.width(90.dp), color = style.secondaryText, fontSize = 9.sp)
-        Text("Samples", modifier = Modifier.width(70.dp), color = style.secondaryText, fontSize = 9.sp)
-        Text("Threads", modifier = Modifier.width(70.dp), color = style.secondaryText, fontSize = 9.sp)
-        Text("Navigate", modifier = Modifier.width(180.dp), color = style.secondaryText, fontSize = 9.sp)
+        Text(
+            localizedStringResource(ViewerRes.sp_calltree_function_library, language),
+            modifier = Modifier.weight(1f),
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
+        Text(
+            localizedStringResource(ViewerRes.sp_calltree_inclusive, language),
+            modifier = Modifier.width(90.dp),
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
+        Text(
+            localizedStringResource(ViewerRes.sp_calltree_exclusive, language),
+            modifier = Modifier.width(90.dp),
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
+        Text(
+            localizedStringResource(ViewerRes.sp_report_samples, language),
+            modifier = Modifier.width(70.dp),
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
+        Text(
+            localizedStringResource(ViewerRes.sp_target_threads, language),
+            modifier = Modifier.width(70.dp),
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
+        Text(
+            localizedStringResource(ViewerRes.sp_calltree_navigate, language),
+            modifier = Modifier.width(180.dp),
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
     }
 }
 
@@ -349,8 +457,16 @@ private fun TopFunctionRow(
         Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
         Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
         Row(modifier = Modifier.width(180.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            MacOsButton("Path", { onFocusCallTree(function.symbolName) }, style)
-            MacOsButton("Flame", { onFocusFlame(function.symbolName) }, style)
+            MacOsButton(
+                localizedStringResource(ViewerRes.sp_calltree_path, currentSimpleperfLanguage()),
+                { onFocusCallTree(function.symbolName) },
+                style,
+            )
+            MacOsButton(
+                localizedStringResource(ViewerRes.sp_flame_flame, currentSimpleperfLanguage()),
+                { onFocusFlame(function.symbolName) },
+                style,
+            )
         }
     }
 }
@@ -404,7 +520,10 @@ internal fun CallTreeReport(
                 .background(style.panel)
                 .border(ViewerDimensions.hairline, style.border),
         ) {
-            FirefoxCallTreeHeader(report.overview.eventTypes.firefoxTotalColumnLabel(), style)
+            FirefoxCallTreeHeader(
+                report.overview.eventTypes.firefoxTotalColumnLabel(currentSimpleperfLanguage()),
+                style,
+            )
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxWidth().weight(1f).testTag("call-tree-list"),
@@ -455,7 +574,11 @@ private fun FirefoxCallTreeHeader(
         )
         FirefoxCallTreeDivider(style)
         FirefoxCallTreeHeaderCell(
-            label = "Self",
+            label =
+                localizedStringResource(
+                    ViewerRes.sp_report_self_column,
+                    currentSimpleperfLanguage(),
+                ),
             width = FIREFOX_SELF_COLUMN_WIDTH,
             style = style,
         )
@@ -473,6 +596,7 @@ private fun FirefoxCallTreeHeaderCell(
     width: androidx.compose.ui.unit.Dp,
     style: ViewerColors,
 ) {
+    val language = currentSimpleperfLanguage()
     Text(
         text = label,
         modifier = Modifier.width(width).padding(horizontal = 5.dp),
@@ -659,6 +783,7 @@ private fun DiagnosticCard(
     actions: ReportActions,
     style: ViewerColors,
 ) {
+    val language = currentSimpleperfLanguage()
     val accent =
         when (finding.severity) {
             DiagnosticSeverity.INFO -> style.accent
@@ -686,7 +811,12 @@ private fun DiagnosticCard(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
             )
-            Text(finding.severity.name, color = accent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text(
+                localizedStringResource(finding.severity.resource(), language),
+                color = accent,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+            )
         }
         Text(finding.conclusion, color = style.text, fontSize = 10.sp)
         finding.evidence.forEach { evidence ->
@@ -696,10 +826,27 @@ private fun DiagnosticCard(
             }
         }
         if (finding.recommendations.isNotEmpty()) {
-            Text("Recommendations", color = style.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            finding.recommendations.forEach { Text("• $it", color = style.secondaryText, fontSize = 9.sp) }
+            Text(
+                localizedStringResource(ViewerRes.sp_finding_recommendations, language),
+                color = style.text,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            finding.recommendations.forEach {
+                Text(
+                    localizedStringResource(ViewerRes.sp_common_bullet_format, language, it),
+                    color = style.secondaryText,
+                    fontSize = 9.sp,
+                )
+            }
         }
-        if (navigation != null) Text("Click to inspect evidence", color = accent, fontSize = 9.sp)
+        if (navigation != null) {
+            Text(
+                localizedStringResource(ViewerRes.sp_finding_inspect_evidence_action, language),
+                color = accent,
+                fontSize = 9.sp,
+            )
+        }
     }
 }
 
@@ -721,13 +868,36 @@ private fun DiagnosticFinding.navigation(actions: ReportActions): (() -> Unit)? 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun SectionTitle(
-    title: String,
+    title: StringResource,
     style: ViewerColors,
 ) {
-    Text(title, color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    Text(
+        localizedStringResource(title, currentSimpleperfLanguage()),
+        color = style.text,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
 }
 
-private fun TopFunctionSort.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
+private fun TopFunctionSort.displayName(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            TopFunctionSort.INCLUSIVE_WEIGHT -> ViewerRes.sp_diagnostics_inclusive_share
+            TopFunctionSort.EXCLUSIVE_WEIGHT -> ViewerRes.sp_diagnostics_exclusive_weight
+            TopFunctionSort.SAMPLE_COUNT -> ViewerRes.sp_report_samples
+            TopFunctionSort.THREAD_COUNT -> ViewerRes.sp_target_threads
+            TopFunctionSort.SYMBOL_NAME -> ViewerRes.sp_diagnostics_function
+            TopFunctionSort.FILE_PATH -> ViewerRes.sp_calltree_path
+        },
+        language,
+    )
+
+private fun DiagnosticSeverity.resource(): StringResource =
+    when (this) {
+        DiagnosticSeverity.INFO -> ViewerRes.sp_diagnostics_info
+        DiagnosticSeverity.WARNING -> ViewerRes.sp_diagnostics_warning
+        DiagnosticSeverity.CRITICAL -> ViewerRes.sp_diagnostics_critical
+    }
 
 internal fun topFunctionItemKey(
     index: Int,
@@ -753,8 +923,15 @@ private fun List<CallTreeNode>.firefoxInitialPath(maxDepth: Int): List<Long> {
     }
 }
 
-internal fun List<String>.firefoxTotalColumnLabel(): String =
-    if (size == 1 && single().equals("samples", ignoreCase = true)) "Total (samples)" else "Total"
+internal fun List<String>.firefoxTotalColumnLabel(language: UiLanguage = UiLanguage.ENGLISH): String =
+    localizedStringResource(
+        if (size == 1 && single().equals("samples", ignoreCase = true)) {
+            ViewerRes.sp_calltree_total_samples
+        } else {
+            ViewerRes.sp_calltree_total
+        },
+        language,
+    )
 
 internal fun List<CallTreeNode>.visibleNodes(expandedIds: Set<Long>): List<CallTreeNode> {
     val children = groupBy(CallTreeNode::parentId)

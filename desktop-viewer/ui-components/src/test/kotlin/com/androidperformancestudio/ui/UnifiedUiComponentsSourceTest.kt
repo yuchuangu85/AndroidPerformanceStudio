@@ -6,27 +6,27 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class UnifiedUiComponentsSourceTest {
     private val sourceRoot = Path.of("src/main/kotlin/com/androidperformancestudio/ui")
 
     @Test
-    fun `theme exposes one color model with standard and macOS variants`() {
+    fun `theme exposes one color model with one shared light and dark palette`() {
         val source = Files.readString(sourceRoot.resolve("ViewerTheme.kt"))
 
         assertTrue(source.contains("public data class ViewerColors("))
-        assertTrue(source.contains("public enum class ViewerThemeVariant"))
-        assertTrue(source.contains("MAC_OS"))
         assertTrue(source.contains("public fun viewerColors("))
+        assertFalse(source.contains("ViewerThemeVariant"))
+        assertFalse(source.contains("macOsLight"))
+        assertFalse(source.contains("macOsDark"))
         assertFalse(Files.exists(sourceRoot.resolve("MacOsDeviceTargetStyle.kt")))
     }
 
     @Test
-    fun `macOS theme variant preserves the former light and dark palettes`() {
-        val light = viewerColors(darkTheme = false, variant = ViewerThemeVariant.MAC_OS)
-        val dark = viewerColors(darkTheme = true, variant = ViewerThemeVariant.MAC_OS)
+    fun `shared theme uses the macOS light and dark palettes`() {
+        val light = viewerColors(darkTheme = false)
+        val dark = viewerColors(darkTheme = true)
 
         assertEquals(Color(0xFFF5F5F7), light.workspace)
         assertEquals(Color(0xFFFAFAFB), light.toolbar)
@@ -34,7 +34,6 @@ class UnifiedUiComponentsSourceTest {
         assertEquals(Color(0xFF1E1E20), dark.workspace)
         assertEquals(Color(0xFF29292B), dark.toolbar)
         assertEquals(Color(0xFF636366), dark.strongBorder)
-        assertNotEquals(viewerColors(darkTheme = false), light)
     }
 
     @Test

@@ -6,17 +6,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportState
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.storage.MarkerAvailability
 import com.androidperformancestudio.storage.MarkerEmptyReason
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.localizedStringResource
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -32,7 +36,7 @@ internal fun MarkerChartPanel(
             is PanelProjection.Ready -> {
                 val snapshot = projection.value
                 if (snapshot.markers.isEmpty()) {
-                    MarkerPanelMessage(snapshot.markerMessage(), style)
+                    MarkerPanelMessage(snapshot.markerMessage(currentSimpleperfLanguage()), style)
                 } else {
                     val report = requireNotNull(state.lastReadyReport)
                     val start = state.filter.startNanosInclusive ?: report.sessionOverview.startNanos ?: 0L
@@ -61,11 +65,15 @@ internal fun MarkerPanelMessage(
     }
 }
 
-internal fun MarkerProjectionSnapshot.markerMessage(): String =
+internal fun MarkerProjectionSnapshot.markerMessage(language: UiLanguage = UiLanguage.ENGLISH): String =
     when {
-        availability == MarkerAvailability.NOT_COLLECTED -> "Markers were not collected for this session."
-        emptyReason == MarkerEmptyReason.PROFILE_EMPTY -> "The profile contains no markers."
-        emptyReason == MarkerEmptyReason.RANGE_EMPTY -> "No markers overlap the selected range."
-        emptyReason == MarkerEmptyReason.FILTERED_EMPTY -> "No markers match the current filter."
-        else -> "No markers are available."
+        availability == MarkerAvailability.NOT_COLLECTED ->
+            localizedStringResource(ViewerRes.sp_marker_markers_not_collected_empty_state, language)
+        emptyReason == MarkerEmptyReason.PROFILE_EMPTY ->
+            localizedStringResource(ViewerRes.sp_marker_profile_has_no_markers_empty_state, language)
+        emptyReason == MarkerEmptyReason.RANGE_EMPTY ->
+            localizedStringResource(ViewerRes.sp_marker_no_markers_in_range_empty_state, language)
+        emptyReason == MarkerEmptyReason.FILTERED_EMPTY ->
+            localizedStringResource(ViewerRes.sp_marker_no_markers_match_filter_empty_state, language)
+        else -> localizedStringResource(ViewerRes.sp_marker_no_markers_available_empty_state, language)
     }

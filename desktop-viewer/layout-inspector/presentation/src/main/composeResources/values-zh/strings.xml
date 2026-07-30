@@ -17,6 +17,9 @@
     <string name="import_archive">导入归档</string>
     <string name="import_screenshot">导入截图</string>
     <string name="export_archive">导出</string>
+    <string name="sp_layout_inspector_menu_open_recent">最近打开</string>
+    <string name="sp_layout_inspector_recent_empty">暂无最近归档</string>
+    <string name="sp_layout_inspector_recent_clear_menu">清除菜单</string>
     <string name="choose_archive_to_import">选择要导入的归档</string>
     <string name="choose_archive_export_file">选择导出文件</string>
     <string name="choose_screenshot_to_import">选择要导入的截图</string>
@@ -190,4 +193,5 @@
     <string name="detail_label_hidden_descendants">隐藏后代</string>
     <string name="detail_label_blending">混合</string>
     <string name="detail_label_layer_cost">图层成本</string>
+    <string name="detail_label_semantics_role">语义角色</string>
 </resources>

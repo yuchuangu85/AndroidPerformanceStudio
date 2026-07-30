@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -118,6 +119,7 @@ import org.jetbrains.skia.Image
 import java.awt.Cursor
 import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
+import java.nio.file.Path
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
@@ -174,6 +176,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var deviceListRefreshRequest by remember { mutableStateOf(0) }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
     val archiveFileChooser = remember { SwingCaptureArchiveFileChooser() }
+    val recentArchiveStore = remember { RecentCaptureArchiveStore.desktop() }
+    var recentArchives by remember { mutableStateOf(recentArchiveStore.load()) }
     val archiveLimitsStore = remember { CaptureArchiveLimitsStore.desktop() }
     var archiveLimits by remember { mutableStateOf(archiveLimitsStore.load()) }
     val captureArchiveService = remember(protocolCodec, archiveLimits) {
@@ -317,8 +321,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         commonLanguagePreference?.let(LanguagePreference::fromStorage) ?: LanguagePreference.SYSTEM
     val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
     var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
-    val viewerLanguage = languagePreference.resolve(Locale.getDefault().toLanguageTag())
-    val strings = remember(viewerLanguage) { ViewerStrings.forLanguage(viewerLanguage) }
+    val uiLanguage = languagePreference.resolve(Locale.getDefault())
+    val strings = remember(uiLanguage) { ViewerStrings.forLanguage(uiLanguage) }
     var settingsVisible by remember { mutableStateOf(false) }
     val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
     LaunchedEffect(settingsRevision) {
@@ -391,13 +395,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
         }
     }
-    val importCaptureArchive: () -> Unit = importCaptureArchive@{
+    val openCaptureArchive: (Path) -> Unit = openCaptureArchive@{ source ->
         if (archiveUiState is CaptureArchiveUiState.Working) {
-            return@importCaptureArchive
+            return@openCaptureArchive
         }
-        val source = archiveFileChooser.chooseImport(
-            strings.chooseArchiveToImport,
-        ) ?: return@importCaptureArchive
         autoScanEnabled = false
         archiveUiState = CaptureArchiveUiState.Working(CaptureArchiveOperation.IMPORT)
         coroutineScope.launch {
@@ -417,6 +418,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 aiAnalysisUiState = AiAnalysisUiState.Idle
                 hierarchyTreeState = HierarchyTreeState()
                 hiddenLayerState = HiddenLayerState()
+                recentArchives = withContext(Dispatchers.IO) {
+                    recentArchiveStore.record(source)
+                }
                 archiveUiState = CaptureArchiveUiState.Success(
                     operation = CaptureArchiveOperation.IMPORT,
                     path = source,
@@ -430,6 +434,18 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 )
             }
         }
+    }
+    val importCaptureArchive: () -> Unit = importCaptureArchive@{
+        if (archiveUiState is CaptureArchiveUiState.Working) {
+            return@importCaptureArchive
+        }
+        archiveFileChooser.chooseImport(
+            strings.chooseArchiveToImport,
+        )?.let(openCaptureArchive)
+    }
+    val clearRecentArchives: () -> Unit = {
+        recentArchiveStore.clear()
+        recentArchives = emptyList()
     }
     val importScreenshot: () -> Unit = importScreenshot@{
         if (archiveUiState is CaptureArchiveUiState.Working) {
@@ -590,11 +606,14 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     manualRefreshInProgress,
             canExportArchive = state.snapshot != null,
             canImportScreenshot = state.snapshot != null,
+            recentArchives = recentArchives,
             isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
         ),
         onAction = performAction,
         onViewOption = toggleViewDisplayOption,
         onImportArchive = importCaptureArchive,
+        onOpenRecentArchive = openCaptureArchive,
+        onClearRecentArchives = clearRecentArchives,
         onImportScreenshot = importScreenshot,
         onExportArchive = exportCaptureArchive,
     )
@@ -2444,25 +2463,84 @@ private fun TimelineStrip(
     onSelectTimelineFrame: (Int) -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().height(34.dp).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(frames, key = { it.index }) { frame ->
-            val background = if (frame.selected) colors.selectedRow else colors.sectionBackground
-            val textColor = if (frame.selected) colors.primaryText else colors.secondaryText
-            Text(
-                text = "${frame.label} ${frame.summary}",
-                color = textColor,
-                fontSize = 11.sp,
-                maxLines = 1,
-                modifier = Modifier
-                    .background(background, RoundedCornerShape(4.dp))
-                    .clickable { onSelectTimelineFrame(frame.index) }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val buttons = TimelineScrollNavigation.buttons(
+        canScrollBackward = listState.canScrollBackward,
+        canScrollForward = listState.canScrollForward,
+    )
+    val scroll: (TimelineScrollDirection) -> Unit = { direction ->
+        coroutineScope.launch {
+            listState.animateScrollBy(
+                TimelineScrollNavigation.scrollDistance(
+                    direction = direction,
+                    viewportWidthPx = listState.layoutInfo.viewportSize.width,
+                ),
             )
         }
+    }
+
+    Box(modifier = Modifier.fillMaxWidth().height(34.dp)) {
+        LazyRow(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(horizontal = if (buttons.visible) 32.dp else 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(frames, key = { it.index }) { frame ->
+                val background = if (frame.selected) colors.selectedRow else colors.sectionBackground
+                val textColor = if (frame.selected) colors.primaryText else colors.secondaryText
+                Text(
+                    text = "${frame.label} ${frame.summary}",
+                    color = textColor,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .background(background, RoundedCornerShape(4.dp))
+                        .clickable { onSelectTimelineFrame(frame.index) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        if (buttons.visible) {
+            TimelineScrollButton(
+                direction = TimelineScrollDirection.LEFT,
+                enabled = buttons.leftEnabled,
+                modifier = Modifier.align(Alignment.CenterStart),
+                onClick = { scroll(TimelineScrollDirection.LEFT) },
+            )
+            TimelineScrollButton(
+                direction = TimelineScrollDirection.RIGHT,
+                enabled = buttons.rightEnabled,
+                modifier = Modifier.align(Alignment.CenterEnd),
+                onClick = { scroll(TimelineScrollDirection.RIGHT) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineScrollButton(
+    direction: TimelineScrollDirection,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    Box(
+        modifier = modifier
+            .width(28.dp)
+            .fillMaxHeight()
+            .background(colors.panel)
+            .border(1.dp, colors.border)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = if (direction == TimelineScrollDirection.LEFT) "‹" else "›",
+            color = if (enabled) colors.primaryText else colors.subtleText,
+            fontSize = 18.sp,
+        )
     }
 }
 

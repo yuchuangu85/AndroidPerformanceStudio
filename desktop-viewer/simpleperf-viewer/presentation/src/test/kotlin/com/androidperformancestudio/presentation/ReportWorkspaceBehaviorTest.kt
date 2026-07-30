@@ -37,7 +37,6 @@ import com.androidperformancestudio.storage.ThreadSummary
 import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.storage.TopFunction
-import com.androidperformancestudio.ui.ViewerThemeVariant
 import com.androidperformancestudio.ui.viewerColors
 import java.nio.file.Path
 import kotlin.test.Test
@@ -202,7 +201,7 @@ class ReportWorkspaceBehaviorTest {
                             onThreads = { selectedThreads = it },
                             onTimeRange = { start, end -> committedRange = start to end },
                         ),
-                    style = viewerColors(darkTheme = false, variant = ViewerThemeVariant.MAC_OS),
+                    style = viewerColors(darkTheme = false),
                 )
             }
 

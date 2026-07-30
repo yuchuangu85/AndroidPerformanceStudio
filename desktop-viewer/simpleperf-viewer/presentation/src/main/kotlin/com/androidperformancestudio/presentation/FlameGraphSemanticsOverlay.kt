@@ -16,9 +16,10 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.VisibleFlameLayout
 import com.androidperformancestudio.visualization.VisibleFlameNode
@@ -36,13 +37,14 @@ internal data class FlameGraphSemanticNode(
 )
 
 internal object FlameGraphSemanticsPresenter {
+    @Suppress("LongParameterList")
     fun nodes(
         snapshot: FlameGraphSnapshot,
         layout: VisibleFlameLayout,
         selectedNodeId: FlameCallNodeId?,
         hoveredNodeId: FlameCallNodeId? = null,
         contextNodeId: FlameCallNodeId? = null,
-        language: SimpleperfLanguage = SimpleperfLanguage.ENGLISH,
+        language: UiLanguage = UiLanguage.ENGLISH,
     ): List<FlameGraphSemanticNode> {
         val visibleNodes =
             layout.nodes.mapNotNull { node ->
@@ -61,15 +63,19 @@ internal object FlameGraphSemanticsPresenter {
         selectedNodeId: FlameCallNodeId?,
         hoveredNodeId: FlameCallNodeId?,
         contextNodeId: FlameCallNodeId?,
-        language: SimpleperfLanguage,
+        language: UiLanguage,
     ): FlameGraphSemanticNode? {
         val node = semanticFacts(snapshot, nodeId, language) ?: return null
-        val uiLanguage = language.uiLanguage
         val states =
             listOfNotNull(
-                localizedStringResource(ViewerRes.sp_semantic_selected, uiLanguage).takeIf { nodeId == selectedNodeId },
-                localizedStringResource(ViewerRes.sp_semantic_hovered, uiLanguage).takeIf { nodeId == hoveredNodeId },
-                localizedStringResource(ViewerRes.sp_semantic_context_menu_open, uiLanguage).takeIf { nodeId == contextNodeId },
+                localizedStringResource(ViewerRes.sp_accessibility_selected_state, language)
+                    .takeIf { nodeId == selectedNodeId },
+                localizedStringResource(ViewerRes.sp_accessibility_hovered_state, language)
+                    .takeIf { nodeId == hoveredNodeId },
+                localizedStringResource(
+                    ViewerRes.sp_accessibility_context_menu_open_state,
+                    language,
+                ).takeIf { nodeId == contextNodeId },
             )
         val stateDescription =
             listOf(node.stateDescription, states.joinToString())
@@ -89,7 +95,7 @@ internal object FlameGraphSemanticsPresenter {
 
     private fun FlameCallNodeId.toSemanticNode(
         snapshot: FlameGraphSnapshot,
-        language: SimpleperfLanguage,
+        language: UiLanguage,
     ): FlameGraphSemanticNode? {
         val node = semanticFacts(snapshot, this, language) ?: return null
         return FlameGraphSemanticNode(
@@ -119,9 +125,10 @@ internal fun FlameGraphSemanticsOverlay(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val selectLabel = localizedSimpleperfText("Select")
-    val openDetailsLabel = localizedSimpleperfText("Open details")
-    val openContextMenuLabel = localizedSimpleperfText("Open context menu")
+    val language = currentSimpleperfLanguage()
+    val selectLabel = localizedStringResource(ViewerRes.sp_accessibility_select, language)
+    val openDetailsLabel = localizedStringResource(ViewerRes.sp_accessibility_open_details, language)
+    val openContextMenuLabel = localizedStringResource(ViewerRes.sp_accessibility_open_context_menu, language)
     Box(modifier) {
         val nodes =
             FlameGraphSemanticsPresenter.nodes(
@@ -175,7 +182,7 @@ private data class SemanticFacts(
 private fun semanticFacts(
     snapshot: FlameGraphSnapshot,
     nodeId: FlameCallNodeId,
-    language: SimpleperfLanguage,
+    language: UiLanguage,
 ): SemanticFacts? {
     val index = snapshot.callNodes.indexOf(nodeId) ?: return null
     val frame = snapshot.callNodes.frameAt(index) ?: return null
@@ -183,12 +190,11 @@ private fun semanticFacts(
     val inclusiveWeight = snapshot.callNodes.inclusiveWeightAt(index) ?: return null
     val sampleCount = snapshot.callNodes.sampleCountAt(index) ?: 0L
     val percent = percentage(inclusiveWeight, snapshot.totalWeight)
-    val uiLanguage = language.uiLanguage
     return SemanticFacts(
         contentDescription =
             localizedStringResource(
-                ViewerRes.sp_semantic_flame_content,
-                uiLanguage,
+                ViewerRes.sp_accessibility_flame_content_description_format,
+                language,
                 frame.symbolName,
                 percent,
                 category,
@@ -196,11 +202,11 @@ private fun semanticFacts(
         stateDescription =
             localizedStringResource(
                 if (sampleCount == 1L) {
-                    ViewerRes.sp_semantic_flame_state_single
+                    ViewerRes.sp_accessibility_flame_single_sample_state_format
                 } else {
-                    ViewerRes.sp_semantic_flame_state_multiple
+                    ViewerRes.sp_accessibility_flame_multiple_samples_state_format
                 },
-                uiLanguage,
+                language,
                 frame.implementation.label,
                 inclusiveWeight,
                 sampleCount,

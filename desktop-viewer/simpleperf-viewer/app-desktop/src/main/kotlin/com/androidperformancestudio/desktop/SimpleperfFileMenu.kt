@@ -1,15 +1,33 @@
 package com.androidperformancestudio.desktop
 
-import org.jetbrains.compose.resources.stringResource
-
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
-import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.app_desktop.generated.resources.Res
-import com.androidperformancestudio.app_desktop.generated.resources.*
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_external_open
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_firefox_profiler_json
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_json_csv
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_raw_protobuf
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_report_html_py
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_screenshot
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_session_package
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_simpleperf_report
+import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_configuration
+import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_export
+import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_file
+import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_open
+import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_settings
+import com.androidperformancestudio.app_desktop.generated.resources.sp_recent_clear_menu
+import com.androidperformancestudio.app_desktop.generated.resources.sp_recent_empty
+import com.androidperformancestudio.app_desktop.generated.resources.sp_recent_open
+import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_advanced_parameters
+import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_capture_configuration
+import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_capture_templates
+import com.androidperformancestudio.presentation.CaptureSettingsSection
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path
 
 internal data class SimpleperfMenuShortcut(
@@ -70,40 +88,41 @@ internal data class SimpleperfFileMenuModel(
     val settingsShortcut: SimpleperfMenuShortcut?,
 )
 
-@Composable
 internal fun simpleperfFileMenuModel(
+    language: UiLanguage,
     recentSessions: List<Path>,
     exportEnabled: Boolean,
     isMacOs: Boolean,
     configurationEnabled: Boolean = true,
 ): SimpleperfFileMenuModel =
     SimpleperfFileMenuModel(
-        fileTitle = stringResource(Res.string.file),
-        openLabel = stringResource(Res.string.open),
-        settingsLabel = stringResource(Res.string.settings).takeUnless { isMacOs },
+        fileTitle = localizedStringResource(Res.string.sp_menu_file, language),
+        openLabel = localizedStringResource(Res.string.sp_menu_open, language),
+        settingsLabel = localizedStringResource(Res.string.sp_menu_settings, language).takeUnless { isMacOs },
         exportMenu =
             SimpleperfExportMenuModel(
-                title = stringResource(Res.string.export),
-                sessionPackageLabel = stringResource(Res.string.session_package),
-                reportLabel = stringResource(Res.string.json_csv),
-                geckoProfileLabel = stringResource(Res.string.firefox_profiler_json),
-                rawProtobufLabel = stringResource(Res.string.raw_protobuf),
-                screenshotLabel = stringResource(Res.string.screenshot),
-                simpleperfReportLabel = stringResource(Res.string.simpleperf_report),
-                htmlReportLabel = stringResource(Res.string.report_html_py),
-                externalOpenLabel = stringResource(Res.string.external_open),
+                title = localizedStringResource(Res.string.sp_menu_export, language),
+                sessionPackageLabel = localizedStringResource(Res.string.sp_export_session_package, language),
+                reportLabel = localizedStringResource(Res.string.sp_export_json_csv, language),
+                geckoProfileLabel = localizedStringResource(Res.string.sp_export_firefox_profiler_json, language),
+                rawProtobufLabel = localizedStringResource(Res.string.sp_export_raw_protobuf, language),
+                screenshotLabel = localizedStringResource(Res.string.sp_export_screenshot, language),
+                simpleperfReportLabel = localizedStringResource(Res.string.sp_export_simpleperf_report, language),
+                htmlReportLabel = localizedStringResource(Res.string.sp_export_report_html_py, language),
+                externalOpenLabel = localizedStringResource(Res.string.sp_export_external_open, language),
             ),
         configurationMenu =
             SimpleperfConfigurationMenuModel(
-                title = stringResource(Res.string.configuration),
-                samplingTemplateLabel = stringResource(Res.string.capture_templates),
-                captureConfigurationLabel = stringResource(Res.string.capture_configuration),
-                advancedParametersLabel = stringResource(Res.string.advanced_parameters),
+                title = localizedStringResource(Res.string.sp_menu_configuration, language),
+                samplingTemplateLabel = localizedStringResource(Res.string.sp_settings_capture_templates, language),
+                captureConfigurationLabel =
+                    localizedStringResource(Res.string.sp_settings_capture_configuration, language),
+                advancedParametersLabel = localizedStringResource(Res.string.sp_settings_advanced_parameters, language),
                 enabled = configurationEnabled,
             ),
-        openRecentTitle = stringResource(Res.string.open_recent),
-        noRecentLabel = stringResource(Res.string.no_recent_sessions),
-        clearRecentLabel = stringResource(Res.string.clear_menu),
+        openRecentTitle = localizedStringResource(Res.string.sp_recent_open, language),
+        noRecentLabel = localizedStringResource(Res.string.sp_recent_empty, language),
+        clearRecentLabel = localizedStringResource(Res.string.sp_recent_clear_menu, language),
         recentItems = recentSessions.toRecentMenuItems(),
         exportEnabled = exportEnabled,
         openShortcut = primaryShortcut(Key.O, isMacOs),

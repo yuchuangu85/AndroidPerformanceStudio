@@ -23,6 +23,7 @@ import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.capture.SimpleperfTarget
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
+import com.androidperformancestudio.ui.UiLanguage
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -58,7 +59,7 @@ class DeviceTargetPageBehaviorTest {
                     reportState = ReportState(),
                     actions = deviceActions(),
                     reportActions = goldenActions(),
-                    language = SimpleperfLanguage.SIMPLIFIED_CHINESE,
+                    language = UiLanguage.SIMPLIFIED_CHINESE,
                 )
             }
 

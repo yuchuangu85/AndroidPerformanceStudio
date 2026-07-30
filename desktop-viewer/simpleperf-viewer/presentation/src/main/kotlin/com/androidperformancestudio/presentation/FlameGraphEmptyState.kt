@@ -9,15 +9,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 
 internal enum class FlameGraphRecoveryAction {
@@ -38,66 +42,76 @@ internal data class FlameGraphEmptyStateContent(
     val diagnosticDetails: String?,
 )
 
+@Suppress("LongMethod")
 internal fun flameGraphEmptyStateContent(
     reason: FlameGraphEmptyReason,
     diagnosticDetails: String?,
+    language: UiLanguage = UiLanguage.ENGLISH,
 ): FlameGraphEmptyStateContent =
     when (reason) {
         FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES ->
             content(
-                "The selected thread has no samples.",
-                "Show all threads",
+                ViewerRes.sp_flame_selected_thread_no_samples,
+                ViewerRes.sp_flame_show_all_threads,
                 FlameGraphRecoveryAction.SELECT_ALL_THREADS,
                 diagnosticDetails,
+                language,
             )
         FlameGraphEmptyReason.COMMITTED_RANGE_EMPTY ->
             content(
-                "The selected time range contains no samples.",
-                "Reset time range",
+                ViewerRes.sp_flame_selected_range_no_samples,
+                ViewerRes.sp_flame_reset_time_range,
                 FlameGraphRecoveryAction.RESET_TIME_RANGE,
                 diagnosticDetails,
+                language,
             )
         FlameGraphEmptyReason.PREVIEW_RANGE_EMPTY ->
             content(
-                "The preview range contains no samples.",
-                "Cancel preview",
+                ViewerRes.sp_flame_preview_range_no_samples,
+                ViewerRes.sp_flame_cancel_preview,
                 FlameGraphRecoveryAction.CANCEL_PREVIEW,
                 diagnosticDetails,
+                language,
             )
         FlameGraphEmptyReason.SEARCH_FILTERED_ALL ->
             content(
-                "Search removed all samples.",
-                "Clear search",
+                ViewerRes.sp_flame_search_removed_all_samples,
+                ViewerRes.sp_flame_clear_search,
                 FlameGraphRecoveryAction.CLEAR_SEARCH,
                 diagnosticDetails,
+                language,
             )
         FlameGraphEmptyReason.IMPLEMENTATION_FILTERED_ALL ->
             content(
-                "The implementation filter removed all samples.",
-                "Show all implementations",
+                ViewerRes.sp_flame_implementation_filter_removed_all_samples,
+                ViewerRes.sp_flame_show_all_implementations,
                 FlameGraphRecoveryAction.SHOW_ALL_IMPLEMENTATIONS,
                 diagnosticDetails,
+                language,
             )
         FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL ->
             content(
-                "Stack transforms removed all samples.",
-                "Undo transform",
+                ViewerRes.sp_flame_transforms_removed_all_samples,
+                ViewerRes.sp_flame_undo_transform,
                 FlameGraphRecoveryAction.UNDO_TRANSFORM,
                 diagnosticDetails,
+                language,
             )
         FlameGraphEmptyReason.PROFILE_INCOMPLETE ->
             content(
-                "The profile does not contain complete call stacks.",
-                "Review data quality",
+                ViewerRes.sp_flame_incomplete_call_stacks,
+                ViewerRes.sp_flame_review_data_quality,
                 FlameGraphRecoveryAction.REVIEW_DATA_QUALITY,
                 diagnosticDetails,
+                language,
             )
         FlameGraphEmptyReason.PROJECTION_FAILED ->
             content(
-                "The flame graph could not be projected.",
-                "Retry projection",
+                ViewerRes.sp_flame_projection_failed,
+                ViewerRes.sp_flame_retry_projection,
                 FlameGraphRecoveryAction.RETRY_PROJECTION,
                 diagnosticDetails,
+                language,
             )
     }
 
@@ -110,7 +124,12 @@ internal fun FirefoxFlameGraphEmptyState(
     modifier: Modifier = Modifier,
 ) {
     val reason = snapshot.emptyReason ?: return
-    val content = flameGraphEmptyStateContent(reason, snapshot.diagnosticDetails)
+    val content =
+        flameGraphEmptyStateContent(
+            reason,
+            snapshot.diagnosticDetails,
+            currentSimpleperfLanguage(),
+        )
     Column(
         modifier = modifier.fillMaxWidth().background(style.canvasBackground.toComposeColor()).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -134,11 +153,18 @@ internal fun FirefoxFlameGraphEmptyState(
 }
 
 private fun content(
-    message: String,
-    recoveryLabel: String,
+    message: org.jetbrains.compose.resources.StringResource,
+    recoveryLabel: org.jetbrains.compose.resources.StringResource,
     action: FlameGraphRecoveryAction,
     diagnosticDetails: String?,
-): FlameGraphEmptyStateContent = FlameGraphEmptyStateContent(message, recoveryLabel, action, diagnosticDetails)
+    language: UiLanguage,
+): FlameGraphEmptyStateContent =
+    FlameGraphEmptyStateContent(
+        localizedStringResource(message, language),
+        localizedStringResource(recoveryLabel, language),
+        action,
+        diagnosticDetails,
+    )
 
 private fun dispatchRecovery(
     action: FlameGraphRecoveryAction,

@@ -35,10 +35,9 @@ class ThemePreferenceTest {
     }
 
     @Test
-    fun `visible bounds use the approved light cyan in both themes`() {
+    fun `visible bounds use the shared macOS accent in both themes`() {
         listOf(viewerColors(false), viewerColors(true)).forEach { palette ->
-            assertEquals(Color(0xFF7DD3FC), palette.visibleViewBounds)
+            assertEquals(Color(0xFF0A84FF), palette.visibleViewBounds)
         }
     }
-
 }

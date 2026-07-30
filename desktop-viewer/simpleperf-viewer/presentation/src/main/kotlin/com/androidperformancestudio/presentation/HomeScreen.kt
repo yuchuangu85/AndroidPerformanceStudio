@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.capture.CaptureState
+import com.androidperformancestudio.ui.UiLanguage
 
 @Composable
 @Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
@@ -25,7 +26,7 @@ fun HomeScreen(
     actions: DeviceTargetActions,
     reportActions: ReportActions,
     darkTheme: Boolean = false,
-    language: SimpleperfLanguage = SimpleperfLanguage.ENGLISH,
+    language: UiLanguage = UiLanguage.ENGLISH,
     captureSettingsSection: CaptureSettingsSection? = null,
     captureSettingsManagedExternally: Boolean = false,
     onCaptureSettingsSectionChange: (CaptureSettingsSection?) -> Unit = {},

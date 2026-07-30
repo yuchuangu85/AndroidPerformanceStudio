@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphFrameDetails
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 
 internal data class FlameGraphDetailsContent(
@@ -35,18 +39,24 @@ internal data class FlameGraphDetailsContent(
 )
 
 internal object FlameGraphDetailsPresenter {
-    fun content(state: FlameGraphDetailsState): FlameGraphDetailsContent? =
+    fun content(
+        state: FlameGraphDetailsState,
+        language: UiLanguage = UiLanguage.ENGLISH,
+    ): FlameGraphDetailsContent? =
         when (state) {
             FlameGraphDetailsState.Closed -> null
             is FlameGraphDetailsState.Loading ->
                 FlameGraphDetailsContent(
-                    title = "Loading frame details…",
+                    title = localizedStringResource(ViewerRes.sp_details_loading_frame_details, language),
                     lines = listOf("Resolving source, symbols, or disassembly for the selected frame."),
                 )
-            is FlameGraphDetailsState.Ready -> content(state.details)
+            is FlameGraphDetailsState.Ready -> content(state.details, language)
         }
 
-    private fun content(details: FlameGraphFrameDetails): FlameGraphDetailsContent =
+    private fun content(
+        details: FlameGraphFrameDetails,
+        language: UiLanguage,
+    ): FlameGraphDetailsContent =
         when (details) {
             is FlameGraphFrameDetails.Source ->
                 FlameGraphDetailsContent(
@@ -70,11 +80,15 @@ internal object FlameGraphDetailsPresenter {
                 )
             is FlameGraphFrameDetails.SymbolFallback ->
                 FlameGraphDetailsContent(
-                    title = "Symbol details",
+                    title = localizedStringResource(ViewerRes.sp_details_symbol_details, language),
                     lines =
                         listOfNotNull(
                             "Function: ${details.function}",
-                            "Resource: ${details.resource}",
+                            localizedStringResource(
+                                ViewerRes.sp_details_resource_value_format,
+                                language,
+                                details.resource,
+                            ),
                             "Address: ${details.address.hex()}",
                             "Library offset: ${details.libraryOffset.hex()}",
                             details.buildId?.let { "Build ID: $it" },
@@ -92,7 +106,7 @@ internal fun FirefoxFrameDetailsBottomBox(
     style: FirefoxFlameGraphStyle,
     modifier: Modifier = Modifier,
 ) {
-    val content = FlameGraphDetailsPresenter.content(state) ?: return
+    val content = FlameGraphDetailsPresenter.content(state, currentSimpleperfLanguage()) ?: return
     Surface(
         modifier =
             modifier
@@ -114,7 +128,10 @@ internal fun FirefoxFrameDetailsBottomBox(
             ) {
                 Text(content.title, color = style.canvasForeground.toComposeColor(), fontSize = 12.sp)
                 Text(
-                    localizedSimpleperfText("Close"),
+                    localizedStringResource(
+                        ViewerRes.sp_details_close,
+                        currentSimpleperfLanguage(),
+                    ),
                     modifier = Modifier.clickable(onClick = onClose).padding(horizontal = 5.dp, vertical = 2.dp),
                     color = style.canvasForeground.toComposeColor(),
                     fontSize = 10.sp,

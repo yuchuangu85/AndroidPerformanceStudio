@@ -43,9 +43,11 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphPanelState
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameGraphCanvas
 import com.androidperformancestudio.visualization.FlameGraphLayout
@@ -78,7 +80,11 @@ internal fun FlameGraphPanel(
     var hoverAnchor by remember(snapshot) { mutableStateOf<Offset?>(null) }
     var tooltipSize by remember(snapshot) { mutableStateOf(IntSize.Zero) }
     val focusRequester = remember { FocusRequester() }
-    val callStacksDescription = localizedSimpleperfText("Flame graph call stacks")
+    val callStacksDescription =
+        localizedStringResource(
+            ViewerRes.sp_flame_flame_graph_call_stacks,
+            currentSimpleperfLanguage(),
+        )
     val requestedViewport =
         FlameViewport(
             widthPx = widthPixels,

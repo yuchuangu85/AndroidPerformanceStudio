@@ -155,14 +155,8 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             },
                             onCaptureSettingsContextChanged = { simpleperfCaptureSettingsContext = it },
                             onOpenUserGuide = {
-                                val lang =
-                                    if (language == UiLanguage.SIMPLIFIED_CHINESE) {
-                                        UserDocumentationLanguage.SIMPLIFIED_CHINESE
-                                    } else {
-                                        UserDocumentationLanguage.ENGLISH
-                                    }
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    runCatching { userDocumentationLauncher.open(lang) }
+                                    runCatching { userDocumentationLauncher.open(language) }
                                 }
                             },
                         )
@@ -173,14 +167,8 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             initialTraceFile = navigator.perfettoTraceFile,
                             initialTraceNotice = navigator.perfettoTraceNotice,
                             onOpenUserGuide = {
-                                val lang =
-                                    if (language == UiLanguage.SIMPLIFIED_CHINESE) {
-                                        UserDocumentationLanguage.SIMPLIFIED_CHINESE
-                                    } else {
-                                        UserDocumentationLanguage.ENGLISH
-                                    }
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    runCatching { userDocumentationLauncher.open(lang) }
+                                    runCatching { userDocumentationLauncher.open(language) }
                                 }
                             },
                         )
@@ -276,14 +264,8 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                         onSimpleperfSettingsChanged = updateSimpleperfPreferences,
                         onLayoutInspectorSettingsChanged = { layoutInspectorSettingsRevision += 1 },
                         onOpenUserGuide = {
-                            val lang =
-                                if (language == UiLanguage.SIMPLIFIED_CHINESE) {
-                                    UserDocumentationLanguage.SIMPLIFIED_CHINESE
-                                } else {
-                                    UserDocumentationLanguage.ENGLISH
-                                }
                             coroutineScope.launch(Dispatchers.IO) {
-                                runCatching { userDocumentationLauncher.open(lang) }
+                                runCatching { userDocumentationLauncher.open(language) }
                             }
                         },
                         persistenceErrorPage = settingsPersistenceErrorPage,

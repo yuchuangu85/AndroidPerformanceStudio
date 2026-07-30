@@ -17,6 +17,9 @@
     <string name="import_archive">Import archive</string>
     <string name="import_screenshot">Import screenshot</string>
     <string name="export_archive">Export</string>
+    <string name="sp_layout_inspector_menu_open_recent">Open Recent</string>
+    <string name="sp_layout_inspector_recent_empty">No Recent Archives</string>
+    <string name="sp_layout_inspector_recent_clear_menu">Clear Menu</string>
     <string name="choose_archive_to_import">Choose archive to import</string>
     <string name="choose_archive_export_file">Choose export file</string>
     <string name="choose_screenshot_to_import">Choose screenshot to import</string>
@@ -190,4 +193,5 @@
     <string name="detail_label_hidden_descendants">Hidden descendants</string>
     <string name="detail_label_blending">Blending</string>
     <string name="detail_label_layer_cost">Layer cost</string>
+    <string name="detail_label_semantics_role">Semantics role</string>
 </resources>

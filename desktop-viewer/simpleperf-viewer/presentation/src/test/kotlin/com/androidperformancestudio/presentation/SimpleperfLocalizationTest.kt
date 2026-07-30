@@ -1,206 +1,111 @@
 package com.androidperformancestudio.presentation
 
-import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.v2.runDesktopComposeUiTest
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Locale
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalTestApi::class)
 class SimpleperfLocalizationTest {
-    private lateinit var previousLocale: Locale
+    @Test
+    fun `string resources use sp module and semantic names in every locale`() {
+        val localizedResourcePairs =
+            listOf(
+                Path.of("src/main/composeResources"),
+                Path.of("../app-desktop/src/main/composeResources"),
+                Path.of("../visualization/src/main/composeResources"),
+            ).map { resourceRoot ->
+                listOf(
+                    resourceRoot.resolve("values/strings.xml"),
+                    resourceRoot.resolve("values-zh/strings.xml"),
+                )
+            }
+        val semanticName = Regex("""sp_[a-z][a-z0-9]*_[a-z][a-z0-9_]*""")
+        val forbiddenModules = setOf("dynamic", "prefix", "semantic")
 
-    @BeforeTest
-    fun selectChineseResources() {
-        previousLocale = Locale.getDefault()
-        Locale.setDefault(Locale.SIMPLIFIED_CHINESE)
-    }
-
-    @AfterTest
-    fun restoreLocale() {
-        Locale.setDefault(previousLocale)
+        localizedResourcePairs.forEach { localeFiles ->
+            val namesByLocale = localeFiles.map(::stringResourceNames)
+            namesByLocale.forEach { names ->
+                assertEquals(names.size, names.toSet().size, "String resource names must be unique")
+                names.forEach { name ->
+                    assertTrue(semanticName.matches(name), "Invalid SimplePerf resource name: $name")
+                    assertFalse(name.substringAfter("sp_").substringBefore('_') in forbiddenModules, name)
+                    assertFalse(Regex("""sp_\d{3}_[0-9a-f]{8}""").matches(name), name)
+                }
+            }
+            assertEquals(namesByLocale.first().toSet(), namesByLocale.last().toSet())
+        }
     }
 
     @Test
-    fun `Chinese localization covers primary workflow labels`() {
-        runDesktopComposeUiTest {
-            setContent {
+    fun `typed resources cover primary workflow labels`() {
         assertEquals(
             "设备和目标",
-            translateSimpleperfText("Device & Target", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(ViewerRes.sp_target_device_target, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
             "继续采集",
-            translateSimpleperfText("Continue to Capture", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(ViewerRes.sp_target_continue_capture, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
             "性能采集目标",
-            translateSimpleperfText("Profile target", SimpleperfLanguage.SIMPLIFIED_CHINESE),
-        )
-        assertEquals(
-            "选择要进行性能采集的应用、进程或线程。",
-            translateSimpleperfText(
-                "Choose an app, process, or thread to profile.",
-                SimpleperfLanguage.SIMPLIFIED_CHINESE,
-            ),
+            localizedStringResource(ViewerRes.sp_target_profile_target, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
             "获取数据",
-            translateSimpleperfText("Get data", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(ViewerRes.sp_capture_get_data, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
-            "返回主页",
-            translateSimpleperfText("Back to home", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+            "Back to home",
+            localizedStringResource(ViewerRes.sp_target_back_home, UiLanguage.ENGLISH),
         )
+    }
+
+    @Test
+    fun `dynamic resources use structured arguments instead of parsed English text`() {
         assertEquals(
             "丢失样本：12",
-            translateSimpleperfText("Lost samples: 12", SimpleperfLanguage.SIMPLIFIED_CHINESE),
-        )
-
-            }
-        }
-    }
-
-    @Test
-    fun `English localization keeps source text`() {
-        runDesktopComposeUiTest {
-            setContent {
-        assertEquals(
-            "Device & Target",
-            translateSimpleperfText("Device & Target", SimpleperfLanguage.ENGLISH),
-        )
-
-            }
-        }
-    }
-
-    @Test
-    fun `Chinese localization composes flame tooltip labels from structured keys`() {
-        runDesktopComposeUiTest {
-            setContent {
-        assertEquals(
-            "类别：Rendering",
-            translateSimpleperfText("Category: Rendering", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(
+                ViewerRes.sp_diagnostics_lost_samples_value_format,
+                UiLanguage.SIMPLIFIED_CHINESE,
+                12,
+            ),
         )
         assertEquals(
             "包含 12 · 独占 3",
-            translateSimpleperfText("Inclusive 12 · Self 3", SimpleperfLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(
+                ViewerRes.sp_report_inclusive_exclusive_summary_format,
+                UiLanguage.SIMPLIFIED_CHINESE,
+                12,
+                3,
+            ),
         )
         assertEquals(
             "样本 4 · 25.00%",
-            translateSimpleperfText("Samples 4 · 25.00%", SimpleperfLanguage.SIMPLIFIED_CHINESE),
-        )
-        assertEquals(
-            "预览范围权重：7",
-            translateSimpleperfText("Preview range weight: 7", SimpleperfLanguage.SIMPLIFIED_CHINESE),
-        )
-        assertEquals(
-            "火焰图调用栈",
-            translateSimpleperfText("Flame graph call stacks", SimpleperfLanguage.SIMPLIFIED_CHINESE),
-        )
-        assertEquals(
-            "火焰图搜索",
-            translateSimpleperfText("Flame graph search", SimpleperfLanguage.SIMPLIFIED_CHINESE),
-        )
-        assertEquals(
-            "上下文操作尚不可用。按 Escape 关闭提示。",
-            translateSimpleperfText(
-                "Context actions are not available yet. Press Escape to dismiss.",
-                SimpleperfLanguage.SIMPLIFIED_CHINESE,
+            localizedStringResource(
+                ViewerRes.sp_report_samples_summary_format,
+                UiLanguage.SIMPLIFIED_CHINESE,
+                4,
+                "25.00%",
             ),
         )
         assertEquals(
-            "源码和反汇编详情尚不可用。按 Escape 关闭提示。",
-            translateSimpleperfText(
-                "Source and disassembly details are not available yet. Press Escape to dismiss.",
-                SimpleperfLanguage.SIMPLIFIED_CHINESE,
+            "• 查看数据质量",
+            localizedStringResource(
+                ViewerRes.sp_common_bullet_format,
+                UiLanguage.SIMPLIFIED_CHINESE,
+                localizedStringResource(ViewerRes.sp_flame_review_data_quality, UiLanguage.SIMPLIFIED_CHINESE),
             ),
         )
-        assertEquals(
-            "单击帧将其选中。火焰图宽度始终表示完整分析样本集。",
-            translateSimpleperfText(
-                "Click a frame to select it. Flame widths always represent the full analyzed sample set.",
-                SimpleperfLanguage.SIMPLIFIED_CHINESE,
-            ),
-        )
-
-            }
-        }
-    }
-
-    @Test
-    fun `Chinese localization covers reason specific flame empty states and recoveries`() {
-        runDesktopComposeUiTest {
-            setContent {
-        val expected =
-            mapOf(
-                "The selected thread has no samples." to "所选线程没有样本。",
-                "The selected time range contains no samples." to "所选时间范围内没有样本。",
-                "The preview range contains no samples." to "预览范围内没有样本。",
-                "Search removed all samples." to "搜索条件排除了所有样本。",
-                "The implementation filter removed all samples." to "实现类型筛选排除了所有样本。",
-                "Stack transforms removed all samples." to "调用栈变换排除了所有样本。",
-                "The profile does not contain complete call stacks." to "性能数据中没有完整的调用栈。",
-                "The flame graph could not be projected." to "无法生成火焰图。",
-                "Show all threads" to "显示所有线程",
-                "Reset time range" to "重置时间范围",
-                "Cancel preview" to "取消预览",
-                "Clear search" to "清除搜索",
-                "Show all implementations" to "显示所有实现类型",
-                "Undo transform" to "撤销变换",
-                "Review data quality" to "查看数据质量",
-                "Retry projection" to "重试生成",
-            )
-
-        expected.forEach { (english, chinese) ->
-            assertEquals(chinese, translateSimpleperfText(english, SimpleperfLanguage.SIMPLIFIED_CHINESE))
-        }
-
-            }
-        }
-    }
-
-    @Test
-    fun `Chinese localization covers the complete Firefox report workspace`() {
-        runDesktopComposeUiTest {
-            setContent {
-        val expected =
-            mapOf(
-                "Stack chart" to "堆栈图",
-                "Marker chart" to "标记图",
-                "Marker table" to "标记表",
-                "Show details" to "显示详情",
-                "Drag to resize timeline" to "拖动以调整时间线高度",
-                "All Frames" to "所有帧",
-                "Script" to "脚本",
-                "Native" to "原生",
-                "Invert Call Stack" to "反转调用栈",
-                "Filter Stacks" to "过滤栈",
-                "Filter markers" to "过滤标记",
-                "Select a marker to inspect details." to "选择一个标记以查看详情。",
-                "Markers were not collected for this session." to "此会话未采集标记。",
-                "No stack samples overlap the selected range." to "所选范围内没有堆栈样本。",
-            )
-
-        assertEquals(expected.size, expected.keys.distinct().size)
-        expected.forEach { (english, chinese) ->
-            assertEquals(chinese, translateSimpleperfText(english, SimpleperfLanguage.SIMPLIFIED_CHINESE))
-        }
-
-            }
-        }
     }
 
     @Test
     fun `workspace pages do not expose language or theme controls`() {
-        runDesktopComposeUiTest {
-            setContent {
         val homeScreen =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/presentation/HomeScreen.kt"),
@@ -209,28 +114,60 @@ class SimpleperfLocalizationTest {
         assertFalse(homeScreen.contains("SimpleperfSettingsBar"))
         assertFalse(homeScreen.contains("onThemePreferenceChanged"))
         assertFalse(homeScreen.contains("onLanguagePreferenceChanged"))
-
-            }
-        }
     }
 
     @Test
-    fun `flame accessibility semantics resolve through the active localization`() {
-        runDesktopComposeUiTest {
-            setContent {
+    fun `flame accessibility semantics resolve typed resources`() {
         val panel =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphPanel.kt"),
             )
-        val toolbar =
+        val overlay =
             Files.readString(
-                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FirefoxStackToolbar.kt"),
+                Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphSemanticsOverlay.kt"),
             )
 
-        assertTrue(panel.contains("localizedSimpleperfText(\"Flame graph call stacks\")"))
-        assertTrue(toolbar.contains("label = \"Filter Stacks\""))
+        assertTrue(panel.contains("ViewerRes.sp_flame_flame_graph_call_stacks"))
+        assertTrue(overlay.contains("ViewerRes.sp_accessibility_select"))
+        assertTrue(overlay.contains("ViewerRes.sp_accessibility_open_details"))
+        assertTrue(overlay.contains("ViewerRes.sp_accessibility_open_context_menu"))
+    }
 
+    @Test
+    fun `production localization resolves typed resources instead of English text lookups`() {
+        val sourceRoot = Path.of("src/main/kotlin")
+        val forbiddenPatterns =
+            listOf(
+                "localizedSimpleperfText(",
+                "localizedSimpleperfResource(",
+                "translateSimpleperfText(",
+                "SimpleperfTranslationMap",
+                "internal fun Text(",
+            )
+
+        Files.walk(sourceRoot).use { paths ->
+            val source =
+                paths
+                    .filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
+                    .map(Files::readString)
+                    .toList()
+                    .joinToString("\n")
+
+            forbiddenPatterns.forEach { pattern ->
+                assertFalse(source.contains(pattern), "Production source must not contain $pattern")
             }
         }
+    }
+}
+
+private fun stringResourceNames(path: Path): List<String> {
+    val document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(path.toFile())
+    val strings = document.getElementsByTagName("string")
+    return List(strings.length) { index ->
+        strings
+            .item(index)
+            .attributes
+            .getNamedItem("name")
+            .nodeValue
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -46,14 +47,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.NavigationAction
 import com.androidperformancestudio.visualization.TimeViewport
 import com.androidperformancestudio.visualization.TimelineCanvas
@@ -198,7 +200,11 @@ private fun FirefoxMarkerTimelineLanes(
                 lane.markerIds.mapNotNull(markersById::get).forEach { marker ->
                     if (marker.endNanosExclusive > viewport.startNanos && marker.startNanos < viewport.endNanosExclusive) {
                         val markerDescription =
-                            localizedSimpleperfResource(ViewerRes.sp_dynamic_timeline_marker, marker.name)
+                            localizedStringResource(
+                                ViewerRes.sp_timeline_marker_description_format,
+                                currentSimpleperfLanguage(),
+                                marker.name,
+                            )
                         val fraction =
                             (marker.startNanos - viewport.startNanos).toDouble() /
                                 (viewport.endNanosExclusive - viewport.startNanos).coerceAtLeast(1L)
@@ -233,7 +239,12 @@ private fun FirefoxTimelineHeader(
     style: ViewerColors,
 ) {
     val visibleTracksDescription =
-        localizedSimpleperfResource(ViewerRes.sp_dynamic_visible_tracks, visibleTrackCount, totalTrackCount)
+        localizedStringResource(
+            ViewerRes.sp_timeline_visible_tracks_format,
+            currentSimpleperfLanguage(),
+            visibleTrackCount,
+            totalTrackCount,
+        )
     Row(
         Modifier
             .fillMaxWidth()
@@ -316,7 +327,12 @@ private fun FirefoxThreadTrack(
     actions: ReportActions,
 ) {
     val trackDescription =
-        localizedSimpleperfResource(ViewerRes.sp_dynamic_timeline_track, track.name, track.threadId)
+        localizedStringResource(
+            ViewerRes.sp_timeline_track_description_format,
+            currentSimpleperfLanguage(),
+            track.name,
+            track.threadId,
+        )
     val rowBackground = if (selected) style.accent.copy(alpha = 0.10f) else Color.Transparent
     Row(
         Modifier
@@ -391,7 +407,11 @@ private fun FirefoxTrackGraph(
     modifier: Modifier,
 ) {
     val graphDescription =
-        localizedSimpleperfResource(ViewerRes.sp_dynamic_thread_activity_graph, track.name)
+        localizedStringResource(
+            ViewerRes.sp_timeline_thread_activity_description_format,
+            currentSimpleperfLanguage(),
+            track.name,
+        )
     val overlayModifier =
         modifier
             .fillMaxHeight()
@@ -523,11 +543,9 @@ private fun formatTimelineUnit(
     return String.format(Locale.US, "%.${precision}f %s", value, unit)
 }
 
-private fun firefoxActivityColor(style: ViewerColors): Color =
-    if (style.panel.red < 0.5f) Color(0xFF75A7D4) else Color(0xFF5B8DB8)
+private fun firefoxActivityColor(style: ViewerColors): Color = if (style.panel.red < 0.5f) Color(0xFF75A7D4) else Color(0xFF5B8DB8)
 
-private fun firefoxLocalTrackBackground(style: ViewerColors): Color =
-    if (style.panel.red < 0.5f) Color(0xFF202124) else Color(0xFFF0F0F4)
+private fun firefoxLocalTrackBackground(style: ViewerColors): Color = if (style.panel.red < 0.5f) Color(0xFF202124) else Color(0xFFF0F0F4)
 
 private fun Long.safeTimelineIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1
 

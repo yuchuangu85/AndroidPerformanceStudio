@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.profileanalysis.CallNodePath
 import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackDirection
@@ -26,7 +28,9 @@ import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
+import org.jetbrains.compose.resources.StringResource
 import kotlin.math.roundToInt
 
 internal sealed interface FlameGraphContextCommand {
@@ -47,6 +51,7 @@ internal data class FlameGraphContextEntry(
     val label: String,
     val shortcut: String?,
     val command: FlameGraphContextCommand,
+    val labelResource: StringResource? = null,
 )
 
 internal object FlameGraphContextCommands {
@@ -90,7 +95,14 @@ internal object FlameGraphContextCommands {
             add(FlameGraphContextEntry("Copy function name", null, FlameGraphContextCommand.Copy(frame.symbolName)))
             if (hasTransforms) {
                 add(FlameGraphContextEntry("Undo last transform", null, FlameGraphContextCommand.Undo))
-                add(FlameGraphContextEntry("Clear transforms", null, FlameGraphContextCommand.Clear))
+                add(
+                    FlameGraphContextEntry(
+                        label = "",
+                        shortcut = null,
+                        command = FlameGraphContextCommand.Clear,
+                        labelResource = ViewerRes.sp_flame_clear_transforms,
+                    ),
+                )
             }
         }
     }
@@ -194,7 +206,18 @@ internal fun FirefoxFlameGraphContextMenu(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(entry.label, modifier = Modifier.weight(1f), fontSize = 11.sp)
+                        Text(
+                            if (entry.labelResource != null) {
+                                localizedStringResource(
+                                    entry.labelResource,
+                                    currentSimpleperfLanguage(),
+                                )
+                            } else {
+                                entry.label
+                            },
+                            modifier = Modifier.weight(1f),
+                            fontSize = 11.sp,
+                        )
                         entry.shortcut?.let { shortcut ->
                             Text(shortcut, color = style.mutedForeground.toComposeColor(), fontSize = 10.sp)
                         }

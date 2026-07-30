@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -18,8 +19,8 @@ class UserDocumentationLauncherTest {
         val opened = mutableListOf<URI>()
 
         UserDocumentationLauncher(opened::add) { root }.use { launcher ->
-            launcher.open(UserDocumentationLanguage.ENGLISH)
-            launcher.open(UserDocumentationLanguage.SIMPLIFIED_CHINESE)
+            launcher.open(UiLanguage.ENGLISH)
+            launcher.open(UiLanguage.SIMPLIFIED_CHINESE)
 
             assertEquals("/docs-user/", opened[0].path)
             assertEquals("/docs-user-zh/", opened[1].path)

@@ -20,15 +20,8 @@ import kotlin.math.roundToInt
  * parameterized resource strings with runtime arguments.
  */
 internal class ViewerStrings private constructor(
-    val language: ViewerLanguage,
+    val language: UiLanguage,
 ) {
-    private val uiLanguage: UiLanguage
-        get() =
-            when (language) {
-                ViewerLanguage.ENGLISH -> UiLanguage.ENGLISH
-                ViewerLanguage.SIMPLIFIED_CHINESE -> UiLanguage.SIMPLIFIED_CHINESE
-            }
-
     // ---- Simple strings (loaded from resources) ----
 
     val settings: String get() = str(ViewerRes.settings)
@@ -58,6 +51,9 @@ internal class ViewerStrings private constructor(
     val importArchive: String get() = str(ViewerRes.import_archive)
     val importScreenshot: String get() = str(ViewerRes.import_screenshot)
     val exportArchive: String get() = str(ViewerRes.export_archive)
+    val openRecent: String get() = str(ViewerRes.sp_layout_inspector_menu_open_recent)
+    val noRecentArchives: String get() = str(ViewerRes.sp_layout_inspector_recent_empty)
+    val clearRecentMenu: String get() = str(ViewerRes.sp_layout_inspector_recent_clear_menu)
     val chooseArchiveToImport: String get() = str(ViewerRes.choose_archive_to_import)
     val chooseArchiveExportFile: String get() = str(ViewerRes.choose_archive_export_file)
     val chooseScreenshotToImport: String get() = str(ViewerRes.choose_screenshot_to_import)
@@ -258,23 +254,21 @@ internal class ViewerStrings private constructor(
         else -> null
     } ?: fallback
 
-    fun detailSection(english: String): String =
-        detailSectionResources[english]?.let(::str) ?: english
+    fun detailSection(resource: StringResource): String = str(resource)
 
-    fun detailLabel(english: String): String =
-        detailLabelResources[english]?.let(::str) ?: english
+    fun detailLabel(resource: StringResource): String = str(resource)
 
     // ---- Resource loading ----
 
-    private fun str(resource: StringResource): String = localizedStringResource(resource, uiLanguage)
+    private fun str(resource: StringResource): String = localizedStringResource(resource, language)
 
     private fun fmt(resource: StringResource, vararg args: Any?): String =
-        localizedStringResource(resource, uiLanguage, *args)
+        localizedStringResource(resource, language, *args)
 
     companion object {
-        fun forLanguage(language: ViewerLanguage): ViewerStrings = ViewerStrings(language)
+        fun forLanguage(language: UiLanguage): ViewerStrings = ViewerStrings(language)
 
-        val English: ViewerStrings = ViewerStrings(ViewerLanguage.ENGLISH)
+        val English: ViewerStrings = ViewerStrings(UiLanguage.ENGLISH)
 
         private val authorizedDeviceCountError =
             Regex("""Expected exactly one authorized device, found (\d+)""")
@@ -282,66 +276,3 @@ internal class ViewerStrings private constructor(
 }
 
 internal val LocalViewerStrings = staticCompositionLocalOf { ViewerStrings.English }
-
-private val detailSectionResources: Map<String, StringResource> = mapOf(
-    "RENDER RISKS" to ViewerRes.detail_section_render_risks,
-    "IDENTITY" to ViewerRes.detail_section_identity,
-    "LAYOUT" to ViewerRes.detail_section_layout,
-    "DRAWING" to ViewerRes.detail_section_drawing,
-    "INTERACTION" to ViewerRes.detail_section_interaction,
-    "RAW PROPERTIES" to ViewerRes.detail_section_raw_properties,
-)
-
-private val detailLabelResources: Map<String, StringResource> = mapOf(
-    "Class" to ViewerRes.detail_label_class,
-    "ID" to ViewerRes.detail_label_id,
-    "Resource" to ViewerRes.detail_label_resource,
-    "Text" to ViewerRes.detail_label_text,
-    "Content description" to ViewerRes.detail_label_content_description,
-    "Bounds" to ViewerRes.detail_label_bounds,
-    "Size" to ViewerRes.detail_label_size,
-    "Local layout bounds" to ViewerRes.detail_label_local_layout_bounds,
-    "Local layout size" to ViewerRes.detail_label_local_layout_size,
-    "Visibility" to ViewerRes.detail_label_visibility,
-    "Tree depth" to ViewerRes.detail_label_tree_depth,
-    "Direct children" to ViewerRes.detail_label_direct_children,
-    "Descendants" to ViewerRes.detail_label_descendants,
-    "Subtree depth" to ViewerRes.detail_label_subtree_depth,
-    "Layout width" to ViewerRes.detail_label_layout_width,
-    "Layout height" to ViewerRes.detail_label_layout_height,
-    "Layout params class" to ViewerRes.detail_label_layout_params_class,
-    "Measured size" to ViewerRes.detail_label_measured_size,
-    "Minimum size" to ViewerRes.detail_label_minimum_size,
-    "Padding" to ViewerRes.detail_label_padding,
-    "Margin" to ViewerRes.detail_label_margin,
-    "Scroll" to ViewerRes.detail_label_scroll,
-    "Layout requested" to ViewerRes.detail_label_layout_requested,
-    "Alpha" to ViewerRes.detail_label_alpha,
-    "Z" to ViewerRes.detail_label_z,
-    "Elevation" to ViewerRes.detail_label_elevation,
-    "Translation" to ViewerRes.detail_label_translation,
-    "Rotation" to ViewerRes.detail_label_rotation,
-    "Scale" to ViewerRes.detail_label_scale,
-    "Pivot" to ViewerRes.detail_label_pivot,
-    "Background" to ViewerRes.detail_label_background,
-    "Background color" to ViewerRes.detail_label_background_color,
-    "Foreground" to ViewerRes.detail_label_foreground,
-    "Clip bounds" to ViewerRes.detail_label_clip_bounds,
-    "Clip children" to ViewerRes.detail_label_clip_children,
-    "Clip to padding" to ViewerRes.detail_label_clip_to_padding,
-    "Opaque" to ViewerRes.detail_label_opaque,
-    "Will not draw" to ViewerRes.detail_label_will_not_draw,
-    "Hardware accelerated" to ViewerRes.detail_label_hardware_accelerated,
-    "Layer type" to ViewerRes.detail_label_layer_type,
-    "Enabled" to ViewerRes.detail_label_enabled,
-    "Clickable" to ViewerRes.detail_label_clickable,
-    "Long clickable" to ViewerRes.detail_label_long_clickable,
-    "Focusable" to ViewerRes.detail_label_focusable,
-    "Focused" to ViewerRes.detail_label_focused,
-    "Selected" to ViewerRes.detail_label_selected,
-    "Overdraw estimate" to ViewerRes.detail_label_overdraw_estimate,
-    "Subtree complexity" to ViewerRes.detail_label_subtree_complexity,
-    "Hidden descendants" to ViewerRes.detail_label_hidden_descendants,
-    "Blending" to ViewerRes.detail_label_blending,
-    "Layer cost" to ViewerRes.detail_label_layer_cost,
-)

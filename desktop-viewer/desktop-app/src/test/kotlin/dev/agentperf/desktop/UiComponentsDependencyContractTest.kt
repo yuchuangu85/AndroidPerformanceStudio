@@ -52,10 +52,35 @@ class UiComponentsDependencyContractTest {
         }
     }
 
+    @Test
+    fun `production UI modules share UiLanguage instead of defining scoped language enums`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val uiModuleDirectories =
+            UI_MODULE_BUILD_FILES.map { relativePath ->
+                desktopViewer.resolve(relativePath).parent
+            }
+        Files.walk(desktopViewer).use { paths ->
+            val scopedLanguageEnums =
+                paths
+                    .filter(Files::isRegularFile)
+                    .filter { it.toString().endsWith(".kt") }
+                    .filter { it.toString().contains("/src/main/") }
+                    .filter { path -> uiModuleDirectories.any(path::startsWith) }
+                    .filter { SCOPED_LANGUAGE_ENUM.containsMatchIn(Files.readString(it)) }
+                    .toList()
+
+            assertTrue(
+                scopedLanguageEnums.isEmpty(),
+                "Production UI modules must share UiLanguage: $scopedLanguageEnums",
+            )
+        }
+    }
+
     private companion object {
         const val UI_COMPONENTS_DEPENDENCY =
             "com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT"
         const val LEGACY_LANGUAGE_PARAMETER = "chinese: Boolean"
+        val SCOPED_LANGUAGE_ENUM = Regex("""enum class \w+Language(?:\s|\()""")
 
         val UI_MODULE_BUILD_FILES =
             listOf(

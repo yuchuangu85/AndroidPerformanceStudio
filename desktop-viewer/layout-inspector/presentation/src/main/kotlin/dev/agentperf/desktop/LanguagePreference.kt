@@ -1,9 +1,7 @@
 package dev.agentperf.desktop
 
-internal enum class ViewerLanguage {
-    SIMPLIFIED_CHINESE,
-    ENGLISH,
-}
+import com.androidperformancestudio.ui.UiLanguage
+import java.util.Locale
 
 internal enum class LanguagePreference(
     val storageValue: String,
@@ -13,14 +11,10 @@ internal enum class LanguagePreference(
     ENGLISH("english"),
     ;
 
-    fun resolve(systemLanguageTag: String): ViewerLanguage = when (this) {
-        SYSTEM -> if (systemLanguageTag.startsWith("zh", ignoreCase = true)) {
-            ViewerLanguage.SIMPLIFIED_CHINESE
-        } else {
-            ViewerLanguage.ENGLISH
-        }
-        SIMPLIFIED_CHINESE -> ViewerLanguage.SIMPLIFIED_CHINESE
-        ENGLISH -> ViewerLanguage.ENGLISH
+    fun resolve(locale: Locale): UiLanguage = when (this) {
+        SYSTEM -> UiLanguage.fromLocale(locale)
+        SIMPLIFIED_CHINESE -> UiLanguage.SIMPLIFIED_CHINESE
+        ENGLISH -> UiLanguage.ENGLISH
     }
 
     companion object {

@@ -4,6 +4,7 @@ package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.presentation.FlameTooltipMode
 import com.androidperformancestudio.presentation.SimpleperfEngine
+import com.androidperformancestudio.ui.UiLanguage
 import java.util.Locale
 
 enum class SimpleperfThemePreference(
@@ -29,11 +30,6 @@ enum class SimpleperfThemePreference(
     }
 }
 
-enum class SimpleperfLanguage {
-    SIMPLIFIED_CHINESE,
-    ENGLISH,
-}
-
 enum class SimpleperfLanguagePreference(
     val storageValue: String,
 ) {
@@ -42,16 +38,11 @@ enum class SimpleperfLanguagePreference(
     ENGLISH("english"),
     ;
 
-    fun resolve(locale: Locale): SimpleperfLanguage =
+    fun resolve(locale: Locale): UiLanguage =
         when (this) {
-            SYSTEM ->
-                if (locale.language.equals("zh", ignoreCase = true)) {
-                    SimpleperfLanguage.SIMPLIFIED_CHINESE
-                } else {
-                    SimpleperfLanguage.ENGLISH
-                }
-            SIMPLIFIED_CHINESE -> SimpleperfLanguage.SIMPLIFIED_CHINESE
-            ENGLISH -> SimpleperfLanguage.ENGLISH
+            SYSTEM -> UiLanguage.fromLocale(locale)
+            SIMPLIFIED_CHINESE -> UiLanguage.SIMPLIFIED_CHINESE
+            ENGLISH -> UiLanguage.ENGLISH
         }
 
     companion object {

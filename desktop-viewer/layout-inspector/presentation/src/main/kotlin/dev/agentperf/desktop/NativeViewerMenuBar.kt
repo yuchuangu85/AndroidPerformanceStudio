@@ -5,6 +5,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
+import java.nio.file.Path
 
 internal data class NativeMenuShortcut(
     val key: Key,
@@ -28,6 +29,11 @@ internal data class NativeViewMenuItem(
     val checked: Boolean,
 )
 
+internal data class NativeRecentArchiveMenuItem(
+    val label: String,
+    val path: Path,
+)
+
 internal data class NativeViewerMenuModel(
     val actionsTitle: String,
     val actions: List<NativeActionMenuItem>,
@@ -37,6 +43,10 @@ internal data class NativeViewerMenuModel(
     val importLabel: String,
     val importScreenshotLabel: String,
     val exportLabel: String,
+    val openRecentTitle: String,
+    val noRecentLabel: String,
+    val clearRecentLabel: String,
+    val recentItems: List<NativeRecentArchiveMenuItem>,
     val settingsLabel: String?,
     val importMenuText: String,
     val importScreenshotMenuText: String,
@@ -49,6 +59,7 @@ internal data class NativeViewerMenuModel(
     val importEnabled: Boolean,
     val importScreenshotEnabled: Boolean,
     val exportEnabled: Boolean,
+    val recentEnabled: Boolean,
 ) {
     constructor(
         strings: ViewerStrings,
@@ -59,6 +70,7 @@ internal data class NativeViewerMenuModel(
         archiveOperationInProgress: Boolean,
         canExportArchive: Boolean,
         canImportScreenshot: Boolean,
+        recentArchives: List<Path> = emptyList(),
         isMacOs: Boolean,
     ) : this(
         actionsTitle = strings.actions,
@@ -107,6 +119,10 @@ internal data class NativeViewerMenuModel(
         importLabel = strings.importArchive,
         importScreenshotLabel = strings.importScreenshot,
         exportLabel = strings.exportArchive,
+        openRecentTitle = strings.openRecent,
+        noRecentLabel = strings.noRecentArchives,
+        clearRecentLabel = strings.clearRecentMenu,
+        recentItems = recentArchives.toRecentArchiveMenuItems(),
         settingsLabel = strings.settings.takeUnless { isMacOs },
         importMenuText = nativeMenuItemText(strings.importArchive),
         importScreenshotMenuText = nativeMenuItemText(strings.importScreenshot),
@@ -119,6 +135,7 @@ internal data class NativeViewerMenuModel(
         importEnabled = !archiveOperationInProgress,
         importScreenshotEnabled = !archiveOperationInProgress && canImportScreenshot,
         exportEnabled = !archiveOperationInProgress && canExportArchive,
+        recentEnabled = !archiveOperationInProgress,
     )
 }
 
@@ -155,6 +172,23 @@ internal fun viewerActionNativeShortcut(
     return nativePrimaryShortcut(key, isMacOs)
 }
 
+internal fun List<Path>.toRecentArchiveMenuItems(): List<NativeRecentArchiveMenuItem> {
+    val normalized = map { it.toAbsolutePath().normalize() }.distinct()
+    val duplicateNames =
+        normalized
+            .groupingBy { it.fileName?.toString().orEmpty() }
+            .eachCount()
+            .filterValues { it > 1 }
+            .keys
+    return normalized.map { path ->
+        val fileName = path.fileName?.toString().orEmpty()
+        NativeRecentArchiveMenuItem(
+            label = if (fileName.isBlank() || fileName in duplicateNames) path.toString() else fileName,
+            path = path,
+        )
+    }
+}
+
 private fun NativeMenuShortcut.toKeyShortcut(): KeyShortcut = KeyShortcut(
     key = key,
     ctrl = ctrl,
@@ -167,6 +201,8 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
     onAction: (ViewerAction) -> Unit,
     onViewOption: (ViewDisplayOption) -> Unit = {},
     onImportArchive: () -> Unit,
+    onOpenRecentArchive: (Path) -> Unit,
+    onClearRecentArchives: () -> Unit,
     onImportScreenshot: () -> Unit,
     onExportArchive: () -> Unit,
 ) {
@@ -184,6 +220,23 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
                 shortcut = model.importScreenshotShortcut?.toKeyShortcut(),
                 onClick = onImportScreenshot,
             )
+            Menu(model.openRecentTitle, enabled = model.recentEnabled) {
+                if (model.recentItems.isEmpty()) {
+                    Item(text = model.noRecentLabel, enabled = false, onClick = {})
+                } else {
+                    model.recentItems.forEach { item ->
+                        Item(
+                            text = item.label,
+                            onClick = { onOpenRecentArchive(item.path) },
+                        )
+                    }
+                    Separator()
+                    Item(
+                        text = model.clearRecentLabel,
+                        onClick = onClearRecentArchives,
+                    )
+                }
+            }
             Separator()
             Item(
                 text = model.exportMenuText,

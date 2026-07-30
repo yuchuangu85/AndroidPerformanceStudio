@@ -45,6 +45,9 @@ object ViewerRes {
     val import_archive: StringResource get() = Res.string.import_archive
     val import_screenshot: StringResource get() = Res.string.import_screenshot
     val export_archive: StringResource get() = Res.string.export_archive
+    val sp_layout_inspector_menu_open_recent: StringResource get() = Res.string.sp_layout_inspector_menu_open_recent
+    val sp_layout_inspector_recent_empty: StringResource get() = Res.string.sp_layout_inspector_recent_empty
+    val sp_layout_inspector_recent_clear_menu: StringResource get() = Res.string.sp_layout_inspector_recent_clear_menu
     val choose_archive_to_import: StringResource get() = Res.string.choose_archive_to_import
     val choose_archive_export_file: StringResource get() = Res.string.choose_archive_export_file
     val choose_screenshot_to_import: StringResource get() = Res.string.choose_screenshot_to_import
@@ -203,4 +206,5 @@ object ViewerRes {
     val detail_label_hidden_descendants: StringResource get() = Res.string.detail_label_hidden_descendants
     val detail_label_blending: StringResource get() = Res.string.detail_label_blending
     val detail_label_layer_cost: StringResource get() = Res.string.detail_label_layer_cost
+    val detail_label_semantics_role: StringResource get() = Res.string.detail_label_semantics_role
 }

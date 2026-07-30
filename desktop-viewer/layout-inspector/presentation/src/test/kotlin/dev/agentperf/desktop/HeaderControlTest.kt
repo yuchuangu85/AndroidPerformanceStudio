@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -26,11 +27,11 @@ class HeaderControlTest {
         assertTrue(homeButton.contains("onClick = onClick"))
         assertEquals(
             "Back to home",
-            ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).backToHome,
+            ViewerStrings.forLanguage(UiLanguage.ENGLISH).backToHome,
         )
         assertEquals(
             "返回主页",
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).backToHome,
+            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).backToHome,
         )
     }
 
@@ -38,8 +39,8 @@ class HeaderControlTest {
     fun `manual refresh control is a labeled text button without an icon`() {
         assertTrue(ManualRefreshButtonStyle.WIDTH_DP >= 54)
         assertEquals(22, ManualRefreshButtonStyle.HEIGHT_DP)
-        assertEquals("Refresh", ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).refresh)
-        assertEquals("刷新", ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).refresh)
+        assertEquals("Refresh", ViewerStrings.forLanguage(UiLanguage.ENGLISH).refresh)
+        assertEquals("刷新", ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).refresh)
 
         val source = Files.readString(
             Path.of("src/main/kotlin/dev/agentperf/desktop/LayoutInspectorMainPage.kt"),
@@ -98,8 +99,8 @@ class HeaderControlTest {
 
     @Test
     fun `auto device label is localized`() {
-        assertEquals("Auto device", ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).autoDevice)
-        assertEquals("自动设备", ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).autoDevice)
+        assertEquals("Auto device", ViewerStrings.forLanguage(UiLanguage.ENGLISH).autoDevice)
+        assertEquals("自动设备", ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).autoDevice)
     }
 
     @Test
@@ -118,15 +119,15 @@ class HeaderControlTest {
         assertTrue(selector.contains("strings.window"))
         assertTrue(selector.contains("strings.selectWindow"))
         assertTrue(selector.contains(".border("))
-        assertEquals("Window", ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).window)
-        assertEquals("窗口", ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).window)
+        assertEquals("Window", ViewerStrings.forLanguage(UiLanguage.ENGLISH).window)
+        assertEquals("窗口", ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).window)
         assertEquals(
             "Select window",
-            ViewerStrings.forLanguage(ViewerLanguage.ENGLISH).selectWindow,
+            ViewerStrings.forLanguage(UiLanguage.ENGLISH).selectWindow,
         )
         assertEquals(
             "选择窗口",
-            ViewerStrings.forLanguage(ViewerLanguage.SIMPLIFIED_CHINESE).selectWindow,
+            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).selectWindow,
         )
     }
 

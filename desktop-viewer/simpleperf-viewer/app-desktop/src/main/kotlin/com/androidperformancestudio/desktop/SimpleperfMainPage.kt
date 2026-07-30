@@ -41,11 +41,11 @@ import com.androidperformancestudio.presentation.DeviceTargetActions
 import com.androidperformancestudio.presentation.HomeScreen
 import com.androidperformancestudio.presentation.ReportActions
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
+import com.androidperformancestudio.ui.UiLanguage
 import kotlinx.coroutines.launch
 import java.io.File
 import java.nio.file.Path
 import java.util.Locale
-import com.androidperformancestudio.presentation.SimpleperfLanguage as PresentationLanguage
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "LongParameterList")
@@ -146,11 +146,11 @@ fun FrameWindowScope.SimpleperfMainPage(
     }
     LaunchedEffect(controller) { controller.refreshDevices() }
     SimpleperfMenu(
-        resolvedLanguage,
         reportState,
         reportActions,
         sessionOpener::open,
         scope,
+        language = resolvedLanguage,
         onOpenCaptureSettings = { section ->
             onOpenPreferences?.invoke(section) ?: run { captureSettingsSection = section }
         },
@@ -169,7 +169,7 @@ fun FrameWindowScope.SimpleperfMainPage(
             ),
         reportActions = reportActions,
         darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
-        language = resolvedLanguage.toPresentationLanguage(),
+        language = resolvedLanguage,
         captureSettingsSection = captureSettingsSection,
         captureSettingsManagedExternally = onOpenPreferences != null,
         onCaptureSettingsSectionChange = { section ->
@@ -197,11 +197,11 @@ fun FrameWindowScope.SimpleperfMainPage(
 @Composable
 @Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 private fun FrameWindowScope.SimpleperfMenu(
-    language: SimpleperfLanguage,
     reportState: ReportState,
     reportActions: ReportActions,
     sessionOpener: suspend (Path) -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
+    language: UiLanguage,
     onOpenCaptureSettings: (CaptureSettingsSection) -> Unit,
     onOpenPreferences: ((CaptureSettingsSection) -> Unit)?,
 ) {
@@ -214,6 +214,7 @@ private fun FrameWindowScope.SimpleperfMenu(
     SimpleperfFileMenuBar(
         model =
             simpleperfFileMenuModel(
+                language = language,
                 recentSessions = recentSessions,
                 exportEnabled = reportState.loadState is ReportLoadState.Ready,
                 isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
@@ -243,12 +244,6 @@ private fun FrameWindowScope.SimpleperfMenu(
         onOpenCaptureSettings = onOpenCaptureSettings,
     )
 }
-
-private fun SimpleperfLanguage.toPresentationLanguage(): PresentationLanguage =
-    when (this) {
-        SimpleperfLanguage.SIMPLIFIED_CHINESE -> PresentationLanguage.SIMPLIFIED_CHINESE
-        SimpleperfLanguage.ENGLISH -> PresentationLanguage.ENGLISH
-    }
 
 private fun DeviceTargetController.deviceActions(
     scope: kotlinx.coroutines.CoroutineScope,

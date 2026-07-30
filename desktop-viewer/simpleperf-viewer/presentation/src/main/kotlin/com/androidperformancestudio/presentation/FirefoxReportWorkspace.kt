@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
@@ -31,12 +32,13 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.presentation.generated.resources.ViewerRes
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.localizedStringResource
 import java.awt.Cursor
 import kotlin.math.roundToInt
 
@@ -49,6 +51,7 @@ internal fun FirefoxReportWorkspace(
     style: ViewerColors,
     flameTooltipMode: FlameTooltipMode,
 ) {
+    val language = currentSimpleperfLanguage()
     Column(
         modifier =
             Modifier
@@ -78,7 +81,15 @@ internal fun FirefoxReportWorkspace(
             FirefoxReportTabs(state.selectedTab, actions.onSelectTab, style)
             Box(Modifier.testTag("show-details")) {
                 MacOsButton(
-                    label = if (state.workspace.detailsVisible) "Hide details" else "Show details",
+                    label =
+                        localizedStringResource(
+                            if (state.workspace.detailsVisible) {
+                                ViewerRes.sp_report_hide_details
+                            } else {
+                                ViewerRes.sp_report_show_details
+                            },
+                            language,
+                        ),
                     onClick = { actions.onDetailsVisible(!state.workspace.detailsVisible) },
                     style = style,
                 )
@@ -97,7 +108,11 @@ internal fun FirefoxReportWorkspace(
             flameTooltipMode = flameTooltipMode,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
-        Text(ReportController.WEIGHT_SEMANTICS, color = style.secondaryText, fontSize = 9.sp)
+        Text(
+            localizedStringResource(ViewerRes.sp_diagnostics_sample_weight_duration_disclaimer, language),
+            color = style.secondaryText,
+            fontSize = 9.sp,
+        )
     }
 }
 
@@ -111,7 +126,11 @@ private fun TimelineResizeHandle(
     val density = LocalDensity.current
     val latestHeightDp by rememberUpdatedState(currentHeightDp)
     val latestOnHeightChange by rememberUpdatedState(onHeightChange)
-    val resizeDescription = localizedSimpleperfText("Drag to resize timeline")
+    val resizeDescription =
+        localizedStringResource(
+            ViewerRes.sp_report_resize_timeline_description,
+            currentSimpleperfLanguage(),
+        )
 
     Box(
         modifier =

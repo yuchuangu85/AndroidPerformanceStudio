@@ -1,5 +1,6 @@
 package dev.agentperf.desktop
 
+import com.androidperformancestudio.ui.UiLanguage
 import java.awt.Desktop
 import java.io.Closeable
 import java.net.InetAddress
@@ -12,13 +13,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.concurrent.thread
 
-internal enum class UserDocumentationLanguage(
-    val directoryName: String,
-) {
-    ENGLISH("docs-user"),
-    SIMPLIFIED_CHINESE("docs-user-zh"),
-}
-
 internal class UserDocumentationLauncher(
     private val browse: (URI) -> Unit = { uri -> Desktop.getDesktop().browse(uri) },
     private val documentationRoot: () -> Path = { UserDocumentationSiteLocator().locate() },
@@ -26,7 +20,7 @@ internal class UserDocumentationLauncher(
     private val serverLock = Any()
     private var activeServer: UserDocumentationServer? = null
 
-    fun open(language: UserDocumentationLanguage) {
+    fun open(language: UiLanguage) {
         val origin =
             synchronized(serverLock) {
                 activeServer?.origin ?: UserDocumentationServer(documentationRoot()).also { server ->
@@ -34,7 +28,7 @@ internal class UserDocumentationLauncher(
                     activeServer = server
                 }.origin
             }
-        browse(origin.resolve("${language.directoryName}/"))
+        browse(origin.resolve("${language.documentationDirectoryName}/"))
     }
 
     override fun close() {
@@ -163,9 +157,16 @@ internal class UserDocumentationServer(
 private fun requestPath(target: String): String? = runCatching { URI.create(target).path }.getOrNull()
 
 private fun Path.isUserDocumentationRoot(): Boolean =
-    UserDocumentationLanguage.entries.all { language ->
-        Files.isRegularFile(resolve(language.directoryName).resolve(INDEX_FILE))
+    UiLanguage.entries.all { language ->
+        Files.isRegularFile(resolve(language.documentationDirectoryName).resolve(INDEX_FILE))
     }
+
+private val UiLanguage.documentationDirectoryName: String
+    get() =
+        when (this) {
+            UiLanguage.ENGLISH -> "docs-user"
+            UiLanguage.SIMPLIFIED_CHINESE -> "docs-user-zh"
+        }
 
 private fun documentationContentType(file: Path): String =
     when (file.fileName.toString().substringAfterLast('.', "").lowercase()) {
