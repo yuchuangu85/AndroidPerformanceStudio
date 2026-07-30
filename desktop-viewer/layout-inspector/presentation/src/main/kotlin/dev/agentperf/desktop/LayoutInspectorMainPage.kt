@@ -1109,7 +1109,10 @@ private fun DeviceSelector(
     var expanded by remember { mutableStateOf(false) }
     val selectedLabel = devices.firstOrNull { it.serial == selectedSerial }?.label
         ?: strings.autoDevice
-    Box {
+    val shape = RoundedCornerShape(4.dp)
+    Box(
+        modifier = Modifier.border(1.dp, colors.border, shape)
+    ) {
         Text(
             text = "$selectedLabel ▾",
             color = colors.secondaryText,
