@@ -39,6 +39,7 @@
     <string name="capture_parameters_connect_to_the_current_device_and_target_after">Capture parameters connect to the current device and target after CPU Profiler is opened; flame graph and engine preferences remain available.</string>
     <string name="settings">Settings</string>
     <string name="general">General</string>
+    <string name="sdk_path">Android SDK Path</string>
     <string name="sampling_template">Sampling template</string>
     <string name="capture_configuration">Capture configuration</string>
     <string name="advanced_parameters">Advanced parameters</string>

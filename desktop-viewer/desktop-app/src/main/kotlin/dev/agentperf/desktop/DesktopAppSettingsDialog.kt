@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -308,6 +309,11 @@ private fun GeneralSettingsContent(
             optionLabel = { themePreferenceLabel(it, language) },
             onSelected = { onSettingsChanged(settings.copy(theme = it)) },
         )
+        Text(
+            localizedStringResource(Res.string.sdk_path, language),
+            modifier = Modifier.padding(0.dp, 8.dp, 0.dp, 0.dp),
+            style = MaterialTheme.typography.titleLarge
+        )
         AndroidSdkPathSetting(
             settings = settings,
             language = language,
@@ -323,7 +329,7 @@ private fun AndroidSdkPathSetting(
     onSettingsChanged: (ApplicationUiSettings) -> Unit,
 ) {
     var draftPath by remember(settings.androidSdkPath) { mutableStateOf(settings.androidSdkPath.orEmpty()) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier = Modifier.padding(8.dp, 0.dp, 8.dp, 0.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = draftPath,
             onValueChange = { draftPath = it },
@@ -376,10 +382,22 @@ private fun chooseAndroidSdkDirectory(
         dialogTitle = title
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
         currentPath.trim().takeIf(String::isNotEmpty)?.let { path ->
-            runCatching { File(path) }.getOrNull()?.takeIf(File::exists)?.let { currentDirectory = it }
+            runCatching { File(path) }.getOrNull()?.takeIf(File::isDirectory)?.let { currentDirectory = it }
         }
-        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) selectedFile.toPath().toAbsolutePath().normalize().toString() else null
+        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+            selectedAndroidSdkDirectoryPath(selectedFile)
+        } else {
+            null
+        }
     }
+
+internal fun selectedAndroidSdkDirectoryPath(selectedDirectory: File?): String? =
+    selectedDirectory
+        ?.takeIf(File::isDirectory)
+        ?.toPath()
+        ?.toAbsolutePath()
+        ?.normalize()
+        ?.toString()
 
 @Composable
 private fun CompleteSimpleperfSettingsContent(
@@ -437,7 +455,7 @@ private fun <T> SettingsChoice(
     onSelected: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box(Modifier.wrapContentWidth()) {
+    Box(Modifier.wrapContentWidth().padding(8.dp, 0.dp, 8.dp, 0.dp)) {
         OutlinedButton(
             onClick = { expanded = true },
             modifier = Modifier.width(320.dp)
