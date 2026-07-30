@@ -18,9 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,15 +32,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,8 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -79,7 +70,6 @@ public fun MemoryProfilerScreen(
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            MemoryToolbar(presentedState, actions, language)
             ErrorAndWarnings(presentedState, actions, language)
             Overview(summary = presentedState.summary, activityCount = presentedState.activityCount, language = language)
             Histogram(
@@ -95,154 +85,6 @@ public fun MemoryProfilerScreen(
         }
     }
 }
-
-@Composable
-private fun MemoryToolbar(
-    state: MemoryProfilerState,
-    actions: MemoryProfilerActions,
-    language: UiLanguage,
-) {
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(MEMORY_TOOLBAR_HEIGHT_DP.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DeviceSelector(state, actions, language)
-            ProcessSelector(state, actions, language)
-            Button(
-                onClick = actions.onDumpHeap,
-                enabled =
-                    !state.isDumping &&
-                        state.selectedDeviceSerial != null &&
-                        state.selectedProcessId != null,
-                modifier = Modifier.height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp),
-                shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
-                contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
-            ) {
-                Text(
-                    localizedStringResource(if (state.isDumping) Res.string.dumping else Res.string.dump_heap, language),
-                    fontSize = 11.sp,
-                )
-            }
-            Button(
-                onClick = actions.onImportHprof,
-                enabled = !state.isDumping,
-                modifier = Modifier.height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp),
-                shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
-                contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
-            ) {
-                Text(
-                    localizedStringResource(if (state.isDumping) Res.string.working else Res.string.import_hprof, language),
-                    fontSize = 11.sp,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeviceSelector(
-    state: MemoryProfilerState,
-    actions: MemoryProfilerActions,
-    language: UiLanguage,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val selected = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }
-    Box {
-        TextButton(
-            onClick = { expanded = true },
-            modifier =
-                Modifier
-                    .height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp)
-                    .semantics { contentDescription = localizedStringResource(Res.string.device_selector, language) },
-            shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
-            contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
-        ) {
-            Text(
-                text = selected?.name ?: localizedStringResource(Res.string.select_device, language),
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (state.devices.isEmpty()) {
-                DropdownMenuItem(
-                    text = { Text(localizedStringResource(Res.string.no_devices, language)) },
-                    onClick = {},
-                    enabled = false,
-                )
-            }
-            state.devices.forEach { device ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (device.online) device.name
-                            else localizedStringResource(Res.string.device_offline, language, device.name)
-                        )
-                    },
-                    enabled = device.online,
-                    onClick = {
-                        expanded = false
-                        actions.onSelectDevice(device.serial)
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProcessSelector(
-    state: MemoryProfilerState,
-    actions: MemoryProfilerActions,
-    language: UiLanguage,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val selected = state.processes.firstOrNull { it.pid == state.selectedProcessId }
-    Box {
-        TextButton(
-            onClick = { expanded = true },
-            modifier =
-                Modifier
-                    .height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp)
-                    .semantics { contentDescription = localizedStringResource(Res.string.process_selector, language) },
-            shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
-            contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
-        ) {
-            Text(
-                text = selected?.name ?: localizedStringResource(Res.string.select_process, language),
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (state.processes.isEmpty()) {
-                DropdownMenuItem(
-                    text = { Text(localizedStringResource(Res.string.no_processes, language)) },
-                    onClick = {},
-                    enabled = false,
-                )
-            }
-            state.processes.forEach { process ->
-                DropdownMenuItem(
-                    text = { Text(localizedStringResource(Res.string.text, language, process.name, process.pid)) },
-                    onClick = {
-                        expanded = false
-                        actions.onSelectProcess(process.pid)
-                    },
-                )
-            }
-        }
-    }
-}
-
-internal const val MEMORY_TOOLBAR_HEIGHT_DP = 40
-internal const val MEMORY_TOOLBAR_BUTTON_HEIGHT_DP = 22
-private const val MEMORY_TOOLBAR_BUTTON_RADIUS_DP = 7
-private val MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING = PaddingValues(horizontal = 8.dp)
 
 @Composable
 private fun ErrorAndWarnings(

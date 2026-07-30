@@ -34,7 +34,7 @@
     <string name="count_value">Count: %1$s</string>
     <string name="unavailable">Unavailable</string>
     <string name="leak_suspect_title">%1$s %2$s: %3$s</string>
-    <string name="leak_suspect_summary">retained %1$s · confidence %2$s%</string>
+    <string name="leak_suspect_summary">retained %1$s · confidence %2$s%%</string>
     <string name="reference_chain_entry">%1$s↳ %2$s → %3$s</string>
     <string name="heap_diff_entry">%1$s: %2$s → %3$s (%4$s) · %5$s B</string>
     <string name="bitmap_entry">#%1$s %2$s×%3$s · %4$s</string>

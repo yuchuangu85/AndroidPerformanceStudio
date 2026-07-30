@@ -2,7 +2,10 @@
 
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,7 +52,6 @@ public fun LayoutInspectorSettingsContent(
     var archiveLimits by remember { mutableStateOf(archiveLimitsStore.load()) }
     var borderColors by remember { mutableStateOf(borderColorStore.load()) }
     var persistenceError by remember { mutableStateOf(false) }
-    val strings = ViewerStrings.forLanguage(language)
 
     fun notifySaved(saved: Boolean) {
         persistenceError = !saved
@@ -70,48 +72,52 @@ public fun LayoutInspectorSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()).padding(end = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(strings.layoutInspector, style = MaterialTheme.typography.titleLarge)
+        Text(localizedStringResource(Res.string.layout_inspector, language), style = MaterialTheme.typography.titleLarge)
         if (persistenceError) {
             Text(
-                strings.settingsSaveFailed,
+                localizedStringResource(Res.string.settings_save_failed, language),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
 
-        SettingsSection(strings.viewAndHierarchy) {
+        SettingsSection(localizedStringResource(Res.string.view_and_hierarchy, language)) {
             SettingsToggleRow(
-                label = strings.hideInvisibleHierarchyViews,
+                label = localizedStringResource(Res.string.hide_invisible_hierarchy_views, language),
                 checked = viewOptions.hideInvisibleHierarchyViews,
             ) { updateViewOptions(viewOptions.copy(hideInvisibleHierarchyViews = it)) }
             SettingsToggleRow(
-                label = strings.hideInvisibleFindings,
+                label = localizedStringResource(Res.string.hide_invisible_findings, language),
                 checked = viewOptions.hideInvisibleFindings,
             ) { updateViewOptions(viewOptions.copy(hideInvisibleFindings = it)) }
             SettingsToggleRow(
-                label = strings.hideHierarchyIndices,
+                label = localizedStringResource(Res.string.hide_hierarchy_indices, language),
                 checked = viewOptions.hideHierarchyIndices,
             ) { updateViewOptions(viewOptions.copy(hideHierarchyIndices = it)) }
             SettingsToggleRow(
-                label = strings.showHierarchyIds,
+                label = localizedStringResource(Res.string.show_hierarchy_ids, language),
                 checked = viewOptions.showHierarchyIds,
             ) { updateViewOptions(viewOptions.copy(showHierarchyIds = it)) }
             SettingsToggleRow(
-                label = strings.showHierarchyLayerVisibilityButtons,
+                label = localizedStringResource(Res.string.show_hierarchy_layer_visibility_buttons, language),
                 checked = viewOptions.showHierarchyLayerVisibilityButtons,
             ) { updateViewOptions(viewOptions.copy(showHierarchyLayerVisibilityButtons = it)) }
             SettingsToggleRow(
-                label = strings.showVisibleViewBounds,
+                label = localizedStringResource(Res.string.show_visible_view_bounds, language),
                 checked = viewOptions.showVisibleViewBounds,
             ) { updateViewOptions(viewOptions.copy(showVisibleViewBounds = it)) }
-            CanvasHitTestOrderSetting(viewOptions.canvasHitTestOrder, strings) {
+            CanvasHitTestOrderSetting(viewOptions.canvasHitTestOrder, language) {
                 updateViewOptions(viewOptions.copy(canvasHitTestOrder = it))
             }
         }
 
-        SettingsSection(strings.captureArchive) {
+        SettingsSection(localizedStringResource(Res.string.capture_archive, language)) {
             Text(
-                strings.snapshotArchiveLimit(archiveLimits.maxSnapshotSizeMiB),
+                localizedStringResource(
+                    Res.string.snapshot_archive_limit_value,
+                    language,
+                    archiveLimits.maxSnapshotSizeMiB,
+                ),
                 style = MaterialTheme.typography.labelLarge,
             )
             Slider(
@@ -138,27 +144,27 @@ public fun LayoutInspectorSettingsContent(
                         CaptureArchiveLimits.MIN_SNAPSHOT_SIZE_MULTIPLIER - 1,
             )
             Text(
-                strings.layoutSnapshotArchiveLimitHint,
+                localizedStringResource(Res.string.layout_snapshot_archive_limit_hint, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
 
-        SettingsSection(strings.canvasBorderColors) {
+        SettingsSection(localizedStringResource(Res.string.canvas_border_colors, language)) {
             CanvasColorField(
-                label = strings.normal,
+                label = localizedStringResource(Res.string.normal, language),
                 color = borderColors.normal,
                 defaultColor = CanvasBorderColors().normal,
                 language = language,
             ) { updateBorderColors(borderColors.copy(normal = it)) }
             CanvasColorField(
-                label = strings.hovered,
+                label = localizedStringResource(Res.string.hovered, language),
                 color = borderColors.hovered,
                 defaultColor = CanvasBorderColors().hovered,
                 language = language,
             ) { updateBorderColors(borderColors.copy(hovered = it)) }
             CanvasColorField(
-                label = strings.selected,
+                label = localizedStringResource(Res.string.selected, language),
                 color = borderColors.selected,
                 defaultColor = CanvasBorderColors().selected,
                 language = language,
@@ -205,17 +211,17 @@ private fun SettingsToggleRow(
 @Composable
 private fun CanvasHitTestOrderSetting(
     selected: CanvasHitTestOrder,
-    strings: ViewerStrings,
+    language: UiLanguage,
     onSelected: (CanvasHitTestOrder) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(strings.canvasHitTestOrder, style = MaterialTheme.typography.bodyMedium)
+        Text(localizedStringResource(Res.string.canvas_hit_test_order, language), style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CanvasHitTestOrder.entries.forEach { option ->
                 val label =
                     when (option) {
-                        CanvasHitTestOrder.SMALL_AREA_FIRST -> strings.smallAreaFirst
-                        CanvasHitTestOrder.Z_ORDER -> strings.zOrder
+                        CanvasHitTestOrder.SMALL_AREA_FIRST -> localizedStringResource(Res.string.small_area_first, language)
+                        CanvasHitTestOrder.Z_ORDER -> localizedStringResource(Res.string.z_order, language)
                     }
                 if (option == selected) {
                     Button(onClick = { onSelected(option) }) { Text(label) }
@@ -259,7 +265,7 @@ private fun CanvasColorField(
                     onColorChanged(defaultColor)
                 },
             ) {
-                Text(ViewerStrings.forLanguage(language).reset)
+                Text(localizedStringResource(Res.string.reset, language))
             }
         }
         Row(

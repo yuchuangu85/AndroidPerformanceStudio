@@ -18,7 +18,7 @@
   - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/ViewBoundsOverlay.kt`：当前 overlay 绘制所有有效可见节点，未考虑用户临时隐藏层级
   - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/HierarchyTreeState.kt`：已有树折叠状态，但折叠只影响左侧树显示，不影响画布命中测试
   - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/ViewDisplayOptions.kt`：已有视图显示偏好，适合扩展“显示隐藏层级边框/清除隐藏”等非结构性选项
-  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/ViewerStrings.kt`：已有英中双语字符串入口
+  - `desktop-viewer/layout-inspector/presentation/src/main/composeResources/values*/strings.xml`：已有英中双语资源，并通过 `Res.string` 直接访问
 
 ## Brand
 - Personality:
@@ -106,7 +106,7 @@
   - `HierarchyPane` / 树行 Row：增加行内隐藏/恢复操作。
   - `PreviewPane`：接收隐藏节点集合，命中测试与 overlay 绘制过滤隐藏子树。
   - `PanelTitle` action slot：展示隐藏数量与清除入口。
-  - `ViewerStrings`：新增英中双语文案。
+  - Compose Resources `Res.string`：新增英中双语文案。
   - `CanvasHitTester`、`ViewBoundsOverlay`：增加忽略节点集合参数。
 - New/changed components:
   - `HiddenLayerState`（建议新增）：保存 `hiddenNodeIds: Set<String>`，提供 `hide(nodeId)`、`show(nodeId)`、`toggle(nodeId)`、`clear()`、`sanitize(rows)`。
@@ -171,7 +171,7 @@
 
 ## Implementation constraints
 - Framework/styling system:
-  - Kotlin/JVM + Compose Desktop；沿用现有 `ViewerTheme`、`ViewerStrings`、轻量 presenter/state object 模式。
+  - Kotlin/JVM + Compose Desktop；沿用现有 `ViewerTheme`、Compose Resources `Res.string`、轻量 presenter/state object 模式。
 - Design-token constraints:
   - 不新增图标依赖、不新增主题体系；优先复用现有颜色与按钮风格。
 - Performance constraints:
@@ -189,7 +189,7 @@
     - `ViewBoundsOverlay`：隐藏节点/子树不绘制默认 overlay。
     - `HiddenLayerState`：toggle、clear、sanitize 行为。
     - `HierarchyPane` 或源码级测试：树行包含隐藏/显示入口，点击操作独立于选择。
-    - `ViewerStrings`：新增文案英中都有。
+    - Compose Resources `Res.string`：新增文案英中都有。
   - Integration/smoke:
     - 选择上层节点 → 点击隐藏 → 同坐标点击 Canvas 选中下层节点 → 清除隐藏后再次命中上层。
   - Regression:

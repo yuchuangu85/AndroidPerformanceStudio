@@ -1,6 +1,9 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -27,11 +30,11 @@ class HeaderControlTest {
         assertTrue(homeButton.contains("onClick = onClick"))
         assertEquals(
             "Back to home",
-            ViewerStrings.forLanguage(UiLanguage.ENGLISH).backToHome,
+            localizedStringResource(Res.string.back_to_home, UiLanguage.ENGLISH),
         )
         assertEquals(
             "返回主页",
-            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).backToHome,
+            localizedStringResource(Res.string.back_to_home, UiLanguage.SIMPLIFIED_CHINESE),
         )
     }
 
@@ -39,8 +42,8 @@ class HeaderControlTest {
     fun `manual refresh control is a labeled text button without an icon`() {
         assertTrue(ManualRefreshButtonStyle.WIDTH_DP >= 54)
         assertEquals(22, ManualRefreshButtonStyle.HEIGHT_DP)
-        assertEquals("Refresh", ViewerStrings.forLanguage(UiLanguage.ENGLISH).refresh)
-        assertEquals("刷新", ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).refresh)
+        assertEquals("Refresh", localizedStringResource(Res.string.refresh, UiLanguage.ENGLISH))
+        assertEquals("刷新", localizedStringResource(Res.string.refresh, UiLanguage.SIMPLIFIED_CHINESE))
 
         val source = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
@@ -99,8 +102,8 @@ class HeaderControlTest {
 
     @Test
     fun `auto device label is localized`() {
-        assertEquals("Auto device", ViewerStrings.forLanguage(UiLanguage.ENGLISH).autoDevice)
-        assertEquals("自动设备", ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).autoDevice)
+        assertEquals("Auto device", localizedStringResource(Res.string.auto_device, UiLanguage.ENGLISH))
+        assertEquals("自动设备", localizedStringResource(Res.string.auto_device, UiLanguage.SIMPLIFIED_CHINESE))
     }
 
     @Test
@@ -116,18 +119,18 @@ class HeaderControlTest {
             .substringBefore("private fun ExportResultDialog(")
 
         assertTrue(header.contains("if (model.windows.size > 1)"))
-        assertTrue(selector.contains("strings.window"))
-        assertTrue(selector.contains("strings.selectWindow"))
+        assertTrue(selector.contains("Res.string.window"))
+        assertTrue(selector.contains("Res.string.select_window"))
         assertTrue(selector.contains(".border("))
-        assertEquals("Window", ViewerStrings.forLanguage(UiLanguage.ENGLISH).window)
-        assertEquals("窗口", ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).window)
+        assertEquals("Window", localizedStringResource(Res.string.window, UiLanguage.ENGLISH))
+        assertEquals("窗口", localizedStringResource(Res.string.window, UiLanguage.SIMPLIFIED_CHINESE))
         assertEquals(
             "Select window",
-            ViewerStrings.forLanguage(UiLanguage.ENGLISH).selectWindow,
+            localizedStringResource(Res.string.select_window, UiLanguage.ENGLISH),
         )
         assertEquals(
             "选择窗口",
-            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE).selectWindow,
+            localizedStringResource(Res.string.select_window, UiLanguage.SIMPLIFIED_CHINESE),
         )
     }
 

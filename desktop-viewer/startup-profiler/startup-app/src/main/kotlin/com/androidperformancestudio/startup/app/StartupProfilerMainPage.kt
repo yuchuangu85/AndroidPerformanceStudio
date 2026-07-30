@@ -9,11 +9,6 @@
 
 package com.androidperformancestudio.startup.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.startup.startup_app.generated.resources.Res
-import com.androidperformancestudio.startup.startup_app.generated.resources.*
-
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,16 +31,45 @@ import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.StartupProfilerActions
 import com.androidperformancestudio.startup.presentation.StartupProfilerScreen
+import com.androidperformancestudio.startup.startup_app.generated.resources.Res
+import com.androidperformancestudio.startup.startup_app.generated.resources.app_activity
+import com.androidperformancestudio.startup.startup_app.generated.resources.back_to_home
+import com.androidperformancestudio.startup.startup_app.generated.resources.cold
+import com.androidperformancestudio.startup.startup_app.generated.resources.compilation
+import com.androidperformancestudio.startup.startup_app.generated.resources.current
+import com.androidperformancestudio.startup.startup_app.generated.resources.device
+import com.androidperformancestudio.startup.startup_app.generated.resources.export_startup_profiler_report
+import com.androidperformancestudio.startup.startup_app.generated.resources.hot
+import com.androidperformancestudio.startup.startup_app.generated.resources.import_startup_profiler_report
+import com.androidperformancestudio.startup.startup_app.generated.resources.measured_runs
+import com.androidperformancestudio.startup.startup_app.generated.resources.package_activity
+import com.androidperformancestudio.startup.startup_app.generated.resources.package_agent
+import com.androidperformancestudio.startup.startup_app.generated.resources.refresh
+import com.androidperformancestudio.startup.startup_app.generated.resources.reset
+import com.androidperformancestudio.startup.startup_app.generated.resources.run_experiment
+import com.androidperformancestudio.startup.startup_app.generated.resources.seconds_short
+import com.androidperformancestudio.startup.startup_app.generated.resources.speed
+import com.androidperformancestudio.startup.startup_app.generated.resources.speed_profile
+import com.androidperformancestudio.startup.startup_app.generated.resources.startup_type
+import com.androidperformancestudio.startup.startup_app.generated.resources.stop_experiment
+import com.androidperformancestudio.startup.startup_app.generated.resources.timeout
+import com.androidperformancestudio.startup.startup_app.generated.resources.unknown
+import com.androidperformancestudio.startup.startup_app.generated.resources.verify
+import com.androidperformancestudio.startup.startup_app.generated.resources.warm
+import com.androidperformancestudio.startup.startup_app.generated.resources.warm_ups
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactSelector
 import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 public fun FrameWindowScope.StartupProfilerMainPage(
@@ -58,6 +82,30 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     var experimentJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(controller) { controller.refreshDevices() }
+
+    StartupProfilerFileMenuBar(
+        model =
+            startupProfilerFileMenuModel(
+                language = language,
+                importEnabled = !state.isRunning,
+                exportEnabled = state.analysis != null && !state.isRunning,
+            ),
+        onImport = {
+            chooseOpenJsonFile(window, language)?.let { file ->
+                scope.launch { controller.importJson(file.toPath()) }
+            }
+        },
+        onExportCsv = {
+            chooseSaveFile(window, "startup-analysis.csv", language)?.let { file ->
+                scope.launch { controller.exportCsv(file.toPath()) }
+            }
+        },
+        onExportJson = {
+            chooseSaveFile(window, "startup-analysis.json", language)?.let { file ->
+                scope.launch { controller.exportJson(file.toPath()) }
+            }
+        },
+    )
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
@@ -85,15 +133,16 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                             it.packageName
                         }
                     },
-                options = state.targets.map {
-                    it.componentName to
-                        localizedStringResource(
-                            Res.string.package_activity,
-                            language,
-                            it.packageName,
-                            it.componentName.substringAfter('/'),
-                        )
-                },
+                options =
+                    state.targets.map {
+                        it.componentName to
+                            localizedStringResource(
+                                Res.string.package_activity,
+                                language,
+                                it.packageName,
+                                it.componentName.substringAfter('/'),
+                            )
+                    },
                 enabled = !state.isRunning && state.selectedDeviceSerial != null,
                 onSelected = controller::selectTarget,
             )
@@ -115,24 +164,6 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                         experimentJob?.cancel()
                     } else {
                         experimentJob = scope.launch { controller.runExperiment() }
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, language),
-                enabled = state.analysis != null && !state.isRunning,
-                onClick = {
-                    chooseSaveFile(window, "startup-analysis.csv", language)?.let { file ->
-                        scope.launch { controller.exportCsv(file.toPath()) }
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_json, language),
-                enabled = state.analysis != null && !state.isRunning,
-                onClick = {
-                    chooseSaveFile(window, "startup-analysis.json", language)?.let { file ->
-                        scope.launch { controller.exportJson(file.toPath()) }
                     }
                 },
             )
@@ -178,9 +209,10 @@ public fun FrameWindowScope.StartupProfilerMainPage(
             ProfilerCompactSelector(
                 label = localizedStringResource(Res.string.timeout, language),
                 selectedLabel = localizedStringResource(Res.string.seconds_short, language, state.config.timeoutSeconds),
-                options = listOf(10, 20, 30, 45, 60, 120).map {
-                    it.toString() to localizedStringResource(Res.string.seconds_short, language, it)
-                },
+                options =
+                    listOf(10, 20, 30, 45, 60, 120).map {
+                        it.toString() to localizedStringResource(Res.string.seconds_short, language, it)
+                    },
                 enabled = !state.isRunning,
                 onSelected = { value -> controller.updateTimeout(value.toInt()) },
             )
@@ -234,4 +266,15 @@ private fun chooseSaveFile(
         dialogTitle = localizedStringResource(Res.string.export_startup_profiler_report, language)
         selectedFile = File(defaultName)
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
+    }
+
+private fun chooseOpenJsonFile(
+    parent: java.awt.Component,
+    language: UiLanguage,
+): File? =
+    JFileChooser().run {
+        dialogTitle = localizedStringResource(Res.string.import_startup_profiler_report, language)
+        fileFilter = FileNameExtensionFilter("JSON (*.json)", "json")
+        isAcceptAllFileFilterUsed = false
+        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }

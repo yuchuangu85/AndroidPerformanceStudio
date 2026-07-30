@@ -12,6 +12,14 @@
     <string name="polling">轮询</string>
     <string name="runs">轮次</string>
     <string name="launch_app_automatically">自动启动 Launcher Activity</string>
+    <string name="file">文件</string>
+    <string name="import_analysis">导入…</string>
+    <string name="export">导出</string>
+    <string name="open_recent">最近打开</string>
+    <string name="no_recent_files">无最近文件</string>
+    <string name="clear_recent">清除菜单</string>
+    <string name="advanced">高级</string>
+    <string name="reset_statistics">重置统计</string>
     <string name="export_json">导出 JSON</string>
     <string name="export_csv">导出 CSV</string>
     <string name="export_raw_bundle">导出原始证据</string>
@@ -39,10 +47,13 @@
     <string name="global_device_batterystats_were_reset_start_a_new_experiment">Global device batterystats were reset. Start a new experiment.</string>
     <string name="battery_experiment_completed_run_s">Battery experiment completed: %1$s run(s).</string>
     <string name="exported_to">Exported %1$s to %2$s.</string>
-    <string name="battery_energy_profiler">Battery / Energy Profiler</string>
+    <string name="battery_energy_profiler">电池 / 能耗分析器</string>
     <string name="package_uid">%1$s · UID %2$s</string>
     <string name="package_uid_shared">%1$s · UID %2$s · shared</string>
     <string name="seconds_short">%1$ss</string>
+    <string name="duration_value">时长：%1$ss</string>
+    <string name="polling_value">轮询间隔：%1$ss</string>
+    <string name="runs_value">测量轮次：%1$s</string>
     <string name="battery_historian">Battery Historian</string>
     <string name="unable_to_start_battery_experiment">Unable to start battery experiment.</string>
     <string name="online_sample_failed">Online sample failed: %1$s</string>
@@ -52,4 +63,6 @@
     <string name="session_persistence_failed">Analysis succeeded, but session persistence failed: %1$s</string>
     <string name="export_failed">%1$s export failed.</string>
     <string name="raw_bundle">raw bundle</string>
+    <string name="imported_analysis">已导入电池分析：%1$s。</string>
+    <string name="import_failed">电池分析导入失败。</string>
 </resources>

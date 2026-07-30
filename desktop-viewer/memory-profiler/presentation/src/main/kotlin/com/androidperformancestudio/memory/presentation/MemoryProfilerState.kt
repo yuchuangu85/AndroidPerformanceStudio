@@ -50,10 +50,6 @@ public enum class MemoryHistogramSort {
 }
 
 public data class MemoryProfilerActions(
-    val onSelectDevice: (String) -> Unit = {},
-    val onSelectProcess: (Int) -> Unit = {},
-    val onDumpHeap: () -> Unit = {},
-    val onImportHprof: () -> Unit = {},
     val onSortHistogram: (MemoryHistogramSort) -> Unit = {},
     val onRetry: () -> Unit = {},
     val onHighlightClass: (String) -> Unit = {},

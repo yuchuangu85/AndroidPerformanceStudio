@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="file">File</string>
+    <string name="export">Export</string>
     <string name="back_to_home">Back to home</string>
     <string name="refresh_devices">Refresh Devices</string>
     <string name="export_raw_hprof">Export Raw HPROF</string>
@@ -12,6 +14,7 @@
     <string name="importing_ad13e4da">Importing %1$s… %2$s%%</string>
     <string name="export_memory_profiler_data">Export Memory Profiler Data</string>
     <string name="import_hprof">Import HPROF</string>
+    <string name="import_hprof_menu">Import HPROF…</string>
     <string name="unable_to_list_android_devices">Unable to list Android devices</string>
     <string name="unable_to_list_device_processes">Unable to list device processes</string>
     <string name="heap_dump_failed">Heap dump failed</string>

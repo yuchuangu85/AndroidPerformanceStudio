@@ -44,4 +44,39 @@ class MemoryProfilerWorkspaceSourceTest {
         assertFalse(workspace.contains("import androidx.compose.material3.Button"))
         assertTrue(workspace.contains("MemoryProfilerScreen("))
     }
+
+    @Test
+    fun `device and process selectors share the top toolbar row with home`() {
+        val toolbar =
+            workspace
+                .substringAfter("ProfilerMacOsToolbar {")
+                .substringBefore("        }\n        HorizontalDivider")
+
+        val home = toolbar.indexOf("ProfilerHomeButton(")
+        val selectors = toolbar.indexOf("MemoryProfilerToolbarSelectors(")
+        val refresh = toolbar.indexOf("ProfilerCompactButton(")
+        val spacer = toolbar.indexOf("Spacer(Modifier.weight(1f))")
+        val dumpHeap = toolbar.indexOf("MemoryProfilerDumpHeapButton(")
+
+        assertTrue(home >= 0)
+        assertTrue(selectors > home)
+        assertTrue(refresh > selectors)
+        assertTrue(spacer > refresh)
+        assertTrue(dumpHeap > spacer)
+        assertTrue(toolbar.contains("onSelectDevice = { serial ->"))
+        assertTrue(toolbar.contains("onSelectProcess = controller::selectProcess"))
+        assertTrue(toolbar.contains("onDumpHeap = { scope.launch { controller.dumpHeap() } }"))
+    }
+
+    @Test
+    fun `workspace moves import and export actions into the file menu`() {
+        assertTrue(workspace.contains("MemoryProfilerFileMenuBar("))
+        assertTrue(workspace.contains("onImportHprof = { showHprofFileDialog = true }"))
+        assertTrue(workspace.contains("onExportRawHprof ="))
+        assertTrue(workspace.contains("onExportStandardHprof ="))
+        assertTrue(workspace.contains("onExportCsv ="))
+        assertFalse(workspace.contains("text = localizedStringResource(Res.string.export_raw_hprof"))
+        assertFalse(workspace.contains("text = localizedStringResource(Res.string.export_standard_hprof"))
+        assertFalse(workspace.contains("text = localizedStringResource(Res.string.export_csv"))
+    }
 }

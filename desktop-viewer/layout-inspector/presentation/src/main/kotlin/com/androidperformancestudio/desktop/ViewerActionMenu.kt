@@ -1,6 +1,18 @@
 package com.androidperformancestudio.desktop
 
 import androidx.compose.ui.input.key.Key
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.auto_scan
+import com.androidperformancestudio.presentation.generated.resources.next_node
+import com.androidperformancestudio.presentation.generated.resources.previous_node
+import com.androidperformancestudio.presentation.generated.resources.settings
+import com.androidperformancestudio.presentation.generated.resources.toggle_details
+import com.androidperformancestudio.presentation.generated.resources.toggle_findings
+import com.androidperformancestudio.presentation.generated.resources.toggle_hierarchy
+import com.androidperformancestudio.presentation.generated.resources.toggle_hierarchy_ids
+import com.androidperformancestudio.presentation.generated.resources.toggle_selected_node
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 
 internal enum class ViewerAction {
     TOGGLE_AUTO_SCAN,
@@ -22,58 +34,58 @@ internal data class ViewerActionItem(
 )
 
 internal object ViewerActionMenu {
-    fun items(strings: ViewerStrings): List<ViewerActionItem> = listOf(
+    fun items(language: UiLanguage): List<ViewerActionItem> = listOf(
         ViewerActionItem(
             ViewerAction.TOGGLE_AUTO_SCAN,
-            strings.actionLabel(ViewerAction.TOGGLE_AUTO_SCAN),
+            localizedStringResource(Res.string.auto_scan, language),
             "⌘R / Ctrl+R",
             group = 0,
         ),
         ViewerActionItem(
             ViewerAction.PREVIOUS_NODE,
-            strings.actionLabel(ViewerAction.PREVIOUS_NODE),
+            localizedStringResource(Res.string.previous_node, language),
             "↑",
             group = 1,
         ),
         ViewerActionItem(
             ViewerAction.NEXT_NODE,
-            strings.actionLabel(ViewerAction.NEXT_NODE),
+            localizedStringResource(Res.string.next_node, language),
             "↓",
             group = 1,
         ),
         ViewerActionItem(
             ViewerAction.TOGGLE_SELECTED_NODE,
-            strings.actionLabel(ViewerAction.TOGGLE_SELECTED_NODE),
+            localizedStringResource(Res.string.toggle_selected_node, language),
             "Enter",
             group = 1,
         ),
         ViewerActionItem(
             ViewerAction.TOGGLE_HIERARCHY,
-            strings.actionLabel(ViewerAction.TOGGLE_HIERARCHY),
+            localizedStringResource(Res.string.toggle_hierarchy, language),
             "⌘1 / Ctrl+1",
             group = 2,
         ),
         ViewerActionItem(
             ViewerAction.TOGGLE_FINDINGS,
-            strings.actionLabel(ViewerAction.TOGGLE_FINDINGS),
+            localizedStringResource(Res.string.toggle_findings, language),
             "⌘2 / Ctrl+2",
             group = 2,
         ),
         ViewerActionItem(
             ViewerAction.TOGGLE_DETAILS,
-            strings.actionLabel(ViewerAction.TOGGLE_DETAILS),
+            localizedStringResource(Res.string.toggle_details, language),
             "⌘3 / Ctrl+3",
             group = 2,
         ),
         ViewerActionItem(
             ViewerAction.TOGGLE_HIERARCHY_IDS,
-            strings.actionLabel(ViewerAction.TOGGLE_HIERARCHY_IDS),
+            localizedStringResource(Res.string.toggle_hierarchy_ids, language),
             "",
             group = 3,
         ),
         ViewerActionItem(
             ViewerAction.OPEN_SETTINGS,
-            strings.actionLabel(ViewerAction.OPEN_SETTINGS),
+            localizedStringResource(Res.string.settings, language),
             "⌘, / Ctrl+,",
             group = 4,
         ),

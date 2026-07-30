@@ -33,7 +33,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlin.math.roundToInt
 
 internal object SettingsDialogStyle {
@@ -56,7 +59,7 @@ internal fun SettingsDialog(
     onDismiss: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.panel,
@@ -68,7 +71,7 @@ internal fun SettingsDialog(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = strings.layoutInspectorSettings,
+                    text = localizedStringResource(Res.string.layout_inspector_settings, language),
                     fontSize = SettingsDialogStyle.TITLE_FONT_SIZE_SP.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -83,10 +86,10 @@ internal fun SettingsDialog(
                     .heightIn(max = 620.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
-                SettingsSectionTitle(strings.view)
+                SettingsSectionTitle(localizedStringResource(Res.string.view, language))
                 Spacer(Modifier.height(8.dp))
                 SettingsToggleRow(
-                    label = strings.showHierarchyLayerVisibilityButtons,
+                    label = localizedStringResource(Res.string.show_hierarchy_layer_visibility_buttons, language),
                     enabled = viewDisplayOptions.showHierarchyLayerVisibilityButtons,
                     onToggle = {
                         onViewDisplayOptionsChanged(
@@ -95,27 +98,27 @@ internal fun SettingsDialog(
                     },
                 )
                 SettingsMenuSeparator()
-                SettingsSectionTitle(strings.captureArchive)
+                SettingsSectionTitle(localizedStringResource(Res.string.capture_archive, language))
                 Spacer(Modifier.height(8.dp))
                 ArchiveSnapshotLimitSetting(
                     limits = archiveLimits,
                     onLimitsChanged = onArchiveLimitsChanged,
                 )
                 SettingsMenuSeparator()
-                SettingsSectionTitle(strings.canvasBorderColors)
+                SettingsSectionTitle(localizedStringResource(Res.string.canvas_border_colors, language))
                 Spacer(Modifier.height(4.dp))
                 CanvasColorSetting(
-                    strings.defaultViewBoundsColor,
+                    localizedStringResource(Res.string.default_view_bounds_color, language),
                     canvasBorderColors.normal,
                     CanvasBorderColors().normal,
                 ) { onCanvasBorderColorsChanged(canvasBorderColors.copy(normal = it)) }
                 CanvasColorSetting(
-                    strings.hoveredViewBoundsColor,
+                    localizedStringResource(Res.string.hovered_view_bounds_color, language),
                     canvasBorderColors.hovered,
                     CanvasBorderColors().hovered,
                 ) { onCanvasBorderColorsChanged(canvasBorderColors.copy(hovered = it)) }
                 CanvasColorSetting(
-                    strings.selectedViewBoundsColor,
+                    localizedStringResource(Res.string.selected_view_bounds_color, language),
                     canvasBorderColors.selected,
                     CanvasBorderColors().selected,
                 ) { onCanvasBorderColorsChanged(canvasBorderColors.copy(selected = it)) }
@@ -131,7 +134,7 @@ private fun ArchiveSnapshotLimitSetting(
     onLimitsChanged: (CaptureArchiveLimits) -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -143,13 +146,18 @@ private fun ArchiveSnapshotLimitSetting(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = strings.layoutSnapshotArchiveLimit,
+                text = localizedStringResource(Res.string.layout_snapshot_archive_limit, language),
                 color = colors.primaryText,
                 fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
             )
             Spacer(Modifier.weight(1f))
             Text(
-                text = strings.archiveLimitValue(limits),
+                text = localizedStringResource(
+                    Res.string.archive_limit_value,
+                    language,
+                    limits.maxSnapshotSizeMiB,
+                    limits.snapshotSizeMultiplier,
+                ),
                 color = colors.accent,
                 fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
                 fontWeight = FontWeight.Bold,
@@ -176,7 +184,7 @@ private fun ArchiveSnapshotLimitSetting(
                 .height(24.dp),
         )
         Text(
-            text = strings.layoutSnapshotArchiveLimitHint,
+            text = localizedStringResource(Res.string.layout_snapshot_archive_limit_hint, language),
             color = colors.mutedText,
             fontSize = 10.sp,
         )
@@ -269,7 +277,7 @@ private fun CanvasColorSetting(
     onValueChanged: (CanvasArgb) -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     var text by remember(value) { mutableStateOf(value.toHex()) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -308,7 +316,7 @@ private fun CanvasColorSetting(
                 .padding(4.dp),
         )
         Text(
-            strings.reset,
+            localizedStringResource(Res.string.reset, language),
             color = colors.accent,
             fontSize = 10.sp,
             modifier = Modifier

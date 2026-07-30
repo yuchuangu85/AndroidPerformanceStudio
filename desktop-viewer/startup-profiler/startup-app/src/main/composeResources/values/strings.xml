@@ -6,6 +6,9 @@
     <string name="refresh">Refresh</string>
     <string name="stop_experiment">Stop Experiment</string>
     <string name="run_experiment">Run Experiment</string>
+    <string name="file">File</string>
+    <string name="import_report">Import…</string>
+    <string name="export">Export</string>
     <string name="export_csv">Export CSV</string>
     <string name="export_json">Export JSON</string>
     <string name="startup_type">Startup Type</string>
@@ -23,6 +26,9 @@
     <string name="startup_experiment_cancelled">Startup experiment cancelled.</string>
     <string name="exported_report_to">Exported %1$s report to %2$s.</string>
     <string name="export_startup_profiler_report">Export Startup Profiler Report</string>
+    <string name="import_startup_profiler_report">Import Startup Profiler Report</string>
+    <string name="imported_analysis">Imported analysis from %1$s.</string>
+    <string name="import_failed">Startup Profiler import failed.</string>
     <string name="package_agent">%1$s · Agent</string>
     <string name="package_activity">%1$s · %2$s</string>
     <string name="seconds_short">%1$ss</string>

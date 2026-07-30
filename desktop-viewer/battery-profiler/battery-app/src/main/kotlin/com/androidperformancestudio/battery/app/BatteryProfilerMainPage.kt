@@ -10,11 +10,6 @@
 
 package com.androidperformancestudio.battery.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.battery.battery_app.generated.resources.Res
-import com.androidperformancestudio.battery.battery_app.generated.resources.*
-
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +33,39 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.battery.battery_app.generated.resources.Res
+import com.androidperformancestudio.battery.battery_app.generated.resources.app_uid
+import com.androidperformancestudio.battery.battery_app.generated.resources.back_to_home
+import com.androidperformancestudio.battery.battery_app.generated.resources.battery_energy_profiler
+import com.androidperformancestudio.battery.battery_app.generated.resources.battery_historian
+import com.androidperformancestudio.battery.battery_app.generated.resources.bugreports_may_contain_accounts_ssids_app_lists_logs_and_device
+import com.androidperformancestudio.battery.battery_app.generated.resources.cancel
+import com.androidperformancestudio.battery.battery_app.generated.resources.cancel_experiment
+import com.androidperformancestudio.battery.battery_app.generated.resources.capture_mode
+import com.androidperformancestudio.battery.battery_app.generated.resources.choose_location
+import com.androidperformancestudio.battery.battery_app.generated.resources.device
+import com.androidperformancestudio.battery.battery_app.generated.resources.duration
+import com.androidperformancestudio.battery.battery_app.generated.resources.duration_value
+import com.androidperformancestudio.battery.battery_app.generated.resources.generate_battery_historian_input
+import com.androidperformancestudio.battery.battery_app.generated.resources.import_analysis
+import com.androidperformancestudio.battery.battery_app.generated.resources.interactive
+import com.androidperformancestudio.battery.battery_app.generated.resources.launch_app_automatically
+import com.androidperformancestudio.battery.battery_app.generated.resources.low_frequency_online
+import com.androidperformancestudio.battery.battery_app.generated.resources.package_uid
+import com.androidperformancestudio.battery.battery_app.generated.resources.package_uid_shared
+import com.androidperformancestudio.battery.battery_app.generated.resources.polling
+import com.androidperformancestudio.battery.battery_app.generated.resources.polling_value
+import com.androidperformancestudio.battery.battery_app.generated.resources.refresh
+import com.androidperformancestudio.battery.battery_app.generated.resources.repeated
+import com.androidperformancestudio.battery.battery_app.generated.resources.reset
+import com.androidperformancestudio.battery.battery_app.generated.resources.reset_global_batterystats
+import com.androidperformancestudio.battery.battery_app.generated.resources.run_experiment
+import com.androidperformancestudio.battery.battery_app.generated.resources.runs
+import com.androidperformancestudio.battery.battery_app.generated.resources.runs_value
+import com.androidperformancestudio.battery.battery_app.generated.resources.seconds_short
+import com.androidperformancestudio.battery.battery_app.generated.resources.stop_analyze
+import com.androidperformancestudio.battery.battery_app.generated.resources.this_clears_battery_statistics_and_battery_historian_history_for_every
+import com.androidperformancestudio.battery.battery_app.generated.resources.timed
 import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
 import com.androidperformancestudio.battery.presentation.BatteryProfilerScreen
@@ -47,11 +75,15 @@ import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.nio.file.Path
 import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -65,6 +97,8 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
     var experimentJob by remember { mutableStateOf<Job?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmBugreport by remember { mutableStateOf(false) }
+    val recentStore = remember { RecentBatteryAnalysisStore.desktop() }
+    var recentFiles by remember { mutableStateOf(recentStore.load()) }
 
     LaunchedEffect(controller) { controller.refreshDevices() }
     LaunchedEffect(state.isInteractiveActive, state.config.mode, state.config.pollingIntervalSeconds) {
@@ -75,6 +109,50 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             }
         }
     }
+
+    val openAnalysis: (Path) -> Unit = { input ->
+        scope.launch {
+            if (controller.importJson(input)) {
+                recentFiles = recentStore.record(input)
+            }
+        }
+    }
+    BatteryProfilerMenuBar(
+        model =
+            batteryProfilerMenuModel(
+                language = language,
+                recentFiles = recentFiles,
+                importEnabled = !state.isRunning,
+                jsonExportEnabled = state.analysis != null && state.experiment != null && !state.isRunning,
+                csvExportEnabled = state.analysis != null && !state.isRunning,
+                rawEvidenceExportEnabled = state.experiment != null && !state.isRunning,
+                resetEnabled = state.selectedDeviceSerial != null && !state.isRunning,
+            ),
+        onImport = {
+            chooseOpenJsonFile(window, language)?.let { file -> openAnalysis(file.toPath()) }
+        },
+        onExportJson = {
+            chooseSaveFile(window, "battery-analysis.json", language)?.let { file ->
+                scope.launch { controller.exportJson(file.toPath()) }
+            }
+        },
+        onExportCsv = {
+            chooseSaveFile(window, "battery-analysis.csv", language)?.let { file ->
+                scope.launch { controller.exportCsv(file.toPath()) }
+            }
+        },
+        onExportRawEvidence = {
+            chooseSaveFile(window, "battery-raw-evidence.zip", language)?.let { file ->
+                scope.launch { controller.exportRawBundle(file.toPath()) }
+            }
+        },
+        onOpenRecent = openAnalysis,
+        onClearRecent = {
+            recentStore.clear()
+            recentFiles = emptyList()
+        },
+        onResetStatistics = { confirmReset = true },
+    )
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
@@ -147,6 +225,14 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                     }
                 },
             )
+            Spacer(Modifier.weight(1f))
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.battery_historian, language),
+                enabled = state.selectedDeviceSerial != null && !state.isRunning,
+                onClick = {
+                    confirmBugreport = true
+                },
+            )
         }
         HorizontalDivider(
             thickness = 1.dp,
@@ -168,7 +254,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             )
             ProfilerCompactSelector(
                 label = localizedStringResource(Res.string.duration, language),
-                selectedLabel = localizedStringResource(Res.string.seconds_short, language, state.config.durationSeconds),
+                selectedLabel = localizedStringResource(Res.string.duration_value, language, state.config.durationSeconds),
                 options =
                     listOf(15, 30, 60, 120, 300, 600).map {
                         it.toString() to
@@ -179,7 +265,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             )
             ProfilerCompactSelector(
                 label = localizedStringResource(Res.string.polling, language),
-                selectedLabel = localizedStringResource(Res.string.seconds_short, language, state.config.pollingIntervalSeconds),
+                selectedLabel = localizedStringResource(Res.string.polling_value, language, state.config.pollingIntervalSeconds),
                 options =
                     listOf(5, 10, 15, 30, 60).map {
                         it.toString() to
@@ -192,7 +278,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             )
             ProfilerCompactSelector(
                 label = localizedStringResource(Res.string.runs, language),
-                selectedLabel = state.config.measuredRuns.toString(),
+                selectedLabel = localizedStringResource(Res.string.runs_value, language, state.config.measuredRuns),
                 options =
                     listOf(1, 3, 5, 10).map {
                         it.toString() to
@@ -209,53 +295,6 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                 },
             )
             Text(localizedStringResource(Res.string.launch_app_automatically, language))
-        }
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = MaterialTheme.colorScheme.outline,
-        )
-        ProfilerMacOsSecondaryToolbar {
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_json, language),
-                enabled = state.analysis != null && !state.isRunning,
-                onClick = {
-                    chooseSaveFile(window, "battery-analysis.json", language)?.let { file ->
-                        scope.launch { controller.exportJson(file.toPath()) }
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, language),
-                enabled = state.analysis != null && !state.isRunning,
-                onClick = {
-                    chooseSaveFile(window, "battery-analysis.csv", language)?.let { file ->
-                        scope.launch { controller.exportCsv(file.toPath()) }
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_raw_bundle, language),
-                enabled = state.analysis != null && !state.isRunning,
-                onClick = {
-                    chooseSaveFile(window, "battery-raw-evidence.zip", language)?.let { file ->
-                        scope.launch { controller.exportRawBundle(file.toPath()) }
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.battery_historian, language),
-                enabled = state.selectedDeviceSerial != null && !state.isRunning,
-                onClick = {
-                    confirmBugreport = true
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.advanced_reset_stats, language),
-                enabled = state.selectedDeviceSerial != null && !state.isRunning,
-                onClick = {
-                    confirmReset = true
-                },
-            )
             Spacer(Modifier.weight(1f))
             ProfilerToolbarStatus(state.operationMessage, state.errorMessage)
         }
@@ -293,7 +332,11 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                     scope.launch { controller.resetStatistics() }
                 }) { Text(localizedStringResource(Res.string.reset, language)) }
             },
-            dismissButton = { OutlinedButton(onClick = { confirmReset = false }) { Text(localizedStringResource(Res.string.cancel, language)) } },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { confirmReset = false },
+                ) { Text(localizedStringResource(Res.string.cancel, language)) }
+            },
         )
     }
     if (confirmBugreport) {
@@ -313,7 +356,11 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                     }
                 }) { Text(localizedStringResource(Res.string.choose_location, language)) }
             },
-            dismissButton = { OutlinedButton(onClick = { confirmBugreport = false }) { Text(localizedStringResource(Res.string.cancel, language)) } },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { confirmBugreport = false },
+                ) { Text(localizedStringResource(Res.string.cancel, language)) }
+            },
         )
     }
 }
@@ -335,4 +382,15 @@ private fun chooseSaveFile(
         dialogTitle = localizedStringResource(Res.string.battery_energy_profiler, language)
         selectedFile = File(defaultName)
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
+    }
+
+private fun chooseOpenJsonFile(
+    parent: java.awt.Component,
+    language: UiLanguage,
+): File? =
+    JFileChooser().run {
+        dialogTitle = localizedStringResource(Res.string.import_analysis, language)
+        fileFilter = FileNameExtensionFilter("JSON (*.json)", "json")
+        isAcceptAllFileFilterUsed = false
+        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }

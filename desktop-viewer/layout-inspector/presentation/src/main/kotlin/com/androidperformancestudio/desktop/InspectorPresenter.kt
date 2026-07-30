@@ -1,12 +1,16 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.analysis.Severity
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.application.ConnectionStatus
 import com.androidperformancestudio.application.InspectorState
 import com.androidperformancestudio.application.textContent
 import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.UiNode
 import com.androidperformancestudio.protocol.ViewNode
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 
 data class TreeRowModel(
     val id: String,
@@ -81,9 +85,12 @@ data class InspectorScreenModel(
 )
 
 internal object InspectorPresenter {
+    private val authorizedDeviceCountError =
+        Regex("""Expected exactly one authorized device, found (\d+)""")
+
     fun present(
         state: InspectorState,
-        strings: ViewerStrings = ViewerStrings.English,
+        language: UiLanguage = UiLanguage.ENGLISH,
     ): InspectorScreenModel {
         val nodeNumbers = mutableMapOf<String, String>()
         val nextIndexByDepth = mutableMapOf<Int, Int>()
@@ -103,13 +110,14 @@ internal object InspectorPresenter {
         val findingRows = findings.mapIndexed { index, finding ->
             FindingRowModel(
                 key = "${finding.ruleId}:${finding.nodeId}:$index",
-                title = strings.findingTitle(finding.ruleId),
+                title = findingTitle(finding.ruleId, language),
                 nodeNumber = nodeNumbers[finding.nodeId] ?: "—",
                 nodeId = finding.nodeId,
-                message = strings.findingMessage(
+                message = findingMessage(
                     ruleId = finding.ruleId,
                     arguments = finding.arguments,
                     fallback = finding.message,
+                    language = language,
                 ),
                 tone = finding.severity.toTone(),
             )
@@ -139,7 +147,7 @@ internal object InspectorPresenter {
                             ?.depth
                             ?.plus(1)
                             ?: 1,
-                        strings = strings,
+                        language = language,
                     ),
                 )
             } ?: NodeDetailsModel(),
@@ -149,27 +157,51 @@ internal object InspectorPresenter {
                 error = findingRows.count { it.tone == FindingTone.ERROR },
             ),
             findings = findingRows,
-            metricsText = strings.metrics(metrics.nodeCount, metrics.maxDepth, metrics.widestLevel),
-            timelineText = state.timelineDiff?.let { strings.timelineDiff(it.addedNodes, it.removedNodes, it.boundsChangedNodes) },
+            metricsText = localizedStringResource(
+                Res.string.metrics_summary,
+                language,
+                metrics.nodeCount,
+                metrics.maxDepth,
+                metrics.widestLevel,
+            ),
+            timelineText = state.timelineDiff?.let {
+                localizedStringResource(
+                    Res.string.timeline_diff,
+                    language,
+                    it.addedNodes,
+                    it.removedNodes,
+                    it.boundsChangedNodes,
+                )
+            },
             timelineFrames = state.timelineFrames.map { frame ->
                 TimelineFrameModel(
                     index = frame.index,
                     label = "#${frame.index}",
                     summary = frame.diffFromPrevious?.let { diff ->
-                        strings.timelineFrameSummary(diff.addedNodes, diff.removedNodes, diff.boundsChangedNodes)
-                    } ?: strings.timelineBaseline,
+                        localizedStringResource(
+                            Res.string.timeline_frame_summary,
+                            language,
+                            diff.addedNodes,
+                            diff.removedNodes,
+                            diff.boundsChangedNodes,
+                        )
+                    } ?: localizedStringResource(Res.string.timeline_baseline, language),
                     selected = frame.index == state.selectedTimelineFrameIndex,
                 )
             },
-            emptyMessage = if (state.snapshot == null) strings.noSnapshotLoaded else null,
+            emptyMessage = if (state.snapshot == null) {
+                localizedStringResource(Res.string.no_snapshot_loaded, language)
+            } else {
+                null
+            },
             connectionLabel = when (state.connectionStatus) {
-                ConnectionStatus.DISCONNECTED -> strings.disconnected
-                ConnectionStatus.CONNECTING -> strings.connecting
-                ConnectionStatus.CONNECTED -> strings.live
-                ConnectionStatus.ARCHIVE -> strings.offlineArchive
+                ConnectionStatus.DISCONNECTED -> localizedStringResource(Res.string.disconnected, language)
+                ConnectionStatus.CONNECTING -> localizedStringResource(Res.string.connecting, language)
+                ConnectionStatus.CONNECTED -> localizedStringResource(Res.string.live, language)
+                ConnectionStatus.ARCHIVE -> localizedStringResource(Res.string.offline_archive, language)
                 ConnectionStatus.ERROR -> state.connectionError
-                    ?.let(strings::connectionError)
-                    ?: strings.connectionFailed
+                    ?.let { localizeConnectionError(it, language) }
+                    ?: localizedStringResource(Res.string.connection_failed, language)
             },
             connectionTone = when (state.connectionStatus) {
                 ConnectionStatus.DISCONNECTED,
@@ -182,6 +214,62 @@ internal object InspectorPresenter {
             windows = state.windows.map { WindowChoiceModel(it.id, it.title) },
             selectedWindowId = state.activeWindow?.id,
         )
+    }
+
+    private fun findingTitle(ruleId: String, language: UiLanguage): String = when (ruleId) {
+        "layout.invisible-node" -> localizedStringResource(Res.string.finding_invisible_node, language)
+        "layout.excessive-children" -> localizedStringResource(Res.string.finding_excessive_children, language)
+        "layout.overlapping-siblings" -> localizedStringResource(Res.string.finding_overlapping_siblings, language)
+        "layout.deep-hierarchy" -> localizedStringResource(Res.string.finding_deep_hierarchy, language)
+        else -> ruleId
+    }
+
+    private fun findingMessage(
+        ruleId: String,
+        arguments: Map<String, String>,
+        fallback: String,
+        language: UiLanguage,
+    ): String = when (ruleId) {
+        "layout.invisible-node" -> arguments["className"]?.let { className ->
+            localizedStringResource(Res.string.finding_invisible_node_message, language, className)
+        }
+        "layout.excessive-children" -> {
+            val count = arguments["count"]
+            val threshold = arguments["threshold"]
+            if (count != null && threshold != null) {
+                localizedStringResource(Res.string.finding_excessive_children_message, language, count, threshold)
+            } else {
+                null
+            }
+        }
+        "layout.overlapping-siblings" -> {
+            val count = arguments["count"]
+            val ratio = arguments["ratioPercent"]
+            if (count != null && ratio != null) {
+                localizedStringResource(Res.string.finding_overlapping_siblings_message, language, count, ratio)
+            } else {
+                null
+            }
+        }
+        "layout.deep-hierarchy" -> {
+            val depth = arguments["depth"]
+            val threshold = arguments["threshold"]
+            if (depth != null && threshold != null) {
+                localizedStringResource(Res.string.finding_deep_hierarchy_message, language, depth, threshold)
+            } else {
+                null
+            }
+        }
+        else -> null
+    } ?: fallback
+
+    private fun localizeConnectionError(message: String, language: UiLanguage): String {
+        val deviceCount = authorizedDeviceCountError
+            .matchEntire(message)
+            ?.groupValues
+            ?.get(1)
+            ?: return message
+        return localizedStringResource(Res.string.connection_error_device_count, language, deviceCount)
     }
 
     private fun Severity.toTone(): FindingTone = when (this) {

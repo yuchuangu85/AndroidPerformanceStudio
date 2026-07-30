@@ -22,6 +22,8 @@ import java.time.Instant
 import java.util.zip.ZipFile
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
 class BatteryExportersTest {
@@ -82,5 +84,95 @@ class BatteryExportersTest {
         assertContains(Files.readString(json), "\"schemaVersion\": 1")
         assertContains(Files.readString(csv), "wakelock")
         ZipFile(zip.toFile()).use { assertNotNull(it.getEntry("run-1/snapshot-0/checkin.txt")) }
+    }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `imports exported json as a reusable analysis`() {
+        val directory = Files.createTempDirectory("battery-import")
+        val session =
+            BatterySession(
+                "session",
+                "serial",
+                "pkg",
+                10123,
+                AttributionScope.UID,
+                BatteryExperimentConfig(),
+                BatteryCapabilities(BatteryCapabilityLevel.RESOURCE_BASIC, true, false, false, false, true),
+                BatteryEnvironment(BatteryDeviceState()),
+                Instant.EPOCH,
+            )
+        val snapshot =
+            BatterySnapshot(
+                "baseline",
+                "session",
+                0,
+                Instant.EPOCH,
+                null,
+                "boot",
+                UidBatteryStats(10123),
+                BatteryDeviceState(),
+                rawEvidence = BatteryRawEvidence("", "", ""),
+            )
+        val run = BatteryRun("run", "session", 1, snapshot, emptyList(), snapshot.copy(id = "final", sequence = 1))
+        val delta =
+            BatteryRunDelta(
+                "run",
+                "session",
+                1,
+                2_000,
+                listOf(ResourceTimer("lock", 20, 2)),
+                emptyList(),
+                emptyList(),
+                emptyList(),
+                NetworkUsage(wifiRxBytes = 42),
+                emptyList(),
+                emptyList(),
+                listOf("run warning"),
+            )
+        val statistics = BatteryStatistics(1, 0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0)
+        val analysis =
+            BatteryAnalysisResult(
+                listOf(delta),
+                statistics,
+                statistics,
+                statistics,
+                statistics,
+                statistics,
+                statistics,
+                listOf("analysis warning"),
+            )
+        val json = directory.resolve("report.json")
+        BatteryJsonExporter().export(BatteryExperimentResult(session, listOf(run)), analysis, json)
+
+        val imported = BatteryJsonImporter().import(json)
+
+        assertEquals(1, imported.runs.size)
+        assertEquals("run", imported.runs.single().runId)
+        assertEquals(
+            20,
+            imported.runs
+                .single()
+                .wakelocks
+                .single()
+                .durationMs,
+        )
+        assertEquals(
+            42,
+            imported.runs
+                .single()
+                .network.totalBytes,
+        )
+        assertEquals(listOf("analysis warning"), imported.warnings)
+        assertEquals(20.0, imported.wakelockDurationMs.mean)
+        assertEquals(42.0, imported.networkBytes.mean)
+    }
+
+    @Test
+    fun `rejects unsupported json schema`() {
+        val json = Files.createTempFile("battery-import-unsupported", ".json")
+        Files.writeString(json, """{"schemaVersion":2,"sessionId":"s","runs":[]}""")
+
+        assertFailsWith<IllegalArgumentException> { BatteryJsonImporter().import(json) }
     }
 }

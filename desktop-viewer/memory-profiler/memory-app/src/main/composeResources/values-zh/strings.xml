@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="file">文件</string>
+    <string name="export">导出</string>
     <string name="back_to_home">返回主页</string>
     <string name="refresh_devices">刷新设备</string>
     <string name="export_raw_hprof">导出原始 HPROF</string>
@@ -11,7 +13,8 @@
     <string name="importing">Importing %1$s…</string>
     <string name="importing_ad13e4da">Importing %1$s… %2$s%%</string>
     <string name="export_memory_profiler_data">Export Memory Profiler Data</string>
-    <string name="import_hprof">Import HPROF</string>
+    <string name="import_hprof">导入 HPROF</string>
+    <string name="import_hprof_menu">导入 HPROF…</string>
     <string name="unable_to_list_android_devices">Unable to list Android devices</string>
     <string name="unable_to_list_device_processes">Unable to list device processes</string>
     <string name="heap_dump_failed">Heap dump failed</string>

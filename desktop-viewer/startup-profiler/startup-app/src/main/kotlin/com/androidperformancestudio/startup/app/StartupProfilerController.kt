@@ -2,20 +2,29 @@
 
 package com.androidperformancestudio.startup.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.startup.startup_app.generated.resources.Res
-import com.androidperformancestudio.startup.startup_app.generated.resources.*
-
 import com.androidperformancestudio.startup.analysis.StartupAnalyzer
 import com.androidperformancestudio.startup.export.StartupCsvExporter
 import com.androidperformancestudio.startup.export.StartupJsonExporter
+import com.androidperformancestudio.startup.export.StartupJsonImporter
 import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.StartupProfilerState
 import com.androidperformancestudio.startup.presentation.withCompilationMode
 import com.androidperformancestudio.startup.presentation.withStartupType
+import com.androidperformancestudio.startup.startup_app.generated.resources.Res
+import com.androidperformancestudio.startup.startup_app.generated.resources.exported_report_to
+import com.androidperformancestudio.startup.startup_app.generated.resources.format_export_failed
+import com.androidperformancestudio.startup.startup_app.generated.resources.found_launchable_activities
+import com.androidperformancestudio.startup.startup_app.generated.resources.import_failed
+import com.androidperformancestudio.startup.startup_app.generated.resources.imported_analysis
+import com.androidperformancestudio.startup.startup_app.generated.resources.preparing_startup_experiment
+import com.androidperformancestudio.startup.startup_app.generated.resources.session_persistence_failed
+import com.androidperformancestudio.startup.startup_app.generated.resources.startup_experiment_cancelled
+import com.androidperformancestudio.startup.startup_app.generated.resources.startup_experiment_completed_measured_runs
+import com.androidperformancestudio.startup.startup_app.generated.resources.startup_experiment_failed
 import com.androidperformancestudio.startup.storage.SqliteStartupSessionStore
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +42,7 @@ internal class StartupProfilerController(
     private val databaseFile: Path = defaultDatabaseFile(),
 ) {
     private val mutableState = MutableStateFlow(StartupProfilerState())
+    private val jsonImporter = StartupJsonImporter()
 
     val state: StateFlow<StartupProfilerState> = mutableState.asStateFlow()
 
@@ -159,11 +169,15 @@ internal class StartupProfilerController(
                     selectedRunId = analysis.runs.firstOrNull()?.id,
                     isRunning = false,
                     completedRuns = snapshot.config.warmupRuns + snapshot.config.measuredRuns,
-                    operationMessage = localizedStringResource(Res.string.startup_experiment_completed_measured_runs, language, analysis.runs.size),
+                    operationMessage = completedExperimentMessage(analysis.runs.size),
                     warnings = (result.warnings + analysis.warnings + listOfNotNull(persistenceWarning)).distinct(),
                 )
         } catch (exception: CancellationException) {
-            mutableState.value = mutableState.value.copy(isRunning = false, operationMessage = localizedStringResource(Res.string.startup_experiment_cancelled, language))
+            mutableState.value =
+                mutableState.value.copy(
+                    isRunning = false,
+                    operationMessage = localizedStringResource(Res.string.startup_experiment_cancelled, language),
+                )
             throw exception
         } catch (exception: Exception) {
             mutableState.value =
@@ -181,6 +195,36 @@ internal class StartupProfilerController(
         ) {
             mutableState.value = mutableState.value.copy(selectedRunId = runId)
         }
+    }
+
+    suspend fun importJson(input: Path): Boolean {
+        if (mutableState.value.isRunning) return false
+        return runCatching { withContext(Dispatchers.IO) { jsonImporter.import(input) } }
+            .fold(
+                onSuccess = { analysis ->
+                    mutableState.value =
+                        mutableState.value.copy(
+                            analysis = analysis,
+                            baseline = null,
+                            selectedRunId = analysis.runs.firstOrNull()?.id,
+                            completedRuns = 0,
+                            totalRuns = 0,
+                            operationMessage = localizedStringResource(Res.string.imported_analysis, language, input.fileName),
+                            warnings = analysis.warnings,
+                            errorMessage = null,
+                        )
+                    true
+                },
+                onFailure = { exception ->
+                    mutableState.value =
+                        mutableState.value.copy(
+                            errorMessage =
+                                exception.message
+                                    ?: localizedStringResource(Res.string.import_failed, language),
+                        )
+                    false
+                },
+            )
     }
 
     suspend fun exportCsv(output: Path) {
@@ -201,7 +245,16 @@ internal class StartupProfilerController(
         runCatching { withContext(Dispatchers.IO) { block() } }
             .onSuccess {
                 mutableState.value =
-                    mutableState.value.copy(operationMessage = localizedStringResource(Res.string.exported_report_to, language, format, output.fileName), errorMessage = null)
+                    mutableState.value.copy(
+                        operationMessage =
+                            localizedStringResource(
+                                Res.string.exported_report_to,
+                                language,
+                                format,
+                                output.fileName,
+                            ),
+                        errorMessage = null,
+                    )
             }.onFailure {
                 mutableState.value =
                     mutableState.value.copy(
@@ -219,6 +272,13 @@ internal class StartupProfilerController(
                 .exceptionOrNull()
                 ?.let { localizedStringResource(Res.string.session_persistence_failed, language, it.message) }
         }
+
+    private fun completedExperimentMessage(runCount: Int): String =
+        localizedStringResource(
+            Res.string.startup_experiment_completed_measured_runs,
+            language,
+            runCount,
+        )
 
     private companion object {
         fun defaultDatabaseFile(): Path =

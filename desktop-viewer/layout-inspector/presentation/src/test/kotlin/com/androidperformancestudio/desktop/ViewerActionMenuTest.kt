@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test
 class ViewerActionMenuTest {
     @Test
     fun `menu exposes operations with their shortcuts in stable groups`() {
-        val strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE)
+        val language = UiLanguage.SIMPLIFIED_CHINESE
 
         assertEquals(
             listOf(
@@ -23,11 +23,11 @@ class ViewerActionMenuTest {
                 Triple(ViewerAction.TOGGLE_HIERARCHY_IDS, "显示布局 ID", ""),
                 Triple(ViewerAction.OPEN_SETTINGS, "设置", "⌘, / Ctrl+,"),
             ),
-            ViewerActionMenu.items(strings).map { Triple(it.action, it.label, it.shortcutLabel) },
+            ViewerActionMenu.items(language).map { Triple(it.action, it.label, it.shortcutLabel) },
         )
         assertEquals(
             listOf(0, 1, 1, 1, 2, 2, 2, 3, 4),
-            ViewerActionMenu.items(strings).map { it.group },
+            ViewerActionMenu.items(language).map { it.group },
         )
     }
 

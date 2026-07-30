@@ -5,8 +5,6 @@ import com.androidperformancestudio.application.TimelineDiff
 import com.androidperformancestudio.application.TimelineFrame
 import com.androidperformancestudio.application.TimelineNodeChange
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 internal class TimelineHistoryJson(

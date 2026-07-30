@@ -12,9 +12,17 @@
     <string name="polling">Polling</string>
     <string name="runs">Runs</string>
     <string name="launch_app_automatically">Launch app automatically</string>
+    <string name="file">File</string>
+    <string name="import_analysis">Import…</string>
+    <string name="export">Export</string>
+    <string name="open_recent">Open Recent</string>
+    <string name="no_recent_files">No Recent Files</string>
+    <string name="clear_recent">Clear Menu</string>
+    <string name="advanced">Advanced</string>
+    <string name="reset_statistics">Reset Statistics</string>
     <string name="export_json">Export JSON</string>
     <string name="export_csv">Export CSV</string>
-    <string name="export_raw_bundle">Export Raw Bundle</string>
+    <string name="export_raw_bundle">Export Raw Evidence</string>
     <string name="advanced_reset_stats">Advanced: Reset Stats</string>
     <string name="reset_global_batterystats">Reset global batterystats?</string>
     <string name="this_clears_battery_statistics_and_battery_historian_history_for_every">This clears battery statistics and Battery Historian history for every app on the device. It cannot be undone and is not required for normal experiments.</string>
@@ -43,6 +51,9 @@
     <string name="package_uid">%1$s · UID %2$s</string>
     <string name="package_uid_shared">%1$s · UID %2$s · shared</string>
     <string name="seconds_short">%1$ss</string>
+    <string name="duration_value">Duration: %1$ss</string>
+    <string name="polling_value">Polling interval: %1$ss</string>
+    <string name="runs_value">Measured runs: %1$s</string>
     <string name="battery_historian">Battery Historian</string>
     <string name="unable_to_start_battery_experiment">Unable to start battery experiment.</string>
     <string name="online_sample_failed">Online sample failed: %1$s</string>
@@ -52,4 +63,6 @@
     <string name="session_persistence_failed">Analysis succeeded, but session persistence failed: %1$s</string>
     <string name="export_failed">%1$s export failed.</string>
     <string name="raw_bundle">raw bundle</string>
+    <string name="imported_analysis">Imported battery analysis: %1$s.</string>
+    <string name="import_failed">Battery analysis import failed.</string>
 </resources>

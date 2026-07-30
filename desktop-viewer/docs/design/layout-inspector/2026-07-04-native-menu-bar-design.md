@@ -92,7 +92,7 @@ settings or export implementation is introduced.
 
 ## Localization
 
-Actions, Advanced, and every child item use the active `ViewerStrings`
+Actions, Advanced, and every child item use the active Compose Resources `Res.string`
 language. The macOS Settings item uses system-owned wording, consistent with
 the host OS language and application-menu conventions.
 

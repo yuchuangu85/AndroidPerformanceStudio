@@ -8,6 +8,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.*
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -23,7 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
+import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerScreen
+import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSelectors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
@@ -53,30 +56,48 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         highlightClassName?.let(controller::highlightClass)
     }
 
+    MemoryProfilerFileMenuBar(
+        model =
+            memoryProfilerFileMenuModel(
+                language = language,
+                importEnabled = !state.isDumping,
+                rawHprofExportEnabled = loaded?.heapDump?.rawHprofFile != null,
+                standardHprofExportEnabled = loaded?.heapDump?.convertedHprofFile != null,
+                csvExportEnabled = loaded != null,
+            ),
+        onImportHprof = { showHprofFileDialog = true },
+        onExportRawHprof = {
+            chooseSaveFile(window, "heap-raw.hprof", language)?.let(controller::exportRaw)
+        },
+        onExportStandardHprof = {
+            chooseSaveFile(window, "heap-standard.hprof", language)?.let(controller::exportConverted)
+        },
+        onExportCsv = {
+            chooseSaveFile(window, "class-histogram.csv", language)?.let(controller::exportHistogram)
+        },
+    )
+
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             ProfilerHomeButton(
                 contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = onBack,
             )
+            MemoryProfilerToolbarSelectors(
+                state = state,
+                onSelectDevice = { serial -> scope.launch { controller.selectDevice(serial) } },
+                onSelectProcess = controller::selectProcess,
+                language = language,
+            )
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.refresh_devices, language),
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_raw_hprof, language),
-                enabled = loaded?.heapDump?.rawHprofFile != null,
-                onClick = { chooseSaveFile(window, "heap-raw.hprof", language)?.let(controller::exportRaw) },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_standard_hprof, language),
-                enabled = loaded?.heapDump?.convertedHprofFile != null,
-                onClick = { chooseSaveFile(window, "heap-standard.hprof", language)?.let(controller::exportConverted) },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, language),
-                enabled = loaded != null,
-                onClick = { chooseSaveFile(window, "class-histogram.csv", language)?.let(controller::exportHistogram) },
+            Spacer(Modifier.weight(1f))
+            MemoryProfilerDumpHeapButton(
+                state = state,
+                onDumpHeap = { scope.launch { controller.dumpHeap() } },
+                language = language,
             )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -84,10 +105,6 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             state = state,
             actions =
                 MemoryProfilerActions(
-                    onSelectDevice = { serial -> scope.launch { controller.selectDevice(serial) } },
-                    onSelectProcess = controller::selectProcess,
-                    onDumpHeap = { scope.launch { controller.dumpHeap() } },
-                    onImportHprof = { showHprofFileDialog = true },
                     onSortHistogram = controller::sort,
                     onRetry = { scope.launch { controller.refreshDevices() } },
                     onHighlightClass = controller::highlightClass,

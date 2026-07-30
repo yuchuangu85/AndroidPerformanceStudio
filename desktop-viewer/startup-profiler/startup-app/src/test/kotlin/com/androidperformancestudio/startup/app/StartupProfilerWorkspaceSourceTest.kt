@@ -15,10 +15,15 @@ class StartupProfilerWorkspaceSourceTest {
 
     @Test
     fun `workspace separates actions from experiment configuration without changing startup screen`() {
+        assertTrue(source.contains("StartupProfilerFileMenuBar("))
+        assertTrue(source.contains("onImport ="))
+        assertTrue(source.contains("controller.importJson"))
         assertTrue(source.contains("ProfilerMacOsToolbar"))
         assertTrue(source.contains("ProfilerMacOsSecondaryToolbar"))
         assertTrue(source.contains("ProfilerCompactSelector"))
         assertTrue(source.contains("ProfilerToolbarStatus"))
+        assertFalse(source.contains("text = localizedStringResource(Res.string.export_csv"))
+        assertFalse(source.contains("text = localizedStringResource(Res.string.export_json"))
         assertFalse(source.contains("private fun Selector("))
         assertFalse(source.contains("import androidx.compose.material3.OutlinedButton"))
         assertFalse(source.contains("import androidx.compose.material3.Button"))

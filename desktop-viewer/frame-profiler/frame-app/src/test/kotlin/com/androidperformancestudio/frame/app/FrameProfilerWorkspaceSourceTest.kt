@@ -15,6 +15,7 @@ class FrameProfilerWorkspaceSourceTest {
     @Test
     fun `workspace uses shared compact chrome without changing frame screen`() {
         assertTrue(source.contains("ProfilerMacOsToolbar"))
+        assertTrue(source.contains("FrameProfilerFileMenuBar("))
         assertTrue(source.contains("ProfilerCompactSelector"))
         assertTrue(source.contains("ProfilerToolbarStatus"))
         assertFalse(source.contains("private fun TargetSelector("))
@@ -24,7 +25,7 @@ class FrameProfilerWorkspaceSourceTest {
     }
 
     @Test
-    fun `toolbar preserves capture import export and navigation wiring`() {
+    fun `toolbar preserves capture and navigation wiring`() {
         val homeBlock =
             source.substring(
                 source.indexOf("ProfilerHomeButton("),
@@ -44,21 +45,6 @@ class FrameProfilerWorkspaceSourceTest {
             "enabled = state.selectedProcessId != null",
             "if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()",
         )
-        assertBlockContains(
-            "localizedStringResource(Res.string.import_framestats, language)",
-            "enabled = !state.isCapturing",
-            "showImportDialog = true",
-        )
-        assertBlockContains(
-            "localizedStringResource(Res.string.export_csv, language)",
-            "enabled = state.analysis != null",
-            "controller.exportCsv(output.toPath())",
-        )
-        assertBlockContains(
-            "localizedStringResource(Res.string.export_json, language)",
-            "enabled = state.analysis != null",
-            "controller.exportJson(output.toPath())",
-        )
         assertTrue(
             source.contains(
                 "selected?.let { file -> scope.launch { controller.importFrameStats(file.toPath()) } }",
@@ -66,6 +52,22 @@ class FrameProfilerWorkspaceSourceTest {
         )
         assertTrue(source.contains("if (controller.state.value.isCapturing) controller.stopOnlineCapture()"))
         assertTrue(source.contains("onOpenLayoutInspector("))
+    }
+
+    @Test
+    fun `file actions are wired through the menu and removed from the toolbar`() {
+        val toolbar =
+            source.substring(
+                source.indexOf("ProfilerMacOsToolbar {"),
+                source.indexOf("HorizontalDivider(", source.indexOf("ProfilerMacOsToolbar {")),
+            )
+
+        assertFalse(toolbar.contains("Res.string.import_framestats"))
+        assertFalse(toolbar.contains("Res.string.export_csv"))
+        assertFalse(toolbar.contains("Res.string.export_json"))
+        assertTrue(source.contains("onImportFrameStats = { showImportDialog = true }"))
+        assertTrue(source.contains("controller.exportCsv(output.toPath())"))
+        assertTrue(source.contains("controller.exportJson(output.toPath())"))
     }
 
     @Test

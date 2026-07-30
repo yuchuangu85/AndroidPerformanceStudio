@@ -80,7 +80,7 @@ Temporary files are cleaned up on failure.
 ## Localization
 
 All new visible strings support English and Simplified Chinese through the
-existing `ViewerStrings` mechanism:
+existing Compose Resources `Res.string` mechanism:
 
 - Advanced / 高级
 - Export Visible Window Views… / 导出 Visible Window Views…

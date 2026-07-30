@@ -21,6 +21,7 @@ java {
 
 compose.resources {
     packageOfResClass = "com.androidperformancestudio.presentation.generated.resources"
+    publicResClass = true
 }
 
 dependencies {

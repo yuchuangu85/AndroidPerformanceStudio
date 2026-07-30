@@ -6,6 +6,9 @@
     <string name="refresh">刷新</string>
     <string name="stop_experiment">停止实验</string>
     <string name="run_experiment">开始实验</string>
+    <string name="file">文件</string>
+    <string name="import_report">导入…</string>
+    <string name="export">导出</string>
     <string name="export_csv">导出 CSV</string>
     <string name="export_json">导出 JSON</string>
     <string name="startup_type">启动类型</string>
@@ -23,6 +26,9 @@
     <string name="startup_experiment_cancelled">Startup experiment cancelled.</string>
     <string name="exported_report_to">Exported %1$s report to %2$s.</string>
     <string name="export_startup_profiler_report">Export Startup Profiler Report</string>
+    <string name="import_startup_profiler_report">导入 Startup Profiler 报告</string>
+    <string name="imported_analysis">已从 %1$s 导入分析。</string>
+    <string name="import_failed">Startup Profiler 导入失败。</string>
     <string name="package_agent">%1$s · Agent</string>
     <string name="package_activity">%1$s · %2$s</string>
     <string name="seconds_short">%1$ss</string>

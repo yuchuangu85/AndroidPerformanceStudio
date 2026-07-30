@@ -1,5 +1,7 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.analysis.AiAnalysisReport
+import com.androidperformancestudio.analysis.AiFinding
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.analysis.AnalysisReport
 import com.androidperformancestudio.analysis.Finding
@@ -83,7 +85,7 @@ class InspectorPresenterTest {
 
         val model = InspectorPresenter.present(
             store.state,
-            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+            UiLanguage.SIMPLIFIED_CHINESE,
         )
 
         assertEquals("android.widget.TextView", model.details.className)
@@ -223,7 +225,7 @@ class InspectorPresenterTest {
                 snapshot = SampleSnapshots.dashboard,
                 selectedNodeId = "root",
             ),
-            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+            UiLanguage.SIMPLIFIED_CHINESE,
         ).details
 
         assertEquals(
@@ -369,10 +371,10 @@ class InspectorPresenterTest {
     fun `offline archive has a neutral localized connection status`() {
         val state = InspectorState(connectionStatus = ConnectionStatus.ARCHIVE)
 
-        val english = InspectorPresenter.present(state, ViewerStrings.English)
+        val english = InspectorPresenter.present(state, UiLanguage.ENGLISH)
         val chinese = InspectorPresenter.present(
             state,
-            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+            UiLanguage.SIMPLIFIED_CHINESE,
         )
 
         assertEquals("Offline archive", english.connectionLabel)
@@ -387,7 +389,7 @@ class InspectorPresenterTest {
                 connectionStatus = ConnectionStatus.ERROR,
                 connectionError = "Expected exactly one authorized device, found 0",
             ),
-            ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+            UiLanguage.SIMPLIFIED_CHINESE,
         )
 
         assertEquals(
@@ -421,11 +423,11 @@ class InspectorPresenterTest {
                 metrics = LayoutMetrics(nodeCount = 5, maxDepth = 3, widestLevel = 2),
                 findings = listOf(Finding("rule", Severity.INFO, "root", "rule finding")),
             ),
-            aiAnalysis = com.androidperformancestudio.analysis.AiAnalysisReport(
+            aiAnalysis = AiAnalysisReport(
                 model = "gpt-test",
                 summary = "summary",
                 findings = listOf(
-                    com.androidperformancestudio.analysis.AiFinding(
+                    AiFinding(
                         ruleId = "ai.layout",
                         severity = Severity.WARNING,
                         nodeId = "title",

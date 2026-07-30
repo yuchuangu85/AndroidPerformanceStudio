@@ -3,7 +3,6 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -11,37 +10,14 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.LeakSuspect
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class MemoryProfilerScreenTest {
     @Test
-    fun `toolbar controls use layout inspector compact heights`() =
-        runDesktopComposeUiTest(width = 1000, height = 700) {
-            setContent {
-                MemoryProfilerScreen(
-                    state = loadedState(),
-                    actions = MemoryProfilerActions(),
-                )
-            }
-
-            val device = onNodeWithContentDescription("Device selector").fetchSemanticsNode().boundsInRoot
-            val process = onNodeWithContentDescription("Process selector").fetchSemanticsNode().boundsInRoot
-            val dump = onNodeWithText("Dump Heap").fetchSemanticsNode().boundsInRoot
-            val import = onNodeWithText("Import hprof").fetchSemanticsNode().boundsInRoot
-
-            assertEquals(29, MEMORY_TOOLBAR_HEIGHT_DP)
-            assertEquals(22, MEMORY_TOOLBAR_BUTTON_HEIGHT_DP)
-            assertTrue(device.height <= MEMORY_TOOLBAR_BUTTON_HEIGHT_DP + 1f)
-            assertEquals(device.height, process.height)
-            assertEquals(device.height, dump.height)
-            assertEquals(device.height, import.height)
-        }
-
-    @Test
-    fun `initial state displays selectors dump and import entry`() =
+    fun `content does not duplicate toolbar or file actions`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
             setContent {
                 MemoryProfilerScreen(
@@ -50,10 +26,10 @@ class MemoryProfilerScreenTest {
                 )
             }
 
-            onNodeWithContentDescription("Device selector").assertExists()
-            onNodeWithContentDescription("Process selector").assertExists()
-            onNodeWithText("Dump Heap").assertExists().assertIsNotEnabled()
-            onNodeWithText("Import hprof").assertExists()
+            onNodeWithContentDescription("Device selector").assertDoesNotExist()
+            onNodeWithContentDescription("Process selector").assertDoesNotExist()
+            onNodeWithText("Dump Heap").assertDoesNotExist()
+            onNodeWithText("Import hprof").assertDoesNotExist()
         }
 
     @Test
@@ -79,7 +55,31 @@ class MemoryProfilerScreenTest {
         }
 
     @Test
-    fun `busy state disables import and shows progress feedback`() =
+    fun `leak suspect confidence renders a literal percent sign`() =
+        runDesktopComposeUiTest(width = 1000, height = 700) {
+            setContent {
+                MemoryProfilerScreen(
+                    state =
+                        loadedState().copy(
+                            leakSuspects =
+                                listOf(
+                                    LeakSuspect(
+                                        className = "com.example.LeakingActivity",
+                                        reason = "Retained by singleton",
+                                        retainedSize = 2L * 1024L,
+                                        confidence = 0.85f,
+                                    ),
+                                ),
+                        ),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            onNodeWithText("retained 2.0 KB · confidence 85%").assertExists()
+        }
+
+    @Test
+    fun `busy state shows progress feedback without an import button`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
             setContent {
                 MemoryProfilerScreen(
@@ -92,13 +92,13 @@ class MemoryProfilerScreenTest {
                 )
             }
 
-            onNodeWithText("Working…").assertExists().assertIsNotEnabled()
+            onNodeWithText("Working…").assertDoesNotExist()
             onNodeWithText("In progress").assertExists()
             onNodeWithText("Importing sample.hprof…").assertExists()
         }
 
     @Test
-    fun `toolbar selectors dump import and sort actions are wired`() =
+    fun `sort actions are wired`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
             val events = mutableListOf<String>()
             setContent {
@@ -106,26 +106,16 @@ class MemoryProfilerScreenTest {
                     state = loadedState(),
                     actions =
                         MemoryProfilerActions(
-                            onSelectDevice = { events += "device:$it" },
-                            onSelectProcess = { events += "process:$it" },
-                            onDumpHeap = { events += "dump" },
-                            onImportHprof = { events += "import" },
                             onSortHistogram = { events += "sort:$it" },
                         ),
                 )
             }
 
-            onNodeWithContentDescription("Device selector").performClick()
-            onAllNodesWithText("Pixel 8")[1].performClick()
-            onNodeWithContentDescription("Process selector").performClick()
-            onNodeWithText("com.example (42)").performClick()
-            onNodeWithText("Dump Heap").performClick()
-            onNodeWithText("Import hprof").performClick()
             onNodeWithText("Shallow").performClick()
             onNodeWithText("Count ↓").performClick()
 
             assertEquals(
-                listOf("device:emulator-5554", "process:42", "dump", "import", "sort:Shallow", "sort:Count"),
+                listOf("sort:Shallow", "sort:Count"),
                 events,
             )
         }

@@ -14,7 +14,7 @@ class NativeViewerRecentMenuTest {
         val first = Path.of("/captures/first/layout.apinspect")
         val second = Path.of("/captures/second/layout.apinspect")
         val model = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+            language = UiLanguage.SIMPLIFIED_CHINESE,
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -38,7 +38,7 @@ class NativeViewerRecentMenuTest {
     @Test
     fun `recent archive menu is disabled during archive operations`() {
         val model = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            language = UiLanguage.ENGLISH,
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),

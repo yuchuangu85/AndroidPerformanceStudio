@@ -2,11 +2,6 @@
 
 package com.androidperformancestudio.frame.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.frame.frame_app.generated.resources.Res
-import com.androidperformancestudio.frame.frame_app.generated.resources.*
-
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +18,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.frame.frame_app.generated.resources.Res
+import com.androidperformancestudio.frame.frame_app.generated.resources.back_to_home
+import com.androidperformancestudio.frame.frame_app.generated.resources.device
+import com.androidperformancestudio.frame.frame_app.generated.resources.export_frame_profiler_report
+import com.androidperformancestudio.frame.frame_app.generated.resources.import_gfxinfo_framestats
+import com.androidperformancestudio.frame.frame_app.generated.resources.process
+import com.androidperformancestudio.frame.frame_app.generated.resources.process_with_pid
+import com.androidperformancestudio.frame.frame_app.generated.resources.refresh
+import com.androidperformancestudio.frame.frame_app.generated.resources.start_capture
+import com.androidperformancestudio.frame.frame_app.generated.resources.stop_capture
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -30,6 +35,8 @@ import com.androidperformancestudio.ui.ProfilerCompactSelector
 import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.awt.FileDialog
@@ -44,7 +51,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     onBack: () -> Unit = {},
     onOpenLayoutInspector: (FrameLayoutInspectionRequest) -> Unit = {},
 ) {
-    val controller = remember(language) { FrameProfilerController(language = language) }
+    val controller = remember { FrameProfilerController() }
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var showImportDialog by remember { mutableStateOf(false) }
@@ -56,6 +63,26 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             delay(POLL_INTERVAL_MILLIS.milliseconds)
         }
     }
+
+    FrameProfilerFileMenuBar(
+        model =
+            frameProfilerFileMenuModel(
+                language = language,
+                importEnabled = !state.isCapturing,
+                exportEnabled = state.analysis != null,
+            ),
+        onImportFrameStats = { showImportDialog = true },
+        onExportCsv = {
+            chooseSaveFile(window, "frame-analysis.csv", language)?.let { output ->
+                scope.launch { controller.exportCsv(output.toPath()) }
+            }
+        },
+        onExportJson = {
+            chooseSaveFile(window, "frame-analysis.json", language)?.let { output ->
+                scope.launch { controller.exportJson(output.toPath()) }
+            }
+        },
+    )
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
@@ -86,9 +113,10 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     state.processes.firstOrNull { it.pid == state.selectedProcessId }?.let {
                         localizedStringResource(Res.string.process_with_pid, language, it.name, it.pid)
                     },
-                options = state.processes.map {
-                    it.pid.toString() to localizedStringResource(Res.string.process_with_pid, language, it.name, it.pid)
-                },
+                options =
+                    state.processes.map {
+                        it.pid.toString() to localizedStringResource(Res.string.process_with_pid, language, it.name, it.pid)
+                    },
                 enabled = !state.isCapturing && state.selectedDeviceSerial != null,
                 onSelected = { pid -> pid.toIntOrNull()?.let(controller::selectProcess) },
             )
@@ -108,29 +136,6 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                 onClick = {
                     scope.launch {
                         if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_framestats, language),
-                enabled = !state.isCapturing,
-                onClick = { showImportDialog = true },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, language),
-                enabled = state.analysis != null,
-                onClick = {
-                    chooseSaveFile(window, "frame-analysis.csv", language)?.let { output ->
-                        scope.launch { controller.exportCsv(output.toPath()) }
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_json, language),
-                enabled = state.analysis != null,
-                onClick = {
-                    chooseSaveFile(window, "frame-analysis.json", language)?.let { output ->
-                        scope.launch { controller.exportJson(output.toPath()) }
                     }
                 },
             )
@@ -188,7 +193,11 @@ private fun FrameStatsOpenFileDialog(
 ) {
     AwtWindow(
         create = {
-            object : FileDialog(parent, localizedStringResource(Res.string.import_gfxinfo_framestats, language), FileDialog.LOAD) {
+            object : FileDialog(
+                parent,
+                localizedStringResource(Res.string.import_gfxinfo_framestats, language),
+                FileDialog.LOAD,
+            ) {
                 init {
                     isMultipleMode = false
                     filenameFilter =

@@ -17,7 +17,7 @@
     <string name="no_attributable_energy_data_was_provided_by_this_device">当前设备未提供可归因能耗数据</string>
     <string name="history_timeline_events">History 时间线事件：%1$s</string>
     <string name="no_delta_or_unavailable">无增量或设备未提供</string>
-    <string name="battery_energy_profiler">Battery / Energy Profiler</string>
+    <string name="battery_energy_profiler">电池 / 能耗分析器</string>
     <string name="text">• %1$s</string>
     <string name="p90_n">p90 %1$s · n=%2$s</string>
     <string name="network_b_mobile_radio_ms">Network · %1$s B · mobile radio %2$s ms</string>

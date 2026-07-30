@@ -41,7 +41,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -95,6 +94,10 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.*
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.SettingsButton
@@ -106,7 +109,9 @@ import com.androidperformancestudio.adb.AdbDevice
 import com.androidperformancestudio.adb.ConnectedDeviceSession
 import com.androidperformancestudio.adb.LiveDeviceClient
 import com.androidperformancestudio.adb.VisibleWindowViewsTextRenderer
+import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.ProtocolCodec
+import com.androidperformancestudio.protocol.UiNode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -115,6 +120,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.skia.Image
 import java.awt.Cursor
 import java.awt.event.MouseEvent
@@ -134,6 +140,12 @@ internal enum class CaptureTargetMode {
     FOREGROUND_APP,
     SYSTEM_UI,
 }
+
+private fun CaptureTargetMode.stringResource(): StringResource =
+    when (this) {
+        CaptureTargetMode.FOREGROUND_APP -> Res.string.foreground_app
+        CaptureTargetMode.SYSTEM_UI -> Res.string.system_ui
+    }
 
 data class InspectorCorrelationHint(
     val deviceSerial: String?,
@@ -322,7 +334,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
     var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
     val uiLanguage = languagePreference.resolve(Locale.getDefault())
-    val strings = remember(uiLanguage) { ViewerStrings.forLanguage(uiLanguage) }
     var settingsVisible by remember { mutableStateOf(false) }
     val darkTheme = themePreference.resolveDark(isSystemInDarkTheme())
     LaunchedEffect(settingsRevision) {
@@ -345,7 +356,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         val captureStatus = state.connectionStatus
         val preservedRawArtifacts = importedRawArtifacts
         val target = archiveFileChooser.chooseExport(
-            title = strings.chooseArchiveExportFile,
+            title = localizedStringResource(Res.string.choose_archive_export_file, uiLanguage),
             initialFileName = captureArchiveDefaultFileName(
                 packageName = snapshot.packageName,
                 capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
@@ -440,7 +451,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             return@importCaptureArchive
         }
         archiveFileChooser.chooseImport(
-            strings.chooseArchiveToImport,
+            localizedStringResource(Res.string.choose_archive_to_import, uiLanguage),
         )?.let(openCaptureArchive)
     }
     val clearRecentArchives: () -> Unit = {
@@ -457,7 +468,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         val target = store.manualScreenshotTarget() ?: return@importScreenshot
         val expectedDisplay = state.snapshot?.display ?: return@importScreenshot
         val source = archiveFileChooser.chooseScreenshotImport(
-            strings.chooseScreenshotToImport,
+            localizedStringResource(Res.string.choose_screenshot_to_import, uiLanguage),
         ) ?: return@importScreenshot
         autoScanEnabled = false
         archiveUiState = CaptureArchiveUiState.Working(CaptureArchiveOperation.IMPORT_SCREENSHOT)
@@ -541,7 +552,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     HierarchyNavigationDirection.DOWN
                 }
                 val rows = ViewDisplayProjection.hierarchyRows(
-                    rows = InspectorPresenter.present(state, strings).rows,
+                    rows = InspectorPresenter.present(state, uiLanguage).rows,
                     hideInvisible = viewDisplayOptions.hideInvisibleHierarchyViews,
                 )
                 hierarchyTreeState.adjacentNodeId(
@@ -554,7 +565,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 state.selectedNodeId?.let { selectedNodeId ->
                     hierarchyTreeState = hierarchyTreeState.toggleExpandable(
                         nodeId = selectedNodeId,
-                        rows = InspectorPresenter.present(state, strings).rows,
+                        rows = InspectorPresenter.present(state, uiLanguage).rows,
                     )
                 }
             }
@@ -596,7 +607,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
 
     NativeViewerMenuBar(
         model = NativeViewerMenuModel(
-            strings = strings,
+            language = uiLanguage,
             selectedNodeId = state.selectedNodeId,
             autoScanEnabled = autoScanEnabled,
             panelVisibility = panelVisibility,
@@ -622,7 +633,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         appFocusRequester.requestFocus()
     }
 
-    CompositionLocalProvider(LocalViewerStrings provides strings) {
+    CompositionLocalProvider(LocalLayoutInspectorLanguage provides uiLanguage) {
         ViewerTheme(darkTheme = darkTheme) {
             val colors = LocalViewerColors.current
             Surface(
@@ -710,7 +721,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 }
                             }
                             SideEffect {
-                                val rows = InspectorPresenter.present(state, strings).rows
+                                val rows = InspectorPresenter.present(state, uiLanguage).rows
                                 val sanitizedHiddenLayerState = hiddenLayerState.sanitize(rows)
                                 if (hiddenLayerState != sanitizedHiddenLayerState) {
                                     hiddenLayerState = sanitizedHiddenLayerState
@@ -757,7 +768,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     onSelectNode = { nodeId ->
                                         hierarchyTreeState = hierarchyTreeState.reveal(
                                             nodeId,
-                                            InspectorPresenter.present(state, strings).rows,
+                                            InspectorPresenter.present(state, uiLanguage).rows,
                                         )
                                         selectNode(nodeId)
                                     },
@@ -845,28 +856,32 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     val path = operationState.path.toAbsolutePath().toString()
                     val title = when (operationState.operation) {
                         CaptureArchiveOperation.IMPORT ->
-                            strings.importArchiveSucceededTitle
+                            localizedStringResource(Res.string.import_archive_succeeded_title, uiLanguage)
                         CaptureArchiveOperation.IMPORT_SCREENSHOT ->
-                            strings.importScreenshotSucceededTitle
+                            localizedStringResource(Res.string.import_screenshot_succeeded_title, uiLanguage)
                         CaptureArchiveOperation.EXPORT ->
-                            strings.exportArchiveSucceededTitle
+                            localizedStringResource(Res.string.export_archive_succeeded_title, uiLanguage)
                     }
                     val message = when (operationState.operation) {
                         CaptureArchiveOperation.IMPORT ->
-                            strings.archiveImportSucceeded(path)
+                            localizedStringResource(Res.string.archive_import_succeeded, uiLanguage, path)
                         CaptureArchiveOperation.IMPORT_SCREENSHOT ->
-                            strings.screenshotImportSucceeded(path)
+                            localizedStringResource(Res.string.screenshot_import_succeeded, uiLanguage, path)
                         CaptureArchiveOperation.EXPORT ->
-                            strings.archiveExportSucceeded(
-                                path = path,
-                                rawArtifactsIncluded =
-                                    operationState.rawArtifactsIncluded,
+                            localizedStringResource(
+                                if (operationState.rawArtifactsIncluded) {
+                                    Res.string.archive_export_succeeded
+                                } else {
+                                    Res.string.archive_export_succeeded_no_attachments
+                                },
+                                uiLanguage,
+                                path,
                             )
                     }
                     ExportResultDialog(
                         title = title,
                         message = message,
-                        dismissLabel = strings.dismiss,
+                        dismissLabel = localizedStringResource(Res.string.dismiss, uiLanguage),
                         onDismiss = {
                             archiveUiState = CaptureArchiveUiState.Idle
                         },
@@ -874,22 +889,22 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 }
                 is CaptureArchiveUiState.Failure -> {
                     val title = when (operationState.operation) {
-                        CaptureArchiveOperation.IMPORT -> strings.importArchiveFailedTitle
-                        CaptureArchiveOperation.IMPORT_SCREENSHOT -> strings.importScreenshotFailedTitle
-                        CaptureArchiveOperation.EXPORT -> strings.exportArchiveFailedTitle
+                        CaptureArchiveOperation.IMPORT -> localizedStringResource(Res.string.import_archive_failed_title, uiLanguage)
+                        CaptureArchiveOperation.IMPORT_SCREENSHOT -> localizedStringResource(Res.string.import_screenshot_failed_title, uiLanguage)
+                        CaptureArchiveOperation.EXPORT -> localizedStringResource(Res.string.export_archive_failed_title, uiLanguage)
                     }
                     val message = when (operationState.operation) {
                         CaptureArchiveOperation.IMPORT ->
-                            strings.archiveImportFailed(operationState.message)
+                            localizedStringResource(Res.string.archive_import_failed, uiLanguage, operationState.message)
                         CaptureArchiveOperation.IMPORT_SCREENSHOT ->
-                            strings.screenshotImportFailed(operationState.message)
+                            localizedStringResource(Res.string.screenshot_import_failed, uiLanguage, operationState.message)
                         CaptureArchiveOperation.EXPORT ->
-                            strings.archiveExportFailed(operationState.message)
+                            localizedStringResource(Res.string.archive_export_failed, uiLanguage, operationState.message)
                     }
                     ExportResultDialog(
                         title = title,
                         message = message,
-                        dismissLabel = strings.dismiss,
+                        dismissLabel = localizedStringResource(Res.string.dismiss, uiLanguage),
                         onDismiss = {
                             archiveUiState = CaptureArchiveUiState.Idle
                         },
@@ -954,16 +969,16 @@ private fun Header(
     onSelectWindow: (String) -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
-    val model = InspectorPresenter.present(state, strings)
-    val (packageName, separator, connectionLabel) = headerTextSegments(model, strings)
+    val language = LocalLayoutInspectorLanguage.current
+    val model = InspectorPresenter.present(state, language)
+    val (packageName, separator, connectionLabel) = headerTextSegments(model, language)
     Row(
         modifier = Modifier.fillMaxWidth().height(40.dp).background(colors.panel).padding(horizontal = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onNavigateHome != null) {
             HomeButton(
-                contentDescription = strings.backToHome,
+                contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = onNavigateHome,
             )
             Spacer(Modifier.width(8.dp))
@@ -1064,12 +1079,14 @@ private fun CaptureTargetSelector(
     onSelectMode: (CaptureTargetMode) -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     var expanded by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(4.dp)
     Box {
         Text(
-            text = "${strings.captureTarget}: ${strings.captureTargetLabel(selectedMode)} ▾",
+            text =
+                "${localizedStringResource(Res.string.capture_target, language)}: " +
+                    "${localizedStringResource(selectedMode.stringResource(), language)} ▾",
             color = colors.secondaryText,
             fontSize = 11.sp,
             maxLines = 1,
@@ -1086,7 +1103,12 @@ private fun CaptureTargetSelector(
         ) {
             CaptureTargetMode.entries.forEach { mode ->
                 DropdownMenuItem(
-                    text = { Text(strings.captureTargetLabel(mode), fontSize = 12.sp) },
+                    text = {
+                        Text(
+                            localizedStringResource(mode.stringResource(), language),
+                            fontSize = 12.sp,
+                        )
+                    },
                     onClick = {
                         expanded = false
                         onSelectMode(mode)
@@ -1105,10 +1127,10 @@ private fun DeviceSelector(
     onSelectDevice: (String?) -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     var expanded by remember { mutableStateOf(false) }
     val selectedLabel = devices.firstOrNull { it.serial == selectedSerial }?.label
-        ?: strings.autoDevice
+        ?: localizedStringResource(Res.string.auto_device, language)
     val shape = RoundedCornerShape(4.dp)
     Box(
         modifier = Modifier.border(1.dp, colors.border, shape)
@@ -1129,7 +1151,7 @@ private fun DeviceSelector(
             modifier = Modifier.background(colors.panel),
         ) {
             DropdownMenuItem(
-                text = { Text(strings.autoDevice, fontSize = 12.sp) },
+                text = { Text(localizedStringResource(Res.string.auto_device, language), fontSize = 12.sp) },
                 onClick = {
                     expanded = false
                     onSelectDevice(null)
@@ -1159,14 +1181,14 @@ private fun WindowSelector(
     if (windows.size <= 1) return
 
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     var expanded by remember { mutableStateOf(false) }
     val title = windows.firstOrNull { it.id == selectedWindowId }?.title
         ?: windows.first().title
     val shape = RoundedCornerShape(4.dp)
     Box {
         Text(
-            text = "${strings.window}: $title  ▾",
+            text = "${localizedStringResource(Res.string.window, language)}: $title  ▾",
             color = colors.secondaryText,
             fontSize = 11.sp,
             maxLines = 1,
@@ -1176,7 +1198,7 @@ private fun WindowSelector(
                 .border(1.dp, colors.border, shape)
                 .clickable { expanded = true }
                 .semantics {
-                    contentDescription = strings.selectWindow
+                    contentDescription = localizedStringResource(Res.string.select_window, language)
                 }
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         )
@@ -1220,9 +1242,9 @@ private fun ExportResultDialog(
 
 internal fun headerTextSegments(
     model: InspectorScreenModel,
-    strings: ViewerStrings = ViewerStrings.English,
+    language: UiLanguage = UiLanguage.ENGLISH,
 ): List<String> =
-    listOf(model.packageName ?: strings.noApp, "|", model.connectionLabel)
+    listOf(model.packageName ?: localizedStringResource(Res.string.no_app, language), "|", model.connectionLabel)
 
 @Composable
 private fun AutoScanSwitch(
@@ -1230,13 +1252,13 @@ private fun AutoScanSwitch(
     onToggle: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     Row(
         modifier = Modifier.clickable(onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = strings.autoScan,
+            text = localizedStringResource(Res.string.auto_scan, language),
             color = if (enabled) colors.primaryText else colors.mutedText,
             fontSize = 11.sp,
         )
@@ -1274,10 +1296,10 @@ private fun ManualRefreshButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     HeaderTextButton(
-        label = strings.refresh,
-        contentDescription = strings.refreshOnce,
+        label = localizedStringResource(Res.string.refresh, language),
+        contentDescription = localizedStringResource(Res.string.refresh_once, language),
         enabled = enabled,
         onClick = onClick,
         widthDp = ManualRefreshButtonStyle.WIDTH_DP,
@@ -1419,8 +1441,8 @@ private fun HierarchyPane(
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
-    val model = InspectorPresenter.present(state, strings)
+    val language = LocalLayoutInspectorLanguage.current
+    val model = InspectorPresenter.present(state, language)
     val horizontalScrollState = rememberScrollState()
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
@@ -1480,7 +1502,7 @@ private fun HierarchyPane(
             }
             .focusable(),
     ) {
-        PanelTitle(strings.hierarchy, "${model.rows.size}")
+        PanelTitle(localizedStringResource(Res.string.hierarchy, language), "${model.rows.size}")
         HierarchySearchBar(
             searchState = searchState,
             matchedNodeIds = matchedNodeIds,
@@ -1668,7 +1690,7 @@ private fun PreviewPane(
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     val selectedBounds = state.activeRoot?.findNodeBoundsSkippingHidden(
         targetId = state.selectedNodeId,
         hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
@@ -1690,9 +1712,9 @@ private fun PreviewPane(
     )
     val density = LocalDensity.current
     Column(modifier.background(colors.canvasBackground)) {
-        PanelTitle(strings.canvas) {
+        PanelTitle(localizedStringResource(Res.string.canvas, language)) {
             Text(
-                source?.let { "${it.width} × ${it.height}" } ?: strings.noLiveFrame,
+                source?.let { "${it.width} × ${it.height}" } ?: localizedStringResource(Res.string.no_live_frame, language),
                 color = colors.mutedText,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
@@ -1958,7 +1980,7 @@ private fun PreviewPane(
                             }
                         } else {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(strings.waitingForFrame, color = colors.previewText, fontSize = 13.sp)
+                                Text(localizedStringResource(Res.string.waiting_for_frame, language), color = colors.previewText, fontSize = 13.sp)
                             }
                         }
                     }
@@ -1982,7 +2004,7 @@ private fun PreviewZoomControls(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     val shape = RoundedCornerShape(8.dp)
     Row(
         modifier = modifier
@@ -1993,7 +2015,7 @@ private fun PreviewZoomControls(
     ) {
         PreviewZoomButton(
             label = "−",
-            contentDescription = strings.zoomOutPreview,
+            contentDescription = localizedStringResource(Res.string.zoom_out_preview, language),
             enabled = scale > PreviewZoomState.MIN_SCALE,
             onClick = onZoomOut,
         )
@@ -2006,7 +2028,7 @@ private fun PreviewZoomControls(
         )
         PreviewZoomButton(
             label = "+",
-            contentDescription = strings.zoomInPreview,
+            contentDescription = localizedStringResource(Res.string.zoom_in_preview, language),
             enabled = scale < PreviewZoomState.MAX_SCALE,
             onClick = onZoomIn,
         )
@@ -2099,16 +2121,16 @@ internal fun previewCanvasMode(
     else -> PreviewCanvasMode.LAYOUT_ONLY
 }
 
-private fun com.androidperformancestudio.protocol.UiNode.findNodeBounds(targetId: String?): com.androidperformancestudio.protocol.Bounds? {
+private fun UiNode.findNodeBounds(targetId: String?): Bounds? {
     if (targetId == null) return null
     if (id == targetId) return bounds
     return children.firstNotNullOfOrNull { it.findNodeBounds(targetId) }
 }
 
-private fun com.androidperformancestudio.protocol.UiNode.findNodeBoundsSkippingHidden(
+private fun UiNode.findNodeBoundsSkippingHidden(
     targetId: String?,
     hiddenNodeIds: Set<String>,
-): com.androidperformancestudio.protocol.Bounds? {
+): Bounds? {
     if (targetId == null || id in hiddenNodeIds) return null
     if (id == targetId) return bounds
     return children.firstNotNullOfOrNull { child ->
@@ -2129,8 +2151,8 @@ private fun LayerVisibilityButton(
     onToggle: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
-    val label = if (hidden) strings.showLayer else strings.hideLayer
+    val language = LocalLayoutInspectorLanguage.current
+    val label = if (hidden) localizedStringResource(Res.string.show_layer, language) else localizedStringResource(Res.string.hide_layer, language)
     Box(
         modifier = Modifier
             .width(LayerVisibilityButtonStyle.WIDTH_DP.dp)
@@ -2139,7 +2161,7 @@ private fun LayerVisibilityButton(
                 color = if (hidden) colors.accent.copy(alpha = 0.14f) else Color.Transparent,
                 shape = RoundedCornerShape(3.dp),
             )
-            .semantics { contentDescription = strings.toggleLayerVisibility }
+            .semantics { contentDescription = localizedStringResource(Res.string.toggle_layer_visibility, language) }
             .clickable(onClick = onToggle),
         contentAlignment = Alignment.Center,
     ) {
@@ -2159,10 +2181,10 @@ private fun HitTestOrderToggle(
     onToggle: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     val label = when (order) {
-        CanvasHitTestOrder.SMALL_AREA_FIRST -> strings.smallAreaHitTesting
-        CanvasHitTestOrder.Z_ORDER -> strings.zOrderHitTesting
+        CanvasHitTestOrder.SMALL_AREA_FIRST -> localizedStringResource(Res.string.small_area_hit_testing, language)
+        CanvasHitTestOrder.Z_ORDER -> localizedStringResource(Res.string.z_order_hit_testing, language)
     }
     Text(
         text = label,
@@ -2182,9 +2204,9 @@ private fun HiddenLayerSummary(
     onClear: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     Text(
-        text = strings.hiddenLayerSummary(count),
+        text = localizedStringResource(Res.string.hidden_layer_summary, language, count),
         color = colors.warning,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
@@ -2201,10 +2223,10 @@ private fun CanvasModeToggle(
     onToggle: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     val color = if (appOnly) colors.accent else colors.mutedText
     Text(
-        text = if (appOnly) strings.appOnlyOn else strings.appOnlyOff,
+        text = if (appOnly) localizedStringResource(Res.string.app_only_on, language) else localizedStringResource(Res.string.app_only_off, language),
         color = color,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
@@ -2230,8 +2252,8 @@ private fun DetailsPane(
     onOpenMemoryProfiler: ((String) -> Unit)? = null,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
-    val details = InspectorPresenter.present(state, strings).details
+    val language = LocalLayoutInspectorLanguage.current
+    val details = InspectorPresenter.present(state, language).details
     var expansionState by remember { mutableStateOf(DetailSectionExpansionState()) }
     Column(modifier.background(colors.panel)) {
         Row(
@@ -2239,13 +2261,28 @@ private fun DetailsPane(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.weight(1f)) {
-                PanelTitle(strings.properties, details.id)
+                PanelTitle(localizedStringResource(Res.string.properties, language), details.id)
             }
             val className = details.className.takeUnless { it == "—" || it.isBlank() }
             if (onOpenMemoryProfiler != null && className != null) {
-                TextButton(onClick = { onOpenMemoryProfiler(className) }) {
-                    Text(strings.findInMemoryProfiler, fontSize = 10.sp)
-                }
+                val shape = RoundedCornerShape(4.dp)
+                Box(
+                    modifier = Modifier
+                        .border(1.dp, colors.border, shape)
+                        .clickable(onClick = {
+                            onOpenMemoryProfiler(className)
+                        })
+                ) {
+                    Text(
+                        text = localizedStringResource(Res.string.find_in_memory_profiler, language),
+                        color = colors.secondaryText,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .background(colors.sectionBackground, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                    }
             }
         }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -2388,8 +2425,8 @@ private fun FindingsPane(
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
-    val model = InspectorPresenter.present(state, strings)
+    val language = LocalLayoutInspectorLanguage.current
+    val model = InspectorPresenter.present(state, language)
     val findings = ViewDisplayProjection.findings(
         findings = model.findings,
         rows = model.rows,
@@ -2405,19 +2442,19 @@ private fun FindingsPane(
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(strings.findings, color = colors.secondaryText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(localizedStringResource(Res.string.findings, language), color = colors.secondaryText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(18.dp))
-            Badge(strings.infoBadge(severitySummary.info), colors.info)
+            Badge(localizedStringResource(Res.string.info_badge, language, severitySummary.info), colors.info)
             Spacer(Modifier.width(8.dp))
-            Badge(strings.warningBadge(severitySummary.warning), colors.warning)
+            Badge(localizedStringResource(Res.string.warning_badge, language, severitySummary.warning), colors.warning)
             Spacer(Modifier.width(8.dp))
-            Badge(strings.errorBadge(severitySummary.error), colors.error)
+            Badge(localizedStringResource(Res.string.error_badge, language, severitySummary.error), colors.error)
             Spacer(Modifier.weight(1f))
             if (AI_ANALYSIS_ENTRY_VISIBLE) {
                 val aiStatus = when (aiAnalysisUiState) {
-                    AiAnalysisUiState.Idle -> state.aiAnalysis?.summary?.let(strings::aiAnalysisSummary)
-                    AiAnalysisUiState.Working -> strings.aiAnalysisRunning
-                    is AiAnalysisUiState.Failure -> strings.aiAnalysisFailed(aiAnalysisUiState.message)
+                    AiAnalysisUiState.Idle -> state.aiAnalysis?.summary?.let { localizedStringResource(Res.string.ai_analysis_summary, language, it) }
+                    AiAnalysisUiState.Working -> localizedStringResource(Res.string.ai_analysis_running, language)
+                    is AiAnalysisUiState.Failure -> localizedStringResource(Res.string.ai_analysis_failed, language, aiAnalysisUiState.message)
                 }
                 if (aiStatus != null) {
                     Text(aiStatus, color = colors.mutedText, fontSize = 11.sp, maxLines = 1)
@@ -2427,11 +2464,11 @@ private fun FindingsPane(
                     onClick = onRunAiAnalysis,
                     enabled = state.snapshot != null && aiAnalysisUiState !is AiAnalysisUiState.Working,
                 ) {
-                    Text(strings.runAiAnalysis, fontSize = 11.sp)
+                    Text(localizedStringResource(Res.string.run_ai_analysis, language), fontSize = 11.sp)
                 }
                 Spacer(Modifier.width(12.dp))
             }
-            Text(strings.timelineLiveCapture, color = colors.mutedText, fontSize = 11.sp)
+            Text(localizedStringResource(Res.string.timeline_live_capture, language), color = colors.mutedText, fontSize = 11.sp)
         }
         if (model.timelineFrames.isNotEmpty()) {
             HorizontalDivider(color = colors.border)
@@ -2442,7 +2479,7 @@ private fun FindingsPane(
         }
         HorizontalDivider(color = colors.border)
         if (findings.isEmpty()) {
-            Text(strings.noFindings, color = colors.subtleText, modifier = Modifier.padding(16.dp))
+            Text(localizedStringResource(Res.string.no_findings, language), color = colors.subtleText, modifier = Modifier.padding(16.dp))
         } else {
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 items(findings, key = { it.key }) { finding ->
@@ -2693,7 +2730,7 @@ private fun HierarchySearchBar(
     onNavigateNext: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val strings = LocalViewerStrings.current
+    val language = LocalLayoutInspectorLanguage.current
     val summary = searchState.matchSummary(matchedNodeIds)
     Row(
         modifier = Modifier
@@ -2729,7 +2766,7 @@ private fun HierarchySearchBar(
             )
             if (searchState.query.isEmpty()) {
                 Text(
-                    strings.searchHierarchy,
+                    localizedStringResource(Res.string.search_hierarchy, language),
                     color = colors.mutedText,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
@@ -2751,7 +2788,7 @@ private fun HierarchySearchBar(
         if (searchState.isSearching) {
             Spacer(Modifier.width(4.dp))
             Text(
-                summary ?: strings.searchNoMatch,
+                summary ?: localizedStringResource(Res.string.search_no_match, language),
                 color = if (matchedNodeIds.isEmpty()) colors.error else colors.mutedText,
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,
@@ -2761,14 +2798,14 @@ private fun HierarchySearchBar(
             Spacer(Modifier.width(2.dp))
             SearchNavButton(
                 label = "◀",
-                contentDescription = strings.searchPrevious,
+                contentDescription = localizedStringResource(Res.string.search_previous, language),
                 enabled = matchedNodeIds.isNotEmpty(),
                 onClick = onNavigatePrevious,
             )
             Spacer(Modifier.width(2.dp))
             SearchNavButton(
                 label = "▶",
-                contentDescription = strings.searchNext,
+                contentDescription = localizedStringResource(Res.string.search_next, language),
                 enabled = matchedNodeIds.isNotEmpty(),
                 onClick = onNavigateNext,
             )

@@ -5,8 +5,6 @@ import com.androidperformancestudio.analysis.Finding
 import com.androidperformancestudio.analysis.LayoutMetrics
 import com.androidperformancestudio.analysis.Severity
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 internal class AnalysisReportJson(

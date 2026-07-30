@@ -1,13 +1,17 @@
 package com.androidperformancestudio.desktop
 
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.EdgeInsets
 import com.androidperformancestudio.protocol.UiNode
 import com.androidperformancestudio.protocol.ViewAttributes
 import com.androidperformancestudio.protocol.ViewNode
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import org.jetbrains.compose.resources.StringResource
+import kotlin.math.roundToInt
 
 enum class DetailTone {
     NORMAL,
@@ -32,7 +36,7 @@ internal object NodeDetailsPresenter {
     fun present(
         node: UiNode,
         treeDepth: Int,
-        strings: ViewerStrings,
+        language: UiLanguage,
     ): List<DetailSectionModel> {
         val viewNode = node as? ViewNode
         val composeNode = node as? ComposeNode
@@ -41,78 +45,78 @@ internal object NodeDetailsPresenter {
         val overlap = node.overlapStats()
         return listOf(
             DetailSectionModel(
-                title = strings.detailSection(ViewerRes.detail_section_render_risks),
-                rows = riskRows(node, attributes, complexity, overlap, strings),
+                title = localizedStringResource(Res.string.detail_section_render_risks, language),
+                rows = riskRows(node, attributes, complexity, overlap, language),
                 highlightsRenderingRisk = true,
             ),
             DetailSectionModel(
-                title = strings.detailSection(ViewerRes.detail_section_identity),
+                title = localizedStringResource(Res.string.detail_section_identity, language),
                 rows = listOf(
-                    row(strings, ViewerRes.detail_label_class, node.className),
-                    row(strings, ViewerRes.detail_label_id, node.id),
-                    row(strings, ViewerRes.detail_label_resource, viewNode?.resourceName),
-                    row(strings, ViewerRes.detail_label_text, viewNode?.text ?: composeNode?.text
+                    row(language, Res.string.detail_label_class, node.className),
+                    row(language, Res.string.detail_label_id, node.id),
+                    row(language, Res.string.detail_label_resource, viewNode?.resourceName),
+                    row(language, Res.string.detail_label_text, viewNode?.text ?: composeNode?.text
                         ?: viewNode?.attributes?.rawProperties?.let { props ->
                             props["text:mText"] ?: props["text:text"]
                         }),
-                    row(strings, ViewerRes.detail_label_content_description, attributes.contentDescription),
-                    row(strings, ViewerRes.detail_label_semantics_role, composeNode?.semanticsRole),
+                    row(language, Res.string.detail_label_content_description, attributes.contentDescription),
+                    row(language, Res.string.detail_label_semantics_role, composeNode?.semanticsRole),
                 ),
             ),
             DetailSectionModel(
-                title = strings.detailSection(ViewerRes.detail_section_layout),
+                title = localizedStringResource(Res.string.detail_section_layout, language),
                 rows = listOf(
-                    row(strings, ViewerRes.detail_label_bounds, node.bounds.format()),
-                    row(strings, ViewerRes.detail_label_size, "${node.bounds.width} × ${node.bounds.height}"),
-                    row(strings, ViewerRes.detail_label_local_layout_bounds, attributes.layoutBounds?.format()),
+                    row(language, Res.string.detail_label_bounds, node.bounds.format()),
+                    row(language, Res.string.detail_label_size, "${node.bounds.width} × ${node.bounds.height}"),
+                    row(language, Res.string.detail_label_local_layout_bounds, attributes.layoutBounds?.format()),
                     row(
-                        strings,
-                        ViewerRes.detail_label_local_layout_size,
+                        language,
+                        Res.string.detail_label_local_layout_size,
                         attributes.layoutBounds?.let { "${it.width} × ${it.height}" },
                     ),
-                    row(strings, ViewerRes.detail_label_visibility, attributes.visibility ?: node.visible.toString()),
-                    row(strings, ViewerRes.detail_label_tree_depth, treeDepth.toString()),
-                    row(strings, ViewerRes.detail_label_direct_children, node.children.size.toString()),
-                    row(strings, ViewerRes.detail_label_descendants, complexity.descendants.toString()),
-                    row(strings, ViewerRes.detail_label_subtree_depth, complexity.depth.toString()),
-                    row(strings, ViewerRes.detail_label_layout_width, attributes.layoutWidth.formatDimension()),
-                    row(strings, ViewerRes.detail_label_layout_height, attributes.layoutHeight.formatDimension()),
-                    row(strings, ViewerRes.detail_label_layout_params_class, attributes.layoutParamsClass),
+                    row(language, Res.string.detail_label_visibility, attributes.visibility ?: node.visible.toString()),
+                    row(language, Res.string.detail_label_tree_depth, treeDepth.toString()),
+                    row(language, Res.string.detail_label_direct_children, node.children.size.toString()),
+                    row(language, Res.string.detail_label_descendants, complexity.descendants.toString()),
+                    row(language, Res.string.detail_label_subtree_depth, complexity.depth.toString()),
+                    row(language, Res.string.detail_label_layout_width, attributes.layoutWidth.formatDimension()),
+                    row(language, Res.string.detail_label_layout_height, attributes.layoutHeight.formatDimension()),
+                    row(language, Res.string.detail_label_layout_params_class, attributes.layoutParamsClass),
                     row(
-                        strings,
-                        ViewerRes.detail_label_measured_size,
+                        language,
+                        Res.string.detail_label_measured_size,
                         attributes.measuredWidth?.let { width ->
                             attributes.measuredHeight?.let { height -> "$width × $height" }
                         },
                     ),
                     row(
-                        strings,
-                        ViewerRes.detail_label_minimum_size,
+                        language,
+                        Res.string.detail_label_minimum_size,
                         attributes.minWidth?.let { width ->
                             attributes.minHeight?.let { height -> "$width × $height" }
                         },
                     ),
-                    row(strings, ViewerRes.detail_label_padding, attributes.padding.format()),
-                    row(strings, ViewerRes.detail_label_margin, attributes.margin.format()),
+                    row(language, Res.string.detail_label_padding, attributes.padding.format()),
+                    row(language, Res.string.detail_label_margin, attributes.margin.format()),
                     row(
-                        strings,
-                        ViewerRes.detail_label_scroll,
+                        language,
+                        Res.string.detail_label_scroll,
                         attributes.scrollX?.let { x ->
                             attributes.scrollY?.let { y -> "$x, $y" }
                         },
                     ),
-                    row(strings, ViewerRes.detail_label_layout_requested, attributes.layoutRequested),
+                    row(language, Res.string.detail_label_layout_requested, attributes.layoutRequested),
                 ),
             ),
             DetailSectionModel(
-                title = strings.detailSection(ViewerRes.detail_section_drawing),
+                title = localizedStringResource(Res.string.detail_section_drawing, language),
                 rows = listOf(
-                    row(strings, ViewerRes.detail_label_alpha, node.alpha),
-                    row(strings, ViewerRes.detail_label_z, attributes.z),
-                    row(strings, ViewerRes.detail_label_elevation, attributes.elevation),
+                    row(language, Res.string.detail_label_alpha, node.alpha),
+                    row(language, Res.string.detail_label_z, attributes.z),
+                    row(language, Res.string.detail_label_elevation, attributes.elevation),
                     row(
-                        strings,
-                        ViewerRes.detail_label_translation,
+                        language,
+                        Res.string.detail_label_translation,
                         attributes.translationX?.let { x ->
                             val y = attributes.translationY ?: 0f
                             val z = attributes.translationZ ?: 0f
@@ -120,58 +124,58 @@ internal object NodeDetailsPresenter {
                         },
                     ),
                     row(
-                        strings,
-                        ViewerRes.detail_label_rotation,
+                        language,
+                        Res.string.detail_label_rotation,
                         attributes.rotation?.let { z ->
                             "${attributes.rotationX ?: 0f}, ${attributes.rotationY ?: 0f}, $z"
                         },
                     ),
                     row(
-                        strings,
-                        ViewerRes.detail_label_scale,
+                        language,
+                        Res.string.detail_label_scale,
                         attributes.scaleX?.let { x -> "$x, ${attributes.scaleY ?: 1f}" },
                     ),
                     row(
-                        strings,
-                        ViewerRes.detail_label_pivot,
+                        language,
+                        Res.string.detail_label_pivot,
                         attributes.pivotX?.let { x -> "$x, ${attributes.pivotY ?: 0f}" },
                     ),
-                    row(strings, ViewerRes.detail_label_background, attributes.background),
-                    row(strings, ViewerRes.detail_label_background_color, attributes.backgroundColor),
-                    row(strings, ViewerRes.detail_label_foreground, attributes.foreground),
-                    row(strings, ViewerRes.detail_label_clip_bounds, attributes.clipBounds?.format()),
-                    row(strings, ViewerRes.detail_label_clip_children, attributes.clipChildren),
-                    row(strings, ViewerRes.detail_label_clip_to_padding, attributes.clipToPadding),
-                    row(strings, ViewerRes.detail_label_opaque, attributes.opaque),
-                    row(strings, ViewerRes.detail_label_will_not_draw, attributes.willNotDraw),
-                    row(strings, ViewerRes.detail_label_hardware_accelerated, attributes.hardwareAccelerated),
-                    row(strings, ViewerRes.detail_label_layer_type, attributes.layerType),
+                    row(language, Res.string.detail_label_background, attributes.background),
+                    row(language, Res.string.detail_label_background_color, attributes.backgroundColor),
+                    row(language, Res.string.detail_label_foreground, attributes.foreground),
+                    row(language, Res.string.detail_label_clip_bounds, attributes.clipBounds?.format()),
+                    row(language, Res.string.detail_label_clip_children, attributes.clipChildren),
+                    row(language, Res.string.detail_label_clip_to_padding, attributes.clipToPadding),
+                    row(language, Res.string.detail_label_opaque, attributes.opaque),
+                    row(language, Res.string.detail_label_will_not_draw, attributes.willNotDraw),
+                    row(language, Res.string.detail_label_hardware_accelerated, attributes.hardwareAccelerated),
+                    row(language, Res.string.detail_label_layer_type, attributes.layerType),
                 ),
             ),
             DetailSectionModel(
-                title = strings.detailSection(ViewerRes.detail_section_interaction),
+                title = localizedStringResource(Res.string.detail_section_interaction, language),
                 rows = listOf(
-                    row(strings, ViewerRes.detail_label_enabled, attributes.enabled),
-                    row(strings, ViewerRes.detail_label_clickable, attributes.clickable),
-                    row(strings, ViewerRes.detail_label_long_clickable, attributes.longClickable),
-                    row(strings, ViewerRes.detail_label_focusable, attributes.focusable),
-                    row(strings, ViewerRes.detail_label_focused, attributes.focused),
-                    row(strings, ViewerRes.detail_label_selected, attributes.selected),
+                    row(language, Res.string.detail_label_enabled, attributes.enabled),
+                    row(language, Res.string.detail_label_clickable, attributes.clickable),
+                    row(language, Res.string.detail_label_long_clickable, attributes.longClickable),
+                    row(language, Res.string.detail_label_focusable, attributes.focusable),
+                    row(language, Res.string.detail_label_focused, attributes.focused),
+                    row(language, Res.string.detail_label_selected, attributes.selected),
                 ),
             ),
-        ) + rawPropertiesSection(node, attributes, strings)
+        ) + rawPropertiesSection(node, attributes, language)
     }
 
     private fun rawPropertiesSection(
         node: UiNode,
         attributes: ViewAttributes,
-        strings: ViewerStrings,
+        language: UiLanguage,
     ): List<DetailSectionModel> {
         val rawProperties = attributes.rawProperties + ((node as? ComposeNode)?.semanticProperties ?: emptyMap())
         if (rawProperties.isEmpty()) return emptyList()
         return listOf(
             DetailSectionModel(
-                title = strings.detailSection(ViewerRes.detail_section_raw_properties),
+                title = localizedStringResource(Res.string.detail_section_raw_properties, language),
                 rows = rawProperties
                     .toSortedMap()
                     .map { (name, value) -> DetailRowModel(label = name, value = value) },
@@ -184,38 +188,52 @@ internal object NodeDetailsPresenter {
         attributes: ViewAttributes,
         complexity: Complexity,
         overlap: OverlapStats,
-        strings: ViewerStrings,
+        language: UiLanguage,
     ): List<DetailRowModel> {
         val complexityRisk = complexity.depth > COMPLEXITY_DEPTH_WARNING ||
             complexity.descendants > DESCENDANT_WARNING
         return listOf(
             DetailRowModel(
-                label = strings.detailLabel(ViewerRes.detail_label_overdraw_estimate),
+                label = localizedStringResource(Res.string.detail_label_overdraw_estimate, language),
                 value = if (overlap.pairs == 0) {
-                    strings.noHighOverlapPairs()
+                    localizedStringResource(Res.string.no_high_overlap_pairs, language)
                 } else {
-                    strings.overlapPairs(overlap.pairs, overlap.maxRatio)
+                    localizedStringResource(
+                        if (overlap.pairs == 1) Res.string.overlap_pair_single else Res.string.overlap_pairs,
+                        language,
+                        overlap.pairs,
+                        (overlap.maxRatio * 100).roundToInt(),
+                    )
                 },
                 tone = if (overlap.pairs > 0) DetailTone.WARNING else DetailTone.NORMAL,
             ),
             DetailRowModel(
-                label = strings.detailLabel(ViewerRes.detail_label_subtree_complexity),
-                value = strings.subtreeComplexity(complexity.descendants, complexity.depth),
+                label = localizedStringResource(Res.string.detail_label_subtree_complexity, language),
+                value = localizedStringResource(
+                    Res.string.subtree_complexity,
+                    language,
+                    complexity.descendants,
+                    complexity.depth,
+                ),
                 tone = if (complexityRisk) DetailTone.WARNING else DetailTone.NORMAL,
             ),
             DetailRowModel(
-                label = strings.detailLabel(ViewerRes.detail_label_hidden_descendants),
+                label = localizedStringResource(Res.string.detail_label_hidden_descendants, language),
                 value = complexity.hidden.toString(),
                 tone = if (complexity.hidden > 0) DetailTone.INFO else DetailTone.NORMAL,
             ),
             DetailRowModel(
-                label = strings.detailLabel(ViewerRes.detail_label_blending),
-                value = strings.blending(node.alpha),
+                label = localizedStringResource(Res.string.detail_label_blending, language),
+                value = if (node.alpha < 1f) {
+                    localizedStringResource(Res.string.blending_alpha, language, node.alpha.toString())
+                } else {
+                    localizedStringResource(Res.string.alpha_one, language)
+                },
                 tone = if (node.alpha < 1f) DetailTone.WARNING else DetailTone.NORMAL,
             ),
             DetailRowModel(
-                label = strings.detailLabel(ViewerRes.detail_label_layer_cost),
-                value = attributes.layerType ?: strings.unavailable,
+                label = localizedStringResource(Res.string.detail_label_layer_cost, language),
+                value = attributes.layerType ?: localizedStringResource(Res.string.unavailable, language),
                 tone = if (attributes.layerType == "SOFTWARE") {
                     DetailTone.WARNING
                 } else {
@@ -265,11 +283,11 @@ internal object NodeDetailsPresenter {
     }
 
     private fun row(
-        strings: ViewerStrings,
+        language: UiLanguage,
         label: StringResource,
         value: Any?,
     ): DetailRowModel = DetailRowModel(
-        label = strings.detailLabel(label),
+        label = localizedStringResource(label, language),
         value = value?.toString() ?: "—",
     )
 

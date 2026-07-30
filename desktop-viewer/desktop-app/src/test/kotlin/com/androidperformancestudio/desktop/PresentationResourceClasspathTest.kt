@@ -8,7 +8,6 @@ class PresentationResourceClasspathTest {
     @Test
     fun `presentation resource accessors have unique runtime classes`() {
         assertSingleClass("com/androidperformancestudio/presentation/generated/resources/Res.class")
-        assertSingleClass("com/androidperformancestudio/presentation/generated/resources/ViewerRes.class")
         assertSingleClass("com/androidperformancestudio/simpleperf/presentation/generated/resources/Res.class")
         assertSingleClass("com/androidperformancestudio/presentation/generated/resources/SimpleperfViewerRes.class")
 

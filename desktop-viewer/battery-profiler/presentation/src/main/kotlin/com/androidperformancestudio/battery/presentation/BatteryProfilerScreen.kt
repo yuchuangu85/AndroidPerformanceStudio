@@ -11,12 +11,6 @@
 
 package com.androidperformancestudio.battery.presentation
 
-import com.androidperformancestudio.ui.UiLanguage
-import org.jetbrains.compose.resources.stringResource
-
-import com.androidperformancestudio.battery.presentation.generated.resources.Res
-import com.androidperformancestudio.battery.presentation.generated.resources.*
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -46,6 +40,42 @@ import com.androidperformancestudio.battery.analysis.BatteryAnalysisResult
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.BatteryStatistics
 import com.androidperformancestudio.battery.model.ResourceTimer
+import com.androidperformancestudio.battery.presentation.generated.resources.Res
+import com.androidperformancestudio.battery.presentation.generated.resources.alarm
+import com.androidperformancestudio.battery.presentation.generated.resources.alarms
+import com.androidperformancestudio.battery.presentation.generated.resources.analyze_wakelocks_alarms_jobs_network_sensors_and_system_energy_estima
+import com.androidperformancestudio.battery.presentation.generated.resources.battery_energy_profiler
+import com.androidperformancestudio.battery.presentation.generated.resources.capability_attribution_uid
+import com.androidperformancestudio.battery.presentation.generated.resources.diagnostics_and_warnings
+import com.androidperformancestudio.battery.presentation.generated.resources.duration
+import com.androidperformancestudio.battery.presentation.generated.resources.energy
+import com.androidperformancestudio.battery.presentation.generated.resources.energy_evidence
+import com.androidperformancestudio.battery.presentation.generated.resources.energy_evidence_detail
+import com.androidperformancestudio.battery.presentation.generated.resources.every_energy_value_exposes_its_source_scope_and_confidence_global
+import com.androidperformancestudio.battery.presentation.generated.resources.experiment_runs
+import com.androidperformancestudio.battery.presentation.generated.resources.history_event_detail
+import com.androidperformancestudio.battery.presentation.generated.resources.history_timeline_events
+import com.androidperformancestudio.battery.presentation.generated.resources.jobs
+import com.androidperformancestudio.battery.presentation.generated.resources.median_network
+import com.androidperformancestudio.battery.presentation.generated.resources.median_wakelock
+import com.androidperformancestudio.battery.presentation.generated.resources.median_wakeup_alarms
+import com.androidperformancestudio.battery.presentation.generated.resources.modeled_energy
+import com.androidperformancestudio.battery.presentation.generated.resources.ms
+import com.androidperformancestudio.battery.presentation.generated.resources.network
+import com.androidperformancestudio.battery.presentation.generated.resources.network_b_mobile_radio_ms
+import com.androidperformancestudio.battery.presentation.generated.resources.network_use_vs_previous_compatible_experiment_difference_only
+import com.androidperformancestudio.battery.presentation.generated.resources.no_attributable_energy_data_was_provided_by_this_device
+import com.androidperformancestudio.battery.presentation.generated.resources.no_delta_or_unavailable
+import com.androidperformancestudio.battery.presentation.generated.resources.p90_n
+import com.androidperformancestudio.battery.presentation.generated.resources.run
+import com.androidperformancestudio.battery.presentation.generated.resources.run_resource_details
+import com.androidperformancestudio.battery.presentation.generated.resources.s
+import com.androidperformancestudio.battery.presentation.generated.resources.sensors
+import com.androidperformancestudio.battery.presentation.generated.resources.text
+import com.androidperformancestudio.battery.presentation.generated.resources.wakelock
+import com.androidperformancestudio.battery.presentation.generated.resources.wakelocks
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import java.util.Locale
 
 @Composable
@@ -77,12 +107,21 @@ private fun EmptyPane(
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(stringResource(Res.string.battery_energy_profiler), style = MaterialTheme.typography.headlineMedium)
         Text(
-            stringResource(Res.string.analyze_wakelocks_alarms_jobs_network_sensors_and_system_energy_estima),
+            localizedStringResource(Res.string.battery_energy_profiler, language),
+            style = MaterialTheme.typography.headlineMedium,
         )
         Text(
-            stringResource(Res.string.every_energy_value_exposes_its_source_scope_and_confidence_global),
+            localizedStringResource(
+                Res.string.analyze_wakelocks_alarms_jobs_network_sensors_and_system_energy_estima,
+                language,
+            ),
+        )
+        Text(
+            localizedStringResource(
+                Res.string.every_energy_value_exposes_its_source_scope_and_confidence_global,
+                language,
+            ),
         )
         state.operationMessage?.let { Text(it) }
         state.warnings.forEach { Text(it, color = MaterialTheme.colorScheme.tertiary) }
@@ -103,30 +142,40 @@ private fun ResultsPane(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricCard(stringResource(Res.string.median_wakelock), analysis.wakelockDurationMs, "ms", language)
-            MetricCard(stringResource(Res.string.median_wakeup_alarms), analysis.wakeupAlarmCount, "", language)
-            MetricCard(stringResource(Res.string.median_network), analysis.networkBytes, "B", language)
-            MetricCard(stringResource(Res.string.modeled_energy), analysis.energyMah, "mAh", language)
+            MetricCard(localizedStringResource(Res.string.median_wakelock, language), analysis.wakelockDurationMs, "ms", language)
+            MetricCard(localizedStringResource(Res.string.median_wakeup_alarms, language), analysis.wakeupAlarmCount, "", language)
+            MetricCard(localizedStringResource(Res.string.median_network, language), analysis.networkBytes, "B", language)
+            MetricCard(localizedStringResource(Res.string.modeled_energy, language), analysis.energyMah, "mAh", language)
         }
         val session = state.experiment?.session
         session?.let {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Text(
-                    stringResource(Res.string.capability_attribution_uid, it.capabilities.level, it.attributionScope, it.uid),
+                    localizedStringResource(
+                        Res.string.capability_attribution_uid,
+                        language,
+                        it.capabilities.level,
+                        it.attributionScope,
+                        it.uid,
+                    ),
                     modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
                 )
             }
         }
         state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, language) }
-        Text(stringResource(Res.string.experiment_runs), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            localizedStringResource(Res.string.experiment_runs, language),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
         Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
-                Cell(stringResource(Res.string.run), 70)
-                Cell(stringResource(Res.string.duration), 100)
-                Cell(stringResource(Res.string.wakelock), 110)
-                Cell(stringResource(Res.string.alarm), 90)
-                Cell(stringResource(Res.string.network), 110)
-                Cell(stringResource(Res.string.energy), 100)
+                Cell(localizedStringResource(Res.string.run, language), 70)
+                Cell(localizedStringResource(Res.string.duration, language), 100)
+                Cell(localizedStringResource(Res.string.wakelock, language), 110)
+                Cell(localizedStringResource(Res.string.alarm, language), 90)
+                Cell(localizedStringResource(Res.string.network, language), 110)
+                Cell(localizedStringResource(Res.string.energy, language), 100)
             }
             analysis.runs.forEach { run -> RunRow(run, run.runId == selected.runId, actions.onSelectRun, language) }
         }
@@ -134,11 +183,16 @@ private fun ResultsPane(
         RunDetail(selected, language)
         if (analysis.warnings.isNotEmpty()) {
             Text(
-                stringResource(Res.string.diagnostics_and_warnings),
+                localizedStringResource(Res.string.diagnostics_and_warnings, language),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
-            analysis.warnings.forEach { Text(stringResource(Res.string.text, it), color = MaterialTheme.colorScheme.tertiary) }
+            analysis.warnings.forEach {
+                Text(
+                    localizedStringResource(Res.string.text, language, it),
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
         }
         state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
@@ -155,7 +209,10 @@ private fun MetricCard(
         Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
             Text(statistics.median.format(unit), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(stringResource(Res.string.p90_n, statistics.p90.format(unit), statistics.count), style = MaterialTheme.typography.bodySmall)
+            Text(
+                localizedStringResource(Res.string.p90_n, language, statistics.p90.format(unit), statistics.count),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
@@ -179,7 +236,11 @@ private fun BaselineComparison(
         }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Text(
-            stringResource(Res.string.network_use_vs_previous_compatible_experiment_difference_only, change.percent()),
+            localizedStringResource(
+                Res.string.network_use_vs_previous_compatible_experiment_difference_only,
+                language,
+                change.percent(),
+            ),
             Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
         )
     }
@@ -200,7 +261,7 @@ private fun RunRow(
             }.padding(vertical = 6.dp, horizontal = 8.dp),
     ) {
         Cell(run.iteration.toString(), 70)
-        Cell(stringResource(Res.string.s, run.durationMs / 1000), 100)
+        Cell(localizedStringResource(Res.string.s, language, run.durationMs / 1000), 100)
         Cell(run.wakelocks.sumOf(ResourceTimer::durationMs).toString(), 110)
         Cell(run.alarms.sumOf(ResourceTimer::count).toString(), 90)
         Cell(run.network.totalBytes.toString(), 110)
@@ -220,34 +281,65 @@ private fun RunDetail(
     language: UiLanguage,
 ) {
     Text(
-        stringResource(Res.string.run_resource_details, run.iteration),
+        localizedStringResource(Res.string.run_resource_details, language, run.iteration),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
     )
-    ResourceSection(stringResource(Res.string.wakelocks), run.wakelocks, language)
-    ResourceSection(stringResource(Res.string.alarms), run.alarms, language)
-    ResourceSection(stringResource(Res.string.jobs), run.jobs, language)
-    ResourceSection(stringResource(Res.string.sensors), run.sensors, language)
-    Text(stringResource(Res.string.network_b_mobile_radio_ms, run.network.totalBytes, run.network.mobileRadioActiveMs), fontWeight = FontWeight.SemiBold)
-    Text(stringResource(Res.string.energy_evidence), fontWeight = FontWeight.SemiBold)
-    if (run.energy.isEmpty()) Text(stringResource(Res.string.no_attributable_energy_data_was_provided_by_this_device))
+    ResourceSection(localizedStringResource(Res.string.wakelocks, language), run.wakelocks, language)
+    ResourceSection(localizedStringResource(Res.string.alarms, language), run.alarms, language)
+    ResourceSection(localizedStringResource(Res.string.jobs, language), run.jobs, language)
+    ResourceSection(localizedStringResource(Res.string.sensors, language), run.sensors, language)
+    Text(
+        localizedStringResource(
+            Res.string.network_b_mobile_radio_ms,
+            language,
+            run.network.totalBytes,
+            run.network.mobileRadioActiveMs,
+        ),
+        fontWeight = FontWeight.SemiBold,
+    )
+    Text(localizedStringResource(Res.string.energy_evidence, language), fontWeight = FontWeight.SemiBold)
+    if (run.energy.isEmpty()) {
+        Text(localizedStringResource(Res.string.no_attributable_energy_data_was_provided_by_this_device, language))
+    }
     run.energy.forEach { energy ->
         Text(
-            stringResource(Res.string.energy_evidence_detail, energy.component, energy.energyMah.format("mAh"), energy.energyUws ?: "—", energy.source, energy.attributionScope, energy.confidence, ),
+            localizedStringResource(
+                Res.string.energy_evidence_detail,
+                language,
+                energy.component,
+                energy.energyMah.format("mAh"),
+                energy.energyUws ?: "—",
+                energy.source,
+                energy.attributionScope,
+                energy.confidence,
+            ),
         )
     }
     Text(
-        stringResource(Res.string.history_timeline_events, run.history.size),
+        localizedStringResource(Res.string.history_timeline_events, language, run.history.size),
         fontWeight = FontWeight.SemiBold,
     )
     run.history.take(100).forEach { event ->
         Text(
-            stringResource(Res.string.history_event_detail, event.elapsedMs ?: "—", event.kind, event.active ?: "?", event.name.orEmpty(), ),
+            localizedStringResource(
+                Res.string.history_event_detail,
+                language,
+                event.elapsedMs ?: "—",
+                event.kind,
+                event.active ?: "?",
+                event.name.orEmpty(),
+            ),
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall,
         )
     }
-    run.warnings.forEach { Text(stringResource(Res.string.text, it), color = MaterialTheme.colorScheme.tertiary) }
+    run.warnings.forEach {
+        Text(
+            localizedStringResource(Res.string.text, language, it),
+            color = MaterialTheme.colorScheme.tertiary,
+        )
+    }
 }
 
 @Composable
@@ -257,8 +349,19 @@ private fun ResourceSection(
     language: UiLanguage,
 ) {
     Text(title, fontWeight = FontWeight.SemiBold)
-    if (resources.isEmpty()) Text(stringResource(Res.string.no_delta_or_unavailable))
-    resources.take(100).forEach { timer -> Text(stringResource(Res.string.ms, timer.name, timer.durationMs, timer.count, timer.confidence)) }
+    if (resources.isEmpty()) Text(localizedStringResource(Res.string.no_delta_or_unavailable, language))
+    resources.take(100).forEach { timer ->
+        Text(
+            localizedStringResource(
+                Res.string.ms,
+                language,
+                timer.name,
+                timer.durationMs,
+                timer.count,
+                timer.confidence,
+            ),
+        )
+    }
 }
 
 @Composable

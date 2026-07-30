@@ -13,7 +13,7 @@ class NativeViewerMenuBarTest {
     fun `visible view bounds menu item is checked by default`() {
         val model =
             NativeViewerMenuModel(
-                strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+                language = UiLanguage.SIMPLIFIED_CHINESE,
                 selectedNodeId = null,
                 autoScanEnabled = false,
                 panelVisibility = PanelVisibility(),
@@ -33,9 +33,9 @@ class NativeViewerMenuBarTest {
 
     @Test
     fun `native menu mirrors action ordering labels and groups`() {
-        val strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE)
+        val language = UiLanguage.SIMPLIFIED_CHINESE
         val model = NativeViewerMenuModel(
-            strings = strings,
+            language = language,
             selectedNodeId = "root",
             autoScanEnabled = true,
             panelVisibility = PanelVisibility(showFindings = false),
@@ -55,11 +55,11 @@ class NativeViewerMenuBarTest {
 
         assertEquals("操作", model.actionsTitle)
         assertEquals(
-            ViewerActionMenu.items(strings).map { it.action },
+            ViewerActionMenu.items(language).map { it.action },
             model.actions.map { it.action },
         )
         assertEquals(
-            ViewerActionMenu.items(strings).map { it.group },
+            ViewerActionMenu.items(language).map { it.group },
             model.actions.map { it.group },
         )
         assertTrue(model.actions.first().checked)
@@ -109,7 +109,7 @@ class NativeViewerMenuBarTest {
     @Test
     fun `native file menu pads short localized labels to a minimum width`() {
         val model = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+            language = UiLanguage.SIMPLIFIED_CHINESE,
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -135,7 +135,7 @@ class NativeViewerMenuBarTest {
     @Test
     fun `native file shortcuts use the host primary modifier`() {
         val macModel = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            language = UiLanguage.ENGLISH,
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -146,7 +146,7 @@ class NativeViewerMenuBarTest {
             isMacOs = true,
         )
         val windowsModel = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            language = UiLanguage.ENGLISH,
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -188,7 +188,7 @@ class NativeViewerMenuBarTest {
     @Test
     fun `native file actions are disabled while an archive operation is active`() {
         val model = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            language = UiLanguage.ENGLISH,
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),
@@ -207,7 +207,7 @@ class NativeViewerMenuBarTest {
     @Test
     fun `native export requires a loaded capture while import remains enabled`() {
         val model = NativeViewerMenuModel(
-            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            language = UiLanguage.ENGLISH,
             selectedNodeId = null,
             autoScanEnabled = false,
             panelVisibility = PanelVisibility(),

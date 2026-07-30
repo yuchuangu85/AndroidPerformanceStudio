@@ -1,5 +1,7 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.analysis.AiAnalysisReport
+import com.androidperformancestudio.analysis.AiFinding
 import com.androidperformancestudio.analysis.AnalysisReport
 import com.androidperformancestudio.analysis.Finding
 import com.androidperformancestudio.analysis.LayoutMetrics
@@ -128,11 +130,11 @@ class CaptureArchiveServiceTest {
     @Test
     fun `service export then import restores persisted ai analysis report`() {
         val path = tempDir.resolve("ai-report.apinspect")
-        val report = com.androidperformancestudio.analysis.AiAnalysisReport(
+        val report = AiAnalysisReport(
             model = "gpt-test",
             summary = "summary",
             findings = listOf(
-                com.androidperformancestudio.analysis.AiFinding(
+                AiFinding(
                     ruleId = "ai.layout",
                     severity = Severity.WARNING,
                     nodeId = "root",

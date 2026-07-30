@@ -7,7 +7,6 @@ import com.androidperformancestudio.protocol.LayoutSnapshot
 import com.androidperformancestudio.protocol.UiNode
 import com.androidperformancestudio.protocol.ViewNode
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 internal data class AiAnalysisInput(val json: String)

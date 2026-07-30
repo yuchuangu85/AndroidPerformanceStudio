@@ -4,8 +4,6 @@ import com.androidperformancestudio.analysis.AiAnalysisReport
 import com.androidperformancestudio.analysis.AiFinding
 import com.androidperformancestudio.analysis.Severity
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 internal class AiAnalysisReportJson(

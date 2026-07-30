@@ -88,7 +88,7 @@ snapshot mutation is required.
 
 ## Localization
 
-Add menu labels through the existing `ViewerStrings` mechanism:
+Add menu labels through the existing Compose Resources `Res.string` mechanism:
 
 - English: `Show all visible view bounds`
 - Simplified Chinese: `显示全部可见视图边缘`

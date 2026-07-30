@@ -60,7 +60,7 @@
 | 点击策略 | 当前按 z/elevation 与 child index 命中最上层；同点重复点击轮选路径 | 更接近真实绘制/遮挡顺序；实现确定；保留路径轮选 | 上层大容器/蒙层会挡住下层，用户难以快速选到底部目标 | 命中候选按显示区域大小排序，倾向选择更小 View；鼠标滚轮切换候选 | 更容易点中具体小 View；对 LLI “总选上层”问题有直接改善 | 面积小不等于真实触摸或绘制优先级；可能选中装饰性小 View | 可引入“面积优先候选排序”作为调试模式或候选切换，不应完全替代真实绘制顺序 |
 | 层级显隐 / 穿透 | 已实现临时隐藏层级：树行提供 Hide/Show，Canvas hit testing 与 overlay 跳过隐藏子树 | 用户可明确控制哪些上层不参与命中；比算法猜测更稳定；隐藏数量可在 Canvas 标题清除 | 新增了本地 UI 状态，需要用户理解它不等同于 Android View 真实可见性 | 右键菜单中存在预览显隐/forced state 类能力，影响预览绘制 | 证明 inspector 中临时改变预览状态是可接受交互；可从树菜单恢复 | 更偏预览绘制显隐，不一定等价于“Canvas 命中穿透”；入口较隐蔽 | AndroidPerfermanceStudio 已采用显式 HiddenLayerState，并让 hit testing / overlay 同步跳过隐藏子树 |
 | UI 技术 | Compose Desktop | Kotlin 统一技术栈；与现有应用状态/主题/多语言集成方便 | Compose Desktop 组件生态和测试方式与 IDE 插件不同；复杂表格/树控件需自研 | Swing / IntelliJ Platform UI | 与 Android Studio 插件生态天然一致；树、表格、右键菜单成熟 | UI 风格和能力受 IDE 平台约束；跨独立桌面复用价值低 | 不直接移植 UI；只借鉴交互思想和算法 |
-| 多语言 / 主题 | 已支持主题与语言偏好 | 面向中文/英文用户体验更完整；可独立控制视觉一致性 | 新功能必须同步维护双语文案和主题状态 | 主要依赖 IDE 插件 UI 与英文文案 | 维护成本较低，跟随 IDE 外观 | 对中文用户和独立品牌体验支持较弱 | AndroidPerfermanceStudio 新增任何层级隐藏/选择策略都要同步补 ViewerStrings 与主题状态测试 |
+| 多语言 / 主题 | 已支持主题与语言偏好 | 面向中文/英文用户体验更完整；可独立控制视觉一致性 | 新功能必须同步维护双语文案和主题状态 | 主要依赖 IDE 插件 UI 与英文文案 | 维护成本较低，跟随 IDE 外观 | 对中文用户和独立品牌体验支持较弱 | AndroidPerfermanceStudio 新增任何层级隐藏/选择策略都要同步补 Compose Resources `Res.string` 与主题状态测试 |
 
 ## 方案选择小结
 

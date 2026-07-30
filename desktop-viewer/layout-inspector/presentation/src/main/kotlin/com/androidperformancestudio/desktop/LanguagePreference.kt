@@ -1,5 +1,6 @@
 package com.androidperformancestudio.desktop
 
+import androidx.compose.runtime.staticCompositionLocalOf
 import com.androidperformancestudio.ui.UiLanguage
 import java.util.Locale
 
@@ -22,3 +23,5 @@ internal enum class LanguagePreference(
             entries.firstOrNull { it.storageValue == value?.lowercase() } ?: SYSTEM
     }
 }
+
+internal val LocalLayoutInspectorLanguage = staticCompositionLocalOf { UiLanguage.ENGLISH }

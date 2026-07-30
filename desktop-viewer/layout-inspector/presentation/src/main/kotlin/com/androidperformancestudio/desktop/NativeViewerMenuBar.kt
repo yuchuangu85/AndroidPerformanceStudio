@@ -5,6 +5,10 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.*
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path
 
 internal data class NativeMenuShortcut(
@@ -62,7 +66,7 @@ internal data class NativeViewerMenuModel(
     val recentEnabled: Boolean,
 ) {
     constructor(
-        strings: ViewerStrings,
+        language: UiLanguage,
         selectedNodeId: String?,
         autoScanEnabled: Boolean,
         panelVisibility: PanelVisibility,
@@ -73,8 +77,8 @@ internal data class NativeViewerMenuModel(
         recentArchives: List<Path> = emptyList(),
         isMacOs: Boolean,
     ) : this(
-        actionsTitle = strings.actions,
-        actions = ViewerActionMenu.items(strings).map { item ->
+        actionsTitle = localizedStringResource(Res.string.actions, language),
+        actions = ViewerActionMenu.items(language).map { item ->
             val state = viewerActionUiState(
                 action = item.action,
                 selectedNodeId = selectedNodeId,
@@ -91,11 +95,21 @@ internal data class NativeViewerMenuModel(
                 shortcut = viewerActionNativeShortcut(item.action, isMacOs),
             )
         },
-        viewTitle = strings.view,
+        viewTitle = localizedStringResource(Res.string.view, language),
         viewItems = ViewDisplayOption.entries.map { option ->
             NativeViewMenuItem(
                 option = option,
-                label = strings.viewOptionLabel(option),
+                label = localizedStringResource(
+                    when (option) {
+                        ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS -> Res.string.hide_invisible_hierarchy_views
+                        ViewDisplayOption.HIDE_INVISIBLE_FINDINGS -> Res.string.hide_invisible_findings
+                        ViewDisplayOption.HIDE_HIERARCHY_INDICES -> Res.string.hide_hierarchy_indices
+                        ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS ->
+                            Res.string.show_hierarchy_layer_visibility_buttons
+                        ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS -> Res.string.show_visible_view_bounds
+                    },
+                    language,
+                ),
                 group = when (option) {
                     ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS -> 1
                     ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS -> 2
@@ -115,19 +129,19 @@ internal data class NativeViewerMenuModel(
                 },
             )
         },
-        fileTitle = strings.file,
-        importLabel = strings.importArchive,
-        importScreenshotLabel = strings.importScreenshot,
-        exportLabel = strings.exportArchive,
-        openRecentTitle = strings.openRecent,
-        noRecentLabel = strings.noRecentArchives,
-        clearRecentLabel = strings.clearRecentMenu,
+        fileTitle = localizedStringResource(Res.string.file, language),
+        importLabel = localizedStringResource(Res.string.import_archive, language),
+        importScreenshotLabel = localizedStringResource(Res.string.import_screenshot, language),
+        exportLabel = localizedStringResource(Res.string.export_archive, language),
+        openRecentTitle = localizedStringResource(Res.string.sp_layout_inspector_menu_open_recent, language),
+        noRecentLabel = localizedStringResource(Res.string.sp_layout_inspector_recent_empty, language),
+        clearRecentLabel = localizedStringResource(Res.string.sp_layout_inspector_recent_clear_menu, language),
         recentItems = recentArchives.toRecentArchiveMenuItems(),
-        settingsLabel = strings.settings.takeUnless { isMacOs },
-        importMenuText = nativeMenuItemText(strings.importArchive),
-        importScreenshotMenuText = nativeMenuItemText(strings.importScreenshot),
-        exportMenuText = nativeMenuItemText(strings.exportArchive),
-        settingsMenuText = nativeMenuItemText(strings.settings).takeUnless { isMacOs },
+        settingsLabel = localizedStringResource(Res.string.settings, language).takeUnless { isMacOs },
+        importMenuText = nativeMenuItemText(localizedStringResource(Res.string.import_archive, language)),
+        importScreenshotMenuText = nativeMenuItemText(localizedStringResource(Res.string.import_screenshot, language)),
+        exportMenuText = nativeMenuItemText(localizedStringResource(Res.string.export_archive, language)),
+        settingsMenuText = nativeMenuItemText(localizedStringResource(Res.string.settings, language)).takeUnless { isMacOs },
         importShortcut = nativePrimaryShortcut(Key.I, isMacOs),
         importScreenshotShortcut = null,
         exportShortcut = nativePrimaryShortcut(Key.E, isMacOs),
