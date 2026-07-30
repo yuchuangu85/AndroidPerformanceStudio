@@ -9,11 +9,6 @@
 
 package com.androidperformancestudio.frame.presentation
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.frame.presentation.generated.resources.Res
-import com.androidperformancestudio.frame.presentation.generated.resources.*
-
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -48,6 +43,39 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.frame.analysis.AnalyzedFrame
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.JankSeverity
+import com.androidperformancestudio.frame.presentation.generated.resources.Res
+import com.androidperformancestudio.frame.presentation.generated.resources.activity
+import com.androidperformancestudio.frame.presentation.generated.resources.bottleneck
+import com.androidperformancestudio.frame.presentation.generated.resources.budget
+import com.androidperformancestudio.frame.presentation.generated.resources.budget_source
+import com.androidperformancestudio.frame.presentation.generated.resources.capture_online_or_import_framestats
+import com.androidperformancestudio.frame.presentation.generated.resources.correlate_in_layout_inspector
+import com.androidperformancestudio.frame.presentation.generated.resources.duration
+import com.androidperformancestudio.frame.presentation.generated.resources.frame
+import com.androidperformancestudio.frame.presentation.generated.resources.frame_detail
+import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline
+import com.androidperformancestudio.frame.presentation.generated.resources.frames
+import com.androidperformancestudio.frame.presentation.generated.resources.jank_cluster_summary
+import com.androidperformancestudio.frame.presentation.generated.resources.jank_clusters
+import com.androidperformancestudio.frame.presentation.generated.resources.jank_rate
+import com.androidperformancestudio.frame.presentation.generated.resources.jank_types
+import com.androidperformancestudio.frame.presentation.generated.resources.missed_vsync
+import com.androidperformancestudio.frame.presentation.generated.resources.no_jank_clusters_detected
+import com.androidperformancestudio.frame.presentation.generated.resources.opens_the_current_foreground_layout_for_timing_correlation_it_does
+import com.androidperformancestudio.frame.presentation.generated.resources.p50
+import com.androidperformancestudio.frame.presentation.generated.resources.p95
+import com.androidperformancestudio.frame.presentation.generated.resources.platform_jank
+import com.androidperformancestudio.frame.presentation.generated.resources.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf
+import com.androidperformancestudio.frame.presentation.generated.resources.source
+import com.androidperformancestudio.frame.presentation.generated.resources.state_detail
+import com.androidperformancestudio.frame.presentation.generated.resources.text
+import com.androidperformancestudio.frame.presentation.generated.resources.unknown_stage
+import com.androidperformancestudio.frame.presentation.generated.resources.verdict
+import com.androidperformancestudio.frame.presentation.generated.resources.waiting_for_live_frame_data
+import com.androidperformancestudio.frame.presentation.generated.resources.window
+import com.androidperformancestudio.frame.presentation.generated.resources.worst
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlin.math.floor
 
 @Composable
@@ -55,12 +83,13 @@ public fun FrameProfilerScreen(
     state: FrameProfilerState,
     actions: FrameProfilerActions,
     language: UiLanguage,
+    operationMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize()) {
         val analysis = state.analysis
         if (analysis == null) {
-            EmptyState(state = state, language = language)
+            EmptyState(state = state, language = language, operationMessage = operationMessage)
         } else {
             AnalysisContent(
                 state = state,
@@ -84,6 +113,7 @@ public fun FrameProfilerScreen(
 private fun EmptyState(
     state: FrameProfilerState,
     language: UiLanguage,
+    operationMessage: String?,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(48.dp),
@@ -106,7 +136,7 @@ private fun EmptyState(
                 localizedStringResource(Res.string.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf, language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        state.operationMessage?.let { Text(it, modifier = Modifier.padding(top = 16.dp)) }
+        operationMessage?.let { Text(it, modifier = Modifier.padding(top = 16.dp)) }
         state.errorMessage?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 16.dp))
         }
@@ -337,7 +367,15 @@ private fun ClusterList(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Column {
-                                Text(localizedStringResource(Res.string.text, language, cluster.firstFrameId, cluster.lastFrameId), fontWeight = FontWeight.Medium)
+                                Text(
+                                    localizedStringResource(
+                                        Res.string.text,
+                                        language,
+                                        cluster.firstFrameId,
+                                        cluster.lastFrameId,
+                                    ),
+                                    fontWeight = FontWeight.Medium,
+                                )
                                 Text(
                                     localizedStringResource(
                                         Res.string.jank_cluster_summary,

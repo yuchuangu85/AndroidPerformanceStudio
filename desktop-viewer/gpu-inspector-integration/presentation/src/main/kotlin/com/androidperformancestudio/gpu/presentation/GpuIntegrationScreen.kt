@@ -2,12 +2,6 @@
 
 package com.androidperformancestudio.gpu.presentation
 
-import com.androidperformancestudio.ui.UiLanguage
-import org.jetbrains.compose.resources.stringResource
-
-import com.androidperformancestudio.gpu.presentation.generated.resources.Res
-import com.androidperformancestudio.gpu.presentation.generated.resources.*
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,8 +18,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.gpu.model.AgiCapability
+import com.androidperformancestudio.gpu.model.AgiLaunchMode
 import com.androidperformancestudio.gpu.model.ArtifactOpenCapability
 import com.androidperformancestudio.gpu.model.GpuArtifact
+import com.androidperformancestudio.gpu.model.GpuArtifactKind
+import com.androidperformancestudio.gpu.presentation.generated.resources.*
+import com.androidperformancestudio.gpu.presentation.generated.resources.Res
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 
 public data class GpuIntegrationState(
     val capability: AgiCapability? = null,
@@ -55,17 +55,27 @@ public fun GpuIntegrationScreen(
                 Modifier.padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(stringResource(Res.string.android_gpu_inspector), style = MaterialTheme.typography.titleLarge)
                 Text(
-                    state.capability?.executable?.toString()
-                        ?: stringResource(Res.string.agi_is_not_configured),
+                    localizedStringResource(Res.string.android_gpu_inspector, language),
+                    style = MaterialTheme.typography.titleLarge,
                 )
                 Text(
-                    stringResource(Res.string.capability_summary, state.capability?.version ?: stringResource(Res.string.unknown_version), state.capability?.launchMode ?: stringResource(Res.string.unavailable), ),
+                    state.capability?.executable?.toString()
+                        ?: localizedStringResource(Res.string.agi_is_not_configured, language),
+                )
+                Text(
+                    localizedStringResource(
+                        Res.string.capability_summary,
+                        language,
+                        state.capability?.version
+                            ?: localizedStringResource(Res.string.unknown_version, language),
+                        state.capability?.launchMode?.displayName(language)
+                            ?: localizedStringResource(Res.string.unavailable, language),
+                    ),
                 )
                 state.capability?.warnings.orEmpty().forEach { warning ->
                     Text(
-                        warning,
+                        localizedWarning(warning, language),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -75,7 +85,7 @@ public fun GpuIntegrationScreen(
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Text(
-            stringResource(Res.string.recent_gpu_artifacts),
+            localizedStringResource(Res.string.recent_gpu_artifacts, language),
             style = MaterialTheme.typography.titleLarge,
         )
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -86,24 +96,39 @@ public fun GpuIntegrationScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column {
-                            Text(stringResource(Res.string.text, artifact.kind, artifact.path.fileName))
                             Text(
-                                stringResource(Res.string.kib, artifact.sizeBytes / 1024, artifact.sha256.take(12)),
+                                localizedStringResource(
+                                    Res.string.text,
+                                    language,
+                                    artifact.kind.displayName(language),
+                                    artifact.path.fileName,
+                                ),
+                            )
+                            Text(
+                                localizedStringResource(
+                                    Res.string.kib,
+                                    language,
+                                    artifact.sizeBytes / 1024,
+                                    artifact.sha256.take(12),
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             artifact.warnings.forEach { warning ->
-                                Text(warning, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    localizedWarning(warning, language),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             OutlinedButton(onClick = { actions.onVerifyArtifact(artifact) }) {
-                                Text(stringResource(Res.string.verify))
+                                Text(localizedStringResource(Res.string.verify, language))
                             }
                             OutlinedButton(
                                 enabled = artifact.openCapability != ArtifactOpenCapability.NONE,
                                 onClick = { actions.onOpenArtifact(artifact) },
                             ) {
-                                Text(stringResource(Res.string.open))
+                                Text(localizedStringResource(Res.string.open, language))
                             }
                         }
                     }
@@ -112,3 +137,44 @@ public fun GpuIntegrationScreen(
         }
     }
 }
+
+private fun GpuArtifactKind.displayName(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            GpuArtifactKind.AGI_SYSTEM_PROFILE -> Res.string.artifact_kind_agi_system_profile
+            GpuArtifactKind.AGI_FRAME_PROFILE -> Res.string.artifact_kind_agi_frame_profile
+            GpuArtifactKind.PERFETTO_TRACE -> Res.string.artifact_kind_perfetto_trace
+            GpuArtifactKind.SCREENSHOT -> Res.string.artifact_kind_screenshot
+            GpuArtifactKind.EXTERNAL_REPORT -> Res.string.artifact_kind_external_report
+            GpuArtifactKind.UNKNOWN -> Res.string.artifact_kind_unknown
+        },
+        language,
+    )
+
+private fun AgiLaunchMode.displayName(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            AgiLaunchMode.VERIFIED_CLI -> Res.string.launch_mode_verified_cli
+            AgiLaunchMode.GUI_ONLY -> Res.string.launch_mode_gui_only
+            AgiLaunchMode.UNSUPPORTED -> Res.string.launch_mode_unsupported
+        },
+        language,
+    )
+
+private fun localizedWarning(
+    warning: String,
+    language: UiLanguage,
+): String =
+    when (warning) {
+        "Android GPU Inspector executable was not found. Configure its local path." ->
+            localizedStringResource(Res.string.warning_agi_executable_not_found, language)
+        "AGI version probe timed out; GUI launch remains available." ->
+            localizedStringResource(Res.string.warning_agi_probe_timed_out, language)
+        "AGI version could not be determined." ->
+            localizedStringResource(Res.string.warning_agi_version_unknown, language)
+        "No stable automation arguments were detected; AGI will be launched in GUI-only mode." ->
+            localizedStringResource(Res.string.warning_agi_gui_only, language)
+        "Unknown artifact format; it is indexed as opaque evidence." ->
+            localizedStringResource(Res.string.warning_unknown_artifact, language)
+        else -> warning
+    }

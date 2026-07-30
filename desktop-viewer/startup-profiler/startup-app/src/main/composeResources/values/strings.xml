@@ -40,4 +40,7 @@
     <string name="startup_experiment_failed">Startup experiment failed.</string>
     <string name="format_export_failed">%1$s export failed.</string>
     <string name="session_persistence_failed">Analysis succeeded, but session persistence failed: %1$s</string>
+    <string name="warm_up_progress">Warm-up %1$s/%2$s</string>
+    <string name="measured_run_progress">Measured run %1$s/%2$s</string>
+    <string name="experiment_complete">Complete</string>
 </resources>

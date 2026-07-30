@@ -37,6 +37,7 @@ import com.androidperformancestudio.storage.ThreadSummary
 import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.storage.TopFunction
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.viewerColors
 import java.nio.file.Path
 import kotlin.test.Test
@@ -45,6 +46,28 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class ReportWorkspaceBehaviorTest {
+    @Test
+    fun `report navigation tabs use the selected Chinese language`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            setContent {
+                SimpleperfLocalization(UiLanguage.SIMPLIFIED_CHINESE) {
+                    FirefoxReportTabs(
+                        selectedTab = ReportTab.OVERVIEW,
+                        onSelectTab = {},
+                        style = viewerColors(darkTheme = false),
+                    )
+                }
+            }
+
+            listOf("概览", "热门函数", "调用树", "火焰图", "堆栈图", "标记图", "标记表").forEach { label ->
+                onNodeWithText(label).assertExists()
+            }
+            onNodeWithContentDescription("概览").assertIsSelected()
+            onNodeWithText("Overview").assertDoesNotExist()
+            onNodeWithText("Top functions").assertDoesNotExist()
+            onNodeWithText("Call tree").assertDoesNotExist()
+        }
+
     @Test
     fun `top function rows reserve only one third of their former vertical padding`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {

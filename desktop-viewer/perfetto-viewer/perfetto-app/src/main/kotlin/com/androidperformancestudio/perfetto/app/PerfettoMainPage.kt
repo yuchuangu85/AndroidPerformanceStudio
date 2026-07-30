@@ -67,9 +67,8 @@ import com.androidperformancestudio.perfetto.storage.TraceSessionStore
 import com.androidperformancestudio.perfetto.traceprocessor.TraceProcessorLocator
 import com.androidperformancestudio.perfetto.traceprocessor.TraceProcessorSession
 import com.androidperformancestudio.perfetto.uiserver.PerfettoUiServer
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
@@ -611,29 +610,17 @@ private fun PerfettoHomeButton(language: UiLanguage, onClick: () -> Unit) {
 
 private suspend fun discoverPerfettoDevices(adbPath: String): List<PerfettoDevice> {
     if (adbPath.isBlank()) return emptyList()
-    val result =
-        JvmProcessRunner().run(
-            ProcessRequest(
-                executable = Path.of(adbPath),
-                arguments = listOf("devices", "-l"),
-                timeout = 10.seconds,
-            ),
-        )
-    val output = result as? ProcessRunResult.Completed ?: return emptyList()
-    return output.output.stdout.text
-        .lineSequence()
-        .drop(1)
-        .mapNotNull { line ->
-            val parts = line.trim().split(Regex("\\s+"))
-            if (parts.size < 2 || parts[1] != "device") return@mapNotNull null
-            val model =
-                parts
-                    .firstOrNull { it.startsWith("model:") }
-                    ?.substringAfter("model:")
-                    ?.replace('_', ' ')
-                    ?: parts[0]
-            PerfettoDevice(parts[0], model)
-        }.toList()
+    return runCatching {
+        DefaultAdbClient(Path.of(adbPath))
+            .listDevices()
+            .filter { it.state == AdbDeviceState.ONLINE }
+            .map { device ->
+                PerfettoDevice(
+                    serial = device.serial,
+                    model = device.model?.replace('_', ' ') ?: device.serial,
+                )
+            }
+    }.getOrDefault(emptyList())
 }
 
 @Composable

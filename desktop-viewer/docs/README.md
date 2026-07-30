@@ -8,6 +8,7 @@
 
 - [`architecture/DEVELOPMENT.md`](architecture/DEVELOPMENT.md) — 版本矩阵、模块边界、安全约束和兼容策略。
 - [`architecture/PROTOCOL.md`](architecture/PROTOCOL.md) — Layout Report Protocol 版本与兼容契约。
+- [`architecture/adb-common-module-plan.md`](architecture/adb-common-module-plan.md) — ADB 公共基础模块边界、迁移步骤和兼容测试方案。
 - [`architecture/ui-layout-map.md`](architecture/ui-layout-map.md) — 桌面端页面、控件和 Mermaid 布局图。
 
 ## Design

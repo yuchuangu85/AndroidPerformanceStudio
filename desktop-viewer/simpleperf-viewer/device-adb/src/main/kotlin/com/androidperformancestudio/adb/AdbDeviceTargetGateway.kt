@@ -9,6 +9,8 @@ import com.androidperformancestudio.application.PackageOption
 import com.androidperformancestudio.application.ProcessOption
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import java.nio.file.Path
 
 class AdbDeviceTargetGateway private constructor(

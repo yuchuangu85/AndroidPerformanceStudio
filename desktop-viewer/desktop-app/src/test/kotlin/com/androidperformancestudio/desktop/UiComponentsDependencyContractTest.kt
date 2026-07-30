@@ -99,7 +99,6 @@ class UiComponentsDependencyContractTest {
                 "startup-profiler/startup-app/build.gradle.kts",
                 "startup-profiler/presentation/build.gradle.kts",
                 "battery-profiler/battery-app/build.gradle.kts",
-                "battery-profiler/presentation/build.gradle.kts",
                 "network-profiler/network-app/build.gradle.kts",
                 "network-profiler/presentation/build.gradle.kts",
                 "gpu-inspector-integration/gpu-integration-app/build.gradle.kts",

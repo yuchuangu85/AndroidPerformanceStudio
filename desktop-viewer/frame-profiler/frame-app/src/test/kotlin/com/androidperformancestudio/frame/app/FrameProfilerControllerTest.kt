@@ -6,6 +6,7 @@ import com.androidperformancestudio.frame.model.FrameCaptureSession
 import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.presentation.FrameDeviceOption
+import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import kotlinx.coroutines.runBlocking
 import java.time.Instant
@@ -93,12 +94,15 @@ class FrameProfilerControllerTest {
 
             controller.pollOnlineCapture()
             assertEquals(2, assertNotNull(controller.state.value.analysis).summary.totalFrames)
-            assertEquals("Capturing dev.example.app via gfxinfo: 2 frames", controller.state.value.operationMessage)
+            assertEquals(
+                FrameOperationStatus.Capturing("dev.example.app", "gfxinfo", 2),
+                controller.state.value.operationStatus,
+            )
 
             controller.stopOnlineCapture()
             assertFalse(controller.state.value.isCapturing)
             assertEquals(1, capture.stopCalls)
-            assertEquals("Capture stopped: 2 frames.", controller.state.value.operationMessage)
+            assertEquals(FrameOperationStatus.CaptureStopped(2), controller.state.value.operationStatus)
         }
 
     private fun frame(

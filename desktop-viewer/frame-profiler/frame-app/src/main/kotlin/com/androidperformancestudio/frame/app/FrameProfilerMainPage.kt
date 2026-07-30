@@ -20,14 +20,21 @@ import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
 import com.androidperformancestudio.frame.frame_app.generated.resources.back_to_home
+import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_with_frames
+import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_without_frames
+import com.androidperformancestudio.frame.frame_app.generated.resources.capturing_frame_count
+import com.androidperformancestudio.frame.frame_app.generated.resources.capturing_via
 import com.androidperformancestudio.frame.frame_app.generated.resources.device
 import com.androidperformancestudio.frame.frame_app.generated.resources.export_frame_profiler_report
+import com.androidperformancestudio.frame.frame_app.generated.resources.exported
 import com.androidperformancestudio.frame.frame_app.generated.resources.import_gfxinfo_framestats
+import com.androidperformancestudio.frame.frame_app.generated.resources.imported_frames
 import com.androidperformancestudio.frame.frame_app.generated.resources.process
 import com.androidperformancestudio.frame.frame_app.generated.resources.process_with_pid
 import com.androidperformancestudio.frame.frame_app.generated.resources.refresh
 import com.androidperformancestudio.frame.frame_app.generated.resources.start_capture
 import com.androidperformancestudio.frame.frame_app.generated.resources.stop_capture
+import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -55,6 +62,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var showImportDialog by remember { mutableStateOf(false) }
+    val operationMessage = state.operationStatus?.localizedText(language)
 
     LaunchedEffect(controller) { controller.refreshDevices() }
     LaunchedEffect(state.isCapturing) {
@@ -115,7 +123,13 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     },
                 options =
                     state.processes.map {
-                        it.pid.toString() to localizedStringResource(Res.string.process_with_pid, language, it.name, it.pid)
+                        it.pid.toString() to
+                            localizedStringResource(
+                                Res.string.process_with_pid,
+                                language,
+                                it.name,
+                                it.pid,
+                            )
                     },
                 enabled = !state.isCapturing && state.selectedDeviceSerial != null,
                 onSelected = { pid -> pid.toIntOrNull()?.let(controller::selectProcess) },
@@ -141,7 +155,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             )
             Spacer(Modifier.weight(1f))
             ProfilerToolbarStatus(
-                message = state.operationMessage,
+                message = operationMessage,
                 error = state.errorMessage,
             )
         }
@@ -169,6 +183,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     },
                 ),
             language = language,
+            operationMessage = operationMessage,
             modifier = Modifier.weight(1f),
         )
     }
@@ -184,6 +199,26 @@ public fun FrameWindowScope.FrameProfilerMainPage(
         )
     }
 }
+
+internal fun FrameOperationStatus.localizedText(language: UiLanguage): String =
+    when (this) {
+        is FrameOperationStatus.Capturing ->
+            if (frameCount == null) {
+                localizedStringResource(Res.string.capturing_via, language, packageName, source)
+            } else {
+                localizedStringResource(Res.string.capturing_frame_count, language, packageName, source, frameCount)
+            }
+        is FrameOperationStatus.CaptureStopped ->
+            if (frameCount == 0) {
+                localizedStringResource(Res.string.capture_stopped_without_frames, language)
+            } else {
+                localizedStringResource(Res.string.capture_stopped_with_frames, language, frameCount)
+            }
+        is FrameOperationStatus.ImportedFrames ->
+            localizedStringResource(Res.string.imported_frames, language, frameCount)
+        is FrameOperationStatus.Exported ->
+            localizedStringResource(Res.string.exported, language, fileName)
+    }
 
 @Composable
 private fun FrameStatsOpenFileDialog(

@@ -7,6 +7,8 @@ import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -162,8 +164,13 @@ class AdbDeviceTargetGatewayTest {
             refreshDevices = {
                 StudioResult.Success(
                     listOf(
-                        AdbDevice("serial-1", AdbDeviceState.ONLINE, "device", mapOf("model" to "Pixel_8")),
-                        AdbDevice("offline-1", AdbDeviceState.OFFLINE, "offline"),
+                        AdbDevice(
+                            serial = "serial-1",
+                            state = AdbDeviceState.ONLINE,
+                            model = "Pixel_8",
+                            attributes = mapOf("model" to "Pixel_8"),
+                        ),
+                        AdbDevice(serial = "offline-1", state = AdbDeviceState.OFFLINE),
                     ),
                 )
             },

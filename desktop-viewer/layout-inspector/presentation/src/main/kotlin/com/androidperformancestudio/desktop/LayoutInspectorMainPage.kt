@@ -1,6 +1,9 @@
 package com.androidperformancestudio.desktop
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.LocalScrollbarStyle
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,11 +35,13 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.v2.ScrollbarAdapter
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -48,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -105,7 +111,7 @@ import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.application.ConnectionStatus
 import com.androidperformancestudio.application.InspectorState
 import com.androidperformancestudio.application.InspectorStore
-import com.androidperformancestudio.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.adb.ConnectedDeviceSession
 import com.androidperformancestudio.adb.LiveDeviceClient
 import com.androidperformancestudio.adb.VisibleWindowViewsTextRenderer
@@ -1443,6 +1449,10 @@ private fun HierarchyPane(
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
     val model = InspectorPresenter.present(state, language)
+    val scrollbarStyle = LocalScrollbarStyle.current.copy(
+        unhoverColor = colors.mutedText.copy(alpha = 0.42f),
+        hoverColor = colors.secondaryText.copy(alpha = 0.82f),
+    )
     val horizontalScrollState = rememberScrollState()
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
@@ -1620,6 +1630,13 @@ private fun HierarchyPane(
                     }
                 }
             }
+            HorizontalScrollbar(
+                adapter = rememberScrollbarAdapter(horizontalScrollState),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(),
+                style = scrollbarStyle,
+            )
         }
     }
 }
@@ -1691,6 +1708,10 @@ private fun PreviewPane(
 ) {
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
+    val scrollbarStyle = LocalScrollbarStyle.current.copy(
+        unhoverColor = colors.mutedText.copy(alpha = 0.42f),
+        hoverColor = colors.secondaryText.copy(alpha = 0.82f),
+    )
     val selectedBounds = state.activeRoot?.findNodeBoundsSkippingHidden(
         targetId = state.selectedNodeId,
         hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
@@ -1762,6 +1783,35 @@ private fun PreviewPane(
                 with(density) {
                     Size(it.width.dp.toPx(), it.height.dp.toPx())
                 }
+            }
+            val previewContentSizePx = scaledPreviewSizePx ?: Size.Zero
+            val horizontalScrollbarAdapter = remember(
+                previewPan,
+                previewContentSizePx,
+                viewportSizePx,
+            ) {
+                PreviewScrollbarAdapter(
+                    axis = PreviewScrollbarAxis.HORIZONTAL,
+                    pan = previewPan,
+                    contentWidthPx = previewContentSizePx.width,
+                    contentHeightPx = previewContentSizePx.height,
+                    viewportWidthPx = viewportSizePx.width,
+                    viewportHeightPx = viewportSizePx.height,
+                )
+            }
+            val verticalScrollbarAdapter = remember(
+                previewPan,
+                previewContentSizePx,
+                viewportSizePx,
+            ) {
+                PreviewScrollbarAdapter(
+                    axis = PreviewScrollbarAxis.VERTICAL,
+                    pan = previewPan,
+                    contentWidthPx = previewContentSizePx.width,
+                    contentHeightPx = previewContentSizePx.height,
+                    viewportWidthPx = viewportSizePx.width,
+                    viewportHeightPx = viewportSizePx.height,
+                )
             }
             LaunchedEffect(scaledPreviewSizePx, viewportSizePx) {
                 previewPan.value = scaledPreviewSizePx?.let {
@@ -1986,6 +2036,22 @@ private fun PreviewPane(
                     }
                 }
             }
+            HorizontalScrollbar(
+                adapter = horizontalScrollbarAdapter,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(end = 8.dp),
+                style = scrollbarStyle,
+            )
+            VerticalScrollbar(
+                adapter = verticalScrollbarAdapter,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .padding(bottom = 8.dp),
+                style = scrollbarStyle,
+            )
             PreviewZoomControls(
                 scale = previewZoom,
                 onZoomOut = { previewZoom = PreviewZoomState.zoomOut(previewZoom) },
@@ -2110,6 +2176,65 @@ internal object PreviewPanState {
             y = if (verticalLimit == 0f) 0f else pan.y.coerceIn(-verticalLimit, verticalLimit),
         )
     }
+}
+
+internal enum class PreviewScrollbarAxis {
+    HORIZONTAL,
+    VERTICAL,
+}
+
+internal class PreviewScrollbarAdapter(
+    private val axis: PreviewScrollbarAxis,
+    private val pan: MutableState<Offset>,
+    private val contentWidthPx: Float,
+    private val contentHeightPx: Float,
+    private val viewportWidthPx: Float,
+    private val viewportHeightPx: Float,
+) : ScrollbarAdapter {
+    override val scrollOffset: Double
+        get() {
+            val overflow = (axis.contentSize() - axis.viewportSize()).coerceAtLeast(0f)
+            val panOffset = when (axis) {
+                PreviewScrollbarAxis.HORIZONTAL -> pan.value.x
+                PreviewScrollbarAxis.VERTICAL -> pan.value.y
+            }
+            return (overflow / 2f - panOffset).coerceIn(0f, overflow).toDouble()
+        }
+
+    override val contentSize: Double
+        get() = axis.contentSize().toDouble()
+
+    override val viewportSize: Double
+        get() = axis.viewportSize().toDouble()
+
+    override suspend fun scrollTo(scrollOffset: Double) {
+        val overflow = (axis.contentSize() - axis.viewportSize()).coerceAtLeast(0f)
+        val panOffset = overflow / 2f - scrollOffset.toFloat().coerceIn(0f, overflow)
+        val current = pan.value
+        val requested = when (axis) {
+            PreviewScrollbarAxis.HORIZONTAL -> current.copy(x = panOffset)
+            PreviewScrollbarAxis.VERTICAL -> current.copy(y = panOffset)
+        }
+        pan.value = PreviewPanState.clamp(
+            pan = requested,
+            contentWidthPx = contentWidthPx,
+            contentHeightPx = contentHeightPx,
+            viewportWidthPx = viewportWidthPx,
+            viewportHeightPx = viewportHeightPx,
+        )
+    }
+
+    private fun PreviewScrollbarAxis.contentSize(): Float =
+        when (this) {
+            PreviewScrollbarAxis.HORIZONTAL -> contentWidthPx
+            PreviewScrollbarAxis.VERTICAL -> contentHeightPx
+        }
+
+    private fun PreviewScrollbarAxis.viewportSize(): Float =
+        when (this) {
+            PreviewScrollbarAxis.HORIZONTAL -> viewportWidthPx
+            PreviewScrollbarAxis.VERTICAL -> viewportHeightPx
+        }
 }
 
 internal fun previewCanvasMode(
@@ -2503,6 +2628,10 @@ private fun TimelineStrip(
     onSelectTimelineFrame: (Int) -> Unit,
 ) {
     val colors = LocalViewerColors.current
+    val scrollbarStyle = LocalScrollbarStyle.current.copy(
+        unhoverColor = colors.mutedText.copy(alpha = 0.42f),
+        hoverColor = colors.secondaryText.copy(alpha = 0.82f),
+    )
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val buttons = TimelineScrollNavigation.buttons(
@@ -2520,10 +2649,16 @@ private fun TimelineStrip(
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth().height(34.dp)) {
+    Box(modifier = Modifier.fillMaxWidth().height(42.dp)) {
         LazyRow(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(horizontal = if (buttons.visible) 32.dp else 12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = if (buttons.visible) 32.dp else 12.dp,
+                    end = if (buttons.visible) 32.dp else 12.dp,
+                    bottom = 8.dp,
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2556,6 +2691,14 @@ private fun TimelineStrip(
                 onClick = { scroll(TimelineScrollDirection.RIGHT) },
             )
         }
+        HorizontalScrollbar(
+            adapter = rememberScrollbarAdapter(listState),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = if (buttons.visible) 32.dp else 12.dp),
+            style = scrollbarStyle,
+        )
     }
 }
 

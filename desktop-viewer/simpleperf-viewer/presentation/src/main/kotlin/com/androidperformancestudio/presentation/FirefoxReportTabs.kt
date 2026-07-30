@@ -30,7 +30,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.localizedStringResource
+import org.jetbrains.compose.resources.StringResource
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -39,6 +42,7 @@ internal fun FirefoxReportTabs(
     onSelectTab: (ReportTab) -> Unit,
     style: ViewerColors,
 ) {
+    val language = currentSimpleperfLanguage()
     Row(
         modifier =
             Modifier
@@ -69,6 +73,7 @@ internal fun FirefoxReportTabs(
     ) {
         ReportTab.entries.forEach { tab ->
             val selected = tab == selectedTab
+            val label = localizedStringResource(tab.labelResource(), language)
             Box(
                 modifier =
                     Modifier
@@ -82,12 +87,12 @@ internal fun FirefoxReportTabs(
                             role = Role.Tab,
                             onClick = { onSelectTab(tab) },
                         ).semantics { this.selected = selected }
-                        .semantics { contentDescription = tab.displayName() }
+                        .semantics { contentDescription = label }
                         .padding(horizontal = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    tab.displayName(),
+                    label,
                     color = if (selected) style.accent else style.text,
                     fontSize = 10.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -98,4 +103,13 @@ internal fun FirefoxReportTabs(
     }
 }
 
-internal fun ReportTab.displayName(): String = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
+private fun ReportTab.labelResource(): StringResource =
+    when (this) {
+        ReportTab.OVERVIEW -> SimpleperfViewerRes.sp_report_overview
+        ReportTab.TOP_FUNCTIONS -> SimpleperfViewerRes.sp_report_top_functions
+        ReportTab.CALL_TREE -> SimpleperfViewerRes.sp_calltree_tab
+        ReportTab.FLAME_GRAPH -> SimpleperfViewerRes.sp_flame_flame_graph
+        ReportTab.STACK_CHART -> SimpleperfViewerRes.sp_stack_stack_chart
+        ReportTab.MARKER_CHART -> SimpleperfViewerRes.sp_marker_marker_chart
+        ReportTab.MARKER_TABLE -> SimpleperfViewerRes.sp_marker_marker_table
+    }

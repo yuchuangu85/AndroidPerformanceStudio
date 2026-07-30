@@ -9,4 +9,19 @@
     <string name="text">%1$s · %2$s</string>
     <string name="metric_values">%1$s (%2$s) · %3$s → %4$s</string>
     <string name="metric_delta">Δ %1$s · %2$s · %3$s</string>
+    <string name="classification_regressed">性能回退</string>
+    <string name="classification_improved">性能提升</string>
+    <string name="classification_stable">稳定</string>
+    <string name="classification_inconclusive">无法判定</string>
+    <string name="classification_incompatible">不兼容</string>
+    <string name="confidence_exact">精确</string>
+    <string name="confidence_derived">推导</string>
+    <string name="confidence_inferred">推断</string>
+    <string name="confidence_partial">部分可信</string>
+    <string name="confidence_unknown">未知</string>
+    <string name="reason_incompatible_environments">运行环境不兼容：%1$s</string>
+    <string name="reason_no_baseline_metric">没有相同用例和指标标识的基线指标。</string>
+    <string name="reason_metric_units_differ">指标单位不同（%1$s 与 %2$s）。</string>
+    <string name="reason_unknown_metric_direction">指标方向未知，需要在项目中配置。</string>
+    <string name="reason_insufficient_samples">原始样本不足，无法进行高置信度判定。</string>
 </resources>

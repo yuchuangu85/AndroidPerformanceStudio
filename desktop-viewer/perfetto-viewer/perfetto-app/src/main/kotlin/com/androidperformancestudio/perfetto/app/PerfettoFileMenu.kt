@@ -1,16 +1,21 @@
 package com.androidperformancestudio.perfetto.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import org.jetbrains.compose.resources.stringResource
-
-import com.androidperformancestudio.perfetto_app.generated.resources.Res
-import com.androidperformancestudio.perfetto_app.generated.resources.*
-
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.perfetto_app.generated.resources.Res
+import com.androidperformancestudio.perfetto_app.generated.resources.clear_menu
+import com.androidperformancestudio.perfetto_app.generated.resources.export
+import com.androidperformancestudio.perfetto_app.generated.resources.file
+import com.androidperformancestudio.perfetto_app.generated.resources.no_recent_files
+import com.androidperformancestudio.perfetto_app.generated.resources.open_recent
+import com.androidperformancestudio.perfetto_app.generated.resources.open_u2026
+import com.androidperformancestudio.perfetto_app.generated.resources.raw_trace_pftrace
+import com.androidperformancestudio.perfetto_app.generated.resources.session_package_zip
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path
 
 @Composable
@@ -29,21 +34,21 @@ internal fun FrameWindowScope.PerfettoFileMenuBar(
     val openShortcut = KeyShortcut(Key.O, ctrl = !isMacOs, meta = isMacOs)
 
     MenuBar {
-        Menu(stringResource(Res.string.file)) {
-            Item(stringResource(Res.string.open_u2026), shortcut = openShortcut, onClick = onOpen)
-            Menu(stringResource(Res.string.export)) {
-                Item(stringResource(Res.string.session_package_zip), enabled = canExport, onClick = onExportSession)
-                Item(stringResource(Res.string.raw_trace_pftrace), enabled = canExport, onClick = onExportRawTrace)
+        Menu(localizedStringResource(Res.string.file, language)) {
+            Item(localizedStringResource(Res.string.open_u2026, language), shortcut = openShortcut, onClick = onOpen)
+            Menu(localizedStringResource(Res.string.export, language)) {
+                Item(localizedStringResource(Res.string.session_package_zip, language), enabled = canExport, onClick = onExportSession)
+                Item(localizedStringResource(Res.string.raw_trace_pftrace, language), enabled = canExport, onClick = onExportRawTrace)
             }
-            Menu(stringResource(Res.string.open_recent)) {
+            Menu(localizedStringResource(Res.string.open_recent, language)) {
                 if (recentFiles.isEmpty()) {
-                    Item(stringResource(Res.string.no_recent_files), enabled = false, onClick = {})
+                    Item(localizedStringResource(Res.string.no_recent_files, language), enabled = false, onClick = {})
                 } else {
                     recentFiles.forEach { path ->
                         Item(path.fileName?.toString() ?: path.toString(), onClick = { onOpenRecent(path) })
                     }
                     Separator()
-                    Item(stringResource(Res.string.clear_menu), onClick = onClearRecent)
+                    Item(localizedStringResource(Res.string.clear_menu, language), onClick = onClearRecent)
                 }
             }
         }

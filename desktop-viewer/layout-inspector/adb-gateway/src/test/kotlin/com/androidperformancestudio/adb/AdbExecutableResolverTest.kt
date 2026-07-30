@@ -1,5 +1,7 @@
 package com.androidperformancestudio.adb
 
+import com.androidperformancestudio.platform.adb.AdbExecutableLocator
+import com.androidperformancestudio.platform.adb.AdbLocationSource
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -12,14 +14,15 @@ class AdbExecutableResolverTest {
     fun `resolves adb from Android SDK home when GUI app has no useful PATH`(@TempDir sdk: Path) {
         val adb = createExecutable(sdk.resolve("platform-tools").resolve(adbFileName(osName = "Mac OS X")))
 
-        val resolved = AdbExecutableResolver(
+        val resolved = AdbExecutableLocator(
             environment = mapOf("ANDROID_HOME" to sdk.toString()),
-            userHome = "/missing-home",
+            userHome = Path.of("/missing-home"),
             osName = "Mac OS X",
             pathSeparator = ":",
-        ).resolve()
+        ).locate()
 
-        assertEquals(adb.toString(), resolved)
+        assertEquals(adb, resolved.executable)
+        assertEquals(AdbLocationSource.ANDROID_HOME, resolved.source)
     }
 
     @Test
@@ -32,14 +35,15 @@ class AdbExecutableResolverTest {
                 .resolve(adbFileName(osName = "Mac OS X")),
         )
 
-        val resolved = AdbExecutableResolver(
+        val resolved = AdbExecutableLocator(
             environment = emptyMap(),
-            userHome = home.toString(),
+            userHome = home,
             osName = "Mac OS X",
             pathSeparator = ":",
-        ).resolve()
+        ).locate()
 
-        assertEquals(adb.toString(), resolved)
+        assertEquals(adb, resolved.executable)
+        assertEquals(AdbLocationSource.DEFAULT_SDK, resolved.source)
     }
 
     @Test

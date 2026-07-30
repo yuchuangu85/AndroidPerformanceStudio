@@ -1,6 +1,6 @@
 package com.androidperformancestudio.desktop
 
-import com.androidperformancestudio.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDevice
 
 data class DeviceChoiceModel(
     val serial: String,

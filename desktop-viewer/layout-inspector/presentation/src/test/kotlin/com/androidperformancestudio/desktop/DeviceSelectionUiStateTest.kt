@@ -1,7 +1,7 @@
 package com.androidperformancestudio.desktop
 
-import com.androidperformancestudio.adb.AdbDevice
-import com.androidperformancestudio.adb.DeviceState
+import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -10,8 +10,8 @@ class DeviceSelectionUiStateTest {
     fun `device choices prefer model label and keep serial identity`() {
         val choices = deviceChoices(
             listOf(
-                AdbDevice(serial = "emulator-5554", state = DeviceState.DEVICE, model = "sdk_gphone"),
-                AdbDevice(serial = "R3CN30ABC", state = DeviceState.DEVICE, model = "Pixel_8"),
+                AdbDevice(serial = "emulator-5554", state = AdbDeviceState.ONLINE, model = "sdk_gphone"),
+                AdbDevice(serial = "R3CN30ABC", state = AdbDeviceState.ONLINE, model = "Pixel_8"),
             ),
         )
 
@@ -31,7 +31,7 @@ class DeviceSelectionUiStateTest {
             "physical-1",
             sanitizeSelectedDeviceSerial(
                 "physical-1",
-                listOf(AdbDevice("physical-1", DeviceState.DEVICE)),
+                listOf(AdbDevice("physical-1", AdbDeviceState.ONLINE)),
             ),
         )
     }

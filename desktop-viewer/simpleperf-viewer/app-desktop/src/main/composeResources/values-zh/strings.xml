@@ -3,7 +3,7 @@
     <!-- String resources for this module.
          Add <string name="key">value</string> entries here.
          Qualifier variants (e.g. values-zh/strings.xml) provide locale overrides. -->
-    <string name="sp_app_title">Android Performance Studio</string>
+    <string name="sp_app_title">Android SimplePerf</string>
     <string name="sp_menu_file">文件</string>
     <string name="sp_menu_open">打开…</string>
     <string name="sp_menu_settings">设置…</string>

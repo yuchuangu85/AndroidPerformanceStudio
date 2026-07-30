@@ -7,7 +7,13 @@ import com.androidperformancestudio.perfetto.model.CaptureMetadata
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureState
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
-import com.androidperformancestudio.toolchain.JvmProcessRunner
+import com.androidperformancestudio.platform.adb.AdbCommand
+import com.androidperformancestudio.platform.adb.AdbCommandCancelledException
+import com.androidperformancestudio.platform.adb.AdbCommandTimeoutException
+import com.androidperformancestudio.platform.adb.AdbProcessStartException
+import com.androidperformancestudio.platform.adb.JvmProcessRunner
+import com.androidperformancestudio.toolchain.CapturedProcessText
+import com.androidperformancestudio.toolchain.ProcessOutput
 import com.androidperformancestudio.toolchain.ProcessRequest
 import com.androidperformancestudio.toolchain.ProcessRunResult
 import kotlinx.coroutines.CoroutineScope
@@ -46,7 +52,7 @@ internal fun automaticCompletionDelayMillis(config: PerfettoCaptureConfig): Long
     }
 
 class PerfettoCaptureSession(
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
+    private val processRunner: PerfettoAdbProcessRunner = PerfettoAdbProcessRunner(::runAdbThroughCore),
     private val sessionDir: Path = Files.createTempDirectory("perfetto-capture"),
 ) {
     private val _state = MutableStateFlow<PerfettoCaptureState>(PerfettoCaptureState.Idle)
@@ -414,3 +420,64 @@ class PerfettoCaptureSession(
         recordingStartedAt = null
     }
 }
+
+fun interface PerfettoAdbProcessRunner {
+    suspend fun run(request: ProcessRequest): ProcessRunResult
+}
+
+private suspend fun runAdbThroughCore(request: ProcessRequest): ProcessRunResult {
+    val startedAt = Instant.now()
+    return try {
+        val result =
+            JvmProcessRunner().executeText(
+                AdbCommand(
+                    executable = request.executable,
+                    arguments = request.arguments,
+                    timeout = request.timeout,
+                    maxOutputBytesPerStream = request.maxCapturedCharactersPerStream,
+                ),
+            )
+        val output =
+            ProcessOutput(
+                pid = -1,
+                command = request.command,
+                exitCode = result.exitCode,
+                stdout = CapturedProcessText(result.stdout, result.stdoutTruncated),
+                stderr = CapturedProcessText(result.stderr, result.stderrTruncated),
+                startedAt = startedAt,
+                finishedAt = Instant.now(),
+            )
+        if (result.exitCode == 0) {
+            ProcessRunResult.Completed(output)
+        } else {
+            ProcessRunResult.Failed(
+                StudioError(
+                    category = ErrorCategory.PROCESS_EXIT,
+                    code = "PROCESS_EXIT_${result.exitCode}",
+                    message = "Process exited with code ${result.exitCode}",
+                ),
+                output,
+            )
+        }
+    } catch (error: AdbCommandTimeoutException) {
+        processFailure(ErrorCategory.PROCESS_TIMEOUT, "PROCESS_TIMED_OUT", error)
+    } catch (error: AdbCommandCancelledException) {
+        processFailure(ErrorCategory.PROCESS_CANCELLED, "PROCESS_CANCELLED", error)
+    } catch (error: AdbProcessStartException) {
+        processFailure(ErrorCategory.PROCESS_START, "PROCESS_START_FAILED", error)
+    }
+}
+
+private fun processFailure(
+    category: ErrorCategory,
+    code: String,
+    error: Throwable,
+): ProcessRunResult.Failed =
+    ProcessRunResult.Failed(
+        StudioError(
+            category = category,
+            code = code,
+            message = error.message.orEmpty(),
+            cause = error,
+        ),
+    )

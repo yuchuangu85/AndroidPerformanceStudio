@@ -9,7 +9,7 @@
     <string name="selected_view_bounds_color">点击选中边框</string>
     <string name="capture_archive">捕获归档</string>
     <string name="layout_snapshot_archive_limit">布局快照大小上限</string>
-    <string name="layout_snapshot_archive_limit_hint">可将导入和导出上限从 32 MiB 调至 320 MiB；更高上限可能占用更多内存。</string>
+    <string name="layout_snapshot_archive_limit_hint">可将导入和导出上限从 108 MiB 调至 1080 MiB；更高上限可能占用更多内存。</string>
     <string name="reset">恢复默认</string>
     <string name="actions">操作</string>
     <string name="view">视图</string>

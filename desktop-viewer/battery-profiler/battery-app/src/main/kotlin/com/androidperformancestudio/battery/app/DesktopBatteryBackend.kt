@@ -8,7 +8,7 @@
 package com.androidperformancestudio.battery.app
 
 import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.battery.capture.BatteryExperimentRunner
 import com.androidperformancestudio.battery.historian.BatteryHistorianAdapter

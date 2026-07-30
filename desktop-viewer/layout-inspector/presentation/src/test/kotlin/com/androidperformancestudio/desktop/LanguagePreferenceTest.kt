@@ -53,8 +53,16 @@ class LanguagePreferenceTest {
         assertEquals("前台应用", localizedStringResource(Res.string.foreground_app, chinese))
         assertEquals("System UI", localizedStringResource(Res.string.system_ui, english))
         assertEquals(
-            "320 MiB (10×)",
-            localizedStringResource(Res.string.archive_limit_value, english, 320, 10),
+            "1080 MiB (10×)",
+            localizedStringResource(Res.string.archive_limit_value, english, 1080, 10),
+        )
+        assertEquals(
+            "Adjusts import and export limits from 108 to 1080 MiB; higher limits may use more memory.",
+            localizedStringResource(Res.string.layout_snapshot_archive_limit_hint, english),
+        )
+        assertEquals(
+            "可将导入和导出上限从 108 MiB 调至 1080 MiB；更高上限可能占用更多内存。",
+            localizedStringResource(Res.string.layout_snapshot_archive_limit_hint, chinese),
         )
         assertEquals(
             "归档已导入：\n/tmp/capture.apinspect",

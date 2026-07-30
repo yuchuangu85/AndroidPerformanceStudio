@@ -3,7 +3,6 @@
 package com.androidperformancestudio.frame.app
 
 import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.adb.AdbDeviceState
 import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.frame.capture.FrameMetricsAgentCaptureSession
@@ -15,6 +14,7 @@ import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.CancellationException
 import java.nio.file.Path

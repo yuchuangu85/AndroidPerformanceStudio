@@ -1,6 +1,7 @@
 package com.androidperformancestudio.adb
 
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.toolchain.JvmProcessRunner
 import com.androidperformancestudio.toolchain.ProcessCancellationSignal
 import com.androidperformancestudio.toolchain.ProcessRequest
@@ -12,7 +13,7 @@ typealias AdbDevicesResult = StudioResult<List<AdbDevice>>
 
 class AdbDeviceRefresher(
     private val adbExecutable: Path,
-    private val parser: AdbDevicesParser = AdbDevicesParser(),
+    private val parser: StudioAdbDevicesParser = StudioAdbDevicesParser(),
     private val processInvocation: ProcessInvocation = { request, signal ->
         JvmProcessRunner().run(request, signal)
     },

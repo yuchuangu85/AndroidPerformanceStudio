@@ -2,23 +2,18 @@ package com.androidperformancestudio.toolchain
 
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
+import com.androidperformancestudio.platform.adb.AdbCommand
+import com.androidperformancestudio.platform.adb.AdbCommandCancelledException
+import com.androidperformancestudio.platform.adb.AdbCommandTimeoutException
+import com.androidperformancestudio.platform.adb.AdbProcessStartException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
-import java.io.IOException
-import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.min
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -88,181 +83,105 @@ class ProcessCancellationSignal {
     }
 }
 
+/**
+ * Compatibility adapter for existing profiler code. Process execution and lifecycle handling
+ * are owned by platform-adb:adb-core.
+ */
 class JvmProcessRunner(
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val terminationGracePeriod: Duration = 500.milliseconds,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    terminationGracePeriod: Duration = 500.milliseconds,
 ) {
+    private val delegate =
+        com.androidperformancestudio.platform.adb.JvmProcessRunner(
+            ioDispatcher = ioDispatcher,
+            terminationGracePeriod = terminationGracePeriod,
+        )
+
     suspend fun run(
         request: ProcessRequest,
         cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
-    ): ProcessRunResult =
-        withContext(ioDispatcher) {
-            val startedAt = Instant.now()
-            val process = startProcess(request) ?: return@withContext startFailure(request)
-            runStartedProcess(process, request, cancellationSignal, startedAt)
-        }
-
-    private fun startProcess(request: ProcessRequest): Process? =
-        try {
-            ProcessBuilder(request.command)
-                .apply {
-                    request.workingDirectory?.let { directory(it.toFile()) }
-                    environment().putAll(request.environmentOverrides)
-                }.start()
-        } catch (_: IOException) {
-            null
-        }
-
-    private fun startFailure(request: ProcessRequest): ProcessRunResult.Failed =
-        ProcessRunResult.Failed(
-            error =
-                StudioError(
-                    category = ErrorCategory.PROCESS_START,
-                    code = "PROCESS_START_FAILED",
-                    message = "Failed to start executable: ${request.executable}",
-                ),
-        )
-
-    private suspend fun runStartedProcess(
-        process: Process,
-        request: ProcessRequest,
-        cancellationSignal: ProcessCancellationSignal,
-        startedAt: Instant,
     ): ProcessRunResult {
-        val terminating = AtomicBoolean(false)
-        val registration =
-            cancellationSignal.invokeOnCancel {
-                terminateProcessTree(process, terminating)
-            }
-        try {
-            return coroutineScope {
-                val stdout =
-                    async {
-                        capture(process.inputStream, request.charset, request.maxCapturedCharactersPerStream)
-                    }
-                val stderr =
-                    async {
-                        capture(process.errorStream, request.charset, request.maxCapturedCharactersPerStream)
-                    }
-                val termination = awaitTermination(process, request.timeout, cancellationSignal)
-                if (termination != ProcessTermination.EXITED) terminateProcessTree(process, terminating)
-                val output =
-                    ProcessOutput(
-                        pid = process.pid(),
-                        command = request.command,
-                        exitCode = process.exitCodeOrNull(),
-                        stdout = stdout.await(),
-                        stderr = stderr.await(),
-                        startedAt = startedAt,
-                        finishedAt = Instant.now(),
-                    )
-                toRunResult(termination, output)
-            }
-        } finally {
-            registration.close()
-            if (process.isAlive) terminateProcessTree(process, terminating)
-        }
-    }
-
-    private suspend fun awaitTermination(
-        process: Process,
-        timeout: Duration,
-        cancellationSignal: ProcessCancellationSignal,
-    ): ProcessTermination {
-        val deadline = System.nanoTime() + timeout.inWholeNanoseconds
-        var termination: ProcessTermination? = null
-        while (process.isAlive && termination == null) {
-            currentCoroutineContext().ensureActive()
-            termination =
-                when {
-                    cancellationSignal.isCancelled -> ProcessTermination.CANCELLED
-                    System.nanoTime() >= deadline -> ProcessTermination.TIMED_OUT
-                    else -> null
-                }
-            if (termination == null) {
-                val remainingMillis = ((deadline - System.nanoTime()) / NANOS_PER_MILLISECOND).coerceAtLeast(1)
-                process.waitFor(min(POLL_INTERVAL_MILLIS, remainingMillis), TimeUnit.MILLISECONDS)
-            }
-        }
-        return termination
-            ?: if (cancellationSignal.isCancelled) ProcessTermination.CANCELLED else ProcessTermination.EXITED
-    }
-
-    private fun terminateProcessTree(
-        process: Process,
-        terminating: AtomicBoolean,
-    ) {
-        if (!terminating.compareAndSet(false, true)) return
-        val descendants = process.descendants().toList().asReversed()
-        descendants.forEach(ProcessHandle::destroy)
-        process.destroy()
-        process.waitFor(terminationGracePeriod.inWholeMilliseconds, TimeUnit.MILLISECONDS)
-        descendants.filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly)
-        if (process.isAlive) process.destroyForcibly()
-    }
-
-    private fun toRunResult(
-        termination: ProcessTermination,
-        output: ProcessOutput,
-    ): ProcessRunResult =
-        when {
-            termination == ProcessTermination.TIMED_OUT ->
-                failure(ErrorCategory.PROCESS_TIMEOUT, "PROCESS_TIMED_OUT", "Process timed out", output)
-            termination == ProcessTermination.CANCELLED ->
-                failure(ErrorCategory.PROCESS_CANCELLED, "PROCESS_CANCELLED", "Process was cancelled", output)
-            output.exitCode != 0 ->
-                failure(
-                    ErrorCategory.PROCESS_EXIT,
-                    "PROCESS_EXIT_${output.exitCode}",
-                    "Process exited with code ${output.exitCode}",
-                    output,
+        val startedAt = Instant.now()
+        return try {
+            val result =
+                delegate.executeText(
+                    AdbCommand(
+                        executable = request.executable,
+                        arguments = request.arguments,
+                        timeout = request.timeout,
+                        maxOutputBytesPerStream = request.maxCapturedCharactersPerStream,
+                        isCancellationRequested = { cancellationSignal.isCancelled },
+                        workingDirectory = request.workingDirectory,
+                        environmentOverrides = request.environmentOverrides,
+                        charset = request.charset,
+                    ),
                 )
-            else -> ProcessRunResult.Completed(output)
+            val output =
+                ProcessOutput(
+                    pid = result.pid,
+                    command = request.command,
+                    exitCode = result.exitCode,
+                    stdout = CapturedProcessText(result.stdout, result.stdoutTruncated),
+                    stderr = CapturedProcessText(result.stderr, result.stderrTruncated),
+                    startedAt = startedAt,
+                    finishedAt = Instant.now(),
+                )
+            if (result.exitCode == 0) {
+                ProcessRunResult.Completed(output)
+            } else {
+                failure(
+                    category = ErrorCategory.PROCESS_EXIT,
+                    code = "PROCESS_EXIT_${result.exitCode}",
+                    message = "Process exited with code ${result.exitCode}",
+                    output = output,
+                )
+            }
+        } catch (error: AdbCommandTimeoutException) {
+            failure(
+                ErrorCategory.PROCESS_TIMEOUT,
+                "PROCESS_TIMED_OUT",
+                "Process timed out",
+                terminatedOutput(error.pid, request, startedAt),
+            )
+        } catch (error: AdbCommandCancelledException) {
+            failure(
+                ErrorCategory.PROCESS_CANCELLED,
+                "PROCESS_CANCELLED",
+                "Process was cancelled",
+                terminatedOutput(error.pid, request, startedAt),
+            )
+        } catch (error: AdbProcessStartException) {
+            failure(
+                ErrorCategory.PROCESS_START,
+                "PROCESS_START_FAILED",
+                error.message ?: "Failed to start executable: ${request.executable}",
+            )
         }
+    }
+
+    private fun terminatedOutput(
+        pid: Long,
+        request: ProcessRequest,
+        startedAt: Instant,
+    ): ProcessOutput =
+        ProcessOutput(
+            pid = pid,
+            command = request.command,
+            exitCode = null,
+            stdout = CapturedProcessText("", false),
+            stderr = CapturedProcessText("", false),
+            startedAt = startedAt,
+            finishedAt = Instant.now(),
+        )
 
     private fun failure(
         category: ErrorCategory,
         code: String,
         message: String,
-        output: ProcessOutput,
+        output: ProcessOutput? = null,
     ): ProcessRunResult.Failed =
         ProcessRunResult.Failed(
             error = StudioError(category = category, code = code, message = message),
             output = output,
         )
-
-    private fun capture(
-        stream: InputStream,
-        charset: Charset,
-        maximumCharacters: Int,
-    ): CapturedProcessText {
-        val captured = StringBuilder(min(maximumCharacters, INITIAL_CAPTURE_CAPACITY))
-        val buffer = CharArray(READ_BUFFER_SIZE)
-        var truncated = false
-        stream.bufferedReader(charset).use { reader ->
-            while (true) {
-                val count = reader.read(buffer)
-                if (count < 0) break
-                val remaining = maximumCharacters - captured.length
-                if (remaining > 0) captured.append(buffer, 0, min(count, remaining))
-                if (count > remaining) truncated = true
-            }
-        }
-        return CapturedProcessText(captured.toString(), truncated)
-    }
-
-    private fun Process.exitCodeOrNull(): Int? = if (isAlive) null else exitValue()
-
-    private enum class ProcessTermination {
-        EXITED,
-        TIMED_OUT,
-        CANCELLED,
-    }
-
-    companion object {
-        private const val NANOS_PER_MILLISECOND = 1_000_000L
-        private const val POLL_INTERVAL_MILLIS = 50L
-        private const val READ_BUFFER_SIZE = 8_192
-        private const val INITIAL_CAPTURE_CAPACITY = 16_384
-    }
 }

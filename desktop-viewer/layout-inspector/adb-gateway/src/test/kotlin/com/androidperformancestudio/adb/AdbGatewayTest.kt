@@ -1,5 +1,7 @@
 package com.androidperformancestudio.adb
 
+import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AdbDevicesParser
 import com.androidperformancestudio.protocol.ViewNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -16,10 +18,10 @@ class AdbGatewayTest {
             ZX1G22	unauthorized usb:1-1 transport_id:3
         """.trimIndent()
 
-        val devices = AdbOutputParser.parseDevices(output)
+        val devices = AdbDevicesParser().parse(output)
 
         assertEquals(
-            listOf(DeviceState.DEVICE, DeviceState.OFFLINE, DeviceState.UNAUTHORIZED),
+            listOf(AdbDeviceState.ONLINE, AdbDeviceState.OFFLINE, AdbDeviceState.UNAUTHORIZED),
             devices.map { it.state },
         )
         assertEquals("sdk_gphone64_arm64", devices.first().model)

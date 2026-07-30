@@ -2,11 +2,6 @@
 
 package com.androidperformancestudio.network.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.network.network_app.generated.resources.Res
-import com.androidperformancestudio.network.network_app.generated.resources.*
-
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +22,8 @@ import com.androidperformancestudio.network.capture.ActiveNetworkCapture
 import com.androidperformancestudio.network.capture.NetworkAgentCapture
 import com.androidperformancestudio.network.export.NetworkExporter
 import com.androidperformancestudio.network.har.HarParser
+import com.androidperformancestudio.network.network_app.generated.resources.*
+import com.androidperformancestudio.network.network_app.generated.resources.Res
 import com.androidperformancestudio.network.presentation.NetworkProfilerActions
 import com.androidperformancestudio.network.presentation.NetworkProfilerScreen
 import com.androidperformancestudio.network.presentation.NetworkProfilerState
@@ -36,6 +33,8 @@ import com.androidperformancestudio.ui.ProfilerCompactTextField
 import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel

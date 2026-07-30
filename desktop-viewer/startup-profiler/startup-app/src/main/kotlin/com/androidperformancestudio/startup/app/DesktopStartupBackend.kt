@@ -3,10 +3,10 @@
 package com.androidperformancestudio.startup.app
 
 import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.adb.AdbDeviceState
 import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.startup.capture.StartupExperimentRunner
 import com.androidperformancestudio.startup.model.StartupDevice
 import com.androidperformancestudio.startup.model.StartupTarget

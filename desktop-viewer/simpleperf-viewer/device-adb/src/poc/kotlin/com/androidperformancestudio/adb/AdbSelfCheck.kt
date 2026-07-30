@@ -1,6 +1,7 @@
 package com.androidperformancestudio.adb
 
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.toolchain.HostPlatform
 import com.androidperformancestudio.toolchain.JvmProcessRunner
 import com.androidperformancestudio.toolchain.ProcessRequest

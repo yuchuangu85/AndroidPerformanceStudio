@@ -10,4 +10,18 @@
     <string name="capability_summary">%1$s · %2$s</string>
     <string name="unknown_version">Unknown version</string>
     <string name="unavailable">UNAVAILABLE</string>
+    <string name="artifact_kind_agi_system_profile">AGI System Profile</string>
+    <string name="artifact_kind_agi_frame_profile">AGI Frame Profile</string>
+    <string name="artifact_kind_perfetto_trace">Perfetto Trace</string>
+    <string name="artifact_kind_screenshot">Screenshot</string>
+    <string name="artifact_kind_external_report">External Report</string>
+    <string name="artifact_kind_unknown">Unknown Artifact</string>
+    <string name="launch_mode_verified_cli">Verified CLI</string>
+    <string name="launch_mode_gui_only">GUI Only</string>
+    <string name="launch_mode_unsupported">Unsupported</string>
+    <string name="warning_agi_executable_not_found">Android GPU Inspector executable was not found. Configure its local path.</string>
+    <string name="warning_agi_probe_timed_out">AGI version probe timed out; GUI launch remains available.</string>
+    <string name="warning_agi_version_unknown">AGI version could not be determined.</string>
+    <string name="warning_agi_gui_only">No stable automation arguments were detected; AGI will be launched in GUI-only mode.</string>
+    <string name="warning_unknown_artifact">Unknown artifact format; it is indexed as opaque evidence.</string>
 </resources>

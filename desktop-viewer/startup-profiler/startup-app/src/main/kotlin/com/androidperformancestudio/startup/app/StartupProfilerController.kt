@@ -3,6 +3,8 @@
 package com.androidperformancestudio.startup.app
 
 import com.androidperformancestudio.startup.analysis.StartupAnalyzer
+import com.androidperformancestudio.startup.capture.StartupExperimentProgress
+import com.androidperformancestudio.startup.capture.StartupExperimentProgressStage
 import com.androidperformancestudio.startup.export.StartupCsvExporter
 import com.androidperformancestudio.startup.export.StartupJsonExporter
 import com.androidperformancestudio.startup.export.StartupJsonImporter
@@ -12,16 +14,19 @@ import com.androidperformancestudio.startup.presentation.StartupProfilerState
 import com.androidperformancestudio.startup.presentation.withCompilationMode
 import com.androidperformancestudio.startup.presentation.withStartupType
 import com.androidperformancestudio.startup.startup_app.generated.resources.Res
+import com.androidperformancestudio.startup.startup_app.generated.resources.experiment_complete
 import com.androidperformancestudio.startup.startup_app.generated.resources.exported_report_to
 import com.androidperformancestudio.startup.startup_app.generated.resources.format_export_failed
 import com.androidperformancestudio.startup.startup_app.generated.resources.found_launchable_activities
 import com.androidperformancestudio.startup.startup_app.generated.resources.import_failed
 import com.androidperformancestudio.startup.startup_app.generated.resources.imported_analysis
+import com.androidperformancestudio.startup.startup_app.generated.resources.measured_run_progress
 import com.androidperformancestudio.startup.startup_app.generated.resources.preparing_startup_experiment
 import com.androidperformancestudio.startup.startup_app.generated.resources.session_persistence_failed
 import com.androidperformancestudio.startup.startup_app.generated.resources.startup_experiment_cancelled
 import com.androidperformancestudio.startup.startup_app.generated.resources.startup_experiment_completed_measured_runs
 import com.androidperformancestudio.startup.startup_app.generated.resources.startup_experiment_failed
+import com.androidperformancestudio.startup.startup_app.generated.resources.warm_up_progress
 import com.androidperformancestudio.startup.storage.SqliteStartupSessionStore
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -157,7 +162,7 @@ internal class StartupProfilerController(
                         mutableState.value.copy(
                             completedRuns = progress.completedRuns,
                             totalRuns = progress.totalRuns,
-                            operationMessage = progress.message,
+                            operationMessage = progress.localizedMessage(language),
                         )
                 }
             val analysis = analyzer.analyze(result.runs)
@@ -279,6 +284,16 @@ internal class StartupProfilerController(
             language,
             runCount,
         )
+
+    private fun StartupExperimentProgress.localizedMessage(language: UiLanguage): String =
+        when (stage) {
+            StartupExperimentProgressStage.WARM_UP ->
+                localizedStringResource(Res.string.warm_up_progress, language, stageRun, stageTotalRuns)
+            StartupExperimentProgressStage.MEASURED_RUN ->
+                localizedStringResource(Res.string.measured_run_progress, language, stageRun, stageTotalRuns)
+            StartupExperimentProgressStage.COMPLETE ->
+                localizedStringResource(Res.string.experiment_complete, language)
+        }
 
     private companion object {
         fun defaultDatabaseFile(): Path =

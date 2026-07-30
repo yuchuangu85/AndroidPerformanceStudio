@@ -3,6 +3,7 @@ package com.androidperformancestudio.adb
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.toolchain.CapturedProcessText
 import com.androidperformancestudio.toolchain.ProcessCancellationSignal
 import com.androidperformancestudio.toolchain.ProcessOutput

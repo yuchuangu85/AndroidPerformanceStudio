@@ -2,7 +2,7 @@
 <resources>
     <string name="choose_a_device_and_app_to_run_repeatable_cold_warm">选择设备和应用后运行可重复的冷、温或热启动实验。</string>
     <string name="compared_with_previous_experiment_difference_only_no_statistical_signi">与上一次实验相比：%1$s（仅表示差异，不声明统计显著）</string>
-    <string name="startup_profiler">Startup Profiler</string>
+    <string name="startup_profiler">启动性能分析器</string>
     <string name="median_totaltime">平台总耗时中位数</string>
     <string name="median_first_frame">首帧中位数</string>
     <string name="median_fully_drawn">完全绘制中位数</string>
@@ -26,14 +26,38 @@
     <string name="p90_n">p90 %1$s · n=%2$s</string>
     <string name="mad">MAD %1$s</string>
     <string name="text_aeb7e472">%1$s · %2$s · %3$s</string>
-    <string name="total">Total</string>
-    <string name="displayed">Displayed</string>
-    <string name="fully_drawn">Fully Drawn</string>
+    <string name="total">总耗时</string>
+    <string name="displayed">已显示</string>
+    <string name="fully_drawn">完全绘制</string>
     <string name="agent">Agent</string>
-    <string name="full">Full</string>
-    <string name="fallback">Fallback</string>
-    <string name="this_time">ThisTime</string>
-    <string name="total_time">TotalTime</string>
-    <string name="wait_time">WaitTime</string>
-    <string name="fully_drawn_time">Fully Drawn</string>
+    <string name="full">完整</string>
+    <string name="fallback">回退</string>
+    <string name="this_time">本次耗时</string>
+    <string name="total_time">总耗时</string>
+    <string name="wait_time">等待耗时</string>
+    <string name="fully_drawn_time">完全绘制</string>
+    <string name="cold">冷启动</string>
+    <string name="warm">温启动</string>
+    <string name="hot">热启动</string>
+    <string name="unknown">未知</string>
+    <string name="exact">精确</string>
+    <string name="estimated">估算</string>
+    <string name="inferred">推断</string>
+    <string name="unavailable">不可用</string>
+    <string name="process_start">进程启动</string>
+    <string name="initializer_enter">进入初始化器</string>
+    <string name="agent_ready">Agent 就绪</string>
+    <string name="activity_pre_create">Activity 创建前</string>
+    <string name="activity_created">Activity 已创建</string>
+    <string name="activity_started">Activity 已启动</string>
+    <string name="activity_resumed">Activity 已恢复</string>
+    <string name="first_frame">首帧</string>
+    <string name="first_draw_callback">首次绘制回调</string>
+    <string name="phase_process_bootstrap">进程引导</string>
+    <string name="phase_agent_initialization">Agent 初始化</string>
+    <string name="phase_activity_create">Activity 创建</string>
+    <string name="phase_activity_to_resumed">Activity 创建到恢复</string>
+    <string name="phase_resumed_to_first_frame">恢复到首帧</string>
+    <string name="phase_first_frame_to_fully_drawn">首帧到完全绘制</string>
+    <string name="phase_range">%1$s到%2$s</string>
 </resources>

@@ -1,5 +1,6 @@
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.gradle.api.tasks.testing.Test
+import org.jlleitschuh.gradle.ktlint.tasks.BaseKtLintCheckTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
@@ -31,6 +32,9 @@ subprojects {
             buildUponDefaultConfig = true
             allRules = false
             config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+        }
+        tasks.withType<BaseKtLintCheckTask>().configureEach {
+            exclude { element -> element.file.path.contains("/build/generated/") }
         }
         dependencies { add("testImplementation", kotlin("test")) }
         tasks.withType<Test>().configureEach { useJUnitPlatform() }

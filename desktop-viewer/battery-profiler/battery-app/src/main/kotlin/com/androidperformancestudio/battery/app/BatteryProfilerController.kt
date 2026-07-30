@@ -40,6 +40,8 @@ import com.androidperformancestudio.battery.export.BatteryJsonImporter
 import com.androidperformancestudio.battery.export.BatteryRawBundleExporter
 import com.androidperformancestudio.battery.model.BatteryExperimentConfig
 import com.androidperformancestudio.battery.model.BatteryExperimentResult
+import com.androidperformancestudio.battery.model.BatteryRunDelta
+import com.androidperformancestudio.battery.model.BatterySession
 import com.androidperformancestudio.battery.presentation.BatteryProfilerState
 import com.androidperformancestudio.battery.storage.SqliteBatterySessionStore
 import com.androidperformancestudio.ui.UiLanguage
@@ -427,7 +429,7 @@ internal class BatteryProfilerController(
 
     private suspend fun persist(
         experiment: BatteryExperimentResult,
-        deltas: List<com.androidperformancestudio.battery.model.BatteryRunDelta>,
+        deltas: List<BatteryRunDelta>,
     ): String? =
         withContext(Dispatchers.IO) {
             runCatching { SqliteBatterySessionStore.open(databaseFile).use { it.save(experiment.session, experiment.runs, deltas) } }
@@ -461,8 +463,8 @@ internal class BatteryProfilerController(
     }
 }
 
-private fun com.androidperformancestudio.battery.model.BatterySession.isCompatibleBaselineFor(
-    other: com.androidperformancestudio.battery.model.BatterySession,
+private fun BatterySession.isCompatibleBaselineFor(
+    other: BatterySession,
 ): Boolean =
     deviceSerial == other.deviceSerial &&
         packageName == other.packageName &&

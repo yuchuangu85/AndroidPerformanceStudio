@@ -18,6 +18,7 @@ rootProject.name = "android-performance-studio"
 
 include(
     ":app-desktop",
+    ":adb-core",
     ":simpleperf-presentation",
     ":simpleperf-application",
     ":platform-toolchain",
@@ -33,6 +34,7 @@ include(
     ":simpleperf-test-fixtures",
 )
 
+project(":adb-core").projectDir = file("../platform-adb/adb-core")
 project(":simpleperf-presentation").projectDir = file("presentation")
 project(":simpleperf-application").projectDir = file("application")
 project(":simpleperf-storage-sqlite").projectDir = file("storage-sqlite")

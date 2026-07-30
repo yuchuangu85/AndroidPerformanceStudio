@@ -5,13 +5,13 @@
     <string name="configure_agi">配置 AGI</string>
     <string name="launch_agi">启动 AGI</string>
     <string name="import_artifact">导入产物</string>
-    <string name="select_android_gpu_inspector_executable">Select Android GPU Inspector executable</string>
-    <string name="import_agi_perfetto_artifact">Import AGI / Perfetto artifact</string>
-    <string name="no_compatible_viewer">No compatible viewer is available</string>
-    <string name="unable_to_open_artifact">Unable to open artifact</string>
-    <string name="agi_capability_refreshed">AGI capability refreshed.</string>
-    <string name="configured_file">Configured %1$s</string>
-    <string name="imported_file">Imported %1$s</string>
-    <string name="artifact_hash_verified">Artifact hash verified.</string>
-    <string name="artifact_missing_or_changed">Artifact is missing or changed.</string>
+    <string name="select_android_gpu_inspector_executable">选择 Android GPU Inspector 可执行文件</string>
+    <string name="import_agi_perfetto_artifact">导入 AGI / Perfetto 产物</string>
+    <string name="no_compatible_viewer">没有可用的兼容查看器</string>
+    <string name="unable_to_open_artifact">无法打开产物</string>
+    <string name="agi_capability_refreshed">AGI 功能已刷新。</string>
+    <string name="configured_file">已配置 %1$s</string>
+    <string name="imported_file">已导入 %1$s</string>
+    <string name="artifact_hash_verified">产物哈希校验通过。</string>
+    <string name="artifact_missing_or_changed">产物缺失或已更改。</string>
 </resources>

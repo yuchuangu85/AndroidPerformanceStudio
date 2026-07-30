@@ -65,4 +65,35 @@
     <string name="raw_bundle">raw bundle</string>
     <string name="imported_analysis">Imported battery analysis: %1$s.</string>
     <string name="import_failed">Battery analysis import failed.</string>
+    <string name="analyze_wakelocks_alarms_jobs_network_sensors_and_system_energy_estima">Analyze Wakelocks, alarms, jobs, network, sensors, and system energy estimates using snapshot deltas.</string>
+    <string name="every_energy_value_exposes_its_source_scope_and_confidence_global">Every energy value exposes its source, scope, and confidence. Global batterystats are never reset by default.</string>
+    <string name="median_wakelock">Median Wakelock</string>
+    <string name="median_wakeup_alarms">Median Wakeup Alarms</string>
+    <string name="median_network">Median Network</string>
+    <string name="modeled_energy">Modeled Energy</string>
+    <string name="capability_attribution_uid">Capability: %1$s · Attribution: %2$s · UID %3$s</string>
+    <string name="experiment_runs">Experiment Runs</string>
+    <string name="run">Run</string>
+    <string name="diagnostics_and_warnings">Diagnostics and Warnings</string>
+    <string name="network_use_vs_previous_compatible_experiment_difference_only">Network use vs previous compatible experiment: %1$s (difference only)</string>
+    <string name="run_resource_details">Run %1$s Resource Details</string>
+    <string name="energy_evidence">Energy Evidence</string>
+    <string name="no_attributable_energy_data_was_provided_by_this_device">No attributable energy data was provided by this device</string>
+    <string name="history_timeline_events">History timeline events: %1$s</string>
+    <string name="no_delta_or_unavailable">No delta or unavailable</string>
+    <string name="text">• %1$s</string>
+    <string name="p90_n">p90 %1$s · n=%2$s</string>
+    <string name="network_b_mobile_radio_ms">Network · %1$s B · mobile radio %2$s ms</string>
+    <string name="ms">%1$s · %2$s ms · %3$s× · %4$s</string>
+    <string name="wakelock">Wakelock</string>
+    <string name="alarm">Alarm</string>
+    <string name="network">Network</string>
+    <string name="energy">Energy</string>
+    <string name="s">%1$ss</string>
+    <string name="wakelocks">Wakelocks</string>
+    <string name="alarms">Alarms</string>
+    <string name="jobs">Jobs</string>
+    <string name="sensors">Sensors</string>
+    <string name="energy_evidence_detail">%1$s: %2$s / %3$s µWs · %4$s · %5$s · %6$s</string>
+    <string name="history_event_detail">%1$s ms · %2$s · %3$s · %4$s</string>
 </resources>

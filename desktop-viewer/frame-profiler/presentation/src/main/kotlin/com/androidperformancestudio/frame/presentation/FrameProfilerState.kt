@@ -14,10 +14,30 @@ public data class FrameProfilerState(
     val isLoading: Boolean = false,
     val isRefreshingDevices: Boolean = false,
     val isCapturing: Boolean = false,
-    val operationMessage: String? = null,
+    val operationStatus: FrameOperationStatus? = null,
     val warnings: List<String> = emptyList(),
     val errorMessage: String? = null,
 )
+
+public sealed interface FrameOperationStatus {
+    public data class Capturing(
+        val packageName: String,
+        val source: String,
+        val frameCount: Int? = null,
+    ) : FrameOperationStatus
+
+    public data class CaptureStopped(
+        val frameCount: Int,
+    ) : FrameOperationStatus
+
+    public data class ImportedFrames(
+        val frameCount: Int,
+    ) : FrameOperationStatus
+
+    public data class Exported(
+        val fileName: String,
+    ) : FrameOperationStatus
+}
 
 public data class FrameDeviceOption(
     val serial: String,

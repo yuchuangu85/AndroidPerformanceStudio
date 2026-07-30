@@ -13,7 +13,7 @@ dependencies {
     implementation(project(":perfetto-storage"))
     implementation(project(":perfetto-export"))
     implementation(project(":perfetto-presentation"))
-    implementation("com.androidperformancestudio:device-adb:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:platform-toolchain:0.1.0-SNAPSHOT")
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)

@@ -1,10 +1,12 @@
 package com.androidperformancestudio.adb
 
-import com.androidperformancestudio.model.ErrorCategory
-import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AdbDevicesParser
+import com.androidperformancestudio.platform.adb.AdbOutputParseException
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class AdbDevicesParserTest {
@@ -18,15 +20,19 @@ class AdbDevicesParserTest {
             192.168.1.20:5555 offline transport_id:3
             """.trimIndent()
 
-        val result = assertIs<StudioResult.Success<List<AdbDevice>>>(AdbDevicesParser().parse(output))
+        val result = AdbDevicesParser().parse(output)
 
-        assertEquals(3, result.value.size)
+        assertEquals(3, result.size)
         assertEquals(
             AdbDevice(
                 serial = "emulator-5554",
                 state = AdbDeviceState.ONLINE,
                 rawState = "device",
-                properties =
+                product = "sdk_gphone64_arm64",
+                model = "sdk_gphone64_arm64",
+                device = "emu64a",
+                transportId = 1,
+                attributes =
                     mapOf(
                         "product" to "sdk_gphone64_arm64",
                         "model" to "sdk_gphone64_arm64",
@@ -34,12 +40,12 @@ class AdbDevicesParserTest {
                         "transport_id" to "1",
                     ),
             ),
-            result.value[0],
+            result[0],
         )
-        assertEquals(AdbDeviceState.UNAUTHORIZED, result.value[1].state)
-        assertEquals("1-2", result.value[1].properties["usb"])
-        assertEquals(AdbDeviceState.OFFLINE, result.value[2].state)
-        assertEquals("192.168.1.20:5555", result.value[2].serial)
+        assertEquals(AdbDeviceState.UNAUTHORIZED, result[1].state)
+        assertEquals("1-2", result[1].attributes["usb"])
+        assertEquals(AdbDeviceState.OFFLINE, result[2].state)
+        assertEquals("192.168.1.20:5555", result[2].serial)
     }
 
     @Test
@@ -50,13 +56,12 @@ class AdbDevicesParserTest {
             ???????????? no permissions (user in plugdev group; are your udev rules wrong?); see [http://developer.android.com/tools/device.html]
             """.trimIndent()
 
-        val result = assertIs<StudioResult.Success<List<AdbDevice>>>(AdbDevicesParser().parse(output))
-        val device = result.value.single()
+        val device = AdbDevicesParser().parse(output).single()
 
         assertEquals(AdbDeviceState.NO_PERMISSIONS, device.state)
         assertEquals("no permissions", device.rawState)
         assertEquals("user in plugdev group; are your udev rules wrong?", device.statusDetail)
-        assertEquals(emptyMap(), device.properties)
+        assertEquals(emptyMap(), device.attributes)
     }
 
     @Test
@@ -64,29 +69,23 @@ class AdbDevicesParserTest {
         val output = "List of devices attached\nserial-1 reconnecting transport_id:8"
 
         val device =
-            assertIs<StudioResult.Success<List<AdbDevice>>>(AdbDevicesParser().parse(output))
-                .value
-                .single()
+            AdbDevicesParser().parse(output).single()
 
         assertEquals(AdbDeviceState.UNKNOWN, device.state)
         assertEquals("reconnecting", device.rawState)
         assertNull(device.statusDetail)
-        assertEquals("8", device.properties["transport_id"])
+        assertEquals("8", device.attributes["transport_id"])
     }
 
     @Test
     fun `returns an empty list when no devices are attached`() {
-        val result = AdbDevicesParser().parse("List of devices attached\n\n")
-
-        assertEquals(emptyList(), assertIs<StudioResult.Success<List<AdbDevice>>>(result).value)
+        assertEquals(emptyList(), AdbDevicesParser().parse("List of devices attached\n\n"))
     }
 
     @Test
     fun `rejects malformed non-empty device lines`() {
-        val result = AdbDevicesParser().parse("List of devices attached\nserial-without-state")
-
-        val failure = assertIs<StudioResult.Failure>(result)
-        assertEquals(ErrorCategory.DATA_VALIDATION, failure.error.category)
-        assertEquals("ADB_DEVICES_LINE_MALFORMED", failure.error.code)
+        assertFailsWith<AdbOutputParseException> {
+            AdbDevicesParser().parse("List of devices attached\nserial-without-state")
+        }
     }
 }

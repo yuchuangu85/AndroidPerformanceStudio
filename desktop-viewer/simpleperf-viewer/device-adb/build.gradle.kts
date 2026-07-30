@@ -1,8 +1,13 @@
+plugins {
+    `java-library`
+}
+
 dependencies {
+    api(project(":adb-core"))
     implementation(project(":simpleperf-application"))
     implementation(project(":profile-model"))
     implementation(project(":platform-toolchain"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 }
 
 val poc by sourceSets.creating {

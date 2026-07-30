@@ -31,14 +31,14 @@ internal data class CaptureArchiveLimits(
         get() = (maxSnapshotSizeMiB - BASE_MAX_SNAPSHOT_SIZE_MIB).toLong() * BYTES_PER_MIB
 
     companion object {
-        const val BASE_MAX_SNAPSHOT_SIZE_MIB = 32
+        const val BASE_MAX_SNAPSHOT_SIZE_MIB = 108
         const val MIN_SNAPSHOT_SIZE_MULTIPLIER = 1
         const val MAX_SNAPSHOT_SIZE_MULTIPLIER = 10
         const val DEFAULT_SNAPSHOT_SIZE_MULTIPLIER = 1
 
         private const val BYTES_PER_MIB = 1024 * 1024
-        private const val BASE_MAX_TOTAL_UNCOMPRESSED_BYTES = 80L * BYTES_PER_MIB
-        private const val BASE_MAX_ARCHIVE_BYTES = 96L * BYTES_PER_MIB
+        private const val BASE_MAX_TOTAL_UNCOMPRESSED_BYTES = 156L * BYTES_PER_MIB
+        private const val BASE_MAX_ARCHIVE_BYTES = 172L * BYTES_PER_MIB
 
         fun fromStoredMultiplier(value: Int?): CaptureArchiveLimits =
             CaptureArchiveLimits(

@@ -4,10 +4,10 @@
     <string name="import_current">导入当前结果</string>
     <string name="import_baseline">导入基线</string>
     <string name="export_report">导出报告</string>
-    <string name="open_trace_in_perfetto">在 Perfetto 打开 Trace</string>
-    <string name="import_androidx_benchmark_json">Import AndroidX Benchmark JSON</string>
-    <string name="imported_baseline">Imported baseline %1$s</string>
-    <string name="imported_current">Imported current result %1$s</string>
-    <string name="import_failed">Import failed</string>
-    <string name="benchmark_json">Benchmark JSON</string>
+    <string name="open_trace_in_perfetto">在 Perfetto 中打开轨迹</string>
+    <string name="import_androidx_benchmark_json">导入 AndroidX Benchmark JSON</string>
+    <string name="imported_baseline">已导入基线 %1$s</string>
+    <string name="imported_current">已导入当前结果 %1$s</string>
+    <string name="import_failed">导入失败</string>
+    <string name="benchmark_json">基准测试 JSON</string>
 </resources>

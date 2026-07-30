@@ -9,4 +9,19 @@
     <string name="text">%1$s · %2$s</string>
     <string name="metric_values">%1$s (%2$s) · %3$s → %4$s</string>
     <string name="metric_delta">Δ %1$s · %2$s · %3$s</string>
+    <string name="classification_regressed">Regressed</string>
+    <string name="classification_improved">Improved</string>
+    <string name="classification_stable">Stable</string>
+    <string name="classification_inconclusive">Inconclusive</string>
+    <string name="classification_incompatible">Incompatible</string>
+    <string name="confidence_exact">Exact</string>
+    <string name="confidence_derived">Derived</string>
+    <string name="confidence_inferred">Inferred</string>
+    <string name="confidence_partial">Partial</string>
+    <string name="confidence_unknown">Unknown</string>
+    <string name="reason_incompatible_environments">Run environments are incompatible: %1$s</string>
+    <string name="reason_no_baseline_metric">No baseline metric with the same case and metric identity.</string>
+    <string name="reason_metric_units_differ">Metric units differ (%1$s vs %2$s).</string>
+    <string name="reason_unknown_metric_direction">Metric direction is unknown and requires project configuration.</string>
+    <string name="reason_insufficient_samples">Insufficient raw samples for a high-confidence gate.</string>
 </resources>

@@ -1,5 +1,8 @@
 package com.androidperformancestudio.adb
 
+import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AdbDevicesParser
 import com.androidperformancestudio.protocol.CaptureFrame
 import com.androidperformancestudio.protocol.CaptureFrameCodec
 import com.androidperformancestudio.protocol.DisplayInfo
@@ -84,8 +87,8 @@ class LiveDeviceClient(
 
     private fun authorizedDevices(): List<AdbDevice> =
         checkedRun(listOf("devices", "-l")).stdout
-            .let(AdbOutputParser::parseDevices)
-            .filter { it.state == DeviceState.DEVICE }
+            .let(AdbDevicesParser()::parse)
+            .filter { it.state == AdbDeviceState.ONLINE }
 
     private fun connectWithFallback(device: AdbDevice, packageName: String): ConnectedDeviceSession =
         try {

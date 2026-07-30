@@ -9,7 +9,7 @@
     <string name="selected_view_bounds_color">Selected view bounds</string>
     <string name="capture_archive">Capture archive</string>
     <string name="layout_snapshot_archive_limit">Layout snapshot size limit</string>
-    <string name="layout_snapshot_archive_limit_hint">Adjusts import and export limits from 32 to 320 MiB; higher limits may use more memory.</string>
+    <string name="layout_snapshot_archive_limit_hint">Adjusts import and export limits from 108 to 1080 MiB; higher limits may use more memory.</string>
     <string name="reset">Reset</string>
     <string name="actions">Actions</string>
     <string name="view">View</string>

@@ -31,8 +31,16 @@ import kotlin.time.Duration.Companion.seconds
 public data class StartupExperimentProgress(
     val completedRuns: Int,
     val totalRuns: Int,
-    val message: String,
+    val stage: StartupExperimentProgressStage,
+    val stageRun: Int = 0,
+    val stageTotalRuns: Int = 0,
 )
+
+public enum class StartupExperimentProgressStage {
+    WARM_UP,
+    MEASURED_RUN,
+    COMPLETE,
+}
 
 public data class StartupExperimentResult(
     val session: StartupSession,
@@ -110,7 +118,13 @@ public class StartupExperimentRunner internal constructor(
         val compilationOutput = prepareCompilation(config.compilationMode, warnings)
         repeat(config.warmupRuns) { index ->
             onProgress(
-                StartupExperimentProgress(index, config.warmupRuns + config.measuredRuns, "Warm-up ${index + 1}/${config.warmupRuns}"),
+                StartupExperimentProgress(
+                    completedRuns = index,
+                    totalRuns = config.warmupRuns + config.measuredRuns,
+                    stage = StartupExperimentProgressStage.WARM_UP,
+                    stageRun = index + 1,
+                    stageTotalRuns = config.warmupRuns,
+                ),
             )
             executeRun(session.id, -(index + 1), config, compilationOutput)
         }
@@ -120,13 +134,21 @@ public class StartupExperimentRunner internal constructor(
                 StartupExperimentProgress(
                     completedRuns = config.warmupRuns + index,
                     totalRuns = config.warmupRuns + config.measuredRuns,
-                    message = "Measured run ${index + 1}/${config.measuredRuns}",
+                    stage = StartupExperimentProgressStage.MEASURED_RUN,
+                    stageRun = index + 1,
+                    stageTotalRuns = config.measuredRuns,
                 ),
             )
             runs += executeRun(session.id, index + 1, config, compilationOutput)
             delay(RUN_SETTLE_DELAY_MILLIS)
         }
-        onProgress(StartupExperimentProgress(config.warmupRuns + config.measuredRuns, config.warmupRuns + config.measuredRuns, "Complete"))
+        onProgress(
+            StartupExperimentProgress(
+                completedRuns = config.warmupRuns + config.measuredRuns,
+                totalRuns = config.warmupRuns + config.measuredRuns,
+                stage = StartupExperimentProgressStage.COMPLETE,
+            ),
+        )
         return StartupExperimentResult(session, runs, compilationOutput, warnings)
     }
 

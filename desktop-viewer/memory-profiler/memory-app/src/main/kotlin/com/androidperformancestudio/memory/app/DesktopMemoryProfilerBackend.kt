@@ -6,7 +6,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.*
 
 import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption

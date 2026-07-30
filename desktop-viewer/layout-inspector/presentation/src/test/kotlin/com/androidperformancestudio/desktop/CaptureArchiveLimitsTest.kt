@@ -11,10 +11,12 @@ class CaptureArchiveLimitsTest {
             snapshotSizeMultiplier = CaptureArchiveLimits.MAX_SNAPSHOT_SIZE_MULTIPLIER,
         )
 
-        assertEquals(32, defaults.maxSnapshotSizeMiB)
-        assertEquals(320, maximum.maxSnapshotSizeMiB)
-        assertEquals(368L * 1024 * 1024, maximum.maxTotalUncompressedBytes)
-        assertEquals(384L * 1024 * 1024, maximum.maxArchiveBytes)
+        assertEquals(108, defaults.maxSnapshotSizeMiB)
+        assertEquals(1_080, maximum.maxSnapshotSizeMiB)
+        assertEquals(156L * 1024 * 1024, defaults.maxTotalUncompressedBytes)
+        assertEquals(172L * 1024 * 1024, defaults.maxArchiveBytes)
+        assertEquals(1_128L * 1024 * 1024, maximum.maxTotalUncompressedBytes)
+        assertEquals(1_144L * 1024 * 1024, maximum.maxArchiveBytes)
     }
 
     @Test
