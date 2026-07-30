@@ -1,5 +1,5 @@
 dependencies {
-    implementation(project(":application"))
+    implementation(project(":simpleperf-application"))
     implementation(project(":profile-model"))
     implementation(project(":platform-toolchain"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")

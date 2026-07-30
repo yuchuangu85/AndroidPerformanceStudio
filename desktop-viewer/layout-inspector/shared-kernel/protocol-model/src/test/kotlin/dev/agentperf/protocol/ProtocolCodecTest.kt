@@ -1,4 +1,4 @@
-package dev.agentperf.protocol
+package com.androidperformancestudio.protocol
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -22,7 +22,7 @@ class ProtocolCodecTest {
     fun `snapshot survives a JSON round trip`() {
         val snapshot = LayoutSnapshot(
             protocolVersion = ProtocolVersion(1, 0),
-            packageName = "dev.agentperf.sample",
+            packageName = "com.androidperformancestudio.sample",
             capturedAtEpochMillis = 1_750_000_000_000,
             display = DisplayInfo(widthPx = 1080, heightPx = 2400, density = 3f),
             capabilities = AgentCapabilities(viewHierarchy = true, screenshots = true),
@@ -84,7 +84,7 @@ class ProtocolCodecTest {
         val json = """
             {
               "protocolVersion": {"major": 1, "minor": 9},
-              "packageName": "dev.agentperf.sample",
+              "packageName": "com.androidperformancestudio.sample",
               "capturedAtEpochMillis": 42,
               "display": {"widthPx": 100, "heightPx": 200, "density": 2.0},
               "capabilities": {"viewHierarchy": true, "screenshots": false},
@@ -123,7 +123,7 @@ class ProtocolCodecTest {
         )
         val snapshot = LayoutSnapshot(
             protocolVersion = ProtocolVersion(1, 1),
-            packageName = "dev.agentperf.sample",
+            packageName = "com.androidperformancestudio.sample",
             capturedAtEpochMillis = 42,
             display = DisplayInfo(1080, 2400, 3f),
             capabilities = AgentCapabilities(viewHierarchy = true, screenshots = true),
@@ -156,7 +156,7 @@ class ProtocolCodecTest {
         val json = """
             {
               "protocolVersion": {"major": 2, "minor": 0},
-              "packageName": "dev.agentperf.sample",
+              "packageName": "com.androidperformancestudio.sample",
               "capturedAtEpochMillis": 42,
               "display": {"widthPx": 100, "heightPx": 200, "density": 2.0},
               "capabilities": {},

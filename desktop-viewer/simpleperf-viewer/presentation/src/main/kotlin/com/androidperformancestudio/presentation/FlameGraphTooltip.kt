@@ -34,7 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -59,17 +59,17 @@ internal fun FirefoxFlameGraphTooltip(
     val foreground = style.canvasForeground.toComposeColor()
     val accessible =
         buildString {
-            append(localizedStringResource(ViewerRes.sp_report_flame_frame, language))
+            append(localizedStringResource(SimpleperfViewerRes.sp_report_flame_frame, language))
             append(' ')
             append(facts.function)
             append(", ")
             append(durationText)
             append(", ")
-            append(localizedStringResource(ViewerRes.sp_report_inclusive, language))
+            append(localizedStringResource(SimpleperfViewerRes.sp_report_inclusive, language))
             append(' ')
             append(facts.inclusiveWeight)
             append(", ")
-            append(localizedStringResource(ViewerRes.sp_report_self_weight_label, language))
+            append(localizedStringResource(SimpleperfViewerRes.sp_report_self_weight_label, language))
             append(' ')
             append(facts.selfWeight)
         }
@@ -108,12 +108,12 @@ internal fun FirefoxFlameGraphTooltip(
             FirefoxTooltipDivider(style)
             Column(Modifier.padding(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 5.dp)) {
                 FirefoxTooltipDetail(
-                    ViewerRes.sp_details_stack_type_value_format,
+                    SimpleperfViewerRes.sp_details_stack_type_value_format,
                     facts.implementation.localizedFirefoxStackType(language),
                     style,
                 )
                 facts.category?.let { category -> FirefoxTooltipCategoryDetail(category, style) }
-                facts.resource?.let { FirefoxTooltipDetail(ViewerRes.sp_details_resource_value_format, it, style) }
+                facts.resource?.let { FirefoxTooltipDetail(SimpleperfViewerRes.sp_details_resource_value_format, it, style) }
             }
             FirefoxTooltipTimings(facts, style)
         }
@@ -147,7 +147,7 @@ private fun FirefoxTooltipCategoryDetail(
     style: FirefoxFlameGraphStyle,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        FirefoxTooltipLabel(ViewerRes.sp_details_category_value_format, style)
+        FirefoxTooltipLabel(SimpleperfViewerRes.sp_details_category_value_format, style)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
@@ -198,11 +198,11 @@ private fun FirefoxTooltipTimings(
     ) {
         Spacer(Modifier.width(TOOLTIP_TIMING_LABEL_WIDTH_DP.dp))
         Spacer(Modifier.width(TOOLTIP_METER_WIDTH_DP.dp))
-        FirefoxTooltipTimingHeader(ViewerRes.sp_report_running, TOOLTIP_RUNNING_WIDTH_DP, style)
-        FirefoxTooltipTimingHeader(ViewerRes.sp_report_self_column, TOOLTIP_SELF_WIDTH_DP, style)
+        FirefoxTooltipTimingHeader(SimpleperfViewerRes.sp_report_running, TOOLTIP_RUNNING_WIDTH_DP, style)
+        FirefoxTooltipTimingHeader(SimpleperfViewerRes.sp_report_self_column, TOOLTIP_SELF_WIDTH_DP, style)
     }
     FirefoxTooltipTimingRow(
-        label = localizedStringResource(ViewerRes.sp_report_overall, currentSimpleperfLanguage()),
+        label = localizedStringResource(SimpleperfViewerRes.sp_report_overall, currentSimpleperfLanguage()),
         running = facts.inclusiveWeight,
         self = facts.selfWeight,
         maximum = facts.inclusiveWeight,
@@ -379,10 +379,10 @@ private fun Long.firefoxTooltipWeight(zeroAsDash: Boolean): String =
 
 private fun FrameImplementation.localizedFirefoxStackType(language: UiLanguage): String =
     when (this) {
-        FrameImplementation.NATIVE -> localizedStringResource(ViewerRes.sp_flame_native, language)
-        FrameImplementation.MANAGED -> localizedStringResource(ViewerRes.sp_flame_managed, language)
-        FrameImplementation.KERNEL -> localizedStringResource(ViewerRes.sp_flame_kernel, language)
-        FrameImplementation.UNKNOWN -> localizedStringResource(ViewerRes.sp_flame_unknown, language)
+        FrameImplementation.NATIVE -> localizedStringResource(SimpleperfViewerRes.sp_flame_native, language)
+        FrameImplementation.MANAGED -> localizedStringResource(SimpleperfViewerRes.sp_flame_managed, language)
+        FrameImplementation.KERNEL -> localizedStringResource(SimpleperfViewerRes.sp_flame_kernel, language)
+        FrameImplementation.UNKNOWN -> localizedStringResource(SimpleperfViewerRes.sp_flame_unknown, language)
     }
 
 private fun firefoxCategoryColor(

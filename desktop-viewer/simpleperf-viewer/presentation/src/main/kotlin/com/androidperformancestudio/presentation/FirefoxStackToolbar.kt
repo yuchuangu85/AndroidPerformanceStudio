@@ -17,7 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
 import com.androidperformancestudio.ui.UiLanguage
@@ -66,7 +66,7 @@ internal fun FirefoxStackToolbar(
         }
         Spacer(Modifier.width(8.dp))
         MacOsInlineTextField(
-            label = localizedStringResource(ViewerRes.sp_calltree_filter_stacks, language),
+            label = localizedStringResource(SimpleperfViewerRes.sp_calltree_filter_stacks, language),
             value = searchState.draft,
             enabled = true,
             onValueChange = { searchState = searchState.edit(it) },
@@ -75,7 +75,7 @@ internal fun FirefoxStackToolbar(
         )
         Spacer(Modifier.width(8.dp))
         MacOsChoiceChip(
-            label = localizedStringResource(ViewerRes.sp_calltree_invert_call_stack, language),
+            label = localizedStringResource(SimpleperfViewerRes.sp_calltree_invert_call_stack, language),
             selected = state.callStackQuery.direction == CallStackDirection.INVERTED,
             enabled = true,
             style = style,
@@ -93,9 +93,9 @@ internal fun FirefoxStackToolbar(
 
 private fun ImplementationFilter.displayName(language: UiLanguage): String =
     when (this) {
-        ImplementationFilter.ALL -> localizedStringResource(ViewerRes.sp_calltree_all_frames, language)
-        ImplementationFilter.SCRIPT -> localizedStringResource(ViewerRes.sp_calltree_script, language)
-        ImplementationFilter.NATIVE -> localizedStringResource(ViewerRes.sp_flame_native, language)
+        ImplementationFilter.ALL -> localizedStringResource(SimpleperfViewerRes.sp_calltree_all_frames, language)
+        ImplementationFilter.SCRIPT -> localizedStringResource(SimpleperfViewerRes.sp_calltree_script, language)
+        ImplementationFilter.NATIVE -> localizedStringResource(SimpleperfViewerRes.sp_flame_native, language)
     }
 
 private const val STACK_SEARCH_DEBOUNCE_MILLIS = 150L

@@ -16,7 +16,7 @@ All three surfaces use the exact text `AgentPerf Inspector`.
 
 ## Compatibility boundaries
 
-- Keep the Kotlin entry point `dev.agentperf.desktop.MainKt`.
+- Keep the Kotlin entry point `com.androidperformancestudio.desktop.MainKt`.
 - Keep existing Kotlin and protocol package names unchanged.
 - Keep stored preferences and application behavior unchanged.
 - Do not rename source files, modules, or remote artifacts.

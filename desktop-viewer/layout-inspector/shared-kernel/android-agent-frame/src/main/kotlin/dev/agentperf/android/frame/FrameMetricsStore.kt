@@ -1,4 +1,4 @@
-package dev.agentperf.android.frame
+package com.androidperformancestudio.android.frame
 
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameBatch
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameSample

@@ -1,16 +1,16 @@
-package dev.agentperf.fixtures
+package com.androidperformancestudio.fixtures
 
-import dev.agentperf.protocol.AgentCapabilities
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.DisplayInfo
-import dev.agentperf.protocol.LayoutSnapshot
-import dev.agentperf.protocol.ProtocolVersion
-import dev.agentperf.protocol.ViewNode
+import com.androidperformancestudio.protocol.AgentCapabilities
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.DisplayInfo
+import com.androidperformancestudio.protocol.LayoutSnapshot
+import com.androidperformancestudio.protocol.ProtocolVersion
+import com.androidperformancestudio.protocol.ViewNode
 
 object SampleSnapshots {
     val dashboard = LayoutSnapshot(
         protocolVersion = ProtocolVersion(1, 0),
-        packageName = "dev.agentperf.sample",
+        packageName = "com.androidperformancestudio.sample",
         capturedAtEpochMillis = 1_750_000_000_000,
         display = DisplayInfo(widthPx = 1080, heightPx = 2400, density = 3f),
         capabilities = AgentCapabilities(viewHierarchy = true, screenshots = false),

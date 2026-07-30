@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.StackChartEmptyReason
 import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.ui.UiLanguage
@@ -78,10 +78,10 @@ private fun StackChartMessage(
 private fun StackChartEmptyReason?.message(language: UiLanguage = UiLanguage.ENGLISH): String =
     when (this) {
         StackChartEmptyReason.NO_SAMPLES ->
-            localizedStringResource(ViewerRes.sp_stack_no_samples_collected_empty_state, language)
+            localizedStringResource(SimpleperfViewerRes.sp_stack_no_samples_collected_empty_state, language)
         StackChartEmptyReason.RANGE_EMPTY ->
-            localizedStringResource(ViewerRes.sp_stack_no_samples_in_range_empty_state, language)
+            localizedStringResource(SimpleperfViewerRes.sp_stack_no_samples_in_range_empty_state, language)
         StackChartEmptyReason.FILTERED_ALL ->
-            localizedStringResource(ViewerRes.sp_stack_filters_removed_all_samples_empty_state, language)
-        null -> localizedStringResource(ViewerRes.sp_stack_no_stack_blocks_empty_state, language)
+            localizedStringResource(SimpleperfViewerRes.sp_stack_filters_removed_all_samples_empty_state, language)
+        null -> localizedStringResource(SimpleperfViewerRes.sp_stack_no_stack_blocks_empty_state, language)
     }

@@ -1,6 +1,6 @@
 @file:Suppress("TooManyFunctions")
 
-package dev.agentperf.android.startup.metrics
+package com.androidperformancestudio.android.startup.metrics
 
 import android.app.Activity
 import android.app.Application
@@ -17,7 +17,7 @@ import android.view.Window
 import com.androidperformancestudio.startup.agent.protocol.AgentEvidenceConfidence
 import com.androidperformancestudio.startup.agent.protocol.AgentStartupMilestoneKind
 import com.androidperformancestudio.startup.agent.protocol.AgentStartupResultCodec
-import dev.agentperf.android.core.AgentRequestExtension
+import com.androidperformancestudio.android.core.AgentRequestExtension
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.util.WeakHashMap
@@ -193,7 +193,7 @@ public class StartupMetricsAgent private constructor(
     }
 
     public companion object {
-        public const val RUN_ID_EXTRA: String = "dev.agentperf.startup.RUN_ID"
+        public const val RUN_ID_EXTRA: String = "com.androidperformancestudio.startup.RUN_ID"
 
         @Volatile
         private var processStore: StartupMetricsStore? = null

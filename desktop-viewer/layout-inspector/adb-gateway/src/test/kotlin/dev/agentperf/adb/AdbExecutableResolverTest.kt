@@ -1,4 +1,4 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
 import java.nio.file.Files
 import java.nio.file.Path

@@ -1,15 +1,15 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
 import android.content.res.Resources
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.view.View
 import android.view.ViewGroup
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.EdgeInsets
-import dev.agentperf.protocol.UiNode
-import dev.agentperf.protocol.ViewAttributes
-import dev.agentperf.protocol.ViewNode
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.EdgeInsets
+import com.androidperformancestudio.protocol.UiNode
+import com.androidperformancestudio.protocol.ViewAttributes
+import com.androidperformancestudio.protocol.ViewNode
 import java.util.Locale
 
 class ViewTreeCollector {

@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphFrameDetails
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
@@ -47,7 +47,7 @@ internal object FlameGraphDetailsPresenter {
             FlameGraphDetailsState.Closed -> null
             is FlameGraphDetailsState.Loading ->
                 FlameGraphDetailsContent(
-                    title = localizedStringResource(ViewerRes.sp_details_loading_frame_details, language),
+                    title = localizedStringResource(SimpleperfViewerRes.sp_details_loading_frame_details, language),
                     lines = listOf("Resolving source, symbols, or disassembly for the selected frame."),
                 )
             is FlameGraphDetailsState.Ready -> content(state.details, language)
@@ -80,12 +80,12 @@ internal object FlameGraphDetailsPresenter {
                 )
             is FlameGraphFrameDetails.SymbolFallback ->
                 FlameGraphDetailsContent(
-                    title = localizedStringResource(ViewerRes.sp_details_symbol_details, language),
+                    title = localizedStringResource(SimpleperfViewerRes.sp_details_symbol_details, language),
                     lines =
                         listOfNotNull(
                             "Function: ${details.function}",
                             localizedStringResource(
-                                ViewerRes.sp_details_resource_value_format,
+                                SimpleperfViewerRes.sp_details_resource_value_format,
                                 language,
                                 details.resource,
                             ),
@@ -129,7 +129,7 @@ internal fun FirefoxFrameDetailsBottomBox(
                 Text(content.title, color = style.canvasForeground.toComposeColor(), fontSize = 12.sp)
                 Text(
                     localizedStringResource(
-                        ViewerRes.sp_details_close,
+                        SimpleperfViewerRes.sp_details_close,
                         currentSimpleperfLanguage(),
                     ),
                     modifier = Modifier.clickable(onClick = onClose).padding(horizontal = 5.dp, vertical = 2.dp),

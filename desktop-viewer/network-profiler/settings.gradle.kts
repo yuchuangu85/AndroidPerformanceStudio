@@ -17,11 +17,15 @@ include(
     ":capture-network",
     ":parser-har",
     ":analysis-network",
-    ":storage-sqlite",
-    ":export-adapters",
-    ":presentation",
+    ":network-storage-sqlite",
+    ":network-export-adapters",
+    ":network-presentation",
     ":network-app",
 )
+
+project(":network-storage-sqlite").projectDir = file("storage-sqlite")
+project(":network-export-adapters").projectDir = file("export-adapters")
+project(":network-presentation").projectDir = file("presentation")
 
 includeBuild("../simpleperf-viewer") {
     name = "network-profiler-simpleperf-tooling"

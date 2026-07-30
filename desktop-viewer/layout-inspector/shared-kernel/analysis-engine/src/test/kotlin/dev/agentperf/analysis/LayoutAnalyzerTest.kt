@@ -1,7 +1,7 @@
-package dev.agentperf.analysis
+package com.androidperformancestudio.analysis
 
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.ViewNode
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.ViewNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

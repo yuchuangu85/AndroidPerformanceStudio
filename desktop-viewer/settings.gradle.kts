@@ -24,25 +24,24 @@ includeBuild("ui-components") {
 }
 
 val layoutInspectorModules =
-    listOf(
-        "shared-kernel:protocol-model",
-        "shared-kernel:analysis-engine",
-        "shared-kernel:test-fixtures",
-        "shared-kernel:android-agent-core",
-        "shared-kernel:android-agent-view",
-        "shared-kernel:android-agent-frame",
-        "shared-kernel:android-agent-startup-metrics",
-        "shared-kernel:android-agent-startup",
-        "adb-gateway",
-        "application",
-        "presentation",
-        "samples:android-view-app",
+    mapOf(
+        ":layout-inspector:shared-kernel:protocol-model" to "shared-kernel/protocol-model",
+        ":layout-inspector:shared-kernel:analysis-engine" to "shared-kernel/analysis-engine",
+        ":layout-inspector:shared-kernel:layout-test-fixtures" to "shared-kernel/test-fixtures",
+        ":layout-inspector:shared-kernel:android-agent-core" to "shared-kernel/android-agent-core",
+        ":layout-inspector:shared-kernel:android-agent-view" to "shared-kernel/android-agent-view",
+        ":layout-inspector:shared-kernel:android-agent-frame" to "shared-kernel/android-agent-frame",
+        ":layout-inspector:shared-kernel:android-agent-startup-metrics" to "shared-kernel/android-agent-startup-metrics",
+        ":layout-inspector:shared-kernel:android-agent-startup" to "shared-kernel/android-agent-startup",
+        ":layout-inspector:adb-gateway" to "adb-gateway",
+        ":layout-inspector:layout-application" to "application",
+        ":layout-inspector:layout-presentation" to "presentation",
+        ":layout-inspector:samples:android-view-app" to "samples/android-view-app",
     )
 
-layoutInspectorModules.forEach { module ->
-    val path = ":layout-inspector:$module"
+layoutInspectorModules.forEach { (path, directory) ->
     include(path)
-    project(path).projectDir = file("layout-inspector/${module.replace(':', '/')}")
+    project(path).projectDir = file("layout-inspector/$directory")
 }
 
 // CPU profiling is intentionally kept as an isolated composite build.

@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.agentperf.android.core"
+    namespace = "com.androidperformancestudio.android.core"
     compileSdk = 37
 
     defaultConfig {

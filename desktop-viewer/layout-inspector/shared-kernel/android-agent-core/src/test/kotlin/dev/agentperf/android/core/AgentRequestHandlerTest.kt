@@ -1,7 +1,7 @@
-package dev.agentperf.android.core
+package com.androidperformancestudio.android.core
 
-import dev.agentperf.protocol.CaptureFrame
-import dev.agentperf.protocol.CaptureFrameCodec
+import com.androidperformancestudio.protocol.CaptureFrame
+import com.androidperformancestudio.protocol.CaptureFrameCodec
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.jupiter.api.Assertions.assertArrayEquals

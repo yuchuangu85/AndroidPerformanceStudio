@@ -1,16 +1,16 @@
-package dev.agentperf.android.startup
+package com.androidperformancestudio.android.startup
 
 import android.app.Application
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import androidx.startup.Initializer
-import dev.agentperf.android.core.AgentRuntime
-import dev.agentperf.android.core.AgentServer
-import dev.agentperf.android.core.StartResult
-import dev.agentperf.android.frame.FrameMetricsAgent
-import dev.agentperf.android.startup.metrics.StartupMetricsAgent
-import dev.agentperf.android.view.ActivityCaptureProvider
-import dev.agentperf.android.view.ResumedActivityTracker
+import com.androidperformancestudio.android.core.AgentRuntime
+import com.androidperformancestudio.android.core.AgentServer
+import com.androidperformancestudio.android.core.StartResult
+import com.androidperformancestudio.android.frame.FrameMetricsAgent
+import com.androidperformancestudio.android.startup.metrics.StartupMetricsAgent
+import com.androidperformancestudio.android.view.ActivityCaptureProvider
+import com.androidperformancestudio.android.view.ResumedActivityTracker
 
 class AgentInitializer : Initializer<StartResult> {
     override fun create(context: Context): StartResult {

@@ -1,4 +1,4 @@
-package dev.agentperf.protocol
+package com.androidperformancestudio.protocol
 
 import java.io.InputStream
 import java.io.OutputStream

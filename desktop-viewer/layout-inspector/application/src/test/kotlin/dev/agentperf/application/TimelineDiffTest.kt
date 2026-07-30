@@ -1,10 +1,10 @@
-package dev.agentperf.application
+package com.androidperformancestudio.application
 
-import dev.agentperf.fixtures.SampleSnapshots
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.ComposeNode
-import dev.agentperf.protocol.ViewAttributes
-import dev.agentperf.protocol.ViewNode
+import com.androidperformancestudio.fixtures.SampleSnapshots
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.ComposeNode
+import com.androidperformancestudio.protocol.ViewAttributes
+import com.androidperformancestudio.protocol.ViewNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 

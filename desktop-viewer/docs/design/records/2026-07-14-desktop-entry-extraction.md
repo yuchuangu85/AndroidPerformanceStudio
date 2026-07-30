@@ -18,7 +18,7 @@ Inspector workspace rather than a second application.
 ## Steps
 
 1. Register a root `:desktop-app` module that depends on
-   `:layout-inspector:presentation`.
+   `:layout-inspector:layout-presentation`.
 2. Move `Main.kt`, the application-level Preferences menu adapter, icons, packaging configuration,
    and shell-specific tests to the root module.
 3. Leave `LayoutInspectorMainPage` and the settings-request interpretation inside the Layout Inspector

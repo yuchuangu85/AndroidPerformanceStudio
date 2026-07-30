@@ -1,4 +1,4 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
 import java.io.IOException
 import java.nio.charset.StandardCharsets

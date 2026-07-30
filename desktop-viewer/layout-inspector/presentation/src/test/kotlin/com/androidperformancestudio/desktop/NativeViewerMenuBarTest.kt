@@ -1,0 +1,225 @@
+package com.androidperformancestudio.desktop
+
+import androidx.compose.ui.input.key.Key
+import com.androidperformancestudio.ui.UiLanguage
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+class NativeViewerMenuBarTest {
+    @Test
+    fun `visible view bounds menu item is checked by default`() {
+        val model =
+            NativeViewerMenuModel(
+                strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+                selectedNodeId = null,
+                autoScanEnabled = false,
+                panelVisibility = PanelVisibility(),
+                viewDisplayOptions = ViewDisplayOptions(),
+                archiveOperationInProgress = false,
+                canExportArchive = false,
+                canImportScreenshot = false,
+                isMacOs = true,
+            )
+
+        assertTrue(
+            model.viewItems
+                .single { it.option == ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS }
+                .checked,
+        )
+    }
+
+    @Test
+    fun `native menu mirrors action ordering labels and groups`() {
+        val strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE)
+        val model = NativeViewerMenuModel(
+            strings = strings,
+            selectedNodeId = "root",
+            autoScanEnabled = true,
+            panelVisibility = PanelVisibility(showFindings = false),
+            viewDisplayOptions = ViewDisplayOptions(
+                hideInvisibleHierarchyViews = true,
+                hideInvisibleFindings = false,
+                hideHierarchyIndices = true,
+                showHierarchyIds = false,
+                showHierarchyLayerVisibilityButtons = true,
+                showVisibleViewBounds = true,
+            ),
+            archiveOperationInProgress = false,
+            canExportArchive = true,
+            canImportScreenshot = true,
+            isMacOs = true,
+        )
+
+        assertEquals("操作", model.actionsTitle)
+        assertEquals(
+            ViewerActionMenu.items(strings).map { it.action },
+            model.actions.map { it.action },
+        )
+        assertEquals(
+            ViewerActionMenu.items(strings).map { it.group },
+            model.actions.map { it.group },
+        )
+        assertTrue(model.actions.first().checked)
+        assertTrue(
+            model.actions.single { it.action == ViewerAction.TOGGLE_FINDINGS }.checked,
+        )
+        assertFalse(
+            model.actions.single { it.action == ViewerAction.TOGGLE_HIERARCHY_IDS }.checked,
+        )
+        assertEquals(
+            "显示布局 ID",
+            model.actions.single { it.action == ViewerAction.TOGGLE_HIERARCHY_IDS }.label,
+        )
+        assertEquals("视图", model.viewTitle)
+        assertEquals(
+            listOf(
+                ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS,
+                ViewDisplayOption.HIDE_INVISIBLE_FINDINGS,
+                ViewDisplayOption.HIDE_HIERARCHY_INDICES,
+                ViewDisplayOption.SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS,
+                ViewDisplayOption.SHOW_VISIBLE_VIEW_BOUNDS,
+            ),
+            model.viewItems.map { it.option },
+        )
+        assertEquals(
+            listOf(
+                "隐藏层级结构中的不可见视图",
+                "隐藏问题列表中的不可见视图内容",
+                "隐藏层级索引",
+                "显示层级结构中的显示按钮",
+                "显示全部可见视图边缘",
+            ),
+            model.viewItems.map { it.label },
+        )
+        assertEquals(listOf(0, 0, 0, 1, 2), model.viewItems.map { it.group })
+        assertEquals(listOf(true, false, true, true, true), model.viewItems.map { it.checked })
+        assertEquals("文件", model.fileTitle)
+        assertEquals("导入归档", model.importLabel)
+        assertEquals("导入截图", model.importScreenshotLabel)
+        assertEquals("导出", model.exportLabel)
+        assertNull(model.settingsLabel)
+        assertTrue(model.importEnabled)
+        assertTrue(model.importScreenshotEnabled)
+        assertTrue(model.exportEnabled)
+    }
+
+    @Test
+    fun `native file menu pads short localized labels to a minimum width`() {
+        val model = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(UiLanguage.SIMPLIFIED_CHINESE),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = false,
+            canExportArchive = true,
+            canImportScreenshot = true,
+            isMacOs = false,
+        )
+
+        assertTrue(model.importMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
+        assertTrue(model.importScreenshotMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
+        assertTrue(model.exportMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
+        val settingsMenuText = checkNotNull(model.settingsMenuText)
+        val settingsLabel = checkNotNull(model.settingsLabel)
+        assertTrue(settingsMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
+        assertTrue(model.importMenuText.startsWith(model.importLabel))
+        assertTrue(model.importScreenshotMenuText.startsWith(model.importScreenshotLabel))
+        assertTrue(model.exportMenuText.startsWith(model.exportLabel))
+        assertTrue(settingsMenuText.startsWith(settingsLabel))
+    }
+
+    @Test
+    fun `native file shortcuts use the host primary modifier`() {
+        val macModel = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = false,
+            canExportArchive = true,
+            canImportScreenshot = true,
+            isMacOs = true,
+        )
+        val windowsModel = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = false,
+            canExportArchive = true,
+            canImportScreenshot = true,
+            isMacOs = false,
+        )
+
+        assertEquals(NativeMenuShortcut(Key.I, ctrl = false, meta = true), macModel.importShortcut)
+        assertNull(macModel.importScreenshotShortcut)
+        assertEquals(NativeMenuShortcut(Key.E, ctrl = false, meta = true), macModel.exportShortcut)
+        assertNull(macModel.settingsLabel)
+        assertNull(macModel.settingsMenuText)
+        assertNull(macModel.settingsShortcut)
+        assertEquals(NativeMenuShortcut(Key.I, ctrl = true, meta = false), windowsModel.importShortcut)
+        assertNull(windowsModel.importScreenshotShortcut)
+        assertEquals(NativeMenuShortcut(Key.E, ctrl = true, meta = false), windowsModel.exportShortcut)
+        assertEquals("Settings", windowsModel.settingsLabel)
+        assertEquals(NativeMenuShortcut(Key.Comma, ctrl = true, meta = false), windowsModel.settingsShortcut)
+    }
+
+    @Test
+    fun `native command shortcuts use the host primary modifier`() {
+        assertEquals(
+            NativeMenuShortcut(Key.R, ctrl = false, meta = true),
+            viewerActionNativeShortcut(ViewerAction.TOGGLE_AUTO_SCAN, isMacOs = true),
+        )
+        assertEquals(
+            NativeMenuShortcut(Key.R, ctrl = true, meta = false),
+            viewerActionNativeShortcut(ViewerAction.TOGGLE_AUTO_SCAN, isMacOs = false),
+        )
+        assertNull(
+            viewerActionNativeShortcut(ViewerAction.NEXT_NODE, isMacOs = true),
+        )
+    }
+
+    @Test
+    fun `native file actions are disabled while an archive operation is active`() {
+        val model = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = true,
+            canExportArchive = true,
+            canImportScreenshot = true,
+            isMacOs = false,
+        )
+
+        assertFalse(model.importEnabled)
+        assertFalse(model.importScreenshotEnabled)
+        assertFalse(model.exportEnabled)
+    }
+
+    @Test
+    fun `native export requires a loaded capture while import remains enabled`() {
+        val model = NativeViewerMenuModel(
+            strings = ViewerStrings.forLanguage(UiLanguage.ENGLISH),
+            selectedNodeId = null,
+            autoScanEnabled = false,
+            panelVisibility = PanelVisibility(),
+            viewDisplayOptions = ViewDisplayOptions(),
+            archiveOperationInProgress = false,
+            canExportArchive = false,
+            canImportScreenshot = false,
+            isMacOs = false,
+        )
+
+        assertTrue(model.importEnabled)
+        assertFalse(model.importScreenshotEnabled)
+        assertFalse(model.exportEnabled)
+    }
+}

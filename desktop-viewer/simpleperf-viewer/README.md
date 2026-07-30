@@ -45,8 +45,8 @@ V0.1 release candidate 功能已实现，等待 GitHub Actions 三平台安装�
 ```bash
 ./gradlew check
 ./gradlew :device-adb:runAdbSelfCheck
-./gradlew :test-fixtures:runP0PerformancePoc
-./gradlew :test-fixtures:generateSampleSession
+./gradlew :simpleperf-test-fixtures:runP0PerformancePoc
+./gradlew :simpleperf-test-fixtures:generateSampleSession
 ./gradlew :app-desktop:run
 ./gradlew :app-desktop:createDistributable
 ```

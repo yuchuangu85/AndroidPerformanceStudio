@@ -1,4 +1,4 @@
-package dev.agentperf.android.startup.metrics
+package com.androidperformancestudio.android.startup.metrics
 
 import com.androidperformancestudio.startup.agent.protocol.AgentEvidenceConfidence
 import com.androidperformancestudio.startup.agent.protocol.AgentStartupEvent

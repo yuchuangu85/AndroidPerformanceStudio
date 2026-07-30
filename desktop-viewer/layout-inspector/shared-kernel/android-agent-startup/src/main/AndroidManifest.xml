@@ -8,7 +8,7 @@
             android:exported="false"
             tools:node="merge">
             <meta-data
-                android:name="dev.agentperf.android.startup.AgentInitializer"
+                android:name="com.androidperformancestudio.android.startup.AgentInitializer"
                 android:value="androidx.startup" />
         </provider>
     </application>

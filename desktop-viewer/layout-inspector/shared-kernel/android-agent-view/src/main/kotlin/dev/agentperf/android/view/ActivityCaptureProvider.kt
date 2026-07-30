@@ -1,4 +1,4 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
 import android.app.Activity
 import android.graphics.Bitmap
@@ -7,11 +7,11 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
-import dev.agentperf.android.core.CaptureProvider
-import dev.agentperf.android.core.CaptureUnavailableException
-import dev.agentperf.protocol.CaptureFrame
-import dev.agentperf.protocol.ProtocolCodec
-import dev.agentperf.protocol.WindowSnapshot
+import com.androidperformancestudio.android.core.CaptureProvider
+import com.androidperformancestudio.android.core.CaptureUnavailableException
+import com.androidperformancestudio.protocol.CaptureFrame
+import com.androidperformancestudio.protocol.ProtocolCodec
+import com.androidperformancestudio.protocol.WindowSnapshot
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit

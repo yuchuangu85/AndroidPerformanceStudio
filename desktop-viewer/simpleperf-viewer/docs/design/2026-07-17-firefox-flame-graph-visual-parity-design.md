@@ -224,7 +224,7 @@ No component owns a second copy of query or selection state.
 - Run focused visualization and presentation tests during implementation.
 - Run ktlint and detekt for every changed module.
 - Run `./gradlew checkAll --rerun-tasks` before completion.
-- Run `./gradlew :test-fixtures:runFlameGraphPerformancePoc` and compare with the checked P0 baseline.
+- Run `./gradlew :simpleperf-test-fixtures:runFlameGraphPerformancePoc` and compare with the checked P0 baseline.
 - Run `git diff --check`.
 
 ## Acceptance criteria

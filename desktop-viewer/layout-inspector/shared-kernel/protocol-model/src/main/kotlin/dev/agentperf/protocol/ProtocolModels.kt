@@ -1,4 +1,4 @@
-package dev.agentperf.protocol
+package com.androidperformancestudio.protocol
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

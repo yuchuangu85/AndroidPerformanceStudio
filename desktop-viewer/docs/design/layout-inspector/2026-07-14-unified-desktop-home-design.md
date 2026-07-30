@@ -4,7 +4,7 @@
 > `layout-inspector/` and uses the `:layout-inspector:*` Gradle namespace.
 > Simpleperf remains under `simpleperf-viewer/`. The application shell now lives at root
 > `desktop-app/`, outside both feature directories, and Layout Inspector exposes the explicit
-> `:layout-inspector:presentation` entry module.
+> `:layout-inspector:layout-presentation` entry module.
 > References below to the former root Layout Inspector modules describe the pre-move design and
 > must not be used to recreate scattered root modules.
 
@@ -31,8 +31,8 @@ Turn the Layout Inspector and Simpleperf CPU Profiler into one Compose Desktop a
 The root `settings.gradle.kts` will include every Simpleperf module with a namespaced Gradle path under `:features:simpleperf-viewer`. For example:
 
 - `:features:simpleperf-viewer:profile-model`
-- `:features:simpleperf-viewer:application`
-- `:features:simpleperf-viewer:presentation`
+- `:simpleperf-application`
+- `:simpleperf-presentation`
 - `:features:simpleperf-viewer:app-desktop`
 
 The physical directories remain under `simpleperf-viewer/`, so ownership is visible in both the filesystem and Gradle project paths.

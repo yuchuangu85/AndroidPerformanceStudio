@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.agentperf.sample"
+    namespace = "com.androidperformancestudio.sample"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "dev.agentperf.sample"
+        applicationId = "com.androidperformancestudio.sample"
         minSdk = 21
         targetSdk = 37
         versionCode = 1

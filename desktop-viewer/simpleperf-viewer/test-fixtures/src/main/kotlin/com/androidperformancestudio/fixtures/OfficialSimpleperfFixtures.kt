@@ -28,7 +28,7 @@ object OfficialSimpleperfFixtures {
             sizeBytes = 4_047L,
             sha256 = "490c0d31b676316235326dc13ac2f392498e00467437c49119550541d9def98e",
             upstreamRevision = "V0.1 generated fixture",
-            sourceUrl = "./gradlew :test-fixtures:generateSampleSession",
+            sourceUrl = "./gradlew :simpleperf-test-fixtures:generateSampleSession",
             license = "Project fixture",
         )
 }

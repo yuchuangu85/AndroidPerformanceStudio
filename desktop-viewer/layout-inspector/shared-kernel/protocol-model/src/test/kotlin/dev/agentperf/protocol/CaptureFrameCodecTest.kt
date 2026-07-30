@@ -1,4 +1,4 @@
-package dev.agentperf.protocol
+package com.androidperformancestudio.protocol
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -13,7 +13,7 @@ class CaptureFrameCodecTest {
     @Test
     fun `capture frame survives a binary round trip`() {
         val expected = CaptureFrame(
-            snapshotJson = """{"packageName":"dev.agentperf.sample"}""",
+            snapshotJson = """{"packageName":"com.androidperformancestudio.sample"}""",
             screenshotPng = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d),
         )
         val output = ByteArrayOutputStream()

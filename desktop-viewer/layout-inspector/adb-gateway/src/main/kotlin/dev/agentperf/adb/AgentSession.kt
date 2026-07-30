@@ -1,4 +1,4 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int

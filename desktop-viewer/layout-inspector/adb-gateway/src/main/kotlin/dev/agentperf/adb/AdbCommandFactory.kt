@@ -1,4 +1,4 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
 object AdbCommandFactory {
     private val safePackageName = Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+")

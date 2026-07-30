@@ -1,4 +1,4 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
 internal object ViewAttributeLabels {
     fun visibility(value: Int): String = when (value) {

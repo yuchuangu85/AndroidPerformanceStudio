@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphPanelState
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
@@ -82,7 +82,7 @@ internal fun FlameGraphPanel(
     val focusRequester = remember { FocusRequester() }
     val callStacksDescription =
         localizedStringResource(
-            ViewerRes.sp_flame_flame_graph_call_stacks,
+            SimpleperfViewerRes.sp_flame_flame_graph_call_stacks,
             currentSimpleperfLanguage(),
         )
     val requestedViewport =

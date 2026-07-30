@@ -25,7 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.ui.ViewerColors
@@ -45,7 +45,7 @@ internal fun MarkerChartCanvas(
     val density = LocalDensity.current
     val markerChartDescription =
         localizedStringResource(
-            ViewerRes.sp_marker_marker_chart,
+            SimpleperfViewerRes.sp_marker_marker_chart,
             currentSimpleperfLanguage(),
         )
     val byId = remember(snapshot) { snapshot.markers.associateBy { it.id } }
@@ -109,7 +109,7 @@ internal fun MarkerChartCanvas(
             markers.forEach { marker ->
                 val markerDescription =
                     localizedStringResource(
-                        ViewerRes.sp_marker_description_format,
+                        SimpleperfViewerRes.sp_marker_description_format,
                         currentSimpleperfLanguage(),
                         marker.name,
                         marker.schema,

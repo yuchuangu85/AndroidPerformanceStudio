@@ -1,25 +1,25 @@
 dependencies {
     api(project(":profile-model"))
     api(project(":profile-analysis"))
-    implementation(project(":storage-sqlite"))
-    testImplementation(project(":export-adapters"))
-    testImplementation(project(":storage-sqlite"))
+    implementation(project(":simpleperf-storage-sqlite"))
+    testImplementation(project(":simpleperf-export-adapters"))
+    testImplementation(project(":simpleperf-storage-sqlite"))
 }
 
 val poc by sourceSets.creating
 val sampleGenerator by sourceSets.creating
 
 dependencies {
-    add(poc.implementationConfigurationName, project(":application"))
+    add(poc.implementationConfigurationName, project(":simpleperf-application"))
     add(poc.implementationConfigurationName, project(":profile-analysis"))
     add(poc.implementationConfigurationName, project(":profile-model"))
-    add(poc.implementationConfigurationName, project(":storage-sqlite"))
+    add(poc.implementationConfigurationName, project(":simpleperf-storage-sqlite"))
     add(poc.implementationConfigurationName, project(":visualization"))
     add(poc.implementationConfigurationName, "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    add(sampleGenerator.implementationConfigurationName, project(":export-adapters"))
+    add(sampleGenerator.implementationConfigurationName, project(":simpleperf-export-adapters"))
     add(sampleGenerator.implementationConfigurationName, project(":profile-analysis"))
     add(sampleGenerator.implementationConfigurationName, project(":profile-model"))
-    add(sampleGenerator.implementationConfigurationName, project(":storage-sqlite"))
+    add(sampleGenerator.implementationConfigurationName, project(":simpleperf-storage-sqlite"))
 }
 
 tasks.register<JavaExec>("runP0PerformancePoc") {

@@ -1,11 +1,11 @@
-package dev.agentperf.application
+package com.androidperformancestudio.application
 
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.ComposeNode
-import dev.agentperf.protocol.LayoutSnapshot
-import dev.agentperf.protocol.UiNode
-import dev.agentperf.protocol.ViewNode
-import dev.agentperf.protocol.effectiveWindows
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.ComposeNode
+import com.androidperformancestudio.protocol.LayoutSnapshot
+import com.androidperformancestudio.protocol.UiNode
+import com.androidperformancestudio.protocol.ViewNode
+import com.androidperformancestudio.protocol.effectiveWindows
 
 enum class TimelineChangeType {
     ADDED,

@@ -1,6 +1,6 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
-import dev.agentperf.protocol.ViewNode
+import com.androidperformancestudio.protocol.ViewNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -93,11 +93,11 @@ class AdbGatewayTest {
 
     @Test
     fun `builds a run-as session command for a valid package`() {
-        val command = AdbCommandFactory.readSession("R3CN30ABC", "dev.agentperf.sample")
+        val command = AdbCommandFactory.readSession("R3CN30ABC", "com.androidperformancestudio.sample")
 
         assertEquals(
             listOf(
-                "-s", "R3CN30ABC", "shell", "run-as", "dev.agentperf.sample",
+                "-s", "R3CN30ABC", "shell", "run-as", "com.androidperformancestudio.sample",
                 "cat", "files/agentperf/session.json",
             ),
             command,

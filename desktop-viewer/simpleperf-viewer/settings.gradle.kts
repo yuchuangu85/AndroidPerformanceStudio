@@ -18,20 +18,26 @@ rootProject.name = "android-performance-studio"
 
 include(
     ":app-desktop",
-    ":presentation",
-    ":application",
+    ":simpleperf-presentation",
+    ":simpleperf-application",
     ":platform-toolchain",
     ":device-adb",
     ":capture-simpleperf",
     ":parser-simpleperf-proto",
     ":profile-model",
     ":profile-analysis",
-    ":storage-sqlite",
+    ":simpleperf-storage-sqlite",
     ":analysis-rules",
     ":visualization",
-    ":export-adapters",
-    ":test-fixtures",
+    ":simpleperf-export-adapters",
+    ":simpleperf-test-fixtures",
 )
+
+project(":simpleperf-presentation").projectDir = file("presentation")
+project(":simpleperf-application").projectDir = file("application")
+project(":simpleperf-storage-sqlite").projectDir = file("storage-sqlite")
+project(":simpleperf-export-adapters").projectDir = file("export-adapters")
+project(":simpleperf-test-fixtures").projectDir = file("test-fixtures")
 
 includeBuild("../ui-components") {
     name = "simpleperf-ui-components"

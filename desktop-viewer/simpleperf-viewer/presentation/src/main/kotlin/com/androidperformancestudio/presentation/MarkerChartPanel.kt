@@ -13,7 +13,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.storage.MarkerAvailability
 import com.androidperformancestudio.storage.MarkerEmptyReason
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
@@ -68,12 +68,12 @@ internal fun MarkerPanelMessage(
 internal fun MarkerProjectionSnapshot.markerMessage(language: UiLanguage = UiLanguage.ENGLISH): String =
     when {
         availability == MarkerAvailability.NOT_COLLECTED ->
-            localizedStringResource(ViewerRes.sp_marker_markers_not_collected_empty_state, language)
+            localizedStringResource(SimpleperfViewerRes.sp_marker_markers_not_collected_empty_state, language)
         emptyReason == MarkerEmptyReason.PROFILE_EMPTY ->
-            localizedStringResource(ViewerRes.sp_marker_profile_has_no_markers_empty_state, language)
+            localizedStringResource(SimpleperfViewerRes.sp_marker_profile_has_no_markers_empty_state, language)
         emptyReason == MarkerEmptyReason.RANGE_EMPTY ->
-            localizedStringResource(ViewerRes.sp_marker_no_markers_in_range_empty_state, language)
+            localizedStringResource(SimpleperfViewerRes.sp_marker_no_markers_in_range_empty_state, language)
         emptyReason == MarkerEmptyReason.FILTERED_EMPTY ->
-            localizedStringResource(ViewerRes.sp_marker_no_markers_match_filter_empty_state, language)
-        else -> localizedStringResource(ViewerRes.sp_marker_no_markers_available_empty_state, language)
+            localizedStringResource(SimpleperfViewerRes.sp_marker_no_markers_match_filter_empty_state, language)
+        else -> localizedStringResource(SimpleperfViewerRes.sp_marker_no_markers_available_empty_state, language)
     }

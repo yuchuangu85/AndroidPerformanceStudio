@@ -1,4 +1,4 @@
-package dev.agentperf.sample
+package com.androidperformancestudio.sample
 
 import android.app.Activity
 import android.graphics.Color

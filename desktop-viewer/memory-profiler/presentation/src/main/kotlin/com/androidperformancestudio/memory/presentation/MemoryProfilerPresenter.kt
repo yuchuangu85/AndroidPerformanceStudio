@@ -1,6 +1,8 @@
 package com.androidperformancestudio.memory.presentation
 
 import com.androidperformancestudio.memory.model.ClassStats
+import kotlin.collections.sortedWith
+import kotlin.comparisons.thenBy
 
 public object MemoryProfilerPresenter {
     @Suppress("ktlint:standard:function-expression-body")

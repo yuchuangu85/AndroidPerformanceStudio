@@ -78,8 +78,8 @@ The sample declares the View and FrameMetrics Agent only through `debugImplement
 
 ```bash
 adb install -r layout-inspector/samples/android-view-app/build/outputs/apk/debug/android-view-app-debug.apk
-adb shell am start -n dev.agentperf.sample/.MainActivity
-adb shell run-as dev.agentperf.sample cat files/agentperf/session.json
+adb shell am start -n com.androidperformancestudio.sample/.MainActivity
+adb shell run-as com.androidperformancestudio.sample cat files/agentperf/session.json
 ```
 
 The session file contains a random token and a `localabstract` socket name. No network permission, root, system signature, hidden API, or production-build integration is used.

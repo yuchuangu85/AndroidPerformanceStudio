@@ -1,4 +1,4 @@
-package dev.agentperf.android.core
+package com.androidperformancestudio.android.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse

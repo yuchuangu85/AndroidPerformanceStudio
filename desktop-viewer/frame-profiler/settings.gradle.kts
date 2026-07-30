@@ -22,11 +22,15 @@ include(
     ":capture-frame",
     ":parser-frame",
     ":analysis-frame",
-    ":storage-sqlite",
-    ":export-adapters",
-    ":presentation",
+    ":frame-storage-sqlite",
+    ":frame-export-adapters",
+    ":frame-presentation",
     ":frame-app",
 )
+
+project(":frame-storage-sqlite").projectDir = file("storage-sqlite")
+project(":frame-export-adapters").projectDir = file("export-adapters")
+project(":frame-presentation").projectDir = file("presentation")
 
 // Resolves the shared ADB and host process tooling for standalone Frame Profiler builds.
 includeBuild("../simpleperf-viewer") {

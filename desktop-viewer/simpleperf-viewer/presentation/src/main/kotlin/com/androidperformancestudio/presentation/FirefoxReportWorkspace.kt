@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.localizedStringResource
@@ -84,9 +84,9 @@ internal fun FirefoxReportWorkspace(
                     label =
                         localizedStringResource(
                             if (state.workspace.detailsVisible) {
-                                ViewerRes.sp_report_hide_details
+                                SimpleperfViewerRes.sp_report_hide_details
                             } else {
-                                ViewerRes.sp_report_show_details
+                                SimpleperfViewerRes.sp_report_show_details
                             },
                             language,
                         ),
@@ -109,7 +109,7 @@ internal fun FirefoxReportWorkspace(
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
         Text(
-            localizedStringResource(ViewerRes.sp_diagnostics_sample_weight_duration_disclaimer, language),
+            localizedStringResource(SimpleperfViewerRes.sp_diagnostics_sample_weight_duration_disclaimer, language),
             color = style.secondaryText,
             fontSize = 9.sp,
         )
@@ -128,7 +128,7 @@ private fun TimelineResizeHandle(
     val latestOnHeightChange by rememberUpdatedState(onHeightChange)
     val resizeDescription =
         localizedStringResource(
-            ViewerRes.sp_report_resize_timeline_description,
+            SimpleperfViewerRes.sp_report_resize_timeline_description,
             currentSimpleperfLanguage(),
         )
 

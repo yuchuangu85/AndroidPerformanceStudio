@@ -16,7 +16,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.ui.UiLanguage
@@ -68,12 +68,12 @@ internal object FlameGraphSemanticsPresenter {
         val node = semanticFacts(snapshot, nodeId, language) ?: return null
         val states =
             listOfNotNull(
-                localizedStringResource(ViewerRes.sp_accessibility_selected_state, language)
+                localizedStringResource(SimpleperfViewerRes.sp_accessibility_selected_state, language)
                     .takeIf { nodeId == selectedNodeId },
-                localizedStringResource(ViewerRes.sp_accessibility_hovered_state, language)
+                localizedStringResource(SimpleperfViewerRes.sp_accessibility_hovered_state, language)
                     .takeIf { nodeId == hoveredNodeId },
                 localizedStringResource(
-                    ViewerRes.sp_accessibility_context_menu_open_state,
+                    SimpleperfViewerRes.sp_accessibility_context_menu_open_state,
                     language,
                 ).takeIf { nodeId == contextNodeId },
             )
@@ -126,9 +126,9 @@ internal fun FlameGraphSemanticsOverlay(
 ) {
     val density = LocalDensity.current
     val language = currentSimpleperfLanguage()
-    val selectLabel = localizedStringResource(ViewerRes.sp_accessibility_select, language)
-    val openDetailsLabel = localizedStringResource(ViewerRes.sp_accessibility_open_details, language)
-    val openContextMenuLabel = localizedStringResource(ViewerRes.sp_accessibility_open_context_menu, language)
+    val selectLabel = localizedStringResource(SimpleperfViewerRes.sp_accessibility_select, language)
+    val openDetailsLabel = localizedStringResource(SimpleperfViewerRes.sp_accessibility_open_details, language)
+    val openContextMenuLabel = localizedStringResource(SimpleperfViewerRes.sp_accessibility_open_context_menu, language)
     Box(modifier) {
         val nodes =
             FlameGraphSemanticsPresenter.nodes(
@@ -193,7 +193,7 @@ private fun semanticFacts(
     return SemanticFacts(
         contentDescription =
             localizedStringResource(
-                ViewerRes.sp_accessibility_flame_content_description_format,
+                SimpleperfViewerRes.sp_accessibility_flame_content_description_format,
                 language,
                 frame.symbolName,
                 percent,
@@ -202,9 +202,9 @@ private fun semanticFacts(
         stateDescription =
             localizedStringResource(
                 if (sampleCount == 1L) {
-                    ViewerRes.sp_accessibility_flame_single_sample_state_format
+                    SimpleperfViewerRes.sp_accessibility_flame_single_sample_state_format
                 } else {
-                    ViewerRes.sp_accessibility_flame_multiple_samples_state_format
+                    SimpleperfViewerRes.sp_accessibility_flame_multiple_samples_state_format
                 },
                 language,
                 frame.implementation.label,

@@ -1,7 +1,7 @@
-package dev.agentperf.application
+package com.androidperformancestudio.application
 
-import dev.agentperf.analysis.AiAnalysisReport
-import dev.agentperf.fixtures.SampleSnapshots
+import com.androidperformancestudio.analysis.AiAnalysisReport
+import com.androidperformancestudio.fixtures.SampleSnapshots
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test

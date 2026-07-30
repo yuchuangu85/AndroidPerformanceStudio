@@ -1,11 +1,11 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
-import dev.agentperf.protocol.CaptureFrame
-import dev.agentperf.protocol.CaptureFrameCodec
-import dev.agentperf.protocol.DisplayInfo
-import dev.agentperf.protocol.LayoutSnapshot
-import dev.agentperf.protocol.effectiveWindows
-import dev.agentperf.protocol.ProtocolCodec
+import com.androidperformancestudio.protocol.CaptureFrame
+import com.androidperformancestudio.protocol.CaptureFrameCodec
+import com.androidperformancestudio.protocol.DisplayInfo
+import com.androidperformancestudio.protocol.LayoutSnapshot
+import com.androidperformancestudio.protocol.effectiveWindows
+import com.androidperformancestudio.protocol.ProtocolCodec
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket

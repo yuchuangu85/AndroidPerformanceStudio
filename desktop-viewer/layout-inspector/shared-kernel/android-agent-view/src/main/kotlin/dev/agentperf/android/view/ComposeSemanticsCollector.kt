@@ -1,7 +1,7 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.ComposeNode
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.ComposeNode
 
 internal object ComposeSemanticsCollector {
     fun collect(

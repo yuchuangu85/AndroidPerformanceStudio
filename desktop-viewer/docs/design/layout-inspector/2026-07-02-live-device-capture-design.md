@@ -4,7 +4,7 @@
 
 Extend AgentPerf Desktop Viewer so it can automatically connect to the authorized Android device, capture the foreground debuggable application's current View hierarchy and window screenshot as one logical frame, and render the screenshot with the selected View bounds overlaid.
 
-The first supported target is the existing `dev.agentperf.sample` debug application. The design preserves the current debug-only, ADB-only security boundary and the existing `PING` handshake.
+The first supported target is the existing `com.androidperformancestudio.sample` debug application. The design preserves the current debug-only, ADB-only security boundary and the existing `PING` handshake.
 
 ## Scope
 

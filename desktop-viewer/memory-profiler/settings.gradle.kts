@@ -21,11 +21,15 @@ include(
     ":capture-memory",
     ":parser-hprof",
     ":analysis-memory",
-    ":storage-sqlite",
-    ":export-adapters",
-    ":presentation",
+    ":memory-storage-sqlite",
+    ":memory-export-adapters",
+    ":memory-presentation",
     ":memory-app",
 )
+
+project(":memory-storage-sqlite").projectDir = file("storage-sqlite")
+project(":memory-export-adapters").projectDir = file("export-adapters")
+project(":memory-presentation").projectDir = file("presentation")
 
 // Makes standalone `./gradlew check` resolve the shared host toolchain and ADB gateway.
 includeBuild("../simpleperf-viewer") {

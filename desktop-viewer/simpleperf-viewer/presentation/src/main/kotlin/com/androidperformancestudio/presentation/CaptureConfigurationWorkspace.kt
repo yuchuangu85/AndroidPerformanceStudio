@@ -59,7 +59,7 @@ import com.androidperformancestudio.capture.EventScope
 import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingRate
 import com.androidperformancestudio.capture.SamplingTemplate
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -244,17 +244,17 @@ private fun SettingsNavigation(
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Text(
-            localizedStringResource(ViewerRes.sp_target_settings, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_target_settings, locale),
             color = style.text,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
         )
-        Text(localizedStringResource(ViewerRes.sp_target_application, locale), color = style.secondaryText, fontSize = 10.sp)
+        Text(localizedStringResource(SimpleperfViewerRes.sp_target_application, locale), color = style.secondaryText, fontSize = 10.sp)
         Spacer(Modifier.height(8.dp))
         CaptureSettingsSection.entries.filter { item -> item != CaptureSettingsSection.USER_GUIDE || showUserGuide }.forEach { item ->
             val selected = item == section
             val label = item.label(locale)
-            val navigationDescription = localizedStringResource(ViewerRes.sp_settings_capture_settings_value_format, locale, label)
+            val navigationDescription = localizedStringResource(SimpleperfViewerRes.sp_settings_capture_settings_value_format, locale, label)
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -303,7 +303,7 @@ private fun SettingsPanel(
                 Text(section.title(locale), color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(section.subtitle(locale), color = style.secondaryText, fontSize = 10.sp)
             }
-            onDismiss?.let { MacOsButton(localizedStringResource(ViewerRes.sp_target_done, locale), it, style, primary = true) }
+            onDismiss?.let { MacOsButton(localizedStringResource(SimpleperfViewerRes.sp_target_done, locale), it, style, primary = true) }
         }
         Spacer(Modifier.height(14.dp))
         Column(
@@ -330,28 +330,28 @@ private fun SettingsPanel(
 
 private fun CaptureSettingsSection.label(locale: java.util.Locale): String =
     when (this) {
-        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(ViewerRes.sp_settings_sampling_template, locale)
-        CaptureSettingsSection.CAPTURE_CONFIGURATION -> localizedStringResource(ViewerRes.sp_settings_capture_configuration_section, locale)
-        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(ViewerRes.sp_settings_advanced_parameters, locale)
-        CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(ViewerRes.sp_flame_flame_graph, locale)
-        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(ViewerRes.sp_settings_simpleperf_engine, locale)
-        CaptureSettingsSection.USER_GUIDE -> localizedStringResource(ViewerRes.sp_settings_user_guide, locale)
+        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(SimpleperfViewerRes.sp_settings_sampling_template, locale)
+        CaptureSettingsSection.CAPTURE_CONFIGURATION -> localizedStringResource(SimpleperfViewerRes.sp_settings_capture_configuration_section, locale)
+        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(SimpleperfViewerRes.sp_settings_advanced_parameters, locale)
+        CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(SimpleperfViewerRes.sp_flame_flame_graph, locale)
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(SimpleperfViewerRes.sp_settings_simpleperf_engine, locale)
+        CaptureSettingsSection.USER_GUIDE -> localizedStringResource(SimpleperfViewerRes.sp_settings_user_guide, locale)
     }
 
 private fun CaptureSettingsSection.title(locale: java.util.Locale): String = label(locale)
 
 private fun CaptureSettingsSection.subtitle(locale: java.util.Locale): String =
     when (this) {
-        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(ViewerRes.sp_settings_sampling_template_description, locale)
+        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(SimpleperfViewerRes.sp_settings_sampling_template_description, locale)
         CaptureSettingsSection.CAPTURE_CONFIGURATION ->
             localizedStringResource(
-                ViewerRes.sp_settings_capture_configuration_description,
+                SimpleperfViewerRes.sp_settings_capture_configuration_description,
                 locale,
             )
-        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(ViewerRes.sp_settings_advanced_parameters_description, locale)
-        CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(ViewerRes.sp_settings_frame_information_description, locale)
-        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(ViewerRes.sp_settings_analysis_engine_description, locale)
-        CaptureSettingsSection.USER_GUIDE -> localizedStringResource(ViewerRes.sp_settings_user_guide_description, locale)
+        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(SimpleperfViewerRes.sp_settings_advanced_parameters_description, locale)
+        CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(SimpleperfViewerRes.sp_settings_frame_information_description, locale)
+        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(SimpleperfViewerRes.sp_settings_analysis_engine_description, locale)
+        CaptureSettingsSection.USER_GUIDE -> localizedStringResource(SimpleperfViewerRes.sp_settings_user_guide_description, locale)
     }
 
 @Composable
@@ -362,17 +362,17 @@ private fun UserGuideSettingsPanel(
 ) {
     MacOsPanel(Modifier.fillMaxWidth(), style) {
         Text(
-            localizedStringResource(ViewerRes.sp_settings_user_guide, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_settings_user_guide, locale),
             color = style.text,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_settings_user_guide_description, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_settings_user_guide_description, locale),
             color = style.secondaryText,
             fontSize = 10.sp,
         )
-        MacOsButton(localizedStringResource(ViewerRes.sp_settings_open_user_guide_browser, locale), onOpenUserGuide, style, primary = true)
+        MacOsButton(localizedStringResource(SimpleperfViewerRes.sp_settings_open_user_guide_browser, locale), onOpenUserGuide, style, primary = true)
     }
 }
 
@@ -385,22 +385,22 @@ private fun FlameGraphSettingsPanel(
 ) {
     MacOsPanel(Modifier.fillMaxWidth(), style) {
         Text(
-            localizedStringResource(ViewerRes.sp_settings_frame_information_box, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_settings_frame_information_box, locale),
             color = style.text,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_settings_frame_information_behavior_description, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_settings_frame_information_behavior_description, locale),
             color = style.secondaryText,
             fontSize = 10.sp,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MacOsChoiceChip(localizedStringResource(ViewerRes.sp_settings_fixed, locale), selected == FlameTooltipMode.FIXED, true, style) {
+            MacOsChoiceChip(localizedStringResource(SimpleperfViewerRes.sp_settings_fixed, locale), selected == FlameTooltipMode.FIXED, true, style) {
                 onSelect(FlameTooltipMode.FIXED)
             }
             MacOsChoiceChip(
-                localizedStringResource(ViewerRes.sp_settings_follow_mouse, locale),
+                localizedStringResource(SimpleperfViewerRes.sp_settings_follow_mouse, locale),
                 selected == FlameTooltipMode.FOLLOW_MOUSE,
                 true,
                 style,
@@ -420,19 +420,19 @@ private fun SimpleperfEngineSettingsPanel(
 ) {
     MacOsPanel(Modifier.fillMaxWidth(), style) {
         Text(
-            localizedStringResource(ViewerRes.sp_settings_analysis_engine, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_settings_analysis_engine, locale),
             color = style.text,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_settings_analysis_engine_options_description, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_settings_analysis_engine_options_description, locale),
             color = style.secondaryText,
             fontSize = 10.sp,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MacOsChoiceChip(
-                localizedStringResource(ViewerRes.sp_settings_new_engine, locale),
+                localizedStringResource(SimpleperfViewerRes.sp_settings_new_engine, locale),
                 selected == SimpleperfEngine.LOCAL,
                 true,
                 style,
@@ -440,7 +440,7 @@ private fun SimpleperfEngineSettingsPanel(
                 onSelect(SimpleperfEngine.LOCAL)
             }
             MacOsChoiceChip(
-                localizedStringResource(ViewerRes.sp_settings_firefox_profiler_local_engine, locale),
+                localizedStringResource(SimpleperfViewerRes.sp_settings_firefox_profiler_local_engine, locale),
                 selected == SimpleperfEngine.FIREFOX_PROFILER_LOCAL,
                 true,
                 style,
@@ -448,7 +448,7 @@ private fun SimpleperfEngineSettingsPanel(
                 onSelect(SimpleperfEngine.FIREFOX_PROFILER_LOCAL)
             }
             MacOsChoiceChip(
-                localizedStringResource(ViewerRes.sp_settings_firefox_profiler, locale),
+                localizedStringResource(SimpleperfViewerRes.sp_settings_firefox_profiler, locale),
                 selected == SimpleperfEngine.FIREFOX_PROFILER,
                 true,
                 style,
@@ -470,7 +470,7 @@ private fun SamplingTemplatePanel(
 ) {
     MacOsPanel(modifier, style) {
         Text(
-            localizedStringResource(ViewerRes.sp_settings_sampling_template, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_settings_sampling_template, locale),
             color = style.text,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -493,7 +493,7 @@ private fun CaptureConfigurationPanel(
     modifier: Modifier,
 ) {
     if (setup == null) {
-        EmptyParametersPanel(style, modifier, ViewerRes.sp_settings_capture_configuration_section, locale)
+        EmptyParametersPanel(style, modifier, SimpleperfViewerRes.sp_settings_capture_configuration_section, locale)
         return
     }
     var event by remember(setup.template) { mutableStateOf(setup.parameters.event) }
@@ -524,12 +524,12 @@ private fun CaptureConfigurationPanel(
 
     MacOsPanel(modifier, style) {
         Text(
-            localizedStringResource(ViewerRes.sp_capture_event_rate, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_capture_event_rate, locale),
             color = style.text,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )
-        MacOsTextField(localizedStringResource(ViewerRes.sp_capture_event, locale), event, enabled, {
+        MacOsTextField(localizedStringResource(SimpleperfViewerRes.sp_capture_event, locale), event, enabled, {
             event = it
             commitValues()
         }, style, Modifier.fillMaxWidth())
@@ -545,16 +545,16 @@ private fun CaptureConfigurationPanel(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(localizedStringResource(ViewerRes.sp_capture_rate_mode, locale), color = style.secondaryText, fontSize = 9.sp)
+                Text(localizedStringResource(SimpleperfViewerRes.sp_capture_rate_mode, locale), color = style.secondaryText, fontSize = 9.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    MacOsChoiceChip(localizedStringResource(ViewerRes.sp_capture_frequency, locale), !periodMode, enabled, style) {
+                    MacOsChoiceChip(localizedStringResource(SimpleperfViewerRes.sp_capture_frequency, locale), !periodMode, enabled, style) {
                         rateValue.toIntOrNull()?.takeIf { it > 0 }?.let {
                             onUpdate(
                                 setup.parameters.copy(rate = SamplingRate.Frequency(it)),
                             )
                         }
                     }
-                    MacOsChoiceChip(localizedStringResource(ViewerRes.sp_capture_period, locale), periodMode, enabled, style) {
+                    MacOsChoiceChip(localizedStringResource(SimpleperfViewerRes.sp_capture_period, locale), periodMode, enabled, style) {
                         rateValue.toLongOrNull()?.takeIf { it > 0 }?.let { onUpdate(setup.parameters.copy(rate = SamplingRate.Period(it))) }
                     }
                 }
@@ -562,7 +562,7 @@ private fun CaptureConfigurationPanel(
             MacOsTextField(
                 if (periodMode) {
                     localizedStringResource(
-                        ViewerRes.sp_capture_events_per_sample,
+                        SimpleperfViewerRes.sp_capture_events_per_sample,
                         locale,
                     )
                 } else {
@@ -577,7 +577,7 @@ private fun CaptureConfigurationPanel(
                 style,
                 Modifier.weight(RATE_FIELD_WEIGHT),
             )
-            MacOsTextField(localizedStringResource(ViewerRes.sp_capture_duration_seconds_hint, locale), duration, enabled, {
+            MacOsTextField(localizedStringResource(SimpleperfViewerRes.sp_capture_duration_seconds_hint, locale), duration, enabled, {
                 duration = it
                 commitValues()
             }, style, Modifier.weight(DURATION_FIELD_WEIGHT))
@@ -595,20 +595,20 @@ private fun AdvancedCaptureParameters(
     modifier: Modifier,
 ) {
     if (setup == null) {
-        EmptyParametersPanel(style, modifier, ViewerRes.sp_settings_advanced_parameters, locale)
+        EmptyParametersPanel(style, modifier, SimpleperfViewerRes.sp_settings_advanced_parameters, locale)
         return
     }
     MacOsPanel(modifier, style) {
         Text(
-            localizedStringResource(ViewerRes.sp_settings_advanced_parameters, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_settings_advanced_parameters, locale),
             color = style.text,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )
-        ParameterChoices(ViewerRes.sp_capture_call_graph, CallGraphMode.entries, setup.parameters.callGraph, enabled, style, locale) {
+        ParameterChoices(SimpleperfViewerRes.sp_capture_call_graph, CallGraphMode.entries, setup.parameters.callGraph, enabled, style, locale) {
             onUpdate(setup.parameters.copy(callGraph = it))
         }
-        ParameterChoices(ViewerRes.sp_capture_scope, EventScope.entries, setup.parameters.scope, enabled, style, locale) {
+        ParameterChoices(SimpleperfViewerRes.sp_capture_scope, EventScope.entries, setup.parameters.scope, enabled, style, locale) {
             onUpdate(setup.parameters.copy(scope = it))
         }
     }
@@ -624,7 +624,7 @@ private fun EmptyParametersPanel(
     MacOsPanel(modifier, style) {
         Text(localizedStringResource(title, locale), color = style.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Text(
-            localizedStringResource(ViewerRes.sp_capture_sampling_target_required_hint, locale),
+            localizedStringResource(SimpleperfViewerRes.sp_capture_sampling_target_required_hint, locale),
             color = style.secondaryText,
             fontSize = 10.sp,
         )
@@ -852,18 +852,18 @@ internal fun CaptureState.sessionPath(): String? = (this as? CaptureState.Sessio
 
 internal fun CaptureState.statusText(language: UiLanguage = UiLanguage.ENGLISH): String =
     when (this) {
-        CaptureState.Idle -> localizedStringResource(ViewerRes.sp_capture_ready_capture, language)
-        is CaptureState.Preparing -> localizedStringResource(ViewerRes.sp_capture_preparing_simpleperf, language)
-        is CaptureState.Recording -> localizedStringResource(ViewerRes.sp_capture_recording, language)
-        is CaptureState.Stopping -> localizedStringResource(ViewerRes.sp_capture_stopping_gracefully, language)
-        is CaptureState.Pulling -> localizedStringResource(ViewerRes.sp_capture_pulling_perf_data, language)
+        CaptureState.Idle -> localizedStringResource(SimpleperfViewerRes.sp_capture_ready_capture, language)
+        is CaptureState.Preparing -> localizedStringResource(SimpleperfViewerRes.sp_capture_preparing_simpleperf, language)
+        is CaptureState.Recording -> localizedStringResource(SimpleperfViewerRes.sp_capture_recording, language)
+        is CaptureState.Stopping -> localizedStringResource(SimpleperfViewerRes.sp_capture_stopping_gracefully, language)
+        is CaptureState.Pulling -> localizedStringResource(SimpleperfViewerRes.sp_capture_pulling_perf_data, language)
         is CaptureState.Completed ->
             localizedStringResource(
-                ViewerRes.sp_capture_completed_value_format,
+                SimpleperfViewerRes.sp_capture_completed_value_format,
                 language,
                 perfData.fileName,
             )
-        is CaptureState.Cancelled -> localizedStringResource(ViewerRes.sp_capture_cancelled_logs_retained_status, language)
+        is CaptureState.Cancelled -> localizedStringResource(SimpleperfViewerRes.sp_capture_cancelled_logs_retained_status, language)
         is CaptureState.Failed -> "${error.code}: ${error.message}"
     }
 
@@ -875,26 +875,26 @@ private fun SamplingRate.valueText(): String =
 
 private fun CallGraphMode.localizedLabel(locale: java.util.Locale): String =
     when (this) {
-        CallGraphMode.DWARF -> localizedStringResource(ViewerRes.sp_capture_dwarf, locale)
-        CallGraphMode.FRAME_POINTER -> localizedStringResource(ViewerRes.sp_capture_frame_pointer, locale)
-        CallGraphMode.NONE -> localizedStringResource(ViewerRes.sp_capture_none, locale)
+        CallGraphMode.DWARF -> localizedStringResource(SimpleperfViewerRes.sp_capture_dwarf, locale)
+        CallGraphMode.FRAME_POINTER -> localizedStringResource(SimpleperfViewerRes.sp_capture_frame_pointer, locale)
+        CallGraphMode.NONE -> localizedStringResource(SimpleperfViewerRes.sp_capture_none, locale)
     }
 
 private fun EventScope.localizedLabel(locale: java.util.Locale): String =
     when (this) {
-        EventScope.USER -> localizedStringResource(ViewerRes.sp_capture_user, locale)
-        EventScope.KERNEL -> localizedStringResource(ViewerRes.sp_capture_kernel, locale)
-        EventScope.BOTH -> localizedStringResource(ViewerRes.sp_capture_both, locale)
+        EventScope.USER -> localizedStringResource(SimpleperfViewerRes.sp_capture_user, locale)
+        EventScope.KERNEL -> localizedStringResource(SimpleperfViewerRes.sp_capture_kernel, locale)
+        EventScope.BOTH -> localizedStringResource(SimpleperfViewerRes.sp_capture_both, locale)
     }
 
 private fun SamplingTemplate.localizedTemplateName(locale: java.util.Locale): String =
     localizedStringResource(
         when (this) {
-            SamplingTemplate.APP_CPU_BASIC -> ViewerRes.sp_capture_app_cpu_basic
-            SamplingTemplate.UI_THREAD_FOCUS -> ViewerRes.sp_capture_ui_thread_focus
-            SamplingTemplate.NATIVE_HOTSPOT -> ViewerRes.sp_capture_native_hotspot
-            SamplingTemplate.LOW_OVERHEAD -> ViewerRes.sp_capture_low_overhead
-            SamplingTemplate.SYSTEM_PROCESS -> ViewerRes.sp_capture_system_process
+            SamplingTemplate.APP_CPU_BASIC -> SimpleperfViewerRes.sp_capture_app_cpu_basic
+            SamplingTemplate.UI_THREAD_FOCUS -> SimpleperfViewerRes.sp_capture_ui_thread_focus
+            SamplingTemplate.NATIVE_HOTSPOT -> SimpleperfViewerRes.sp_capture_native_hotspot
+            SamplingTemplate.LOW_OVERHEAD -> SimpleperfViewerRes.sp_capture_low_overhead
+            SamplingTemplate.SYSTEM_PROCESS -> SimpleperfViewerRes.sp_capture_system_process
         },
         locale,
     )
@@ -902,11 +902,11 @@ private fun SamplingTemplate.localizedTemplateName(locale: java.util.Locale): St
 private fun SamplingTemplate.localizedTemplateDescription(locale: java.util.Locale): String =
     localizedStringResource(
         when (this) {
-            SamplingTemplate.APP_CPU_BASIC -> ViewerRes.sp_capture_app_cpu_basic_description
-            SamplingTemplate.UI_THREAD_FOCUS -> ViewerRes.sp_capture_ui_thread_focus_description
-            SamplingTemplate.NATIVE_HOTSPOT -> ViewerRes.sp_capture_native_hotspot_description
-            SamplingTemplate.LOW_OVERHEAD -> ViewerRes.sp_capture_low_overhead_description
-            SamplingTemplate.SYSTEM_PROCESS -> ViewerRes.sp_capture_system_process_description
+            SamplingTemplate.APP_CPU_BASIC -> SimpleperfViewerRes.sp_capture_app_cpu_basic_description
+            SamplingTemplate.UI_THREAD_FOCUS -> SimpleperfViewerRes.sp_capture_ui_thread_focus_description
+            SamplingTemplate.NATIVE_HOTSPOT -> SimpleperfViewerRes.sp_capture_native_hotspot_description
+            SamplingTemplate.LOW_OVERHEAD -> SimpleperfViewerRes.sp_capture_low_overhead_description
+            SamplingTemplate.SYSTEM_PROCESS -> SimpleperfViewerRes.sp_capture_system_process_description
         },
         locale,
     )

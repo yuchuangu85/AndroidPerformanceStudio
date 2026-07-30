@@ -1,8 +1,8 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.EdgeInsets
-import dev.agentperf.protocol.ViewNode
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.EdgeInsets
+import com.androidperformancestudio.protocol.ViewNode
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.util.zip.ZipEntry

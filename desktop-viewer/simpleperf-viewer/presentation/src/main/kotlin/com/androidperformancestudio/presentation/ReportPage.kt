@@ -56,7 +56,7 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
@@ -120,7 +120,7 @@ private fun ReportResultPane(
             ReportLoadState.Closed ->
                 ReportStatus(
                     localizedStringResource(
-                        ViewerRes.sp_session_open_session_report_hint,
+                        SimpleperfViewerRes.sp_session_open_session_report_hint,
                         currentSimpleperfLanguage(),
                     ),
                     style,
@@ -128,7 +128,7 @@ private fun ReportResultPane(
             is ReportLoadState.Loading ->
                 ReportStatus(
                     localizedStringResource(
-                        ViewerRes.sp_common_loading_value_format,
+                        SimpleperfViewerRes.sp_common_loading_value_format,
                         currentSimpleperfLanguage(),
                         "${loadState.sessionDirectory.fileName}…",
                     ),
@@ -167,7 +167,7 @@ private fun ReportStatus(
         onClose?.let {
             MacOsButton(
                 localizedStringResource(
-                    ViewerRes.sp_capture_back,
+                    SimpleperfViewerRes.sp_capture_back,
                     currentSimpleperfLanguage(),
                 ),
                 it,
@@ -216,11 +216,11 @@ internal fun OverviewReport(
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard(ViewerRes.sp_report_samples, report.overview.sampleCount.toString(), Modifier.weight(1f), style)
-                MetricCard(ViewerRes.sp_report_event_weight, report.overview.totalEventWeight.toString(), Modifier.weight(1f), style)
-                MetricCard(ViewerRes.sp_target_threads, report.overview.threadCount.toString(), Modifier.weight(1f), style)
+                MetricCard(SimpleperfViewerRes.sp_report_samples, report.overview.sampleCount.toString(), Modifier.weight(1f), style)
+                MetricCard(SimpleperfViewerRes.sp_report_event_weight, report.overview.totalEventWeight.toString(), Modifier.weight(1f), style)
+                MetricCard(SimpleperfViewerRes.sp_target_threads, report.overview.threadCount.toString(), Modifier.weight(1f), style)
                 MetricCard(
-                    ViewerRes.sp_report_lost_rate,
+                    SimpleperfViewerRes.sp_report_lost_rate,
                     "%.2f%%".format(report.quality.lostRate * PERCENT_MULTIPLIER),
                     Modifier.weight(1f),
                     style,
@@ -230,19 +230,19 @@ internal fun OverviewReport(
         item {
             MacOsPanel(Modifier.fillMaxWidth(), style) {
                 Text(
-                    localizedStringResource(ViewerRes.sp_report_data_quality, language),
+                    localizedStringResource(SimpleperfViewerRes.sp_report_data_quality, language),
                     color = style.text,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    localizedStringResource(ViewerRes.sp_diagnostics_lost_samples_value_format, language, report.quality.lostSampleCount),
+                    localizedStringResource(SimpleperfViewerRes.sp_diagnostics_lost_samples_value_format, language, report.quality.lostSampleCount),
                     color = style.text,
                     fontSize = 10.sp,
                 )
                 Text(
                     localizedStringResource(
-                        ViewerRes.sp_diagnostics_unwind_errors_value_format,
+                        SimpleperfViewerRes.sp_diagnostics_unwind_errors_value_format,
                         language,
                         report.quality.unwindErrorSamples,
                     ),
@@ -251,7 +251,7 @@ internal fun OverviewReport(
                 )
                 Text(
                     localizedStringResource(
-                        ViewerRes.sp_diagnostics_unknown_symbols_value_format,
+                        SimpleperfViewerRes.sp_diagnostics_unknown_symbols_value_format,
                         language,
                         report.quality.unknownSymbolSamples,
                     ),
@@ -259,13 +259,13 @@ internal fun OverviewReport(
                     fontSize = 10.sp,
                 )
                 Text(
-                    localizedStringResource(ViewerRes.sp_diagnostics_empty_stacks_value_format, language, report.quality.emptyStackSamples),
+                    localizedStringResource(SimpleperfViewerRes.sp_diagnostics_empty_stacks_value_format, language, report.quality.emptyStackSamples),
                     color = style.text,
                     fontSize = 10.sp,
                 )
             }
         }
-        item { SectionTitle(ViewerRes.sp_report_top_threads, style) }
+        item { SectionTitle(SimpleperfViewerRes.sp_report_top_threads, style) }
         items(report.topThreads.take(OVERVIEW_ITEM_LIMIT), key = { it.threadId }) { thread ->
             Text(
                 "${thread.name} · TID ${thread.threadId} · weight ${thread.totalEventCount}",
@@ -273,7 +273,7 @@ internal fun OverviewReport(
                 fontSize = 10.sp,
             )
         }
-        item { SectionTitle(ViewerRes.sp_report_top_functions, style) }
+        item { SectionTitle(SimpleperfViewerRes.sp_report_top_functions, style) }
         itemsIndexed(
             report.topFunctions.take(OVERVIEW_ITEM_LIMIT),
             key = ::topFunctionItemKey,
@@ -288,7 +288,7 @@ internal fun OverviewReport(
                 Text(function.symbolName, modifier = Modifier.weight(1f), color = style.text, fontSize = 10.sp)
                 Text(
                     localizedStringResource(
-                        ViewerRes.sp_report_inclusive_exclusive_summary_format,
+                        SimpleperfViewerRes.sp_report_inclusive_exclusive_summary_format,
                         language,
                         function.inclusiveWeight,
                         function.exclusiveWeight,
@@ -298,7 +298,7 @@ internal fun OverviewReport(
                 )
             }
         }
-        item { SectionTitle(ViewerRes.sp_report_artifacts, style) }
+        item { SectionTitle(SimpleperfViewerRes.sp_report_artifacts, style) }
         items(report.session.artifacts, key = { it.name }) { artifact ->
             Text(
                 "${if (artifact.exists) "✓" else "–"} ${artifact.name} · ${artifact.path}",
@@ -306,11 +306,11 @@ internal fun OverviewReport(
                 fontSize = 10.sp,
             )
         }
-        item { SectionTitle(ViewerRes.sp_diagnostics_diagnostics, style) }
+        item { SectionTitle(SimpleperfViewerRes.sp_diagnostics_diagnostics, style) }
         if (report.diagnostics.isEmpty()) {
             item {
                 Text(
-                    localizedStringResource(ViewerRes.sp_diagnostics_no_findings_empty_state, language),
+                    localizedStringResource(SimpleperfViewerRes.sp_diagnostics_no_findings_empty_state, language),
                     color = style.secondaryText,
                     fontSize = 10.sp,
                 )
@@ -362,7 +362,7 @@ internal fun TopFunctionsReport(
             }
             MacOsButton(
                 localizedStringResource(
-                    if (state.topDescending) ViewerRes.sp_calltree_descending else ViewerRes.sp_calltree_ascending,
+                    if (state.topDescending) SimpleperfViewerRes.sp_calltree_descending else SimpleperfViewerRes.sp_calltree_ascending,
                     language,
                 ),
                 { actions.onTopFunctionSort(state.topSort, !state.topDescending) },
@@ -390,37 +390,37 @@ private fun TopFunctionHeader(style: ViewerColors) {
     val language = currentSimpleperfLanguage()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            localizedStringResource(ViewerRes.sp_calltree_function_library, language),
+            localizedStringResource(SimpleperfViewerRes.sp_calltree_function_library, language),
             modifier = Modifier.weight(1f),
             color = style.secondaryText,
             fontSize = 9.sp,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_calltree_inclusive, language),
+            localizedStringResource(SimpleperfViewerRes.sp_calltree_inclusive, language),
             modifier = Modifier.width(90.dp),
             color = style.secondaryText,
             fontSize = 9.sp,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_calltree_exclusive, language),
+            localizedStringResource(SimpleperfViewerRes.sp_calltree_exclusive, language),
             modifier = Modifier.width(90.dp),
             color = style.secondaryText,
             fontSize = 9.sp,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_report_samples, language),
+            localizedStringResource(SimpleperfViewerRes.sp_report_samples, language),
             modifier = Modifier.width(70.dp),
             color = style.secondaryText,
             fontSize = 9.sp,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_target_threads, language),
+            localizedStringResource(SimpleperfViewerRes.sp_target_threads, language),
             modifier = Modifier.width(70.dp),
             color = style.secondaryText,
             fontSize = 9.sp,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_calltree_navigate, language),
+            localizedStringResource(SimpleperfViewerRes.sp_calltree_navigate, language),
             modifier = Modifier.width(180.dp),
             color = style.secondaryText,
             fontSize = 9.sp,
@@ -458,12 +458,12 @@ private fun TopFunctionRow(
         Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
         Row(modifier = Modifier.width(180.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             MacOsButton(
-                localizedStringResource(ViewerRes.sp_calltree_path, currentSimpleperfLanguage()),
+                localizedStringResource(SimpleperfViewerRes.sp_calltree_path, currentSimpleperfLanguage()),
                 { onFocusCallTree(function.symbolName) },
                 style,
             )
             MacOsButton(
-                localizedStringResource(ViewerRes.sp_flame_flame, currentSimpleperfLanguage()),
+                localizedStringResource(SimpleperfViewerRes.sp_flame_flame, currentSimpleperfLanguage()),
                 { onFocusFlame(function.symbolName) },
                 style,
             )
@@ -576,7 +576,7 @@ private fun FirefoxCallTreeHeader(
         FirefoxCallTreeHeaderCell(
             label =
                 localizedStringResource(
-                    ViewerRes.sp_report_self_column,
+                    SimpleperfViewerRes.sp_report_self_column,
                     currentSimpleperfLanguage(),
                 ),
             width = FIREFOX_SELF_COLUMN_WIDTH,
@@ -827,14 +827,14 @@ private fun DiagnosticCard(
         }
         if (finding.recommendations.isNotEmpty()) {
             Text(
-                localizedStringResource(ViewerRes.sp_finding_recommendations, language),
+                localizedStringResource(SimpleperfViewerRes.sp_finding_recommendations, language),
                 color = style.text,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
             )
             finding.recommendations.forEach {
                 Text(
-                    localizedStringResource(ViewerRes.sp_common_bullet_format, language, it),
+                    localizedStringResource(SimpleperfViewerRes.sp_common_bullet_format, language, it),
                     color = style.secondaryText,
                     fontSize = 9.sp,
                 )
@@ -842,7 +842,7 @@ private fun DiagnosticCard(
         }
         if (navigation != null) {
             Text(
-                localizedStringResource(ViewerRes.sp_finding_inspect_evidence_action, language),
+                localizedStringResource(SimpleperfViewerRes.sp_finding_inspect_evidence_action, language),
                 color = accent,
                 fontSize = 9.sp,
             )
@@ -882,21 +882,21 @@ private fun SectionTitle(
 private fun TopFunctionSort.displayName(language: UiLanguage): String =
     localizedStringResource(
         when (this) {
-            TopFunctionSort.INCLUSIVE_WEIGHT -> ViewerRes.sp_diagnostics_inclusive_share
-            TopFunctionSort.EXCLUSIVE_WEIGHT -> ViewerRes.sp_diagnostics_exclusive_weight
-            TopFunctionSort.SAMPLE_COUNT -> ViewerRes.sp_report_samples
-            TopFunctionSort.THREAD_COUNT -> ViewerRes.sp_target_threads
-            TopFunctionSort.SYMBOL_NAME -> ViewerRes.sp_diagnostics_function
-            TopFunctionSort.FILE_PATH -> ViewerRes.sp_calltree_path
+            TopFunctionSort.INCLUSIVE_WEIGHT -> SimpleperfViewerRes.sp_diagnostics_inclusive_share
+            TopFunctionSort.EXCLUSIVE_WEIGHT -> SimpleperfViewerRes.sp_diagnostics_exclusive_weight
+            TopFunctionSort.SAMPLE_COUNT -> SimpleperfViewerRes.sp_report_samples
+            TopFunctionSort.THREAD_COUNT -> SimpleperfViewerRes.sp_target_threads
+            TopFunctionSort.SYMBOL_NAME -> SimpleperfViewerRes.sp_diagnostics_function
+            TopFunctionSort.FILE_PATH -> SimpleperfViewerRes.sp_calltree_path
         },
         language,
     )
 
 private fun DiagnosticSeverity.resource(): StringResource =
     when (this) {
-        DiagnosticSeverity.INFO -> ViewerRes.sp_diagnostics_info
-        DiagnosticSeverity.WARNING -> ViewerRes.sp_diagnostics_warning
-        DiagnosticSeverity.CRITICAL -> ViewerRes.sp_diagnostics_critical
+        DiagnosticSeverity.INFO -> SimpleperfViewerRes.sp_diagnostics_info
+        DiagnosticSeverity.WARNING -> SimpleperfViewerRes.sp_diagnostics_warning
+        DiagnosticSeverity.CRITICAL -> SimpleperfViewerRes.sp_diagnostics_critical
     }
 
 internal fun topFunctionItemKey(
@@ -926,9 +926,9 @@ private fun List<CallTreeNode>.firefoxInitialPath(maxDepth: Int): List<Long> {
 internal fun List<String>.firefoxTotalColumnLabel(language: UiLanguage = UiLanguage.ENGLISH): String =
     localizedStringResource(
         if (size == 1 && single().equals("samples", ignoreCase = true)) {
-            ViewerRes.sp_calltree_total_samples
+            SimpleperfViewerRes.sp_calltree_total_samples
         } else {
-            ViewerRes.sp_calltree_total
+            SimpleperfViewerRes.sp_calltree_total
         },
         language,
     )

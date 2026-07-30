@@ -1,6 +1,6 @@
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Files
@@ -46,23 +46,23 @@ class SimpleperfLocalizationTest {
     fun `typed resources cover primary workflow labels`() {
         assertEquals(
             "设备和目标",
-            localizedStringResource(ViewerRes.sp_target_device_target, UiLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(SimpleperfViewerRes.sp_target_device_target, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
             "继续采集",
-            localizedStringResource(ViewerRes.sp_target_continue_capture, UiLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(SimpleperfViewerRes.sp_target_continue_capture, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
             "性能采集目标",
-            localizedStringResource(ViewerRes.sp_target_profile_target, UiLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(SimpleperfViewerRes.sp_target_profile_target, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
             "获取数据",
-            localizedStringResource(ViewerRes.sp_capture_get_data, UiLanguage.SIMPLIFIED_CHINESE),
+            localizedStringResource(SimpleperfViewerRes.sp_capture_get_data, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
             "Back to home",
-            localizedStringResource(ViewerRes.sp_target_back_home, UiLanguage.ENGLISH),
+            localizedStringResource(SimpleperfViewerRes.sp_target_back_home, UiLanguage.ENGLISH),
         )
     }
 
@@ -71,7 +71,7 @@ class SimpleperfLocalizationTest {
         assertEquals(
             "丢失样本：12",
             localizedStringResource(
-                ViewerRes.sp_diagnostics_lost_samples_value_format,
+                SimpleperfViewerRes.sp_diagnostics_lost_samples_value_format,
                 UiLanguage.SIMPLIFIED_CHINESE,
                 12,
             ),
@@ -79,7 +79,7 @@ class SimpleperfLocalizationTest {
         assertEquals(
             "包含 12 · 独占 3",
             localizedStringResource(
-                ViewerRes.sp_report_inclusive_exclusive_summary_format,
+                SimpleperfViewerRes.sp_report_inclusive_exclusive_summary_format,
                 UiLanguage.SIMPLIFIED_CHINESE,
                 12,
                 3,
@@ -88,7 +88,7 @@ class SimpleperfLocalizationTest {
         assertEquals(
             "样本 4 · 25.00%",
             localizedStringResource(
-                ViewerRes.sp_report_samples_summary_format,
+                SimpleperfViewerRes.sp_report_samples_summary_format,
                 UiLanguage.SIMPLIFIED_CHINESE,
                 4,
                 "25.00%",
@@ -97,9 +97,9 @@ class SimpleperfLocalizationTest {
         assertEquals(
             "• 查看数据质量",
             localizedStringResource(
-                ViewerRes.sp_common_bullet_format,
+                SimpleperfViewerRes.sp_common_bullet_format,
                 UiLanguage.SIMPLIFIED_CHINESE,
-                localizedStringResource(ViewerRes.sp_flame_review_data_quality, UiLanguage.SIMPLIFIED_CHINESE),
+                localizedStringResource(SimpleperfViewerRes.sp_flame_review_data_quality, UiLanguage.SIMPLIFIED_CHINESE),
             ),
         )
     }
@@ -127,10 +127,10 @@ class SimpleperfLocalizationTest {
                 Path.of("src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphSemanticsOverlay.kt"),
             )
 
-        assertTrue(panel.contains("ViewerRes.sp_flame_flame_graph_call_stacks"))
-        assertTrue(overlay.contains("ViewerRes.sp_accessibility_select"))
-        assertTrue(overlay.contains("ViewerRes.sp_accessibility_open_details"))
-        assertTrue(overlay.contains("ViewerRes.sp_accessibility_open_context_menu"))
+        assertTrue(panel.contains("SimpleperfViewerRes.sp_flame_flame_graph_call_stacks"))
+        assertTrue(overlay.contains("SimpleperfViewerRes.sp_accessibility_select"))
+        assertTrue(overlay.contains("SimpleperfViewerRes.sp_accessibility_open_details"))
+        assertTrue(overlay.contains("SimpleperfViewerRes.sp_accessibility_open_context_menu"))
     }
 
     @Test

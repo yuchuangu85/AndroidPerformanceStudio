@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.agentperf.android.startup.metrics"
+    namespace = "com.androidperformancestudio.android.startup.metrics"
     compileSdk = 37
 
     defaultConfig {

@@ -1,14 +1,14 @@
-package dev.agentperf.application
+package com.androidperformancestudio.application
 
-import dev.agentperf.analysis.AnalysisReport
-import dev.agentperf.analysis.Finding
-import dev.agentperf.analysis.LayoutMetrics
-import dev.agentperf.analysis.Severity
-import dev.agentperf.fixtures.SampleSnapshots
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.ViewNode
-import dev.agentperf.protocol.WindowSnapshot
-import dev.agentperf.protocol.WindowType
+import com.androidperformancestudio.analysis.AnalysisReport
+import com.androidperformancestudio.analysis.Finding
+import com.androidperformancestudio.analysis.LayoutMetrics
+import com.androidperformancestudio.analysis.Severity
+import com.androidperformancestudio.fixtures.SampleSnapshots
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.ViewNode
+import com.androidperformancestudio.protocol.WindowSnapshot
+import com.androidperformancestudio.protocol.WindowType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertFalse

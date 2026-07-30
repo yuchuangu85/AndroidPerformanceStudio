@@ -1,11 +1,11 @@
-package dev.agentperf.application
+package com.androidperformancestudio.application
 
-import dev.agentperf.analysis.AiAnalysisReport
-import dev.agentperf.analysis.AnalysisReport
-import dev.agentperf.analysis.LayoutAnalyzer
-import dev.agentperf.protocol.LayoutSnapshot
-import dev.agentperf.protocol.effectiveDefaultWindowId
-import dev.agentperf.protocol.effectiveWindows
+import com.androidperformancestudio.analysis.AiAnalysisReport
+import com.androidperformancestudio.analysis.AnalysisReport
+import com.androidperformancestudio.analysis.LayoutAnalyzer
+import com.androidperformancestudio.protocol.LayoutSnapshot
+import com.androidperformancestudio.protocol.effectiveDefaultWindowId
+import com.androidperformancestudio.protocol.effectiveWindows
 
 data class ManualScreenshotTarget(
     val capturedAtEpochMillis: Long,

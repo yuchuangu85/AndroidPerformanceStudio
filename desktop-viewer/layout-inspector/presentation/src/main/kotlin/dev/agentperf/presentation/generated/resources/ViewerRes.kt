@@ -1,4 +1,4 @@
-package dev.agentperf.presentation.generated.resources
+package com.androidperformancestudio.presentation.generated.resources
 
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.InternalResourceApi
@@ -9,7 +9,7 @@ import org.jetbrains.compose.resources.InternalResourceApi
  * The generated [Res] class and its extension properties are [internal],
  * which prevents direct access from the main source package even within
  * the same Gradle module. This thin public wrapper exposes the resource
- * references for use by [dev.agentperf.desktop.ViewerStrings].
+ * references for use by [com.androidperformancestudio.desktop.ViewerStrings].
  */
 @OptIn(InternalResourceApi::class)
 object ViewerRes {

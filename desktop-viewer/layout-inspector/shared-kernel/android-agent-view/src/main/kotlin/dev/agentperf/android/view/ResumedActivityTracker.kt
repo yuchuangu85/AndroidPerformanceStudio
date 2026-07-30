@@ -1,4 +1,4 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
 import android.app.Activity
 import android.app.Application

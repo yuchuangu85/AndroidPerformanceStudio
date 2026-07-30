@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallNodePath
 import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackDirection
@@ -100,7 +100,7 @@ internal object FlameGraphContextCommands {
                         label = "",
                         shortcut = null,
                         command = FlameGraphContextCommand.Clear,
-                        labelResource = ViewerRes.sp_flame_clear_transforms,
+                        labelResource = SimpleperfViewerRes.sp_flame_clear_transforms,
                     ),
                 )
             }

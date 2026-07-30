@@ -1,4 +1,4 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue

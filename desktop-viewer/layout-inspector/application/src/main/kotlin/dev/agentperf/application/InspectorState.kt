@@ -1,14 +1,14 @@
-package dev.agentperf.application
+package com.androidperformancestudio.application
 
-import dev.agentperf.analysis.AiAnalysisReport
-import dev.agentperf.analysis.AnalysisReport
-import dev.agentperf.analysis.LayoutMetrics
-import dev.agentperf.protocol.ComposeNode
-import dev.agentperf.protocol.LayoutSnapshot
-import dev.agentperf.protocol.UiNode
-import dev.agentperf.protocol.ViewNode
-import dev.agentperf.protocol.WindowSnapshot
-import dev.agentperf.protocol.effectiveWindows
+import com.androidperformancestudio.analysis.AiAnalysisReport
+import com.androidperformancestudio.analysis.AnalysisReport
+import com.androidperformancestudio.analysis.LayoutMetrics
+import com.androidperformancestudio.protocol.ComposeNode
+import com.androidperformancestudio.protocol.LayoutSnapshot
+import com.androidperformancestudio.protocol.UiNode
+import com.androidperformancestudio.protocol.ViewNode
+import com.androidperformancestudio.protocol.WindowSnapshot
+import com.androidperformancestudio.protocol.effectiveWindows
 
 enum class ConnectionStatus {
     DISCONNECTED,

@@ -28,7 +28,7 @@ The wire document carries:
 ```json
 {
   "protocolVersion": { "major": 1, "minor": 0 },
-  "packageName": "dev.agentperf.sample",
+  "packageName": "com.androidperformancestudio.sample",
   "capturedAtEpochMillis": 1750000000000,
   "display": {
     "widthPx": 1080,

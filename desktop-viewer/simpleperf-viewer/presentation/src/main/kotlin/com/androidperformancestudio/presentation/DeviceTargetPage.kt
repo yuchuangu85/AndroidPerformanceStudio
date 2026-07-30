@@ -53,7 +53,7 @@ import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.SettingsButton
 import com.androidperformancestudio.ui.ViewerColors
@@ -158,7 +158,7 @@ private fun WorkspaceToolbar(
             ProfilerHomeButton(
                 contentDescription =
                     localizedStringResource(
-                        ViewerRes.sp_target_back_home,
+                        SimpleperfViewerRes.sp_target_back_home,
                         currentSimpleperfLanguage(),
                     ),
                 onClick = onNavigateHome,
@@ -219,7 +219,7 @@ private fun RowScope.ToolbarContent(
     SettingsButton(
         contentDescription =
             localizedStringResource(
-                ViewerRes.sp_target_settings,
+                SimpleperfViewerRes.sp_target_settings,
                 currentSimpleperfLanguage(),
             ),
         onClick = onOpenSettings,
@@ -240,7 +240,7 @@ private fun ToolbarCaptureActions(
     val language = currentSimpleperfLanguage()
     MacOsButton(
         localizedStringResource(
-            if (state.isLoading) ViewerRes.sp_target_refreshing else ViewerRes.sp_target_refresh,
+            if (state.isLoading) SimpleperfViewerRes.sp_target_refreshing else SimpleperfViewerRes.sp_target_refresh,
             language,
         ),
         actions.onRefresh,
@@ -249,7 +249,7 @@ private fun ToolbarCaptureActions(
     )
     if (showGetData) {
         MacOsButton(
-            label = localizedStringResource(ViewerRes.sp_capture_get_data, language),
+            label = localizedStringResource(SimpleperfViewerRes.sp_capture_get_data, language),
             onClick = actions.onStartCapture,
             style = style,
             enabled = enabled && state.canEnterCapture && state.captureSetup != null,
@@ -269,15 +269,15 @@ private fun DeviceSelector(
     enabled: Boolean,
 ) {
     ToolbarSelector(
-        label = ViewerRes.sp_target_device,
-        selectorDescription = ViewerRes.sp_target_device_selector,
+        label = SimpleperfViewerRes.sp_target_device,
+        selectorDescription = SimpleperfViewerRes.sp_target_device_selector,
         selected = selected,
         items = devices,
         itemLabel = DeviceOption::label,
         itemSecondary = { device ->
             val status =
                 localizedStringResource(
-                    if (device.isOnline) ViewerRes.sp_target_online else ViewerRes.sp_target_unavailable,
+                    if (device.isOnline) SimpleperfViewerRes.sp_target_online else SimpleperfViewerRes.sp_target_unavailable,
                     currentSimpleperfLanguage(),
                 )
             "${device.serial} · $status"
@@ -301,8 +301,8 @@ private fun AppSelector(
     enabled: Boolean,
 ) {
     ToolbarSelector(
-        label = ViewerRes.sp_target_app,
-        selectorDescription = ViewerRes.sp_target_app_selector,
+        label = SimpleperfViewerRes.sp_target_app,
+        selectorDescription = SimpleperfViewerRes.sp_target_app_selector,
         selected = packages.firstOrNull { it.packageName == selectedPackage },
         items = packages,
         itemLabel = PackageOption::packageName,
@@ -324,8 +324,8 @@ private fun ProcessSelector(
     enabled: Boolean,
 ) {
     ToolbarSelector(
-        label = ViewerRes.sp_target_process,
-        selectorDescription = ViewerRes.sp_target_process_selector,
+        label = SimpleperfViewerRes.sp_target_process,
+        selectorDescription = SimpleperfViewerRes.sp_target_process_selector,
         selected = processes.firstOrNull { it.pid == selectedPid },
         items = processes,
         itemLabel = ProcessOption::name,
@@ -348,8 +348,8 @@ private fun ThreadSelector(
     enabled: Boolean,
 ) {
     ToolbarSelector(
-        label = ViewerRes.sp_diagnostics_thread,
-        selectorDescription = ViewerRes.sp_target_thread_selector,
+        label = SimpleperfViewerRes.sp_diagnostics_thread,
+        selectorDescription = SimpleperfViewerRes.sp_target_thread_selector,
         selected = threads.firstOrNull { it.tid == selectedTid },
         items = threads,
         itemLabel = ThreadOption::name,
@@ -508,7 +508,7 @@ private fun CapabilityPopupButton(
     Box {
         MacOsButton(
             localizedStringResource(
-                ViewerRes.sp_target_capabilities,
+                SimpleperfViewerRes.sp_target_capabilities,
                 currentSimpleperfLanguage(),
             ),
             { expanded = true },
@@ -536,7 +536,7 @@ private fun CapabilityPopup(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            localizedStringResource(ViewerRes.sp_target_device_capability, language),
+            localizedStringResource(SimpleperfViewerRes.sp_target_device_capability, language),
             color = style.text,
             fontSize = 13.sp,
             lineHeight = 16.sp,
@@ -544,7 +544,7 @@ private fun CapabilityPopup(
         )
         if (selection == null) {
             Text(
-                localizedStringResource(ViewerRes.sp_target_capability_selection_hint, language),
+                localizedStringResource(SimpleperfViewerRes.sp_target_capability_selection_hint, language),
                 color = style.secondaryText,
                 fontSize = 11.sp,
                 lineHeight = 14.sp,
@@ -565,41 +565,41 @@ private fun CapabilityPopup(
             }
             HorizontalHairline(style.border)
             CapabilityPopupFact(
-                localizedStringResource(ViewerRes.sp_target_android, language),
+                localizedStringResource(SimpleperfViewerRes.sp_target_android, language),
                 "${selection.androidVersion} / SDK ${selection.sdkInt}",
                 style,
             )
             CapabilityPopupFact(
-                localizedStringResource(ViewerRes.sp_target_abi_value_format, language, "").trimLabelSeparator(),
+                localizedStringResource(SimpleperfViewerRes.sp_target_abi_value_format, language, "").trimLabelSeparator(),
                 selection.abis.joinToString(),
                 style,
             )
             CapabilityPopupFact(
-                localizedStringResource(ViewerRes.sp_target_root_value_format, language, "").trimLabelSeparator(),
+                localizedStringResource(SimpleperfViewerRes.sp_target_root_value_format, language, "").trimLabelSeparator(),
                 selection.capabilities.root,
                 style,
             )
             CapabilityPopupFact(
-                localizedStringResource(ViewerRes.sp_capture_scope, language),
+                localizedStringResource(SimpleperfViewerRes.sp_capture_scope, language),
                 selection.capabilities.profilingScope,
                 style,
             )
             CapabilityPopupFact(
-                localizedStringResource(ViewerRes.sp_target_simpleperf_value_format, language, "").trimLabelSeparator(),
+                localizedStringResource(SimpleperfViewerRes.sp_target_simpleperf_value_format, language, "").trimLabelSeparator(),
                 selection.capabilities.simpleperf,
                 style,
             )
             CapabilityPopupFact(
-                localizedStringResource(ViewerRes.sp_target_events, language),
+                localizedStringResource(SimpleperfViewerRes.sp_target_events, language),
                 selection.capabilities.eventNames
                     .take(MAX_VISIBLE_EVENTS)
                     .joinToString()
-                    .ifBlank { localizedStringResource(ViewerRes.sp_target_unavailable, language) },
+                    .ifBlank { localizedStringResource(SimpleperfViewerRes.sp_target_unavailable, language) },
                 style,
             )
             if (selection.capabilities.limitations.isNotEmpty()) {
                 CapabilityPopupFact(
-                    localizedStringResource(ViewerRes.sp_target_limits, language),
+                    localizedStringResource(SimpleperfViewerRes.sp_target_limits, language),
                     selection.capabilities.limitations.joinToString(),
                     style,
                     warning = true,
@@ -659,9 +659,9 @@ private fun CapabilityStatusBadge(
         Text(
             localizedStringResource(
                 when (status) {
-                    CapabilityStatus.READY -> ViewerRes.sp_target_ready
-                    CapabilityStatus.LIMITED -> ViewerRes.sp_target_limited
-                    CapabilityStatus.BLOCKED -> ViewerRes.sp_target_blocked
+                    CapabilityStatus.READY -> SimpleperfViewerRes.sp_target_ready
+                    CapabilityStatus.LIMITED -> SimpleperfViewerRes.sp_target_limited
+                    CapabilityStatus.BLOCKED -> SimpleperfViewerRes.sp_target_blocked
                 },
                 language,
             ),
@@ -725,7 +725,7 @@ private fun CaptureStatus(
                 if (it.code == ADB_NOT_FOUND_ERROR_CODE) {
                     "$ADB_NOT_FOUND_ERROR_CODE: ${
                         localizedStringResource(
-                            ViewerRes.sp_adb_sdk_path_settings_hint,
+                            SimpleperfViewerRes.sp_adb_sdk_path_settings_hint,
                             currentSimpleperfLanguage(),
                         )
                     }"
@@ -818,7 +818,7 @@ private fun CaptureActions(
             if (captureState is CaptureState.Recording) {
                 MacOsButton(
                     localizedStringResource(
-                        ViewerRes.sp_capture_stop_analyze,
+                        SimpleperfViewerRes.sp_capture_stop_analyze,
                         currentSimpleperfLanguage(),
                     ),
                     actions.onStopCapture,
@@ -828,7 +828,7 @@ private fun CaptureActions(
             }
             MacOsButton(
                 localizedStringResource(
-                    ViewerRes.sp_capture_cancel,
+                    SimpleperfViewerRes.sp_capture_cancel,
                     currentSimpleperfLanguage(),
                 ),
                 actions.onCancelCapture,

@@ -22,11 +22,15 @@ include(
     ":capture-startup",
     ":parser-startup",
     ":analysis-startup",
-    ":storage-sqlite",
-    ":export-adapters",
-    ":presentation",
+    ":startup-storage-sqlite",
+    ":startup-export-adapters",
+    ":startup-presentation",
     ":startup-app",
 )
+
+project(":startup-storage-sqlite").projectDir = file("storage-sqlite")
+project(":startup-export-adapters").projectDir = file("export-adapters")
+project(":startup-presentation").projectDir = file("presentation")
 
 includeBuild("../simpleperf-viewer") {
     name = "startup-profiler-simpleperf-tooling"

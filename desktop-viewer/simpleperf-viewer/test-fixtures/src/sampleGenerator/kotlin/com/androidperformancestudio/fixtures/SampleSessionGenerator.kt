@@ -30,7 +30,7 @@ fun main(args: Array<String>) {
             "status=COMPLETED\nsource=generated-golden\nandroid.sdk=34\nabi=arm64-v8a\n",
         )
         staging.resolve("README.txt").writeText(
-            "Synthetic V0.1 demonstration profile. Regenerate with :test-fixtures:generateSampleSession.\n",
+            "Synthetic V0.1 demonstration profile. Regenerate with :simpleperf-test-fixtures:generateSampleSession.\n",
         )
         exportReports(staging)
         destination.deleteIfExists()

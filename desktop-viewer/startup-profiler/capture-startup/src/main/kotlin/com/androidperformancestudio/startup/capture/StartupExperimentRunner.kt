@@ -328,7 +328,7 @@ public class StartupExperimentRunner internal constructor(
     }
 
     private companion object {
-        const val RUN_ID_EXTRA = "dev.agentperf.startup.RUN_ID"
+        const val RUN_ID_EXTRA = "com.androidperformancestudio.startup.RUN_ID"
         const val EVENT_LOG_LINES = 500
         const val EVENT_LOG_POLL_ATTEMPTS = 4
         const val EVENT_LOG_POLL_DELAY_MILLIS = 500L

@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.agentperf.android.frame"
+    namespace = "com.androidperformancestudio.android.frame"
     compileSdk = 37
 
     defaultConfig {

@@ -1,8 +1,8 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
-import dev.agentperf.protocol.CaptureFrame
-import dev.agentperf.protocol.CaptureFrameCodec
-import dev.agentperf.protocol.ProtocolCodec
+import com.androidperformancestudio.protocol.CaptureFrame
+import com.androidperformancestudio.protocol.CaptureFrameCodec
+import com.androidperformancestudio.protocol.ProtocolCodec
 import java.net.ServerSocket
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -38,10 +38,10 @@ class LiveDeviceClientTest {
         )
 
         assertThrows(DeviceSelectionException::class.java) {
-            LiveDeviceClient(noDevices).connect("dev.agentperf.sample")
+            LiveDeviceClient(noDevices).connect("com.androidperformancestudio.sample")
         }
         assertThrows(DeviceSelectionException::class.java) {
-            LiveDeviceClient(multipleDevices).connect("dev.agentperf.sample")
+            LiveDeviceClient(multipleDevices).connect("com.androidperformancestudio.sample")
         }
     }
 
@@ -67,7 +67,7 @@ class LiveDeviceClientTest {
             val session = LiveDeviceClient(
                 processRunner = runner,
                 portAllocator = { server.localPort },
-            ).connect("dev.agentperf.sample")
+            ).connect("com.androidperformancestudio.sample")
 
             assertEquals("physical-1", session.serial)
             session.close()
@@ -190,7 +190,7 @@ class LiveDeviceClientTest {
             val session = LiveDeviceClient(
                 processRunner = runner,
                 portAllocator = { server.localPort },
-            ).connect("dev.agentperf.sample")
+            ).connect("com.androidperformancestudio.sample")
 
             assertFalse(session.isForegroundAppCurrent())
             session.close()
@@ -365,7 +365,7 @@ class LiveDeviceClientTest {
 
     @Test
     fun `connected session authenticates and decodes capture frames`() {
-        val expected = CaptureFrame("""{"packageName":"dev.agentperf.sample"}""", byteArrayOf(1, 2, 3, 4))
+        val expected = CaptureFrame("""{"packageName":"com.androidperformancestudio.sample"}""", byteArrayOf(1, 2, 3, 4))
         val server = ServerSocket(0)
         val executor = Executors.newSingleThreadExecutor()
         val serverResult = executor.submit {
@@ -384,7 +384,7 @@ class LiveDeviceClientTest {
             portAllocator = { server.localPort },
         )
 
-        val session = client.connect("dev.agentperf.sample")
+        val session = client.connect("com.androidperformancestudio.sample")
         val actual = session.capture()
         session.close()
         serverResult.get(2, TimeUnit.SECONDS)
@@ -437,7 +437,7 @@ class LiveDeviceClientTest {
             portAllocator = { server.localPort },
         )
 
-        val session = client.connect("dev.agentperf.sample")
+        val session = client.connect("com.androidperformancestudio.sample")
         val actual = session.capture()
         session.close()
         serverResult.get(2, TimeUnit.SECONDS)
@@ -561,7 +561,7 @@ class LiveDeviceClientTest {
             physical-1 device product:sample model:Phone transport_id:1
         """.trimIndent(),
         foreground: String = """
-            topResumedActivity=ActivityRecord{abc u0 dev.agentperf.sample/.MainActivity t1}
+            topResumedActivity=ActivityRecord{abc u0 com.androidperformancestudio.sample/.MainActivity t1}
         """.trimIndent(),
         sessionResult: ProcessResult = ProcessResult(0, SESSION_JSON, ""),
         visibleHierarchyResult: ProcessResult =
@@ -627,7 +627,7 @@ class LiveDeviceClientTest {
     private fun singleWindowSnapshot(width: Int, height: Int): String = """
         {
           "protocolVersion": { "major": 1, "minor": 1 },
-          "packageName": "dev.agentperf.sample",
+          "packageName": "com.androidperformancestudio.sample",
           "capturedAtEpochMillis": 1,
           "display": { "widthPx": $width, "heightPx": $height, "density": 1.0 },
           "capabilities": { "viewHierarchy": true, "screenshots": true },

@@ -16,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportTab
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
@@ -51,64 +51,64 @@ internal fun flameGraphEmptyStateContent(
     when (reason) {
         FlameGraphEmptyReason.THREAD_HAS_NO_SAMPLES ->
             content(
-                ViewerRes.sp_flame_selected_thread_no_samples,
-                ViewerRes.sp_flame_show_all_threads,
+                SimpleperfViewerRes.sp_flame_selected_thread_no_samples,
+                SimpleperfViewerRes.sp_flame_show_all_threads,
                 FlameGraphRecoveryAction.SELECT_ALL_THREADS,
                 diagnosticDetails,
                 language,
             )
         FlameGraphEmptyReason.COMMITTED_RANGE_EMPTY ->
             content(
-                ViewerRes.sp_flame_selected_range_no_samples,
-                ViewerRes.sp_flame_reset_time_range,
+                SimpleperfViewerRes.sp_flame_selected_range_no_samples,
+                SimpleperfViewerRes.sp_flame_reset_time_range,
                 FlameGraphRecoveryAction.RESET_TIME_RANGE,
                 diagnosticDetails,
                 language,
             )
         FlameGraphEmptyReason.PREVIEW_RANGE_EMPTY ->
             content(
-                ViewerRes.sp_flame_preview_range_no_samples,
-                ViewerRes.sp_flame_cancel_preview,
+                SimpleperfViewerRes.sp_flame_preview_range_no_samples,
+                SimpleperfViewerRes.sp_flame_cancel_preview,
                 FlameGraphRecoveryAction.CANCEL_PREVIEW,
                 diagnosticDetails,
                 language,
             )
         FlameGraphEmptyReason.SEARCH_FILTERED_ALL ->
             content(
-                ViewerRes.sp_flame_search_removed_all_samples,
-                ViewerRes.sp_flame_clear_search,
+                SimpleperfViewerRes.sp_flame_search_removed_all_samples,
+                SimpleperfViewerRes.sp_flame_clear_search,
                 FlameGraphRecoveryAction.CLEAR_SEARCH,
                 diagnosticDetails,
                 language,
             )
         FlameGraphEmptyReason.IMPLEMENTATION_FILTERED_ALL ->
             content(
-                ViewerRes.sp_flame_implementation_filter_removed_all_samples,
-                ViewerRes.sp_flame_show_all_implementations,
+                SimpleperfViewerRes.sp_flame_implementation_filter_removed_all_samples,
+                SimpleperfViewerRes.sp_flame_show_all_implementations,
                 FlameGraphRecoveryAction.SHOW_ALL_IMPLEMENTATIONS,
                 diagnosticDetails,
                 language,
             )
         FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL ->
             content(
-                ViewerRes.sp_flame_transforms_removed_all_samples,
-                ViewerRes.sp_flame_undo_transform,
+                SimpleperfViewerRes.sp_flame_transforms_removed_all_samples,
+                SimpleperfViewerRes.sp_flame_undo_transform,
                 FlameGraphRecoveryAction.UNDO_TRANSFORM,
                 diagnosticDetails,
                 language,
             )
         FlameGraphEmptyReason.PROFILE_INCOMPLETE ->
             content(
-                ViewerRes.sp_flame_incomplete_call_stacks,
-                ViewerRes.sp_flame_review_data_quality,
+                SimpleperfViewerRes.sp_flame_incomplete_call_stacks,
+                SimpleperfViewerRes.sp_flame_review_data_quality,
                 FlameGraphRecoveryAction.REVIEW_DATA_QUALITY,
                 diagnosticDetails,
                 language,
             )
         FlameGraphEmptyReason.PROJECTION_FAILED ->
             content(
-                ViewerRes.sp_flame_projection_failed,
-                ViewerRes.sp_flame_retry_projection,
+                SimpleperfViewerRes.sp_flame_projection_failed,
+                SimpleperfViewerRes.sp_flame_retry_projection,
                 FlameGraphRecoveryAction.RETRY_PROJECTION,
                 diagnosticDetails,
                 language,

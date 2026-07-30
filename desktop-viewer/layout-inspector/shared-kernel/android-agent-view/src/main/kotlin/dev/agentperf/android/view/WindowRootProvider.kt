@@ -1,4 +1,4 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
 import android.annotation.TargetApi
 import android.app.Activity
@@ -6,7 +6,7 @@ import android.os.Build
 import android.view.View
 import android.view.WindowManager
 import android.view.inspector.WindowInspector
-import dev.agentperf.protocol.WindowType
+import com.androidperformancestudio.protocol.WindowType
 
 data class WindowRoot(
     val id: String,

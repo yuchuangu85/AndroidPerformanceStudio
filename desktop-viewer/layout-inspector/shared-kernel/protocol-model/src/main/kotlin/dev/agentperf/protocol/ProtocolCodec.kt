@@ -1,4 +1,4 @@
-package dev.agentperf.protocol
+package com.androidperformancestudio.protocol
 
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString

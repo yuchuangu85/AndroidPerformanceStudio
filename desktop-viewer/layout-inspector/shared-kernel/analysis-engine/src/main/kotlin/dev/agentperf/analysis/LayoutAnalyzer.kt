@@ -1,6 +1,6 @@
-package dev.agentperf.analysis
+package com.androidperformancestudio.analysis
 
-import dev.agentperf.protocol.UiNode
+import com.androidperformancestudio.protocol.UiNode
 import java.util.ArrayDeque
 
 class LayoutAnalyzer(

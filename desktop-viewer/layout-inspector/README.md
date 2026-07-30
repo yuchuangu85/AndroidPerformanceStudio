@@ -17,7 +17,7 @@ match. Kotlin package names remain unchanged to keep this move behavior-neutral.
 
 ```bash
 ./gradlew :desktop-app:run
-./gradlew :layout-inspector:presentation:test
+./gradlew :layout-inspector:layout-presentation:test
 ./gradlew :layout-inspector:samples:android-view-app:assembleDebug
 ```
 

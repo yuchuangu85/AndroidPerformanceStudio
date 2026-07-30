@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
@@ -201,7 +201,7 @@ private fun FirefoxMarkerTimelineLanes(
                     if (marker.endNanosExclusive > viewport.startNanos && marker.startNanos < viewport.endNanosExclusive) {
                         val markerDescription =
                             localizedStringResource(
-                                ViewerRes.sp_timeline_marker_description_format,
+                                SimpleperfViewerRes.sp_timeline_marker_description_format,
                                 currentSimpleperfLanguage(),
                                 marker.name,
                             )
@@ -240,7 +240,7 @@ private fun FirefoxTimelineHeader(
 ) {
     val visibleTracksDescription =
         localizedStringResource(
-            ViewerRes.sp_timeline_visible_tracks_format,
+            SimpleperfViewerRes.sp_timeline_visible_tracks_format,
             currentSimpleperfLanguage(),
             visibleTrackCount,
             totalTrackCount,
@@ -328,7 +328,7 @@ private fun FirefoxThreadTrack(
 ) {
     val trackDescription =
         localizedStringResource(
-            ViewerRes.sp_timeline_track_description_format,
+            SimpleperfViewerRes.sp_timeline_track_description_format,
             currentSimpleperfLanguage(),
             track.name,
             track.threadId,
@@ -408,7 +408,7 @@ private fun FirefoxTrackGraph(
 ) {
     val graphDescription =
         localizedStringResource(
-            ViewerRes.sp_timeline_thread_activity_description_format,
+            SimpleperfViewerRes.sp_timeline_thread_activity_description_format,
             currentSimpleperfLanguage(),
             track.name,
         )

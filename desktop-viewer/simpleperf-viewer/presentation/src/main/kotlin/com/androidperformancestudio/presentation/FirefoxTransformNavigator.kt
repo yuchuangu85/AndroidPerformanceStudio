@@ -17,7 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.androidperformancestudio.presentation.generated.resources.ViewerRes
+import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
@@ -45,7 +45,7 @@ internal fun FirefoxTransformNavigator(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            localizedStringResource(ViewerRes.sp_flame_transforms, language),
+            localizedStringResource(SimpleperfViewerRes.sp_flame_transforms, language),
             color = style.mutedForeground.toComposeColor(),
             fontSize = 10.sp,
         )
@@ -60,13 +60,13 @@ internal fun FirefoxTransformNavigator(
             )
         }
         Text(
-            localizedStringResource(ViewerRes.sp_flame_undo, language),
+            localizedStringResource(SimpleperfViewerRes.sp_flame_undo, language),
             modifier = Modifier.clickable(onClick = onUndo).padding(horizontal = 5.dp, vertical = 2.dp),
             color = style.canvasForeground.toComposeColor(),
             fontSize = 10.sp,
         )
         Text(
-            localizedStringResource(ViewerRes.sp_details_clear, language),
+            localizedStringResource(SimpleperfViewerRes.sp_details_clear, language),
             modifier = Modifier.clickable(onClick = onClear).padding(horizontal = 5.dp, vertical = 2.dp),
             color = style.canvasForeground.toComposeColor(),
             fontSize = 10.sp,
@@ -89,7 +89,7 @@ internal fun CallStackTransform.navigatorLabel(
         is CallStackTransform.CollapseDirectRecursion -> "Collapse direct recursion"
         is CallStackTransform.CollapseFunctionSubtree -> "Collapse subtree"
         is CallStackTransform.FocusCategory ->
-            localizedStringResource(ViewerRes.sp_details_category_value_format, language, category)
+            localizedStringResource(SimpleperfViewerRes.sp_details_category_value_format, language, category)
     }
 
 private const val TRANSFORM_ROW_HEIGHT_DP = 25

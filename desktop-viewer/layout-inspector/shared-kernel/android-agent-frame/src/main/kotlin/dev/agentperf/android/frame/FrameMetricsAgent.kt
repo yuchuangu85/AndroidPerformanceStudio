@@ -1,6 +1,6 @@
 @file:Suppress("TooManyFunctions")
 
-package dev.agentperf.android.frame
+package com.androidperformancestudio.android.frame
 
 import android.app.Activity
 import android.app.Application
@@ -17,7 +17,7 @@ import com.androidperformancestudio.frame.agent.protocol.AgentFrameBatchCodec
 import com.androidperformancestudio.frame.agent.protocol.AgentExpectedDurationSource
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameSample
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameStages
-import dev.agentperf.android.core.AgentRequestExtension
+import com.androidperformancestudio.android.core.AgentRequestExtension
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.util.WeakHashMap

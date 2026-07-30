@@ -1,4 +1,4 @@
-package dev.agentperf.adb
+package com.androidperformancestudio.adb
 
 object AdbOutputParser {
     private val activityComponents = listOf(

@@ -69,7 +69,7 @@ val targetArch = project.findProperty("target.arch")?.toString()
 
 dependencies {
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
-    implementation(project(":layout-inspector:presentation"))
+    implementation(project(":layout-inspector:layout-presentation"))
     implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:perfetto-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.memory:memory-app:0.1.0-SNAPSHOT")
@@ -97,7 +97,7 @@ tasks.test {
 
 compose.desktop {
     application {
-        mainClass = "dev.agentperf.desktop.MainKt"
+        mainClass = "com.androidperformancestudio.desktop.MainKt"
         jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")
         jvmArgs("-Dagentperf.version=$appVersion")
         // Bound HPROF parsing so oversized imports fail with a recoverable Java OOME

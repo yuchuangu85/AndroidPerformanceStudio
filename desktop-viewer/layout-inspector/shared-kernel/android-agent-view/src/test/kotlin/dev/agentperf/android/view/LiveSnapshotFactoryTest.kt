@@ -1,11 +1,11 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
-import dev.agentperf.protocol.Bounds
-import dev.agentperf.protocol.ComposeNode
-import dev.agentperf.protocol.ProtocolVersion
-import dev.agentperf.protocol.ViewNode
-import dev.agentperf.protocol.WindowSnapshot
-import dev.agentperf.protocol.WindowType
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.ComposeNode
+import com.androidperformancestudio.protocol.ProtocolVersion
+import com.androidperformancestudio.protocol.ViewNode
+import com.androidperformancestudio.protocol.WindowSnapshot
+import com.androidperformancestudio.protocol.WindowType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -21,7 +21,7 @@ class LiveSnapshotFactoryTest {
         )
 
         val snapshot = LiveSnapshotFactory.create(
-            packageName = "dev.agentperf.sample",
+            packageName = "com.androidperformancestudio.sample",
             widthPx = 1240,
             heightPx = 2772,
             density = 3.5f,
@@ -39,7 +39,7 @@ class LiveSnapshotFactoryTest {
         )
 
         assertEquals(ProtocolVersion(1, 1), snapshot.protocolVersion)
-        assertEquals("dev.agentperf.sample", snapshot.packageName)
+        assertEquals("com.androidperformancestudio.sample", snapshot.packageName)
         assertEquals(1240, snapshot.display.widthPx)
         assertEquals(2772, snapshot.display.heightPx)
         assertEquals(3.5f, snapshot.display.density)
@@ -67,7 +67,7 @@ class LiveSnapshotFactoryTest {
         )
 
         val snapshot = LiveSnapshotFactory.create(
-            packageName = "dev.agentperf.sample",
+            packageName = "com.androidperformancestudio.sample",
             widthPx = 100,
             heightPx = 100,
             density = 1f,
@@ -102,7 +102,7 @@ class LiveSnapshotFactoryTest {
         )
 
         val snapshot = LiveSnapshotFactory.create(
-            packageName = "dev.agentperf.sample",
+            packageName = "com.androidperformancestudio.sample",
             widthPx = 3840,
             heightPx = 2160,
             density = 2f,

@@ -1,4 +1,4 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException

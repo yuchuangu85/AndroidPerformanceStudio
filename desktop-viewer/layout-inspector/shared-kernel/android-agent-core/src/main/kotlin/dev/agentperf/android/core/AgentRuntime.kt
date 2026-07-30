@@ -1,4 +1,4 @@
-package dev.agentperf.android.core
+package com.androidperformancestudio.android.core
 
 import java.util.concurrent.atomic.AtomicBoolean
 

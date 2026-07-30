@@ -1,4 +1,4 @@
-package dev.agentperf.analysis
+package com.androidperformancestudio.analysis
 
 data class AnalysisConfig(
     val maxDepth: Int = 10,

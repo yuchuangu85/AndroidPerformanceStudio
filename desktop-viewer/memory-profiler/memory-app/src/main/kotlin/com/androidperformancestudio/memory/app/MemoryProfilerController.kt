@@ -10,9 +10,9 @@ import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.presentation.MemoryProfilerError
 import com.androidperformancestudio.memory.presentation.MemoryProfilerState
-import dev.agentperf.memory.model.HeapDump
-import dev.agentperf.memory.model.HeapHistogram
-import dev.agentperf.memory.analysis.HeapDiffAnalyzer
+import com.androidperformancestudio.memory.model.HeapDump
+import com.androidperformancestudio.memory.model.HeapHistogram
+import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

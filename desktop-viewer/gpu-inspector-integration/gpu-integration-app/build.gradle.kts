@@ -7,7 +7,7 @@ dependencies {
     implementation(project(":gpu-integration-model"))
     implementation(project(":agi-toolchain"))
     implementation(project(":agi-artifact-index"))
-    implementation(project(":presentation"))
+    implementation(project(":gpu-integration-presentation"))
     implementation(compose.desktop.currentOs)
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")

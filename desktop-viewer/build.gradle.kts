@@ -11,7 +11,7 @@ val defaultAppVersion = "0.3.2"
 val appVersion = providers.gradleProperty("appVersion").getOrElse(defaultAppVersion)
 
 allprojects {
-    group = "dev.agentperf"
+    group = "com.androidperformancestudio"
     version = appVersion
 }
 

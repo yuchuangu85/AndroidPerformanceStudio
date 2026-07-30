@@ -13,12 +13,16 @@ include(
     ":benchmark-model",
     ":parser-benchmark-json",
     ":analysis-regression",
-    ":storage-sqlite",
-    ":export-adapters",
+    ":benchmark-storage-sqlite",
+    ":benchmark-export-adapters",
     ":benchmark-cli",
-    ":presentation",
+    ":benchmark-presentation",
     ":benchmark-app",
 )
+
+project(":benchmark-storage-sqlite").projectDir = file("storage-sqlite")
+project(":benchmark-export-adapters").projectDir = file("export-adapters")
+project(":benchmark-presentation").projectDir = file("presentation")
 
 includeBuild("../simpleperf-viewer") {
     name = "benchmark-regression-simpleperf-tooling"

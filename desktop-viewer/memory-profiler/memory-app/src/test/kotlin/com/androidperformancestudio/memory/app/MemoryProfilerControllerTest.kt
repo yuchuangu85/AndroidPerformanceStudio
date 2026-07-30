@@ -3,10 +3,10 @@ package com.androidperformancestudio.memory.app
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
-import dev.agentperf.memory.model.ClassStats
-import dev.agentperf.memory.model.HeapDump
-import dev.agentperf.memory.model.HeapHistogram
-import dev.agentperf.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.HeapDump
+import com.androidperformancestudio.memory.model.HeapHistogram
+import com.androidperformancestudio.memory.model.HeapSummary
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest

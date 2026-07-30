@@ -1,4 +1,4 @@
 dependencies {
     implementation(project(":profile-model"))
-    implementation(project(":storage-sqlite"))
+    implementation(project(":simpleperf-storage-sqlite"))
 }

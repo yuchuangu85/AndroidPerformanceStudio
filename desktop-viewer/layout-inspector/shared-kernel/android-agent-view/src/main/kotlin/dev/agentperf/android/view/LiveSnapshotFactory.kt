@@ -1,12 +1,12 @@
-package dev.agentperf.android.view
+package com.androidperformancestudio.android.view
 
-import dev.agentperf.protocol.AgentCapabilities
-import dev.agentperf.protocol.ComposeNode
-import dev.agentperf.protocol.DisplayInfo
-import dev.agentperf.protocol.LayoutSnapshot
-import dev.agentperf.protocol.CURRENT_PROTOCOL_VERSION
-import dev.agentperf.protocol.UiNode
-import dev.agentperf.protocol.WindowSnapshot
+import com.androidperformancestudio.protocol.AgentCapabilities
+import com.androidperformancestudio.protocol.ComposeNode
+import com.androidperformancestudio.protocol.DisplayInfo
+import com.androidperformancestudio.protocol.LayoutSnapshot
+import com.androidperformancestudio.protocol.CURRENT_PROTOCOL_VERSION
+import com.androidperformancestudio.protocol.UiNode
+import com.androidperformancestudio.protocol.WindowSnapshot
 
 object LiveSnapshotFactory {
     fun create(

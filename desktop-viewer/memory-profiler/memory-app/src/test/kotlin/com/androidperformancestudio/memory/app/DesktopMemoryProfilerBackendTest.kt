@@ -6,8 +6,8 @@ import com.androidperformancestudio.toolchain.ProcessCancellationSignal
 import com.androidperformancestudio.toolchain.ProcessOutput
 import com.androidperformancestudio.toolchain.ProcessRequest
 import com.androidperformancestudio.toolchain.ProcessRunResult
-import dev.agentperf.memory.capture.AndroidSdkHprofConvLocator
-import dev.agentperf.memory.capture.MemoryHeapDumpCaptureSession
+import com.androidperformancestudio.memory.capture.AndroidSdkHprofConvLocator
+import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.RandomAccessFile

@@ -8,8 +8,8 @@
 ## 1. 复现命令
 
 ```bash
-./gradlew :test-fixtures:runP0PerformancePoc
-./gradlew :test-fixtures:runFlameGraphPerformancePoc
+./gradlew :simpleperf-test-fixtures:runP0PerformancePoc
+./gradlew :simpleperf-test-fixtures:runFlameGraphPerformancePoc
 ```
 
 任务固定使用 `-Xms256m -Xmx1g`，每次覆盖当前平台对应的 JSON 报告。测试数据通过 Kotlin `Sequence` 逐条生成，不在内存中预先持有 100 万条记录。

@@ -2,6 +2,11 @@ plugins {
     id("org.jetbrains.compose")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+compose.resources {
+    packageOfResClass = "com.androidperformancestudio.benchmark.presentation.generated.resources"
+}
+
 dependencies {
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":benchmark-model"))

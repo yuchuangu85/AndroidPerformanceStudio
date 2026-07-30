@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+compose.resources {
+    packageOfResClass = "com.androidperformancestudio.startup.presentation.generated.resources"
+}
+
 dependencies {
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":startup-model"))

@@ -19,5 +19,5 @@ Android Performance Studio intentionally differs only in:
 | deep-stack | Deep call chains | SQLite stack loading and flame projection preserve frame order and remain queryable |
 
 The checked fixture in `FirefoxFlameGraphFixtures` creates the first six rows directly. The P0 task
-`./gradlew :test-fixtures:runFlameGraphPerformancePoc` records the million-sample and scroll/selection
+`./gradlew :simpleperf-test-fixtures:runFlameGraphPerformancePoc` records the million-sample and scroll/selection
 performance evidence in `docs/poc-results/firefox-flame-graph-<platform>.json`.

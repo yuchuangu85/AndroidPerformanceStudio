@@ -13,17 +13,17 @@ import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
-import dev.agentperf.memory.analysis.MemoryDeepAnalyzer
-import dev.agentperf.memory.capture.MemoryCaptureRequest
-import dev.agentperf.memory.capture.MemoryHeapDumpCaptureSession
-import dev.agentperf.memory.export.MemoryExportAdapters
-import dev.agentperf.memory.hprof.HprofParseException
-import dev.agentperf.memory.hprof.HprofParser
-import dev.agentperf.memory.model.HeapDump
-import dev.agentperf.memory.model.HeapHistogram
-import dev.agentperf.memory.model.HeapSummary
-import dev.agentperf.memory.storage.MemorySessionMetadata
-import dev.agentperf.memory.storage.SqliteMemorySessionStore
+import com.androidperformancestudio.memory.analysis.MemoryDeepAnalyzer
+import com.androidperformancestudio.memory.capture.MemoryCaptureRequest
+import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
+import com.androidperformancestudio.memory.export.MemoryExportAdapters
+import com.androidperformancestudio.memory.hprof.HprofParseException
+import com.androidperformancestudio.memory.hprof.HprofParser
+import com.androidperformancestudio.memory.model.HeapDump
+import com.androidperformancestudio.memory.model.HeapHistogram
+import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.storage.MemorySessionMetadata
+import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -190,7 +190,7 @@ internal class DesktopMemoryProfilerBackend(
     }
 
     override fun exportHistogram(
-        histogram: dev.agentperf.memory.model.HeapHistogram,
+        histogram: HeapHistogram,
         output: Path,
     ) {
         exports.exportClassHistogramCsv(histogram, output)
