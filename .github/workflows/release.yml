@@ -138,7 +138,7 @@ jobs:
           fi
 
   package-windows:
-    name: Package Windows MSI and EXE
+    name: Package Windows x64 MSI and EXE
     needs: [resolve, test, prepare-release]
     runs-on: windows-latest
     permissions:
@@ -174,8 +174,8 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ needs.resolve.outputs.version }}"
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" --no-daemon
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageExe "-PappVersion=$version" --no-daemon
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" -Ptarget.arch=x64 --no-daemon
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageExe "-PappVersion=$version" -Ptarget.arch=x64 --no-daemon
       - name: Prepare Windows assets
         shell: pwsh
         env:
@@ -201,9 +201,17 @@ jobs:
         run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
 
   package-macos:
-    name: Package macOS DMG and PKG
+    name: Package macOS ${{ matrix.arch }} DMG and PKG
     needs: [resolve, test, prepare-release]
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
     steps:
@@ -233,12 +241,28 @@ jobs:
             desktop-viewer/gradle/libs.versions.toml
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
+      - name: Verify macOS runner architecture
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64) actual_arch=arm64 ;;
+            x86_64) actual_arch=x64 ;;
+            *) echo "::error::Unsupported macOS runner architecture: $(uname -m)"; exit 1 ;;
+          esac
+          if [[ "$actual_arch" != "$EXPECTED_ARCH" ]]; then
+            echo "::error::Expected $EXPECTED_ARCH runner, got $actual_arch."
+            exit 1
+          fi
       - name: Build DMG and PKG
-        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -PappVersion=${{ needs.resolve.outputs.version }} --no-daemon
+        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=${{ matrix.arch }} --no-daemon
       - name: Prepare macOS assets
         shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           dmg_packages=(desktop-viewer/desktop-app/build/compose/binaries/main/dmg/*.dmg)
@@ -252,8 +276,8 @@ jobs:
             exit 1
           fi
           mkdir -p release-assets
-          cp "${dmg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-x64.dmg"
-          cp "${pkg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-x64.pkg"
+          cp "${dmg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.dmg"
+          cp "${pkg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.pkg"
       - name: Upload macOS installers to release
         shell: bash
         env:
@@ -262,7 +286,7 @@ jobs:
         run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
 
   package-linux:
-    name: Package Linux DEB and RPM
+    name: Package Linux x64 DEB and RPM
     needs: [resolve, test, prepare-release]
     runs-on: ubuntu-latest
     permissions:
@@ -299,7 +323,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fakeroot rpm
       - name: Build DEB and RPM
-        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -PappVersion=${{ needs.resolve.outputs.version }} --no-daemon
+        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=x64 --no-daemon
       - name: Prepare Linux assets
         shell: bash
         env:
@@ -351,6 +375,8 @@ jobs:
           expected = {
               f"AndroidPerfermanceStudio-{os.environ['VERSION']}-windows-x64.msi",
               f"AndroidPerfermanceStudio-{os.environ['VERSION']}-windows-x64.exe",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-arm64.dmg",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-arm64.pkg",
               f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-x64.dmg",
               f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-x64.pkg",
               f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-x64.deb",

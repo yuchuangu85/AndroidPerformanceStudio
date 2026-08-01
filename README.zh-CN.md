@@ -80,18 +80,25 @@ cd desktop-viewer
 ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:createDistributable --no-daemon
 ```
 
-发布格式对应的平台任务：
+发布格式对应的平台任务如下。原生安装包必须在操作系统和 CPU 架构均匹配的主机上构建：
 
 ```bash
-# macOS
-./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg --no-daemon
+# macOS Apple 芯片（arm64）
+./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -Ptarget.arch=arm64 --no-daemon
 
-# Windows（请在 Windows 上运行）
+# macOS Intel（x64），需要在 Intel 主机上使用 x64 JDK
+./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -Ptarget.arch=x64 --no-daemon
+
+# Windows x64
 ./desktop-viewer/gradlew.bat -p desktop-viewer :desktop-app:packageMsi :desktop-app:packageExe --no-daemon
 
-# Linux
+# Linux x64
 ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm --no-daemon
 ```
+
+发布工作流会生成 Linux x64 的 DEB、RPM，Windows x64 的 MSI、EXE，以及 macOS arm64 与 macOS x64 两种架构的 DMG、PKG。需要显式指定打包 JDK 时，可增加 `-Ptarget.javaHome=/JDK/绝对路径`。
+
+不会生成 Windows x86（32 位）安装包。Compose Desktop 使用的 Skiko 在 Windows 上仅支持 x86_64，不支持 32 位 x86；把 x64 安装包改名为 x86 会得到无法运行的错误产物。详见 [Compose 原生分发的主机限制](https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html)和 [Skiko 支持的平台列表](https://github.com/JetBrains/skiko#supported-platforms)。
 
 ## 项目结构
 

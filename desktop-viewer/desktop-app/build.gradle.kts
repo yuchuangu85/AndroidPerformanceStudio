@@ -1,8 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-
-
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.compiler)
@@ -65,7 +63,22 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
-val targetArch = project.findProperty("target.arch")?.toString()
+val hostOs = System.getProperty("os.name").lowercase()
+val hostArch =
+    when (System.getProperty("os.arch").lowercase()) {
+        "x86_64", "amd64" -> "x64"
+        "aarch64", "arm64" -> "arm64"
+        else -> error("Unsupported desktop host architecture: ${System.getProperty("os.arch")}")
+    }
+val targetArch = project.findProperty("target.arch")?.toString()?.lowercase() ?: hostArch
+val targetJavaHome = project.findProperty("target.javaHome")?.toString()
+
+require(targetArch == "x64" || targetArch == "arm64") {
+    "Unsupported target.arch=$targetArch. Compose Desktop supports x64 and arm64 desktop runtimes; Windows x86 is not supported."
+}
+require(targetArch == hostArch || targetJavaHome != null) {
+    "Cross-architecture packaging requires -Ptarget.javaHome to point to a $targetArch JDK."
+}
 
 dependencies {
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
@@ -79,10 +92,12 @@ dependencies {
     implementation("com.androidperformancestudio.network:network-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.gpu:gpu-integration-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.benchmark:benchmark-app:0.1.0-SNAPSHOT")
-    when (targetArch) {
-        "x64" -> implementation(compose.desktop.macos_x64)
-        "arm64" -> implementation(compose.desktop.macos_arm64)
-        else -> implementation(compose.desktop.currentOs)
+    when {
+        hostOs.contains("mac") && targetArch == "x64" -> implementation(compose.desktop.macos_x64)
+        hostOs.contains("mac") && targetArch == "arm64" -> implementation(compose.desktop.macos_arm64)
+        hostOs.contains("win") && targetArch == "x64" -> implementation(compose.desktop.windows_x64)
+        hostOs.contains("linux") && targetArch == "x64" -> implementation(compose.desktop.linux_x64)
+        else -> error("Unsupported Compose Desktop target: $hostOs-$targetArch")
     }
     implementation("org.jetbrains.compose.components:components-resources:1.11.1")
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
@@ -104,8 +119,8 @@ compose.desktop {
         // instead of letting the operating system terminate the desktop process.
         jvmArgs("-Xmx4g")
 
-        if (targetArch == "x64") {
-            javaHome = "${System.getProperty("user.home")}/Downloads/zulu21.50.19-ca-jdk21.0.11-macosx_x64/Contents/Home"
+        if (targetJavaHome != null) {
+            javaHome = targetJavaHome
         }
 
         nativeDistributions {

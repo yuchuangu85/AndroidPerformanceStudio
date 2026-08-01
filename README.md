@@ -80,18 +80,25 @@ Create a native package for the current host operating system:
 ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:createDistributable --no-daemon
 ```
 
-Platform-specific packaging tasks are available for the release formats:
+Platform-specific packaging tasks are available for the release formats. Native installers must be built on a matching host operating system and CPU architecture:
 
 ```bash
-# macOS
-./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg --no-daemon
+# macOS Apple Silicon (arm64)
+./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -Ptarget.arch=arm64 --no-daemon
 
-# Windows (run on Windows)
+# macOS Intel (x64), run with an x64 JDK on an Intel host
+./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -Ptarget.arch=x64 --no-daemon
+
+# Windows x64
 ./desktop-viewer/gradlew.bat -p desktop-viewer :desktop-app:packageMsi :desktop-app:packageExe --no-daemon
 
-# Linux
+# Linux x64
 ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm --no-daemon
 ```
+
+The release workflow publishes DEB and RPM installers for Linux x64, MSI and EXE installers for Windows x64, and DMG and PKG installers for both macOS arm64 and macOS x64. A custom packaging JDK can be supplied with `-Ptarget.javaHome=/absolute/path/to/jdk`.
+
+Windows x86 (32-bit) packages are not generated. Compose Desktop's Skiko runtime supports Windows x86_64, not 32-bit x86, so relabeling an x64 installer as x86 would produce an unusable release. See the [Compose native distribution host restriction](https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html) and [Skiko's supported platform list](https://github.com/JetBrains/skiko#supported-platforms).
 
 ## Project layout
 
