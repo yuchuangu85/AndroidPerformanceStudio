@@ -20,7 +20,14 @@ if [[ ! -f "$launcher_source" ]]; then
   echo "Pinned Perfetto launcher is missing; initialize third_party/perfetto first" >&2
   exit 1
 fi
-expected_revision="$(git -C "$perfetto_root" rev-list -n 1 "$version")"
+# GitHub Actions checks submodules out at their pinned gitlink with depth 1, so
+# the release tag itself is intentionally not guaranteed to be present locally.
+# The superproject gitlink is the authoritative revision for the launcher.
+expected_revision="$(git -C "$repository_root" ls-files --stage -- third_party/perfetto | awk '{ print $2 }')"
+if [[ -z "$expected_revision" ]]; then
+  echo "third_party/perfetto has no pinned gitlink in the superproject" >&2
+  exit 1
+fi
 actual_revision="$(git -C "$perfetto_root" rev-parse HEAD)"
 if [[ "$actual_revision" != "$expected_revision" ]]; then
   echo "third_party/perfetto is $actual_revision, expected $version ($expected_revision)" >&2

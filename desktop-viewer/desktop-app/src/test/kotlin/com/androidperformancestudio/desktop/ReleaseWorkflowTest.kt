@@ -100,6 +100,8 @@ class ReleaseWorkflowTest {
 
         assertTrue(installer.contains("third_party/perfetto"))
         assertTrue(installer.contains("tools/trace_processor"))
+        assertTrue(installer.contains("ls-files --stage -- third_party/perfetto"))
+        assertTrue(!installer.contains("rev-list -n 1 \"${'$'}version\""))
         assertTrue(!installer.contains("get.perfetto.dev"))
         assertTrue(!gitmodules.contains("branch = v57.2"))
     }
