@@ -1,6 +1,6 @@
 @file:Suppress("FunctionNaming", "MagicNumber")
 
-package com.androidperformancestudio.ui
+package com.androidperformancestudio.ui.button
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -21,6 +21,11 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerDimensions
+import kotlin.math.cos
+import kotlin.math.sin
 
 @Composable
 public fun SettingsButton(
@@ -70,7 +75,7 @@ private fun DrawScope.drawSettingsGear(iconColor: Color) {
             Math.toRadians(
                 (index * SETTINGS_GEAR_TOOTH_ANGLE_DEGREES) + SETTINGS_GEAR_START_ANGLE_DEGREES,
             )
-        val direction = Offset(kotlin.math.cos(angle).toFloat(), kotlin.math.sin(angle).toFloat())
+        val direction = Offset(cos(angle).toFloat(), sin(angle).toFloat())
         drawLine(
             color = iconColor,
             start = center + direction * outerRadius,

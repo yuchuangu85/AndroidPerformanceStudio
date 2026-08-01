@@ -106,8 +106,8 @@ import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.ProfilerHomeButton
-import com.androidperformancestudio.ui.SettingsButton
+import com.androidperformancestudio.ui.button.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.application.ConnectionStatus
 import com.androidperformancestudio.application.InspectorState

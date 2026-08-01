@@ -53,14 +53,9 @@ fun AppHomePage(
     val entries =
         listOf(
             HomeFeatureEntry(
-                title = if (language == UiLanguage.SIMPLIFIED_CHINESE) "源码工作区" else "Source Workspaces",
-                subtitle = if (language == UiLanguage.SIMPLIFIED_CHINESE) "源码与 AI" else "Source & AI",
-                description =
-                    if (language == UiLanguage.SIMPLIFIED_CHINESE) {
-                        "管理本地、GitHub 和 AOSP 源码快照、索引与构建证据。"
-                    } else {
-                        "Manage Local, GitHub, and AOSP source snapshots, indexes, and build evidence."
-                    },
+                title = localizedStringResource(Res.string.source_workspaces, language),
+                subtitle = localizedStringResource(Res.string.source_home_subtitle, language),
+                description = localizedStringResource(Res.string.source_home_description, language),
                 actionLabel = localizedStringResource(Res.string.open, language),
                 onClick = onOpenSourceWorkspaces,
             ),

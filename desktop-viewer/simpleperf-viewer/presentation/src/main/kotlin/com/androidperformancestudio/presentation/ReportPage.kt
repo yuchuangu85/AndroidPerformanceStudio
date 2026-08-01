@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Divider
-import androidx.compose.material.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,6 +66,7 @@ import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.button.MacOSButton
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.visualization.NavigationAction
@@ -173,7 +173,7 @@ private fun ReportStatus(
     ) {
         Text(message, color = style.text, fontSize = 13.sp)
         onClose?.let {
-            MacOsButton(
+            MacOSButton(
                 localizedStringResource(
                     SimpleperfViewerRes.sp_capture_back,
                     currentSimpleperfLanguage(),
@@ -384,7 +384,7 @@ internal fun TopFunctionsReport(
                 Spacer(modifier = Modifier.width(8.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
-            MacOsButton(
+            MacOSButton(
                 localizedStringResource(
                     if (state.topDescending) SimpleperfViewerRes.sp_calltree_descending else SimpleperfViewerRes.sp_calltree_ascending,
                     language,
@@ -483,12 +483,12 @@ private fun TopFunctionRow(
         Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
         Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
         Row(modifier = Modifier.width(180.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            MacOsButton(
+            MacOSButton(
                 localizedStringResource(SimpleperfViewerRes.sp_calltree_path, currentSimpleperfLanguage()),
                 { onFocusCallTree(function.symbolName) },
                 style,
             )
-            MacOsButton(
+            MacOSButton(
                 localizedStringResource(SimpleperfViewerRes.sp_flame_flame, currentSimpleperfLanguage()),
                 { onFocusFlame(function.symbolName) },
                 style,

@@ -159,3 +159,15 @@ compose.desktop {
         }
     }
 }
+
+// Keep the development process independent from the application JAR. Gradle may rebuild that JAR
+// while an existing app instance is still running; loading a settings screen afterwards must not
+// fail because the class loader is holding an obsolete JAR handle.
+tasks.withType<JavaExec>().configureEach {
+    if (name == "run") {
+        val developmentRuntimeClasspath = sourceSets["main"].runtimeClasspath
+        doFirst {
+            classpath = developmentRuntimeClasspath
+        }
+    }
+}

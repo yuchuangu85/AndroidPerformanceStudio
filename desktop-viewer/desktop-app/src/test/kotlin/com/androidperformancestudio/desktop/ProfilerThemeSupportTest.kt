@@ -64,7 +64,7 @@ class ProfilerThemeSupportTest {
             Files.readString(
                 desktopViewer.resolve(
                     "ui-components/src/main/kotlin/" +
-                        "com/androidperformancestudio/ui/ProfilerHomeButton.kt",
+                        "com/androidperformancestudio/ui/button/HomeButton.kt",
                 ),
             )
         val cpuProfiler =
@@ -85,7 +85,7 @@ class ProfilerThemeSupportTest {
             Files.readString(
                 desktopViewer.resolve(
                     "ui-components/src/main/kotlin/" +
-                        "com/androidperformancestudio/ui/SettingButton.kt",
+                        "com/androidperformancestudio/ui/button/SettingButton.kt",
                 ),
             )
         val perfetto =

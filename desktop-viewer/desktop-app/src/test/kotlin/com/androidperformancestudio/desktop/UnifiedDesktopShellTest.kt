@@ -18,6 +18,16 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `development run loads desktop classes from source set outputs`() {
+        val buildScript = Files.readString(Path.of("build.gradle.kts"))
+
+        assertTrue(buildScript.contains("tasks.withType<JavaExec>().configureEach"))
+        assertTrue(buildScript.contains("if (name == \"run\")"))
+        assertTrue(buildScript.contains("val developmentRuntimeClasspath = sourceSets[\"main\"].runtimeClasspath"))
+        assertTrue(buildScript.contains("classpath = developmentRuntimeClasspath"))
+    }
+
+    @Test
     fun `shell exposes all feature destinations`() {
         val shell = Files.readString(sourceRoot.resolve("DesktopAppMainPage.kt"))
         val home = Files.readString(sourceRoot.resolve("AppHomePage.kt"))

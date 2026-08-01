@@ -59,7 +59,7 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.warm
 import com.androidperformancestudio.startup.startup_app.generated.resources.warm_ups
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactSelector
-import com.androidperformancestudio.ui.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.ProfilerHomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus

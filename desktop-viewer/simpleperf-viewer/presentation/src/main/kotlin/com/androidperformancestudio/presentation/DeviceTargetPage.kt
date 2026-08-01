@@ -41,7 +41,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.CapabilityStatus
@@ -56,10 +55,11 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
-import com.androidperformancestudio.ui.ProfilerHomeButton
-import com.androidperformancestudio.ui.SettingsButton
+import com.androidperformancestudio.ui.button.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.button.MacOSButton
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
@@ -245,7 +245,7 @@ private fun ToolbarCaptureActions(
     showGetData: Boolean,
 ) {
     val language = currentSimpleperfLanguage()
-    MacOsButton(
+    MacOSButton(
         localizedStringResource(
             if (state.isLoading) SimpleperfViewerRes.sp_target_refreshing else SimpleperfViewerRes.sp_target_refresh,
             language,
@@ -255,7 +255,7 @@ private fun ToolbarCaptureActions(
         enabled = enabled && !state.isLoading,
     )
     if (showGetData) {
-        MacOsButton(
+        MacOSButton(
             label = localizedStringResource(SimpleperfViewerRes.sp_capture_get_data, language),
             onClick = actions.onStartCapture,
             style = style,
@@ -520,7 +520,7 @@ private fun CapabilityPopupButton(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        MacOsButton(
+        MacOSButton(
             localizedStringResource(
                 SimpleperfViewerRes.sp_target_capabilities,
                 currentSimpleperfLanguage(),
@@ -842,7 +842,7 @@ private fun CaptureActions(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (captureState.isCaptureActive()) {
             if (captureState is CaptureState.Recording) {
-                MacOsButton(
+                MacOSButton(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_capture_stop_analyze,
                         currentSimpleperfLanguage(),
@@ -852,7 +852,7 @@ private fun CaptureActions(
                     primary = true,
                 )
             }
-            MacOsButton(
+            MacOSButton(
                 localizedStringResource(
                     SimpleperfViewerRes.sp_capture_cancel,
                     currentSimpleperfLanguage(),
@@ -867,43 +867,6 @@ private fun CaptureActions(
 private fun String.trimLabelSeparator(): String = trimEnd().trimEnd(':', '：')
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-internal fun MacOsButton(
-    label: String,
-    onClick: () -> Unit,
-    style: ViewerColors,
-    height: Dp = ViewerDimensions.buttonHeight,
-    enabled: Boolean = true,
-    primary: Boolean = false,
-) {
-    val container = if (primary) style.accent else style.panel
-    val content = if (primary) style.accentText else style.text
-    Box(
-        modifier =
-            Modifier
-                .height(height)
-                .clip(RoundedCornerShape(ViewerDimensions.controlRadius))
-                .background(container.copy(alpha = if (enabled) 1f else DISABLED_CONTAINER_ALPHA))
-                .border(
-                    ViewerDimensions.hairline,
-                    if (primary) style.accent else style.strongBorder,
-                    RoundedCornerShape(ViewerDimensions.controlRadius),
-                ).clickable(enabled = enabled, onClick = onClick)
-                .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            color = content.copy(alpha = if (enabled) 1f else DISABLED_CONTENT_ALPHA),
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            fontWeight = if (primary) FontWeight.Medium else FontWeight.Normal,
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
 @Suppress("ktlint:standard:function-naming")
 private fun HorizontalHairline(color: Color) {
     Box(Modifier.fillMaxWidth().height(ViewerDimensions.hairline).background(color))
@@ -911,8 +874,6 @@ private fun HorizontalHairline(color: Color) {
 
 private const val MAX_VISIBLE_EVENTS = 8
 private const val STATUS_FILL_ALPHA = 0.16f
-private const val DISABLED_CONTAINER_ALPHA = 0.55f
-private const val DISABLED_CONTENT_ALPHA = 0.48f
 private const val DEVICE_SELECTOR_WEIGHT = 0.77f
 private const val APP_SELECTOR_WEIGHT = 1.1f
 private const val PROCESS_SELECTOR_WEIGHT = 1f

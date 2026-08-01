@@ -41,12 +41,18 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.desktop_app.generated.resources.*
+import com.androidperformancestudio.desktop_app.generated.resources.Res
+import com.androidperformancestudio.source.ResolutionConfidence
 import com.androidperformancestudio.source.SourceProviderConfig
 import com.androidperformancestudio.source.SourceLocation
+import com.androidperformancestudio.source.SourceProviderKind
 import com.androidperformancestudio.source.SourceSnapshotId
 import com.androidperformancestudio.source.SourceWorkspace
 import com.androidperformancestudio.source.SourceWorkspacePhase
+import com.androidperformancestudio.ui.PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -62,12 +68,14 @@ private enum class RemoteWorkspaceDialog {
     AOSP,
 }
 
+private val READY_SUMMARY_PATTERN = Regex("""(\d+) files · (\d+) symbols""")
+
 @Composable
 internal fun SourceWorkspacesPage(
     language: UiLanguage,
     runtime: SourceWorkspaceRuntime,
     initialLocation: SourceLocation? = null,
-    onBack: () -> Unit,
+    onNavigateHome: () -> Unit,
 ) {
     val workspaces by runtime.service.workspaces.collectAsState()
     val scope = rememberCoroutineScope()
@@ -94,20 +102,22 @@ internal fun SourceWorkspacesPage(
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).height(PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextButton(onClick = onBack) { Text(label(language, "返回", "Back")) }
+                TextButton(onClick = onNavigateHome) { Text(localizedStringResource(Res.string.home, language)) }
                 Text(
-                    text = label(language, "源码工作区", "Source Workspaces"),
+                    text = localizedStringResource(Res.string.source_workspaces, language),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { showAiSettings = true }) { Text(label(language, "AI 设置", "AI Settings")) }
+                TextButton(onClick = { showAiSettings = true }) {
+                    Text(localizedStringResource(Res.string.source_ai_settings, language))
+                }
                 Button(onClick = {
-                    chooseDirectory()?.let { root ->
+                    chooseDirectory(localizedStringResource(Res.string.source_choose_local_directory, language))?.let { root ->
                         scope.launch {
                             withContext(Dispatchers.IO) {
                                 runtime.service.add(
@@ -117,13 +127,21 @@ internal fun SourceWorkspacesPage(
                             }
                         }
                     }
-                }) { Text("+ Local") }
-                Button(onClick = { dialog = RemoteWorkspaceDialog.GITHUB }) { Text("+ GitHub") }
-                Button(onClick = { dialog = RemoteWorkspaceDialog.AOSP }) { Text("+ AOSP") }
+                }) { Text(localizedStringResource(Res.string.source_add_local, language)) }
+                Button(onClick = { dialog = RemoteWorkspaceDialog.GITHUB }) {
+                    Text(localizedStringResource(Res.string.source_add_github, language))
+                }
+                Button(onClick = { dialog = RemoteWorkspaceDialog.AOSP }) {
+                    Text(localizedStringResource(Res.string.source_add_aosp, language))
+                }
             }
             HorizontalDivider()
             pageError?.let { message ->
-                Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp))
+                Text(
+                    localizedStringResource(Res.string.source_operation_failed, language, message),
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(12.dp),
+                )
             }
             Row(Modifier.fillMaxSize()) {
                 LazyColumn(
@@ -133,13 +151,14 @@ internal fun SourceWorkspacesPage(
                     if (workspaces.isEmpty()) {
                         item {
                             Text(
-                                label(language, "添加本地、GitHub 或 AOSP 源码开始建立可信定位。", "Add Local, GitHub, or AOSP source to enable trusted resolution."),
+                                localizedStringResource(Res.string.source_empty_hint, language),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
                     items(workspaces, key = { it.id.value }) { workspace ->
                         WorkspaceCard(
+                            language = language,
                             workspace = workspace,
                             selected = selectedWorkspaceId == workspace.id,
                             onSelect = {
@@ -163,7 +182,7 @@ internal fun SourceWorkspacesPage(
                 val active = workspaces.firstOrNull { it.id == selectedWorkspaceId }
                 if (active?.activeSnapshotId == null) {
                     Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(label(language, "选择已完成索引的源码工作区", "Select an indexed source workspace"))
+                        Text(localizedStringResource(Res.string.source_select_indexed_workspace, language))
                     }
                 } else {
                     val activeSnapshotId = requireNotNull(active.activeSnapshotId)
@@ -235,6 +254,7 @@ internal fun SourceWorkspacesPage(
 
 @Composable
 private fun WorkspaceCard(
+    language: UiLanguage,
     workspace: SourceWorkspace,
     selected: Boolean,
     onSelect: () -> Unit,
@@ -251,20 +271,38 @@ private fun WorkspaceCard(
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(workspace.displayName, fontWeight = FontWeight.SemiBold)
             Text(
-                "${workspace.config.kind} · ${workspace.phase}",
+                localizedStringResource(
+                    Res.string.source_status_summary,
+                    language,
+                    workspace.config.kind.localizedLabel(language),
+                    workspace.phase.localizedLabel(language),
+                ),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (workspace.phase !in setOf(SourceWorkspacePhase.READY, SourceWorkspacePhase.FAILED)) {
                 LinearProgressIndicator(progress = { workspace.progress }, modifier = Modifier.fillMaxWidth())
             }
-            workspace.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            workspace.localizedMessage(language)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextButton(onClick = onRefresh) { Text("Sync") }
-                TextButton(onClick = onToggleAiUpload) {
-                    Text(if (workspace.allowAiSourceUpload) "AI source: allowed" else "AI source: blocked")
+                TextButton(onClick = onRefresh) {
+                    Text(localizedStringResource(Res.string.source_sync, language))
                 }
-                TextButton(onClick = onRemove) { Text("Remove") }
+                TextButton(onClick = onToggleAiUpload) {
+                    Text(
+                        localizedStringResource(
+                            if (workspace.allowAiSourceUpload) {
+                                Res.string.source_ai_upload_allowed
+                            } else {
+                                Res.string.source_ai_upload_blocked
+                            },
+                            language,
+                        ),
+                    )
+                }
+                TextButton(onClick = onRemove) {
+                    Text(localizedStringResource(Res.string.source_remove, language))
+                }
             }
         }
     }
@@ -301,28 +339,49 @@ private fun SourceBrowser(
             ) {
                 Text(
                     buildString {
-                        append(selectedFile ?: label(language, "选择源码文件", "Select a source file"))
+                        append(selectedFile ?: localizedStringResource(Res.string.source_select_file, language))
                         selectedLocation?.range?.let { append(":").append(it.startLine) }
                     },
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
                 selectedLocation?.let { location ->
-                    TextButton(onClick = { copyLocation(workspace, snapshot?.immutableRevision, location) }) { Text("Copy Location") }
+                    TextButton(onClick = { copyLocation(workspace, snapshot?.immutableRevision, location) }) {
+                        Text(localizedStringResource(Res.string.source_copy_location, language))
+                    }
                     TextButton(onClick = { openExternal(workspace, snapshot?.immutableRevision, location) }) {
-                        Text(if (workspace.config is SourceProviderConfig.Local) "Open in IDE" else "Open Online")
+                        Text(
+                            localizedStringResource(
+                                if (workspace.config is SourceProviderConfig.Local) {
+                                    Res.string.source_open_in_ide
+                                } else {
+                                    Res.string.source_open_online
+                                },
+                                language,
+                            ),
+                        )
                     }
                 }
             }
             snapshot?.let {
                 Text(
-                    "${workspace.config.kind} · ${it.immutableRevision.take(16)} · ${candidate?.confidence ?: "indexed"}",
+                    localizedStringResource(
+                        Res.string.source_snapshot_summary,
+                        language,
+                        workspace.config.kind.localizedLabel(language),
+                        it.immutableRevision.take(16),
+                        candidate?.confidence?.localizedLabel(language)
+                            ?: localizedStringResource(Res.string.source_indexed, language),
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             candidate?.reasons?.takeIf { it.isNotEmpty() }?.let { reasons ->
-                Text(reasons.joinToString(" · "), style = MaterialTheme.typography.labelSmall)
+                Text(
+                    reasons.joinToString(" · ") { it.localizedResolutionReason(language) },
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
             Spacer(Modifier.height(8.dp))
             when {
@@ -378,33 +437,33 @@ private fun AiCredentialDialog(
     var endpoint by remember { mutableStateOf(currentEndpoint) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(label(language, "AI 设置", "AI Settings")) },
+        title = { Text(localizedStringResource(Res.string.source_ai_settings, language)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     if (configured) {
-                        label(language, "API Key 已配置。输入新值可替换。", "An API key is configured. Enter a new value to replace it.")
+                        localizedStringResource(Res.string.source_ai_key_configured, language)
                     } else {
-                        label(language, "API Key 将保存到系统凭证存储。", "The API key will be stored in the system credential store.")
+                        localizedStringResource(Res.string.source_ai_key_storage_notice, language)
                     },
                 )
                 OutlinedTextField(
                     value = apiKey,
                     onValueChange = { apiKey = it },
-                    label = { Text("OpenAI API Key") },
+                    label = { Text(localizedStringResource(Res.string.source_openai_api_key, language)) },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                 )
                 OutlinedTextField(
                     value = model,
                     onValueChange = { model = it },
-                    label = { Text(label(language, "模型", "Model")) },
+                    label = { Text(localizedStringResource(Res.string.source_model, language)) },
                     singleLine = true,
                 )
                 OutlinedTextField(
                     value = endpoint,
                     onValueChange = { endpoint = it },
-                    label = { Text(label(language, "接口地址", "Endpoint")) },
+                    label = { Text(localizedStringResource(Res.string.source_endpoint, language)) },
                     singleLine = true,
                 )
             }
@@ -414,10 +473,14 @@ private fun AiCredentialDialog(
                 enabled = model.isNotBlank() && endpoint.isNotBlank() && (configured || apiKey.isNotBlank()),
                 onClick = { onSave(apiKey.trim(), model.trim(), endpoint.trim()) },
             ) {
-                Text(label(language, "保存", "Save"))
+                Text(localizedStringResource(Res.string.source_save, language))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(label(language, "取消", "Cancel")) } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(localizedStringResource(Res.string.source_cancel, language))
+            }
+        },
     )
 }
 
@@ -436,21 +499,59 @@ private fun AddRemoteWorkspaceDialog(
     val valid = name.isNotBlank() && first.isNotBlank() && ref.isNotBlank() && (kind != RemoteWorkspaceDialog.GITHUB || second.isNotBlank())
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (kind == RemoteWorkspaceDialog.GITHUB) "Add GitHub Workspace" else "Add AOSP Workspace") },
+        title = {
+            Text(
+                localizedStringResource(
+                    if (kind == RemoteWorkspaceDialog.GITHUB) {
+                        Res.string.source_add_github_workspace
+                    } else {
+                        Res.string.source_add_aosp_workspace
+                    },
+                    language,
+                ),
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text(label(language, "名称", "Name")) })
-                OutlinedTextField(first, { first = it }, label = { Text(if (kind == RemoteWorkspaceDialog.GITHUB) "Owner" else "AOSP project") })
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text(localizedStringResource(Res.string.source_name, language)) },
+                )
+                OutlinedTextField(
+                    first,
+                    { first = it },
+                    label = {
+                        Text(
+                            localizedStringResource(
+                                if (kind == RemoteWorkspaceDialog.GITHUB) {
+                                    Res.string.source_owner
+                                } else {
+                                    Res.string.source_aosp_project
+                                },
+                                language,
+                            ),
+                        )
+                    },
+                )
                 if (kind == RemoteWorkspaceDialog.GITHUB) {
-                    OutlinedTextField(second, { second = it }, label = { Text("Repository") })
+                    OutlinedTextField(
+                        second,
+                        { second = it },
+                        label = { Text(localizedStringResource(Res.string.source_repository, language)) },
+                    )
                     OutlinedTextField(
                         token,
                         { token = it },
-                        label = { Text("Token (optional)") },
+                        label = { Text(localizedStringResource(Res.string.source_token_optional, language)) },
                         visualTransformation = PasswordVisualTransformation(),
                     )
                 }
-                OutlinedTextField(ref, { ref = it }, label = { Text("Commit / tag / branch") })
+                OutlinedTextField(
+                    ref,
+                    { ref = it },
+                    label = { Text(localizedStringResource(Res.string.source_revision_hint, language)) },
+                )
             }
         },
         confirmButton = {
@@ -468,22 +569,77 @@ private fun AddRemoteWorkspaceDialog(
                         onAdd(name.trim(), SourceProviderConfig.Aosp(first.trim(), ref.trim()), null)
                     }
                 },
-            ) { Text(label(language, "添加", "Add")) }
+            ) { Text(localizedStringResource(Res.string.source_add, language)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(label(language, "取消", "Cancel")) } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(localizedStringResource(Res.string.source_cancel, language))
+            }
+        },
     )
 }
 
-private fun chooseDirectory(): Path? {
+private fun chooseDirectory(title: String): Path? {
     val chooser = JFileChooser().apply {
+        dialogTitle = title
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
         isAcceptAllFileFilterUsed = false
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile.toPath() else null
 }
 
-private fun label(
-    language: UiLanguage,
-    chinese: String,
-    english: String,
-): String = if (language == UiLanguage.SIMPLIFIED_CHINESE) chinese else english
+private fun SourceProviderKind.localizedLabel(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            SourceProviderKind.LOCAL -> Res.string.source_provider_local
+            SourceProviderKind.GITHUB -> Res.string.source_provider_github
+            SourceProviderKind.AOSP -> Res.string.source_provider_aosp
+        },
+        language,
+    )
+
+private fun SourceWorkspacePhase.localizedLabel(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            SourceWorkspacePhase.REGISTERING -> Res.string.source_phase_registering
+            SourceWorkspacePhase.RESOLVING_REVISION -> Res.string.source_phase_resolving_revision
+            SourceWorkspacePhase.BUILDING_MANIFEST -> Res.string.source_phase_building_manifest
+            SourceWorkspacePhase.INDEXING -> Res.string.source_phase_indexing
+            SourceWorkspacePhase.READY -> Res.string.source_phase_ready
+            SourceWorkspacePhase.PARTIAL -> Res.string.source_phase_partial
+            SourceWorkspacePhase.FAILED -> Res.string.source_phase_failed
+        },
+        language,
+    )
+
+private fun ResolutionConfidence.localizedLabel(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            ResolutionConfidence.EXACT -> Res.string.source_confidence_exact
+            ResolutionConfidence.PROBABLE -> Res.string.source_confidence_probable
+            ResolutionConfidence.WEAK -> Res.string.source_confidence_weak
+        },
+        language,
+    )
+
+private fun SourceWorkspace.localizedMessage(language: UiLanguage): String? {
+    val value = message ?: return null
+    val readySummary = READY_SUMMARY_PATTERN.matchEntire(value) ?: return value
+    return localizedStringResource(
+        Res.string.source_ready_summary,
+        language,
+        readySummary.groupValues[1].toLong(),
+        readySummary.groupValues[2].toLong(),
+    )
+}
+
+private fun String.localizedResolutionReason(language: UiLanguage): String =
+    when (this) {
+        "Qualified type matched" -> Res.string.source_reason_qualified_type_matched
+        "Android resource matched" -> Res.string.source_reason_android_resource_matched
+        "Managed symbol matched" -> Res.string.source_reason_managed_symbol_matched
+        "Method name matched" -> Res.string.source_reason_method_name_matched
+        "Symbolizer source path matched" -> Res.string.source_reason_symbolizer_source_path_matched
+        "Native symbol name matched" -> Res.string.source_reason_native_symbol_name_matched
+        else -> null
+    }?.let { localizedStringResource(it, language) } ?: this

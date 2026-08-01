@@ -137,7 +137,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             language = language,
                             runtime = sourceWorkspaceRuntime,
                             initialLocation = navigator.sourceLocation,
-                            onBack = { navigator.open(AppDestination.HOME) },
+                            onNavigateHome = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.LAYOUT_INSPECTOR ->
                         LayoutInspectorMainPage(

@@ -38,7 +38,7 @@ class UnifiedUiComponentsSourceTest {
 
     @Test
     fun `home navigation has one public control`() {
-        val source = Files.readString(sourceRoot.resolve("ProfilerHomeButton.kt"))
+        val source = Files.readString(sourceRoot.resolve("HomeButton.kt"))
 
         assertTrue(source.contains("public fun ProfilerHomeButton("))
         assertFalse(source.contains("fun MacOSHomeButton("))

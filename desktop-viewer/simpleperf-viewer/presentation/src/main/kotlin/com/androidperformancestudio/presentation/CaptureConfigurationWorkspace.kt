@@ -63,6 +63,7 @@ import com.androidperformancestudio.presentation.generated.resources.SimpleperfV
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.button.MacOSButton
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
 
@@ -304,7 +305,7 @@ private fun SettingsPanel(
                 Text(section.title(locale), color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(section.subtitle(locale), color = style.secondaryText, fontSize = 10.sp)
             }
-            onDismiss?.let { MacOsButton(localizedStringResource(SimpleperfViewerRes.sp_target_done, locale), it, style, primary = true) }
+            onDismiss?.let { MacOSButton(localizedStringResource(SimpleperfViewerRes.sp_target_done, locale), it, style, primary = true) }
         }
         Spacer(Modifier.height(14.dp))
         Column(
@@ -389,7 +390,7 @@ private fun UserGuideSettingsPanel(
             color = style.secondaryText,
             fontSize = 10.sp,
         )
-        MacOsButton(
+        MacOSButton(
             localizedStringResource(SimpleperfViewerRes.sp_settings_open_user_guide_browser, locale),
             onOpenUserGuide,
             style,

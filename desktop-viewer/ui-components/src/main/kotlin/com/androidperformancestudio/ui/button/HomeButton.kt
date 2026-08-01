@@ -1,6 +1,6 @@
 @file:Suppress("FunctionName", "ktlint:standard:function-naming")
 
-package com.androidperformancestudio.ui
+package com.androidperformancestudio.ui.button
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerDimensions
 
 /** Compact macOS-style home navigation control shared by desktop profiler toolbars. */
 @Composable

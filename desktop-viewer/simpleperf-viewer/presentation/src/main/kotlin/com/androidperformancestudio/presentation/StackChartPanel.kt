@@ -16,6 +16,7 @@ import com.androidperformancestudio.profileanalysis.StackChartEmptyReason
 import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.button.MacOSButton
 import com.androidperformancestudio.ui.localizedStringResource
 
 @Composable
@@ -71,7 +72,7 @@ private fun StackChartMessage(
 ) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(message, color = style.secondaryText, fontSize = 11.sp)
-        MacOsButton("Retry", onRetry, style)
+        MacOSButton("Retry", onRetry, style)
     }
 }
 

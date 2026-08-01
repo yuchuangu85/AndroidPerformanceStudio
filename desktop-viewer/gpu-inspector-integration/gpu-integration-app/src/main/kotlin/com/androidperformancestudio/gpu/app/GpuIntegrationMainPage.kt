@@ -28,7 +28,7 @@ import com.androidperformancestudio.gpu.presentation.GpuIntegrationScreen
 import com.androidperformancestudio.gpu.presentation.GpuIntegrationState
 import com.androidperformancestudio.gpu.toolchain.AgiLocator
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.ProfilerHomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import java.awt.Desktop

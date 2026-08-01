@@ -790,10 +790,10 @@ flowchart TD
     Toolbar --> App[AppSelector]
     Toolbar --> Process[ProcessSelector]
     Toolbar --> Thread[ThreadSelector]
-    Toolbar --> Refresh[MacOsButton: Refresh]
-    Toolbar --> GetData[MacOsButton: Get data]
+    Toolbar --> Refresh[MacOSButton: Refresh]
+    Toolbar --> GetData[MacOSButton: Get data]
     Toolbar --> Capabilities[CapabilityPopupButton]
-    Toolbar --> SettingsBtn[MacOsButton: Settings]
+    Toolbar --> SettingsBtn[MacOSButton: Settings]
     Capabilities --> CapabilityPopup[CapabilityPopup]
     Page --> Toolbar
     Page --> Report
@@ -807,13 +807,13 @@ flowchart TD
 | `AppSelector` | App | 下拉 | 选择应用包名 |
 | `ProcessSelector` | Process | 下拉 | 选择进程；二级信息显示 PID 与 user |
 | `ThreadSelector` | Thread | 下拉 | 选择线程；二级信息显示 TID |
-| `MacOsButton(onRefresh)` | Refresh / Refreshing… | 按钮 | 刷新设备和目标列表 |
-| `MacOsButton(onStartCapture)` | Get data | 主按钮 | 开始采集并导入分析 |
+| `MacOSButton(onRefresh)` | Refresh / Refreshing… | 按钮 | 刷新设备和目标列表 |
+| `MacOSButton(onStartCapture)` | Get data | 主按钮 | 开始采集并导入分析 |
 | `CapabilityPopupButton` | Capabilities | 按钮 + 下拉 | 展示设备能力、Android/SDK、ABI、Root、Scope、Simpleperf、Events、Limits |
-| `MacOsButton(onOpenSettings)` | Settings | 按钮 | 打开采集设置弹窗，默认 `SAMPLING_TEMPLATE` |
+| `MacOSButton(onOpenSettings)` | Settings | 按钮 | 打开采集设置弹窗，默认 `SAMPLING_TEMPLATE` |
 | `WorkspaceFooter` | Ready to capture / Recording… | 状态栏 | 展示采集状态、当前文件；采集中显示 `Stop and analyze` 与 `Cancel` |
-| `MacOsButton(onStopCapture)` | Stop and analyze | 主按钮 | 停止采集并分析 |
-| `MacOsButton(onCancelCapture)` | Cancel | 按钮 | 取消采集 |
+| `MacOSButton(onStopCapture)` | Stop and analyze | 主按钮 | 停止采集并分析 |
+| `MacOSButton(onCancelCapture)` | Cancel | 按钮 | 取消采集 |
 
 源码：`DeviceTargetPage.kt`、`DeviceTargetActions.kt`
 
@@ -824,7 +824,7 @@ flowchart TD
     Dialog[CaptureSettingsDialog]
     Nav[SettingsNavigation]
     Panel[SettingsPanel]
-    Done[MacOsButton: Done]
+    Done[MacOSButton: Done]
     Template[SamplingTemplatePanel]
     Config[CaptureConfigurationPanel]
     Advanced[AdvancedCaptureParameters]
@@ -863,8 +863,8 @@ flowchart TD
 | `MacOsChoiceChip(Firefox Profiler local engine)` | Firefox Profiler local engine | chip | 打开本地固定 Firefox Profiler |
 | `MacOsChoiceChip(Firefox Profiler)` | Firefox Profiler | chip | 打开官方 Firefox Profiler |
 | `CaptureSettingsSection.USER_GUIDE` | User guide | 导航项 | 用户文档 |
-| `MacOsButton(onOpenUserGuide)` | Open User Guide in Browser | 按钮 | 用浏览器打开离线文档 |
-| `MacOsButton(onDismiss)` | Done | 主按钮 | 关闭弹窗 |
+| `MacOSButton(onOpenUserGuide)` | Open User Guide in Browser | 按钮 | 用浏览器打开离线文档 |
+| `MacOSButton(onDismiss)` | Done | 主按钮 | 关闭弹窗 |
 
 源码：`CaptureConfigurationWorkspace.kt`
 
@@ -880,7 +880,7 @@ flowchart TD
     Timeline[TimelineReport]
     Resize[TimelineResizeHandle]
     Tabs[FirefoxReportTabs]
-    DetailsToggle[MacOsButton: Hide details / Show details]
+    DetailsToggle[MacOSButton: Hide details / Show details]
     Toolbar[FirefoxStackToolbar or FirefoxMarkerToolbar]
     Split[FirefoxReportContentAndDetails]
     Content[ReportSelectedPanel]
@@ -903,7 +903,7 @@ flowchart TD
 | `TimelineReport` | `testTag("report-timeline")` | 时间线区域 | 显示线程轨道、marker lane；支持键盘/滚轮缩放导航 |
 | `TimelineResizeHandle` | Drag to resize timeline | 拖拽条 | 调整时间线高度，范围 120–480 dp |
 | `FirefoxReportTabs` | Overview / Top functions / Call tree / Flame graph / Stack chart / Marker chart / Marker table | TabRow | 切换报告面板；左右键切换 |
-| `MacOsButton(onDetailsVisible)` | Hide details / Show details | 按钮 | 显示/隐藏右侧/底部详情面板 |
+| `MacOSButton(onDetailsVisible)` | Hide details / Show details | 按钮 | 显示/隐藏右侧/底部详情面板 |
 | `FirefoxStackToolbar` | All Frames / Script / Native / Invert Call Stack / Filter Stacks | 工具栏 | call stack 筛选、方向、搜索 |
 | `FirefoxMarkerToolbar` | Filter markers | 工具栏输入框 | Marker Chart/Table 页过滤 marker |
 | `FirefoxReportDetails` | Details panel | 详情面板 | 根据当前 tab 展示 finding/function/call stack/stack block/marker 详情 |
@@ -974,12 +974,12 @@ flowchart TD
 flowchart TD
     Top[TopFunctionsPanel / TopFunctionsReport]
     Sort[MacOsChoiceChip: sort fields]
-    Direction[MacOsButton: Descending / Ascending]
+    Direction[MacOSButton: Descending / Ascending]
     Header[TopFunctionHeader]
     Rows[LazyColumn: TopFunctionRow]
     Row[Function / Library + Inclusive + Exclusive + Samples + Threads + Navigate]
-    Path[MacOsButton: Path]
-    Flame[MacOsButton: Flame]
+    Path[MacOSButton: Path]
+    Flame[MacOSButton: Flame]
 
     Top --> Sort
     Top --> Direction
@@ -992,10 +992,10 @@ flowchart TD
 | 控件名称 | 当前文案 | 类型 | 行为 |
 |---|---|---|---|
 | `MacOsChoiceChip(sort)` | TopFunctionSort.displayName | chip | 切换排序字段 |
-| `MacOsButton(direction)` | Descending / Ascending | 按钮 | 切换排序方向 |
+| `MacOSButton(direction)` | Descending / Ascending | 按钮 | 切换排序方向 |
 | `TopFunctionRow` | function row | 可点击行 | 选择函数 |
-| `MacOsButton(Path)` | Path | 按钮 | 聚焦 Call Tree 中的函数路径 |
-| `MacOsButton(Flame)` | Flame | 按钮 | 聚焦 Flame Graph 中的函数 |
+| `MacOSButton(Path)` | Path | 按钮 | 聚焦 Call Tree 中的函数路径 |
+| `MacOSButton(Flame)` | Flame | 按钮 | 聚焦 Flame Graph 中的函数 |
 
 源码：`TopFunctionsPanel.kt`、`ReportPage.kt` (`TopFunctionsReport`)
 
