@@ -1,37 +1,132 @@
 # AndroidPerfermanceStudio
 
-Android 布局复杂度检测工具的多形态仓库。
+[中文文档](README.zh-CN.md)
 
-## 方案目录
+AndroidPerfermanceStudio is a Compose Desktop workstation for inspecting and correlating Android performance data. It brings layout, CPU, system trace, memory, frame, startup, battery, network, GPU, and benchmark workflows into one application while keeping each analyzer as an isolated feature module.
 
-| 目录 | 形态 | 当前状态 |
-| --- | --- | --- |
-| [`android-studio-plugin/`](android-studio-plugin/) | Android Studio 插件 | 规划占位，尚未开发 |
-| [`desktop-viewer/`](desktop-viewer/) | Compose Desktop 独立应用 | 已有第一阶段可运行纵向版本 |
-| [`web-ui-http-server/`](web-ui-http-server/) | Web UI + App 内 HTTP Server | 规划占位，尚未开发 |
+> The product name and package names intentionally retain the existing `AndroidPerfermanceStudio` spelling for compatibility.
 
-总体规划参见 [`docs/requirements/layout-complexity-inspector-three-solutions-plan.md`](docs/requirements/layout-complexity-inspector-three-solutions-plan.md)。
-完整文档分类和维护规则参见 [`docs/README.md`](docs/README.md)。
+## Highlights
 
-Firefox Profiler 通过固定提交的 Git Submodule 存放在
-[`third_party/firefox-profiler`](third_party/firefox-profiler)，独立构建说明见
-[`third_party/README.md`](third_party/README.md)。选择 Firefox Profiler 本地引擎时，该前端不会
-嵌入 Compose 窗口；应用仅在 `127.0.0.1` 提供本地页面和 profile 数据，并跳转到系统浏览器打开。
-原 Firefox Profiler 引擎仍打开官方网站。
+- One desktop shell with English, Simplified Chinese, light, dark, and system settings.
+- Local-first workflows that operate through ADB and imported artifacts.
+- A full native-release pipeline for macOS (DMG/PKG), Windows (MSI/EXE), and Linux (DEB/RPM).
+- Cross-tool handoffs for correlation—for example, opening a trace produced by GPU or benchmark analysis in Trace Analyzer.
 
-## 当前工程边界
+## Features
 
-现有代码只实现 **Desktop 方案**。Desktop 工程按功能收拢代码：Layout Inspector 位于
-`desktop-viewer/layout-inspector/`，Simpleperf CPU Profiler 位于
-`desktop-viewer/simpleperf-viewer/`。`desktop-viewer/desktop-app/` 只负责主入口、原生窗口和
-打包，不承载 Layout Inspector 业务实现。协议模型、分析引擎和 Android Debug Agent 目前只由 Layout
-Inspector 消费，因此保留在该功能目录内。
+| Tool | What it does |
+| --- | --- |
+| **Layout Inspector** | Captures Android View hierarchies and screenshots, presents hierarchy/canvas/properties panes, highlights bounds and findings, and supports capture archive import/export. A debug-only Android agent offers higher-fidelity capture; UI Automator and screenshots provide a fallback for other foreground apps. |
+| **CPU Profiler** | Uses `simpleperf` to collect CPU samples and explore them with flame graphs and call-tree analysis. |
+| **Trace Analyzer** | Captures and imports Perfetto system traces, provides scheduling, Binder, and graphics analysis, keeps recent sessions, and exports the original trace file. The packaged UI uses the pinned Perfetto distribution and trace processor. |
+| **Memory Profiler** | Captures or imports HPROF heap dumps, then analyzes object statistics and class histograms; raw HPROF and analysis output can be exported. |
+| **Frame Profiler** | Captures live frame data or imports `gfxinfo` FrameStats, identifies frame-timing and jank clusters, and exports CSV/JSON reports. A selected frame can be opened in Layout Inspector for correlation. |
+| **Startup Profiler** | Measures and breaks down cold and warm startup, with Baseline Profile support and import/exportable results. |
+| **Battery Profiler** | Runs `batterystats`-based experiments and reports wakelock, alarm, and network usage. It can export JSON, CSV, and raw evidence, and generate Battery Historian input. |
+| **Network Profiler** | Captures HTTP/HTTPS request activity from the Android agent or imports HAR files, then presents request timelines and details. |
+| **GPU Inspector** | Discovers and launches Android GPU Inspector (AGI), indexes and validates GPU artifacts, and can hand trace artifacts to Trace Analyzer. |
+| **Benchmark Regression** | Imports AndroidX Benchmark JSON, compares a baseline with current results, flags regressions, and produces reports suited to CI. |
 
-当 Android Studio 插件或 Web 方案开始实际复用这些模块后，再将稳定公共模块提升为仓库级独立构建，避免提前制造名义上的“共享内核”。
+## Quick start
 
-## 运行 Desktop 方案
+### Prerequisites
+
+- macOS 13+, Windows 10 22H2/11, or Ubuntu 22.04/24.04
+- JDK 21
+- Git
+- Android SDK Platform Tools / `adb` for device capture workflows
+- Node.js 24 and Yarn Classic 1.x when building the bundled Firefox Profiler assets
+- `curl`, `unzip`, and Python 3 for the bundled Perfetto assets and trace processor
+
+### Clone and prepare bundled profiler assets
+
+```bash
+git clone --recurse-submodules https://github.com/yuchuangu85/AndroidPerformanceStudio.git
+cd AndroidPerformanceStudio
+
+npm install --global yarn@1
+./scripts/firefox-profiler.sh all
+./scripts/build-perfetto-ui.sh download
+PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
+```
+
+If the repository was cloned without submodules, initialize them before running the scripts:
+
+```bash
+git submodule update --init --depth 1 --recursive
+```
+
+### Run the desktop application
 
 ```bash
 cd desktop-viewer
 ./gradlew :desktop-app:run
 ```
+
+Open **Settings** from the operating-system application menu to set the Android SDK path, language, theme, or view the dynamically resolved application version.
+
+## Build and test
+
+Run the complete desktop test suite:
+
+```bash
+./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
+```
+
+Create a native package for the current host operating system:
+
+```bash
+./desktop-viewer/gradlew -p desktop-viewer :desktop-app:createDistributable --no-daemon
+```
+
+Platform-specific packaging tasks are available for the release formats:
+
+```bash
+# macOS
+./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg --no-daemon
+
+# Windows (run on Windows)
+./desktop-viewer/gradlew.bat -p desktop-viewer :desktop-app:packageMsi :desktop-app:packageExe --no-daemon
+
+# Linux
+./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm --no-daemon
+```
+
+## Project layout
+
+```text
+android-studio-plugin/   Planned Android Studio plugin integration
+web-ui-http-server/      Planned web UI and in-app HTTP server integration
+desktop-viewer/          Compose Desktop application and feature modules
+  desktop-app/           Application shell, settings, resources, and packaging
+  layout-inspector/      View hierarchy capture and analysis
+  simpleperf-viewer/     CPU sampling and profile analysis
+  perfetto-viewer/       Perfetto trace capture, analysis, storage, and UI bridge
+  memory-profiler/       HPROF capture and analysis
+  frame-profiler/        Frame timing and jank analysis
+  startup-profiler/      Launch timing analysis
+  battery-profiler/      Battery experiment and attribution analysis
+  network-profiler/      Network capture and HAR analysis
+  gpu-inspector-integration/  AGI discovery and artifact integration
+  benchmark-regression/  AndroidX Benchmark comparison and reporting
+  ui-components/         Shared public Compose controls
+third_party/             Pinned Firefox Profiler and Perfetto submodules
+scripts/                 Bundled profiler and trace-processor preparation scripts
+docs/                    Architecture, requirements, and design records
+```
+
+## Development notes
+
+- `desktop-viewer/desktop-app/` owns only the unified shell, settings, and native packaging. Each analyzer owns its own implementation and does not depend on other feature implementations.
+- Layout Inspector uses a debug-only agent for high-fidelity capture; it does not require root, hidden APIs, system signing, or a network permission. Its fallback has the visibility and speed limits of UI Automator.
+- Analysis-tool handoffs are correlation aids, not proof of causality.
+- The Android Studio plugin and Web UI directories are intentionally planning placeholders; the implemented product is the desktop application.
+
+## More documentation
+
+- [Desktop development guide](desktop-viewer/docs/architecture/DEVELOPMENT.md)
+- [Layout Inspector protocol](desktop-viewer/docs/architecture/PROTOCOL.md)
+- [Desktop design](desktop-viewer/docs/design/2026-07-02-desktop-viewer-design.md)
+- [Documentation index](docs/README.md)
+- [Third-party asset build instructions](third_party/README.md)
