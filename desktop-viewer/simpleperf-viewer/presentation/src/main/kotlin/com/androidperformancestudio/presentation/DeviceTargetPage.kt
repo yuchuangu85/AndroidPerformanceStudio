@@ -55,7 +55,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
-import com.androidperformancestudio.ui.button.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -162,7 +162,7 @@ private fun WorkspaceToolbar(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (onNavigateHome != null) {
-            ProfilerHomeButton(
+            HomeButton(
                 contentDescription =
                     localizedStringResource(
                         SimpleperfViewerRes.sp_target_back_home,

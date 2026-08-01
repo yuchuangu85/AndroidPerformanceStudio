@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,8 +49,11 @@ import com.androidperformancestudio.source.SourceProviderKind
 import com.androidperformancestudio.source.SourceSnapshotId
 import com.androidperformancestudio.source.SourceWorkspace
 import com.androidperformancestudio.source.SourceWorkspacePhase
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.button.HomeButton
+import com.androidperformancestudio.ui.button.MacOSButton
 import com.androidperformancestudio.ui.localizedStringResource
 import java.awt.Desktop
 import java.awt.Toolkit
@@ -86,6 +88,7 @@ internal fun SourceWorkspacesPage(
     var dialog by remember { mutableStateOf<RemoteWorkspaceDialog?>(null) }
     var showAiSettings by remember { mutableStateOf(false) }
     var pageError by remember { mutableStateOf<String?>(null) }
+    val colors = LocalViewerColors.current
 
     LaunchedEffect(initialLocation) {
         initialLocation?.let { location ->
@@ -102,22 +105,23 @@ internal fun SourceWorkspacesPage(
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).height(PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextButton(onClick = onNavigateHome) { Text(localizedStringResource(Res.string.home, language)) }
+                HomeButton(
+                    contentDescription = localizedStringResource(Res.string.home, language),
+                    onClick = onNavigateHome,
+                )
                 Text(
                     text = localizedStringResource(Res.string.source_workspaces, language),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { showAiSettings = true }) {
-                    Text(localizedStringResource(Res.string.source_ai_settings, language))
-                }
-                Button(onClick = {
-                    chooseDirectory(localizedStringResource(Res.string.source_choose_local_directory, language))?.let { root ->
+                MacOSButton(
+                    localizedStringResource(Res.string.source_add_local, language),
+                    onClick = { chooseDirectory(localizedStringResource(Res.string.source_choose_local_directory, language))?.let { root ->
                         scope.launch {
                             withContext(Dispatchers.IO) {
                                 runtime.service.add(
@@ -126,14 +130,24 @@ internal fun SourceWorkspacesPage(
                                 )
                             }
                         }
-                    }
-                }) { Text(localizedStringResource(Res.string.source_add_local, language)) }
-                Button(onClick = { dialog = RemoteWorkspaceDialog.GITHUB }) {
-                    Text(localizedStringResource(Res.string.source_add_github, language))
-                }
-                Button(onClick = { dialog = RemoteWorkspaceDialog.AOSP }) {
-                    Text(localizedStringResource(Res.string.source_add_aosp, language))
-                }
+                    } },
+                    colors
+                )
+                MacOSButton(
+                    localizedStringResource(Res.string.source_add_github, language),
+                    onClick = { dialog = RemoteWorkspaceDialog.GITHUB },
+                    colors
+                )
+                MacOSButton(
+                    localizedStringResource(Res.string.source_add_aosp, language),
+                    onClick = { dialog = RemoteWorkspaceDialog.AOSP },
+                    colors
+                )
+                MacOSButton(
+                    localizedStringResource(Res.string.source_ai_settings, language),
+                    onClick = { showAiSettings = true },
+                    colors
+                )
             }
             HorizontalDivider()
             pageError?.let { message ->

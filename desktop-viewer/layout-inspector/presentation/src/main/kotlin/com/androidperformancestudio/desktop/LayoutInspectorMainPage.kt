@@ -106,7 +106,7 @@ import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.button.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.application.ConnectionStatus
@@ -1114,17 +1114,6 @@ private fun Header(
             onAction(ViewerAction.OPEN_SETTINGS)
         }
     }
-}
-
-@Composable
-private fun HomeButton(
-    contentDescription: String,
-    onClick: () -> Unit,
-) {
-    ProfilerHomeButton(
-        contentDescription = contentDescription,
-        onClick = onClick,
-    )
 }
 
 @Composable

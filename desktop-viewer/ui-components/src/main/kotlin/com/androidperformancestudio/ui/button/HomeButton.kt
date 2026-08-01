@@ -27,7 +27,7 @@ import com.androidperformancestudio.ui.ViewerDimensions
 
 /** Compact macOS-style home navigation control shared by desktop profiler toolbars. */
 @Composable
-public fun ProfilerHomeButton(
+fun HomeButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

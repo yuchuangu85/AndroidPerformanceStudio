@@ -27,7 +27,7 @@ import com.androidperformancestudio.benchmark.presentation.BenchmarkRegressionSc
 import com.androidperformancestudio.benchmark.presentation.BenchmarkRegressionState
 import com.androidperformancestudio.benchmark.storage.SqliteBenchmarkStore
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.button.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import java.io.File
@@ -59,7 +59,7 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
-            ProfilerHomeButton(
+            HomeButton(
                 contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = onBack,
             )

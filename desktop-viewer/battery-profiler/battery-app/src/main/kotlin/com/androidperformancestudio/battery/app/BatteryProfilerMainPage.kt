@@ -71,7 +71,7 @@ import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
 import com.androidperformancestudio.battery.presentation.BatteryProfilerScreen
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactSelector
-import com.androidperformancestudio.ui.button.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
@@ -156,7 +156,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
 
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
-            ProfilerHomeButton(
+            HomeButton(
                 contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = {
                     experimentJob?.cancel()

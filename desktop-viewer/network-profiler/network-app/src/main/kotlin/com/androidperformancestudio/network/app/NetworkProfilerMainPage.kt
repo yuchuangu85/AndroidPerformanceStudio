@@ -30,7 +30,7 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
-import com.androidperformancestudio.ui.button.ProfilerHomeButton
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
@@ -88,7 +88,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
     }
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
-            ProfilerHomeButton(
+            HomeButton(
                 contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = {
                     if (state.capturing)stop()
