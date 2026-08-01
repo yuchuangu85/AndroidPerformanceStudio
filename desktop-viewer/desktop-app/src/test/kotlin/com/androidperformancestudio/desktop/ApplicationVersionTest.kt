@@ -43,4 +43,19 @@ class ApplicationVersionTest {
         assertTrue(desktopBuildScript.contains("numericComponents.drop(firstPositiveIndex).joinToString"))
         assertTrue(desktopBuildScript.contains("packageBuildVersion = macVersion"))
     }
+
+    @Test
+    fun `runtime version uses the Gradle supplied system property`() {
+        assertTrue(desktopBuildScript.contains("jvmArgs(\"-Dagentperf.version=${'$'}appVersion\")"))
+        assertTrue(
+            resolveApplicationVersion(systemProperty = "1.2.3", packageVersion = "0.4.0") == "1.2.3",
+        )
+    }
+
+    @Test
+    fun `runtime version falls back to package metadata when needed`() {
+        assertTrue(
+            resolveApplicationVersion(systemProperty = " ", packageVersion = "0.4.0") == "0.4.0",
+        )
+    }
 }

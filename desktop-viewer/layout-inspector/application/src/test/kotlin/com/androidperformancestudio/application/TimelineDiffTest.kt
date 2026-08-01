@@ -170,6 +170,31 @@ class TimelineDiffTest {
     }
 
     @Test
+    fun `removing the selected timeline frame selects the nearest remaining frame`() {
+        val store = InspectorStore()
+        val first = SampleSnapshots.dashboard.copy(capturedAtEpochMillis = 1)
+        val second = first.copy(capturedAtEpochMillis = 2)
+        store.loadCapture(first, byteArrayOf(1))
+        store.loadCapture(second, byteArrayOf(2))
+
+        assertEquals(true, store.removeTimelineFrame(1))
+        assertEquals(listOf(0), store.state.timelineFrames.map { it.index })
+        assertEquals(0, store.state.selectedTimelineFrameIndex)
+        assertEquals(1, store.state.snapshot?.capturedAtEpochMillis)
+    }
+
+    @Test
+    fun `removing the only timeline frame clears timeline selection`() {
+        val store = InspectorStore()
+        store.loadCapture(SampleSnapshots.dashboard, byteArrayOf(1))
+
+        assertEquals(true, store.removeTimelineFrame(0))
+        assertEquals(emptyList<TimelineFrame>(), store.state.timelineFrames)
+        assertEquals(null, store.state.selectedTimelineFrameIndex)
+        assertEquals(null, store.state.timelineDiff)
+    }
+
+    @Test
     fun `store caps timeline history to the most recent fifty frames`() {
         val store = InspectorStore()
 

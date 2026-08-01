@@ -39,6 +39,8 @@
     <string name="capture_parameters_connect_to_the_current_device_and_target_after">采集参数会在打开 CPU Profiler 后连接到当前设备和目标；Flame 图与分析引擎设置仍可立即修改。</string>
     <string name="settings">设置</string>
     <string name="general">通用</string>
+    <string name="about">关于</string>
+    <string name="application_version">版本号：%1$s</string>
     <string name="sdk_path">Android SDK路径</string>
     <string name="sampling_template">采样模板</string>
     <string name="capture_configuration">采集配置</string>

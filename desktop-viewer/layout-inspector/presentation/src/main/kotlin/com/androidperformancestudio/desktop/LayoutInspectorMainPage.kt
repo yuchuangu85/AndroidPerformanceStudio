@@ -822,6 +822,16 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                         aiAnalysisUiState = AiAnalysisUiState.Idle
                                     }
                                 },
+                                onCloseTimelineFrame = { index ->
+                                    if (archiveUiState !is CaptureArchiveUiState.Working &&
+                                        store.removeTimelineFrame(index)
+                                    ) {
+                                        hierarchyTreeState = HierarchyTreeState()
+                                        hiddenLayerState = HiddenLayerState()
+                                        state = store.state
+                                        aiAnalysisUiState = AiAnalysisUiState.Idle
+                                    }
+                                },
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
@@ -2547,6 +2557,7 @@ private fun FindingsPane(
     onRunAiAnalysis: () -> Unit,
     onSelectNode: (String) -> Unit,
     onSelectTimelineFrame: (Int) -> Unit,
+    onCloseTimelineFrame: (Int) -> Unit,
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
@@ -2600,6 +2611,7 @@ private fun FindingsPane(
             TimelineStrip(
                 frames = model.timelineFrames,
                 onSelectTimelineFrame = onSelectTimelineFrame,
+                onCloseTimelineFrame = onCloseTimelineFrame,
             )
         }
         HorizontalDivider(color = colors.border)
@@ -2626,8 +2638,10 @@ private fun FindingsPane(
 private fun TimelineStrip(
     frames: List<TimelineFrameModel>,
     onSelectTimelineFrame: (Int) -> Unit,
+    onCloseTimelineFrame: (Int) -> Unit,
 ) {
     val colors = LocalViewerColors.current
+    val language = LocalLayoutInspectorLanguage.current
     val scrollbarStyle = LocalScrollbarStyle.current.copy(
         unhoverColor = colors.mutedText.copy(alpha = 0.42f),
         hoverColor = colors.secondaryText.copy(alpha = 0.82f),
@@ -2663,18 +2677,40 @@ private fun TimelineStrip(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(frames, key = { it.index }) { frame ->
-                val background = if (frame.selected) colors.selectedRow else colors.sectionBackground
+                val background =
+                    if (frame.selected) colors.selectedRow
+                    else if (colors.isDark) colors.detailRowDeep
+                    else colors.sectionBackground
                 val textColor = if (frame.selected) colors.primaryText else colors.secondaryText
-                Text(
-                    text = "${frame.label} ${frame.summary}",
-                    color = textColor,
-                    fontSize = 11.sp,
-                    maxLines = 1,
+                Row(
                     modifier = Modifier
                         .background(background, RoundedCornerShape(4.dp))
+                        .border(1.dp, if (frame.selected) colors.accent.copy(alpha = 0.7f) else colors.border, RoundedCornerShape(4.dp))
                         .clickable { onSelectTimelineFrame(frame.index) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
+                        .padding(start = 8.dp, end = 3.dp, top = 3.dp, bottom = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "${frame.label} ${frame.summary}",
+                        color = textColor,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                    )
+                    Box(
+                        modifier =
+                            Modifier
+                                .padding(start = 5.dp)
+                                .size(16.dp)
+                                .semantics {
+                                    contentDescription =
+                                        localizedStringResource(Res.string.remove_timeline_frame, language)
+                                }
+                                .clickable { onCloseTimelineFrame(frame.index) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("×", color = colors.mutedText, fontSize = 14.sp, lineHeight = 14.sp)
+                    }
+                }
             }
         }
         if (buttons.visible) {

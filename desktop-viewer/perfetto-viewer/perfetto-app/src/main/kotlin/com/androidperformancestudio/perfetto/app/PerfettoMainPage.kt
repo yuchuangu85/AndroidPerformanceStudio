@@ -48,6 +48,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.model.ErrorCategory
+import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.analysis.DiagnosticQuery
 import com.androidperformancestudio.perfetto.analysis.PerfettoDiagnostics
@@ -80,6 +82,28 @@ import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.io.path.fileSize
 import kotlin.time.Duration.Companion.seconds
 
+internal fun formatRecentSessionTimestamp(capturedAt: Instant): String =
+    capturedAt.toString().replace("T", "-T")
+
+internal fun exportRawTraceFile(traceFile: Path, destination: Path): StudioResult<Path> =
+    try {
+        java.nio.file.Files.copy(
+            traceFile,
+            destination,
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+        )
+        StudioResult.Success(destination)
+    } catch (exception: Exception) {
+        StudioResult.Failure(
+            StudioError(
+                category = ErrorCategory.IO,
+                code = "TRACE_EXPORT_FAILED",
+                message = exception.message ?: "Failed to export trace",
+                cause = exception,
+            ),
+        )
+    }
+
 @Composable
 @Suppress("ktlint:standard:function-naming")
 fun FrameWindowScope.PerfettoMainPage(
@@ -105,6 +129,20 @@ fun FrameWindowScope.PerfettoMainPage(
     var diagnosticQuery by remember { mutableStateOf<DiagnosticQuery?>(null) }
     var diagnosticResult by remember { mutableStateOf<String?>(null) }
     var diagnosticError by remember { mutableStateOf<String?>(null) }
+    val exportRawTrace: (Path) -> Unit = { traceFile ->
+        coroutineScope.launch(Dispatchers.IO) {
+            val defaultName = traceFile.fileName?.toString().orEmpty().ifBlank { "trace.pftrace" }
+            val saveFile = chooseSaveFile(defaultName, language) ?: return@launch
+            when (val exported = exportRawTraceFile(traceFile, saveFile.toPath())) {
+                is StudioResult.Success -> diagnosticError = null
+                is StudioResult.Failure -> {
+                    diagnosticError = exported.error.message.ifBlank {
+                        localizedStringResource(Res.string.failed_to_export_trace, language)
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) { captureSession.state.collect { captureState = it } }
     LaunchedEffect(adbPath) {
@@ -194,23 +232,7 @@ fun FrameWindowScope.PerfettoMainPage(
                 }
             }
         },
-        onExportRawTrace = {
-            coroutineScope.launch(Dispatchers.IO) {
-                val traceFile = activeTraceFile ?: return@launch
-                val saveFile = chooseSaveFile("trace.pftrace", language) ?: return@launch
-                runCatching {
-                    java.nio.file.Files.copy(
-                        traceFile,
-                        saveFile.toPath(),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                    )
-                }.onSuccess {
-                    diagnosticError = null
-                }.onFailure { exception ->
-                    diagnosticError = exception.message ?: localizedStringResource(Res.string.failed_to_export_trace, language)
-                }
-            }
-        },
+        onExportRawTrace = { activeTraceFile?.let(exportRawTrace) },
         onOpenRecent = { path ->
             activeTraceFile = path
             when (val opened = launchTraceInUi(path, uiServer)) {
@@ -290,6 +312,7 @@ fun FrameWindowScope.PerfettoMainPage(
                                 }
                             }
                         },
+                        onExport = { session -> exportRawTrace(session.traceFile) },
                         modifier = Modifier.width(320.dp).fillMaxHeight(),
                     )
                 }
@@ -493,6 +516,7 @@ private fun RecentSessionsPanel(
     sessions: List<TraceSession>,
     onOpen: (TraceSession) -> Unit,
     onDelete: (TraceSession) -> Unit,
+    onExport: (TraceSession) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     PerfettoWorkspacePanel(
@@ -519,6 +543,7 @@ private fun RecentSessionsPanel(
                     session = session,
                     onOpen = { onOpen(session) },
                     onDelete = { onDelete(session) },
+                    onExport = { onExport(session) },
                     language = language,
                 )
             }
@@ -532,6 +557,7 @@ private fun RecentSessionRow(
     session: TraceSession,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onExport: () -> Unit,
     language: UiLanguage,
 ) {
     val shape = RoundedCornerShape(4.dp)
@@ -553,13 +579,14 @@ private fun RecentSessionRow(
         Text(
             text =
                 localizedStringResource(Res.string.mb_n, language, session.deviceModel, session.fileSizeBytes / 1024 / 1024) +
-                    session.capturedAt,
+                    formatRecentSessionTimestamp(session.capturedAt),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 10.sp,
             lineHeight = 13.sp,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             PerfettoCompactButton(text = localizedStringResource(Res.string.open, language), onClick = onOpen)
+            PerfettoCompactButton(text = localizedStringResource(Res.string.export, language), onClick = onExport)
             PerfettoCompactButton(text = localizedStringResource(Res.string.delete, language), onClick = onDelete)
         }
     }

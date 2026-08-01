@@ -7,6 +7,11 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ApplicationSettingsDialogTest {
+    private val unifiedDialog =
+        Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppSettingsDialog.kt"),
+        )
+
     @Test
     fun `application settings dialog owns language and theme controls`() {
         val dialog =
@@ -38,5 +43,12 @@ class ApplicationSettingsDialogTest {
                 "modifier = Modifier.width(ApplicationSettingsDialogStyle.DROPDOWN_WIDTH_DP.dp)",
             ),
         )
+    }
+
+    @Test
+    fun `unified settings shows an About page with the runtime version`() {
+        assertTrue(unifiedDialog.contains("SettingsPage.ABOUT"))
+        assertTrue(unifiedDialog.contains("AboutSettingsContent("))
+        assertTrue(unifiedDialog.contains("ApplicationVersion.current()"))
     }
 }

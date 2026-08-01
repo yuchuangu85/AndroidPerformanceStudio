@@ -28,6 +28,9 @@ class InspectorScrollbarWiringTest {
 
         assertTrue(timeline.contains("HorizontalScrollbar("))
         assertTrue(timeline.contains("rememberScrollbarAdapter(listState)"))
+        assertTrue(timeline.contains("onCloseTimelineFrame"))
+        assertTrue(timeline.contains("Res.string.remove_timeline_frame"))
+        assertTrue(timeline.contains("colors.detailRowDeep"))
     }
 
     @Test

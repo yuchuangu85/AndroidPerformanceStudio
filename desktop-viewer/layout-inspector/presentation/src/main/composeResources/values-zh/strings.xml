@@ -84,6 +84,7 @@
     <string name="foreground_app">前台应用</string>
     <string name="system_ui">系统界面</string>
     <string name="timeline_baseline">基线</string>
+    <string name="remove_timeline_frame">关闭时间线条目</string>
 
     <!-- Parameterized strings -->
     <string name="hidden_layer_summary">已隐藏 %1$d · 清除</string>

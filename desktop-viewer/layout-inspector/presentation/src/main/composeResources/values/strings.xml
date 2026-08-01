@@ -84,6 +84,7 @@
     <string name="foreground_app">Foreground app</string>
     <string name="system_ui">System UI</string>
     <string name="timeline_baseline">baseline</string>
+    <string name="remove_timeline_frame">Remove timeline item</string>
 
     <!-- Parameterized strings -->
     <string name="hidden_layer_summary">Hidden %1$d · Clear</string>

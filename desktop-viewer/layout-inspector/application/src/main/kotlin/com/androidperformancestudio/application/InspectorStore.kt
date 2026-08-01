@@ -225,6 +225,39 @@ class InspectorStore(
         return true
     }
 
+    fun removeTimelineFrame(index: Int): Boolean {
+        val current = state
+        if (current.timelineFrames.none { it.index == index }) return false
+
+        val remainingFrames = current.timelineFrames.filterNot { it.index == index }
+        if (current.selectedTimelineFrameIndex != index) {
+            state = current.copy(timelineFrames = remainingFrames)
+            return true
+        }
+
+        val replacement =
+            remainingFrames.firstOrNull { it.index > index && it.snapshot != null }
+                ?: remainingFrames.lastOrNull { it.snapshot != null }
+        if (replacement?.snapshot != null) {
+            loadInspectedContent(
+                snapshot = replacement.snapshot,
+                screenshotPng = replacement.screenshotPng,
+                connectionStatus = current.connectionStatus,
+                timelineDiff = replacement.diffFromPrevious,
+                timelineFrames = remainingFrames,
+                selectedTimelineFrameIndex = replacement.index,
+            )
+        } else {
+            state = current.copy(
+                timelineDiff = null,
+                timelineFrames = remainingFrames,
+                selectedTimelineFrameIndex = null,
+                aiAnalysis = null,
+            )
+        }
+        return true
+    }
+
     fun selectWindow(windowId: String): Boolean {
         val window = state.windows.firstOrNull { it.id == windowId } ?: return false
         if (state.selectedWindowId == windowId) return true

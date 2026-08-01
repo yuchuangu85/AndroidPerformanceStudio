@@ -28,6 +28,8 @@ class PerfettoWorkspaceLayoutTest {
         assertTrue(source.contains("PerfettoWorkspacePanel("))
         assertTrue(source.contains("PerfettoCapturePage("))
         assertTrue(source.contains("Modifier.width(320.dp)"))
+        assertTrue(source.contains("onExport = { session -> exportRawTrace(session.traceFile) }"))
+        assertTrue(source.contains("PerfettoCompactButton(text = localizedStringResource(Res.string.export, language), onClick = onExport)"))
     }
 
     @Test

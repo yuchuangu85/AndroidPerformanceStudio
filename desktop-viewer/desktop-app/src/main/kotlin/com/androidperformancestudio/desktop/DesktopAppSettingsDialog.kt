@@ -53,6 +53,7 @@ public enum class SettingsPage {
     GENERAL,
     LAYOUT_INSPECTOR,
     SIMPLEPERF,
+    ABOUT,
 }
 
 @Composable
@@ -159,6 +160,12 @@ internal fun DesktopAppSettingsDialog(
                                     onOpenUserGuide = onOpenUserGuide,
                                     modifier = Modifier.weight(1f),
                                 )
+
+                            SettingsPage.ABOUT ->
+                                AboutSettingsContent(
+                                    language = language,
+                                    modifier = Modifier.weight(1f),
+                                )
                         }
                     }
                 }
@@ -231,6 +238,11 @@ private fun SettingsSidebar(
                 )
             }
         }
+        SettingsSidebarRow(
+            label = SettingsPage.ABOUT.label(language),
+            selected = selectedPage == SettingsPage.ABOUT,
+            onClick = { onPageSelected(SettingsPage.ABOUT) },
+        )
     }
 }
 
@@ -318,6 +330,27 @@ private fun GeneralSettingsContent(
             settings = settings,
             language = language,
             onSettingsChanged = onSettingsChanged,
+        )
+    }
+}
+
+@Composable
+private fun AboutSettingsContent(
+    language: UiLanguage,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(localizedStringResource(Res.string.about, language), style = MaterialTheme.typography.titleLarge)
+        Text(
+            localizedStringResource(Res.string.android_performance_studio, language),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            localizedStringResource(Res.string.application_version, language, ApplicationVersion.current()),
+            style = MaterialTheme.typography.bodyLarge,
         )
     }
 }
@@ -486,6 +519,7 @@ private fun SettingsPage.label(language: UiLanguage): String =
         SettingsPage.GENERAL -> localizedStringResource(Res.string.general, language)
         SettingsPage.LAYOUT_INSPECTOR -> localizedStringResource(Res.string.layout_inspector, language)
         SettingsPage.SIMPLEPERF -> localizedStringResource(Res.string.simpleperf, language)
+        SettingsPage.ABOUT -> localizedStringResource(Res.string.about, language)
     }
 
 private fun CaptureSettingsSection.settingsLabel(language: UiLanguage): String =

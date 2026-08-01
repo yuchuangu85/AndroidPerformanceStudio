@@ -51,6 +51,20 @@ class PerfettoConfigTextBuilderTest {
     }
 
     @Test
+    fun `input latency template uses ftrace atrace categories supported by production Perfetto`() {
+        val text =
+            PerfettoConfigTextBuilder.build(
+                PerfettoCaptureConfig(template = PerfettoTraceTemplate.INPUT_LATENCY),
+            )
+
+        assertTrue(text.contains("atrace_categories: \"input\""))
+        assertTrue(text.contains("atrace_categories: \"view\""))
+        assertTrue(text.contains("atrace_categories: \"wm\""))
+        assertFalse(text.contains("android.input.inputevent"))
+        assertFalse(text.contains("android_input_event_config"))
+    }
+
+    @Test
     fun `custom template is passed through unchanged`() {
         val custom = "buffers { size_kb: 1024 }\nduration_ms: 1000"
 

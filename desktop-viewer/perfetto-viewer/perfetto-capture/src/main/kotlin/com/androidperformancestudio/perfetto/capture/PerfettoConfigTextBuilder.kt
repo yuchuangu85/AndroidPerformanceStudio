@@ -46,7 +46,6 @@ object PerfettoConfigTextBuilder {
             appendProcessStats(pollMemory = template.pollMemory)
             if (template.collectSystemStats) appendSystemStats()
             if (template.collectFrameTimeline) appendSimpleDataSource("android.surfaceflinger.frametimeline")
-            if (template.collectInputEvents) appendInputEvents()
             appendSimpleDataSource("android.packages_list")
             if (template.collectNativeHeap) {
                 config.targetPackage?.takeIf { it.isNotBlank() }?.let { appendHeapProfile(it) }
@@ -76,17 +75,6 @@ object PerfettoConfigTextBuilder {
         appendLine("      meminfo_period_ms: 1000")
         appendLine("      vmstat_period_ms: 1000")
         appendLine("      stat_period_ms: 1000")
-        appendLine("    }")
-        appendLine("  }")
-        appendLine("}")
-    }
-
-    private fun StringBuilder.appendInputEvents() {
-        appendLine("data_sources: {")
-        appendLine("  config {")
-        appendLine("    name: \"android.input.inputevent\"")
-        appendLine("    android_input_event_config {")
-        appendLine("      trace_dispatcher_input_events: true")
         appendLine("    }")
         appendLine("  }")
         appendLine("}")
@@ -167,7 +155,6 @@ object PerfettoConfigTextBuilder {
                             "binder/binder_transaction_received",
                         ),
                     atraceCategories = listOf("input", "view", "wm"),
-                    collectInputEvents = true,
                 )
             PerfettoTraceTemplate.MEMORY_PROFILE ->
                 TemplateSettings(
@@ -193,7 +180,6 @@ object PerfettoConfigTextBuilder {
         val collectFrameTimeline: Boolean = false,
         val collectSystemStats: Boolean = false,
         val pollMemory: Boolean = false,
-        val collectInputEvents: Boolean = false,
         val collectNativeHeap: Boolean = false,
     )
 }
