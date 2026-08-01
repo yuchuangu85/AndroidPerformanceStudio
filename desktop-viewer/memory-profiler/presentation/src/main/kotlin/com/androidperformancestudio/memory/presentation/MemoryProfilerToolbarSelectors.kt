@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.memory.presentation
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
@@ -16,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlendMode.Companion.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,6 +32,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.proc
 import com.androidperformancestudio.memory.presentation.generated.resources.select_device
 import com.androidperformancestudio.memory.presentation.generated.resources.select_process
 import com.androidperformancestudio.memory.presentation.generated.resources.text
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 
@@ -52,14 +55,17 @@ private fun MemoryProfilerDeviceSelector(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }
+    val colors = LocalViewerColors.current
+    val shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp)
     Box {
         TextButton(
             onClick = { expanded = true },
             modifier =
                 Modifier
                     .height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp)
-                    .semantics { contentDescription = localizedStringResource(Res.string.device_selector, language) },
-            shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
+                    .semantics { contentDescription = localizedStringResource(Res.string.device_selector, language) }
+                    .border(1.dp, colors.border, shape),
+            shape = shape,
             contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
         ) {
             Text(
@@ -107,14 +113,17 @@ private fun MemoryProfilerProcessSelector(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = state.processes.firstOrNull { it.pid == state.selectedProcessId }
+    val colors = LocalViewerColors.current
+    val shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp)
     Box {
         TextButton(
             onClick = { expanded = true },
             modifier =
                 Modifier
                     .height(MEMORY_TOOLBAR_BUTTON_HEIGHT_DP.dp)
-                    .semantics { contentDescription = localizedStringResource(Res.string.process_selector, language) },
-            shape = RoundedCornerShape(MEMORY_TOOLBAR_BUTTON_RADIUS_DP.dp),
+                    .semantics { contentDescription = localizedStringResource(Res.string.process_selector, language) }
+                    .border(1.dp, colors.border, shape),
+            shape = shape,
             contentPadding = MEMORY_TOOLBAR_BUTTON_CONTENT_PADDING,
         ) {
             Text(
