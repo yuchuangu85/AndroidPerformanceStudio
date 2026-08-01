@@ -34,6 +34,24 @@ class UiComponentsDependencyContractTest {
     }
 
     @Test
+    fun `shared drawable resources are public and consumed through the UI component Res class`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val uiComponentsBuild = Files.readString(desktopViewer.resolve("ui-components/build.gradle.kts"))
+        val settingsDialog =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppSettingsDialog.kt"),
+            )
+
+        assertTrue(uiComponentsBuild.contains("publicResClass = true"))
+        assertTrue(Files.exists(desktopViewer.resolve("ui-components/src/main/composeResources/drawable/icon_expand.svg")))
+        assertTrue(Files.exists(desktopViewer.resolve("ui-components/src/main/composeResources/drawable/icon_collapse.svg")))
+        assertTrue(settingsDialog.contains("UiComponentsRes.drawable.icon_expand"))
+        assertTrue(settingsDialog.contains("UiComponentsRes.drawable.icon_collapse"))
+        assertTrue(settingsDialog.contains("tint ="))
+        assertTrue(settingsDialog.contains("MaterialTheme.colorScheme.onSurfaceVariant"))
+    }
+
+    @Test
     fun `production UI APIs use the extensible language enum instead of a Chinese flag`() {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         Files.walk(desktopViewer).use { paths ->

@@ -32,6 +32,10 @@ dependencies {
     testImplementation("org.jetbrains.compose.ui:ui-test-junit4:1.11.1")
 }
 
+compose.resources {
+    publicResClass = true
+}
+
 tasks.test {
     useJUnitPlatform()
 }

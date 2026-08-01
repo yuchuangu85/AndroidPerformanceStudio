@@ -2,6 +2,7 @@ package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -48,6 +51,10 @@ import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
+import com.androidperformancestudio.ui_components.generated.resources.icon_collapse
+import com.androidperformancestudio.ui_components.generated.resources.icon_expand
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.painterResource
 
 public enum class SettingsPage {
     GENERAL,
@@ -215,7 +222,12 @@ private fun SettingsSidebar(
         SettingsSidebarRow(
             label = SettingsPage.SIMPLEPERF.label(language),
             selected = selectedPage == SettingsPage.SIMPLEPERF && !simpleperfExpanded,
-            leadingText = if (simpleperfExpanded) "⌄" else "›",
+            leadingIcon =
+                if (simpleperfExpanded) {
+                    UiComponentsRes.drawable.icon_expand
+                } else {
+                    UiComponentsRes.drawable.icon_collapse
+                },
             fontWeight = FontWeight.Medium,
             onClick = {
                 if (selectedPage == SettingsPage.SIMPLEPERF) {
@@ -252,7 +264,7 @@ private fun SettingsSidebarRow(
     selected: Boolean,
     onClick: () -> Unit,
     nested: Boolean = false,
-    leadingText: String? = null,
+    leadingIcon: DrawableResource? = null,
     fontWeight: FontWeight = FontWeight.Normal,
 ) {
     Row(
@@ -273,17 +285,21 @@ private fun SettingsSidebarRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            text = leadingText ?: " ",
-            modifier = Modifier.wrapContentHeight().width(8.dp),
-            color =
-                if (selected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        if (leadingIcon != null) {
+            Icon(
+                painter = painterResource(leadingIcon),
+                contentDescription = null,
+                modifier = Modifier.width(16.dp),
+                tint =
+                    if (selected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        } else {
+            Spacer(Modifier.width(16.dp))
+        }
         Text(
             text = label,
             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
