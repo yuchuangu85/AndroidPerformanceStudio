@@ -46,4 +46,34 @@ class MemoryProfilerToolbarActionsTest {
 
             onNodeWithText("Dump Heap").assertIsNotEnabled()
         }
+
+    @Test
+    fun `bitmap dump is enabled only for supported selected device`() =
+        runDesktopComposeUiTest(width = 1000, height = 120) {
+            var dumpCount = 0
+            setContent {
+                ProfilerMacOsToolbar {
+                    MemoryProfilerDumpBitmapsButton(
+                        state =
+                            MemoryProfilerState(
+                                devices =
+                                    listOf(
+                                        MemoryDeviceOption(
+                                            "old",
+                                            "Old device",
+                                            apiLevel = 34,
+                                            supportsBitmapDump = false,
+                                        ),
+                                    ),
+                                selectedDeviceSerial = "old",
+                                selectedProcessId = 42,
+                            ),
+                        onDumpBitmaps = { dumpCount++ },
+                    )
+                }
+            }
+
+            onNodeWithText("Dump Bitmaps").assertIsNotEnabled().performClick()
+            assertEquals(0, dumpCount)
+        }
 }

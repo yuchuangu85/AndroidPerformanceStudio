@@ -241,8 +241,22 @@ class HprofParserTest {
         val heap = parser.parse(fixture)
 
         assertEquals(10L, heap.gcRoots.single().objectId)
-        assertEquals(20L, heap.classes.single().staticReferences.single().targetObjectId)
-        assertEquals(21L, heap.instances.first { it.objectId == 20L }.references.single().targetObjectId)
+        assertEquals(
+            20L,
+            heap.classes
+                .single()
+                .staticReferences
+                .single()
+                .targetObjectId,
+        )
+        assertEquals(
+            21L,
+            heap.instances
+                .first { it.objectId == 20L }
+                .references
+                .single()
+                .targetObjectId,
+        )
         assertEquals(42L, heap.instances.first { it.objectId == 20L }.primitiveFields["count"])
     }
 

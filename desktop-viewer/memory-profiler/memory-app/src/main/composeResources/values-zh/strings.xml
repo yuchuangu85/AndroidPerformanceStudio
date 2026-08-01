@@ -18,6 +18,10 @@
     <string name="unable_to_list_android_devices">无法列出 Android 设备</string>
     <string name="unable_to_list_device_processes">无法列出设备进程</string>
     <string name="heap_dump_failed">堆转储失败</string>
+    <string name="bitmap_dump_failed">Bitmap 转储失败</string>
+    <string name="dumping_bitmaps_for">正在为 %1$s 抓取 Bitmap… %2$s%%</string>
+    <string name="export_bitmap_dump">导出 Bitmap 转储 ZIP</string>
+    <string name="export_bitmap_comparison">导出 Bitmap 对比结果</string>
     <string name="hprof_conv_unavailable">hprof-conv 不可用；已直接解析 Android HPROF。</string>
     <string name="hprof_file_not_found">未找到 HPROF 文件</string>
     <string name="hprof_file_not_readable">%1$s 不是可读取的常规文件。</string>

@@ -1,13 +1,13 @@
 package com.androidperformancestudio.memory.app
 
+import com.androidperformancestudio.memory.capture.AndroidSdkHprofConvLocator
+import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.toolchain.CapturedProcessText
 import com.androidperformancestudio.toolchain.ProcessCancellationSignal
 import com.androidperformancestudio.toolchain.ProcessOutput
 import com.androidperformancestudio.toolchain.ProcessRequest
 import com.androidperformancestudio.toolchain.ProcessRunResult
-import com.androidperformancestudio.memory.capture.AndroidSdkHprofConvLocator
-import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.RandomAccessFile
@@ -135,7 +135,12 @@ class DesktopMemoryProfilerBackendTest {
             assertNull(loaded.heapDump.convertedHprofFile)
             assertEquals("JAVA PROFILE 1.0.2", loaded.heapDump.format)
             assertEquals(1, loaded.histogram.summary.objectCount)
-            assertEquals("com.example.Sample", loaded.histogram.classes.single().className)
+            assertEquals(
+                "com.example.Sample",
+                loaded.histogram.classes
+                    .single()
+                    .className,
+            )
             assertContains(loaded.warning.orEmpty(), "Install SDK Platform Tools")
             assertContains(loaded.warning.orEmpty(), "parsed the Android HPROF directly")
         }

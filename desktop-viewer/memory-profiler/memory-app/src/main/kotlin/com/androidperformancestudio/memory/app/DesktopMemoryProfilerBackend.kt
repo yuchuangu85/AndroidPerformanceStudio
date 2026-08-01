@@ -1,29 +1,50 @@
+@file:Suppress("LongMethod", "MaxLineLength")
+
 package com.androidperformancestudio.memory.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.memory.memory_app.generated.resources.Res
-import com.androidperformancestudio.memory.memory_app.generated.resources.*
-
+import com.androidperformancestudio.adb.AdbDevicePropertiesReader
 import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.adb.SystemAdbLocator
-import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
-import com.androidperformancestudio.memory.presentation.MemoryProcessOption
-import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
+import com.androidperformancestudio.memory.analysis.BitmapDumpAnalysisRequest
+import com.androidperformancestudio.memory.analysis.BitmapDumpAnalyzer
 import com.androidperformancestudio.memory.analysis.MemoryDeepAnalyzer
+import com.androidperformancestudio.memory.capture.BitmapCaptureRequest
+import com.androidperformancestudio.memory.capture.BitmapHeapDumpCaptureSession
 import com.androidperformancestudio.memory.capture.MemoryCaptureRequest
 import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
+import com.androidperformancestudio.memory.export.BitmapDumpExportAdapters
 import com.androidperformancestudio.memory.export.MemoryExportAdapters
+import com.androidperformancestudio.memory.hprof.BitmapDumpParseException
+import com.androidperformancestudio.memory.hprof.BitmapDumpParser
 import com.androidperformancestudio.memory.hprof.HprofParseException
 import com.androidperformancestudio.memory.hprof.HprofParser
+import com.androidperformancestudio.memory.memory_app.generated.resources.Res
+import com.androidperformancestudio.memory.memory_app.generated.resources.android_sdk_platform_tools_not_found
+import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
+import com.androidperformancestudio.memory.memory_app.generated.resources.heap_dump_failed
+import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_conv_unavailable
+import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_found
+import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_readable
+import com.androidperformancestudio.memory.memory_app.generated.resources.install_sdk_platform_tools
+import com.androidperformancestudio.memory.memory_app.generated.resources.no_heap_objects_parsed
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_list_android_devices
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_list_device_processes
+import com.androidperformancestudio.memory.model.BitmapDumpComparison
+import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
+import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
+import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -39,11 +60,15 @@ internal class DesktopMemoryProfilerBackend(
     private val dataRoot: Path = defaultDataRoot(),
     private val adbLocator: () -> Path? = ::locateSystemAdb,
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
+    private val bitmapCaptureSessionFactory: (Path) -> BitmapHeapDumpCaptureSession = ::BitmapHeapDumpCaptureSession,
     private val language: UiLanguage = UiLanguage.ENGLISH,
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
     private val analyzer = MemoryDeepAnalyzer()
     private val exports = MemoryExportAdapters()
+    private val bitmapParser = BitmapDumpParser()
+    private val bitmapAnalyzer = BitmapDumpAnalyzer()
+    private val bitmapExports = BitmapDumpExportAdapters()
 
     override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
         val adb = adbLocator() ?: return missingAdb()
@@ -53,10 +78,21 @@ internal class DesktopMemoryProfilerBackend(
             is StudioResult.Success ->
                 MemoryBackendResult.Success(
                     result.value.map { device ->
+                        val apiLevel =
+                            if (device.state == AdbDeviceState.ONLINE) {
+                                when (val properties = AdbDevicePropertiesReader(adb).read(device.serial)) {
+                                    is StudioResult.Success -> properties.value.sdkInt
+                                    is StudioResult.Failure -> null
+                                }
+                            } else {
+                                null
+                            }
                         MemoryDeviceOption(
                             serial = device.serial,
                             name = device.model?.replace('_', ' ') ?: device.serial,
                             online = device.state == AdbDeviceState.ONLINE,
+                            apiLevel = apiLevel,
+                            supportsBitmapDump = apiLevel != null && apiLevel >= BitmapHeapDumpCaptureSession.MINIMUM_BITMAP_DUMP_API,
                         )
                     },
                 )
@@ -131,10 +167,11 @@ internal class DesktopMemoryProfilerBackend(
                         HeapLoadRequest(
                             file = capture.rawHprofFile,
                             rawFile = capture.rawHprofFile,
-                            warning = listOfNotNull(
-                                warning,
-                                localizedStringResource(Res.string.hprof_conv_unavailable, language),
-                            ).joinToString("\n"),
+                            warning =
+                                listOfNotNull(
+                                    warning,
+                                    localizedStringResource(Res.string.hprof_conv_unavailable, language),
+                                ).joinToString("\n"),
                             cleanupWarning = cleanupWarning,
                             sessionMetadata = identity,
                         ),
@@ -155,15 +192,94 @@ internal class DesktopMemoryProfilerBackend(
         }
     }
 
+    override suspend fun captureBitmaps(
+        serial: String,
+        process: MemoryProcessOption,
+        onProgress: (Int) -> Unit,
+    ): MemoryBackendResult<LoadedBitmapDump> =
+        withContext(Dispatchers.IO) {
+            val adb = adbLocator() ?: return@withContext missingAdb()
+            val sessionId = sessionId()
+            val captureSession = bitmapCaptureSessionFactory(adb)
+            when (
+                val result =
+                    captureSession.capture(
+                        BitmapCaptureRequest(
+                            sessionId = sessionId,
+                            sessionRoot = dataRoot.resolve("sessions"),
+                            serial = serial,
+                            pid = process.pid,
+                            packageName = process.packageName,
+                        ),
+                        onProgress = { progress ->
+                            onProgress(progress.percent * CAPTURE_PROGRESS_WEIGHT / PERCENT_COMPLETE)
+                        },
+                    )
+            ) {
+                is StudioResult.Failure ->
+                    result.toBackendFailure(localizedStringResource(Res.string.bitmap_dump_failed, language))
+                is StudioResult.Success -> {
+                    try {
+                        val capture = result.value
+                        val imagesDirectory = capture.sessionDirectory.resolve("images")
+                        val parsed =
+                            bitmapParser.parse(capture.hprofFile, imagesDirectory) { parserProgress ->
+                                onProgress(
+                                    CAPTURE_PROGRESS_WEIGHT +
+                                        parserProgress * PARSER_PROGRESS_WEIGHT / PERCENT_COMPLETE,
+                                )
+                            }
+                        val capturedAt = Instant.now()
+                        val session =
+                            bitmapAnalyzer.analyze(
+                                BitmapDumpAnalysisRequest(
+                                    id = sessionId,
+                                    packageName = process.packageName,
+                                    pid = process.pid,
+                                    deviceSerial = serial,
+                                    sdkLevel = capture.sdkLevel,
+                                    capturedAt = capturedAt,
+                                    hprofFile = capture.hprofFile,
+                                    imagesDirectory = imagesDirectory,
+                                    parsed = parsed,
+                                    memorySnapshot = capture.memorySnapshot,
+                                ),
+                            )
+                        bitmapExports.writeSessionArtifacts(session)
+                        onProgress(PERCENT_COMPLETE)
+                        MemoryBackendResult.Success(
+                            LoadedBitmapDump(
+                                session = session,
+                                warning =
+                                    capture.warnings
+                                        .filterNot { it.code == "DEVICE_CLEANUP_FAILED" }
+                                        .joinToString("\n") { it.message }
+                                        .ifBlank { null },
+                                cleanupWarning =
+                                    capture.warnings
+                                        .firstOrNull { it.code == "DEVICE_CLEANUP_FAILED" }
+                                        ?.message,
+                            ),
+                        )
+                    } catch (exception: BitmapDumpParseException) {
+                        bitmapFailure(exception)
+                    } catch (exception: IOException) {
+                        bitmapFailure(exception)
+                    } catch (exception: IllegalArgumentException) {
+                        bitmapFailure(exception)
+                    }
+                }
+            }
+        }
+
     @Suppress("ktlint:standard:function-expression-body")
-    override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap> =
-        importHprof(file) {}
+    override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap> = importHprof(file) {}
 
     override suspend fun importHprof(
         file: Path,
         onProgress: (Int) -> Unit,
-    ): MemoryBackendResult<LoadedHeap> {
-        return withContext(Dispatchers.IO) {
+    ): MemoryBackendResult<LoadedHeap> =
+        withContext(Dispatchers.IO) {
             if (!Files.isRegularFile(file)) {
                 MemoryBackendResult.Failure(
                     localizedStringResource(Res.string.hprof_file_not_found, language),
@@ -173,7 +289,6 @@ internal class DesktopMemoryProfilerBackend(
                 loadHeap(HeapLoadRequest(file = file, rawFile = file), onProgress)
             }
         }
-    }
 
     override fun exportRaw(
         heapDump: HeapDump,
@@ -194,6 +309,20 @@ internal class DesktopMemoryProfilerBackend(
         output: Path,
     ) {
         exports.exportClassHistogramCsv(histogram, output)
+    }
+
+    override fun exportBitmapSession(
+        session: BitmapDumpSession,
+        output: Path,
+    ) {
+        bitmapExports.exportSessionZip(session, output)
+    }
+
+    override fun exportBitmapComparison(
+        comparison: BitmapDumpComparison,
+        output: Path,
+    ) {
+        bitmapExports.exportComparisonMarkdown(comparison, output)
     }
 
     private fun loadHeap(
@@ -285,6 +414,12 @@ internal class DesktopMemoryProfilerBackend(
             detail = exception.message ?: exception::class.simpleName.orEmpty(),
         )
 
+    private fun bitmapFailure(exception: Exception): MemoryBackendResult.Failure =
+        MemoryBackendResult.Failure(
+            title = localizedStringResource(Res.string.bitmap_dump_failed, language),
+            detail = exception.message ?: exception::class.simpleName.orEmpty(),
+        )
+
     private fun StudioResult.Failure.toBackendFailure(title: String): MemoryBackendResult.Failure =
         MemoryBackendResult.Failure(title = title, detail = error.message)
 
@@ -313,7 +448,9 @@ internal class DesktopMemoryProfilerBackend(
     )
 
     companion object {
-        private const val MEBIBYTE = 1024L * 1024L
+        private const val CAPTURE_PROGRESS_WEIGHT = 60
+        private const val PARSER_PROGRESS_WEIGHT = 40
+        private const val PERCENT_COMPLETE = 100
         private val SESSION_ID_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").withZone(ZoneOffset.UTC)
 
         private fun defaultDataRoot(): Path =

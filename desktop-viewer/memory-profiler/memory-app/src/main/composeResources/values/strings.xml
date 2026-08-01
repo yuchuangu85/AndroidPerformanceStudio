@@ -18,6 +18,10 @@
     <string name="unable_to_list_android_devices">Unable to list Android devices</string>
     <string name="unable_to_list_device_processes">Unable to list device processes</string>
     <string name="heap_dump_failed">Heap dump failed</string>
+    <string name="bitmap_dump_failed">Bitmap dump failed</string>
+    <string name="dumping_bitmaps_for">Dumping Bitmaps for %1$s… %2$s%%</string>
+    <string name="export_bitmap_dump">Export Bitmap Dump ZIP</string>
+    <string name="export_bitmap_comparison">Export Bitmap Comparison</string>
     <string name="hprof_conv_unavailable">hprof-conv was unavailable; parsed the Android HPROF directly.</string>
     <string name="hprof_file_not_found">HPROF file not found</string>
     <string name="hprof_file_not_readable">%1$s is not a readable regular file.</string>

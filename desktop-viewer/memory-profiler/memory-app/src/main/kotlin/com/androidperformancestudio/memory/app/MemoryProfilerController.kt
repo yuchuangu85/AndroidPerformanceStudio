@@ -1,18 +1,27 @@
+@file:Suppress("MaxLineLength")
+
 package com.androidperformancestudio.memory.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
-import com.androidperformancestudio.memory.memory_app.generated.resources.*
-
+import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
+import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_bitmaps_for
+import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_heap_for
+import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_parser_out_of_memory
+import com.androidperformancestudio.memory.memory_app.generated.resources.importing
+import com.androidperformancestudio.memory.memory_app.generated.resources.importing_ad13e4da
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
+import com.androidperformancestudio.memory.model.BitmapDumpComparison
+import com.androidperformancestudio.memory.model.BitmapDumpSession
+import com.androidperformancestudio.memory.model.HeapDump
+import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.presentation.MemoryProfilerError
 import com.androidperformancestudio.memory.presentation.MemoryProfilerState
-import com.androidperformancestudio.memory.model.HeapDump
-import com.androidperformancestudio.memory.model.HeapHistogram
-import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +31,12 @@ import java.nio.file.Path
 internal data class LoadedHeap(
     val heapDump: HeapDump,
     val histogram: HeapHistogram,
+    val warning: String? = null,
+    val cleanupWarning: String? = null,
+)
+
+internal data class LoadedBitmapDump(
+    val session: BitmapDumpSession,
     val warning: String? = null,
     val cleanupWarning: String? = null,
 )
@@ -37,6 +52,7 @@ internal sealed interface MemoryBackendResult<out T> {
     ) : MemoryBackendResult<Nothing>
 }
 
+@Suppress("TooManyFunctions")
 internal interface MemoryProfilerBackend {
     suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>>
 
@@ -46,6 +62,13 @@ internal interface MemoryProfilerBackend {
         serial: String,
         process: MemoryProcessOption,
     ): MemoryBackendResult<LoadedHeap>
+
+    suspend fun captureBitmaps(
+        serial: String,
+        process: MemoryProcessOption,
+        onProgress: (Int) -> Unit = {},
+    ): MemoryBackendResult<LoadedBitmapDump> =
+        MemoryBackendResult.Failure("Bitmap dump unavailable", "The selected backend does not support Bitmap dumps.")
 
     suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap>
 
@@ -68,6 +91,16 @@ internal interface MemoryProfilerBackend {
         histogram: HeapHistogram,
         output: Path,
     )
+
+    fun exportBitmapSession(
+        session: BitmapDumpSession,
+        output: Path,
+    ) = Unit
+
+    fun exportBitmapComparison(
+        comparison: BitmapDumpComparison,
+        output: Path,
+    ) = Unit
 }
 
 @Suppress("TooManyFunctions")
@@ -81,6 +114,11 @@ internal class MemoryProfilerController(
 
     var loadedHeap: LoadedHeap? = null
         private set
+
+    var loadedBitmapDump: LoadedBitmapDump? = null
+        private set
+
+    private var previousBitmapDump: LoadedBitmapDump? = null
 
     suspend fun refreshDevices() {
         when (val result = backend.listDevices()) {
@@ -145,6 +183,38 @@ internal class MemoryProfilerController(
     }
 
     @Suppress("TooGenericExceptionCaught")
+    suspend fun dumpBitmaps() {
+        val snapshot = mutableState.value
+        val serial = snapshot.selectedDeviceSerial ?: return
+        val process = snapshot.processes.firstOrNull { it.pid == snapshot.selectedProcessId } ?: return
+        mutableState.value =
+            snapshot.copy(
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.dumping_bitmaps_for, language, process.name, 0),
+                error = null,
+                warning = null,
+                cleanupWarning = null,
+            )
+        val result =
+            try {
+                backend.captureBitmaps(serial, process) { progress ->
+                    mutableState.value =
+                        mutableState.value.copy(
+                            operationMessage = localizedStringResource(Res.string.dumping_bitmaps_for, language, process.name, progress),
+                        )
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.bitmap_dump_failed, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        applyBitmapResult(result)
+    }
+
+    @Suppress("TooGenericExceptionCaught")
     suspend fun importHprof(file: Path) {
         mutableState.value =
             mutableState.value.copy(
@@ -158,7 +228,9 @@ internal class MemoryProfilerController(
             try {
                 backend.importHprof(file) { progress ->
                     mutableState.value =
-                        mutableState.value.copy(operationMessage = localizedStringResource(Res.string.importing_ad13e4da, language, file.fileName, progress))
+                        mutableState.value.copy(
+                            operationMessage = localizedStringResource(Res.string.importing_ad13e4da, language, file.fileName, progress),
+                        )
                 }
             } catch (exception: CancellationException) {
                 throw exception
@@ -188,6 +260,14 @@ internal class MemoryProfilerController(
         loadedHeap?.let { backend.exportHistogram(it.histogram, output) }
     }
 
+    fun exportBitmapSession(output: Path) {
+        loadedBitmapDump?.let { backend.exportBitmapSession(it.session, output) }
+    }
+
+    fun exportBitmapComparison(output: Path) {
+        mutableState.value.bitmapDumpComparison?.let { backend.exportBitmapComparison(it, output) }
+    }
+
     private fun applyLoadedResult(result: MemoryBackendResult<LoadedHeap>) {
         when (result) {
             is MemoryBackendResult.Failure -> showFailure(result)
@@ -198,9 +278,10 @@ internal class MemoryProfilerController(
                     mutableState.value.copy(
                         summary = result.value.histogram.summary,
                         classes = result.value.histogram.classes,
-                        activityCount = result.value.histogram.classes
-                            .filter { it.className.endsWith("Activity") }
-                            .sumOf { it.instanceCount },
+                        activityCount =
+                            result.value.histogram.classes
+                                .filter { it.className.endsWith("Activity") }
+                                .sumOf { it.instanceCount },
                         leakSuspects = result.value.heapDump.leakSuspects,
                         isDumping = false,
                         operationMessage = null,
@@ -209,6 +290,32 @@ internal class MemoryProfilerController(
                         cleanupWarning = result.value.cleanupWarning,
                         heapDiff = previous?.let { HeapDiffAnalyzer().diff(it.histogram.classes, result.value.histogram.classes) },
                         bitmapInstances = result.value.heapDump.bitmapInstances,
+                    )
+            }
+        }
+    }
+
+    private fun applyBitmapResult(result: MemoryBackendResult<LoadedBitmapDump>) {
+        when (result) {
+            is MemoryBackendResult.Failure -> showFailure(result)
+            is MemoryBackendResult.Success -> {
+                previousBitmapDump = loadedBitmapDump
+                loadedBitmapDump = result.value
+                val comparison =
+                    previousBitmapDump?.let { previous ->
+                        com.androidperformancestudio.memory.analysis
+                            .BitmapDumpAnalyzer()
+                            .compare(previous.session, result.value.session)
+                    }
+                mutableState.value =
+                    mutableState.value.copy(
+                        isDumping = false,
+                        operationMessage = null,
+                        error = null,
+                        warning = result.value.warning,
+                        cleanupWarning = result.value.cleanupWarning,
+                        bitmapDumpSession = result.value.session,
+                        bitmapDumpComparison = comparison,
                     )
             }
         }

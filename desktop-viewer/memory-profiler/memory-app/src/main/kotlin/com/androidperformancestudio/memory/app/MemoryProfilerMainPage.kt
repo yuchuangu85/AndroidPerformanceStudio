@@ -2,11 +2,6 @@
 
 package com.androidperformancestudio.memory.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.memory.memory_app.generated.resources.Res
-import com.androidperformancestudio.memory.memory_app.generated.resources.*
-
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,13 +18,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.memory.memory_app.generated.resources.Res
+import com.androidperformancestudio.memory.memory_app.generated.resources.back_to_home
+import com.androidperformancestudio.memory.memory_app.generated.resources.export_memory_profiler_data
+import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof
+import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
+import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpBitmapsButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerScreen
 import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSelectors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerHomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
 import java.awt.Component
 import java.awt.FileDialog
@@ -43,9 +46,10 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     onBack: () -> Unit = {},
     highlightClassName: String? = null,
 ) {
-    val controller = remember(language) {
-        MemoryProfilerController(DesktopMemoryProfilerBackend(language = language), language = language)
-    }
+    val controller =
+        remember(language) {
+            MemoryProfilerController(DesktopMemoryProfilerBackend(language = language), language = language)
+        }
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     val loaded = controller.loadedHeap
@@ -64,6 +68,8 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 rawHprofExportEnabled = loaded?.heapDump?.rawHprofFile != null,
                 standardHprofExportEnabled = loaded?.heapDump?.convertedHprofFile != null,
                 csvExportEnabled = loaded != null,
+                bitmapDumpExportEnabled = controller.loadedBitmapDump != null,
+                bitmapComparisonExportEnabled = state.bitmapDumpComparison != null,
             ),
         onImportHprof = { showHprofFileDialog = true },
         onExportRawHprof = {
@@ -74,6 +80,12 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         },
         onExportCsv = {
             chooseSaveFile(window, "class-histogram.csv", language)?.let(controller::exportHistogram)
+        },
+        onExportBitmapDump = {
+            chooseSaveFile(window, "bitmap-dump.zip", language)?.let(controller::exportBitmapSession)
+        },
+        onExportBitmapComparison = {
+            chooseSaveFile(window, "bitmap-comparison.md", language)?.let(controller::exportBitmapComparison)
         },
     )
 
@@ -97,6 +109,11 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             MemoryProfilerDumpHeapButton(
                 state = state,
                 onDumpHeap = { scope.launch { controller.dumpHeap() } },
+                language = language,
+            )
+            MemoryProfilerDumpBitmapsButton(
+                state = state,
+                onDumpBitmaps = { scope.launch { controller.dumpBitmaps() } },
                 language = language,
             )
         }

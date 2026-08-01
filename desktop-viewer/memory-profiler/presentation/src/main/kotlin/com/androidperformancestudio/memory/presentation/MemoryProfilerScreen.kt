@@ -9,11 +9,7 @@
 
 package com.androidperformancestudio.memory.presentation
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.memory.presentation.generated.resources.Res
-import com.androidperformancestudio.memory.presentation.generated.resources.*
-
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,14 +40,54 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.androidperformancestudio.memory.model.BitmapDumpComparison
+import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.presentation.generated.resources.Res
+import com.androidperformancestudio.memory.presentation.generated.resources.activity
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_analysis
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_comparison
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_comparison_summary
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_gallery
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_image
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_summary
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_entry
+import com.androidperformancestudio.memory.presentation.generated.resources.class_histogram
+import com.androidperformancestudio.memory.presentation.generated.resources.class_name
+import com.androidperformancestudio.memory.presentation.generated.resources.classes
+import com.androidperformancestudio.memory.presentation.generated.resources.cleanup_warning
+import com.androidperformancestudio.memory.presentation.generated.resources.count
+import com.androidperformancestudio.memory.presentation.generated.resources.count_value
+import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff
+import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff_entry
+import com.androidperformancestudio.memory.presentation.generated.resources.heap_size
+import com.androidperformancestudio.memory.presentation.generated.resources.import_or_dump_an_hprof_file_to_show_class_histogram
+import com.androidperformancestudio.memory.presentation.generated.resources.in_progress
+import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspect_summary
+import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspect_title
+import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspects
+import com.androidperformancestudio.memory.presentation.generated.resources.no_class_changes_between_the_latest_two_heap_dumps
+import com.androidperformancestudio.memory.presentation.generated.resources.no_leak_suspects_detected
+import com.androidperformancestudio.memory.presentation.generated.resources.objects
+import com.androidperformancestudio.memory.presentation.generated.resources.overview
+import com.androidperformancestudio.memory.presentation.generated.resources.reference_chain_entry
+import com.androidperformancestudio.memory.presentation.generated.resources.retained
+import com.androidperformancestudio.memory.presentation.generated.resources.shallow
+import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.memory.presentation.generated.resources.warning
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
+import java.nio.file.Files
 import java.text.NumberFormat
 import java.util.Locale
+import org.jetbrains.skia.Image as SkiaImage
 
 @Composable
 public fun MemoryProfilerScreen(
@@ -82,6 +119,95 @@ public fun MemoryProfilerScreen(
             LeakSuspectsPhaseTwo(presentedState, language)
             HeapDiffSection(presentedState.heapDiff, language)
             BitmapSection(presentedState.bitmapInstances, language)
+            BitmapDumpGallery(presentedState.bitmapDumpSession, presentedState.bitmapDumpComparison, language)
+        }
+    }
+}
+
+@Composable
+private fun BitmapDumpGallery(
+    session: BitmapDumpSession?,
+    comparison: BitmapDumpComparison?,
+    language: UiLanguage,
+) {
+    if (session == null) return
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
+                .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(localizedStringResource(Res.string.bitmap_dump_gallery, language), fontWeight = FontWeight.Bold)
+        Text(
+            localizedStringResource(
+                Res.string.bitmap_dump_summary,
+                language,
+                session.summary.exportedImageCount,
+                session.summary.uniqueImageCount,
+                session.summary.duplicateGroupCount,
+                formatBytes(session.summary.estimatedBitmapBytes),
+            ),
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(session.images, key = { it.recordIndex }) { bitmap ->
+                Column(
+                    modifier =
+                        Modifier
+                            .width(180.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+                            .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    val image =
+                        remember(bitmap.file) {
+                            runCatching {
+                                SkiaImage.makeFromEncoded(Files.readAllBytes(bitmap.file)).toComposeImageBitmap()
+                            }.getOrNull()
+                        }
+                    if (image != null) {
+                        Image(
+                            bitmap = image,
+                            contentDescription = "Bitmap ${bitmap.recordIndex}",
+                            modifier = Modifier.fillMaxWidth().height(120.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    } else {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().height(120.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                        ) {}
+                    }
+                    Text(
+                        localizedStringResource(
+                            Res.string.bitmap_dump_image,
+                            language,
+                            bitmap.recordIndex,
+                            bitmap.width,
+                            bitmap.height,
+                            formatBytes(bitmap.estimatedMemoryBytes),
+                            bitmap.duplicateCount,
+                        ),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        }
+        comparison?.let { diff ->
+            Text(localizedStringResource(Res.string.bitmap_dump_comparison, language), fontWeight = FontWeight.Bold)
+            Text(
+                localizedStringResource(
+                    Res.string.bitmap_dump_comparison_summary,
+                    language,
+                    diff.before.exportedImageCount,
+                    diff.after.exportedImageCount,
+                    (diff.after.exportedImageCount - diff.before.exportedImageCount).withSign(),
+                    (diff.after.estimatedBitmapBytes - diff.before.estimatedBitmapBytes).withSign(),
+                ),
+            )
         }
     }
 }
@@ -345,7 +471,10 @@ private fun HistogramRow(
 }
 
 @Composable
-private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState, language: UiLanguage) {
+private fun LeakSuspectsPhaseTwo(
+    state: MemoryProfilerState,
+    language: UiLanguage,
+) {
     Column(
         modifier =
             Modifier
@@ -411,7 +540,10 @@ private fun LeakSuspectsPhaseTwo(state: MemoryProfilerState, language: UiLanguag
 }
 
 @Composable
-private fun HeapDiffSection(diff: com.androidperformancestudio.memory.model.HeapDiff?, language: UiLanguage) {
+private fun HeapDiffSection(
+    diff: com.androidperformancestudio.memory.model.HeapDiff?,
+    language: UiLanguage,
+) {
     if (diff == null) return
     val changedEntries = diff.entries.filter { it.countDelta != 0 || it.shallowSizeDelta != 0L }
     Column(
@@ -440,7 +572,10 @@ private fun HeapDiffSection(diff: com.androidperformancestudio.memory.model.Heap
 }
 
 @Composable
-private fun BitmapSection(bitmaps: List<com.androidperformancestudio.memory.model.BitmapInstanceStats>, language: UiLanguage) {
+private fun BitmapSection(
+    bitmaps: List<com.androidperformancestudio.memory.model.BitmapInstanceStats>,
+    language: UiLanguage,
+) {
     if (bitmaps.isEmpty()) return
     Column(
         modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp)).padding(8.dp),

@@ -81,8 +81,11 @@ private fun MemoryProfilerDeviceSelector(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            if (device.online) device.name
-                            else localizedStringResource(Res.string.device_offline, language, device.name)
+                            if (device.online) {
+                                device.name
+                            } else {
+                                localizedStringResource(Res.string.device_offline, language, device.name)
+                            },
                         )
                     },
                     enabled = device.online,

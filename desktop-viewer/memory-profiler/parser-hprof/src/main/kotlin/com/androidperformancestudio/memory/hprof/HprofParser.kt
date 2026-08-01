@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "TooManyFunctions", "MaxLineLength")
+@file:Suppress("CyclomaticComplexMethod", "LongMethod", "MagicNumber", "TooManyFunctions", "MaxLineLength")
 
 package com.androidperformancestudio.memory.hprof
 
@@ -94,18 +94,18 @@ class HprofParser {
                                 )
                             },
                     )
-                }
-                .sortedBy { it.objectId }
+                }.sortedBy { it.objectId }
         val classesById = classes.associateBy(HeapClass::objectId)
         val instances = state.instances.map { state.decodeInstance(it, classesById) }
-        val objectClassNames = buildMap {
-            classes.forEach { put(it.objectId, it.name) }
-            instances.forEach { put(it.objectId, it.className) }
-            state.objectArrays.forEach { array ->
-                put(array.objectId, classesById[array.arrayClassObjectId]?.name ?: HeapClass.UNKNOWN_CLASS_NAME)
+        val objectClassNames =
+            buildMap {
+                classes.forEach { put(it.objectId, it.name) }
+                instances.forEach { put(it.objectId, it.className) }
+                state.objectArrays.forEach { array ->
+                    put(array.objectId, classesById[array.arrayClassObjectId]?.name ?: HeapClass.UNKNOWN_CLASS_NAME)
+                }
+                state.primitiveArrays.forEach { put(it.objectId, it.className) }
             }
-            state.primitiveArrays.forEach { put(it.objectId, it.className) }
-        }
         return HeapDump(
             rawHprofFile = rawHprofFile,
             format = header,
@@ -431,13 +431,22 @@ class HprofParser {
         }
     }
 
-    private data class RawField(val nameStringId: Long, val type: PrimitiveType)
-    private data class RawStaticReference(val nameStringId: Long, val targetObjectId: Long)
+    private data class RawField(
+        val nameStringId: Long,
+        val type: PrimitiveType,
+    )
+
+    private data class RawStaticReference(
+        val nameStringId: Long,
+        val targetObjectId: Long,
+    )
+
     private data class ClassMetadata(
         val superClassObjectId: Long,
         val instanceFields: List<RawField>,
         val staticReferences: List<RawStaticReference>,
     )
+
     private data class RawInstance(
         val objectId: Long,
         val classObjectId: Long,

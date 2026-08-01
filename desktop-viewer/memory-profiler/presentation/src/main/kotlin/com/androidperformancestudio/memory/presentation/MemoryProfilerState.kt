@@ -1,5 +1,7 @@
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.memory.model.BitmapDumpComparison
+import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapInstanceStats
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapDiff
@@ -23,6 +25,8 @@ public data class MemoryProfilerState(
     val cleanupWarning: String? = null,
     val heapDiff: HeapDiff? = null,
     val bitmapInstances: List<BitmapInstanceStats> = emptyList(),
+    val bitmapDumpSession: BitmapDumpSession? = null,
+    val bitmapDumpComparison: BitmapDumpComparison? = null,
     val highlightedClassName: String? = null,
 )
 
@@ -30,6 +34,8 @@ public data class MemoryDeviceOption(
     val serial: String,
     val name: String,
     val online: Boolean = true,
+    val apiLevel: Int? = null,
+    val supportsBitmapDump: Boolean = true,
 )
 
 public data class MemoryProcessOption(

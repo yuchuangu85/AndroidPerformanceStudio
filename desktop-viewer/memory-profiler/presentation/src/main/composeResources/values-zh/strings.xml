@@ -26,6 +26,12 @@
     <string name="activity">Activity</string>
     <string name="dumping">Dumping…</string>
     <string name="dump_heap">Dump Heap</string>
+    <string name="dump_bitmaps">抓取 Bitmap</string>
+    <string name="bitmap_dump_gallery">Bitmap 转储图库</string>
+    <string name="bitmap_dump_summary">%1$s 张图片 · %2$s 种内容 · %3$s 组重复 · 估算内存 %4$s</string>
+    <string name="bitmap_dump_image">Bitmap #%1$s · %2$s×%3$s · %4$s · 重复 ×%5$s</string>
+    <string name="bitmap_dump_comparison">Bitmap 转储对比</string>
+    <string name="bitmap_dump_comparison_summary">图片 %1$s → %2$s（%3$s）· 估算内存变化 %4$s</string>
     <string name="working">Working…</string>
     <string name="import_hprof">Import hprof</string>
     <string name="select_device">Select device ▼</string>

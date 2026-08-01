@@ -1,16 +1,19 @@
 package com.androidperformancestudio.memory.app
 
-import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
-import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
-import com.androidperformancestudio.memory.presentation.MemoryProcessOption
+import com.androidperformancestudio.memory.model.BitmapDumpSession
+import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
+import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
+import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Path
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -131,8 +134,31 @@ class MemoryProfilerControllerTest {
             controller.highlightClass("com.example.Sample")
 
             assertNotNull(controller.state.value.heapDiff)
-            assertTrue(controller.state.value.heapDiff?.entries.orEmpty().all { it.countDelta == 0 })
+            assertTrue(
+                controller.state.value.heapDiff
+                    ?.entries
+                    .orEmpty()
+                    .all { it.countDelta == 0 },
+            )
             assertEquals("com.example.Sample", controller.state.value.highlightedClassName)
+        }
+
+    @Test
+    fun `bitmap capture exposes session and compares consecutive dumps`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            controller.refreshDevices()
+            controller.selectDevice("serial-1")
+            controller.selectProcess(42)
+
+            controller.dumpBitmaps()
+            controller.dumpBitmaps()
+
+            assertNotNull(controller.state.value.bitmapDumpSession)
+            assertNotNull(controller.state.value.bitmapDumpComparison)
+            assertFalse(controller.state.value.isDumping)
+            assertTrue(backend.events.count { it.startsWith("captureBitmaps") } == 2)
         }
 
     private class FakeBackend(
@@ -160,6 +186,29 @@ class MemoryProfilerControllerTest {
         ): MemoryBackendResult<LoadedHeap> {
             events += "capture:$serial:${process.pid}"
             return MemoryBackendResult.Success(loadedHeap())
+        }
+
+        override suspend fun captureBitmaps(
+            serial: String,
+            process: MemoryProcessOption,
+            onProgress: (Int) -> Unit,
+        ): MemoryBackendResult<LoadedBitmapDump> {
+            events += "captureBitmaps:$serial:${process.pid}"
+            onProgress(100)
+            val session =
+                BitmapDumpSession(
+                    id = "bitmap-${events.size}",
+                    packageName = process.packageName,
+                    pid = process.pid,
+                    deviceSerial = serial,
+                    sdkLevel = 35,
+                    capturedAt = Instant.EPOCH,
+                    hprofFile = Path.of("bitmap.hprof"),
+                    imagesDirectory = Path.of("images"),
+                    images = emptyList(),
+                    summary = BitmapDumpSummary(0, 0, 0, 0, 0, 0, 0),
+                )
+            return MemoryBackendResult.Success(LoadedBitmapDump(session))
         }
 
         override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap> {

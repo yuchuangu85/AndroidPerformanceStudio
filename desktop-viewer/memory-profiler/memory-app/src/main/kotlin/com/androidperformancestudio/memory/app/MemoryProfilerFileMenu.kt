@@ -7,6 +7,8 @@ import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.export
+import com.androidperformancestudio.memory.memory_app.generated.resources.export_bitmap_comparison
+import com.androidperformancestudio.memory.memory_app.generated.resources.export_bitmap_dump
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_csv
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_raw_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_standard_hprof
@@ -26,14 +28,21 @@ internal data class MemoryProfilerFileMenuModel(
     val rawHprofExportEnabled: Boolean,
     val standardHprofExportEnabled: Boolean,
     val csvExportEnabled: Boolean,
+    val exportBitmapDumpLabel: String = "Export Bitmap Dump ZIP",
+    val exportBitmapComparisonLabel: String = "Export Bitmap Comparison",
+    val bitmapDumpExportEnabled: Boolean = false,
+    val bitmapComparisonExportEnabled: Boolean = false,
 )
 
+@Suppress("LongParameterList")
 internal fun memoryProfilerFileMenuModel(
     language: UiLanguage,
     importEnabled: Boolean,
     rawHprofExportEnabled: Boolean,
     standardHprofExportEnabled: Boolean,
     csvExportEnabled: Boolean,
+    bitmapDumpExportEnabled: Boolean = false,
+    bitmapComparisonExportEnabled: Boolean = false,
 ): MemoryProfilerFileMenuModel =
     MemoryProfilerFileMenuModel(
         fileTitle = localizedStringResource(Res.string.file, language),
@@ -46,15 +55,22 @@ internal fun memoryProfilerFileMenuModel(
         rawHprofExportEnabled = rawHprofExportEnabled,
         standardHprofExportEnabled = standardHprofExportEnabled,
         csvExportEnabled = csvExportEnabled,
+        exportBitmapDumpLabel = localizedStringResource(Res.string.export_bitmap_dump, language),
+        exportBitmapComparisonLabel = localizedStringResource(Res.string.export_bitmap_comparison, language),
+        bitmapDumpExportEnabled = bitmapDumpExportEnabled,
+        bitmapComparisonExportEnabled = bitmapComparisonExportEnabled,
     )
 
 @Composable
+@Suppress("LongParameterList")
 internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     model: MemoryProfilerFileMenuModel,
     onImportHprof: () -> Unit,
     onExportRawHprof: () -> Unit,
     onExportStandardHprof: () -> Unit,
     onExportCsv: () -> Unit,
+    onExportBitmapDump: () -> Unit = {},
+    onExportBitmapComparison: () -> Unit = {},
 ) {
     MenuBar {
         Menu(model.fileTitle) {
@@ -78,6 +94,16 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
                     text = model.exportCsvLabel,
                     enabled = model.csvExportEnabled,
                     onClick = onExportCsv,
+                )
+                Item(
+                    text = model.exportBitmapDumpLabel,
+                    enabled = model.bitmapDumpExportEnabled,
+                    onClick = onExportBitmapDump,
+                )
+                Item(
+                    text = model.exportBitmapComparisonLabel,
+                    enabled = model.bitmapComparisonExportEnabled,
+                    onClick = onExportBitmapComparison,
                 )
             }
         }

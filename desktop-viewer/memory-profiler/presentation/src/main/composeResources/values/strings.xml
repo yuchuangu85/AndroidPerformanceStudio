@@ -26,6 +26,12 @@
     <string name="activity">Activity</string>
     <string name="dumping">Dumping…</string>
     <string name="dump_heap">Dump Heap</string>
+    <string name="dump_bitmaps">Dump Bitmaps</string>
+    <string name="bitmap_dump_gallery">Bitmap dump gallery</string>
+    <string name="bitmap_dump_summary">%1$s images · %2$s unique · %3$s duplicate groups · %4$s estimated memory</string>
+    <string name="bitmap_dump_image">Bitmap #%1$s · %2$s×%3$s · %4$s · duplicate ×%5$s</string>
+    <string name="bitmap_dump_comparison">Bitmap dump comparison</string>
+    <string name="bitmap_dump_comparison_summary">Images %1$s → %2$s (%3$s) · estimated memory %4$s</string>
     <string name="working">Working…</string>
     <string name="import_hprof">Import hprof</string>
     <string name="select_device">Select device ▼</string>
