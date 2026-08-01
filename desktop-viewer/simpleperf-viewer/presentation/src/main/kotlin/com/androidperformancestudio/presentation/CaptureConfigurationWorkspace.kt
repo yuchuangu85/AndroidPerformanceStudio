@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -677,7 +678,7 @@ internal fun MacOsInlineTextField(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = style.secondaryText, fontSize = 9.sp, maxLines = 1)
+        Text(label, color = style.secondaryText, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -688,7 +689,7 @@ internal fun MacOsInlineTextField(
             modifier =
                 Modifier
                     .requiredWidth(fieldWidth)
-                    .height(ViewerDimensions.selectorHeight)
+                    .height(20.dp)
                     .background(style.field, RoundedCornerShape(ViewerDimensions.controlRadius))
                     .border(
                         ViewerDimensions.hairline,
@@ -743,21 +744,22 @@ internal fun MacOsChoiceChip(
         RadioButton(
             selected = selected,
             onClick = onClick,
-            modifier = Modifier.height(26.dp).width(26.dp),
+            modifier = Modifier.height(14.dp).width(14.dp),
         )
+        Spacer(modifier = Modifier.width(8.dp))
         Box(
             Modifier
                 .height(
-                    26.dp,
+                    16.dp,
                 ).background(
                     background,
-                    RoundedCornerShape(5.dp),
+                    RoundedCornerShape(6.dp),
                 ).border(
                     ViewerDimensions.hairline,
                     if (selected) style.accent else style.strongBorder,
-                    RoundedCornerShape(5.dp),
+                    RoundedCornerShape(4.dp),
                 ).clickable(enabled = enabled, onClick = onClick)
-                .padding(horizontal = 9.dp),
+                .padding(start = 6.dp, top = 0.dp, end = 6.dp, bottom = 0.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(

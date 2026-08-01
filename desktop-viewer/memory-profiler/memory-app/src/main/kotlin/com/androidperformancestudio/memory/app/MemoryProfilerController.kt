@@ -125,15 +125,24 @@ internal class MemoryProfilerController(
             is MemoryBackendResult.Failure -> showFailure(result)
             is MemoryBackendResult.Success -> {
                 val currentSerial = mutableState.value.selectedDeviceSerial
-                val selected = currentSerial?.takeIf { serial -> result.value.any { it.serial == serial && it.online } }
+                val retainedSerial =
+                    currentSerial?.takeIf { serial -> result.value.any { it.serial == serial && it.online } }
+                val automaticSerial =
+                    retainedSerial ?: result.value
+                        .filter(MemoryDeviceOption::online)
+                        .singleOrNull()
+                        ?.serial
                 mutableState.value =
                     mutableState.value.copy(
                         devices = result.value,
-                        selectedDeviceSerial = selected,
-                        processes = if (selected == null) emptyList() else mutableState.value.processes,
-                        selectedProcessId = if (selected == null) null else mutableState.value.selectedProcessId,
+                        selectedDeviceSerial = retainedSerial,
+                        processes = if (retainedSerial == null) emptyList() else mutableState.value.processes,
+                        selectedProcessId = if (retainedSerial == null) null else mutableState.value.selectedProcessId,
                         error = null,
                     )
+                if (retainedSerial == null && automaticSerial != null) {
+                    selectDevice(automaticSerial)
+                }
             }
         }
     }

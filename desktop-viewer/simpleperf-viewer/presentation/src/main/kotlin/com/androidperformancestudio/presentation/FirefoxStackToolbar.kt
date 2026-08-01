@@ -4,6 +4,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
@@ -24,6 +25,7 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -44,7 +46,7 @@ internal fun FirefoxStackToolbar(
     }
     LaunchedEffect(sessionIdentity, searchState.draft, searchState.authoritativeQuery) {
         if (searchState.isDirty) {
-            delay(STACK_SEARCH_DEBOUNCE_MILLIS)
+            delay(STACK_SEARCH_DEBOUNCE_MILLIS.milliseconds)
             val query = searchState.draft
             searchState = searchState.markDispatched(query)
             actions.onFlameSearch(query)
@@ -52,7 +54,7 @@ internal fun FirefoxStackToolbar(
     }
 
     Row(
-        modifier = Modifier.testTag("stack-toolbar").horizontalScroll(rememberScrollState()),
+        modifier = Modifier.testTag("stack-toolbar").horizontalScroll(rememberScrollState()).padding(start = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -63,6 +65,7 @@ internal fun FirefoxStackToolbar(
                 enabled = true,
                 style = style,
             ) { actions.onFlameImplementation(filter) }
+            Spacer(Modifier.width(8.dp))
         }
         Spacer(Modifier.width(8.dp))
         MacOsInlineTextField(

@@ -38,6 +38,7 @@ import com.androidperformancestudio.battery.export.BatteryCsvExporter
 import com.androidperformancestudio.battery.export.BatteryJsonExporter
 import com.androidperformancestudio.battery.export.BatteryJsonImporter
 import com.androidperformancestudio.battery.export.BatteryRawBundleExporter
+import com.androidperformancestudio.battery.model.BatteryDevice
 import com.androidperformancestudio.battery.model.BatteryExperimentConfig
 import com.androidperformancestudio.battery.model.BatteryExperimentResult
 import com.androidperformancestudio.battery.model.BatteryRunDelta
@@ -78,19 +79,24 @@ internal class BatteryProfilerController(
                 mutableState.value =
                     mutableState.value.copy(isRefreshing = false, errorMessage = result.message)
             is BatteryBackendResult.Success -> {
-                val selected =
+                val retainedSerial =
                     mutableState.value.selectedDeviceSerial?.takeIf { serial ->
                         result.value.any {
                             it.serial == serial &&
                                 it.online
                         }
                     }
+                val automaticSerial =
+                    retainedSerial ?: result.value
+                        .filter(BatteryDevice::online)
+                        .singleOrNull()
+                        ?.serial
                 mutableState.value =
                     mutableState.value.copy(
                         devices = result.value,
-                        selectedDeviceSerial = selected,
+                        selectedDeviceSerial = retainedSerial,
                         targets =
-                            if (selected ==
+                            if (retainedSerial ==
                                 null
                             ) {
                                 emptyList()
@@ -98,7 +104,7 @@ internal class BatteryProfilerController(
                                 mutableState.value.targets
                             },
                         selectedPackageName =
-                            if (selected ==
+                            if (retainedSerial ==
                                 null
                             ) {
                                 null
@@ -107,6 +113,9 @@ internal class BatteryProfilerController(
                             },
                         isRefreshing = false,
                     )
+                if (retainedSerial == null && automaticSerial != null) {
+                    selectDevice(automaticSerial)
+                }
             }
         }
     }

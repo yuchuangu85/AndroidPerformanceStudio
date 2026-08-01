@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +41,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.CapabilityStatus
@@ -60,7 +62,10 @@ import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
+import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
+import com.androidperformancestudio.ui_components.generated.resources.icon_expand
 import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.painterResource
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -452,7 +457,10 @@ private fun SelectorControl(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(DROPDOWN_GLYPH, color = style.secondaryText, fontSize = 10.sp, lineHeight = 12.sp)
+        Icon(
+            painter = painterResource(UiComponentsRes.drawable.icon_expand),
+            contentDescription = "expand",
+        )
     }
 }
 
@@ -846,6 +854,7 @@ internal fun MacOsButton(
     label: String,
     onClick: () -> Unit,
     style: ViewerColors,
+    height: Dp = ViewerDimensions.buttonHeight,
     enabled: Boolean = true,
     primary: Boolean = false,
 ) {
@@ -854,7 +863,7 @@ internal fun MacOsButton(
     Box(
         modifier =
             Modifier
-                .height(ViewerDimensions.buttonHeight)
+                .height(height)
                 .clip(RoundedCornerShape(ViewerDimensions.controlRadius))
                 .background(container.copy(alpha = if (enabled) 1f else DISABLED_CONTAINER_ALPHA))
                 .border(
@@ -886,7 +895,6 @@ private const val MAX_VISIBLE_EVENTS = 8
 private const val STATUS_FILL_ALPHA = 0.16f
 private const val DISABLED_CONTAINER_ALPHA = 0.55f
 private const val DISABLED_CONTENT_ALPHA = 0.48f
-private const val DROPDOWN_GLYPH = "⌄"
 private const val DEVICE_SELECTOR_WEIGHT = 0.77f
 private const val APP_SELECTOR_WEIGHT = 1.1f
 private const val PROCESS_SELECTOR_WEIGHT = 1f

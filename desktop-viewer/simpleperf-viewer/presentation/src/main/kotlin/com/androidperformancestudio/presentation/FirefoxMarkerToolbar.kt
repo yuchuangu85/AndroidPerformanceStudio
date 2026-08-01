@@ -14,6 +14,7 @@ import com.androidperformancestudio.presentation.generated.resources.SimpleperfV
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -28,7 +29,7 @@ internal fun FirefoxMarkerToolbar(
     }
     LaunchedEffect(draft) {
         if (draft != state.workspace.markerSearchText) {
-            delay(MARKER_SEARCH_DEBOUNCE_MILLIS)
+            delay(MARKER_SEARCH_DEBOUNCE_MILLIS.milliseconds)
             actions.onMarkerSearch(draft)
         }
     }

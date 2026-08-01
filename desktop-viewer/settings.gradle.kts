@@ -23,6 +23,16 @@ includeBuild("ui-components") {
     name = "ui-components"
 }
 
+// Shared provider-neutral AI transport and structured response infrastructure.
+includeBuild("ai-core") {
+    name = "ai-core"
+}
+
+// Shared import contracts and filesystem source validation.
+includeBuild("import-core") {
+    name = "import-core"
+}
+
 val layoutInspectorModules =
     mapOf(
         ":layout-inspector:shared-kernel:protocol-model" to "shared-kernel/protocol-model",

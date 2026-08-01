@@ -1,129 +1,73 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ai.AiHttpTransport
+import com.androidperformancestudio.ai.JdkAiHttpTransport
+import com.androidperformancestudio.ai.OpenAiResponsesClient
+import com.androidperformancestudio.ai.StructuredAiRequest
 import com.androidperformancestudio.analysis.AiAnalysisReport
 import com.androidperformancestudio.analysis.AiFinding
 import com.androidperformancestudio.analysis.Severity
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 internal fun interface AiAnalysisClient {
     suspend fun analyze(input: AiAnalysisInput): AiAnalysisReport
 }
 
-internal data class AiHttpRequest(
-    val url: String,
-    val headers: Map<String, String>,
-    val body: String,
-)
-
-internal data class AiHttpResponse(
-    val statusCode: Int,
-    val body: String,
-)
-
-internal fun interface AiHttpTransport {
-    fun post(request: AiHttpRequest): AiHttpResponse
-}
-
 internal class OpenAiResponsesAnalysisClient(
-    private val apiKey: String,
-    private val model: String,
-    private val endpoint: String = DEFAULT_ENDPOINT,
-    private val transport: AiHttpTransport = JdkAiHttpTransport(),
+    apiKey: String,
+    model: String,
+    endpoint: String = DEFAULT_ENDPOINT,
+    transport: AiHttpTransport = JdkAiHttpTransport(),
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) : AiAnalysisClient {
+    private val responsesClient =
+        OpenAiResponsesClient(
+            apiKey = apiKey,
+            model = model,
+            endpoint = endpoint,
+            transport = transport,
+            json = json,
+        )
+
     override suspend fun analyze(input: AiAnalysisInput): AiAnalysisReport = analyzeBlocking(input)
 
     fun analyzeBlocking(input: AiAnalysisInput): AiAnalysisReport {
-        require(apiKey.isNotBlank()) { "OPENAI_API_KEY is required for AI analysis" }
-        val response = transport.post(
-            AiHttpRequest(
-                url = endpoint,
-                headers = mapOf(
-                    "Authorization" to "Bearer $apiKey",
-                    "Content-Type" to "application/json",
+        val response =
+            responsesClient.execute(
+                StructuredAiRequest(
+                    instructions = SYSTEM_INSTRUCTIONS,
+                    input =
+                        "Analyze this Android layout snapshot JSON. " +
+                            "Return only the structured JSON report.\n${input.json}",
+                    schemaName = "agentperf_ai_analysis",
+                    schemaJson = REPORT_SCHEMA.toString(),
                 ),
-                body = buildRequestBody(input),
-            ),
-        )
-        if (response.statusCode !in 200..299) {
-            throw IllegalStateException("AI analysis request failed (${response.statusCode})")
-        }
-        val outputText = extractOutputText(response.body)
-        val decoded = json.decodeFromString<AiResponseReportDto>(outputText)
-        return decoded.toDomain(model)
-    }
-
-    private fun buildRequestBody(input: AiAnalysisInput): String = buildJsonObject {
-        put("model", model)
-        put("instructions", SYSTEM_INSTRUCTIONS)
-        put(
-            "input",
-            "Analyze this Android layout snapshot JSON. Return only the structured JSON report.\n${input.json}",
-        )
-        put("text", buildJsonObject {
-            put("format", buildJsonObject {
-                put("type", "json_schema")
-                put("name", "agentperf_ai_analysis")
-                put("strict", true)
-                put("schema", REPORT_SCHEMA)
-            })
-        })
-    }.toString()
-
-    private fun extractOutputText(body: String): String {
-        val root = json.parseToJsonElement(body).jsonObject
-        root["output_text"]?.jsonPrimitive?.contentOrNull?.let { return it }
-        root["output"]?.jsonArray?.forEach { item ->
-            item.jsonObject["content"]?.jsonArray?.forEach { content ->
-                val contentObject = content.jsonObject
-                if (contentObject["type"]?.jsonPrimitive?.contentOrNull == "output_text") {
-                    return contentObject.getValue("text").jsonPrimitive.content
-                }
-            }
-        }
-        throw IllegalStateException("AI analysis response did not contain output text")
+            )
+        val decoded = json.decodeFromString<AiResponseReportDto>(response.outputText)
+        return decoded.toDomain(response.model)
     }
 
     companion object {
-        const val DEFAULT_ENDPOINT = "https://api.openai.com/v1/responses"
+        const val DEFAULT_ENDPOINT = OpenAiResponsesClient.DEFAULT_ENDPOINT
         const val DEFAULT_MODEL = "gpt-5.6-luna"
 
-        fun fromEnvironment(): OpenAiResponsesAnalysisClient = OpenAiResponsesAnalysisClient(
-            apiKey = System.getenv("OPENAI_API_KEY").orEmpty(),
-            model = System.getenv("AGENTPERF_AI_MODEL")?.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL,
-            endpoint = System.getenv("OPENAI_BASE_URL")
-                ?.trimEnd('/')
-                ?.takeIf { it.isNotBlank() }
-                ?.let { baseUrl ->
-                    if (baseUrl.endsWith("/v1")) "$baseUrl/responses" else "$baseUrl/v1/responses"
-                }
-                ?: DEFAULT_ENDPOINT,
-        )
-    }
-}
-
-private class JdkAiHttpTransport : AiHttpTransport {
-    private val client = HttpClient.newHttpClient()
-
-    override fun post(request: AiHttpRequest): AiHttpResponse {
-        val builder = HttpRequest.newBuilder(URI.create(request.url))
-            .POST(HttpRequest.BodyPublishers.ofString(request.body))
-        request.headers.forEach(builder::header)
-        val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
-        return AiHttpResponse(statusCode = response.statusCode(), body = response.body())
+        fun fromEnvironment(): OpenAiResponsesAnalysisClient =
+            OpenAiResponsesAnalysisClient(
+                apiKey = System.getenv("OPENAI_API_KEY").orEmpty(),
+                model = System.getenv("AGENTPERF_AI_MODEL")?.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL,
+                endpoint =
+                    System.getenv("OPENAI_BASE_URL")
+                        ?.trimEnd('/')
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { baseUrl ->
+                            if (baseUrl.endsWith("/v1")) "$baseUrl/responses" else "$baseUrl/v1/responses"
+                        } ?: DEFAULT_ENDPOINT,
+            )
     }
 }
 

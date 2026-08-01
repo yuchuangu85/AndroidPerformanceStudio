@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.Divider
+import androidx.compose.material.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,6 +38,7 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.localizedStringResource
@@ -52,6 +55,7 @@ internal fun FirefoxReportWorkspace(
     flameTooltipMode: FlameTooltipMode,
 ) {
     val language = currentSimpleperfLanguage()
+    val color = LocalViewerColors.current
     Column(
         modifier =
             Modifier
@@ -100,6 +104,7 @@ internal fun FirefoxReportWorkspace(
         } else {
             FirefoxStackToolbar(state, actions, style)
         }
+        Divider(Modifier.fillMaxWidth(), color = color.border)
         FirefoxReportContentAndDetails(
             state = state,
             report = report,
@@ -111,7 +116,7 @@ internal fun FirefoxReportWorkspace(
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_diagnostics_sample_weight_duration_disclaimer, language),
             color = style.secondaryText,
-            fontSize = 9.sp,
+            fontSize = 10.sp,
         )
     }
 }

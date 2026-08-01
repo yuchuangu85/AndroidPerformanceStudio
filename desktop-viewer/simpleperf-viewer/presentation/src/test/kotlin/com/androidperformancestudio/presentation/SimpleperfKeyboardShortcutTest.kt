@@ -45,7 +45,7 @@ class SimpleperfKeyboardShortcutTest {
         assertTrue(panelSource.contains("FlameGraphPresenter.keyAction"))
         assertTrue(toolbarSource.contains("FlameSearchDraftState"))
         assertTrue(toolbarSource.contains("LaunchedEffect(sessionIdentity, searchState.draft"))
-        assertTrue(toolbarSource.contains("delay(STACK_SEARCH_DEBOUNCE_MILLIS)"))
+        assertTrue(toolbarSource.contains("delay(STACK_SEARCH_DEBOUNCE_MILLIS.milliseconds)"))
         assertTrue(panelSource.contains("actions.onNavigateFlameNode"))
         assertTrue(panelSource.contains("actions.onCopyFlameFunction"))
     }

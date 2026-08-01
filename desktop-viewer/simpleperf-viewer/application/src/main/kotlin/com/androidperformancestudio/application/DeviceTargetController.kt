@@ -178,11 +178,36 @@ class DeviceTargetController(
 
     suspend fun refreshDevices() {
         mutableState.value = mutableState.value.copy(isLoading = true, error = null)
-        mutableState.value =
-            when (val result = gateway.refreshDevices()) {
-                is StudioResult.Success -> mutableState.value.copy(devices = result.value, isLoading = false)
-                is StudioResult.Failure -> mutableState.value.copy(isLoading = false, error = result.error)
+        when (val result = gateway.refreshDevices()) {
+            is StudioResult.Success -> {
+                val current = mutableState.value
+                val retainedSerial =
+                    current.selectedSerial?.takeIf { serial ->
+                        result.value.any { it.serial == serial && it.isOnline }
+                    }
+                val automaticSerial =
+                    retainedSerial ?: result.value
+                        .filter(DeviceOption::isOnline)
+                        .singleOrNull()
+                        ?.serial
+                mutableState.value =
+                    current.copy(
+                        devices = result.value,
+                        selectedSerial = retainedSerial,
+                        selection = current.selection.takeIf { retainedSerial != null },
+                        selectedPackageName = current.selectedPackageName.takeIf { retainedSerial != null },
+                        selectedTarget = current.selectedTarget.takeIf { retainedSerial != null },
+                        captureSetup = current.captureSetup.takeIf { retainedSerial != null },
+                        threads = current.threads.takeIf { retainedSerial != null }.orEmpty(),
+                        isLoading = false,
+                    )
+                if (retainedSerial == null && automaticSerial != null) {
+                    selectDevice(automaticSerial)
+                }
             }
+            is StudioResult.Failure ->
+                mutableState.value = mutableState.value.copy(isLoading = false, error = result.error)
+        }
     }
 
     suspend fun selectDevice(serial: String) {

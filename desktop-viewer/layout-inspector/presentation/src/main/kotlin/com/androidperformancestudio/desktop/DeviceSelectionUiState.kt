@@ -1,6 +1,7 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 
 data class DeviceChoiceModel(
     val serial: String,
@@ -21,4 +22,6 @@ fun deviceChoices(devices: List<AdbDevice>): List<DeviceChoiceModel> =
 fun sanitizeSelectedDeviceSerial(
     selectedSerial: String?,
     devices: List<AdbDevice>,
-): String? = selectedSerial?.takeIf { serial -> devices.any { it.serial == serial } }
+): String? =
+    selectedSerial?.takeIf { serial -> devices.any { it.serial == serial && it.state == AdbDeviceState.ONLINE } }
+        ?: devices.filter { it.state == AdbDeviceState.ONLINE }.singleOrNull()?.serial

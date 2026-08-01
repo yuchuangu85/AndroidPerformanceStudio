@@ -9,6 +9,7 @@ import com.androidperformancestudio.startup.export.StartupCsvExporter
 import com.androidperformancestudio.startup.export.StartupJsonExporter
 import com.androidperformancestudio.startup.export.StartupJsonImporter
 import com.androidperformancestudio.startup.model.CompilationMode
+import com.androidperformancestudio.startup.model.StartupDevice
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.StartupProfilerState
 import com.androidperformancestudio.startup.presentation.withCompilationMode
@@ -59,21 +60,30 @@ internal class StartupProfilerController(
                 mutableState.value =
                     mutableState.value.copy(isRefreshing = false, errorMessage = result.message)
             is StartupBackendResult.Success -> {
-                val selected =
+                val retainedSerial =
                     mutableState.value.selectedDeviceSerial?.takeIf { serial ->
                         result.value.any {
                             it.serial == serial &&
                                 it.online
                         }
                     }
+                val automaticSerial =
+                    retainedSerial ?: result.value
+                        .filter(StartupDevice::online)
+                        .singleOrNull()
+                        ?.serial
                 mutableState.value =
                     mutableState.value.copy(
                         devices = result.value,
-                        selectedDeviceSerial = selected,
-                        targets = if (selected == null) emptyList() else mutableState.value.targets,
-                        selectedComponentName = if (selected == null) null else mutableState.value.selectedComponentName,
+                        selectedDeviceSerial = retainedSerial,
+                        targets = if (retainedSerial == null) emptyList() else mutableState.value.targets,
+                        selectedComponentName =
+                            if (retainedSerial == null) null else mutableState.value.selectedComponentName,
                         isRefreshing = false,
                     )
+                if (retainedSerial == null && automaticSerial != null) {
+                    selectDevice(automaticSerial)
+                }
             }
         }
     }

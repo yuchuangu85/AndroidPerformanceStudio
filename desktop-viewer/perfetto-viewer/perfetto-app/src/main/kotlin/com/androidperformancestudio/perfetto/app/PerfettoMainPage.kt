@@ -147,8 +147,7 @@ fun FrameWindowScope.PerfettoMainPage(
     LaunchedEffect(Unit) { captureSession.state.collect { captureState = it } }
     LaunchedEffect(adbPath) {
         devices = discoverPerfettoDevices(adbPath)
-        selectedDeviceSerial = selectedDeviceSerial?.takeIf { serial -> devices.any { it.serial == serial } }
-            ?: devices.firstOrNull { it.online }?.serial
+        selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, devices)
     }
     LaunchedEffect(Unit) {
         when (val result = sessionStore.listRecent()) {
@@ -257,7 +256,7 @@ fun FrameWindowScope.PerfettoMainPage(
                     coroutineScope.launch(Dispatchers.IO) {
                         val refreshed = discoverPerfettoDevices(adbPath)
                         devices = refreshed
-                        selectedDeviceSerial = refreshed.firstOrNull { it.online }?.serial
+                        selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, refreshed)
                     }
                 },
             )
@@ -649,6 +648,13 @@ private suspend fun discoverPerfettoDevices(adbPath: String): List<PerfettoDevic
             }
     }.getOrDefault(emptyList())
 }
+
+internal fun preferredDeviceSerial(
+    selectedSerial: String?,
+    devices: List<PerfettoDevice>,
+): String? =
+    selectedSerial?.takeIf { serial -> devices.any { it.serial == serial && it.online } }
+        ?: devices.filter(PerfettoDevice::online).singleOrNull()?.serial
 
 @Composable
 @Suppress("ktlint:standard:function-naming")

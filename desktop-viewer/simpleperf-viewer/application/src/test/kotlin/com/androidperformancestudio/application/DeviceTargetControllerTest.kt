@@ -24,13 +24,12 @@ import kotlin.test.assertTrue
 
 class DeviceTargetControllerTest {
     @Test
-    fun `refreshes devices and selects an online device`() =
+    fun `refreshing devices automatically selects the only online device`() =
         runBlocking {
             val gateway = FakeDeviceTargetGateway()
             val controller = DeviceTargetController(gateway)
 
             controller.refreshDevices()
-            controller.selectDevice("serial-1")
 
             assertEquals(
                 listOf("serial-1", "offline-1"),
@@ -52,6 +51,7 @@ class DeviceTargetControllerTest {
             )
             assertFalse(controller.state.value.isLoading)
             assertNull(controller.state.value.error)
+            assertEquals(1, gateway.selectionLoads)
         }
 
     @Test
@@ -60,7 +60,6 @@ class DeviceTargetControllerTest {
             val gateway = FakeDeviceTargetGateway()
             val controller = DeviceTargetController(gateway)
             controller.refreshDevices()
-            controller.selectDevice("serial-1")
 
             controller.updateSearch("camera")
 

@@ -25,13 +25,30 @@ class DeviceSelectionUiStateTest {
     }
 
     @Test
-    fun `selected serial falls back to automatic when disconnected`() {
+    fun `selected serial falls back to the only connected device`() {
         assertEquals(null, sanitizeSelectedDeviceSerial("missing", emptyList()))
         assertEquals(
             "physical-1",
             sanitizeSelectedDeviceSerial(
                 "physical-1",
                 listOf(AdbDevice("physical-1", AdbDeviceState.ONLINE)),
+            ),
+        )
+        assertEquals(
+            "physical-1",
+            sanitizeSelectedDeviceSerial(
+                null,
+                listOf(AdbDevice("physical-1", AdbDeviceState.ONLINE)),
+            ),
+        )
+        assertEquals(
+            null,
+            sanitizeSelectedDeviceSerial(
+                null,
+                listOf(
+                    AdbDevice("physical-1", AdbDeviceState.ONLINE),
+                    AdbDevice("physical-2", AdbDeviceState.ONLINE),
+                ),
             ),
         )
     }

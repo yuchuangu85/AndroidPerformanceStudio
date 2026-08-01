@@ -23,13 +23,12 @@ import kotlin.test.assertTrue
 
 class MemoryProfilerControllerTest {
     @Test
-    fun `device process capture state flows through backend`() =
+    fun `the only online device is selected and its processes are loaded`() =
         runTest {
             val backend = FakeBackend()
             val controller = MemoryProfilerController(backend)
 
             controller.refreshDevices()
-            controller.selectDevice("serial-1")
             controller.selectProcess(42)
             controller.dumpHeap()
 
@@ -149,7 +148,6 @@ class MemoryProfilerControllerTest {
             val backend = FakeBackend()
             val controller = MemoryProfilerController(backend)
             controller.refreshDevices()
-            controller.selectDevice("serial-1")
             controller.selectProcess(42)
 
             controller.dumpBitmaps()

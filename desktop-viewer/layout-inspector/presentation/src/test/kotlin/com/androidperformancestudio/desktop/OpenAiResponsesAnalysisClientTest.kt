@@ -1,6 +1,9 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.analysis.Severity
+import com.androidperformancestudio.ai.AiHttpRequest
+import com.androidperformancestudio.ai.AiHttpResponse
+import com.androidperformancestudio.ai.AiHttpTransport
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.Divider
+import androidx.compose.material.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +63,7 @@ import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -350,8 +353,9 @@ internal fun TopFunctionsReport(
     style: ViewerColors,
 ) {
     val language = currentSimpleperfLanguage()
+    val color = LocalViewerColors.current
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 10.dp)) {
             TopFunctionSort.entries.forEach { sort ->
                 MacOsChoiceChip(
                     label = sort.displayName(language),
@@ -359,7 +363,9 @@ internal fun TopFunctionsReport(
                     enabled = true,
                     style = style,
                 ) { actions.onTopFunctionSort(sort, state.topDescending) }
+                Spacer(modifier = Modifier.width(8.dp))
             }
+            Spacer(modifier = Modifier.width(16.dp))
             MacOsButton(
                 localizedStringResource(
                     if (state.topDescending) SimpleperfViewerRes.sp_calltree_descending else SimpleperfViewerRes.sp_calltree_ascending,
@@ -367,8 +373,10 @@ internal fun TopFunctionsReport(
                 ),
                 { actions.onTopFunctionSort(state.topSort, !state.topDescending) },
                 style,
+                height = 20.dp
             )
         }
+        Divider(Modifier.fillMaxWidth(), color = color.border)
         TopFunctionHeader(style)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             itemsIndexed(report.topFunctions, key = ::topFunctionItemKey) { _, function ->
@@ -393,37 +401,37 @@ private fun TopFunctionHeader(style: ViewerColors) {
             localizedStringResource(SimpleperfViewerRes.sp_calltree_function_library, language),
             modifier = Modifier.weight(1f),
             color = style.secondaryText,
-            fontSize = 9.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
         )
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_calltree_inclusive, language),
             modifier = Modifier.width(90.dp),
             color = style.secondaryText,
-            fontSize = 9.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
         )
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_calltree_exclusive, language),
             modifier = Modifier.width(90.dp),
             color = style.secondaryText,
-            fontSize = 9.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
         )
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_report_samples, language),
             modifier = Modifier.width(70.dp),
             color = style.secondaryText,
-            fontSize = 9.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
         )
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_target_threads, language),
             modifier = Modifier.width(70.dp),
             color = style.secondaryText,
-            fontSize = 9.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
         )
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_calltree_navigate, language),
             modifier = Modifier.width(180.dp),
             color = style.secondaryText,
-            fontSize = 9.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
         )
     }
 }

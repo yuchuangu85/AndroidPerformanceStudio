@@ -10,6 +10,7 @@ import com.androidperformancestudio.frame.model.FrameCaptureSession
 import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.parser.GfxInfoFrameStatsParser
+import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerState
 import com.androidperformancestudio.frame.storage.SqliteFrameSessionStore
@@ -49,19 +50,27 @@ internal class FrameProfilerController(
                         errorMessage = result.message,
                     )
             is FrameBackendResult.Success -> {
-                val selected =
+                val retainedSerial =
                     mutableState.value.selectedDeviceSerial?.takeIf { serial ->
                         result.value.any { it.serial == serial && it.online }
                     }
+                val automaticSerial =
+                    retainedSerial ?: result.value
+                        .filter(FrameDeviceOption::online)
+                        .singleOrNull()
+                        ?.serial
                 mutableState.value =
                     mutableState.value.copy(
                         devices = result.value,
-                        selectedDeviceSerial = selected,
-                        processes = if (selected == null) emptyList() else mutableState.value.processes,
-                        selectedProcessId = if (selected == null) null else mutableState.value.selectedProcessId,
+                        selectedDeviceSerial = retainedSerial,
+                        processes = if (retainedSerial == null) emptyList() else mutableState.value.processes,
+                        selectedProcessId = if (retainedSerial == null) null else mutableState.value.selectedProcessId,
                         isRefreshingDevices = false,
                         errorMessage = null,
                     )
+                if (retainedSerial == null && automaticSerial != null) {
+                    selectDevice(automaticSerial)
+                }
             }
         }
     }

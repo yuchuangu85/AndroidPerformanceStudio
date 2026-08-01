@@ -118,6 +118,8 @@ desktop-viewer/          Compose Desktop application and feature modules
   gpu-inspector-integration/  AGI discovery and artifact integration
   benchmark-regression/  AndroidX Benchmark comparison and reporting
   ui-components/         Shared public Compose controls
+  ai-core/               Shared provider-neutral AI infrastructure
+  import-core/           Shared import contracts and source validation
 third_party/             Pinned Firefox Profiler and Perfetto submodules
 scripts/                 Bundled profiler and trace-processor preparation scripts
 docs/                    Architecture, requirements, and design records

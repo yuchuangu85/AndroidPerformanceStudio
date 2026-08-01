@@ -80,8 +80,7 @@ class FrameProfilerControllerTest {
                 controller.state.value.devices
                     .map { it.serial },
             )
-
-            controller.selectDevice("device-1")
+            assertEquals("device-1", controller.state.value.selectedDeviceSerial)
             assertEquals(process.pid, controller.state.value.selectedProcessId)
 
             controller.startOnlineCapture()

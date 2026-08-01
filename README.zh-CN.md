@@ -118,6 +118,8 @@ desktop-viewer/          Compose Desktop 应用和功能模块
   gpu-inspector-integration/  AGI 发现与产物集成
   benchmark-regression/  AndroidX Benchmark 对比与报告
   ui-components/         共享的公共 Compose 控件
+  ai-core/               共享的 AI Provider 与结构化响应基础设施
+  import-core/           共享的导入契约与源文件校验
 third_party/             固定版本的 Firefox Profiler 和 Perfetto 子模块
 scripts/                 内置分析器和 trace processor 的准备脚本
 docs/                    架构、需求与设计记录
