@@ -30,6 +30,7 @@ private data class AiFindingDto(
     val message: String,
     val recommendation: String,
     val confidence: Float,
+    val sourceCandidateIds: List<String> = emptyList(),
 )
 
 private fun AiAnalysisReport.toDto() = AiAnalysisReportDto(
@@ -44,6 +45,7 @@ private fun AiAnalysisReport.toDto() = AiAnalysisReportDto(
             message = it.message,
             recommendation = it.recommendation,
             confidence = it.confidence,
+            sourceCandidateIds = it.sourceCandidateIds,
         )
     },
 )
@@ -60,6 +62,7 @@ private fun AiAnalysisReportDto.toDomain() = AiAnalysisReport(
             message = it.message,
             recommendation = it.recommendation,
             confidence = it.confidence,
+            sourceCandidateIds = it.sourceCandidateIds,
         )
     },
 )

@@ -29,8 +29,8 @@ includeBuild("ai-core") {
 }
 
 // Shared import contracts and filesystem source validation.
-includeBuild("import-core") {
-    name = "import-core"
+includeBuild("source-workspace") {
+    name = "source-workspace"
 }
 
 val layoutInspectorModules =

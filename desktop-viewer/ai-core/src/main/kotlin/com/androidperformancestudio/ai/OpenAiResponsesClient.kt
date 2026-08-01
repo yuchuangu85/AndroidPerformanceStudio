@@ -4,6 +4,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.time.Duration
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -109,15 +110,22 @@ public class OpenAiResponsesClient(
 }
 
 public class JdkAiHttpTransport : AiHttpTransport {
-    private val client: HttpClient = HttpClient.newHttpClient()
+    private val client: HttpClient =
+        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS)).build()
 
     override fun post(request: AiHttpRequest): AiHttpResponse {
         val builder =
             HttpRequest
                 .newBuilder(URI.create(request.url))
+                .timeout(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
                 .POST(HttpRequest.BodyPublishers.ofString(request.body))
         request.headers.forEach(builder::header)
         val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         return AiHttpResponse(statusCode = response.statusCode(), body = response.body())
+    }
+
+    private companion object {
+        const val CONNECT_TIMEOUT_SECONDS: Long = 15
+        const val REQUEST_TIMEOUT_SECONDS: Long = 120
     }
 }

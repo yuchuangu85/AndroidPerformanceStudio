@@ -9,7 +9,18 @@ import com.androidperformancestudio.protocol.ViewNode
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-internal data class AiAnalysisInput(val json: String)
+public data class LayoutSourceEvidence(
+    val nodeId: String,
+    val className: String,
+    val resourceName: String?,
+)
+
+public data class AiAnalysisInput(
+    val json: String,
+    val sourceEvidence: List<LayoutSourceEvidence> = emptyList(),
+    val selectedNodeId: String? = null,
+    val includeSourceSnippets: Boolean = true,
+)
 
 internal class AiAnalysisInputBuilder(
     private val json: Json = Json {
@@ -22,8 +33,11 @@ internal class AiAnalysisInputBuilder(
         activeRoot: UiNode,
         analysis: AnalysisReport,
         screenshotAvailable: Boolean,
-    ): AiAnalysisInput = AiAnalysisInput(
-        json = json.encodeToString(
+        selectedNode: UiNode? = null,
+    ): AiAnalysisInput {
+        val evidenceNodes = selectedNode?.let(::listOf) ?: activeRoot.flatten().take(MAX_EVIDENCE_NODES).toList()
+        return AiAnalysisInput(
+            json = json.encodeToString(
             AiAnalysisInputDto(
                 packageName = snapshot.packageName,
                 capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
@@ -48,8 +62,17 @@ internal class AiAnalysisInputBuilder(
                 },
                 tree = activeRoot.toDto(depth = 0),
             ),
-        ),
-    )
+            ),
+            sourceEvidence = evidenceNodes.map { node ->
+                LayoutSourceEvidence(
+                    nodeId = node.id,
+                    className = node.className,
+                    resourceName = (node as? ViewNode)?.resourceName,
+                )
+            },
+            selectedNodeId = selectedNode?.id,
+        )
+    }
 
     private fun UiNode.toDto(depth: Int): NodeDto = NodeDto(
         id = id,
@@ -76,7 +99,13 @@ internal class AiAnalysisInputBuilder(
     private companion object {
         const val MAX_DEPTH = 8
         const val MAX_CHILDREN_PER_NODE = 24
+        const val MAX_EVIDENCE_NODES = 200
     }
+}
+
+private fun UiNode.flatten(): Sequence<UiNode> = sequence {
+    yield(this@flatten)
+    children.forEach { child -> yieldAll(child.flatten()) }
 }
 
 @Serializable

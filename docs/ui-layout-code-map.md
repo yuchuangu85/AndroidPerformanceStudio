@@ -1,6 +1,6 @@
 # 自研界面布局与代码映射
 
-> 更新时间：2026-07-30
+> 更新时间：2026-08-01
 >
 > 范围：仅统计本仓库自行开发的界面。
 >
@@ -167,9 +167,40 @@ CPU Profiler 由同一个设备页根据报告加载状态切换采集工作区�
 | Top Functions | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/TopFunctionsPanel.kt`、`desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/ReportPage.kt` | `TopFunctionsPanel`、`TopFunctionsReport` |
 | Call Tree | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/CallTreePanel.kt`、`desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/ReportPage.kt` | `CallTreePanel`、`CallTreeReport` |
 | Flame Graph | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphPanel.kt` | `FlameGraphPanel`、`FirefoxFlameGraphViewport` |
+| Flame Graph Tooltip 布局与格式化 | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphTooltip.kt` | `FirefoxFlameGraphTooltip`、`FirefoxTooltipTimings`、`firefoxTooltipDuration`、`firefoxTooltipSamples` |
+| Flame Graph Tooltip 分类与样本统计 | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/FlameGraphTooltipFacts.kt` | `FlameGraphTooltipFacts`、`FlameGraphTooltipCategorySamples`、`tooltipFacts` |
 | Stack Chart | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/StackChartPanel.kt` | `StackChartPanel` |
 | Marker Chart | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/MarkerChartPanel.kt` | `MarkerChartPanel`、`MarkerPanelMessage` |
 | Marker Table | `desktop-viewer/simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/MarkerTablePanel.kt` | `MarkerTablePanel`、`MarkerTableHeader`、`MarkerTableRow` |
+
+### Simpleperf Flame Graph Tooltip
+
+鼠标悬停在火焰图函数块上时，Tooltip 按 Firefox Profiler 的信息层级展示：
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ 54.0ms (100%) android.view.ThreadedRenderer.draw             │
+├──────────────────────────────────────────────────────────────┤
+│ Stack Type   Managed                                        │
+│ Category     ■ Rendering                                    │
+│ Resource     /system/framework/framework.jar                 │
+├──────────────────────────────────────────────────────────────┤
+│                         Running                  Self         │
+│ Overall              54 samples             4 samples        │
+│ User                 12 samples                     —        │
+│ Native               32 samples             4 samples        │
+│ JIT                  10 samples                     —        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- 第一行固定为“时间 `ms`（占比）函数名”，例如 `54.0ms (100%) function`。
+- 信息区固定按 `Stack Type`、`Category`、`Resource` 排列；Simpleperf 未直接提供分类时，
+  根据资源路径和栈类型推导稳定的 Category。
+- 统计区先显示 `Overall`，再显示样本数非零的 `User`、`Kernel`、`Native`、`DEX`、
+  `OAT`、`Off-CPU`、`Other`、`JIT` 分类。
+- `Running` 和 `Self` 均使用采样数：单数为 `1 sample`，其余为 `samples`；Self 为零时显示 `—`。
+  不在 Tooltip 中展示 `54,000,000` 这类 Simpleperf 原始权重。
+- Tooltip 由 `FlameGraphPanel` 根据鼠标位置锚定；打开右键菜单时隐藏，避免两个浮层重叠。
 
 ## 8. Trace Analyzer（自研 Perfetto 工作区）
 

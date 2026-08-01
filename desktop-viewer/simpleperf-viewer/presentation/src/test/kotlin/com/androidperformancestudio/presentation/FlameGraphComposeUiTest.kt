@@ -34,9 +34,13 @@ class FlameGraphComposeUiTest {
     fun `default Firefox tooltip follows a real hover and closes behind context menu`() =
         runDesktopComposeUiTest(width = 760, height = 320) {
             var panelState by mutableStateOf(FlameGraphPanelState())
+            var hoverDispatchCount = 0
             val actions =
                 goldenActions().copy(
-                    onHoverFlameNode = { nodeId -> panelState = panelState.copy(hoveredNodeId = nodeId) },
+                    onHoverFlameNode = { nodeId ->
+                        hoverDispatchCount++
+                        panelState = panelState.copy(hoveredNodeId = nodeId)
+                    },
                 )
             setContent {
                 MaterialTheme {
@@ -59,6 +63,20 @@ class FlameGraphComposeUiTest {
             assertTrue(
                 kotlin.math.abs(tooltip.left - (canvasBounds.left + hoverPosition.x + 11f)) <= 2f,
                 "Tooltip did not follow the pointer with Firefox's 11px offset: $tooltip",
+            )
+
+            val dispatchCountAfterEnteringFrame = hoverDispatchCount
+            canvas.performMouseInput { moveTo(hoverPosition + Offset(4f, 0f)) }
+            waitForIdle()
+            assertEquals(
+                dispatchCountAfterEnteringFrame,
+                hoverDispatchCount,
+                "Moving inside one frame must not rebuild the tooltip on every pointer event",
+            )
+            assertEquals(
+                tooltip,
+                onNodeWithTag("firefox-flame-tooltip").fetchSemanticsNode().boundsInRoot,
+                "The tooltip anchor must remain stable while the pointer stays in one frame",
             )
 
             panelState = panelState.copy(contextNodeId = panelState.hoveredNodeId)

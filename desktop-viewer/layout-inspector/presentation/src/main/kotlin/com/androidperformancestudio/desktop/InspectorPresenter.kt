@@ -60,6 +60,7 @@ data class FindingRowModel(
     val nodeId: String,
     val message: String,
     val tone: FindingTone,
+    val sourceCandidateIds: List<String> = emptyList(),
 )
 
 enum class ConnectionTone {
@@ -129,6 +130,7 @@ internal object InspectorPresenter {
                 nodeId = finding.nodeId,
                 message = "${finding.message} · ${finding.recommendation}",
                 tone = finding.severity.toTone(),
+                sourceCandidateIds = finding.sourceCandidateIds,
             )
         }
         return InspectorScreenModel(

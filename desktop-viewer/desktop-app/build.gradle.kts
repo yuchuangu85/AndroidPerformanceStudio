@@ -81,8 +81,11 @@ require(targetArch == hostArch || targetJavaHome != null) {
 }
 
 dependencies {
+    implementation("com.androidperformancestudio:ai-core:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:source-workspace:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":layout-inspector:layout-presentation"))
+    implementation(project(":layout-inspector:shared-kernel:analysis-engine"))
     implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:perfetto-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.memory:memory-app:0.1.0-SNAPSHOT")

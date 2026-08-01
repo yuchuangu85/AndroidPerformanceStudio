@@ -4,9 +4,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.nio.file.Path
+import com.androidperformancestudio.source.SourceLocation
 
 enum class AppDestination {
     HOME,
+    SOURCE_WORKSPACES,
     LAYOUT_INSPECTOR,
     SIMPLEPERF,
     PERFETTO,
@@ -36,6 +38,8 @@ class AppNavigator(
         private set
     var perfettoTraceNotice by mutableStateOf<String?>(null)
         private set
+    var sourceLocation by mutableStateOf<SourceLocation?>(null)
+        private set
 
     fun open(destination: com.androidperformancestudio.desktop.AppDestination) {
         if (destination != AppDestination.LAYOUT_INSPECTOR) inspectorCorrelationHint = null
@@ -43,7 +47,14 @@ class AppNavigator(
             perfettoTraceFile = null
             perfettoTraceNotice = null
         }
+        if (destination != AppDestination.SOURCE_WORKSPACES) sourceLocation = null
         this.destination = destination
+    }
+
+    fun openSource(location: SourceLocation) {
+        inspectorCorrelationHint = null
+        sourceLocation = location
+        destination = AppDestination.SOURCE_WORKSPACES
     }
 
     fun openLayoutInspector(correlationHint: com.androidperformancestudio.desktop.InspectorCorrelationHint?) {

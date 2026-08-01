@@ -38,6 +38,7 @@ internal const val HOME_ITEM_TITLE_FONT_SIZE_SP = 18
 @Composable
 fun AppHomePage(
     language: UiLanguage,
+    onOpenSourceWorkspaces: () -> Unit,
     onOpenLayoutInspector: () -> Unit,
     onOpenSimpleperf: () -> Unit,
     onOpenPerfetto: () -> Unit,
@@ -51,6 +52,18 @@ fun AppHomePage(
 ) {
     val entries =
         listOf(
+            HomeFeatureEntry(
+                title = if (language == UiLanguage.SIMPLIFIED_CHINESE) "源码工作区" else "Source Workspaces",
+                subtitle = if (language == UiLanguage.SIMPLIFIED_CHINESE) "源码与 AI" else "Source & AI",
+                description =
+                    if (language == UiLanguage.SIMPLIFIED_CHINESE) {
+                        "管理本地、GitHub 和 AOSP 源码快照、索引与构建证据。"
+                    } else {
+                        "Manage Local, GitHub, and AOSP source snapshots, indexes, and build evidence."
+                    },
+                actionLabel = localizedStringResource(Res.string.open, language),
+                onClick = onOpenSourceWorkspaces,
+            ),
             HomeFeatureEntry(
                 title = localizedStringResource(Res.string.layout_inspector, language),
                 subtitle = localizedStringResource(Res.string.layout_inspection, language),

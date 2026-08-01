@@ -99,7 +99,10 @@ class SimpleperfLocalizationTest {
             localizedStringResource(
                 SimpleperfViewerRes.sp_common_bullet_format,
                 UiLanguage.SIMPLIFIED_CHINESE,
-                localizedStringResource(SimpleperfViewerRes.sp_flame_review_data_quality, UiLanguage.SIMPLIFIED_CHINESE),
+                localizedStringResource(
+                    SimpleperfViewerRes.sp_flame_review_data_quality,
+                    UiLanguage.SIMPLIFIED_CHINESE,
+                ),
             ),
         )
     }

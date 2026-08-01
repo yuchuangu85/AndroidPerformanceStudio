@@ -1,6 +1,15 @@
+@file:Suppress("MaxLineLength", "MagicNumber")
+
 package com.androidperformancestudio.desktop
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -11,7 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.awt.ComposeWindow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.adb.AdbConfiguration
 import com.androidperformancestudio.adb.AdbDeviceTargetGateway
@@ -42,13 +53,16 @@ import com.androidperformancestudio.presentation.HomeScreen
 import com.androidperformancestudio.presentation.ReportActions
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.UiLanguage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Path
 import java.util.Locale
 
 @Composable
-@Suppress("FunctionName", "LongMethod", "LongParameterList")
+@Suppress("FunctionName", "LongMethod", "LongParameterList", "CyclomaticComplexMethod", "TooGenericExceptionCaught")
 fun FrameWindowScope.SimpleperfMainPage(
     window: ComposeWindow,
     settings: SimpleperfUiSettings = SimpleperfUiSettings(),
@@ -58,6 +72,8 @@ fun FrameWindowScope.SimpleperfMainPage(
     onOpenPreferences: ((CaptureSettingsSection) -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,
     onCaptureSettingsContextChanged: (SimpleperfCaptureSettingsContext?) -> Unit = {},
+    aiAnalysisClient: SimpleperfAiAnalysisClient? = null,
+    onOpenSourceCandidate: ((String) -> Unit)? = null,
 ) {
     var currentSettings by remember(settings) { mutableStateOf(settings) }
     val dependencies = remember(androidSdkPath) { createWorkspaceDependencies(androidSdkPath) }
@@ -101,6 +117,10 @@ fun FrameWindowScope.SimpleperfMainPage(
     val captureState by controller.captureState.collectAsState()
     val reportState by reportController.state.collectAsState()
     val scope = rememberCoroutineScope()
+    var pendingAiReport by remember { mutableStateOf<com.androidperformancestudio.application.ReportData?>(null) }
+    var aiAnalysisWorking by remember { mutableStateOf(false) }
+    var aiAnalysisResult by remember { mutableStateOf<SimpleperfAiAnalysisReport?>(null) }
+    var aiAnalysisError by remember { mutableStateOf<String?>(null) }
     val reportActionFactory =
         remember(reportController, sessionPackages, reportExports, sessionOpener, scope, window) {
             DesktopReportActionFactory(
@@ -191,7 +211,110 @@ fun FrameWindowScope.SimpleperfMainPage(
         },
         onOpenUserGuide = onOpenUserGuide,
         onNavigateHome = onNavigateHome,
+        onRunAiAnalysis =
+            aiAnalysisClient?.let {
+                {
+                    (reportState.loadState as? ReportLoadState.Ready)?.report?.let { report ->
+                        pendingAiReport = report
+                    }
+                }
+            },
     )
+
+    pendingAiReport?.let { report ->
+        var performanceOnly by remember(report) { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { pendingAiReport = null },
+            title = { Text("Run Simpleperf AI Analysis") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Scope: ${selectedSimpleperfScope(reportState, report)}\n" +
+                            "Evidence: ${report.topFunctions.size.coerceAtMost(20)} hotspot(s), ${report.overview.sampleCount} samples\n" +
+                            "Only deterministic source candidates and minimal snippets may be sent.",
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = performanceOnly, onCheckedChange = { performanceOnly = it })
+                        Text("Performance data only")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !aiAnalysisWorking,
+                    onClick = {
+                        pendingAiReport = null
+                        aiAnalysisWorking = true
+                        aiAnalysisError = null
+                        scope.launch {
+                            try {
+                                aiAnalysisResult =
+                                    withContext(Dispatchers.IO) {
+                                        requireNotNull(aiAnalysisClient).analyze(report, reportState, !performanceOnly)
+                                    }
+                            } catch (cancellation: CancellationException) {
+                                throw cancellation
+                            } catch (failure: Throwable) {
+                                aiAnalysisError = failure.message ?: failure::class.simpleName
+                            } finally {
+                                aiAnalysisWorking = false
+                            }
+                        }
+                    },
+                ) { Text("Analyze") }
+            },
+            dismissButton = { TextButton(onClick = { pendingAiReport = null }) { Text("Cancel") } },
+        )
+    }
+    aiAnalysisResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { aiAnalysisResult = null },
+            title = { Text("AI Analysis · ${result.model}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(result.summary)
+                    result.findings.take(6).forEach { finding ->
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("${finding.title} (${(finding.confidence * 100).toInt()}%)")
+                            Text(finding.explanation)
+                            Text(finding.recommendation)
+                            finding.sourceCandidateIds.forEachIndexed { index, candidateId ->
+                                TextButton(onClick = { onOpenSourceCandidate?.invoke(candidateId) }) {
+                                    Text(if (finding.sourceCandidateIds.size == 1) "Open Source" else "Open Source Candidate ${index + 1}")
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { aiAnalysisResult = null }) { Text("Close") } },
+        )
+    }
+    aiAnalysisError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { aiAnalysisError = null },
+            title = { Text("AI Analysis Failed") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { aiAnalysisError = null }) { Text("Close") } },
+        )
+    }
+}
+
+@Suppress("ReturnCount")
+private fun selectedSimpleperfScope(
+    state: ReportState,
+    report: com.androidperformancestudio.application.ReportData,
+): String {
+    state.workspace.selections.topFunctionKey
+        ?.let { return "function $it" }
+    state.workspace.selections.callNodeId?.let { nodeId ->
+        val index = report.flameGraph.callNodes.indexOf(nodeId)
+        report.flameGraph.callNodes
+            .frameAt(index ?: -1)
+            ?.symbolName
+            ?.let { return "call node $it" }
+    }
+    return "report summary"
 }
 
 @Composable

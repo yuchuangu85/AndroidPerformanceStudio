@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Divider
-import androidx.compose.material.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,6 +52,7 @@ internal fun FirefoxReportWorkspace(
     actions: ReportActions,
     style: ViewerColors,
     flameTooltipMode: FlameTooltipMode,
+    onRunAiAnalysis: (() -> Unit)? = null,
 ) {
     val language = currentSimpleperfLanguage()
     val color = LocalViewerColors.current
@@ -83,20 +83,27 @@ internal fun FirefoxReportWorkspace(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             FirefoxReportTabs(state.selectedTab, actions.onSelectTab, style)
-            Box(Modifier.testTag("show-details")) {
-                MacOsButton(
-                    label =
-                        localizedStringResource(
-                            if (state.workspace.detailsVisible) {
-                                SimpleperfViewerRes.sp_report_hide_details
-                            } else {
-                                SimpleperfViewerRes.sp_report_show_details
-                            },
-                            language,
-                        ),
-                    onClick = { actions.onDetailsVisible(!state.workspace.detailsVisible) },
-                    style = style,
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                onRunAiAnalysis?.let { run ->
+                    Box(Modifier.testTag("run-ai-analysis")) {
+                        MacOsButton(label = "Run AI Analysis", onClick = run, style = style)
+                    }
+                }
+                Box(Modifier.testTag("show-details")) {
+                    MacOsButton(
+                        label =
+                            localizedStringResource(
+                                if (state.workspace.detailsVisible) {
+                                    SimpleperfViewerRes.sp_report_hide_details
+                                } else {
+                                    SimpleperfViewerRes.sp_report_show_details
+                                },
+                                language,
+                            ),
+                        onClick = { actions.onDetailsVisible(!state.workspace.detailsVisible) },
+                        style = style,
+                    )
+                }
             }
         }
         if (state.selectedTab == ReportTab.MARKER_CHART || state.selectedTab == ReportTab.MARKER_TABLE) {

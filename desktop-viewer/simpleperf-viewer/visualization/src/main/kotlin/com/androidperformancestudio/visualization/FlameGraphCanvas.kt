@@ -93,21 +93,31 @@ fun FlameGraphCanvas(
     val categoryCache = remember(layout) { HashMap<Int, FlameCategoryRole>() }
     val currentIntent by rememberUpdatedState(onIntent)
     val currentHoverPosition by rememberUpdatedState(onHoverPosition)
+    val renderedHoveredNodeId by rememberUpdatedState(hoveredNodeId)
+    val currentLayout by rememberUpdatedState(layout)
+
+    fun updateHover(position: Offset) {
+        val intent = FlameGraphInteraction.hover(currentLayout, position)
+        if (intent.nodeId != renderedHoveredNodeId) {
+            currentHoverPosition(position.takeIf { intent.nodeId != null })
+            currentIntent(intent)
+        }
+    }
     val primaryInputModifier =
         modifier
             .onPointerEvent(PointerEventType.Enter) { event ->
-                event.changes.lastOrNull()?.position?.let { position ->
-                    currentHoverPosition(position)
-                    currentIntent(FlameGraphInteraction.hover(layout, position))
-                }
+                event.changes
+                    .lastOrNull()
+                    ?.position
+                    ?.let(::updateHover)
             }.onPointerEvent(PointerEventType.Move) { event ->
-                event.changes.lastOrNull()?.position?.let { position ->
-                    currentHoverPosition(position)
-                    currentIntent(FlameGraphInteraction.hover(layout, position))
-                }
+                event.changes
+                    .lastOrNull()
+                    ?.position
+                    ?.let(::updateHover)
             }.onPointerEvent(PointerEventType.Exit) {
                 currentHoverPosition(null)
-                currentIntent(FlameGraphInteraction.hoverExit())
+                if (renderedHoveredNodeId != null) currentIntent(FlameGraphInteraction.hoverExit())
             }.pointerInput(layout) {
                 detectTapGestures(
                     onDoubleTap = { position ->

@@ -169,9 +169,28 @@ class FlameGraphPresenterTest {
         assertEquals(6, facts.inclusiveWeight)
         assertEquals(6, facts.selfWeight)
         assertEquals(1, facts.sampleCount)
+        assertEquals(1, facts.selfSampleCount)
+        assertEquals(listOf(FlameGraphTooltipCategorySamples("Native", 1, 1)), facts.categorySamples)
         assertEquals(1, facts.threadCount)
         assertEquals(0.0, facts.percentage)
         assertEquals(6, facts.previewRangeWeight)
+    }
+
+    @Test
+    fun `tooltip derives Firefox category and sample breakdown from simpleperf frames`() {
+        val facts = requireNotNull(simpleperfCategorySnapshot().tooltipFacts(FlameCallNodeId(1)))
+
+        assertEquals("User", facts.category)
+        assertEquals(54, facts.sampleCount)
+        assertEquals(0, facts.selfSampleCount)
+        assertEquals(
+            listOf(
+                FlameGraphTooltipCategorySamples("User", running = 12, self = 0),
+                FlameGraphTooltipCategorySamples("Native", running = 32, self = 0),
+                FlameGraphTooltipCategorySamples("JIT", running = 10, self = 0),
+            ),
+            facts.categorySamples,
+        )
     }
 
     @Test
@@ -218,6 +237,50 @@ class FlameGraphPresenterTest {
                     true,
                 ),
             totalWeight = 10,
+            emptyReason = null,
+            invalidTransforms = emptyList(),
+        )
+    }
+
+    private fun simpleperfCategorySnapshot(): FlameGraphSnapshot {
+        val frames =
+            mapOf(
+                10L to CallStackFrame(10, FlameFunctionId(10), "root", "app_process", 0, FrameImplementation.NATIVE),
+                20L to CallStackFrame(20, FlameFunctionId(20), "user", "base.apk", 0, FrameImplementation.MANAGED),
+                30L to CallStackFrame(30, FlameFunctionId(30), "native", "libui.so", 0, FrameImplementation.NATIVE),
+                40L to
+                    CallStackFrame(
+                        40,
+                        FlameFunctionId(40),
+                        "jit",
+                        "[JIT app cache]",
+                        0,
+                        FrameImplementation.MANAGED,
+                    ),
+            )
+        return FlameGraphSnapshot(
+            query = CallStackAnalysisQuery(),
+            callNodes =
+                CallNodeTable(
+                    ids = longArrayOf(1, 2, 3, 4),
+                    parentIndexes = intArrayOf(-1, 0, 0, 0),
+                    frameIds = longArrayOf(10, 20, 30, 40),
+                    depths = intArrayOf(0, 1, 1, 1),
+                    inclusiveWeights = longArrayOf(54_000_000, 12_000_000, 32_000_000, 10_000_000),
+                    selfWeights = longArrayOf(0, 12_000_000, 32_000_000, 10_000_000),
+                    sampleCounts = longArrayOf(54, 12, 32, 10),
+                    threadCounts = intArrayOf(1, 1, 1, 1),
+                    categories = listOf(null, null, null, null),
+                    framesById = frames,
+                ),
+            rows =
+                FlameGraphRows(
+                    nodeIndexesByRow = listOf(intArrayOf(0), intArrayOf(1, 2, 3)),
+                    starts = doubleArrayOf(0.0, 0.0, 0.22, 0.81),
+                    ends = doubleArrayOf(1.0, 0.22, 0.81, 1.0),
+                    startsAtBottom = true,
+                ),
+            totalWeight = 54_000_000,
             emptyReason = null,
             invalidTransforms = emptyList(),
         )

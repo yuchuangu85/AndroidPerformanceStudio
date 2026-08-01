@@ -44,6 +44,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.v2.ScrollbarAdapter
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
@@ -139,7 +140,7 @@ import kotlin.time.Duration.Companion.milliseconds
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 // Keep the implementation available while the user-facing flow is deferred.
 // Re-enable only after completing docs/requirements/ai-analysis-roadmap.md.
-internal const val AI_ANALYSIS_ENTRY_VISIBLE = false
+internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
 
 internal enum class CaptureTargetMode {
@@ -169,6 +170,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     onNavigateHome: (() -> Unit)? = null,
     onOpenUnifiedSettings: (() -> Unit)? = null,
     onOpenMemoryProfiler: ((String) -> Unit)? = null,
+    aiAnalysisClient: AiAnalysisClient? = null,
+    onOpenSourceCandidate: ((String) -> Unit)? = null,
     correlationHint: InspectorCorrelationHint? = null,
 ) {
     val store = remember { createInitialInspectorStore() }
@@ -205,8 +208,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         )
     }
     val aiAnalysisInputBuilder = remember { AiAnalysisInputBuilder() }
-    val aiAnalysisClient = remember { OpenAiResponsesAnalysisClient.fromEnvironment() }
+    val effectiveAiAnalysisClient = remember(aiAnalysisClient) { aiAnalysisClient ?: OpenAiResponsesAnalysisClient.fromEnvironment() }
     var aiAnalysisUiState by remember { mutableStateOf<AiAnalysisUiState>(AiAnalysisUiState.Idle) }
+    var pendingAiAnalysisInput by remember { mutableStateOf<AiAnalysisInput?>(null) }
     var archiveUiState by remember {
         mutableStateOf<CaptureArchiveUiState>(CaptureArchiveUiState.Idle)
     }
@@ -510,21 +514,13 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
         }
     }
-    val runAiAnalysis: () -> Unit = runAiAnalysis@{
-        if (aiAnalysisUiState is AiAnalysisUiState.Working) return@runAiAnalysis
-        val snapshot = state.snapshot ?: return@runAiAnalysis
-        val activeRoot = state.activeRoot ?: return@runAiAnalysis
-        val input = aiAnalysisInputBuilder.build(
-            snapshot = snapshot,
-            activeRoot = activeRoot,
-            analysis = state.analysis,
-            screenshotAvailable = state.screenshotPng?.isNotEmpty() == true,
-        )
+    val performAiAnalysis: (AiAnalysisInput) -> Unit = performAiAnalysis@{ input ->
+        if (aiAnalysisUiState is AiAnalysisUiState.Working) return@performAiAnalysis
         aiAnalysisUiState = AiAnalysisUiState.Working
         coroutineScope.launch {
             try {
                 val report = withContext(Dispatchers.IO) {
-                    aiAnalysisClient.analyze(input)
+                    effectiveAiAnalysisClient.analyze(input)
                 }
                 store.loadAiAnalysis(report)
                 state = store.state
@@ -537,6 +533,18 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 )
             }
         }
+    }
+    val runAiAnalysis: () -> Unit = runAiAnalysis@{
+        if (aiAnalysisUiState is AiAnalysisUiState.Working) return@runAiAnalysis
+        val snapshot = state.snapshot ?: return@runAiAnalysis
+        val activeRoot = state.activeRoot ?: return@runAiAnalysis
+        pendingAiAnalysisInput = aiAnalysisInputBuilder.build(
+            snapshot = snapshot,
+            activeRoot = activeRoot,
+            analysis = state.analysis,
+            screenshotAvailable = state.screenshotPng?.isNotEmpty() == true,
+            selectedNode = state.selectedNode,
+        )
     }
 
     val selectNode: (String) -> Unit = { id ->
@@ -812,6 +820,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 onSelectNode = selectNode,
                                 aiAnalysisUiState = aiAnalysisUiState,
                                 onRunAiAnalysis = runAiAnalysis,
+                                onOpenSourceCandidate = onOpenSourceCandidate,
                                 onSelectTimelineFrame = { index ->
                                     if (archiveUiState !is CaptureArchiveUiState.Working &&
                                         store.selectTimelineFrame(index)
@@ -926,6 +935,35 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         },
                     )
                 }
+            }
+            pendingAiAnalysisInput?.let { input ->
+                var performanceOnly by remember(input) { mutableStateOf(false) }
+                AlertDialog(
+                    onDismissRequest = { pendingAiAnalysisInput = null },
+                    title = { Text("Run AI Analysis") },
+                    text = {
+                        Column {
+                            Text(
+                                "Scope: ${if (input.selectedNodeId == null) "report summary" else "selected node"}\n" +
+                                    "Source evidence: ${input.sourceEvidence.size} node(s)\n" +
+                                    "Only locally resolved minimal snippets may be sent.",
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = performanceOnly, onCheckedChange = { performanceOnly = it })
+                                Text("Performance data only (do not upload source snippets)")
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            pendingAiAnalysisInput = null
+                            performAiAnalysis(input.copy(includeSourceSnippets = !performanceOnly))
+                        }) { Text("Analyze") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingAiAnalysisInput = null }) { Text("Cancel") }
+                    },
+                )
             }
         }
     }
@@ -2562,6 +2600,7 @@ private fun FindingsPane(
     viewDisplayOptions: ViewDisplayOptions,
     aiAnalysisUiState: AiAnalysisUiState,
     onRunAiAnalysis: () -> Unit,
+    onOpenSourceCandidate: ((String) -> Unit)?,
     onSelectNode: (String) -> Unit,
     onSelectTimelineFrame: (Int) -> Unit,
     onCloseTimelineFrame: (Int) -> Unit,
@@ -2577,6 +2616,7 @@ private fun FindingsPane(
     )
     val severitySummary = ViewDisplayProjection.severitySummary(findings)
     var selectionState by remember { mutableStateOf(FindingSelectionState()) }
+    var sourceCandidateChoices by remember { mutableStateOf<List<String>>(emptyList()) }
     Column(modifier.background(colors.panel)) {
         Row(
             Modifier
@@ -2632,12 +2672,38 @@ private fun FindingsPane(
                         selected = selectionState.isSelected(finding.key),
                         onDoubleClick = {
                             selectionState = selectionState.select(finding.key)
-                            onSelectNode(finding.nodeId)
+                            when (finding.sourceCandidateIds.size) {
+                                0 -> onSelectNode(finding.nodeId)
+                                1 -> onOpenSourceCandidate?.invoke(finding.sourceCandidateIds.single())
+                                else -> sourceCandidateChoices = finding.sourceCandidateIds
+                            }
                         },
                     )
                 }
             }
         }
+    }
+    if (sourceCandidateChoices.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { sourceCandidateChoices = emptyList() },
+            title = { Text("Select Source Candidate") },
+            text = {
+                Column {
+                    sourceCandidateChoices.forEachIndexed { index, candidateId ->
+                        TextButton(
+                            onClick = {
+                                sourceCandidateChoices = emptyList()
+                                onOpenSourceCandidate?.invoke(candidateId)
+                            },
+                        ) { Text("Candidate ${index + 1} · ${candidateId.take(12)}") }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { sourceCandidateChoices = emptyList() }) { Text("Cancel") }
+            },
+        )
     }
 }
 

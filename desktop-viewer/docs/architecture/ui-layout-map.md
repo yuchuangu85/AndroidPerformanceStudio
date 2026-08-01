@@ -300,6 +300,31 @@ flowchart TD
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### N.1 Simpleperf Flame Graph Tooltip `FirefoxFlameGraphTooltip`
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ 54.0ms (100%) android.view.ThreadedRenderer.draw             │
+├──────────────────────────────────────────────────────────────┤
+│ Stack Type   Managed                                        │
+│ Category     ■ Rendering                                    │
+│ Resource     /system/framework/framework.jar                 │
+├──────────────────────────────────────────────────────────────┤
+│                         Running                  Self         │
+│ Overall              54 samples             4 samples        │
+│ User                 12 samples                     —        │
+│ Native               32 samples             4 samples        │
+│ JIT                  10 samples                     —        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- 标题顺序为“时间 `ms`（占比）函数名”。
+- 中间信息区固定显示 `Stack Type`、`Category`、`Resource`。
+- 统计区以 `Overall` 开头，并追加非零的 User、Kernel、Native、DEX、OAT、Off-CPU、Other、JIT 分类。
+- `Running` / `Self` 使用 `sample(s)` 单位，零 Self 显示 `—`，不展示 Simpleperf 原始权重。
+
+源码：`FlameGraphTooltip.kt`、`FlameGraphTooltipFacts.kt`、`FlameGraphPanel.kt`
+
 ### O. Stack Chart Tab `StackChartPanel`
 
 ```text

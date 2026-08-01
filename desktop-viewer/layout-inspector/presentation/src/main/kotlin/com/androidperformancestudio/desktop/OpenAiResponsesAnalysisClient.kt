@@ -14,8 +14,8 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-internal fun interface AiAnalysisClient {
-    suspend fun analyze(input: AiAnalysisInput): AiAnalysisReport
+public fun interface AiAnalysisClient {
+    public suspend fun analyze(input: AiAnalysisInput): AiAnalysisReport
 }
 
 internal class OpenAiResponsesAnalysisClient(

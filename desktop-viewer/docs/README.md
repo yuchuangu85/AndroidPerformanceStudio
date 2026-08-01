@@ -14,6 +14,7 @@
 ## Design
 
 - [`design/2026-07-02-desktop-viewer-design.md`](design/2026-07-02-desktop-viewer-design.md) — Desktop Viewer 总体设计与成功标准。
+- [`design/2026-08-01-ai-source-workspace-design.md`](design/2026-08-01-ai-source-workspace-design.md) — AI 分析、Local/GitHub/AOSP 源码工作区和可信源码定位总体方案。
 - [`design/layout-inspector/`](design/layout-inspector/) — Layout Inspector 各功能设计规格。
 - [`design/records/`](design/records/) — 桌面入口、模块边界、统一设置和设计评审记录。
 

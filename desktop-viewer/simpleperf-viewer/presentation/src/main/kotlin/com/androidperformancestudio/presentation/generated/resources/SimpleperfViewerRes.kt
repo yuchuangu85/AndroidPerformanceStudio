@@ -1,4 +1,5 @@
 @file:OptIn(InternalResourceApi::class)
+@file:Suppress("WildcardImport", "ktlint:standard:no-wildcard-imports")
 
 package com.androidperformancestudio.presentation.generated.resources
 
@@ -609,6 +610,40 @@ object SimpleperfViewerRes {
         get() = Res.string.sp_report_hotspot_format
     val sp_common_bullet_format: StringResource
         get() = Res.string.sp_common_bullet_format
+    val sp_tooltip_sample_value_format: StringResource
+        get() = Res.string.sp_tooltip_sample_value_format
+    val sp_tooltip_samples_value_format: StringResource
+        get() = Res.string.sp_tooltip_samples_value_format
+    val sp_tooltip_category_user: StringResource
+        get() = Res.string.sp_tooltip_category_user
+    val sp_tooltip_category_system: StringResource
+        get() = Res.string.sp_tooltip_category_system
+    val sp_tooltip_category_kernel: StringResource
+        get() = Res.string.sp_tooltip_category_kernel
+    val sp_tooltip_category_native: StringResource
+        get() = Res.string.sp_tooltip_category_native
+    val sp_tooltip_category_managed: StringResource
+        get() = Res.string.sp_tooltip_category_managed
+    val sp_tooltip_category_graphics: StringResource
+        get() = Res.string.sp_tooltip_category_graphics
+    val sp_tooltip_category_rendering: StringResource
+        get() = Res.string.sp_tooltip_category_rendering
+    val sp_tooltip_category_io: StringResource
+        get() = Res.string.sp_tooltip_category_io
+    val sp_tooltip_category_network: StringResource
+        get() = Res.string.sp_tooltip_category_network
+    val sp_tooltip_category_ui: StringResource
+        get() = Res.string.sp_tooltip_category_ui
+    val sp_tooltip_category_dex: StringResource
+        get() = Res.string.sp_tooltip_category_dex
+    val sp_tooltip_category_oat: StringResource
+        get() = Res.string.sp_tooltip_category_oat
+    val sp_tooltip_category_off_cpu: StringResource
+        get() = Res.string.sp_tooltip_category_off_cpu
+    val sp_tooltip_category_other: StringResource
+        get() = Res.string.sp_tooltip_category_other
+    val sp_tooltip_category_jit: StringResource
+        get() = Res.string.sp_tooltip_category_jit
 
     // Accessibility and dynamic UI descriptions
     val sp_marker_description_format: StringResource

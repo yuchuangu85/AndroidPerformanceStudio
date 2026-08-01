@@ -1,5 +1,6 @@
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.gradle.api.tasks.testing.Test
+import org.jlleitschuh.gradle.ktlint.tasks.BaseKtLintCheckTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
@@ -42,6 +43,10 @@ subprojects {
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
+    }
+
+    tasks.withType<BaseKtLintCheckTask>().configureEach {
+        exclude { element -> element.file.path.contains("/build/generated/") }
     }
 }
 

@@ -13,12 +13,15 @@
 ### 设计文档
 
 - [`../DESIGN.md`](../DESIGN.md) — 仓库级设计入口。
+- [`../CONTEXT.md`](../CONTEXT.md) — AI 分析与源码定位领域语言。
 - [`design/layoutinspectorv2-pro-comparison.md`](design/layoutinspectorv2-pro-comparison.md) — Layout Inspector 方案比较和设计依据。
+- [`../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md) — AI 分析、源码工作区与可信源码定位总体设计。
 - [`../desktop-viewer/docs/design/`](../desktop-viewer/docs/design/) — Desktop Viewer、Layout Inspector 和架构变更设计。
 - [`../desktop-viewer/simpleperf-viewer/docs/design/`](../desktop-viewer/simpleperf-viewer/docs/design/) — Simpleperf 产品、技术栈和 UI 设计。
 
 ### 架构文档与架构图
 
+- [`adr/`](adr/) — 难以逆转、存在真实权衡的架构决策记录。
 - [`../desktop-viewer/docs/architecture/`](../desktop-viewer/docs/architecture/) — 模块边界、协议和 Mermaid UI 布局图。
 - 各模块的 `README.md` — 模块职责、构建入口和依赖边界。
 

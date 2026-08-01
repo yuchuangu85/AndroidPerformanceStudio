@@ -2,8 +2,8 @@
 
 package com.androidperformancestudio.presentation
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -55,8 +54,9 @@ internal fun FirefoxFlameGraphTooltip(
     modifier: Modifier = Modifier,
 ) {
     val language = currentSimpleperfLanguage()
-    val durationText = firefoxTooltipPercent(facts.percentage)
+    val durationText = firefoxTooltipDuration(facts.inclusiveWeight, facts.percentage)
     val foreground = style.canvasForeground.toComposeColor()
+    val surface = style.raisedSurface.toComposeColor().copy(alpha = 1f)
     val accessible =
         buildString {
             append(localizedStringResource(SimpleperfViewerRes.sp_report_flame_frame, language))
@@ -67,23 +67,20 @@ internal fun FirefoxFlameGraphTooltip(
             append(", ")
             append(localizedStringResource(SimpleperfViewerRes.sp_report_inclusive, language))
             append(' ')
-            append(facts.inclusiveWeight)
+            append(firefoxTooltipSamples(facts.sampleCount, zeroAsDash = false, language))
             append(", ")
             append(localizedStringResource(SimpleperfViewerRes.sp_report_self_weight_label, language))
             append(' ')
-            append(facts.selfWeight)
+            append(firefoxTooltipSamples(facts.selfSampleCount, zeroAsDash = true, language))
         }
-    Surface(
+    Box(
         modifier =
             modifier
                 .widthIn(max = TOOLTIP_MAX_WIDTH_DP.dp)
                 .testTag("firefox-flame-tooltip")
-                .semantics { contentDescription = accessible },
-        shape = RoundedCornerShape(0.dp),
-        color = style.raisedSurface.toComposeColor(),
-        contentColor = foreground,
-        border = BorderStroke(1.dp, style.surfaceBorder.toComposeColor()),
-        shadowElevation = 3.dp,
+                .semantics { contentDescription = accessible }
+                .background(surface, RoundedCornerShape(0.dp))
+                .border(1.dp, style.surfaceBorder.toComposeColor(), RoundedCornerShape(0.dp)),
     ) {
         Column(Modifier.width(IntrinsicSize.Max).padding(TOOLTIP_PADDING_DP.dp)) {
             Row(
@@ -112,8 +109,10 @@ internal fun FirefoxFlameGraphTooltip(
                     facts.implementation.localizedFirefoxStackType(language),
                     style,
                 )
-                facts.category?.let { category -> FirefoxTooltipCategoryDetail(category, style) }
-                facts.resource?.let { FirefoxTooltipDetail(SimpleperfViewerRes.sp_details_resource_value_format, it, style) }
+                facts.category?.let { category -> FirefoxTooltipCategoryDetail(category, language, style) }
+                facts.resource?.let { resource ->
+                    FirefoxTooltipDetail(SimpleperfViewerRes.sp_details_resource_value_format, resource, style)
+                }
             }
             FirefoxTooltipTimings(facts, style)
         }
@@ -144,6 +143,7 @@ private fun FirefoxTooltipDetail(
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun FirefoxTooltipCategoryDetail(
     category: String,
+    language: UiLanguage,
     style: FirefoxFlameGraphStyle,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -157,7 +157,7 @@ private fun FirefoxTooltipCategoryDetail(
             )
             Spacer(Modifier.width(3.dp))
             Text(
-                category,
+                category.localizedFirefoxCategory(language),
                 modifier = Modifier.widthIn(max = TOOLTIP_DETAIL_VALUE_WIDTH_DP.dp),
                 color = style.canvasForeground.toComposeColor(),
                 fontSize = 11.sp,
@@ -203,22 +203,22 @@ private fun FirefoxTooltipTimings(
     }
     FirefoxTooltipTimingRow(
         label = localizedStringResource(SimpleperfViewerRes.sp_report_overall, currentSimpleperfLanguage()),
-        running = facts.inclusiveWeight,
-        self = facts.selfWeight,
-        maximum = facts.inclusiveWeight,
+        running = facts.sampleCount,
+        self = facts.selfSampleCount,
+        maximum = facts.sampleCount,
         color = firefoxOverallMeterColor(style.theme),
         style = style,
         tag = "overall",
     )
-    facts.category?.let { category ->
+    facts.categorySamples.forEachIndexed { index, samples ->
         FirefoxTooltipTimingRow(
-            label = category,
-            running = facts.inclusiveWeight,
-            self = facts.selfWeight,
-            maximum = facts.inclusiveWeight,
-            color = firefoxCategoryColor(category, style),
+            label = samples.category.localizedFirefoxCategory(currentSimpleperfLanguage()),
+            running = samples.running,
+            self = samples.self,
+            maximum = facts.sampleCount,
+            color = firefoxCategoryColor(samples.category, style),
             style = style,
-            tag = "category",
+            tag = "category-$index",
         )
     }
     Spacer(Modifier.height(10.dp))
@@ -270,8 +270,16 @@ private fun FirefoxTooltipTimingRow(
             overflow = TextOverflow.Ellipsis,
         )
         FirefoxTooltipTotalSelfMeters(running, self, maximum, color, style, tag)
-        FirefoxTooltipTimingValue(running.firefoxTooltipWeight(zeroAsDash = false), TOOLTIP_RUNNING_WIDTH_DP, style)
-        FirefoxTooltipTimingValue(self.firefoxTooltipWeight(zeroAsDash = true), TOOLTIP_SELF_WIDTH_DP, style)
+        FirefoxTooltipTimingValue(
+            firefoxTooltipSamples(running, zeroAsDash = false, currentSimpleperfLanguage()),
+            TOOLTIP_RUNNING_WIDTH_DP,
+            style,
+        )
+        FirefoxTooltipTimingValue(
+            firefoxTooltipSamples(self, zeroAsDash = true, currentSimpleperfLanguage()),
+            TOOLTIP_SELF_WIDTH_DP,
+            style,
+        )
     }
 }
 
@@ -370,12 +378,64 @@ internal fun firefoxTooltipPercent(percentage: Double): String {
     return formatter.format(safePercentage) + "%"
 }
 
-private fun Long.firefoxTooltipWeight(zeroAsDash: Boolean): String =
-    if (zeroAsDash && this == 0L) {
+internal fun firefoxTooltipDuration(
+    durationNanos: Long,
+    percentage: Double,
+): String {
+    val milliseconds = durationNanos.coerceAtLeast(0).toDouble() / NANOS_PER_MILLISECOND
+    val digitsOnLeft = if (milliseconds == 0.0) 1 else floor(log10(milliseconds)).toInt() + 1
+    val fractionDigits = (3 - digitsOnLeft).coerceIn(0, 1)
+    val formatter =
+        NumberFormat.getNumberInstance(Locale.ROOT).apply {
+            minimumFractionDigits = fractionDigits
+            maximumFractionDigits = fractionDigits
+            isGroupingUsed = true
+        }
+    return "${formatter.format(milliseconds)}ms (${firefoxTooltipPercent(percentage)})"
+}
+
+internal fun firefoxTooltipSamples(
+    samples: Long,
+    zeroAsDash: Boolean,
+    language: UiLanguage = UiLanguage.ENGLISH,
+): String =
+    if (zeroAsDash && samples == 0L) {
         "—"
     } else {
-        NumberFormat.getIntegerInstance(Locale.ROOT).format(this)
+        val value = NumberFormat.getIntegerInstance(Locale.ROOT).format(samples)
+        val format =
+            if (samples == 1L) {
+                SimpleperfViewerRes.sp_tooltip_sample_value_format
+            } else {
+                SimpleperfViewerRes.sp_tooltip_samples_value_format
+            }
+        localizedStringResource(format, language, value)
     }
+
+internal fun String.localizedFirefoxCategory(language: UiLanguage): String {
+    val resource = firefoxCategoryResources[lowercase(Locale.ROOT)] ?: return this
+    return localizedStringResource(resource, language)
+}
+
+private val firefoxCategoryResources =
+    mapOf(
+        "user" to SimpleperfViewerRes.sp_tooltip_category_user,
+        "system" to SimpleperfViewerRes.sp_tooltip_category_system,
+        "kernel" to SimpleperfViewerRes.sp_tooltip_category_kernel,
+        "native" to SimpleperfViewerRes.sp_tooltip_category_native,
+        "managed" to SimpleperfViewerRes.sp_tooltip_category_managed,
+        "graphics" to SimpleperfViewerRes.sp_tooltip_category_graphics,
+        "rendering" to SimpleperfViewerRes.sp_tooltip_category_rendering,
+        "io" to SimpleperfViewerRes.sp_tooltip_category_io,
+        "i/o" to SimpleperfViewerRes.sp_tooltip_category_io,
+        "network" to SimpleperfViewerRes.sp_tooltip_category_network,
+        "ui" to SimpleperfViewerRes.sp_tooltip_category_ui,
+        "dex" to SimpleperfViewerRes.sp_tooltip_category_dex,
+        "oat" to SimpleperfViewerRes.sp_tooltip_category_oat,
+        "off-cpu" to SimpleperfViewerRes.sp_tooltip_category_off_cpu,
+        "other" to SimpleperfViewerRes.sp_tooltip_category_other,
+        "jit" to SimpleperfViewerRes.sp_tooltip_category_jit,
+    )
 
 private fun FrameImplementation.localizedFirefoxStackType(language: UiLanguage): String =
     when (this) {
@@ -410,3 +470,4 @@ private const val TOOLTIP_TIMING_LABEL_WIDTH_DP = 110
 private const val TOOLTIP_METER_WIDTH_DP = 150
 private const val TOOLTIP_RUNNING_WIDTH_DP = 78
 private const val TOOLTIP_SELF_WIDTH_DP = 62
+private const val NANOS_PER_MILLISECOND = 1_000_000.0

@@ -40,6 +40,7 @@ data class AiFinding(
     val message: String,
     val recommendation: String,
     val confidence: Float,
+    val sourceCandidateIds: List<String> = emptyList(),
 )
 
 data class AiAnalysisReport(

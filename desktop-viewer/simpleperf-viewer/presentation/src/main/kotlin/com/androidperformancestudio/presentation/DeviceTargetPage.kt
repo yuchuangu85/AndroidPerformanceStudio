@@ -62,10 +62,10 @@ import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
-import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
+import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -84,6 +84,7 @@ internal fun DeviceTargetPage(
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
     onOpenUserGuide: (() -> Unit)? = null,
     onNavigateHome: (() -> Unit)? = null,
+    onRunAiAnalysis: (() -> Unit)? = null,
 ) {
     val style = viewerColors(darkTheme)
     val captureActive = captureState.isCaptureActive()
@@ -106,6 +107,7 @@ internal fun DeviceTargetPage(
                 style = style,
                 modifier = Modifier.weight(1f),
                 flameTooltipMode = flameTooltipMode,
+                onRunAiAnalysis = onRunAiAnalysis,
             )
         }
         WorkspaceFooter(state, captureState, reportState, actions, style)
@@ -282,7 +284,11 @@ private fun DeviceSelector(
         itemSecondary = { device ->
             val status =
                 localizedStringResource(
-                    if (device.isOnline) SimpleperfViewerRes.sp_target_online else SimpleperfViewerRes.sp_target_unavailable,
+                    if (device.isOnline) {
+                        SimpleperfViewerRes.sp_target_online
+                    } else {
+                        SimpleperfViewerRes.sp_target_unavailable
+                    },
                     currentSimpleperfLanguage(),
                 )
             "${device.serial} · $status"
@@ -578,12 +584,20 @@ private fun CapabilityPopup(
                 style,
             )
             CapabilityPopupFact(
-                localizedStringResource(SimpleperfViewerRes.sp_target_abi_value_format, language, "").trimLabelSeparator(),
+                localizedStringResource(
+                    SimpleperfViewerRes.sp_target_abi_value_format,
+                    language,
+                    "",
+                ).trimLabelSeparator(),
                 selection.abis.joinToString(),
                 style,
             )
             CapabilityPopupFact(
-                localizedStringResource(SimpleperfViewerRes.sp_target_root_value_format, language, "").trimLabelSeparator(),
+                localizedStringResource(
+                    SimpleperfViewerRes.sp_target_root_value_format,
+                    language,
+                    "",
+                ).trimLabelSeparator(),
                 selection.capabilities.root,
                 style,
             )
@@ -593,7 +607,11 @@ private fun CapabilityPopup(
                 style,
             )
             CapabilityPopupFact(
-                localizedStringResource(SimpleperfViewerRes.sp_target_simpleperf_value_format, language, "").trimLabelSeparator(),
+                localizedStringResource(
+                    SimpleperfViewerRes.sp_target_simpleperf_value_format,
+                    language,
+                    "",
+                ).trimLabelSeparator(),
                 selection.capabilities.simpleperf,
                 style,
             )

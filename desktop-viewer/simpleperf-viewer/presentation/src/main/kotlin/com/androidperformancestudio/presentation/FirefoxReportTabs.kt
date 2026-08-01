@@ -29,7 +29,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.ViewerColors
@@ -37,7 +36,7 @@ import com.androidperformancestudio.ui.localizedStringResource
 import org.jetbrains.compose.resources.StringResource
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
 internal fun FirefoxReportTabs(
     selectedTab: ReportTab,
     onSelectTab: (ReportTab) -> Unit,
@@ -97,7 +96,7 @@ internal fun FirefoxReportTabs(
                     color = if (selected) style.accent else style.text,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
         }

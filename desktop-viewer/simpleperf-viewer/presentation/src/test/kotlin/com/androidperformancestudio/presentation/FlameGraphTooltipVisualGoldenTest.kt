@@ -93,9 +93,16 @@ private fun tooltipGoldenFacts() =
         category = "Rendering",
         implementation = FrameImplementation.MANAGED,
         resource = "/system/framework/framework.jar",
-        inclusiveWeight = 12_345,
-        selfWeight = 1_280,
+        inclusiveWeight = 12_345_000,
+        selfWeight = 1_280_000,
         sampleCount = 90,
+        selfSampleCount = 9,
+        categorySamples =
+            listOf(
+                FlameGraphTooltipCategorySamples("User", running = 18, self = 0),
+                FlameGraphTooltipCategorySamples("Native", running = 54, self = 0),
+                FlameGraphTooltipCategorySamples("JIT", running = 18, self = 9),
+            ),
         threadCount = 2,
         percentage = 61.728,
         previewRangeWeight = null,
@@ -103,5 +110,5 @@ private fun tooltipGoldenFacts() =
 
 private const val GOLDEN_TAG = "firefox-tooltip-golden"
 private const val GOLDEN_WIDTH = 620
-private const val GOLDEN_HEIGHT = 280
+private const val GOLDEN_HEIGHT = 360
 private const val MAXIMUM_MISMATCH_RATIO = 0.03

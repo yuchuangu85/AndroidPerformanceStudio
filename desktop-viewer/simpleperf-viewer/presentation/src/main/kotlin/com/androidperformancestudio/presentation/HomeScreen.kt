@@ -36,6 +36,7 @@ fun HomeScreen(
     onSimpleperfEngineChange: (SimpleperfEngine) -> Unit = {},
     onOpenUserGuide: (() -> Unit)? = null,
     onNavigateHome: (() -> Unit)? = null,
+    onRunAiAnalysis: (() -> Unit)? = null,
 ) {
     SimpleperfLocalization(language) {
         var localCaptureSettingsSection by remember { mutableStateOf(captureSettingsSection) }
@@ -71,6 +72,7 @@ fun HomeScreen(
                     onSimpleperfEngineChange,
                     onOpenUserGuide,
                     onNavigateHome,
+                    onRunAiAnalysis,
                 )
             }
         }

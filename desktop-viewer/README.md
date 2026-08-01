@@ -58,8 +58,9 @@ isolated CPU profiler build. `ui-components/` is the independent public Compose 
 every application and presentation module consumes it through
 `com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT`, while domain, capture, parsing,
 storage, and analysis modules remain UI-independent. `ai-core/` owns provider-neutral AI transport
-and structured response handling, while `import-core/` owns reusable import contracts and source
-validation. Profiler-specific prompts, parsers, mapping, persistence, and UI remain in their owning
+and structured response handling, while `source-workspace/` owns Local/GitHub/AOSP source snapshots,
+content caching, structural indexes, and deterministic source resolution. Profiler-specific prompts,
+parsers, mapping, persistence, and UI remain in their owning
 features. The shell consumes each feature's public UI entry; feature implementations do not depend
 on each other.
 

@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -255,7 +254,8 @@ private fun SettingsNavigation(
         CaptureSettingsSection.entries.filter { item -> item != CaptureSettingsSection.USER_GUIDE || showUserGuide }.forEach { item ->
             val selected = item == section
             val label = item.label(locale)
-            val navigationDescription = localizedStringResource(SimpleperfViewerRes.sp_settings_capture_settings_value_format, locale, label)
+            val navigationDescription =
+                localizedStringResource(SimpleperfViewerRes.sp_settings_capture_settings_value_format, locale, label)
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -332,7 +332,11 @@ private fun SettingsPanel(
 private fun CaptureSettingsSection.label(locale: java.util.Locale): String =
     when (this) {
         CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(SimpleperfViewerRes.sp_settings_sampling_template, locale)
-        CaptureSettingsSection.CAPTURE_CONFIGURATION -> localizedStringResource(SimpleperfViewerRes.sp_settings_capture_configuration_section, locale)
+        CaptureSettingsSection.CAPTURE_CONFIGURATION ->
+            localizedStringResource(
+                SimpleperfViewerRes.sp_settings_capture_configuration_section,
+                locale,
+            )
         CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(SimpleperfViewerRes.sp_settings_advanced_parameters, locale)
         CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(SimpleperfViewerRes.sp_flame_flame_graph, locale)
         CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(SimpleperfViewerRes.sp_settings_simpleperf_engine, locale)
@@ -343,15 +347,27 @@ private fun CaptureSettingsSection.title(locale: java.util.Locale): String = lab
 
 private fun CaptureSettingsSection.subtitle(locale: java.util.Locale): String =
     when (this) {
-        CaptureSettingsSection.SAMPLING_TEMPLATE -> localizedStringResource(SimpleperfViewerRes.sp_settings_sampling_template_description, locale)
+        CaptureSettingsSection.SAMPLING_TEMPLATE ->
+            localizedStringResource(
+                SimpleperfViewerRes.sp_settings_sampling_template_description,
+                locale,
+            )
         CaptureSettingsSection.CAPTURE_CONFIGURATION ->
             localizedStringResource(
                 SimpleperfViewerRes.sp_settings_capture_configuration_description,
                 locale,
             )
-        CaptureSettingsSection.ADVANCED_PARAMETERS -> localizedStringResource(SimpleperfViewerRes.sp_settings_advanced_parameters_description, locale)
+        CaptureSettingsSection.ADVANCED_PARAMETERS ->
+            localizedStringResource(
+                SimpleperfViewerRes.sp_settings_advanced_parameters_description,
+                locale,
+            )
         CaptureSettingsSection.FLAME_GRAPH -> localizedStringResource(SimpleperfViewerRes.sp_settings_frame_information_description, locale)
-        CaptureSettingsSection.SIMPLEPERF_ENGINE -> localizedStringResource(SimpleperfViewerRes.sp_settings_analysis_engine_description, locale)
+        CaptureSettingsSection.SIMPLEPERF_ENGINE ->
+            localizedStringResource(
+                SimpleperfViewerRes.sp_settings_analysis_engine_description,
+                locale,
+            )
         CaptureSettingsSection.USER_GUIDE -> localizedStringResource(SimpleperfViewerRes.sp_settings_user_guide_description, locale)
     }
 
@@ -373,7 +389,12 @@ private fun UserGuideSettingsPanel(
             color = style.secondaryText,
             fontSize = 10.sp,
         )
-        MacOsButton(localizedStringResource(SimpleperfViewerRes.sp_settings_open_user_guide_browser, locale), onOpenUserGuide, style, primary = true)
+        MacOsButton(
+            localizedStringResource(SimpleperfViewerRes.sp_settings_open_user_guide_browser, locale),
+            onOpenUserGuide,
+            style,
+            primary = true,
+        )
     }
 }
 
@@ -397,7 +418,12 @@ private fun FlameGraphSettingsPanel(
             fontSize = 10.sp,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MacOsChoiceChip(localizedStringResource(SimpleperfViewerRes.sp_settings_fixed, locale), selected == FlameTooltipMode.FIXED, true, style) {
+            MacOsChoiceChip(
+                localizedStringResource(SimpleperfViewerRes.sp_settings_fixed, locale),
+                selected == FlameTooltipMode.FIXED,
+                true,
+                style,
+            ) {
                 onSelect(FlameTooltipMode.FIXED)
             }
             MacOsChoiceChip(
@@ -546,9 +572,18 @@ private fun CaptureConfigurationPanel(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(localizedStringResource(SimpleperfViewerRes.sp_capture_rate_mode, locale), color = style.secondaryText, fontSize = 9.sp)
+                Text(
+                    localizedStringResource(SimpleperfViewerRes.sp_capture_rate_mode, locale),
+                    color = style.secondaryText,
+                    fontSize = 9.sp,
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    MacOsChoiceChip(localizedStringResource(SimpleperfViewerRes.sp_capture_frequency, locale), !periodMode, enabled, style) {
+                    MacOsChoiceChip(
+                        localizedStringResource(SimpleperfViewerRes.sp_capture_frequency, locale),
+                        !periodMode,
+                        enabled,
+                        style,
+                    ) {
                         rateValue.toIntOrNull()?.takeIf { it > 0 }?.let {
                             onUpdate(
                                 setup.parameters.copy(rate = SamplingRate.Frequency(it)),
@@ -606,7 +641,14 @@ private fun AdvancedCaptureParameters(
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
         )
-        ParameterChoices(SimpleperfViewerRes.sp_capture_call_graph, CallGraphMode.entries, setup.parameters.callGraph, enabled, style, locale) {
+        ParameterChoices(
+            SimpleperfViewerRes.sp_capture_call_graph,
+            CallGraphMode.entries,
+            setup.parameters.callGraph,
+            enabled,
+            style,
+            locale,
+        ) {
             onUpdate(setup.parameters.copy(callGraph = it))
         }
         ParameterChoices(SimpleperfViewerRes.sp_capture_scope, EventScope.entries, setup.parameters.scope, enabled, style, locale) {
@@ -696,7 +738,7 @@ internal fun MacOsInlineTextField(
                         style.strongBorder,
                         RoundedCornerShape(ViewerDimensions.controlRadius),
                     ).semantics { contentDescription = label }
-                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }
 }

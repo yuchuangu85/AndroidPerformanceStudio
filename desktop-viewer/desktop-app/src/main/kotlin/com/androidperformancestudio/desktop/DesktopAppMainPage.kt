@@ -59,6 +59,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
     val simpleperfPreferencesStore = remember { SimpleperfPreferencesStore.desktop() }
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
     val userDocumentationLauncher = remember { UserDocumentationLauncher() }
+    val sourceWorkspaceRuntime = remember { SourceWorkspaceRuntime.desktop() }
     val coroutineScope = rememberCoroutineScope()
     var applicationSettings by remember { mutableStateOf(applicationSettingsStore.load()) }
     var simpleperfPreferences by remember { mutableStateOf(simpleperfPreferencesStore.load()) }
@@ -95,6 +96,9 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
     DisposableEffect(userDocumentationLauncher) {
         onDispose(userDocumentationLauncher::close)
     }
+    DisposableEffect(sourceWorkspaceRuntime) {
+        onDispose(sourceWorkspaceRuntime::close)
+    }
     LaunchedEffect(navigator.destination) {
         if (navigator.destination.shouldMaximizeWindow()) {
             window.placement = WindowPlacement.Maximized
@@ -116,6 +120,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                     AppDestination.HOME ->
                         AppHomePage(
                             language = language,
+                            onOpenSourceWorkspaces = { navigator.open(AppDestination.SOURCE_WORKSPACES) },
                             onOpenLayoutInspector = { navigator.open(AppDestination.LAYOUT_INSPECTOR) },
                             onOpenSimpleperf = { navigator.open(AppDestination.SIMPLEPERF) },
                             onOpenPerfetto = { navigator.open(AppDestination.PERFETTO) },
@@ -126,6 +131,13 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             onOpenNetworkProfiler = { navigator.open(AppDestination.NETWORK_PROFILER) },
                             onOpenGpuInspector = { navigator.open(AppDestination.GPU_INSPECTOR) },
                             onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
+                        )
+                    AppDestination.SOURCE_WORKSPACES ->
+                        SourceWorkspacesPage(
+                            language = language,
+                            runtime = sourceWorkspaceRuntime,
+                            initialLocation = navigator.sourceLocation,
+                            onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.LAYOUT_INSPECTOR ->
                         LayoutInspectorMainPage(
@@ -141,6 +153,14 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                                 navigator.open(AppDestination.MEMORY_PROFILER)
                             },
                             correlationHint = navigator.inspectorCorrelationHint,
+                            aiAnalysisClient = remember(sourceWorkspaceRuntime) {
+                                SourceAwareLayoutAiAnalysisClient(sourceWorkspaceRuntime)
+                            },
+                            onOpenSourceCandidate = { candidateId ->
+                                sourceWorkspaceRuntime.candidate(candidateId)?.let { candidate ->
+                                    navigator.openSource(candidate.location)
+                                }
+                            },
                         )
                     AppDestination.SIMPLEPERF ->
                         SimpleperfMainPage(
@@ -157,6 +177,14 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             onOpenUserGuide = {
                                 coroutineScope.launch(Dispatchers.IO) {
                                     runCatching { userDocumentationLauncher.open(language) }
+                                }
+                            },
+                            aiAnalysisClient = remember(sourceWorkspaceRuntime) {
+                                SourceAwareSimpleperfAiAnalysisClient(sourceWorkspaceRuntime)
+                            },
+                            onOpenSourceCandidate = { candidateId ->
+                                sourceWorkspaceRuntime.candidate(candidateId)?.let { candidate ->
+                                    navigator.openSource(candidate.location)
                                 }
                             },
                         )

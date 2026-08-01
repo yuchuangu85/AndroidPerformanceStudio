@@ -1,17 +1,28 @@
 # AI analysis roadmap
 
+> Target architecture: [`../design/2026-08-01-ai-source-workspace-design.md`](../design/2026-08-01-ai-source-workspace-design.md)
+
 ## Current status
 
-The AI analysis implementation is preserved, but its user-facing entry is hidden behind
-`AI_ANALYSIS_ENTRY_VISIBLE = false` in `LayoutInspectorMainPage.kt`. Existing analysis models,
-OpenAI client code, archive import/export support, and tests remain available for later work.
+The first evidence-bound implementation is enabled for Layout Inspector and Simpleperf:
 
-## Before re-enabling
+- `source-workspace` registers Local, GitHub.com, and AOSP Gitiles providers, resolves moving refs to
+  immutable revisions, stores manifests and structural indexes in SQLite, and verifies content-addressed cache reads.
+- The desktop Source Workspaces page configures providers and the OpenAI credential, displays background
+  indexing progress, controls per-workspace source-upload authorization, browses cached files, and acts as the
+  shared read-only Source Viewer.
+- Layout Inspector and Simpleperf extract bounded performance evidence, resolve source candidates locally,
+  show a payload preflight with a performance-data-only option, and call the provider-neutral `ai-core` gateway.
+- The gateway validates every returned Evidence ID and Candidate ID before persisting a versioned Analysis Session.
+- Findings navigate directly for a single candidate and expose candidate selection when resolution is ambiguous.
 
-- Finalize the product flow for credentials, consent, loading, cancellation, and retry.
-- Add a settings surface for model and endpoint configuration instead of relying only on environment variables.
-- Review redaction and payload-size behavior with representative captures.
-- Add Compose UI coverage for entry visibility, progress, failures, and successful findings.
-- Document network usage, privacy boundaries, and archive compatibility for users.
+The Source Workspaces AI Settings surface stores model and endpoint preferences; they can still be overridden
+with `AGENTPERF_AI_MODEL` and `OPENAI_BASE_URL` for development. Credentials are read from the system credential
+store (macOS Keychain) or `OPENAI_API_KEY`.
 
-When these items are complete, set `AI_ANALYSIS_ENTRY_VISIBLE` to `true` and run the full desktop test suite.
+## Follow-up hardening
+
+- Add native Build ID/`llvm-symbolizer`, R8 `mapping.txt`, and Gradle build-evidence ingestion.
+- Add Windows Credential Manager and Linux Secret Service implementations (non-macOS currently uses a process-local store).
+- Add representative 100k-file performance benchmarks and cancellation-aware remote transport.
+- Expand localized Compose UI and visual-golden coverage for every provider/error state.

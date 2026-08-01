@@ -53,6 +53,7 @@ import com.androidperformancestudio.visualization.FlameGraphCanvas
 import com.androidperformancestudio.visualization.FlameGraphLayout
 import com.androidperformancestudio.visualization.FlameHorizontalViewport
 import com.androidperformancestudio.visualization.FlameViewport
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
@@ -96,6 +97,10 @@ internal fun FlameGraphPanel(
     val clampedScrollRow = FlameGraphLayout.clampScrollRow(snapshot, requestedViewport)
     val viewport = requestedViewport.copy(scrollRow = clampedScrollRow)
     val layout = remember(snapshot, viewport) { FlameGraphLayout.layout(snapshot, viewport) }
+    val hoveredTooltipFacts =
+        remember(snapshot, state.hoveredNodeId) {
+            state.hoveredNodeId?.let(snapshot::tooltipFacts)
+        }
 
     LaunchedEffect(snapshot, selectedNodeId, heightPixels) {
         val next =
@@ -204,8 +209,7 @@ internal fun FlameGraphPanel(
                                         .firstOrNull()
                                         ?.scrollDelta
                                         ?.y ?: 0f
-                                if (delta.isFinite() && delta != 0f) {
-                                    val rows = delta.roundToInt().takeUnless { it == 0 } ?: if (delta > 0) 1 else -1
+                                flameGraphScrollRowDelta(delta)?.let { rows ->
                                     scrollRow =
                                         FlameGraphLayout.clampScrollRow(
                                             snapshot,
@@ -231,9 +235,8 @@ internal fun FlameGraphPanel(
             } else {
                 FirefoxFlameGraphEmptyState(snapshot, actions, style, Modifier.fillMaxSize())
             }
-            state.hoveredNodeId
+            hoveredTooltipFacts
                 ?.takeIf { state.contextNodeId == null && snapshot.emptyReason == null }
-                ?.let(snapshot::tooltipFacts)
                 ?.let { facts ->
                     val tooltipModifier =
                         when (tooltipMode) {
@@ -270,6 +273,12 @@ internal fun FlameGraphPanel(
             }
         }
     }
+}
+
+internal fun flameGraphScrollRowDelta(scrollDeltaY: Float): Int? {
+    if (!scrollDeltaY.isFinite() || scrollDeltaY == 0f) return null
+    val magnitude = abs(scrollDeltaY).roundToInt().coerceAtLeast(1)
+    return if (scrollDeltaY > 0f) -magnitude else magnitude
 }
 
 internal fun firefoxTooltipOffset(

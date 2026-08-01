@@ -301,6 +301,23 @@
     <string name="sp_capture_every_events_format">每 %1$s 个事件</string>
     <string name="sp_report_hotspot_format">%1$s热点</string>
     <string name="sp_common_bullet_format">• %1$s</string>
+    <string name="sp_tooltip_sample_value_format">%1$s 个样本</string>
+    <string name="sp_tooltip_samples_value_format">%1$s 个样本</string>
+    <string name="sp_tooltip_category_user">用户</string>
+    <string name="sp_tooltip_category_system">系统</string>
+    <string name="sp_tooltip_category_kernel">内核</string>
+    <string name="sp_tooltip_category_native">原生</string>
+    <string name="sp_tooltip_category_managed">托管</string>
+    <string name="sp_tooltip_category_graphics">图形</string>
+    <string name="sp_tooltip_category_rendering">渲染</string>
+    <string name="sp_tooltip_category_io">输入/输出</string>
+    <string name="sp_tooltip_category_network">网络</string>
+    <string name="sp_tooltip_category_ui">界面</string>
+    <string name="sp_tooltip_category_dex">DEX</string>
+    <string name="sp_tooltip_category_oat">OAT</string>
+    <string name="sp_tooltip_category_off_cpu">非 CPU</string>
+    <string name="sp_tooltip_category_other">其他</string>
+    <string name="sp_tooltip_category_jit">JIT</string>
 
     <!-- Accessibility and dynamic UI descriptions -->
     <string name="sp_marker_description_format">%1$s，%2$s</string>

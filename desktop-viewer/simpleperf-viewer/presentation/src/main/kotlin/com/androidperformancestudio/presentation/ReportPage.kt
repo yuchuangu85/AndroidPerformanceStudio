@@ -80,6 +80,7 @@ fun ReportPage(
     actions: ReportActions,
     darkTheme: Boolean = false,
     flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
+    onRunAiAnalysis: (() -> Unit)? = null,
 ) {
     ReportWorkspace(
         state,
@@ -87,17 +88,19 @@ fun ReportPage(
         viewerColors(darkTheme),
         Modifier.fillMaxSize(),
         flameTooltipMode,
+        onRunAiAnalysis,
     )
 }
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 internal fun ReportWorkspace(
     state: ReportState,
     actions: ReportActions,
     style: ViewerColors,
     modifier: Modifier = Modifier,
     flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
+    onRunAiAnalysis: (() -> Unit)? = null,
 ) {
     Box(
         modifier
@@ -105,18 +108,19 @@ internal fun ReportWorkspace(
             .background(style.workspace)
             .border(ViewerDimensions.hairline, style.border),
     ) {
-        ReportResultPane(state, actions, style, Modifier.fillMaxSize(), flameTooltipMode)
+        ReportResultPane(state, actions, style, Modifier.fillMaxSize(), flameTooltipMode, onRunAiAnalysis)
     }
 }
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 private fun ReportResultPane(
     state: ReportState,
     actions: ReportActions,
     style: ViewerColors,
     modifier: Modifier,
     flameTooltipMode: FlameTooltipMode,
+    onRunAiAnalysis: (() -> Unit)?,
 ) {
     Box(modifier.fillMaxHeight().padding(14.dp)) {
         when (val loadState = state.loadState) {
@@ -150,6 +154,7 @@ private fun ReportResultPane(
                     actions = actions,
                     style = style,
                     flameTooltipMode = flameTooltipMode,
+                    onRunAiAnalysis = onRunAiAnalysis,
                 )
         }
     }
@@ -220,7 +225,12 @@ internal fun OverviewReport(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetricCard(SimpleperfViewerRes.sp_report_samples, report.overview.sampleCount.toString(), Modifier.weight(1f), style)
-                MetricCard(SimpleperfViewerRes.sp_report_event_weight, report.overview.totalEventWeight.toString(), Modifier.weight(1f), style)
+                MetricCard(
+                    SimpleperfViewerRes.sp_report_event_weight,
+                    report.overview.totalEventWeight.toString(),
+                    Modifier.weight(1f),
+                    style,
+                )
                 MetricCard(SimpleperfViewerRes.sp_target_threads, report.overview.threadCount.toString(), Modifier.weight(1f), style)
                 MetricCard(
                     SimpleperfViewerRes.sp_report_lost_rate,
@@ -239,7 +249,11 @@ internal fun OverviewReport(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    localizedStringResource(SimpleperfViewerRes.sp_diagnostics_lost_samples_value_format, language, report.quality.lostSampleCount),
+                    localizedStringResource(
+                        SimpleperfViewerRes.sp_diagnostics_lost_samples_value_format,
+                        language,
+                        report.quality.lostSampleCount,
+                    ),
                     color = style.text,
                     fontSize = 10.sp,
                 )
@@ -262,7 +276,11 @@ internal fun OverviewReport(
                     fontSize = 10.sp,
                 )
                 Text(
-                    localizedStringResource(SimpleperfViewerRes.sp_diagnostics_empty_stacks_value_format, language, report.quality.emptyStackSamples),
+                    localizedStringResource(
+                        SimpleperfViewerRes.sp_diagnostics_empty_stacks_value_format,
+                        language,
+                        report.quality.emptyStackSamples,
+                    ),
                     color = style.text,
                     fontSize = 10.sp,
                 )
@@ -373,7 +391,7 @@ internal fun TopFunctionsReport(
                 ),
                 { actions.onTopFunctionSort(state.topSort, !state.topDescending) },
                 style,
-                height = 20.dp
+                height = 20.dp,
             )
         }
         Divider(Modifier.fillMaxWidth(), color = color.border)
