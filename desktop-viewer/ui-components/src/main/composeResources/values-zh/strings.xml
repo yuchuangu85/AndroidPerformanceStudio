@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- String resources for this module.
-         Add <string name="key">value</string> entries here.
-         Qualifier variants (e.g. values-zh/strings.xml) provide locale overrides. -->
+    <!-- 此模块的字符串资源。
+         请在此添加 <string name="key">value</string> 条目。
+         限定符变体（例如 values-zh/strings.xml）可提供区域设置覆盖。 -->
 </resources>
