@@ -70,12 +70,7 @@ internal object CanvasHitTester {
             }
         }
         attributes?.clipBounds?.let { local ->
-            val screenClip = Bounds(
-                node.bounds.left + local.left,
-                node.bounds.top + local.top,
-                node.bounds.left + local.right,
-                node.bounds.top + local.bottom,
-            )
+            val screenClip = local.offsetBy(node.bounds.left, node.bounds.top)
             childClip = childClip.intersect(screenClip) ?: run {
                 target += node.toHitCandidate()
                 return
@@ -112,12 +107,7 @@ internal object CanvasHitTester {
             childClip = childClip.intersect(node.bounds) ?: return listOf(node.id)
         }
         attributes?.clipBounds?.let { local ->
-            val screenClip = Bounds(
-                node.bounds.left + local.left,
-                node.bounds.top + local.top,
-                node.bounds.left + local.right,
-                node.bounds.top + local.bottom,
-            )
+            val screenClip = local.offsetBy(node.bounds.left, node.bounds.top)
             childClip = childClip.intersect(screenClip) ?: return listOf(node.id)
         }
 
@@ -159,4 +149,14 @@ internal object CanvasHitTester {
         )
         return intersection.takeIf { it.width > 0 && it.height > 0 }
     }
+
+    private fun Bounds.offsetBy(dx: Int, dy: Int): Bounds = Bounds(
+        left = left.saturatingAdd(dx),
+        top = top.saturatingAdd(dy),
+        right = right.saturatingAdd(dx),
+        bottom = bottom.saturatingAdd(dy),
+    )
+
+    private fun Int.saturatingAdd(other: Int): Int =
+        (toLong() + other.toLong()).coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 }

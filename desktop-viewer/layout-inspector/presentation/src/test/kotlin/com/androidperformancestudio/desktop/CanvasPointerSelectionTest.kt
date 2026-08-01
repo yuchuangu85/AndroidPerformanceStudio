@@ -16,4 +16,15 @@ class CanvasPointerSelectionTest {
         assertEquals("root", selection.click(point, path))
         assertEquals("leaf", selection.click(point, path))
     }
+
+    @Test
+    fun `small area clicks always select the smallest candidate`() {
+        val selection = CanvasPointerSelection()
+        val path = listOf("icon", "recycler", "root")
+        val point = Offset(10f, 10f)
+
+        assertEquals("icon", selection.click(point, path, cycleCandidates = false))
+        assertEquals("icon", selection.click(point, path, cycleCandidates = false))
+        assertEquals("icon", selection.click(point, path, cycleCandidates = false))
+    }
 }

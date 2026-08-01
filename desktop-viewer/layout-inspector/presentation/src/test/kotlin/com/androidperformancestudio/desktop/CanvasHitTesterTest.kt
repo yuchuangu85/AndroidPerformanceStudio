@@ -32,6 +32,42 @@ class CanvasHitTesterTest {
     }
 
     @Test
+    fun `unbounded RecyclerView clip bounds do not overflow away child hits`() {
+        val root = ViewNode(
+            id = "root",
+            className = "Launcher",
+            bounds = Bounds(0, 0, 1240, 2772),
+            children = listOf(
+                ViewNode(
+                    id = "apps-list",
+                    className = "OplusAllAppsRecyclerView",
+                    bounds = Bounds(0, 280, 1240, 2457),
+                    attributes = ViewAttributes(
+                        clipChildren = true,
+                        clipBounds = Bounds(0, -21, Int.MAX_VALUE, Int.MAX_VALUE),
+                    ),
+                    children = listOf(
+                        ViewNode(
+                            id = "icon",
+                            className = "OplusBubbleTextView",
+                            bounds = Bounds(56, 350, 323, 700),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf("icon", "apps-list", "root"),
+            CanvasHitTester.hitCandidates(
+                root = root,
+                point = Offset(189.5f, 525f),
+                order = CanvasHitTestOrder.SMALL_AREA_FIRST,
+            ),
+        )
+    }
+
+    @Test
     fun `z order candidates prefer the painted top node`() {
         val root = ViewNode(
             id = "root",

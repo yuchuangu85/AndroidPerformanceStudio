@@ -1732,6 +1732,9 @@ private fun PreviewPane(
     )
     val screenshot = rememberScreenshot(state.screenshotPng)
     val pointerSelection = remember { CanvasPointerSelection() }
+    LaunchedEffect(state.snapshot?.capturedAtEpochMillis, state.selectedWindowId) {
+        pointerSelection.reset()
+    }
     var canvasPixelSize by remember { mutableStateOf(IntSize.Zero) }
     var appOnly by remember { mutableStateOf(true) }
     var previewZoom by remember { mutableStateOf(PreviewZoomState.DEFAULT_SCALE) }
@@ -1972,7 +1975,11 @@ private fun PreviewPane(
                                                 )
                                             }
                                         }.orEmpty()
-                                        pointerSelection.click(point, candidates)?.let(onSelectNode)
+                                        pointerSelection.click(
+                                            point = point,
+                                            hitPath = candidates,
+                                            cycleCandidates = hitTestOrder == CanvasHitTestOrder.Z_ORDER,
+                                        )?.let(onSelectNode)
                                     },
                             ) {
                                 drawRect(colors.previewCanvas)

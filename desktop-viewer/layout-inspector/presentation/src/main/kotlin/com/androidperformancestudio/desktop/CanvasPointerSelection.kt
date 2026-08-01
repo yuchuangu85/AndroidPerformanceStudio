@@ -21,10 +21,18 @@ internal class CanvasPointerSelection(
         return hoveredNodeId
     }
 
-    fun click(point: Offset, hitPath: List<String>): String? {
+    fun click(
+        point: Offset,
+        hitPath: List<String>,
+        cycleCandidates: Boolean = true,
+    ): String? {
         if (hitPath.isEmpty()) {
             clearCycle()
             return null
+        }
+        if (!cycleCandidates) {
+            clearCycle()
+            return hitPath.first()
         }
         val samePoint = lastClickPoint?.let {
             hypot(point.x - it.x, point.y - it.y) <= clickTolerancePx
