@@ -33,6 +33,11 @@ fun MacOSSwitch(
     uncheckedTrackColor: Color = Color(0xFFE5E5EA),
     thumbColor: Color = Color.White,
 ) {
+    val trackWidth = 36.dp
+    val trackHeight = 22.dp
+    val thumbSize = 20.dp
+    val horizontalPadding = 2.dp
+
     val transition = updateTransition(
         targetState = checked,
         label = "IosSwitchTransition"
@@ -50,19 +55,19 @@ fun MacOSSwitch(
         if (isChecked) checkedTrackColor else uncheckedTrackColor
     }
 
-    val thumbOffset by transition.animateDp(
+    val thumbOffsetX by transition.animateDp(
         transitionSpec = {
             tween(
                 durationMillis = 220,
                 easing = FastOutSlowInEasing
             )
         },
-        label = "IosSwitchThumbOffset"
+        label = "MacOSSwitchThumbOffset"
     ) { isChecked ->
         if (isChecked) {
-            22.dp
+            trackWidth - thumbSize - horizontalPadding
         } else {
-            2.dp
+            horizontalPadding
         }
     }
 
@@ -70,15 +75,11 @@ fun MacOSSwitch(
         MutableInteractionSource()
     }
 
-    /*
-     * 外层高度为 48dp，保证触摸区域足够大；
-     * 内部可见 Switch 保持 iOS 常用的 51dp × 31dp 比例。
-     */
     Box(
         modifier = modifier
             .size(
-                width = 51.dp,
-                height = 48.dp
+                width = trackWidth,
+                height = 32.dp
             )
             .alpha(if (enabled) 1f else 0.45f)
             .toggleable(
@@ -94,8 +95,8 @@ fun MacOSSwitch(
         Box(
             modifier = Modifier
                 .size(
-                    width = 51.dp,
-                    height = 31.dp
+                    width = trackWidth,
+                    height = trackHeight
                 )
                 .background(
                     color = trackColor,
@@ -104,11 +105,9 @@ fun MacOSSwitch(
         ) {
             Box(
                 modifier = Modifier
-                    .offset(
-                        x = thumbOffset,
-                        y = 2.dp
-                    )
-                    .size(27.dp)
+                    .align(Alignment.CenterStart)
+                    .offset(x = thumbOffsetX)
+                    .size(thumbSize)
                     .shadow(
                         elevation = 2.dp,
                         shape = CircleShape,

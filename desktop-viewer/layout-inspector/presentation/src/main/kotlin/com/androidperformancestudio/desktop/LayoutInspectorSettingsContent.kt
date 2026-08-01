@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.ui.switch.MacOSSwitch
 import kotlin.math.roundToInt
 
 /** Complete Layout Inspector settings page used by the unified desktop settings window. */
@@ -204,7 +205,8 @@ private fun SettingsToggleRow(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+//        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        MacOSSwitch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
