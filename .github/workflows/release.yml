@@ -174,8 +174,8 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ needs.resolve.outputs.version }}"
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" -Ptarget.arch=x64 --no-daemon
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageExe "-PappVersion=$version" -Ptarget.arch=x64 --no-daemon
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" "-Ptarget.arch=x64" --no-daemon
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageExe "-PappVersion=$version" "-Ptarget.arch=x64" --no-daemon
       - name: Prepare Windows assets
         shell: pwsh
         env:

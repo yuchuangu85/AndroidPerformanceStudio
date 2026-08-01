@@ -44,7 +44,7 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("runs-on: windows-latest"))
         assertTrue(workflow.contains(":desktop-app:packageMsi"))
         assertTrue(workflow.contains(":desktop-app:packageExe"))
-        assertTrue(Regex(Regex.escape("-Ptarget.arch=x64")).findAll(workflow).count() >= 3)
+        assertTrue(Regex(Regex.escape("\"-Ptarget.arch=x64\"")).findAll(workflow).count() == 2)
         assertTrue(workflow.contains("package-macos:"))
         assertTrue(workflow.contains("runner: macos-15"))
         assertTrue(workflow.contains("runner: macos-15-intel"))
