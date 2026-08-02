@@ -53,7 +53,7 @@ import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.button.HomeButton
-import com.androidperformancestudio.ui.button.MacOSButton
+import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 import java.awt.Desktop
 import java.awt.Toolkit
@@ -119,7 +119,7 @@ internal fun SourceWorkspacesPage(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
-                MacOSButton(
+                MacOSTextButton(
                     localizedStringResource(Res.string.source_add_local, language),
                     onClick = { chooseDirectory(localizedStringResource(Res.string.source_choose_local_directory, language))?.let { root ->
                         scope.launch {
@@ -133,17 +133,17 @@ internal fun SourceWorkspacesPage(
                     } },
                     colors
                 )
-                MacOSButton(
+                MacOSTextButton(
                     localizedStringResource(Res.string.source_add_github, language),
                     onClick = { dialog = RemoteWorkspaceDialog.GITHUB },
                     colors
                 )
-                MacOSButton(
+                MacOSTextButton(
                     localizedStringResource(Res.string.source_add_aosp, language),
                     onClick = { dialog = RemoteWorkspaceDialog.AOSP },
                     colors
                 )
-                MacOSButton(
+                MacOSTextButton(
                     localizedStringResource(Res.string.source_ai_settings, language),
                     onClick = { showAiSettings = true },
                     colors
@@ -299,24 +299,17 @@ private fun WorkspaceCard(
             }
             workspace.localizedMessage(language)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextButton(onClick = onRefresh) {
-                    Text(localizedStringResource(Res.string.source_sync, language))
-                }
-                TextButton(onClick = onToggleAiUpload) {
-                    Text(
-                        localizedStringResource(
-                            if (workspace.allowAiSourceUpload) {
-                                Res.string.source_ai_upload_allowed
-                            } else {
-                                Res.string.source_ai_upload_blocked
-                            },
-                            language,
-                        ),
-                    )
-                }
-                TextButton(onClick = onRemove) {
-                    Text(localizedStringResource(Res.string.source_remove, language))
-                }
+                MacOSTextButton(localizedStringResource(Res.string.source_sync, language), onClick = onRefresh)
+                MacOSTextButton(
+                    localizedStringResource(
+                        if (workspace.allowAiSourceUpload) {
+                            Res.string.source_ai_upload_allowed
+                        } else {
+                            Res.string.source_ai_upload_blocked
+                        }, language
+                    ), onClick = onToggleAiUpload
+                )
+                MacOSTextButton(localizedStringResource(Res.string.source_remove, language), onClick = onRemove)
             }
         }
     }

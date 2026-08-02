@@ -33,10 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.modifier.modifierLocalConsumer
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.MacOSChoiceChip
+import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.ui.switch.MacOSSwitch
 import kotlin.math.roundToInt
 

@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 
@@ -23,10 +24,10 @@ private const val DISABLED_CONTAINER_ALPHA = 0.55f
 private const val DISABLED_CONTENT_ALPHA = 0.48f
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
-fun MacOSButton(
+fun MacOSTextButton(
     label: String,
     onClick: () -> Unit,
-    style: ViewerColors,
+    style: ViewerColors = LocalViewerColors.current,
     height: Dp = ViewerDimensions.buttonHeight,
     enabled: Boolean = true,
     primary: Boolean = false,

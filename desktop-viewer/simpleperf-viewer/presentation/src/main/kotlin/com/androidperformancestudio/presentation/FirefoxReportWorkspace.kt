@@ -40,7 +40,7 @@ import com.androidperformancestudio.presentation.generated.resources.SimpleperfV
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
-import com.androidperformancestudio.ui.button.MacOSButton
+import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 import java.awt.Cursor
 import kotlin.math.roundToInt
@@ -87,11 +87,11 @@ internal fun FirefoxReportWorkspace(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 onRunAiAnalysis?.let { run ->
                     Box(Modifier.testTag("run-ai-analysis")) {
-                        MacOSButton(label = "Run AI Analysis", onClick = run, style = style)
+                        MacOSTextButton(label = "Run AI Analysis", onClick = run, style = style)
                     }
                 }
                 Box(Modifier.testTag("show-details")) {
-                    MacOSButton(
+                    MacOSTextButton(
                         label =
                             localizedStringResource(
                                 if (state.workspace.detailsVisible) {

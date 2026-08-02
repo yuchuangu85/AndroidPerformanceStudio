@@ -59,7 +59,7 @@ import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
-import com.androidperformancestudio.ui.button.MacOSButton
+import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
@@ -245,7 +245,7 @@ private fun ToolbarCaptureActions(
     showGetData: Boolean,
 ) {
     val language = currentSimpleperfLanguage()
-    MacOSButton(
+    MacOSTextButton(
         localizedStringResource(
             if (state.isLoading) SimpleperfViewerRes.sp_target_refreshing else SimpleperfViewerRes.sp_target_refresh,
             language,
@@ -255,7 +255,7 @@ private fun ToolbarCaptureActions(
         enabled = enabled && !state.isLoading,
     )
     if (showGetData) {
-        MacOSButton(
+        MacOSTextButton(
             label = localizedStringResource(SimpleperfViewerRes.sp_capture_get_data, language),
             onClick = actions.onStartCapture,
             style = style,
@@ -520,7 +520,7 @@ private fun CapabilityPopupButton(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        MacOSButton(
+        MacOSTextButton(
             localizedStringResource(
                 SimpleperfViewerRes.sp_target_capabilities,
                 currentSimpleperfLanguage(),
@@ -842,7 +842,7 @@ private fun CaptureActions(
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (captureState.isCaptureActive()) {
             if (captureState is CaptureState.Recording) {
-                MacOSButton(
+                MacOSTextButton(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_capture_stop_analyze,
                         currentSimpleperfLanguage(),
@@ -852,7 +852,7 @@ private fun CaptureActions(
                     primary = true,
                 )
             }
-            MacOSButton(
+            MacOSTextButton(
                 localizedStringResource(
                     SimpleperfViewerRes.sp_capture_cancel,
                     currentSimpleperfLanguage(),

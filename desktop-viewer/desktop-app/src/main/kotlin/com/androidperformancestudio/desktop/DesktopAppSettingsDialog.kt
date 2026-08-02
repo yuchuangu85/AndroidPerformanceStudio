@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,13 +48,10 @@ import androidx.compose.ui.window.rememberDialogState
 import java.util.Locale
 import java.io.File
 import javax.swing.JFileChooser
-import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
-import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
-import com.androidperformancestudio.presentation.generated.resources.dismiss
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.button.MacOSButton
+import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui_components.generated.resources.icon_collapse
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
 import org.jetbrains.compose.resources.DrawableResource
@@ -195,7 +191,7 @@ private fun SettingsFooter(language: UiLanguage, onDismiss: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(Modifier.weight(1f))
-        MacOSButton(onClick = onDismiss, label = localizedStringResource(Res.string.done, language), style = LocalViewerColors.current)
+        MacOSTextButton(onClick = onDismiss, label = localizedStringResource(Res.string.done, language), style = LocalViewerColors.current)
     }
 }
 
