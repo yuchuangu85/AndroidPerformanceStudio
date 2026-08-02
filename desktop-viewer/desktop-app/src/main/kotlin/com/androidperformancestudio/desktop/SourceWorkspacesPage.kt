@@ -353,21 +353,18 @@ private fun SourceBrowser(
                     modifier = Modifier.weight(1f),
                 )
                 selectedLocation?.let { location ->
-                    TextButton(onClick = { copyLocation(workspace, snapshot?.immutableRevision, location) }) {
-                        Text(localizedStringResource(Res.string.source_copy_location, language))
-                    }
-                    TextButton(onClick = { openExternal(workspace, snapshot?.immutableRevision, location) }) {
-                        Text(
-                            localizedStringResource(
-                                if (workspace.config is SourceProviderConfig.Local) {
-                                    Res.string.source_open_in_ide
-                                } else {
-                                    Res.string.source_open_online
-                                },
-                                language,
-                            ),
-                        )
-                    }
+                    MacOSTextButton(
+                        localizedStringResource(Res.string.source_copy_location, language),
+                        onClick = { copyLocation(workspace, snapshot?.immutableRevision, location) })
+                    MacOSTextButton(
+                        localizedStringResource(
+                            if (workspace.config is SourceProviderConfig.Local) {
+                                Res.string.source_open_in_ide
+                            } else {
+                                Res.string.source_open_online
+                            },
+                            language,
+                        ), onClick = { openExternal(workspace, snapshot?.immutableRevision, location) })
                 }
             }
             snapshot?.let {
