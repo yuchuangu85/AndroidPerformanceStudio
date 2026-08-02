@@ -21,6 +21,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.ui.MacOSChoiceChip
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.localizedStringResource
@@ -59,7 +60,7 @@ internal fun FirefoxStackToolbar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ImplementationFilter.entries.forEach { filter ->
-            MacOsChoiceChip(
+            MacOSChoiceChip(
                 label = filter.displayName(language),
                 selected = state.callStackQuery.implementation == filter,
                 enabled = true,
@@ -77,7 +78,7 @@ internal fun FirefoxStackToolbar(
             fieldWidth = 180.dp,
         )
         Spacer(Modifier.width(8.dp))
-        MacOsChoiceChip(
+        MacOSChoiceChip(
             label = localizedStringResource(SimpleperfViewerRes.sp_calltree_invert_call_stack, language),
             selected = state.callStackQuery.direction == CallStackDirection.INVERTED,
             enabled = true,

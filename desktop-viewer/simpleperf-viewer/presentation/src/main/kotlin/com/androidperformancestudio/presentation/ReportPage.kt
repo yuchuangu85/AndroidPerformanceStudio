@@ -63,6 +63,7 @@ import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.MacOSChoiceChip
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -375,7 +376,7 @@ internal fun TopFunctionsReport(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 10.dp)) {
             TopFunctionSort.entries.forEach { sort ->
-                MacOsChoiceChip(
+                MacOSChoiceChip(
                     label = sort.displayName(language),
                     selected = state.topSort == sort,
                     enabled = true,

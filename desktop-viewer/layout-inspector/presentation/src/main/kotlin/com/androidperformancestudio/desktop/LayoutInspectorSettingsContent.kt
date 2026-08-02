@@ -21,12 +21,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,7 +33,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.modifier.modifierLocalConsumer
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.MacOSChoiceChip
 import com.androidperformancestudio.ui.switch.MacOSSwitch
 import kotlin.math.roundToInt
 
@@ -216,20 +217,22 @@ private fun CanvasHitTestOrderSetting(
     language: UiLanguage,
     onSelected: (CanvasHitTestOrder) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(localizedStringResource(Res.string.canvas_hit_test_order, language), style = MaterialTheme.typography.bodyMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(start = 20.dp, top = 10.dp),verticalArrangement = Arrangement.spacedBy(8.dp)) {
             CanvasHitTestOrder.entries.forEach { option ->
                 val label =
                     when (option) {
                         CanvasHitTestOrder.SMALL_AREA_FIRST -> localizedStringResource(Res.string.small_area_first, language)
                         CanvasHitTestOrder.Z_ORDER -> localizedStringResource(Res.string.z_order, language)
                     }
-                if (option == selected) {
-                    Button(onClick = { onSelected(option) }) { Text(label) }
-                } else {
-                    OutlinedButton(onClick = { onSelected(option) }) { Text(label) }
-                }
+                MacOSChoiceChip(
+                    label,
+                    selected == option,
+                    true,
+                    LocalViewerColors.current,
+                    onClick = { onSelected(option) }
+                )
             }
         }
     }

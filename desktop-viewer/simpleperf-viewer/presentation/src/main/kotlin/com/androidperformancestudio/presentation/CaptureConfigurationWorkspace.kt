@@ -31,7 +31,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -60,6 +59,12 @@ import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingRate
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.DISABLED_CHIP_ALPHA
+import com.androidperformancestudio.ui.DURATION_FIELD_WEIGHT
+import com.androidperformancestudio.ui.MAX_EVENT_CHIPS
+import com.androidperformancestudio.ui.MacOSChoiceChip
+import com.androidperformancestudio.ui.RATE_FIELD_WEIGHT
+import com.androidperformancestudio.ui.SELECTED_TEMPLATE_ALPHA
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -302,7 +307,7 @@ private fun SettingsPanel(
     Column(modifier.fillMaxHeight().padding(22.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(section.title(locale), color = style.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(section.title(locale), color = style.text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(section.subtitle(locale), color = style.secondaryText, fontSize = 10.sp)
             }
             onDismiss?.let { MacOSButton(localizedStringResource(SimpleperfViewerRes.sp_target_done, locale), it, style, primary = true) }
@@ -418,8 +423,8 @@ private fun FlameGraphSettingsPanel(
             color = style.secondaryText,
             fontSize = 10.sp,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MacOsChoiceChip(
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            MacOSChoiceChip(
                 localizedStringResource(SimpleperfViewerRes.sp_settings_fixed, locale),
                 selected == FlameTooltipMode.FIXED,
                 true,
@@ -427,7 +432,7 @@ private fun FlameGraphSettingsPanel(
             ) {
                 onSelect(FlameTooltipMode.FIXED)
             }
-            MacOsChoiceChip(
+            MacOSChoiceChip(
                 localizedStringResource(SimpleperfViewerRes.sp_settings_follow_mouse, locale),
                 selected == FlameTooltipMode.FOLLOW_MOUSE,
                 true,
@@ -448,18 +453,12 @@ private fun SimpleperfEngineSettingsPanel(
 ) {
     MacOsPanel(Modifier.fillMaxWidth(), style) {
         Text(
-            localizedStringResource(SimpleperfViewerRes.sp_settings_analysis_engine, locale),
-            color = style.text,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
             localizedStringResource(SimpleperfViewerRes.sp_settings_analysis_engine_options_description, locale),
             color = style.secondaryText,
-            fontSize = 10.sp,
+            style = MaterialTheme.typography.bodySmall,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MacOsChoiceChip(
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            MacOSChoiceChip(
                 localizedStringResource(SimpleperfViewerRes.sp_settings_new_engine, locale),
                 selected == SimpleperfEngine.LOCAL,
                 true,
@@ -467,7 +466,7 @@ private fun SimpleperfEngineSettingsPanel(
             ) {
                 onSelect(SimpleperfEngine.LOCAL)
             }
-            MacOsChoiceChip(
+            MacOSChoiceChip(
                 localizedStringResource(SimpleperfViewerRes.sp_settings_firefox_profiler_local_engine, locale),
                 selected == SimpleperfEngine.FIREFOX_PROFILER_LOCAL,
                 true,
@@ -475,7 +474,7 @@ private fun SimpleperfEngineSettingsPanel(
             ) {
                 onSelect(SimpleperfEngine.FIREFOX_PROFILER_LOCAL)
             }
-            MacOsChoiceChip(
+            MacOSChoiceChip(
                 localizedStringResource(SimpleperfViewerRes.sp_settings_firefox_profiler, locale),
                 selected == SimpleperfEngine.FIREFOX_PROFILER,
                 true,
@@ -497,12 +496,6 @@ private fun SamplingTemplatePanel(
     modifier: Modifier,
 ) {
     MacOsPanel(modifier, style) {
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_settings_sampling_template, locale),
-            color = style.text,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
         SamplingTemplate.entries.forEach { template ->
             TemplateChoice(template, setup?.template == template, enabled, { onSelectTemplate(template) }, style, locale)
         }
@@ -564,7 +557,7 @@ private fun CaptureConfigurationPanel(
         if (availableEvents.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 availableEvents.take(MAX_EVENT_CHIPS).forEach { candidate ->
-                    MacOsChoiceChip(candidate, event == candidate, enabled, style) {
+                    MacOSChoiceChip(candidate, event == candidate, enabled, style) {
                         event = candidate
                         commitValues()
                     }
@@ -579,7 +572,7 @@ private fun CaptureConfigurationPanel(
                     fontSize = 9.sp,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    MacOsChoiceChip(
+                    MacOSChoiceChip(
                         localizedStringResource(SimpleperfViewerRes.sp_capture_frequency, locale),
                         !periodMode,
                         enabled,
@@ -591,7 +584,7 @@ private fun CaptureConfigurationPanel(
                             )
                         }
                     }
-                    MacOsChoiceChip(localizedStringResource(SimpleperfViewerRes.sp_capture_period, locale), periodMode, enabled, style) {
+                    MacOSChoiceChip(localizedStringResource(SimpleperfViewerRes.sp_capture_period, locale), periodMode, enabled, style) {
                         rateValue.toLongOrNull()?.takeIf { it > 0 }?.let { onUpdate(setup.parameters.copy(rate = SamplingRate.Period(it))) }
                     }
                 }
@@ -636,12 +629,6 @@ private fun AdvancedCaptureParameters(
         return
     }
     MacOsPanel(modifier, style) {
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_settings_advanced_parameters, locale),
-            color = style.text,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
         ParameterChoices(
             SimpleperfViewerRes.sp_capture_call_graph,
             CallGraphMode.entries,
@@ -768,49 +755,7 @@ private fun <T : Enum<T>> ParameterChoices(
                     is EventScope -> value.localizedLabel(locale)
                     else -> value.name.replace('_', ' ')
                 }
-            MacOsChoiceChip(valueLabel, value == selected, enabled, style) { onSelect(value) }
-        }
-    }
-}
-
-@Composable
-internal fun MacOsChoiceChip(
-    label: String,
-    selected: Boolean,
-    enabled: Boolean,
-    style: ViewerColors,
-    onClick: () -> Unit,
-) {
-    val background = if (selected) style.accent else style.field
-    val content = if (selected) style.accentText else style.text
-    Row {
-        RadioButton(
-            selected = selected,
-            onClick = onClick,
-            modifier = Modifier.height(14.dp).width(14.dp),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Box(
-            Modifier
-                .height(
-                    16.dp,
-                ).background(
-                    background,
-                    RoundedCornerShape(6.dp),
-                ).border(
-                    ViewerDimensions.hairline,
-                    if (selected) style.accent else style.strongBorder,
-                    RoundedCornerShape(4.dp),
-                ).clickable(enabled = enabled, onClick = onClick)
-                .padding(start = 6.dp, top = 0.dp, end = 6.dp, bottom = 0.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                label,
-                color = content.copy(alpha = if (enabled) 1f else DISABLED_CHIP_ALPHA),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-            )
+            MacOSChoiceChip(valueLabel, value == selected, enabled, style) { onSelect(value) }
         }
     }
 }
@@ -956,8 +901,3 @@ private fun SamplingTemplate.localizedTemplateDescription(locale: java.util.Loca
         locale,
     )
 
-private const val MAX_EVENT_CHIPS = 5
-private const val RATE_FIELD_WEIGHT = 0.32f
-private const val DURATION_FIELD_WEIGHT = 0.68f
-private const val SELECTED_TEMPLATE_ALPHA = 0.11f
-private const val DISABLED_CHIP_ALPHA = 0.46f

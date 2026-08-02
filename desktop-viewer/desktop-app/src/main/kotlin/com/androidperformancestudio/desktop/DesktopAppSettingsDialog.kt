@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +53,9 @@ import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
+import com.androidperformancestudio.presentation.generated.resources.dismiss
+import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.button.MacOSButton
 import com.androidperformancestudio.ui_components.generated.resources.icon_collapse
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
 import org.jetbrains.compose.resources.DrawableResource
@@ -189,8 +194,8 @@ private fun SettingsFooter(language: UiLanguage, onDismiss: () -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-        OutlinedButton(onClick = onDismiss) { Text(localizedStringResource(Res.string.done, language)) }
+        Spacer(Modifier.weight(1f))
+        MacOSButton(onClick = onDismiss, label = localizedStringResource(Res.string.done, language), style = LocalViewerColors.current)
     }
 }
 
@@ -303,7 +308,7 @@ private fun SettingsSidebarRow(
         Text(
             text = label,
             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = if (selected) FontWeight.SemiBold else fontWeight,
         )
     }
@@ -320,7 +325,7 @@ private fun GeneralSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(localizedStringResource(Res.string.general, language), style = MaterialTheme.typography.titleLarge)
+        Text(localizedStringResource(Res.string.general, language), style = MaterialTheme.typography.titleMedium)
         SettingsChoice(
             language = language,
             label = localizedStringResource(Res.string.language, language),
@@ -511,14 +516,14 @@ private fun <T> SettingsChoice(
         ) {
             Text(localizedStringResource(Res.string.text, language, label, optionLabel(current)))
         }
-        androidx.compose.material3.DropdownMenu(
+        DropdownMenu(
             expanded = expanded,
             modifier = Modifier.wrapContentHeight().width(200.dp),
             shape = RoundedCornerShape(10.dp),
             onDismissRequest = { expanded = false }
         ) {
             options.forEach { option ->
-                androidx.compose.material3.DropdownMenuItem(
+                DropdownMenuItem(
                     text = { Text(optionLabel(option)) },
                     onClick = {
                         expanded = false
