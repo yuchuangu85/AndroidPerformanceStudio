@@ -14,8 +14,13 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.export
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_standard_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.file
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof_menu
+import com.androidperformancestudio.memory.memory_app.generated.resources.no_recent_sessions
+import com.androidperformancestudio.memory.memory_app.generated.resources.recent_sessions
+import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 internal data class MemoryProfilerFileMenuModel(
     val fileTitle: String,
@@ -32,6 +37,10 @@ internal data class MemoryProfilerFileMenuModel(
     val exportBitmapComparisonLabel: String = "Export Bitmap Comparison",
     val bitmapDumpExportEnabled: Boolean = false,
     val bitmapComparisonExportEnabled: Boolean = false,
+    val recentSessionsTitle: String = "Recent Sessions",
+    val noRecentSessionsLabel: String = "No recent sessions",
+    val recentSessions: List<MemorySessionMetadata> = emptyList(),
+    val recentSessionsEnabled: Boolean = false,
 )
 
 @Suppress("LongParameterList")
@@ -43,6 +52,7 @@ internal fun memoryProfilerFileMenuModel(
     csvExportEnabled: Boolean,
     bitmapDumpExportEnabled: Boolean = false,
     bitmapComparisonExportEnabled: Boolean = false,
+    recentSessions: List<MemorySessionMetadata> = emptyList(),
 ): MemoryProfilerFileMenuModel =
     MemoryProfilerFileMenuModel(
         fileTitle = localizedStringResource(Res.string.file, language),
@@ -59,6 +69,10 @@ internal fun memoryProfilerFileMenuModel(
         exportBitmapComparisonLabel = localizedStringResource(Res.string.export_bitmap_comparison, language),
         bitmapDumpExportEnabled = bitmapDumpExportEnabled,
         bitmapComparisonExportEnabled = bitmapComparisonExportEnabled,
+        recentSessionsTitle = localizedStringResource(Res.string.recent_sessions, language),
+        noRecentSessionsLabel = localizedStringResource(Res.string.no_recent_sessions, language),
+        recentSessions = recentSessions,
+        recentSessionsEnabled = importEnabled && recentSessions.isNotEmpty(),
     )
 
 @Composable
@@ -71,6 +85,7 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     onExportCsv: () -> Unit,
     onExportBitmapDump: () -> Unit = {},
     onExportBitmapComparison: () -> Unit = {},
+    onLoadSession: (MemorySessionMetadata) -> Unit = {},
 ) {
     MenuBar {
         Menu(model.fileTitle) {
@@ -79,6 +94,18 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
                 enabled = model.importEnabled,
                 onClick = onImportHprof,
             )
+            Menu(model.recentSessionsTitle, enabled = model.recentSessionsEnabled) {
+                if (model.recentSessions.isEmpty()) {
+                    Item(text = model.noRecentSessionsLabel, enabled = false, onClick = {})
+                } else {
+                    model.recentSessions.forEach { session ->
+                        Item(
+                            text = recentSessionLabel(session),
+                            onClick = { onLoadSession(session) },
+                        )
+                    }
+                }
+            }
             Menu(model.exportTitle) {
                 Item(
                     text = model.exportRawHprofLabel,
@@ -109,3 +136,14 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
         }
     }
 }
+
+private fun recentSessionLabel(session: MemorySessionMetadata): String =
+    buildString {
+        append(session.packageName.ifBlank { session.rawHprofFile.fileName.toString() })
+        append(" · ")
+        append(SESSION_TIME_FORMAT.format(session.capturedAt.atZone(ZoneId.systemDefault())))
+        append(" · ")
+        append(session.objectCount)
+    }
+
+private val SESSION_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")

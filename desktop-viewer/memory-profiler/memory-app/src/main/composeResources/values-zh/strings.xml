@@ -15,6 +15,9 @@
     <string name="export_memory_profiler_data">导出内存分析器数据</string>
     <string name="import_hprof">导入 HPROF</string>
     <string name="import_hprof_menu">导入 HPROF…</string>
+    <string name="recent_sessions">最近会话</string>
+    <string name="no_recent_sessions">暂无最近会话</string>
+    <string name="loading_session">正在加载会话 %1$s…</string>
     <string name="unable_to_list_android_devices">无法列出 Android 设备</string>
     <string name="unable_to_list_device_processes">无法列出设备进程</string>
     <string name="heap_dump_failed">堆转储失败</string>

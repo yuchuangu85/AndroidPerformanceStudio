@@ -10,6 +10,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.dumpin
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_parser_out_of_memory
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing_ad13e4da
+import com.androidperformancestudio.memory.memory_app.generated.resources.loading_session
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
@@ -20,6 +21,7 @@ import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.presentation.MemoryProfilerError
 import com.androidperformancestudio.memory.presentation.MemoryProfilerState
+import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
@@ -77,6 +79,14 @@ internal interface MemoryProfilerBackend {
         onProgress: (Int) -> Unit,
     ): MemoryBackendResult<LoadedHeap> = importHprof(file)
 
+    suspend fun listSessions(): MemoryBackendResult<List<MemorySessionMetadata>> =
+        MemoryBackendResult.Success(emptyList())
+
+    suspend fun loadSession(
+        metadata: MemorySessionMetadata,
+    ): MemoryBackendResult<LoadedHeap> =
+        importHprof(metadata.convertedHprofFile ?: metadata.rawHprofFile)
+
     fun exportRaw(
         heapDump: HeapDump,
         output: Path,
@@ -116,6 +126,9 @@ internal class MemoryProfilerController(
         private set
 
     var loadedBitmapDump: LoadedBitmapDump? = null
+        private set
+
+    var recentSessions: List<MemorySessionMetadata> = emptyList()
         private set
 
     private var previousBitmapDump: LoadedBitmapDump? = null
@@ -255,6 +268,25 @@ internal class MemoryProfilerController(
                 )
             }
         applyLoadedResult(result)
+    }
+
+    suspend fun refreshSessions() {
+        when (val result = backend.listSessions()) {
+            is MemoryBackendResult.Failure -> Unit
+            is MemoryBackendResult.Success -> recentSessions = result.value
+        }
+    }
+
+    suspend fun loadSession(metadata: MemorySessionMetadata) {
+        mutableState.value =
+            mutableState.value.copy(
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.loading_session, language, metadata.packageName),
+                error = null,
+                warning = null,
+                cleanupWarning = null,
+            )
+        applyLoadedResult(backend.loadSession(metadata))
     }
 
     fun exportRaw(output: Path) {

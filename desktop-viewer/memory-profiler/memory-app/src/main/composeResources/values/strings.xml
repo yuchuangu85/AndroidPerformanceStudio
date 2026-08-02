@@ -15,6 +15,9 @@
     <string name="export_memory_profiler_data">Export Memory Profiler Data</string>
     <string name="import_hprof">Import HPROF</string>
     <string name="import_hprof_menu">Import HPROF…</string>
+    <string name="recent_sessions">Recent Sessions</string>
+    <string name="no_recent_sessions">No recent sessions</string>
+    <string name="loading_session">Loading session %1$s…</string>
     <string name="unable_to_list_android_devices">Unable to list Android devices</string>
     <string name="unable_to_list_device_processes">Unable to list device processes</string>
     <string name="heap_dump_failed">Heap dump failed</string>

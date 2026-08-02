@@ -56,6 +56,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     var showHprofFileDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(controller) { controller.refreshDevices() }
+    LaunchedEffect(controller) { controller.refreshSessions() }
     LaunchedEffect(highlightClassName) {
         highlightClassName?.let(controller::highlightClass)
     }
@@ -70,6 +71,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 csvExportEnabled = loaded != null,
                 bitmapDumpExportEnabled = controller.loadedBitmapDump != null,
                 bitmapComparisonExportEnabled = state.bitmapDumpComparison != null,
+                recentSessions = controller.recentSessions,
             ),
         onImportHprof = { showHprofFileDialog = true },
         onExportRawHprof = {
@@ -86,6 +88,9 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         },
         onExportBitmapComparison = {
             chooseSaveFile(window, "bitmap-comparison.md", language)?.let(controller::exportBitmapComparison)
+        },
+        onLoadSession = { metadata ->
+            scope.launch { controller.loadSession(metadata) }
         },
     )
 

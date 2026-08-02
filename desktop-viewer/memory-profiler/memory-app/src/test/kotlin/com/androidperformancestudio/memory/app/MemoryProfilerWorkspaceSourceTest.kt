@@ -52,7 +52,7 @@ class MemoryProfilerWorkspaceSourceTest {
                 .substringAfter("ProfilerMacOsToolbar {")
                 .substringBefore("        }\n        HorizontalDivider")
 
-        val home = toolbar.indexOf("ProfilerHomeButton(")
+        val home = toolbar.indexOf("HomeButton(")
         val selectors = toolbar.indexOf("MemoryProfilerToolbarSelectors(")
         val refresh = toolbar.indexOf("ProfilerCompactButton(")
         val spacer = toolbar.indexOf("Spacer(Modifier.weight(1f))")

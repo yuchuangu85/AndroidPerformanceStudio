@@ -48,6 +48,7 @@ import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.security.MessageDigest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.SQLException
@@ -286,9 +287,56 @@ internal class DesktopMemoryProfilerBackend(
                     localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
                 )
             } else {
-                loadHeap(HeapLoadRequest(file = file, rawFile = file), onProgress)
+                loadHeap(
+                    HeapLoadRequest(
+                        file = file,
+                        rawFile = file,
+                        sessionMetadata = importedSessionIdentity(file),
+                    ),
+                    onProgress,
+                )
             }
         }
+
+    override suspend fun listSessions(): MemoryBackendResult<List<MemorySessionMetadata>> =
+        withContext(Dispatchers.IO) {
+            try {
+                SqliteMemorySessionStore.open(dataRoot.resolve("memory-sessions.db")).use { store ->
+                    MemoryBackendResult.Success(store.listRecent())
+                }
+            } catch (exception: SQLException) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.unable_to_analyze_hprof, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        }
+
+    override suspend fun loadSession(
+        metadata: MemorySessionMetadata,
+    ): MemoryBackendResult<LoadedHeap> {
+        val file = metadata.convertedHprofFile ?: metadata.rawHprofFile
+        if (!Files.isRegularFile(file)) {
+            return MemoryBackendResult.Failure(
+                localizedStringResource(Res.string.hprof_file_not_found, language),
+                localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
+            )
+        }
+        return loadHeap(
+            HeapLoadRequest(
+                file = file,
+                rawFile = metadata.rawHprofFile,
+                convertedFile = metadata.convertedHprofFile,
+                sessionMetadata =
+                    CapturedSessionIdentity(
+                        serial = metadata.deviceSerial,
+                        packageName = metadata.packageName,
+                        sessionId = metadata.sessionId,
+                        pid = 0,
+                    ),
+            ),
+        )
+    }
 
     override fun exportRaw(
         heapDump: HeapDump,
@@ -430,6 +478,25 @@ internal class DesktopMemoryProfilerBackend(
         )
 
     private fun sessionId(): String = SESSION_ID_FORMAT.format(Instant.now())
+
+    private fun importedSessionIdentity(file: Path): CapturedSessionIdentity {
+        val stableId = importedSessionId(file)
+        return CapturedSessionIdentity(
+            serial = "",
+            packageName = "",
+            sessionId = stableId,
+            pid = 0,
+        )
+    }
+
+    private fun importedSessionId(file: Path): String {
+        val normalized = file.toAbsolutePath().normalize().toString()
+        val digest =
+            MessageDigest.getInstance("SHA-256")
+                .digest(normalized.toByteArray(Charsets.UTF_8))
+        val hex = digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
+        return "import-${hex.take(12)}"
+    }
 
     private data class CapturedSessionIdentity(
         val serial: String,
