@@ -119,6 +119,7 @@ import com.androidperformancestudio.adb.VisibleWindowViewsTextRenderer
 import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.ProtocolCodec
 import com.androidperformancestudio.protocol.UiNode
+import com.androidperformancestudio.ui.DropdownSelector
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -1121,46 +1122,16 @@ private fun CaptureTargetSelector(
     selectedMode: CaptureTargetMode,
     onSelectMode: (CaptureTargetMode) -> Unit,
 ) {
-    val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
-    var expanded by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(4.dp)
-    Box {
-        Text(
-            text =
-                "${localizedStringResource(Res.string.capture_target, language)}: " +
-                    "${localizedStringResource(selectedMode.stringResource(), language)} ▾",
-            color = colors.secondaryText,
-            fontSize = 11.sp,
-            maxLines = 1,
-            modifier = Modifier
-                .background(colors.sectionBackground, shape)
-                .border(1.dp, colors.border, shape)
-                .clickable { expanded = true }
-                .padding(horizontal = 8.dp, vertical = 3.dp),
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.background(colors.panel),
-        ) {
-            CaptureTargetMode.entries.forEach { mode ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            localizedStringResource(mode.stringResource(), language),
-                            fontSize = 12.sp,
-                        )
-                    },
-                    onClick = {
-                        expanded = false
-                        onSelectMode(mode)
-                    },
-                    modifier = Modifier.height(32.dp),
-                )
-            }
-        }
-    }
+    val targetLabel = localizedStringResource(Res.string.capture_target, language)
+    DropdownSelector(
+        items = CaptureTargetMode.entries,
+        selectedItem = selectedMode,
+        onItemSelected = onSelectMode,
+        itemLabel = { localizedStringResource(it.stringResource(), language) },
+        selectedItemLabel = { "$targetLabel: ${localizedStringResource(it.stringResource(), language)}" },
+        placeholder = targetLabel,
+    )
 }
 
 @Composable
@@ -1169,50 +1140,18 @@ private fun DeviceSelector(
     selectedSerial: String?,
     onSelectDevice: (String?) -> Unit,
 ) {
-    val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
-    var expanded by remember { mutableStateOf(false) }
-    val selectedLabel = devices.firstOrNull { it.serial == selectedSerial }?.label
-        ?: localizedStringResource(Res.string.auto_device, language)
-    val shape = RoundedCornerShape(4.dp)
-    Box(
-        modifier = Modifier.border(1.dp, colors.border, shape)
-    ) {
-        Text(
-            text = "$selectedLabel ▾",
-            color = colors.secondaryText,
-            fontSize = 11.sp,
-            maxLines = 1,
-            modifier = Modifier
-                .background(colors.sectionBackground, RoundedCornerShape(4.dp))
-                .clickable { expanded = true }
-                .padding(horizontal = 8.dp, vertical = 3.dp),
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.background(colors.panel),
-        ) {
-            DropdownMenuItem(
-                text = { Text(localizedStringResource(Res.string.auto_device, language), fontSize = 12.sp) },
-                onClick = {
-                    expanded = false
-                    onSelectDevice(null)
-                },
-                modifier = Modifier.height(32.dp),
-            )
-            devices.forEach { device ->
-                DropdownMenuItem(
-                    text = { Text(device.label, fontSize = 12.sp) },
-                    onClick = {
-                        expanded = false
-                        onSelectDevice(device.serial)
-                    },
-                    modifier = Modifier.height(32.dp),
-                )
-            }
-        }
-    }
+    val autoDeviceLabel = localizedStringResource(Res.string.auto_device, language)
+    val selectedDevice = devices.firstOrNull { it.serial == selectedSerial }
+
+    DropdownSelector(
+        items = devices,
+        selectedItem = selectedDevice,
+        onItemSelected = { device -> onSelectDevice(device.serial) },
+        itemLabel = DeviceChoiceModel::label,
+        placeholder = autoDeviceLabel,
+        onPlaceholderSelected = { onSelectDevice(null) },
+    )
 }
 
 @Composable

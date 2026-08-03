@@ -34,7 +34,7 @@
     <string name="bitmap_dump_comparison_summary">Images %1$s → %2$s (%3$s) · estimated memory %4$s</string>
     <string name="working">Working…</string>
     <string name="import_hprof">Import hprof</string>
-    <string name="select_device">Select device ▼</string>
+    <string name="select_device">Select device</string>
     <string name="device_offline">%1$s (offline)</string>
     <string name="select_process">Select process ▼</string>
     <string name="count_value">Count: %1$s</string>

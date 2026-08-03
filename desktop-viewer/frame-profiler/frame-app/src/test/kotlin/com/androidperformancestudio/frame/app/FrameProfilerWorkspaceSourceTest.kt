@@ -16,7 +16,8 @@ class FrameProfilerWorkspaceSourceTest {
     fun `workspace uses shared compact chrome without changing frame screen`() {
         assertTrue(source.contains("ProfilerMacOsToolbar"))
         assertTrue(source.contains("FrameProfilerFileMenuBar("))
-        assertTrue(source.contains("ProfilerCompactSelector"))
+        assertTrue(source.contains("DropdownSelector"))
+        assertFalse(source.contains("ProfilerCompactSelector"))
         assertTrue(source.contains("ProfilerToolbarStatus"))
         assertFalse(source.contains("private fun TargetSelector("))
         assertFalse(source.contains("import androidx.compose.material3.OutlinedButton"))
@@ -28,8 +29,8 @@ class FrameProfilerWorkspaceSourceTest {
     fun `toolbar preserves capture and navigation wiring`() {
         val homeBlock =
             source.substring(
-                source.indexOf("ProfilerHomeButton("),
-                source.indexOf("ProfilerCompactSelector("),
+                source.indexOf("HomeButton("),
+                source.indexOf("DropdownSelector("),
             )
         assertTrue(homeBlock.contains("if (state.isCapturing)"))
         assertTrue(homeBlock.contains("controller.stopOnlineCapture()"))
@@ -75,12 +76,12 @@ class FrameProfilerWorkspaceSourceTest {
         assertBlockContains(
             "localizedStringResource(Res.string.device, language)",
             "enabled = !state.isCapturing",
-            "controller.selectDevice(serial)",
+            "controller.selectDevice(device.serial)",
         )
         assertBlockContains(
             "localizedStringResource(Res.string.process, language)",
             "enabled = !state.isCapturing && state.selectedDeviceSerial != null",
-            "controller::selectProcess",
+            "controller.selectProcess(it.pid)",
         )
     }
 
@@ -93,10 +94,10 @@ class FrameProfilerWorkspaceSourceTest {
         val blockStart =
             maxOf(
                 source.lastIndexOf("ProfilerCompactButton(", anchorIndex),
-                source.lastIndexOf("ProfilerCompactSelector(", anchorIndex),
+                source.lastIndexOf("DropdownSelector(", anchorIndex),
             )
         val nextButton = source.indexOf("ProfilerCompactButton(", anchorIndex + anchor.length)
-        val nextSelector = source.indexOf("ProfilerCompactSelector(", anchorIndex + anchor.length)
+        val nextSelector = source.indexOf("DropdownSelector(", anchorIndex + anchor.length)
         val blockEnd = listOf(nextButton, nextSelector).filter { it >= 0 }.minOrNull() ?: source.length
         val block = source.substring(blockStart, blockEnd)
 

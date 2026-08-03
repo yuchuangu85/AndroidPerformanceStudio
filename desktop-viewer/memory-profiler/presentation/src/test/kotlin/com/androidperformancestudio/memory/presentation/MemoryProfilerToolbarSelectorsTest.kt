@@ -1,7 +1,6 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -39,7 +38,7 @@ class MemoryProfilerToolbarSelectorsTest {
             assertEquals(device.height, process.height)
 
             onNodeWithContentDescription("Device selector").performClick()
-            onAllNodesWithText("Pixel 8")[1].performClick()
+            onNodeWithText("Pixel 8").performClick()
             onNodeWithContentDescription("Process selector").performClick()
             onNodeWithText("com.example (42)").performClick()
 

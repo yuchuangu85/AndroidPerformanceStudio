@@ -57,13 +57,13 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.unkn
 import com.androidperformancestudio.startup.startup_app.generated.resources.verify
 import com.androidperformancestudio.startup.startup_app.generated.resources.warm
 import com.androidperformancestudio.startup.startup_app.generated.resources.warm_ups
+import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerCompactSelector
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -116,35 +116,36 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                     onBack()
                 },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.device, language),
-                selectedLabel = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
-                options = state.devices.filter { it.online }.map { it.serial to it.name },
+            DropdownSelector(
+                items = state.devices,
+                selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+                onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
+                itemLabel = { it.name },
+                placeholder = localizedStringResource(Res.string.device, language),
                 enabled = !state.isRunning,
-                onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
+                itemEnabled = { it.online },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.app_activity, language),
-                selectedLabel =
-                    state.targets.firstOrNull { it.componentName == state.selectedComponentName }?.let {
-                        if (it.debuggable) {
-                            localizedStringResource(Res.string.package_agent, language, it.packageName)
-                        } else {
-                            it.packageName
-                        }
-                    },
-                options =
-                    state.targets.map {
-                        it.componentName to
-                            localizedStringResource(
-                                Res.string.package_activity,
-                                language,
-                                it.packageName,
-                                it.componentName.substringAfter('/'),
-                            )
-                    },
+            DropdownSelector(
+                items = state.targets,
+                selectedItem = state.targets.firstOrNull { it.componentName == state.selectedComponentName },
+                onItemSelected = { controller.selectTarget(it.componentName) },
+                itemLabel = {
+                    localizedStringResource(
+                        Res.string.package_activity,
+                        language,
+                        it.packageName,
+                        it.componentName.substringAfter('/'),
+                    )
+                },
+                selectedItemLabel = {
+                    if (it.debuggable) {
+                        localizedStringResource(Res.string.package_agent, language, it.packageName)
+                    } else {
+                        it.packageName
+                    }
+                },
+                placeholder = localizedStringResource(Res.string.app_activity, language),
                 enabled = !state.isRunning && state.selectedDeviceSerial != null,
-                onSelected = controller::selectTarget,
             )
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.refresh, language),
@@ -178,43 +179,45 @@ public fun FrameWindowScope.StartupProfilerMainPage(
             color = MaterialTheme.colorScheme.outline,
         )
         ProfilerMacOsSecondaryToolbar {
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.startup_type, language),
-                selectedLabel = state.config.requestedType.label(language),
-                options = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT).map { it.name to it.label(language) },
+            DropdownSelector(
+                items = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT),
+                selectedItem = state.config.requestedType,
+                onItemSelected = controller::selectStartupType,
+                itemLabel = { it.label(language) },
+                placeholder = localizedStringResource(Res.string.startup_type, language),
                 enabled = !state.isRunning,
-                onSelected = { value -> StartupType.valueOf(value).let(controller::selectStartupType) },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.compilation, language),
-                selectedLabel = state.config.compilationMode.label(language),
-                options = CompilationMode.entries.map { it.name to it.label(language) },
+            DropdownSelector(
+                items = CompilationMode.entries,
+                selectedItem = state.config.compilationMode,
+                onItemSelected = controller::selectCompilationMode,
+                itemLabel = { it.label(language) },
+                placeholder = localizedStringResource(Res.string.compilation, language),
                 enabled = !state.isRunning,
-                onSelected = { value -> CompilationMode.valueOf(value).let(controller::selectCompilationMode) },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.warm_ups, language),
-                selectedLabel = state.config.warmupRuns.toString(),
-                options = (0..10).map { it.toString() to it.toString() },
+            DropdownSelector(
+                items = (0..10).toList(),
+                selectedItem = state.config.warmupRuns,
+                onItemSelected = { controller.updateCounts(it, state.config.measuredRuns) },
+                itemLabel = Int::toString,
+                placeholder = localizedStringResource(Res.string.warm_ups, language),
                 enabled = !state.isRunning,
-                onSelected = { value -> controller.updateCounts(value.toInt(), state.config.measuredRuns) },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.measured_runs, language),
-                selectedLabel = state.config.measuredRuns.toString(),
-                options = listOf(1, 3, 5, 10, 20, 30).map { it.toString() to it.toString() },
+            DropdownSelector(
+                items = listOf(1, 3, 5, 10, 20, 30),
+                selectedItem = state.config.measuredRuns,
+                onItemSelected = { controller.updateCounts(state.config.warmupRuns, it) },
+                itemLabel = Int::toString,
+                placeholder = localizedStringResource(Res.string.measured_runs, language),
                 enabled = !state.isRunning,
-                onSelected = { value -> controller.updateCounts(state.config.warmupRuns, value.toInt()) },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.timeout, language),
-                selectedLabel = localizedStringResource(Res.string.seconds_short, language, state.config.timeoutSeconds),
-                options =
-                    listOf(10, 20, 30, 45, 60, 120).map {
-                        it.toString() to localizedStringResource(Res.string.seconds_short, language, it)
-                    },
+            DropdownSelector(
+                items = listOf(10, 20, 30, 45, 60, 120),
+                selectedItem = state.config.timeoutSeconds,
+                onItemSelected = controller::updateTimeout,
+                itemLabel = { localizedStringResource(Res.string.seconds_short, language, it) },
+                placeholder = localizedStringResource(Res.string.timeout, language),
                 enabled = !state.isRunning,
-                onSelected = { value -> controller.updateTimeout(value.toInt()) },
             )
         }
         if (state.isRunning && state.totalRuns > 0) {

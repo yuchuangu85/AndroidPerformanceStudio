@@ -37,12 +37,12 @@ import com.androidperformancestudio.frame.frame_app.generated.resources.stop_cap
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
+import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerCompactSelector
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -107,32 +107,29 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     }
                 },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.device, language),
-                selectedLabel =
-                    state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
-                options = state.devices.filter { it.online }.map { it.serial to it.name },
+            DropdownSelector(
+                items = state.devices,
+                selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+                onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
+                itemLabel = { it.name },
+                placeholder = localizedStringResource(Res.string.device, language),
                 enabled = !state.isCapturing,
-                onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
+                itemEnabled = { it.online },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.process, language),
-                selectedLabel =
-                    state.processes.firstOrNull { it.pid == state.selectedProcessId }?.let {
-                        localizedStringResource(Res.string.process_with_pid, language, it.name, it.pid)
-                    },
-                options =
-                    state.processes.map {
-                        it.pid.toString() to
-                            localizedStringResource(
-                                Res.string.process_with_pid,
-                                language,
-                                it.name,
-                                it.pid,
-                            )
-                    },
+            DropdownSelector(
+                items = state.processes,
+                selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
+                onItemSelected = { controller.selectProcess(it.pid) },
+                itemLabel = {
+                    localizedStringResource(
+                        Res.string.process_with_pid,
+                        language,
+                        it.name,
+                        it.pid,
+                    )
+                },
+                placeholder = localizedStringResource(Res.string.process, language),
                 enabled = !state.isCapturing && state.selectedDeviceSerial != null,
-                onSelected = { pid -> pid.toIntOrNull()?.let(controller::selectProcess) },
             )
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.refresh, language),

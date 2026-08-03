@@ -69,13 +69,13 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.time
 import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
 import com.androidperformancestudio.battery.presentation.BatteryProfilerScreen
+import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerCompactSelector
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -163,43 +163,29 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                     onBack()
                 },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.device, language),
-                selectedLabel = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.name,
-                options =
-                    state.devices.filter { it.online }.map {
-                        it.serial to
-                            it.name
-                    },
+            DropdownSelector(
+                items = state.devices,
+                selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+                onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
+                itemLabel = { it.name },
+                placeholder = localizedStringResource(Res.string.device, language),
                 enabled = !state.isRunning,
-                onSelected = { serial -> scope.launch { controller.selectDevice(serial) } },
+                itemEnabled = { it.online },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.app_uid, language),
-                selectedLabel =
-                    state.targets
-                        .firstOrNull {
-                            it.packageName == state.selectedPackageName
-                        }?.let {
-                            localizedStringResource(
-                                if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
-                                language,
-                                it.packageName,
-                                it.uid,
-                            )
-                        },
-                options =
-                    state.targets.map {
-                        it.packageName to
-                            localizedStringResource(
-                                if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
-                                language,
-                                it.packageName,
-                                it.uid,
-                            )
-                    },
+            DropdownSelector(
+                items = state.targets,
+                selectedItem = state.targets.firstOrNull { it.packageName == state.selectedPackageName },
+                onItemSelected = { controller.selectTarget(it.packageName) },
+                itemLabel = {
+                    localizedStringResource(
+                        if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
+                        language,
+                        it.packageName,
+                        it.uid,
+                    )
+                },
+                placeholder = localizedStringResource(Res.string.app_uid, language),
                 enabled = !state.isRunning && state.selectedDeviceSerial != null,
-                onSelected = controller::selectTarget,
             )
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.refresh, language),
@@ -239,53 +225,40 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             color = MaterialTheme.colorScheme.outline,
         )
         ProfilerMacOsSecondaryToolbar {
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.capture_mode, language),
-                selectedLabel = state.config.mode.label(language),
-                options =
-                    BatteryCaptureMode.entries.map {
-                        it.name to
-                            it.label(language)
-                    },
+            DropdownSelector(
+                items = BatteryCaptureMode.entries,
+                selectedItem = state.config.mode,
+                onItemSelected = { mode -> controller.updateConfig { it.copy(mode = mode) } },
+                itemLabel = { it.label(language) },
+                placeholder = localizedStringResource(Res.string.capture_mode, language),
                 enabled = !state.isRunning,
-                onSelected = { value ->
-                    controller.updateConfig { it.copy(mode = BatteryCaptureMode.valueOf(value)) }
-                },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.duration, language),
-                selectedLabel = localizedStringResource(Res.string.duration_value, language, state.config.durationSeconds),
-                options =
-                    listOf(15, 30, 60, 120, 300, 600).map {
-                        it.toString() to
-                            localizedStringResource(Res.string.seconds_short, language, it)
-                    },
+            DropdownSelector(
+                items = listOf(15, 30, 60, 120, 300, 600),
+                selectedItem = state.config.durationSeconds,
+                onItemSelected = { value -> controller.updateConfig { it.copy(durationSeconds = value) } },
+                itemLabel = { localizedStringResource(Res.string.seconds_short, language, it) },
+                selectedItemLabel = { localizedStringResource(Res.string.duration_value, language, it) },
+                placeholder = localizedStringResource(Res.string.duration, language),
                 enabled = !state.isRunning,
-                onSelected = { value -> controller.updateConfig { it.copy(durationSeconds = value.toInt()) } },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.polling, language),
-                selectedLabel = localizedStringResource(Res.string.polling_value, language, state.config.pollingIntervalSeconds),
-                options =
-                    listOf(5, 10, 15, 30, 60).map {
-                        it.toString() to
-                            localizedStringResource(Res.string.seconds_short, language, it)
-                    },
+            DropdownSelector(
+                items = listOf(5, 10, 15, 30, 60),
+                selectedItem = state.config.pollingIntervalSeconds,
+                onItemSelected = { value -> controller.updateConfig { it.copy(pollingIntervalSeconds = value) } },
+                itemLabel = { localizedStringResource(Res.string.seconds_short, language, it) },
+                selectedItemLabel = { localizedStringResource(Res.string.polling_value, language, it) },
+                placeholder = localizedStringResource(Res.string.polling, language),
                 enabled = !state.isRunning,
-                onSelected = { value ->
-                    controller.updateConfig { it.copy(pollingIntervalSeconds = value.toInt()) }
-                },
             )
-            ProfilerCompactSelector(
-                label = localizedStringResource(Res.string.runs, language),
-                selectedLabel = localizedStringResource(Res.string.runs_value, language, state.config.measuredRuns),
-                options =
-                    listOf(1, 3, 5, 10).map {
-                        it.toString() to
-                            it.toString()
-                    },
+            DropdownSelector(
+                items = listOf(1, 3, 5, 10),
+                selectedItem = state.config.measuredRuns,
+                onItemSelected = { value -> controller.updateConfig { it.copy(measuredRuns = value) } },
+                itemLabel = Int::toString,
+                selectedItemLabel = { localizedStringResource(Res.string.runs_value, language, it) },
+                placeholder = localizedStringResource(Res.string.runs, language),
                 enabled = !state.isRunning,
-                onSelected = { value -> controller.updateConfig { it.copy(measuredRuns = value.toInt()) } },
             )
             Checkbox(
                 checked = state.config.launchApp,

@@ -24,8 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -71,6 +69,8 @@ import com.androidperformancestudio.perfetto.traceprocessor.TraceProcessorSessio
 import com.androidperformancestudio.perfetto.uiserver.PerfettoUiServer
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.button.HomeButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
@@ -390,7 +390,10 @@ private fun PerfettoToolbar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onNavigateHome != null) {
-            PerfettoHomeButton(language = language, onClick = onNavigateHome)
+            HomeButton(
+                localizedStringResource(Res.string.back_to_home, language),
+                onClick = onNavigateHome,
+            )
             Box(
                 modifier =
                     Modifier
@@ -444,36 +447,20 @@ private fun DeviceSelector(
     onSelectDevice: (String) -> Unit,
     language: UiLanguage,
 ) {
-    var expanded by remember { mutableStateOf(false) }
     val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
-    Box {
-        PerfettoCompactButton(
-            text = selectedDevice?.model ?: localizedStringResource(Res.string.select_device, language),
-            onClick = { expanded = true },
-            enabled = devices.isNotEmpty(),
-            modifier = Modifier.width(170.dp),
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            devices.forEach { device ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = localizedStringResource(Res.string.text, language, device.model, device.serial),
-                            fontSize = 11.sp,
-                        )
-                    },
-                    onClick = {
-                        onSelectDevice(device.serial)
-                        expanded = false
-                    },
-                    enabled = device.online,
-                )
-            }
-        }
-    }
+    val selectDeviceLabel = localizedStringResource(Res.string.select_device, language)
+    DropdownSelector(
+        items = devices,
+        selectedItem = selectedDevice,
+        onItemSelected = { onSelectDevice(it.serial) },
+        itemLabel = { localizedStringResource(Res.string.text, language, it.model, it.serial) },
+        selectedItemLabel = PerfettoDevice::model,
+        placeholder = selectDeviceLabel,
+        modifier = Modifier.width(170.dp),
+        selectorDescription = selectDeviceLabel,
+        itemEnabled = PerfettoDevice::online,
+        fillWidth = true,
+    )
 }
 
 @Composable
@@ -587,49 +574,6 @@ private fun RecentSessionRow(
             PerfettoCompactButton(text = localizedStringResource(Res.string.open, language), onClick = onOpen)
             PerfettoCompactButton(text = localizedStringResource(Res.string.export, language), onClick = onExport)
             PerfettoCompactButton(text = localizedStringResource(Res.string.delete, language), onClick = onDelete)
-        }
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "MagicNumber", "ktlint:standard:function-naming")
-private fun PerfettoHomeButton(language: UiLanguage, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(6.dp)
-    val iconColor = MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier =
-            Modifier
-                .width(28.dp)
-                .height(28.dp)
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
-                .semantics { contentDescription = localizedStringResource(Res.string.back_to_home, language) }
-                .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.size(15.dp)) {
-            val strokeWidth = 1.2.dp.toPx()
-            val roofLeft = Offset(1.5.dp.toPx(), 7.dp.toPx())
-            val roofPeak = Offset(size.width / 2f, 1.8.dp.toPx())
-            val roofRight = Offset(size.width - 1.5.dp.toPx(), 7.dp.toPx())
-            val wallLeft = 3.2.dp.toPx()
-            val wallRight = size.width - 3.2.dp.toPx()
-            val wallTop = 6.2.dp.toPx()
-            val wallBottom = size.height - 1.8.dp.toPx()
-            val doorWidth = 3.6.dp.toPx()
-
-            drawLine(iconColor, roofLeft, roofPeak, strokeWidth)
-            drawLine(iconColor, roofPeak, roofRight, strokeWidth)
-            drawLine(iconColor, Offset(wallLeft, wallTop), Offset(wallLeft, wallBottom), strokeWidth)
-            drawLine(iconColor, Offset(wallRight, wallTop), Offset(wallRight, wallBottom), strokeWidth)
-            drawLine(iconColor, Offset(wallLeft, wallBottom), Offset(wallRight, wallBottom), strokeWidth)
-            drawRect(
-                color = iconColor,
-                topLeft = Offset((size.width - doorWidth) / 2f, 9.dp.toPx()),
-                size = Size(doorWidth, wallBottom - 9.dp.toPx()),
-                style = Stroke(width = strokeWidth),
-            )
         }
     }
 }

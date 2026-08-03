@@ -107,6 +107,22 @@ class HeaderControlTest {
     }
 
     @Test
+    fun `device and capture target use the shared dropdown selector`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
+        )
+        val targetSelector = source
+            .substringAfter("private fun CaptureTargetSelector(")
+            .substringBefore("private fun DeviceSelector(")
+        val deviceSelector = source
+            .substringAfter("private fun DeviceSelector(")
+            .substringBefore("private fun WindowSelector(")
+
+        assertTrue(targetSelector.contains("DropdownSelector("))
+        assertTrue(deviceSelector.contains("DropdownSelector("))
+    }
+
+    @Test
     fun `window selector is explicit and only shown for multiple windows`() {
         val source = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),

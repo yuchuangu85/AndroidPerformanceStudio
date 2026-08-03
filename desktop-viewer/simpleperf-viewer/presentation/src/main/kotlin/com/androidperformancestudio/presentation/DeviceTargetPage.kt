@@ -23,7 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,12 +32,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +51,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.ui.ViewerColors
@@ -62,10 +59,6 @@ import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
-import com.androidperformancestudio.ui_components.generated.resources.icon_expand
-import org.jetbrains.compose.resources.StringResource
-import org.jetbrains.compose.resources.painterResource
-import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -275,12 +268,17 @@ private fun DeviceSelector(
     modifier: Modifier,
     enabled: Boolean,
 ) {
-    ToolbarSelector(
-        label = SimpleperfViewerRes.sp_target_device,
-        selectorDescription = SimpleperfViewerRes.sp_target_device_selector,
-        selected = selected,
+    val language = currentSimpleperfLanguage()
+    DropdownSelector(
         items = devices,
+        selectedItem = selected,
+        onItemSelected = { onSelect(it.serial) },
         itemLabel = DeviceOption::label,
+        placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_device, language),
+        modifier = modifier,
+        enabled = enabled,
+        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_device_selector, language),
+        colors = style,
         itemSecondary = { device ->
             val status =
                 localizedStringResource(
@@ -294,10 +292,8 @@ private fun DeviceSelector(
             "${device.serial} · $status"
         },
         itemEnabled = DeviceOption::isOnline,
-        onSelect = { onSelect(it.serial) },
-        style = style,
-        modifier = modifier,
-        enabled = enabled,
+        fillWidth = true,
+        menuModifier = selectorMenuModifier(),
     )
 }
 
@@ -311,16 +307,19 @@ private fun AppSelector(
     modifier: Modifier,
     enabled: Boolean,
 ) {
-    ToolbarSelector(
-        label = SimpleperfViewerRes.sp_target_app,
-        selectorDescription = SimpleperfViewerRes.sp_target_app_selector,
-        selected = packages.firstOrNull { it.packageName == selectedPackage },
+    val language = currentSimpleperfLanguage()
+    DropdownSelector(
         items = packages,
+        selectedItem = packages.firstOrNull { it.packageName == selectedPackage },
+        onItemSelected = { onSelect(it.packageName) },
         itemLabel = PackageOption::packageName,
-        onSelect = { onSelect(it.packageName) },
-        style = style,
+        placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_app, language),
         modifier = modifier,
         enabled = enabled,
+        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_app_selector, language),
+        colors = style,
+        fillWidth = true,
+        menuModifier = selectorMenuModifier(),
     )
 }
 
@@ -334,17 +333,20 @@ private fun ProcessSelector(
     modifier: Modifier,
     enabled: Boolean,
 ) {
-    ToolbarSelector(
-        label = SimpleperfViewerRes.sp_target_process,
-        selectorDescription = SimpleperfViewerRes.sp_target_process_selector,
-        selected = processes.firstOrNull { it.pid == selectedPid },
+    val language = currentSimpleperfLanguage()
+    DropdownSelector(
         items = processes,
+        selectedItem = processes.firstOrNull { it.pid == selectedPid },
+        onItemSelected = { onSelect(it.pid) },
         itemLabel = ProcessOption::name,
-        itemSecondary = { "PID ${it.pid} · ${it.user}" },
-        onSelect = { onSelect(it.pid) },
-        style = style,
+        placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_process, language),
         modifier = modifier,
         enabled = enabled,
+        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_process_selector, language),
+        colors = style,
+        itemSecondary = { "PID ${it.pid} · ${it.user}" },
+        fillWidth = true,
+        menuModifier = selectorMenuModifier(),
     )
 }
 
@@ -358,159 +360,27 @@ private fun ThreadSelector(
     modifier: Modifier,
     enabled: Boolean,
 ) {
-    ToolbarSelector(
-        label = SimpleperfViewerRes.sp_diagnostics_thread,
-        selectorDescription = SimpleperfViewerRes.sp_target_thread_selector,
-        selected = threads.firstOrNull { it.tid == selectedTid },
+    val language = currentSimpleperfLanguage()
+    DropdownSelector(
         items = threads,
+        selectedItem = threads.firstOrNull { it.tid == selectedTid },
+        onItemSelected = onSelect,
         itemLabel = ThreadOption::name,
-        itemSecondary = { "TID ${it.tid}" },
-        onSelect = onSelect,
-        style = style,
+        placeholder = localizedStringResource(SimpleperfViewerRes.sp_diagnostics_thread, language),
         modifier = modifier,
         enabled = enabled,
+        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_thread_selector, language),
+        colors = style,
+        itemSecondary = { "TID ${it.tid}" },
+        fillWidth = true,
+        menuModifier = selectorMenuModifier(),
     )
 }
 
-@Composable
-@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
-private fun <T> ToolbarSelector(
-    label: StringResource,
-    selectorDescription: StringResource,
-    selected: T?,
-    items: List<T>,
-    itemLabel: (T) -> String,
-    onSelect: (T) -> Unit,
-    style: ViewerColors,
-    modifier: Modifier,
-    enabled: Boolean,
-    itemSecondary: (@Composable (T) -> String)? = null,
-    itemEnabled: (T) -> Boolean = { true },
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val language = currentSimpleperfLanguage()
-    val localizedSelectorDescription = localizedStringResource(selectorDescription, language)
-    val displayText = selected?.let(itemLabel) ?: localizedStringResource(label, language)
-    Box(modifier) {
-        SelectorControl(
-            displayText = displayText,
-            selectorDescription = localizedSelectorDescription,
-            hasSelection = selected != null,
-            enabled = enabled && items.isNotEmpty(),
-            onClick = { expanded = true },
-            style = style,
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier =
-                Modifier
-                    .widthIn(min = 220.dp, max = 340.dp)
-                    .heightIn(max = 360.dp)
-                    .background(style.panel),
-        ) {
-            items.forEach { item ->
-                SelectorMenuItem(
-                    label = itemLabel(item),
-                    secondary = itemSecondary?.invoke(item),
-                    selected = item == selected,
-                    enabled = enabled && itemEnabled(item),
-                    onClick = {
-                        expanded = false
-                        onSelect(item)
-                    },
-                    style = style,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
-private fun SelectorControl(
-    displayText: String,
-    selectorDescription: String,
-    hasSelection: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    style: ViewerColors,
-) {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(ViewerDimensions.selectorHeight)
-                .clip(RoundedCornerShape(ViewerDimensions.controlRadius))
-                .background(style.field)
-                .border(
-                    ViewerDimensions.hairline,
-                    style.strongBorder,
-                    RoundedCornerShape(ViewerDimensions.controlRadius),
-                ).semantics {
-                    contentDescription = selectorDescription
-                    stateDescription = displayText
-                }.clickable(enabled = enabled, onClick = onClick)
-                .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            displayText,
-            modifier = Modifier.weight(1f),
-            color = if (hasSelection) style.text else style.secondaryText,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Icon(
-            painter = painterResource(UiComponentsRes.drawable.icon_expand),
-            contentDescription = "expand",
-        )
-    }
-}
-
-@Composable
-@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
-private fun SelectorMenuItem(
-    label: String,
-    secondary: String?,
-    selected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    style: ViewerColors,
-) {
-    DropdownMenuItem(
-        text = {
-            Column {
-                Text(
-                    label,
-                    color = style.text,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                secondary?.let {
-                    Text(
-                        it,
-                        color = style.secondaryText,
-                        fontSize = 9.sp,
-                        lineHeight = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        },
-        onClick = onClick,
-        enabled = enabled,
-        modifier =
-            Modifier
-                .height(if (secondary == null) 32.dp else 42.dp)
-                .semantics { this.selected = selected },
-    )
-}
+private fun selectorMenuModifier(): Modifier =
+    Modifier
+        .widthIn(min = 220.dp, max = 340.dp)
+        .heightIn(max = 360.dp)
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")

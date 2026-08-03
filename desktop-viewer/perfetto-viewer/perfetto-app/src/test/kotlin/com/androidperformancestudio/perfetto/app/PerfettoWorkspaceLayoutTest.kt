@@ -17,7 +17,8 @@ class PerfettoWorkspaceLayoutTest {
         assertFalse(source.contains("Text(\"Perfetto Trace Analyzer\""))
         assertTrue(source.contains("private fun PerfettoToolbar("))
         assertTrue(source.contains(".height(40.dp)"))
-        assertTrue(source.contains("PerfettoHomeButton("))
+        assertTrue(source.contains("HomeButton("))
+        assertTrue(source.contains("DropdownSelector("))
         assertTrue(source.contains("adbPath = adbPath"))
     }
 
@@ -29,7 +30,11 @@ class PerfettoWorkspaceLayoutTest {
         assertTrue(source.contains("PerfettoCapturePage("))
         assertTrue(source.contains("Modifier.width(320.dp)"))
         assertTrue(source.contains("onExport = { session -> exportRawTrace(session.traceFile) }"))
-        assertTrue(source.contains("PerfettoCompactButton(text = localizedStringResource(Res.string.export, language), onClick = onExport)"))
+        assertTrue(
+            source.contains(
+                "PerfettoCompactButton(text = localizedStringResource(Res.string.export, language), onClick = onExport)",
+            ),
+        )
     }
 
     @Test
