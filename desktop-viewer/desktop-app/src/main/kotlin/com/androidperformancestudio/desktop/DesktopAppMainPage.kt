@@ -2,6 +2,7 @@ package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.viewerMaterialColorScheme
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 
@@ -37,7 +38,6 @@ import com.androidperformancestudio.network.app.NetworkProfilerMainPage
 import com.androidperformancestudio.perfetto.app.PerfettoMainPage
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.startup.app.StartupProfilerMainPage
-import com.androidperformancestudio.ui.viewerMaterialColorScheme
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

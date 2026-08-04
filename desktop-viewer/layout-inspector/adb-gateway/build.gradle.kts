@@ -19,7 +19,7 @@ java {
 
 dependencies {
     api("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
-    implementation(project(":layout-inspector:shared-kernel:protocol-model"))
+    implementation(project(":protocol-model"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(platform(libs.junit.bom))

@@ -17,7 +17,7 @@ android {
 }
 
 dependencies {
-    api(project(":layout-inspector:shared-kernel:android-agent-core"))
+    api(project(":layout-inspector-agent-core"))
     implementation("com.androidperformancestudio.startup:startup-agent-protocol:0.1.0-SNAPSHOT")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

@@ -26,6 +26,12 @@ java {
 
 dependencies {
     api(compose.desktop.currentOs)
+    // Fluent Design UI (theme, navigation, materials)
+    api("io.github.compose-fluent:fluent:v0.1.0")
+    api("io.github.compose-fluent:fluent-icons-extended:v0.1.0")
+
+    // Material3 retained for base components (Text, Button, Card, DropdownMenu, etc.)
+    // that Fluent does not provide. Components using LocalViewerColors remain theme-agnostic.
     api("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     api("org.jetbrains.compose.components:components-resources:1.11.1")
     testImplementation(kotlin("test"))

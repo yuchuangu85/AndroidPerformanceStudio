@@ -17,9 +17,9 @@ java {
 }
 
 dependencies {
-    api(project(":layout-inspector:shared-kernel:protocol-model"))
-    api(project(":layout-inspector:shared-kernel:analysis-engine"))
-    testImplementation(project(":layout-inspector:shared-kernel:layout-test-fixtures"))
+    api(project(":protocol-model"))
+    api(project(":analysis-engine"))
+    testImplementation(project(":test-fixtures"))
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

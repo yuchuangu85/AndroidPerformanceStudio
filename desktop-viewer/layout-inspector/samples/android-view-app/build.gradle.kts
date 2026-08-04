@@ -28,7 +28,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.activity)
-    debugImplementation(project(":layout-inspector:shared-kernel:android-agent-startup"))
-    debugImplementation(project(":layout-inspector:shared-kernel:android-agent-view"))
-    debugImplementation(project(":layout-inspector:shared-kernel:android-agent-frame"))
+    debugImplementation(project(":layout-inspector-agent-startup"))
+    debugImplementation(project(":layout-inspector-agent-view"))
+    debugImplementation(project(":layout-inspector-agent-frame"))
 }

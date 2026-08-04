@@ -32,27 +32,36 @@ includeBuild("ai-core") {
 includeBuild("source-workspace") {
     name = "source-workspace"
 }
+// Shared ADB core infrastructure — provided once by the root build so
+// composite builds (layout-inspector, simpleperf-viewer) resolve it uniquely.
+include(":adb-core")
+project(":adb-core").projectDir = file("platform-adb/adb-core")
 
-val layoutInspectorModules =
+// Layout Inspector is kept as an isolated composite build.
+includeBuild("layout-inspector") {
+    name = "layout-inspector"
+}
+
+// Android Agent modules (device-side libraries) are kept as standard includes
+// because they use the Android Gradle Plugin, not Compose Desktop.
+val layoutInspectorAgentModules =
     mapOf(
-        ":layout-inspector:shared-kernel:protocol-model" to "shared-kernel/protocol-model",
-        ":layout-inspector:shared-kernel:analysis-engine" to "shared-kernel/analysis-engine",
-        ":layout-inspector:shared-kernel:layout-test-fixtures" to "shared-kernel/test-fixtures",
-        ":layout-inspector:shared-kernel:android-agent-core" to "shared-kernel/android-agent-core",
-        ":layout-inspector:shared-kernel:android-agent-view" to "shared-kernel/android-agent-view",
-        ":layout-inspector:shared-kernel:android-agent-frame" to "shared-kernel/android-agent-frame",
-        ":layout-inspector:shared-kernel:android-agent-startup-metrics" to "shared-kernel/android-agent-startup-metrics",
-        ":layout-inspector:shared-kernel:android-agent-startup" to "shared-kernel/android-agent-startup",
-        ":layout-inspector:adb-gateway" to "adb-gateway",
-        ":layout-inspector:layout-application" to "application",
-        ":layout-inspector:layout-presentation" to "presentation",
-        ":layout-inspector:samples:android-view-app" to "samples/android-view-app",
+        ":layout-inspector-agent-core" to "layout-inspector/shared-kernel/android-agent-core",
+        ":layout-inspector-agent-view" to "layout-inspector/shared-kernel/android-agent-view",
+        ":layout-inspector-agent-frame" to "layout-inspector/shared-kernel/android-agent-frame",
+        ":layout-inspector-agent-startup" to "layout-inspector/shared-kernel/android-agent-startup",
+        ":layout-inspector-agent-startup-metrics" to "layout-inspector/shared-kernel/android-agent-startup-metrics",
     )
 
-layoutInspectorModules.forEach { (path, directory) ->
+layoutInspectorAgentModules.forEach { (path, directory) ->
     include(path)
-    project(path).projectDir = file("layout-inspector/$directory")
+    project(path).projectDir = file(directory)
 }
+
+include(":layout-inspector-sample-app")
+project(":layout-inspector-sample-app").projectDir = file("layout-inspector/samples/android-view-app")
+
+
 
 // CPU profiling is intentionally kept as an isolated composite build.
 includeBuild("simpleperf-viewer") {

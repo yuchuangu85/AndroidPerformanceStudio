@@ -17,5 +17,5 @@ java {
 }
 
 dependencies {
-    api(project(":layout-inspector:shared-kernel:protocol-model"))
+    api(project(":protocol-model"))
 }

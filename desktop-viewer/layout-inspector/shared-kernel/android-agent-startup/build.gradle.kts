@@ -18,10 +18,10 @@ android {
 }
 
 dependencies {
-    api(project(":layout-inspector:shared-kernel:android-agent-core"))
-    implementation(project(":layout-inspector:shared-kernel:android-agent-view"))
-    implementation(project(":layout-inspector:shared-kernel:android-agent-frame"))
-    implementation(project(":layout-inspector:shared-kernel:android-agent-startup-metrics"))
+    api(project(":layout-inspector-agent-core"))
+    implementation(project(":layout-inspector-agent-view"))
+    implementation(project(":layout-inspector-agent-frame"))
+    implementation(project(":layout-inspector-agent-startup-metrics"))
     implementation(libs.androidx.startup)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

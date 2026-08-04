@@ -17,7 +17,7 @@ android {
 }
 
 dependencies {
-    api(project(":layout-inspector:shared-kernel:protocol-model"))
+    api("com.androidperformancestudio:protocol-model:0.1.0-SNAPSHOT")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
