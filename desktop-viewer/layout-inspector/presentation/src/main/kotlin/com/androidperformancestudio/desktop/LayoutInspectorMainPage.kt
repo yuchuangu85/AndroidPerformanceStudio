@@ -50,6 +50,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
@@ -120,6 +121,9 @@ import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.ProtocolCodec
 import com.androidperformancestudio.protocol.UiNode
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HeaderDivider
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -673,44 +677,110 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 .focusable(),
         ) {
             Column {
-                Header(
-                    state = state,
+                HeaderToolbar(
+                    language = uiLanguage,
                     onNavigateHome = onNavigateHome,
-                    autoScanEnabled = autoScanEnabled,
-                    manualRefreshInProgress = manualRefreshInProgress,
-                    onManualRefresh = {
-                        if (!autoScanEnabled &&
-                            !manualRefreshInProgress &&
-                            archiveUiState !is CaptureArchiveUiState.Working
-                        ) {
-                            manualRefreshRequest += 1
-                        }
-                    },
-                    panelVisibility = panelVisibility,
-                    onAction = performAction,
-                    deviceChoices = deviceChoices(availableDevices),
-                    selectedDeviceSerial = selectedDeviceSerial,
-                    onSelectDevice = { serial ->
-                        manualRefreshSession.invalidate()
-                        selectedDeviceSerial = serial
-                        deviceListRefreshRequest += 1
-                    },
-                    captureTargetMode = captureTargetMode,
-                    onSelectCaptureTargetMode = { mode ->
-                        if (captureTargetMode != mode) {
+                    onNavigateSettings = { performAction(ViewerAction.OPEN_SETTINGS ) }
+                ) {
+                    val colors = LocalViewerColors.current
+                    val language = LocalLayoutInspectorLanguage.current
+                    val model = InspectorPresenter.present(state, language)
+                    val (packageName, separator, connectionLabel) = headerTextSegments(model, language)
+
+
+                    Text(packageName, color = colors.primaryText, fontFamily = FontFamily.Monospace)
+                    HeaderSpacer()
+                    DeviceSelector(
+                        devices = deviceChoices(availableDevices),
+                        selectedSerial = selectedDeviceSerial,
+                        onSelectDevice = { serial ->
                             manualRefreshSession.invalidate()
-                            captureTargetMode = mode
-                        }
-                    },
-                    onSelectWindow = { windowId ->
-                        if (store.selectWindow(windowId)) {
-                            hierarchyTreeState = HierarchyTreeState()
-                            hiddenLayerState = HiddenLayerState()
-                            state = store.state
-                            aiAnalysisUiState = AiAnalysisUiState.Idle
-                        }
-                    },
-                )
+                            selectedDeviceSerial = serial
+                            deviceListRefreshRequest += 1
+                        },
+                    )
+                    HeaderSpacer()
+                    CaptureTargetSelector(
+                        selectedMode = captureTargetMode,
+                        onSelectMode = { mode ->
+                            if (captureTargetMode != mode) {
+                                manualRefreshSession.invalidate()
+                                captureTargetMode = mode
+                            }
+                        },
+                    )
+                    if (model.windows.size > 1) {
+                        HeaderSpacer()
+                        WindowSelector(
+                            windows = model.windows,
+                            selectedWindowId = model.selectedWindowId,
+                            onSelectWindow = { windowId ->
+                                if (store.selectWindow(windowId)) {
+                                    hierarchyTreeState = HierarchyTreeState()
+                                    hiddenLayerState = HiddenLayerState()
+                                    state = store.state
+                                    aiAnalysisUiState = AiAnalysisUiState.Idle
+                                }
+                            },
+                        )
+                    }
+                    HeaderSpacer()
+                    Text(separator, color = colors.mutedText)
+                    HeaderSpacer()
+                    val connectionColor = when (model.connectionTone) {
+                        ConnectionTone.NEUTRAL -> colors.warning
+                        ConnectionTone.SUCCESS -> colors.success
+                        ConnectionTone.ERROR -> colors.error
+                    }
+                    StatusDot(connectionColor)
+                    HeaderSpacer()
+                    Text(connectionLabel, color = connectionColor, fontSize = 12.sp)
+                    Spacer(Modifier.weight(1f))
+                    val scanControlState = ScanControlState(
+                        autoScanEnabled = autoScanEnabled,
+                        manualRefreshInProgress = manualRefreshInProgress,
+                    )
+                    if (scanControlState.showManualRefresh) {
+                        ManualRefreshButton(
+                            enabled = scanControlState.manualRefreshEnabled,
+                            onClick = {
+                                if (!autoScanEnabled &&
+                                    !manualRefreshInProgress &&
+                                    archiveUiState !is CaptureArchiveUiState.Working
+                                ) {
+                                    manualRefreshRequest += 1
+                                }
+                            },
+                        )
+                        HeaderSpacer()
+                    }
+                    AutoScanSwitch(autoScanEnabled) {
+                        performAction(ViewerAction.TOGGLE_AUTO_SCAN)
+                    }
+                    HeaderSpacer()
+                    HeaderDivider()
+                    HeaderSpacer()
+                    Text(model.metricsText, color = colors.subtleText, fontSize = 12.sp)
+                    model.timelineText?.let { timelineText ->
+                        Spacer(Modifier.width(10.dp))
+                        Text(timelineText, color = colors.subtleText, fontSize = 12.sp)
+                    }
+                    HeaderSpacer()
+                    HeaderDivider()
+                    HeaderSpacer()
+                    PanelToggleButton(PanelPosition.LEFT, panelVisibility.showHierarchy) {
+                        performAction(ViewerAction.TOGGLE_HIERARCHY)
+                    }
+                    HeaderSpacer()
+                    PanelToggleButton(PanelPosition.BOTTOM, panelVisibility.showFindings) {
+                        performAction(ViewerAction.TOGGLE_FINDINGS)
+                    }
+                    HeaderSpacer()
+                    PanelToggleButton(PanelPosition.RIGHT, panelVisibility.showDetails) {
+                        performAction(ViewerAction.TOGGLE_DETAILS)
+                    }
+
+                }
                 correlationHint?.let { hint ->
                     CorrelationBanner(
                         hint = hint,
@@ -1006,116 +1076,6 @@ internal fun CaptureTargetMode.isSessionCurrent(session: ConnectedDeviceSession)
         CaptureTargetMode.FOREGROUND_APP -> session.isForegroundAppCurrent()
         CaptureTargetMode.SYSTEM_UI -> session.packageName == SYSTEM_UI_PACKAGE_NAME
     }
-
-@Composable
-private fun Header(
-    state: InspectorState,
-    onNavigateHome: (() -> Unit)?,
-    autoScanEnabled: Boolean,
-    manualRefreshInProgress: Boolean,
-    onManualRefresh: () -> Unit,
-    panelVisibility: PanelVisibility,
-    onAction: (ViewerAction) -> Unit,
-    deviceChoices: List<DeviceChoiceModel>,
-    selectedDeviceSerial: String?,
-    onSelectDevice: (String?) -> Unit,
-    captureTargetMode: CaptureTargetMode,
-    onSelectCaptureTargetMode: (CaptureTargetMode) -> Unit,
-    onSelectWindow: (String) -> Unit,
-) {
-    val colors = LocalViewerColors.current
-    val language = LocalLayoutInspectorLanguage.current
-    val model = InspectorPresenter.present(state, language)
-    val (packageName, separator, connectionLabel) = headerTextSegments(model, language)
-    Row(
-        modifier = Modifier.fillMaxWidth().height(40.dp).background(colors.panel).padding(horizontal = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (onNavigateHome != null) {
-            HomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                onClick = onNavigateHome,
-            )
-            Spacer(Modifier.width(8.dp))
-            HeaderSeparator()
-            Spacer(Modifier.width(10.dp))
-        }
-        Text(packageName, color = colors.primaryText, fontFamily = FontFamily.Monospace)
-        Spacer(Modifier.width(8.dp))
-        DeviceSelector(
-            devices = deviceChoices,
-            selectedSerial = selectedDeviceSerial,
-            onSelectDevice = onSelectDevice,
-        )
-        Spacer(Modifier.width(8.dp))
-        CaptureTargetSelector(
-            selectedMode = captureTargetMode,
-            onSelectMode = onSelectCaptureTargetMode,
-        )
-        if (model.windows.size > 1) {
-            Spacer(Modifier.width(8.dp))
-            WindowSelector(
-                windows = model.windows,
-                selectedWindowId = model.selectedWindowId,
-                onSelectWindow = onSelectWindow,
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        Text(separator, color = colors.mutedText)
-        Spacer(Modifier.width(10.dp))
-        val connectionColor = when (model.connectionTone) {
-            ConnectionTone.NEUTRAL -> colors.warning
-            ConnectionTone.SUCCESS -> colors.success
-            ConnectionTone.ERROR -> colors.error
-        }
-        StatusDot(connectionColor)
-        Spacer(Modifier.width(6.dp))
-        Text(connectionLabel, color = connectionColor, fontSize = 12.sp)
-        Spacer(Modifier.weight(1f))
-        val scanControlState = ScanControlState(
-            autoScanEnabled = autoScanEnabled,
-            manualRefreshInProgress = manualRefreshInProgress,
-        )
-        if (scanControlState.showManualRefresh) {
-            ManualRefreshButton(
-                enabled = scanControlState.manualRefreshEnabled,
-                onClick = onManualRefresh,
-            )
-            Spacer(Modifier.width(6.dp))
-        }
-        AutoScanSwitch(autoScanEnabled) {
-            onAction(ViewerAction.TOGGLE_AUTO_SCAN)
-        }
-        Spacer(Modifier.width(12.dp))
-        HeaderSeparator()
-        Spacer(Modifier.width(12.dp))
-        Text(model.metricsText, color = colors.subtleText, fontSize = 12.sp)
-        model.timelineText?.let { timelineText ->
-            Spacer(Modifier.width(10.dp))
-            Text(timelineText, color = colors.subtleText, fontSize = 12.sp)
-        }
-        Spacer(Modifier.width(12.dp))
-        HeaderSeparator()
-        Spacer(Modifier.width(10.dp))
-        PanelToggleButton(PanelPosition.LEFT, panelVisibility.showHierarchy) {
-            onAction(ViewerAction.TOGGLE_HIERARCHY)
-        }
-        Spacer(Modifier.width(4.dp))
-        PanelToggleButton(PanelPosition.BOTTOM, panelVisibility.showFindings) {
-            onAction(ViewerAction.TOGGLE_FINDINGS)
-        }
-        Spacer(Modifier.width(4.dp))
-        PanelToggleButton(PanelPosition.RIGHT, panelVisibility.showDetails) {
-            onAction(ViewerAction.TOGGLE_DETAILS)
-        }
-        Spacer(Modifier.width(10.dp))
-        HeaderSeparator()
-        Spacer(Modifier.width(8.dp))
-        SettingsButton {
-            onAction(ViewerAction.OPEN_SETTINGS)
-        }
-    }
-}
 
 @Composable
 private fun CaptureTargetSelector(

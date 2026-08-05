@@ -3,4 +3,5 @@
     <!-- 此模块的字符串资源。
          请在此添加 <string name="key">value</string> 条目。
          限定符变体（例如 values-zh/strings.xml）可提供区域设置覆盖。 -->
+    <string name="back_to_home">返回主页</string>
 </resources>
