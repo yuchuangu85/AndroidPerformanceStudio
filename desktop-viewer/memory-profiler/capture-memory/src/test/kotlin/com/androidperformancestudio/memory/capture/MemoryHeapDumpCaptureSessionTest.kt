@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.androidperformancestudio.memory.capture
 
 import com.androidperformancestudio.model.ErrorCategory
@@ -18,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -53,7 +56,7 @@ class MemoryHeapDumpCaptureSessionTest {
             assertEquals(sessionRoot.resolve("session-1/session-1.raw.hprof"), success.value.rawHprofFile)
             assertEquals(sessionRoot.resolve("session-1/session-1.hprof"), success.value.convertedHprofFile)
             assertEquals(
-                listOf("dumpheap", "pull", "hprof-conv", "rm"),
+                listOf("dumpheap", "pull", "getprop", "hprof-conv", "rm"),
                 runner.requests.map { request -> request.commandKind() },
             )
             assertContains(runner.requests.first().arguments, "42")
@@ -129,7 +132,39 @@ class MemoryHeapDumpCaptureSessionTest {
                     .single()
                     .code,
             )
-            assertEquals(listOf("dumpheap", "pull", "rm"), runner.requests.map { it.commandKind() })
+            assertEquals(listOf("dumpheap", "pull", "getprop", "rm"), runner.requests.map { it.commandKind() })
+        }
+
+    @Test
+    fun `skips hprof conv for android api 26 or newer and keeps raw hprof`() =
+        runTest {
+            val sdk = createSdkWithHprofConv()
+            val runner = RecordingRunner(sdkApiLevel = "33")
+            val session = newSession(sdk, runner)
+
+            val result = session.capture(captureRequest(createTempDirectory("memory-session")))
+
+            val success = assertIs<StudioResult.Success<MemoryCaptureResult>>(result)
+            assertNull(success.value.convertedHprofFile)
+            assertTrue(success.value.conversionSkipped)
+            assertEquals(33, success.value.deviceSdkApiLevel)
+            assertTrue(success.value.warnings.none { it.code == "HPROF_CONV_MISSING" })
+            assertEquals(listOf("dumpheap", "pull", "getprop", "rm"), runner.requests.map { it.commandKind() })
+        }
+
+    @Test
+    fun `getprop failure falls back to hprof conv`() =
+        runTest {
+            val sdk = createSdkWithHprofConv()
+            val runner = RecordingRunner(failures = mapOf("getprop" to "cmd not found"))
+            val session = newSession(sdk, runner)
+
+            val result = session.capture(captureRequest(createTempDirectory("memory-session")))
+
+            val success = assertIs<StudioResult.Success<MemoryCaptureResult>>(result)
+            assertNotNull(success.value.convertedHprofFile)
+            assertTrue(!success.value.conversionSkipped)
+            assertEquals(listOf("dumpheap", "pull", "getprop", "hprof-conv", "rm"), runner.requests.map { it.commandKind() })
         }
 
     @Test
@@ -143,7 +178,7 @@ class MemoryHeapDumpCaptureSessionTest {
 
             val failure = assertIs<StudioResult.Failure>(result)
             assertEquals("HPROF_CONV_FAILED", failure.error.code)
-            assertEquals(listOf("dumpheap", "pull", "hprof-conv", "rm"), runner.requests.map { it.commandKind() })
+            assertEquals(listOf("dumpheap", "pull", "getprop", "hprof-conv", "rm"), runner.requests.map { it.commandKind() })
         }
 
     private fun newSession(
@@ -180,6 +215,7 @@ class MemoryHeapDumpCaptureSessionTest {
 
     private class RecordingRunner(
         private val failures: Map<String, String> = emptyMap(),
+        private val sdkApiLevel: String = "25",
     ) {
         val requests = mutableListOf<ProcessRequest>()
 
@@ -189,13 +225,19 @@ class MemoryHeapDumpCaptureSessionTest {
         ): ProcessRunResult {
             check(!signal.isCancelled)
             requests += request
+            if (request.arguments.contains("getprop")) {
+                val failureText = failures["getprop"]
+                return if (failureText == null) completed(request, stdout = sdkApiLevel) else failed(request, failureText)
+            }
             val kind = request.commandKind()
             val failureText = failures[kind]
             return if (failureText == null) completed(request) else failed(request, failureText)
         }
 
-        private fun completed(request: ProcessRequest): ProcessRunResult.Completed =
-            ProcessRunResult.Completed(output(request, exitCode = 0))
+        private fun completed(
+            request: ProcessRequest,
+            stdout: String = "",
+        ): ProcessRunResult.Completed = ProcessRunResult.Completed(output(request, exitCode = 0, stdout = stdout))
 
         private fun failed(
             request: ProcessRequest,
@@ -210,12 +252,13 @@ class MemoryHeapDumpCaptureSessionTest {
             request: ProcessRequest,
             exitCode: Int,
             stderr: String = "",
+            stdout: String = "",
         ): ProcessOutput =
             ProcessOutput(
                 pid = 1L,
                 command = request.command,
                 exitCode = exitCode,
-                stdout = CapturedProcessText("", truncated = false),
+                stdout = CapturedProcessText(stdout, truncated = false),
                 stderr = CapturedProcessText(stderr, truncated = false),
                 startedAt = Instant.EPOCH,
                 finishedAt = Instant.EPOCH,
@@ -227,6 +270,7 @@ private fun ProcessRequest.commandKind(): String =
     when {
         arguments.contains("dumpheap") -> "dumpheap"
         arguments.contains("pull") -> "pull"
+        arguments.contains("getprop") -> "getprop"
         arguments.contains("rm") -> "rm"
         executable.fileName.toString().startsWith("hprof-conv") -> "hprof-conv"
         else -> executable.fileName.toString()

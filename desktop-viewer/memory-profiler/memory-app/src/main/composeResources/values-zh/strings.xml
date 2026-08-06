@@ -15,6 +15,16 @@
     <string name="export_memory_profiler_data">导出内存分析器数据</string>
     <string name="import_hprof">导入 HPROF</string>
     <string name="import_hprof_menu">导入 HPROF…</string>
+    <string name="import_mapping_menu">导入 mapping.txt…</string>
+    <string name="import_mapping">导入 mapping.txt</string>
+    <string name="importing_mapping">正在导入 mapping %1$s…</string>
+    <string name="mapping_imported">已加载 mapping，类名将被反混淆。</string>
+    <string name="unable_to_load_mapping">无法加载 mapping.txt</string>
+    <string name="mapping_not_loaded_hint">未加载 mapping.txt，类名可能为混淆名。可通过「文件 ▸ 导入 mapping.txt」进行反混淆。</string>
+    <string name="capture_native_heap">抓取 Native 堆</string>
+    <string name="capturing_native_heap">正在抓取 %1$s 的 Native 堆（heapprofd，约 10 秒）…</string>
+    <string name="unable_to_capture_native_heap">Native 堆抓取失败</string>
+    <string name="export_native_heap_trace">导出 Native 堆 trace</string>
     <string name="recent_sessions">最近会话</string>
     <string name="no_recent_sessions">暂无最近会话</string>
     <string name="loading_session">正在加载会话 %1$s…</string>

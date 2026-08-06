@@ -17,8 +17,10 @@ class MemoryHistogramAnalyzer {
         sort: HistogramSort = HistogramSort.COUNT,
         retainedSizes: Map<Long, Long> = emptyMap(),
         immediateDominators: Map<Long, Long?> = emptyMap(),
+        deobfuscator: ProguardMapping? = null,
     ): HeapHistogram {
         val totalsByClass = linkedMapOf<String, MutableClassTotals>()
+        val depthByName = hierarchyDepthByName(heapDump)
         var objectCount = 0
         var shallowSize = 0L
 
@@ -44,6 +46,9 @@ class MemoryHistogramAnalyzer {
                         instanceCount = totals.instanceCount,
                         shallowSize = totals.shallowSize,
                         retainedSize = totals.combinedRetainedSize(immediateDominators),
+                        obfuscatedClassName =
+                            deobfuscator?.obfuscatedName(className)?.takeIf { it != className },
+                        hierarchyDepth = depthByName[className],
                     )
                 }.sortedWith(sort.comparator)
 
@@ -112,4 +117,24 @@ class MemoryHistogramAnalyzer {
                     compareByDescending<ClassStats> { it.shallowSize }
                         .thenBy { it.className }
             }
+}
+
+/** Maps each class name to its superclass-hierarchy depth (java.lang.Object == 0). */
+private fun hierarchyDepthByName(heapDump: HeapDump): Map<String, Int> {
+    val superClassById = heapDump.classes.associate { it.objectId to it.superClassObjectId }
+
+    fun depthOf(classObjectId: Long): Int {
+        var depth = 0
+        var current = classObjectId
+        val visited = hashSetOf<Long>()
+        while (current != 0L && visited.add(current)) {
+            val superId = superClassById[current] ?: break
+            depth += 1
+            current = superId
+        }
+        return depth
+    }
+    return heapDump.classes
+        .groupBy({ it.name }, { depthOf(it.objectId) })
+        .mapValues { (_, depths) -> depths.max() }
 }

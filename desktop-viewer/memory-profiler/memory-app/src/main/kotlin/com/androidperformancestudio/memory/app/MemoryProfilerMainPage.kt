@@ -1,4 +1,4 @@
-@file:Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
+@file:Suppress("FunctionName", "LongMethod", "MaxLineLength", "ktlint:standard:function-naming")
 
 package com.androidperformancestudio.memory.app
 
@@ -22,16 +22,18 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.back_to_home
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_memory_profiler_data
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof
+import com.androidperformancestudio.memory.memory_app.generated.resources.import_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
+import com.androidperformancestudio.memory.presentation.MemoryProfilerCaptureNativeHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpBitmapsButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerScreen
 import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSelectors
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
 import java.awt.Component
@@ -54,6 +56,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     val scope = rememberCoroutineScope()
     val loaded = controller.loadedHeap
     var showHprofFileDialog by remember { mutableStateOf(false) }
+    var showMappingFileDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(controller) { controller.refreshDevices() }
     LaunchedEffect(controller) { controller.refreshSessions() }
@@ -72,8 +75,14 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 bitmapDumpExportEnabled = controller.loadedBitmapDump != null,
                 bitmapComparisonExportEnabled = state.bitmapDumpComparison != null,
                 recentSessions = controller.recentSessions,
+                importMappingEnabled = !state.isDumping,
+                exportNativeHeapEnabled = state.nativeHeapTrace != null,
             ),
         onImportHprof = { showHprofFileDialog = true },
+        onImportMapping = { showMappingFileDialog = true },
+        onExportNativeHeap = {
+            chooseSaveFile(window, "native-heap.pb", language)?.let(controller::exportNativeHeap)
+        },
         onExportRawHprof = {
             chooseSaveFile(window, "heap-raw.hprof", language)?.let(controller::exportRaw)
         },
@@ -121,6 +130,11 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 onDumpBitmaps = { scope.launch { controller.dumpBitmaps() } },
                 language = language,
             )
+            MemoryProfilerCaptureNativeHeapButton(
+                state = state,
+                onCaptureNativeHeap = { scope.launch { controller.captureNativeHeap() } },
+                language = language,
+            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         MemoryProfilerScreen(
@@ -150,6 +164,47 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             },
         )
     }
+
+    if (showMappingFileDialog) {
+        MappingOpenFileDialog(
+            parent = window,
+            language = language,
+            onCloseRequest = { selectedFile ->
+                showMappingFileDialog = false
+                if (selectedFile != null) {
+                    scope.launch {
+                        controller.importMapping(selectedFile.toPath())
+                    }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun MappingOpenFileDialog(
+    parent: Frame,
+    language: UiLanguage,
+    onCloseRequest: (File?) -> Unit,
+) {
+    AwtWindow(
+        create = {
+            object : FileDialog(parent, localizedStringResource(Res.string.import_mapping, language), FileDialog.LOAD) {
+                init {
+                    isMultipleMode = false
+                    filenameFilter = java.io.FilenameFilter { _, name -> name == "mapping.txt" || name.endsWith(".txt") }
+                }
+
+                override fun setVisible(value: Boolean) {
+                    super.setVisible(value)
+                    if (value) {
+                        onCloseRequest(files.firstOrNull())
+                    }
+                }
+            }
+        },
+        dispose = FileDialog::dispose,
+    )
 }
 
 @Composable

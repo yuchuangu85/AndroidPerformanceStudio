@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.memory.model.ActivityLeakEntry
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapInstanceStats
@@ -7,6 +8,8 @@ import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapDiff
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
+import com.androidperformancestudio.memory.model.NativeHeapAnalysis
+import com.androidperformancestudio.memory.model.NativeHeapTrace
 
 public data class MemoryProfilerState(
     val devices: List<MemoryDeviceOption> = emptyList(),
@@ -28,6 +31,10 @@ public data class MemoryProfilerState(
     val bitmapDumpSession: BitmapDumpSession? = null,
     val bitmapDumpComparison: BitmapDumpComparison? = null,
     val highlightedClassName: String? = null,
+    val mappingLoaded: Boolean = false,
+    val activityLeaks: List<ActivityLeakEntry> = emptyList(),
+    val nativeHeapTrace: NativeHeapTrace? = null,
+    val nativeHeapAnalysis: NativeHeapAnalysis = NativeHeapAnalysis(),
 )
 
 public data class MemoryDeviceOption(

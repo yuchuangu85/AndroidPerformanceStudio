@@ -3,19 +3,28 @@
 package com.androidperformancestudio.memory.app
 
 import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
+import com.androidperformancestudio.memory.analysis.ProguardMapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
+import com.androidperformancestudio.memory.memory_app.generated.resources.capturing_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_bitmaps_for
 import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_heap_for
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_parser_out_of_memory
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing_ad13e4da
+import com.androidperformancestudio.memory.memory_app.generated.resources.importing_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.loading_session
+import com.androidperformancestudio.memory.memory_app.generated.resources.mapping_imported
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_capture_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_load_mapping
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
+import com.androidperformancestudio.memory.model.HeapDiffMatchMode
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
+import com.androidperformancestudio.memory.model.NativeHeapAnalysis
+import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
@@ -35,6 +44,12 @@ internal data class LoadedHeap(
     val histogram: HeapHistogram,
     val warning: String? = null,
     val cleanupWarning: String? = null,
+    val mapping: ProguardMapping? = null,
+)
+
+internal data class LoadedNativeHeap(
+    val trace: NativeHeapTrace,
+    val analysis: NativeHeapAnalysis,
 )
 
 internal data class LoadedBitmapDump(
@@ -79,12 +94,15 @@ internal interface MemoryProfilerBackend {
         onProgress: (Int) -> Unit,
     ): MemoryBackendResult<LoadedHeap> = importHprof(file)
 
-    suspend fun listSessions(): MemoryBackendResult<List<MemorySessionMetadata>> =
-        MemoryBackendResult.Success(emptyList())
+    /**
+     * Imports an R8/ProGuard mapping.txt and returns the re-analyzed heap when one was already
+     * loaded, or null when only the mapping was stored.
+     */
+    suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> = MemoryBackendResult.Success(null)
 
-    suspend fun loadSession(
-        metadata: MemorySessionMetadata,
-    ): MemoryBackendResult<LoadedHeap> =
+    suspend fun listSessions(): MemoryBackendResult<List<MemorySessionMetadata>> = MemoryBackendResult.Success(emptyList())
+
+    suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedHeap> =
         importHprof(metadata.convertedHprofFile ?: metadata.rawHprofFile)
 
     fun exportRaw(
@@ -109,6 +127,20 @@ internal interface MemoryProfilerBackend {
 
     fun exportBitmapComparison(
         comparison: BitmapDumpComparison,
+        output: Path,
+    ) = Unit
+
+    suspend fun captureNativeHeap(
+        serial: String,
+        process: MemoryProcessOption,
+    ): MemoryBackendResult<LoadedNativeHeap> =
+        MemoryBackendResult.Failure(
+            title = "Native heap capture unavailable",
+            detail = "The selected backend does not support heapprofd captures.",
+        )
+
+    fun exportNativeHeap(
+        trace: NativeHeapTrace,
         output: Path,
     ) = Unit
 }
@@ -237,6 +269,50 @@ internal class MemoryProfilerController(
     }
 
     @Suppress("TooGenericExceptionCaught")
+    suspend fun captureNativeHeap() {
+        val snapshot = mutableState.value
+        val serial = snapshot.selectedDeviceSerial ?: return
+        val process = snapshot.processes.firstOrNull { it.pid == snapshot.selectedProcessId } ?: return
+        mutableState.value =
+            snapshot.copy(
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.capturing_native_heap, language, process.name),
+                error = null,
+            )
+        val result =
+            try {
+                backend.captureNativeHeap(serial, process)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.unable_to_capture_native_heap, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        applyNativeHeapResult(result)
+    }
+
+    fun exportNativeHeap(output: Path) {
+        mutableState.value.nativeHeapTrace?.let { backend.exportNativeHeap(it, output) }
+    }
+
+    private fun applyNativeHeapResult(result: MemoryBackendResult<LoadedNativeHeap>) {
+        when (result) {
+            is MemoryBackendResult.Failure -> showFailure(result)
+            is MemoryBackendResult.Success ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        isDumping = false,
+                        operationMessage = null,
+                        error = null,
+                        nativeHeapTrace = result.value.trace,
+                        nativeHeapAnalysis = result.value.analysis,
+                    )
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
     suspend fun importHprof(file: Path) {
         mutableState.value =
             mutableState.value.copy(
@@ -268,6 +344,43 @@ internal class MemoryProfilerController(
                 )
             }
         applyLoadedResult(result)
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun importMapping(file: Path) {
+        mutableState.value =
+            mutableState.value.copy(
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.importing_mapping, language, file.fileName),
+                error = null,
+            )
+        val result =
+            try {
+                backend.importMapping(file)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.unable_to_load_mapping, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        when (result) {
+            is MemoryBackendResult.Failure -> showFailure(result)
+            is MemoryBackendResult.Success ->
+                when (val heap = result.value) {
+                    null ->
+                        mutableState.value =
+                            mutableState.value.copy(
+                                isDumping = false,
+                                operationMessage = null,
+                                error = null,
+                                mappingLoaded = true,
+                                warning = localizedStringResource(Res.string.mapping_imported, language),
+                            )
+                    else -> applyLoadedResult(MemoryBackendResult.Success(heap))
+                }
+        }
     }
 
     suspend fun refreshSessions() {
@@ -329,8 +442,17 @@ internal class MemoryProfilerController(
                         error = null,
                         warning = result.value.warning,
                         cleanupWarning = result.value.cleanupWarning,
-                        heapDiff = previous?.let { HeapDiffAnalyzer().diff(it.histogram.classes, result.value.histogram.classes) },
+                        heapDiff =
+                            previous?.let {
+                                HeapDiffAnalyzer().diff(
+                                    it.histogram.classes,
+                                    result.value.histogram.classes,
+                                    HeapDiffMatchMode.CLASS_NAME_AND_HIERARCHY,
+                                )
+                            },
                         bitmapInstances = result.value.heapDump.bitmapInstances,
+                        activityLeaks = result.value.heapDump.activityLeaks,
+                        mappingLoaded = result.value.mapping != null,
                     )
             }
         }

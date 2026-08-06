@@ -42,6 +42,8 @@ data class MemoryCaptureResult(
     val deviceHprofPath: String,
     val rawHprofFile: Path,
     val convertedHprofFile: Path?,
+    val deviceSdkApiLevel: Int? = null,
+    val conversionSkipped: Boolean = false,
     val warnings: List<MemoryCaptureWarning> = emptyList(),
 )
 
@@ -91,7 +93,7 @@ class MemoryHeapDumpCaptureSession(
         JvmProcessRunner().run(request, signal)
     },
 ) {
-    @Suppress("ReturnCount")
+    @Suppress("ReturnCount", "LongMethod")
     suspend fun capture(
         request: MemoryCaptureRequest,
         cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
@@ -121,12 +123,21 @@ class MemoryHeapDumpCaptureSession(
             return pullResult
         }
 
-        val hprofConv = hprofConvLocator.locate()
-        val conversionResult =
-            if (hprofConv == null) {
-                StudioResult.Success<MemoryCaptureConversion>(MemoryCaptureConversion.MissingTool)
+        val deviceSdkApiLevel = readSdkApiLevel(request.serial, cancellationSignal)
+        val skipConversion = deviceSdkApiLevel != null && deviceSdkApiLevel >= MINIMUM_STANDARD_HPROF_API
+
+        val (hprofConv, conversionResult) =
+            if (skipConversion) {
+                // Android 8.0+ (API >= 26) am dumpheap already emits standard Java HPROF;
+                // hprof-conv is unnecessary and is skipped to reduce steps and failure points.
+                null to StudioResult.Success<MemoryCaptureConversion>(MemoryCaptureConversion.SkippedForApi)
             } else {
-                convert(hprofConv, rawHprofFile, convertedHprofFile, cancellationSignal)
+                val located = hprofConvLocator.locate()
+                if (located == null) {
+                    null to StudioResult.Success<MemoryCaptureConversion>(MemoryCaptureConversion.MissingTool)
+                } else {
+                    located to convert(located, rawHprofFile, convertedHprofFile, cancellationSignal)
+                }
             }
 
         val cleanupWarning = cleanup(request.serial, deviceHprofPath, cancellationSignal)
@@ -155,6 +166,8 @@ class MemoryHeapDumpCaptureSession(
                 deviceHprofPath = deviceHprofPath,
                 rawHprofFile = rawHprofFile,
                 convertedHprofFile = if (hprofConv == null) null else convertedHprofFile,
+                deviceSdkApiLevel = deviceSdkApiLevel,
+                conversionSkipped = skipConversion,
                 warnings = warnings,
             ),
         )
@@ -177,6 +190,29 @@ class MemoryHeapDumpCaptureSession(
         return when (result) {
             is ProcessRunResult.Completed -> StudioResult.Success(Unit)
             is ProcessRunResult.Failed -> StudioResult.Failure(adbError(adbArguments, result))
+        }
+    }
+
+    /** Reads the device Android API level via getprop; returns null when it cannot be determined. */
+    private suspend fun readSdkApiLevel(
+        serial: String,
+        cancellationSignal: ProcessCancellationSignal,
+    ): Int? {
+        val result =
+            processRunner(
+                ProcessRequest(
+                    executable = adbExecutable,
+                    arguments = listOf("-s", serial, "shell", "getprop", "ro.build.version.sdk"),
+                    timeout = 30.seconds,
+                ),
+                cancellationSignal,
+            )
+        return when (result) {
+            is ProcessRunResult.Completed ->
+                result.output.stdout.text
+                    .trim()
+                    .toIntOrNull()
+            is ProcessRunResult.Failed -> null
         }
     }
 
@@ -267,5 +303,10 @@ class MemoryHeapDumpCaptureSession(
     private enum class MemoryCaptureConversion {
         Converted,
         MissingTool,
+        SkippedForApi,
+    }
+
+    companion object {
+        const val MINIMUM_STANDARD_HPROF_API: Int = 26
     }
 }

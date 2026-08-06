@@ -36,7 +36,7 @@
     <string name="import_hprof">导入 HPROF</string>
     <string name="select_device">选择设备</string>
     <string name="device_offline">%1$s（离线）</string>
-    <string name="select_process">选择进程 ▼</string>
+    <string name="select_process">选择进程</string>
     <string name="count_value">数量：%1$s</string>
     <string name="unavailable">不可用</string>
     <string name="leak_suspect_title">%1$s %2$s: %3$s</string>
@@ -44,4 +44,17 @@
     <string name="reference_chain_entry">%1$s↳ %2$s → %3$s</string>
     <string name="heap_diff_entry">%1$s: %2$s → %3$s (%4$s) · %5$s B</string>
     <string name="bitmap_entry">#%1$s %2$s×%3$s · %4$s</string>
+    <string name="activity_leaks">Activity 泄漏</string>
+    <string name="activity_leak_entry">%1$s · 存活 %2$s · 已销毁 %3$s · 保留大小 %4$s</string>
+    <string name="no_activity_leaks_detected">未检测到 Activity 泄漏。</string>
+    <string name="manual_verification">需要人工确认</string>
+    <string name="mapping_loaded_note">已加载 mapping.txt — 类名已反混淆</string>
+    <string name="bitmap_estimated_pixel_memory">预估像素内存 %1$s（宽×高×4B）</string>
+    <string name="bitmap_java_native_memory">java %1$s · native %2$s</string>
+    <string name="native_heap">Native 堆</string>
+    <string name="no_native_heap_trace">尚未抓取 Native 堆 trace。</string>
+    <string name="native_heap_trace_summary">%1$s · %2$s · API %3$s — 可用 Perfetto 或 Android Studio 打开分析</string>
+    <string name="capture_native_heap">抓取 Native 堆</string>
+    <string name="native_heap_total">总分配 %1$s · 已释放 %2$s · %3$s 个样本</string>
+    <string name="native_heap_allocation_entry">%1$s · 分配 %2$s · %3$s 次</string>
 </resources>

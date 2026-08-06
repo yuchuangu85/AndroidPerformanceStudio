@@ -1,4 +1,4 @@
-@file:Suppress("FunctionName", "MatchingDeclarationName", "ktlint:standard:function-naming")
+@file:Suppress("FunctionName", "LongMethod", "MatchingDeclarationName", "ktlint:standard:function-naming")
 
 package com.androidperformancestudio.memory.app
 
@@ -10,10 +10,12 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.export
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_bitmap_comparison
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_bitmap_dump
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_csv
+import com.androidperformancestudio.memory.memory_app.generated.resources.export_native_heap_trace
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_raw_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_standard_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.file
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof_menu
+import com.androidperformancestudio.memory.memory_app.generated.resources.import_mapping_menu
 import com.androidperformancestudio.memory.memory_app.generated.resources.no_recent_sessions
 import com.androidperformancestudio.memory.memory_app.generated.resources.recent_sessions
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
@@ -25,6 +27,8 @@ import java.time.format.DateTimeFormatter
 internal data class MemoryProfilerFileMenuModel(
     val fileTitle: String,
     val importLabel: String,
+    val importMappingLabel: String = "Import mapping.txt…",
+    val importMappingEnabled: Boolean = false,
     val exportTitle: String,
     val exportRawHprofLabel: String,
     val exportStandardHprofLabel: String,
@@ -37,6 +41,8 @@ internal data class MemoryProfilerFileMenuModel(
     val exportBitmapComparisonLabel: String = "Export Bitmap Comparison",
     val bitmapDumpExportEnabled: Boolean = false,
     val bitmapComparisonExportEnabled: Boolean = false,
+    val exportNativeHeapLabel: String = "Export Native Heap trace",
+    val exportNativeHeapEnabled: Boolean = false,
     val recentSessionsTitle: String = "Recent Sessions",
     val noRecentSessionsLabel: String = "No recent sessions",
     val recentSessions: List<MemorySessionMetadata> = emptyList(),
@@ -53,10 +59,16 @@ internal fun memoryProfilerFileMenuModel(
     bitmapDumpExportEnabled: Boolean = false,
     bitmapComparisonExportEnabled: Boolean = false,
     recentSessions: List<MemorySessionMetadata> = emptyList(),
+    importMappingEnabled: Boolean = false,
+    exportNativeHeapEnabled: Boolean = false,
 ): MemoryProfilerFileMenuModel =
     MemoryProfilerFileMenuModel(
         fileTitle = localizedStringResource(Res.string.file, language),
         importLabel = localizedStringResource(Res.string.import_hprof_menu, language),
+        importMappingLabel = localizedStringResource(Res.string.import_mapping_menu, language),
+        importMappingEnabled = importMappingEnabled,
+        exportNativeHeapLabel = localizedStringResource(Res.string.export_native_heap_trace, language),
+        exportNativeHeapEnabled = exportNativeHeapEnabled,
         exportTitle = localizedStringResource(Res.string.export, language),
         exportRawHprofLabel = localizedStringResource(Res.string.export_raw_hprof, language),
         exportStandardHprofLabel = localizedStringResource(Res.string.export_standard_hprof, language),
@@ -80,11 +92,13 @@ internal fun memoryProfilerFileMenuModel(
 internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     model: MemoryProfilerFileMenuModel,
     onImportHprof: () -> Unit,
+    onImportMapping: () -> Unit = {},
     onExportRawHprof: () -> Unit,
     onExportStandardHprof: () -> Unit,
     onExportCsv: () -> Unit,
     onExportBitmapDump: () -> Unit = {},
     onExportBitmapComparison: () -> Unit = {},
+    onExportNativeHeap: () -> Unit = {},
     onLoadSession: (MemorySessionMetadata) -> Unit = {},
 ) {
     MenuBar {
@@ -93,6 +107,11 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
                 text = model.importLabel,
                 enabled = model.importEnabled,
                 onClick = onImportHprof,
+            )
+            Item(
+                text = model.importMappingLabel,
+                enabled = model.importMappingEnabled,
+                onClick = onImportMapping,
             )
             Menu(model.recentSessionsTitle, enabled = model.recentSessionsEnabled) {
                 if (model.recentSessions.isEmpty()) {
@@ -131,6 +150,11 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
                     text = model.exportBitmapComparisonLabel,
                     enabled = model.bitmapComparisonExportEnabled,
                     onClick = onExportBitmapComparison,
+                )
+                Item(
+                    text = model.exportNativeHeapLabel,
+                    enabled = model.exportNativeHeapEnabled,
+                    onClick = onExportNativeHeap,
                 )
             }
         }

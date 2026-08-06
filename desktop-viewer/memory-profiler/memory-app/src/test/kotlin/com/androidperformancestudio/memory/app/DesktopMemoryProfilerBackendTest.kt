@@ -39,7 +39,7 @@ class DesktopMemoryProfilerBackendTest {
             val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(result).value
             assertEquals(hprof, loaded.heapDump.rawHprofFile)
             assertNull(loaded.heapDump.convertedHprofFile)
-            assertEquals("minimal-standard.hprof", loaded.heapDump.id)
+            assertTrue(loaded.heapDump.id.startsWith("import-"))
             assertEquals(1, loaded.histogram.summary.objectCount)
             assertEquals(
                 "com.example.Sample",
@@ -107,7 +107,7 @@ class DesktopMemoryProfilerBackendTest {
             val result = backend.capture("device-1", sampleProcess())
 
             val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(result).value
-            assertEquals(listOf("dumpheap", "pull", "hprof-conv", "rm"), runner.commandKinds)
+            assertEquals(listOf("dumpheap", "pull", "getprop", "hprof-conv", "rm"), runner.commandKinds)
             assertContentEquals(RAW_ANDROID_HPROF, Files.readAllBytes(loaded.heapDump.rawHprofFile))
             assertTrue(loaded.heapDump.convertedHprofFile?.exists() == true)
             assertEquals("JAVA PROFILE 1.0.2", loaded.heapDump.format)
@@ -130,7 +130,7 @@ class DesktopMemoryProfilerBackendTest {
             val result = backend.capture("device-1", sampleProcess())
 
             val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(result).value
-            assertEquals(listOf("dumpheap", "pull", "rm"), runner.commandKinds)
+            assertEquals(listOf("dumpheap", "pull", "getprop", "rm"), runner.commandKinds)
             assertContentEquals(rawAndroidHprof, Files.readAllBytes(loaded.heapDump.rawHprofFile))
             assertNull(loaded.heapDump.convertedHprofFile)
             assertEquals("JAVA PROFILE 1.0.2", loaded.heapDump.format)
@@ -218,6 +218,7 @@ class DesktopMemoryProfilerBackendTest {
             when {
                 arguments.contains("dumpheap") -> "dumpheap"
                 arguments.contains("pull") -> "pull"
+                arguments.contains("getprop") -> "getprop"
                 arguments.contains("rm") -> "rm"
                 executable.fileName.toString().startsWith("hprof-conv") -> "hprof-conv"
                 else -> executable.fileName.toString()

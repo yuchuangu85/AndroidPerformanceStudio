@@ -15,6 +15,16 @@
     <string name="export_memory_profiler_data">Export Memory Profiler Data</string>
     <string name="import_hprof">Import HPROF</string>
     <string name="import_hprof_menu">Import HPROF…</string>
+    <string name="import_mapping_menu">Import mapping.txt…</string>
+    <string name="import_mapping">Import mapping.txt</string>
+    <string name="importing_mapping">Importing mapping %1$s…</string>
+    <string name="mapping_imported">Mapping loaded. Class names will be deobfuscated.</string>
+    <string name="unable_to_load_mapping">Unable to load mapping.txt</string>
+    <string name="mapping_not_loaded_hint">No mapping.txt loaded; class names may be obfuscated. Use File ▸ Import mapping.txt to deobfuscate.</string>
+    <string name="capture_native_heap">Capture Native Heap</string>
+    <string name="capturing_native_heap">Capturing native heap for %1$s (heapprofd, ~10s)…</string>
+    <string name="unable_to_capture_native_heap">Native heap capture failed</string>
+    <string name="export_native_heap_trace">Export Native Heap trace</string>
     <string name="recent_sessions">Recent Sessions</string>
     <string name="no_recent_sessions">No recent sessions</string>
     <string name="loading_session">Loading session %1$s…</string>

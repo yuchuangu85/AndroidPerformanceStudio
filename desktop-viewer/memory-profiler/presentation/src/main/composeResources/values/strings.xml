@@ -36,7 +36,7 @@
     <string name="import_hprof">Import hprof</string>
     <string name="select_device">Select device</string>
     <string name="device_offline">%1$s (offline)</string>
-    <string name="select_process">Select process ▼</string>
+    <string name="select_process">Select process</string>
     <string name="count_value">Count: %1$s</string>
     <string name="unavailable">Unavailable</string>
     <string name="leak_suspect_title">%1$s %2$s: %3$s</string>
@@ -44,4 +44,17 @@
     <string name="reference_chain_entry">%1$s↳ %2$s → %3$s</string>
     <string name="heap_diff_entry">%1$s: %2$s → %3$s (%4$s) · %5$s B</string>
     <string name="bitmap_entry">#%1$s %2$s×%3$s · %4$s</string>
+    <string name="activity_leaks">Activity leaks</string>
+    <string name="activity_leak_entry">%1$s · %2$s live · %3$s destroyed · retained %4$s</string>
+    <string name="no_activity_leaks_detected">No Activity leaks detected.</string>
+    <string name="manual_verification">requires manual verification</string>
+    <string name="mapping_loaded_note">mapping.txt loaded — class names deobfuscated</string>
+    <string name="bitmap_estimated_pixel_memory">estimated pixel memory %1$s (W×H×4B)</string>
+    <string name="bitmap_java_native_memory">java %1$s · native %2$s</string>
+    <string name="native_heap">Native heap</string>
+    <string name="no_native_heap_trace">No native heap trace captured yet.</string>
+    <string name="native_heap_trace_summary">%1$s · %2$s · API %3$s — open/analyze in Perfetto or Android Studio</string>
+    <string name="capture_native_heap">Capture Native Heap</string>
+    <string name="native_heap_total">total allocated %1$s · freed %2$s · %3$s samples</string>
+    <string name="native_heap_allocation_entry">%1$s · %2$s allocated · %3$s allocs</string>
 </resources>

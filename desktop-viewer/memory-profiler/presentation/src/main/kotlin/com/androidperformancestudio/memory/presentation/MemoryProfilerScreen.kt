@@ -46,12 +46,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.androidperformancestudio.memory.model.ActivityLeakEntry
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.NativeHeapAnalysis
+import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.activity
+import com.androidperformancestudio.memory.presentation.generated.resources.activity_leak_entry
+import com.androidperformancestudio.memory.presentation.generated.resources.activity_leaks
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_analysis
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_comparison
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_comparison_summary
@@ -59,6 +64,8 @@ import com.androidperformancestudio.memory.presentation.generated.resources.bitm
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_image
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_entry
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_estimated_pixel_memory
+import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_java_native_memory
 import com.androidperformancestudio.memory.presentation.generated.resources.class_histogram
 import com.androidperformancestudio.memory.presentation.generated.resources.class_name
 import com.androidperformancestudio.memory.presentation.generated.resources.classes
@@ -73,8 +80,16 @@ import com.androidperformancestudio.memory.presentation.generated.resources.in_p
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspect_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspect_title
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspects
+import com.androidperformancestudio.memory.presentation.generated.resources.manual_verification
+import com.androidperformancestudio.memory.presentation.generated.resources.mapping_loaded_note
+import com.androidperformancestudio.memory.presentation.generated.resources.native_heap
+import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_allocation_entry
+import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_total
+import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_trace_summary
+import com.androidperformancestudio.memory.presentation.generated.resources.no_activity_leaks_detected
 import com.androidperformancestudio.memory.presentation.generated.resources.no_class_changes_between_the_latest_two_heap_dumps
 import com.androidperformancestudio.memory.presentation.generated.resources.no_leak_suspects_detected
+import com.androidperformancestudio.memory.presentation.generated.resources.no_native_heap_trace
 import com.androidperformancestudio.memory.presentation.generated.resources.objects
 import com.androidperformancestudio.memory.presentation.generated.resources.overview
 import com.androidperformancestudio.memory.presentation.generated.resources.reference_chain_entry
@@ -108,6 +123,13 @@ public fun MemoryProfilerScreen(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             ErrorAndWarnings(presentedState, actions, language)
+            if (presentedState.mappingLoaded) {
+                Text(
+                    localizedStringResource(Res.string.mapping_loaded_note, language),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+            }
             Overview(summary = presentedState.summary, activityCount = presentedState.activityCount, language = language)
             Histogram(
                 classes = presentedState.classes,
@@ -117,6 +139,8 @@ public fun MemoryProfilerScreen(
                 language = language,
             )
             LeakSuspectsPhaseTwo(presentedState, language)
+            ActivityLeakSection(presentedState.activityLeaks, language)
+            NativeHeapSection(presentedState.nativeHeapTrace, presentedState.nativeHeapAnalysis, language)
             HeapDiffSection(presentedState.heapDiff, language)
             BitmapSection(presentedState.bitmapInstances, language)
             BitmapDumpGallery(presentedState.bitmapDumpSession, presentedState.bitmapDumpComparison, language)
@@ -456,7 +480,7 @@ private fun HistogramRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = stats.className,
+            text = stats.displayClassName,
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -511,12 +535,20 @@ private fun LeakSuspectsPhaseTwo(
                         fontWeight = FontWeight.Medium,
                     )
                     Text(
-                        localizedStringResource(
-                            Res.string.leak_suspect_summary,
-                            language,
-                            suspect.retainedSize?.let(::formatBytes) ?: "—",
-                            (suspect.confidence * 100).toInt(),
-                        ),
+                        buildString {
+                            append(
+                                localizedStringResource(
+                                    Res.string.leak_suspect_summary,
+                                    language,
+                                    suspect.retainedSize?.let(::formatBytes) ?: "—",
+                                    (suspect.confidence * 100).toInt(),
+                                ),
+                            )
+                            if (suspect.requiresManualVerification) {
+                                append(" · ")
+                                append(localizedStringResource(Res.string.manual_verification, language))
+                            }
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (expanded) {
@@ -534,6 +566,95 @@ private fun LeakSuspectsPhaseTwo(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivityLeakSection(
+    leaks: List<ActivityLeakEntry>,
+    language: UiLanguage,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
+                .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(localizedStringResource(Res.string.activity_leaks, language), fontWeight = FontWeight.Bold)
+        if (leaks.isEmpty()) {
+            Text(localizedStringResource(Res.string.no_activity_leaks_detected, language))
+        } else {
+            leaks.take(10).forEach { entry ->
+                Text(
+                    localizedStringResource(
+                        Res.string.activity_leak_entry,
+                        language,
+                        entry.className,
+                        integer(entry.liveInstanceCount),
+                        integer(entry.destroyedInstanceCount),
+                        entry.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, language),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativeHeapSection(
+    trace: NativeHeapTrace?,
+    analysis: NativeHeapAnalysis,
+    language: UiLanguage,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
+                .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(localizedStringResource(Res.string.native_heap, language), fontWeight = FontWeight.Bold)
+        if (trace == null) {
+            Text(localizedStringResource(Res.string.no_native_heap_trace, language))
+            return@Column
+        }
+        Text(
+            localizedStringResource(
+                Res.string.native_heap_trace_summary,
+                language,
+                trace.fileName,
+                formatBytes(trace.fileSizeBytes),
+                trace.deviceSdkApiLevel,
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (analysis.topAllocations.isNotEmpty()) {
+            Text(
+                localizedStringResource(
+                    Res.string.native_heap_total,
+                    language,
+                    formatBytes(analysis.totalAllocatedBytes),
+                    formatBytes(analysis.totalFreedBytes),
+                    integer(analysis.sampleCount),
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            analysis.topAllocations.take(10).forEach { sample ->
+                Text(
+                    localizedStringResource(
+                        Res.string.native_heap_allocation_entry,
+                        language,
+                        sample.functionName,
+                        formatBytes(sample.allocatedBytes),
+                        integer(sample.allocCount.toInt()),
+                    ),
+                    fontSize = 12.sp,
+                )
             }
         }
     }
@@ -593,6 +714,26 @@ private fun BitmapSection(
                     formatBytes(bitmap.retainedSize),
                 ),
             )
+            bitmap.estimatedPixelBytes?.let { estimated ->
+                Text(
+                    localizedStringResource(Res.string.bitmap_estimated_pixel_memory, language, formatBytes(estimated)),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+                val nativeSize = bitmap.nativeSizeBytes
+                if (bitmap.javaSizeBytes > 0L && nativeSize != null) {
+                    Text(
+                        localizedStringResource(
+                            Res.string.bitmap_java_native_memory,
+                            language,
+                            formatBytes(bitmap.javaSizeBytes),
+                            formatBytes(nativeSize),
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
         }
     }
 }

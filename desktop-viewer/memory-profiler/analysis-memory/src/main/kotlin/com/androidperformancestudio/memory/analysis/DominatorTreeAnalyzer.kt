@@ -1,4 +1,4 @@
-@file:Suppress("CyclomaticComplexMethod", "LongMethod")
+@file:Suppress("CyclomaticComplexMethod", "LongMethod", "MagicNumber")
 
 package com.androidperformancestudio.memory.analysis
 
@@ -13,27 +13,52 @@ data class DominatorTreeResult(
     val reachableObjectIds: Set<Long>,
 )
 
-/** Lengauer-Tarjan immediate dominators over the heap graph with a synthetic super-root. */
+/**
+ * Reachability-first immediate dominators.
+ *
+ * A BFS from the GC roots first computes the reachable (retainable) object subset, then the
+ * Lengauer-Tarjan dominator tree is built only over that subset using compact indices. Unreachable
+ * objects have no dominator and keep their shallow size. For large dumps with lots of garbage this
+ * avoids allocating dominator-tree arrays for unreachable objects, substantially cutting peak
+ * memory and wall time (mirrors the reachability-first approach of LeakCanary / Android Studio).
+ */
 class DominatorTreeAnalyzer {
-    fun analyze(heapDump: HeapDump): DominatorTreeResult {
+    fun analyze(
+        heapDump: HeapDump,
+        onProgress: (Int) -> Unit = {},
+    ): DominatorTreeResult {
         val graph = HeapGraph.from(heapDump)
-        if (graph.ids.isEmpty()) return DominatorTreeResult(emptyMap(), emptyMap(), emptySet())
+        if (graph.ids.isEmpty()) {
+            onProgress(100)
+            return DominatorTreeResult(emptyMap(), emptyMap(), emptySet())
+        }
+        onProgress(0)
+        val reachableIds =
+            if (graph.roots.isEmpty()) {
+                graph.ids
+            } else {
+                reachabilityBfs(graph, graph.roots)
+            }
+        onProgress(30)
 
-        val count = graph.ids.size + 1
+        val indexOf = reachableIds.withIndex().associate { (index, id) -> id to index + 1 }
+        val count = reachableIds.size + 1
         val successors = Array(count) { mutableListOf<Int>() }
-        val idToIndex = graph.ids.withIndex().associate { (index, id) -> id to index + 1 }
         graph.references.forEach { (source, refs) ->
-            val sourceIndex = idToIndex[source] ?: return@forEach
-            refs.mapNotNullTo(successors[sourceIndex]) { idToIndex[it.targetObjectId] }
+            val sourceIndex = indexOf[source] ?: return@forEach
+            refs.mapNotNullTo(successors[sourceIndex]) { indexOf[it.targetObjectId] }
             successors[sourceIndex].sort()
         }
-        val configuredRoots =
-            heapDump.gcRoots
-                .mapNotNull { idToIndex[it.objectId] }
-                .distinct()
-                .sorted()
-        val roots = configuredRoots.ifEmpty { (1 until count).toList() }
-        successors[SYNTHETIC_ROOT] += roots
+        val rootIndices =
+            if (graph.roots.isEmpty()) {
+                (1 until count).toList()
+            } else {
+                graph.roots
+                    .mapNotNull { indexOf[it] }
+                    .distinct()
+                    .sorted()
+            }
+        successors[SYNTHETIC_ROOT] += rootIndices
 
         val dfs = IntArray(count)
         val vertex = IntArray(count + 1)
@@ -105,27 +130,50 @@ class DominatorTreeAnalyzer {
         immediate[SYNTHETIC_ROOT] = SYNTHETIC_ROOT
 
         val retained = LongArray(count)
-        graph.ids.forEachIndexed { index, id -> retained[index + 1] = graph.shallowSizes[id] ?: 0L }
+        reachableIds.forEachIndexed { index, id -> retained[index + 1] = graph.shallowSizes[id] ?: 0L }
         for (order in dfsCount downTo 2) {
             val node = vertex[order]
             val dominator = immediate[node]
             if (dominator > SYNTHETIC_ROOT) retained[dominator] += retained[node]
         }
+        onProgress(70)
 
         val immediateById = linkedMapOf<Long, Long?>()
         val retainedById = linkedMapOf<Long, Long>()
-        graph.ids.forEachIndexed { index, id ->
-            val node = index + 1
-            val dominator = immediate[node]
-            immediateById[id] =
-                if (dfs[node] == 0 || dominator <= SYNTHETIC_ROOT) null else graph.ids[dominator - 1]
-            retainedById[id] = if (dfs[node] == 0) graph.shallowSizes[id] ?: 0L else retained[node]
+        graph.ids.forEach { id ->
+            val node = indexOf[id]
+            if (node == null) {
+                immediateById[id] = null
+                retainedById[id] = graph.shallowSizes[id] ?: 0L
+            } else {
+                val dominator = immediate[node]
+                immediateById[id] =
+                    if (dfs[node] == 0 || dominator <= SYNTHETIC_ROOT) null else reachableIds[dominator - 1]
+                retainedById[id] = if (dfs[node] == 0) graph.shallowSizes[id] ?: 0L else retained[node]
+            }
         }
+        onProgress(100)
         return DominatorTreeResult(
             immediateDominators = immediateById,
             retainedSizes = retainedById,
-            reachableObjectIds = graph.ids.filterIndexedTo(linkedSetOf()) { index, _ -> dfs[index + 1] != 0 },
+            reachableObjectIds = reachableIds.toSet(),
         )
+    }
+
+    private fun reachabilityBfs(
+        graph: HeapGraph,
+        roots: List<Long>,
+    ): List<Long> {
+        val visited = linkedSetOf<Long>()
+        val queue = ArrayDeque<Long>()
+        roots.forEach { if (visited.add(it)) queue.add(it) }
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            graph.references[current].orEmpty().forEach { reference ->
+                if (visited.add(reference.targetObjectId)) queue.add(reference.targetObjectId)
+            }
+        }
+        return visited.toList()
     }
 
     companion object {
@@ -138,6 +186,7 @@ internal data class HeapGraph(
     val shallowSizes: Map<Long, Long>,
     val classNames: Map<Long, String>,
     val references: Map<Long, List<ObjectReference>>,
+    val roots: List<Long>,
 ) {
     companion object {
         fun from(heapDump: HeapDump): HeapGraph {
@@ -171,6 +220,12 @@ internal data class HeapGraph(
                         heapDump.classes.forEach { put(it.objectId, it.name) }
                     },
                 references = references,
+                roots =
+                    heapDump.gcRoots
+                        .map { it.objectId }
+                        .filter { it in knownIds }
+                        .distinct()
+                        .sorted(),
             )
         }
     }

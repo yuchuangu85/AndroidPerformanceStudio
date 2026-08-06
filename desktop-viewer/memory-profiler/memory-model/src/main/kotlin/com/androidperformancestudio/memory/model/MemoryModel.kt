@@ -27,6 +27,7 @@ data class HeapDump(
     val leakSuspects: List<LeakSuspect> = emptyList(),
     val objectRetainedSizes: Map<Long, Long> = emptyMap(),
     val bitmapInstances: List<BitmapInstanceStats> = emptyList(),
+    val activityLeaks: List<ActivityLeakEntry> = emptyList(),
 )
 
 data class MemoryWarning(
@@ -176,7 +177,20 @@ data class ClassStats(
     val instanceCount: Int = 0,
     val shallowSize: Long = 0L,
     val retainedSize: Long? = null,
-)
+    /** Pre-obfuscation original class name when a mapping.txt was applied; null otherwise. */
+    val obfuscatedClassName: String? = null,
+    /** Depth of the class in its superclass hierarchy (java.lang.Object == 0). */
+    val hierarchyDepth: Int? = null,
+) {
+    /** Deobfuscated display name; keeps the obfuscated name in parens when a mapping was applied. */
+    val displayClassName: String
+        get() =
+            if (obfuscatedClassName != null) {
+                "$className ($obfuscatedClassName)"
+            } else {
+                className
+            }
+}
 
 data class HeapSummary(
     val objectCount: Int = 0,
@@ -210,9 +224,19 @@ data class LeakSuspect(
     val instanceCount: Int = 0,
     val referenceChain: List<ObjectReference> = emptyList(),
     val confidence: Float = 0f,
+    /** True when the heuristic confidence is below the manual-verification threshold. */
+    val requiresManualVerification: Boolean = false,
 ) {
     val leakReason: String
         get() = reason
+}
+
+enum class HeapDiffMatchMode {
+    /** Match heap-diff entries by class name only (stable for un-obfuscated dumps). */
+    CLASS_NAME,
+
+    /** Match by class name plus superclass hierarchy depth to avoid merging same-name classes. */
+    CLASS_NAME_AND_HIERARCHY,
 }
 
 data class HeapDiffEntry(
@@ -223,6 +247,8 @@ data class HeapDiffEntry(
     val beforeShallowSize: Long,
     val afterShallowSize: Long,
     val shallowSizeDelta: Long,
+    val matchedBy: HeapDiffMatchMode = HeapDiffMatchMode.CLASS_NAME,
+    val hierarchyDepth: Int? = null,
 )
 
 data class HeapDiff(
@@ -242,4 +268,48 @@ data class BitmapInstanceStats(
     val height: Int?,
     val retainedSize: Long,
     val referenceChain: List<ObjectReference> = emptyList(),
+    /** width × height × 4 B (ARGB_8888) estimate of the pixel buffer footprint. */
+    val estimatedPixelBytes: Long? = null,
+    /** Java-heap footprint of the Bitmap object itself (shallow size). */
+    val javaSizeBytes: Long = 0L,
+    /** Native pixel-buffer footprint estimate (width × height × 4 B); pixels live in native memory on Android 8+. */
+    val nativeSizeBytes: Long? = null,
+)
+
+/** A per-Activity-class summary used to report Activity leaks with live/destroyed counts. */
+data class ActivityLeakEntry(
+    val className: String,
+    val liveInstanceCount: Int = 0,
+    val destroyedInstanceCount: Int = 0,
+    val retainedSize: Long? = null,
+    val referenceChain: List<ObjectReference> = emptyList(),
+)
+
+data class ActivityLeakReport(
+    val entries: List<ActivityLeakEntry> = emptyList(),
+)
+
+/** Summary of a heapprofd native-heap capture, safe to expose to the presentation layer. */
+data class NativeHeapTrace(
+    val traceFile: String,
+    val fileName: String,
+    val fileSizeBytes: Long,
+    val deviceSdkApiLevel: Int,
+)
+
+/** Aggregated allocation statistics for one native function (leaf callstack frame). */
+data class NativeHeapSample(
+    val functionName: String,
+    val allocatedBytes: Long,
+    val freedBytes: Long,
+    val allocCount: Long,
+    val freeCount: Long,
+)
+
+/** Parsed allocation table from a heapprofd (.pb) trace. */
+data class NativeHeapAnalysis(
+    val totalAllocatedBytes: Long = 0L,
+    val totalFreedBytes: Long = 0L,
+    val sampleCount: Int = 0,
+    val topAllocations: List<NativeHeapSample> = emptyList(),
 )

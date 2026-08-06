@@ -1,4 +1,4 @@
-@file:Suppress("LongMethod", "MaxLineLength")
+@file:Suppress("LongMethod", "MaxLineLength", "MagicNumber", "TooGenericExceptionCaught")
 
 package com.androidperformancestudio.memory.app
 
@@ -9,10 +9,17 @@ import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalysisRequest
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalyzer
 import com.androidperformancestudio.memory.analysis.MemoryDeepAnalyzer
+import com.androidperformancestudio.memory.analysis.NativeHeapTraceParser
+import com.androidperformancestudio.memory.analysis.ProguardMapping
+import com.androidperformancestudio.memory.analysis.ProguardMappingParser
+import com.androidperformancestudio.memory.analysis.isLikelyObfuscatedClassName
+import com.androidperformancestudio.memory.analysis.withDeobfuscation
 import com.androidperformancestudio.memory.capture.BitmapCaptureRequest
 import com.androidperformancestudio.memory.capture.BitmapHeapDumpCaptureSession
 import com.androidperformancestudio.memory.capture.MemoryCaptureRequest
 import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
+import com.androidperformancestudio.memory.capture.NativeHeapCaptureRequest
+import com.androidperformancestudio.memory.capture.NativeHeapCaptureSession
 import com.androidperformancestudio.memory.export.BitmapDumpExportAdapters
 import com.androidperformancestudio.memory.export.MemoryExportAdapters
 import com.androidperformancestudio.memory.hprof.BitmapDumpParseException
@@ -27,15 +34,19 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_found
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_readable
 import com.androidperformancestudio.memory.memory_app.generated.resources.install_sdk_platform_tools
+import com.androidperformancestudio.memory.memory_app.generated.resources.mapping_not_loaded_hint
 import com.androidperformancestudio.memory.memory_app.generated.resources.no_heap_objects_parsed
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_capture_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_list_android_devices
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_list_device_processes
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_load_mapping
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
@@ -48,9 +59,10 @@ import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
-import java.security.MessageDigest
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.sql.SQLException
 import java.time.Instant
 import java.time.ZoneOffset
@@ -70,6 +82,9 @@ internal class DesktopMemoryProfilerBackend(
     private val bitmapParser = BitmapDumpParser()
     private val bitmapAnalyzer = BitmapDumpAnalyzer()
     private val bitmapExports = BitmapDumpExportAdapters()
+
+    private var mapping: ProguardMapping? = null
+    private var lastLoadRequest: HeapLoadRequest? = null
 
     override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
         val adb = adbLocator() ?: return missingAdb()
@@ -163,16 +178,22 @@ internal class DesktopMemoryProfilerBackend(
                         pid = process.pid,
                     )
                 val convertedFile = capture.convertedHprofFile
+                val conversionWarning =
+                    if (capture.conversionSkipped) {
+                        // Android 8.0+ produces standard HPROF directly; no hprof-conv needed.
+                        null
+                    } else if (convertedFile == null) {
+                        localizedStringResource(Res.string.hprof_conv_unavailable, language)
+                    } else {
+                        null
+                    }
+                val effectiveWarning = listOfNotNull(warning, conversionWarning).joinToString("\n").ifBlank { null }
                 if (convertedFile == null) {
                     loadHeap(
                         HeapLoadRequest(
                             file = capture.rawHprofFile,
                             rawFile = capture.rawHprofFile,
-                            warning =
-                                listOfNotNull(
-                                    warning,
-                                    localizedStringResource(Res.string.hprof_conv_unavailable, language),
-                                ).joinToString("\n"),
+                            warning = effectiveWarning,
                             cleanupWarning = cleanupWarning,
                             sessionMetadata = identity,
                         ),
@@ -183,7 +204,7 @@ internal class DesktopMemoryProfilerBackend(
                             file = convertedFile,
                             rawFile = capture.rawHprofFile,
                             convertedFile = convertedFile,
-                            warning = warning,
+                            warning = effectiveWarning,
                             cleanupWarning = cleanupWarning,
                             sessionMetadata = identity,
                         ),
@@ -273,6 +294,52 @@ internal class DesktopMemoryProfilerBackend(
             }
         }
 
+    override suspend fun captureNativeHeap(
+        serial: String,
+        process: MemoryProcessOption,
+    ): MemoryBackendResult<LoadedNativeHeap> {
+        val adb = adbLocator() ?: return missingAdb()
+        val sessionId = sessionId()
+        val session = NativeHeapCaptureSession(adb)
+        return when (
+            val result =
+                session.capture(
+                    NativeHeapCaptureRequest(
+                        sessionId = sessionId,
+                        sessionRoot = dataRoot.resolve("sessions"),
+                        serial = serial,
+                        pid = process.pid,
+                        packageName = process.packageName,
+                    ),
+                )
+        ) {
+            is StudioResult.Failure ->
+                result.toBackendFailure(localizedStringResource(Res.string.unable_to_capture_native_heap, language))
+            is StudioResult.Success -> {
+                val capture = result.value
+                MemoryBackendResult.Success(
+                    LoadedNativeHeap(
+                        trace =
+                            NativeHeapTrace(
+                                traceFile = capture.traceFile.toString(),
+                                fileName = capture.traceFile.fileName.toString(),
+                                fileSizeBytes = Files.size(capture.traceFile),
+                                deviceSdkApiLevel = capture.deviceSdkApiLevel,
+                            ),
+                        analysis = NativeHeapTraceParser.parse(capture.traceFile),
+                    ),
+                )
+            }
+        }
+    }
+
+    override fun exportNativeHeap(
+        trace: NativeHeapTrace,
+        output: Path,
+    ) {
+        Files.copy(Path.of(trace.traceFile), output, StandardCopyOption.REPLACE_EXISTING)
+    }
+
     @Suppress("ktlint:standard:function-expression-body")
     override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap> = importHprof(file) {}
 
@@ -298,6 +365,29 @@ internal class DesktopMemoryProfilerBackend(
             }
         }
 
+    override suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> =
+        withContext(Dispatchers.IO) {
+            val parsedMapping =
+                try {
+                    ProguardMappingParser.parse(file)
+                } catch (exception: Exception) {
+                    return@withContext MemoryBackendResult.Failure(
+                        localizedStringResource(Res.string.unable_to_load_mapping, language),
+                        exception.message ?: exception::class.simpleName.orEmpty(),
+                    )
+                }
+            mapping = parsedMapping
+            val last = lastLoadRequest
+            if (last == null) {
+                MemoryBackendResult.Success<LoadedHeap?>(null)
+            } else {
+                when (val result = loadHeap(last)) {
+                    is MemoryBackendResult.Success -> MemoryBackendResult.Success(result.value)
+                    is MemoryBackendResult.Failure -> result
+                }
+            }
+        }
+
     override suspend fun listSessions(): MemoryBackendResult<List<MemorySessionMetadata>> =
         withContext(Dispatchers.IO) {
             try {
@@ -312,9 +402,7 @@ internal class DesktopMemoryProfilerBackend(
             }
         }
 
-    override suspend fun loadSession(
-        metadata: MemorySessionMetadata,
-    ): MemoryBackendResult<LoadedHeap> {
+    override suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedHeap> {
         val file = metadata.convertedHprofFile ?: metadata.rawHprofFile
         if (!Files.isRegularFile(file)) {
             return MemoryBackendResult.Failure(
@@ -376,14 +464,19 @@ internal class DesktopMemoryProfilerBackend(
     private fun loadHeap(
         request: HeapLoadRequest,
         onProgress: (Int) -> Unit = {},
-    ): MemoryBackendResult<LoadedHeap> =
-        try {
+    ): MemoryBackendResult<LoadedHeap> {
+        lastLoadRequest = request
+        return try {
             val parsedFile =
-                parser.parse(request.file, onProgress).copy(
+                parser.parse(request.file) { parserProgress -> onProgress(parserProgress / 2) }.copy(
                     rawHprofFile = request.rawFile,
                     convertedHprofFile = request.convertedFile,
                 )
-            val deepAnalysis = analyzer.analyze(parsedFile)
+            val deobfuscated = mapping?.let { parsedFile.withDeobfuscation(it) } ?: parsedFile
+            val deepAnalysis =
+                analyzer.analyze(deobfuscated, deobfuscator = mapping) { analysisProgress ->
+                    onProgress(50 + analysisProgress / 2)
+                }
             val histogram = deepAnalysis.histogram
             val parserWarning =
                 parsedFile.warnings
@@ -395,9 +488,15 @@ internal class DesktopMemoryProfilerBackend(
                 } else {
                     null
                 }
+            val noMappingWarning =
+                if (mapping == null && histogram.classes.any { isLikelyObfuscatedClassName(it.className) }) {
+                    localizedStringResource(Res.string.mapping_not_loaded_hint, language)
+                } else {
+                    null
+                }
             val capturedAt = Instant.now()
             val parsed =
-                parsedFile.copy(
+                deobfuscated.copy(
                     id = request.sessionMetadata?.sessionId ?: request.file.fileName.toString(),
                     packageName = request.sessionMetadata?.packageName.orEmpty(),
                     pid = request.sessionMetadata?.pid ?: 0,
@@ -407,6 +506,7 @@ internal class DesktopMemoryProfilerBackend(
                     leakSuspects = deepAnalysis.leakSuspects,
                     objectRetainedSizes = deepAnalysis.dominatorTree.retainedSizes,
                     bitmapInstances = deepAnalysis.bitmapInstances,
+                    activityLeaks = deepAnalysis.activityLeaks,
                 )
             request.sessionMetadata?.let { metadata ->
                 persistSession(metadata, capturedAt, request.rawFile, request.convertedFile, histogram.summary)
@@ -415,8 +515,9 @@ internal class DesktopMemoryProfilerBackend(
                 LoadedHeap(
                     heapDump = parsed,
                     histogram = histogram,
+                    mapping = mapping,
                     warning =
-                        listOfNotNull(request.warning, parserWarning, emptyHeapWarning)
+                        listOfNotNull(request.warning, parserWarning, emptyHeapWarning, noMappingWarning)
                             .joinToString("\n")
                             .ifBlank { null },
                     cleanupWarning = request.cleanupWarning,
@@ -431,6 +532,7 @@ internal class DesktopMemoryProfilerBackend(
         } catch (exception: SQLException) {
             analysisFailure(exception)
         }
+    }
 
     private fun persistSession(
         metadata: CapturedSessionIdentity,
@@ -492,7 +594,8 @@ internal class DesktopMemoryProfilerBackend(
     private fun importedSessionId(file: Path): String {
         val normalized = file.toAbsolutePath().normalize().toString()
         val digest =
-            MessageDigest.getInstance("SHA-256")
+            MessageDigest
+                .getInstance("SHA-256")
                 .digest(normalized.toByteArray(Charsets.UTF_8))
         val hex = digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
         return "import-${hex.take(12)}"
