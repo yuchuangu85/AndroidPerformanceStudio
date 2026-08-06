@@ -1,10 +1,7 @@
 package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,6 +13,7 @@ import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 
 @Composable
 @Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
@@ -55,7 +53,7 @@ fun HomeScreen(
             }
             onCaptureSettingsSectionChange(next)
         }
-        MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
+        ViewerTheme(darkTheme = darkTheme) {
             Surface(modifier = Modifier.fillMaxSize()) {
                 DeviceTargetPage(
                     state,
