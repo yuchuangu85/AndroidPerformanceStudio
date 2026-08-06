@@ -32,6 +32,8 @@ public data class AgentNetworkEvent(
     val protocol: String? = null,
     val connectionId: String? = null,
     val message: String? = null,
+    /** TLS cipher suite negotiated (from secureConnectEnd). */
+    val cipherSuite: String? = null,
 )
 
 @Serializable

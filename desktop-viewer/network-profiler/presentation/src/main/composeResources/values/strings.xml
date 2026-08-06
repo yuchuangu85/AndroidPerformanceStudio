@@ -26,6 +26,7 @@
     <string name="confidence_inferred">Inferred</string>
     <string name="confidence_partial">Partial</string>
     <string name="confidence_unknown">Unknown</string>
+    <string name="confidence_approximated">Approximated</string>
     <string name="outcome_success">Success</string>
     <string name="outcome_failed">Failed</string>
     <string name="outcome_cancelled">Cancelled</string>

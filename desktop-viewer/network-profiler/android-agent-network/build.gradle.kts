@@ -10,6 +10,7 @@ android {
 }
 dependencies {
     implementation(project(":network-agent-protocol"))
+    implementation(project(":network-model"))
     implementation("androidx.startup:startup-runtime:1.2.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

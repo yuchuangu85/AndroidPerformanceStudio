@@ -5,6 +5,7 @@ package com.androidperformancestudio.network.agent
 import android.content.Context
 import android.util.Base64
 import androidx.startup.Initializer
+import com.androidperformancestudio.network.model.NetworkUrlRedactor
 import com.androidperformancestudio.network.protocol.AgentCommand
 import com.androidperformancestudio.network.protocol.AgentNetworkEvent
 import com.androidperformancestudio.network.protocol.AgentResponse
@@ -51,9 +52,9 @@ private object EventBuffer {
 
 private class ProfilerEventListener(private val call: Call) : EventListener() {
     private val callId = Integer.toHexString(System.identityHashCode(call)) + "-" + System.nanoTime().toString(16)
-    private fun event(kind: String, status: Int? = null, bytes: Long? = null, protocol: String? = null, connection: String? = null, message: String? = null) {
+    private fun event(kind: String, status: Int? = null, bytes: Long? = null, protocol: String? = null, connection: String? = null, message: String? = null, cipherSuite: String? = null) {
         val request = call.request()
-        EventBuffer.add(AgentNetworkEvent(0, callId, kind, System.nanoTime(), request.method, redact(request), status, bytes, protocol, connection, message))
+        EventBuffer.add(AgentNetworkEvent(0, callId, kind, System.nanoTime(), request.method, redact(request), status, bytes, protocol, connection, message, cipherSuite))
     }
     override fun callStart(call: Call) = event("callStart")
     override fun callEnd(call: Call) = event("callEnd")
@@ -63,7 +64,7 @@ private class ProfilerEventListener(private val call: Call) : EventListener() {
     override fun dnsEnd(call: Call, domainName: String, inetAddressList: List<InetAddress>) = event("dnsEnd", message = inetAddressList.size.toString())
     override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) = event("connectStart", message = proxy.type().name)
     override fun secureConnectStart(call: Call) = event("secureConnectStart")
-    override fun secureConnectEnd(call: Call, handshake: Handshake?) = event("secureConnectEnd", message = handshake?.tlsVersion?.javaName)
+    override fun secureConnectEnd(call: Call, handshake: Handshake?) = event("secureConnectEnd", message = handshake?.tlsVersion?.javaName, cipherSuite = handshake?.cipherSuite?.javaName)
     override fun connectEnd(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy, protocol: Protocol?) = event("connectEnd", protocol = protocol?.toString())
     override fun connectionAcquired(call: Call, connection: Connection) = event("connectionAcquired", protocol = connection.protocol().toString(), connection = Integer.toHexString(System.identityHashCode(connection)))
     override fun connectionReleased(call: Call, connection: Connection) = event("connectionReleased", connection = Integer.toHexString(System.identityHashCode(connection)))
@@ -77,7 +78,8 @@ private class ProfilerEventListener(private val call: Call) : EventListener() {
     override fun responseBodyEnd(call: Call, byteCount: Long) = event("responseBodyEnd", bytes = byteCount)
     override fun cacheHit(call: Call, response: Response) = event("cacheHit", status = response.code)
     override fun cacheMiss(call: Call) = event("cacheMiss")
-    private fun redact(request: Request): String = request.url.newBuilder().query(null).build().toString()
+    private fun redact(request: Request): String = redactor.redact(request.url.toString())
+    private val redactor = NetworkUrlRedactor.default()
 }
 
 private class CompositeEventListener(private val delegate: EventListener?, private val profiler: EventListener) : EventListener() {
