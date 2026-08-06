@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.network.app
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +31,7 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
@@ -49,7 +51,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
-public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLanguage.ENGLISH, onBack: () -> Unit = {}) {
+public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLanguage.ENGLISH, darkTheme: Boolean = isSystemInDarkTheme(), onBack: () -> Unit = {}) {
     val analyzer = remember { NetworkAnalyzer() }
     val exporter = remember { NetworkExporter() }
     val capture = remember { NetworkAgentCapture() }
@@ -86,6 +88,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
             active = null
         }
     }
+    ViewerTheme(darkTheme = darkTheme) {
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             HomeButton(
@@ -183,6 +186,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
+    }
     }
 }
 

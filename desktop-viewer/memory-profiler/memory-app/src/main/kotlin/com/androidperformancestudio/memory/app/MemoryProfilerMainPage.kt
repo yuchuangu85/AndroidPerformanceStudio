@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.memory.app
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSel
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
@@ -45,6 +47,7 @@ import javax.swing.JFileChooser
 @Composable
 fun FrameWindowScope.MemoryProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
     highlightClassName: String? = null,
 ) {
@@ -103,6 +106,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         },
     )
 
+    ViewerTheme(darkTheme = darkTheme) {
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             HomeButton(
@@ -148,6 +152,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             language = language,
             modifier = Modifier.weight(1f),
         )
+    }
     }
 
     if (showHprofFileDialog) {

@@ -3,10 +3,12 @@
 package com.androidperformancestudio.gpu.app
 
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.Res
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.*
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,6 +41,7 @@ import javax.swing.JFileChooser
 @Composable
 public fun FrameWindowScope.GpuIntegrationMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
     onOpenTrace: (Path) -> Unit = {},
 ) {
@@ -87,6 +90,7 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
         }
     }
 
+    ViewerTheme(darkTheme = darkTheme) {
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             HomeButton(
@@ -174,6 +178,7 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
             language,
             Modifier.weight(1f),
         )
+    }
     }
 }
 

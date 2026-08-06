@@ -19,7 +19,7 @@ class ProfilerThemeSupportTest {
     fun `unified shell paints an adaptive background around every profiler`() {
         val shell = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"))
 
-        assertTrue(shell.contains("viewerMaterialColorScheme(darkTheme)"))
+        assertTrue(shell.contains("ViewerTheme("))
         assertTrue(shell.contains("compactDesktopTypography()"))
         assertTrue(shell.contains("compactDesktopShapes()"))
         assertTrue(shell.contains("LocalMinimumInteractiveComponentSize provides 32.dp"))

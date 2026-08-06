@@ -10,6 +10,7 @@
 
 package com.androidperformancestudio.battery.app
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -78,6 +79,7 @@ import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
@@ -92,6 +94,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 public fun FrameWindowScope.BatteryProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
 ) {
     val controller = remember(language) { BatteryProfilerController(language = language) }
@@ -157,6 +160,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
         onResetStatistics = { confirmReset = true },
     )
 
+    ViewerTheme(darkTheme = darkTheme) {
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(
             language = language,
@@ -175,6 +179,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                 enabled = !state.isRunning,
                 itemEnabled = { it.online },
             )
+            HeaderSpacer()
             DropdownSelector(
                 items = state.targets,
                 selectedItem = state.targets.firstOrNull { it.packageName == state.selectedPackageName },
@@ -190,11 +195,13 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                 placeholder = localizedStringResource(Res.string.app_uid, language),
                 enabled = !state.isRunning && state.selectedDeviceSerial != null,
             )
+            HeaderSpacer()
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.refresh, language),
                 enabled = !state.isRunning && !state.isRefreshing,
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
+            HeaderSpacer()
             ProfilerCompactButton(
                 text =
                     when {
@@ -214,7 +221,9 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                     }
                 },
             )
+            HeaderSpacer()
             HeaderDivider()
+            HeaderSpacer()
             DropdownSelector(
                 items = BatteryCaptureMode.entries,
                 selectedItem = state.config.mode,
@@ -295,6 +304,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             color = MaterialTheme.colorScheme.outline,
         )
         BatteryProfilerScreen(state, BatteryProfilerActions(controller::selectRun), language, Modifier.weight(1f))
+    }
     }
 
     if (confirmReset) {

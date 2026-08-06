@@ -1,6 +1,7 @@
 package com.androidperformancestudio.perfetto.app
 
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
 import com.androidperformancestudio.perfetto_app.generated.resources.*
@@ -9,6 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -108,6 +110,7 @@ internal fun exportRawTraceFile(traceFile: Path, destination: Path): StudioResul
 @Suppress("ktlint:standard:function-naming")
 fun FrameWindowScope.PerfettoMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     onNavigateHome: (() -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,
     initialTraceFile: Path? = null,
@@ -242,6 +245,7 @@ fun FrameWindowScope.PerfettoMainPage(
         onClearRecent = { recentFiles = emptyList() },
     )
 
+    ViewerTheme(darkTheme = darkTheme) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {
             PerfettoToolbar(
@@ -355,6 +359,7 @@ fun FrameWindowScope.PerfettoMainPage(
                 }
             }
         }
+    }
     }
     DisposableEffect(Unit) {
         onDispose {

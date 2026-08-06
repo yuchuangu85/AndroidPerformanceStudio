@@ -5,7 +5,11 @@ import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,20 +20,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.ProfilerCompactButton
 
 internal const val HOME_GRID_COLUMN_COUNT = 4
 internal const val HOME_CARD_HEIGHT_DP = 172
@@ -171,7 +176,8 @@ fun AppHomePage(
             ),
         )
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    val colors = LocalViewerColors.current
+    Surface(modifier = Modifier.fillMaxSize(), color = colors.canvasBackground) {
         Column(
             modifier =
                 Modifier
@@ -182,14 +188,15 @@ fun AppHomePage(
         ) {
             Text(
                 text = localizedStringResource(Res.string.android_performance_studio, language),
-                style = MaterialTheme.typography.headlineLarge,
+                color = colors.primaryText,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = localizedStringResource(Res.string.choose_a_performance_analysis_tool, language),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.secondaryText,
+                fontSize = 13.sp,
             )
             Spacer(Modifier.height(18.dp))
 
@@ -229,39 +236,50 @@ private fun FeatureEntryCard(
     entry: HomeFeatureEntry,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier.height(HOME_CARD_HEIGHT_DP.dp).clickable(onClick = entry.onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+    val colors = LocalViewerColors.current
+    val shape = RoundedCornerShape(8.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val containerColor = if (hovered) colors.sectionBackground else colors.panel
+    Column(
+        modifier =
+            modifier
+                .height(HOME_CARD_HEIGHT_DP.dp)
+                .clip(shape)
+                .background(containerColor)
+                .border(1.dp, colors.border, shape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = entry.onClick,
+                )
+                .padding(16.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
-                    text = entry.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontSize = HOME_ITEM_TITLE_FONT_SIZE_SP.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = entry.subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = entry.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Button(
-                onClick = entry.onClick,
-                colors = ButtonDefaults.buttonColors(),
-            ) {
-                Text(entry.actionLabel)
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = entry.title,
+                color = colors.primaryText,
+                fontSize = HOME_ITEM_TITLE_FONT_SIZE_SP.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = entry.subtitle,
+                color = colors.accent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = entry.description,
+                color = colors.secondaryText,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+            )
         }
+        ProfilerCompactButton(
+            text = entry.actionLabel,
+            onClick = entry.onClick,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }

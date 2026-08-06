@@ -9,6 +9,7 @@
 
 package com.androidperformancestudio.startup.app
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,6 +67,7 @@ import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
@@ -77,6 +79,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 @Composable
 public fun FrameWindowScope.StartupProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
 ) {
     val controller = remember(language) { StartupProfilerController(language = language) }
@@ -110,6 +113,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
         },
     )
 
+    ViewerTheme(darkTheme = darkTheme) {
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(
             language = language,
@@ -253,6 +257,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
             language = language,
             modifier = Modifier.weight(1f),
         )
+    }
     }
 }
 

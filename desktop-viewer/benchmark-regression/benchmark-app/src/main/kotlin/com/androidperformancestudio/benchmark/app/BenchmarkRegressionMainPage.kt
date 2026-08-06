@@ -3,10 +3,12 @@
 package com.androidperformancestudio.benchmark.app
 
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.Res
 import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.*
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +40,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 @Composable
 public fun FrameWindowScope.BenchmarkRegressionMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
     onOpenTrace: (Path) -> Unit = {},
 ) {
@@ -57,6 +60,7 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
         }.onFailure { state = state.copy(error = it.message ?: localizedStringResource(Res.string.import_failed, language)) }
     }
 
+    ViewerTheme(darkTheme = darkTheme) {
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             HomeButton(
@@ -95,6 +99,7 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         BenchmarkRegressionScreen(state, language, Modifier.weight(1f))
+    }
     }
 }
 

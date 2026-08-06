@@ -4,6 +4,8 @@ package com.androidperformancestudio.ui
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -150,6 +152,8 @@ val LocalViewerColors = staticCompositionLocalOf {
 @Composable
 public fun ViewerTheme(
     darkTheme: Boolean,
+    typography: Typography = MaterialTheme.typography,
+    shapes: Shapes = MaterialTheme.shapes,
     content: @Composable () -> Unit,
 ) {
     val colors = viewerColors(darkTheme)
@@ -157,6 +161,8 @@ public fun ViewerTheme(
     CompositionLocalProvider(LocalViewerColors provides colors) {
         MaterialTheme(
             colorScheme = colorScheme,
+            typography = typography,
+            shapes = shapes,
             content = content,
         )
     }

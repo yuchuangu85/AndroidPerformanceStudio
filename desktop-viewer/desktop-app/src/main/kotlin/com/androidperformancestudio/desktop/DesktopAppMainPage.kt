@@ -1,8 +1,8 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.viewerMaterialColorScheme
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 
@@ -105,8 +105,8 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
         }
     }
 
-    MaterialTheme(
-        colorScheme = viewerMaterialColorScheme(darkTheme),
+    ViewerTheme(
+        darkTheme = darkTheme,
         typography = compactDesktopTypography(),
         shapes = compactDesktopShapes(),
     ) {
@@ -191,6 +191,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                     AppDestination.PERFETTO ->
                         PerfettoMainPage(
                             language = language,
+                            darkTheme = darkTheme,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
                             initialTraceNotice = navigator.perfettoTraceNotice,
@@ -203,12 +204,14 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                     AppDestination.MEMORY_PROFILER ->
                         MemoryProfilerMainPage(
                             language = language,
+                            darkTheme = darkTheme,
                             highlightClassName = memoryHighlightClassName,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.FRAME_PROFILER ->
                         FrameProfilerMainPage(
                             language = language,
+                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenLayoutInspector = { request ->
                                 val activity =
@@ -234,21 +237,25 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                     AppDestination.STARTUP_PROFILER ->
                         StartupProfilerMainPage(
                             language = language,
+                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.BATTERY_PROFILER ->
                         BatteryProfilerMainPage(
                             language = language,
+                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.NETWORK_PROFILER ->
                         NetworkProfilerMainPage(
                             language = language,
+                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.GPU_INSPECTOR ->
                         GpuIntegrationMainPage(
                             language = language,
+                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenTrace = { path ->
                                 navigator.openPerfettoTrace(
@@ -264,6 +271,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                     AppDestination.BENCHMARK_REGRESSION ->
                         BenchmarkRegressionMainPage(
                             language = language,
+                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenTrace = { path ->
                                 navigator.openPerfettoTrace(

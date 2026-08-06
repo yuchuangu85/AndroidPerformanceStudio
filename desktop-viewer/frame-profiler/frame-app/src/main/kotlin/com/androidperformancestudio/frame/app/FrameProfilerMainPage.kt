@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.frame.app
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,6 +43,7 @@ import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
@@ -54,6 +56,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 public fun FrameWindowScope.FrameProfilerMainPage(
+    darkTheme: Boolean = isSystemInDarkTheme(),
     language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
     onOpenLayoutInspector: (FrameLayoutInspectionRequest) -> Unit = {},
@@ -92,6 +95,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
         },
     )
 
+    ViewerTheme(darkTheme = darkTheme) {
     Column(Modifier.fillMaxSize()) {
         ProfilerMacOsToolbar {
             HomeButton(
@@ -183,6 +187,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             operationMessage = operationMessage,
             modifier = Modifier.weight(1f),
         )
+    }
     }
 
     if (showImportDialog) {
