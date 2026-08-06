@@ -58,6 +58,9 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.veri
 import com.androidperformancestudio.startup.startup_app.generated.resources.warm
 import com.androidperformancestudio.startup.startup_app.generated.resources.warm_ups
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HeaderDivider
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
@@ -108,14 +111,14 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     )
 
     Column(Modifier.fillMaxSize()) {
-        ProfilerMacOsToolbar {
-            HomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                onClick = {
-                    experimentJob?.cancel()
-                    onBack()
-                },
-            )
+        HeaderToolbar(
+            language = language,
+            onNavigateHome = {
+                experimentJob?.cancel()
+                onBack()
+            },
+            onNavigateSettings = null
+        ) {
             DropdownSelector(
                 items = state.devices,
                 selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
@@ -125,6 +128,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 enabled = !state.isRunning,
                 itemEnabled = { it.online },
             )
+            HeaderSpacer()
             DropdownSelector(
                 items = state.targets,
                 selectedItem = state.targets.firstOrNull { it.componentName == state.selectedComponentName },
@@ -147,11 +151,13 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 placeholder = localizedStringResource(Res.string.app_activity, language),
                 enabled = !state.isRunning && state.selectedDeviceSerial != null,
             )
+            HeaderSpacer()
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.refresh, language),
                 enabled = !state.isRunning && !state.isRefreshing,
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
+            HeaderSpacer()
             ProfilerCompactButton(
                 text =
                     if (state.isRunning) {
@@ -168,17 +174,13 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                     }
                 },
             )
-            Spacer(Modifier.weight(1f))
+            HeaderSpacer()
             ProfilerToolbarStatus(
                 message = state.operationMessage,
                 error = state.errorMessage,
             )
-        }
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = MaterialTheme.colorScheme.outline,
-        )
-        ProfilerMacOsSecondaryToolbar {
+            HeaderDivider()
+            HeaderSpacer()
             DropdownSelector(
                 items = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT),
                 selectedItem = state.config.requestedType,
@@ -187,6 +189,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 placeholder = localizedStringResource(Res.string.startup_type, language),
                 enabled = !state.isRunning,
             )
+            HeaderSpacer()
             DropdownSelector(
                 items = CompilationMode.entries,
                 selectedItem = state.config.compilationMode,
@@ -195,31 +198,41 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 placeholder = localizedStringResource(Res.string.compilation, language),
                 enabled = !state.isRunning,
             )
+            HeaderSpacer()
             DropdownSelector(
                 items = (0..10).toList(),
                 selectedItem = state.config.warmupRuns,
                 onItemSelected = { controller.updateCounts(it, state.config.measuredRuns) },
                 itemLabel = Int::toString,
+                selectedItemLabel = {localizedStringResource(Res.string.warm_ups, language, it)},
                 placeholder = localizedStringResource(Res.string.warm_ups, language),
                 enabled = !state.isRunning,
             )
+            HeaderSpacer()
             DropdownSelector(
                 items = listOf(1, 3, 5, 10, 20, 30),
                 selectedItem = state.config.measuredRuns,
                 onItemSelected = { controller.updateCounts(state.config.warmupRuns, it) },
                 itemLabel = Int::toString,
+                selectedItemLabel = {localizedStringResource(Res.string.measured_runs, language, it)},
                 placeholder = localizedStringResource(Res.string.measured_runs, language),
                 enabled = !state.isRunning,
             )
+            HeaderSpacer()
             DropdownSelector(
                 items = listOf(10, 20, 30, 45, 60, 120),
                 selectedItem = state.config.timeoutSeconds,
                 onItemSelected = controller::updateTimeout,
                 itemLabel = { localizedStringResource(Res.string.seconds_short, language, it) },
+                selectedItemLabel = {localizedStringResource(Res.string.timeout, language, it)},
                 placeholder = localizedStringResource(Res.string.timeout, language),
                 enabled = !state.isRunning,
             )
         }
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline,
+        )
         if (state.isRunning && state.totalRuns > 0) {
             HorizontalDivider(
                 thickness = 1.dp,

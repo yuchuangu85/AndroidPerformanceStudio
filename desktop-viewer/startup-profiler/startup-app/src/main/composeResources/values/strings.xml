@@ -13,9 +13,9 @@
     <string name="export_json">Export JSON</string>
     <string name="startup_type">Startup Type</string>
     <string name="compilation">Compilation</string>
-    <string name="warm_ups">Warm-ups</string>
-    <string name="measured_runs">Measured Runs</string>
-    <string name="timeout">Timeout</string>
+    <string name="warm_ups">Warm-ups: %1$ss</string>
+    <string name="measured_runs">Measured Runs：%1$s</string>
+    <string name="timeout">Timeout：%1$ss</string>
     <string name="cold">Cold</string>
     <string name="warm">Warm</string>
     <string name="hot">Hot</string>

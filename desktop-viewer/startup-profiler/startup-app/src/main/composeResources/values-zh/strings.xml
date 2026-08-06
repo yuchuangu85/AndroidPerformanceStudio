@@ -13,9 +13,9 @@
     <string name="export_json">导出 JSON</string>
     <string name="startup_type">启动类型</string>
     <string name="compilation">编译模式</string>
-    <string name="warm_ups">预热次数</string>
-    <string name="measured_runs">采样次数</string>
-    <string name="timeout">超时</string>
+    <string name="warm_ups">预热次数: %1$s秒</string>
+    <string name="measured_runs">采样次数：%1$s</string>
+    <string name="timeout">超时：%1$s秒</string>
     <string name="cold">冷启动</string>
     <string name="warm">温启动</string>
     <string name="hot">热启动</string>

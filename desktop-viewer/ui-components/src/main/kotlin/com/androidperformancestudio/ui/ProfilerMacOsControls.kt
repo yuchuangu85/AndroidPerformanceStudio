@@ -129,55 +129,6 @@ public fun ProfilerCompactButton(
     }
 }
 
-/** Compact selector backed by a Material dropdown menu. */
-@Composable
-public fun ProfilerCompactSelector(
-    label: String,
-    selectedLabel: String?,
-    options: List<Pair<String, String>>,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier,
-    onSelected: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val available = enabled && options.isNotEmpty()
-    LaunchedEffect(available) {
-        if (!available) expanded = false
-    }
-    Box(modifier = modifier.widthIn(min = 110.dp, max = 280.dp)) {
-        ProfilerCompactButton(
-            text = selectedLabel ?: label,
-            onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = available,
-        )
-        DropdownMenu(
-            expanded = expanded && available,
-            onDismissRequest = { expanded = false },
-        ) {
-            options.forEach { (value, optionLabel) ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = optionLabel,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    onClick = {
-                        expanded = false
-                        if (available) {
-                            onSelected(value)
-                        }
-                    },
-                    enabled = available,
-                )
-            }
-        }
-    }
-}
-
 /** Compact single-line input with an inline label. */
 @Composable
 public fun ProfilerCompactTextField(

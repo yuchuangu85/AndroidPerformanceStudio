@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ui_components.generated.resources.Res
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
 import org.jetbrains.compose.resources.painterResource
+import kotlin.plus
 
 /** Generic compact dropdown shared by profiler and inspector toolbars. */
 @Composable
