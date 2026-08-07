@@ -9,6 +9,7 @@ import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalysisRequest
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalyzer
 import com.androidperformancestudio.memory.analysis.MemoryDeepAnalyzer
+import com.androidperformancestudio.memory.analysis.MemoryHistogramAnalyzer
 import com.androidperformancestudio.memory.analysis.NativeHeapTraceParser
 import com.androidperformancestudio.memory.analysis.ProguardMapping
 import com.androidperformancestudio.memory.analysis.ProguardMappingParser
@@ -495,6 +496,20 @@ internal class DesktopMemoryProfilerBackend(
                     null
                 }
             val capturedAt = Instant.now()
+            val histogramAnalyzer = MemoryHistogramAnalyzer()
+            val availableHeaps = histogramAnalyzer.heapNamesOf(deobfuscated)
+            val perHeapClasses =
+                availableHeaps.associateWith { heapName ->
+                    val heapHistogram =
+                        histogramAnalyzer.histogram(
+                            deobfuscated,
+                            heapName = heapName,
+                            retainedSizes = deepAnalysis.dominatorTree.retainedSizes,
+                            immediateDominators = deepAnalysis.dominatorTree.immediateDominators,
+                            deobfuscator = mapping,
+                        )
+                    heapHistogram.classes
+                }
             val parsed =
                 deobfuscated.copy(
                     id = request.sessionMetadata?.sessionId ?: request.file.fileName.toString(),
@@ -505,6 +520,7 @@ internal class DesktopMemoryProfilerBackend(
                     topClasses = histogram.classes,
                     leakSuspects = deepAnalysis.leakSuspects,
                     objectRetainedSizes = deepAnalysis.dominatorTree.retainedSizes,
+                    objectImmediateDominators = deepAnalysis.dominatorTree.immediateDominators,
                     bitmapInstances = deepAnalysis.bitmapInstances,
                     activityLeaks = deepAnalysis.activityLeaks,
                 )
@@ -516,6 +532,8 @@ internal class DesktopMemoryProfilerBackend(
                     heapDump = parsed,
                     histogram = histogram,
                     mapping = mapping,
+                    availableHeaps = availableHeaps,
+                    perHeapClasses = perHeapClasses,
                     warning =
                         listOfNotNull(request.warning, parserWarning, emptyHeapWarning, noMappingWarning)
                             .joinToString("\n")

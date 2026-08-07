@@ -107,52 +107,62 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     )
 
     ViewerTheme(darkTheme = darkTheme) {
-    Column(Modifier.fillMaxSize()) {
-        ProfilerMacOsToolbar {
-            HomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                onClick = onBack,
-            )
-            MemoryProfilerToolbarSelectors(
+        Column(Modifier.fillMaxSize()) {
+            ProfilerMacOsToolbar {
+                HomeButton(
+                    contentDescription = localizedStringResource(Res.string.back_to_home, language),
+                    onClick = onBack,
+                )
+                MemoryProfilerToolbarSelectors(
+                    state = state,
+                    onSelectDevice = { serial -> scope.launch { controller.selectDevice(serial) } },
+                    onSelectProcess = controller::selectProcess,
+                    language = language,
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.refresh_devices, language),
+                    onClick = { scope.launch { controller.refreshDevices() } },
+                )
+                Spacer(Modifier.weight(1f))
+                MemoryProfilerDumpHeapButton(
+                    state = state,
+                    onDumpHeap = { scope.launch { controller.dumpHeap() } },
+                    language = language,
+                )
+                MemoryProfilerDumpBitmapsButton(
+                    state = state,
+                    onDumpBitmaps = { scope.launch { controller.dumpBitmaps() } },
+                    language = language,
+                )
+                MemoryProfilerCaptureNativeHeapButton(
+                    state = state,
+                    onCaptureNativeHeap = { scope.launch { controller.captureNativeHeap() } },
+                    language = language,
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            MemoryProfilerScreen(
                 state = state,
-                onSelectDevice = { serial -> scope.launch { controller.selectDevice(serial) } },
-                onSelectProcess = controller::selectProcess,
+                actions =
+                    MemoryProfilerActions(
+                        onSortHistogram = controller::sort,
+                        onRetry = { scope.launch { controller.refreshDevices() } },
+                        onHighlightClass = controller::highlightClass,
+                        onChangeViewMode = controller::changeViewMode,
+                        onSelectClass = controller::selectClass,
+                        onSelectInstance = controller::selectInstance,
+                        onHeapFilterChange = controller::changeHeapFilter,
+                        onClassScopeChange = controller::changeClassScope,
+                        onLeakFilterChange = controller::changeLeakFilter,
+                        onArrangeByChange = controller::changeArrangeBy,
+                        onSearchChange = controller::changeSearchText,
+                        onMatchCaseChange = controller::changeMatchCase,
+                        onUseRegexChange = controller::changeUseRegex,
+                    ),
                 language = language,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh_devices, language),
-                onClick = { scope.launch { controller.refreshDevices() } },
-            )
-            Spacer(Modifier.weight(1f))
-            MemoryProfilerDumpHeapButton(
-                state = state,
-                onDumpHeap = { scope.launch { controller.dumpHeap() } },
-                language = language,
-            )
-            MemoryProfilerDumpBitmapsButton(
-                state = state,
-                onDumpBitmaps = { scope.launch { controller.dumpBitmaps() } },
-                language = language,
-            )
-            MemoryProfilerCaptureNativeHeapButton(
-                state = state,
-                onCaptureNativeHeap = { scope.launch { controller.captureNativeHeap() } },
-                language = language,
+                modifier = Modifier.weight(1f),
             )
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        MemoryProfilerScreen(
-            state = state,
-            actions =
-                MemoryProfilerActions(
-                    onSortHistogram = controller::sort,
-                    onRetry = { scope.launch { controller.refreshDevices() } },
-                    onHighlightClass = controller::highlightClass,
-                ),
-            language = language,
-            modifier = Modifier.weight(1f),
-        )
-    }
     }
 
     if (showHprofFileDialog) {

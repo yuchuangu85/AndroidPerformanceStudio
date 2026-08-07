@@ -3,6 +3,9 @@
 package com.androidperformancestudio.memory.app
 
 import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
+import com.androidperformancestudio.memory.analysis.InstanceQueryDetail
+import com.androidperformancestudio.memory.analysis.InstanceQueryRow
+import com.androidperformancestudio.memory.analysis.InstanceReferenceQuery
 import com.androidperformancestudio.memory.analysis.ProguardMapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
@@ -20,16 +23,24 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.unable
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_load_mapping
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
+import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapDiffMatchMode
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
 import com.androidperformancestudio.memory.model.NativeHeapTrace
+import com.androidperformancestudio.memory.presentation.MemoryArrangeBy
+import com.androidperformancestudio.memory.presentation.MemoryClassScope
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
+import com.androidperformancestudio.memory.presentation.MemoryInstanceDetail
+import com.androidperformancestudio.memory.presentation.MemoryInstanceField
+import com.androidperformancestudio.memory.presentation.MemoryInstanceRow
+import com.androidperformancestudio.memory.presentation.MemoryLeakFilter
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.presentation.MemoryProfilerError
 import com.androidperformancestudio.memory.presentation.MemoryProfilerState
+import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -45,6 +56,8 @@ internal data class LoadedHeap(
     val warning: String? = null,
     val cleanupWarning: String? = null,
     val mapping: ProguardMapping? = null,
+    val availableHeaps: List<String> = emptyList(),
+    val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
 )
 
 internal data class LoadedNativeHeap(
@@ -157,6 +170,10 @@ internal class MemoryProfilerController(
     var loadedHeap: LoadedHeap? = null
         private set
 
+    /** Reachability/instance query rebuilt whenever a new heap dump is loaded. */
+    var instanceQuery: InstanceReferenceQuery? = null
+        private set
+
     var loadedBitmapDump: LoadedBitmapDump? = null
         private set
 
@@ -219,6 +236,76 @@ internal class MemoryProfilerController(
 
     fun highlightClass(className: String) {
         mutableState.value = mutableState.value.copy(highlightedClassName = className)
+    }
+
+    fun changeViewMode(mode: MemoryProfilerViewMode) {
+        mutableState.value = mutableState.value.copy(viewMode = mode)
+    }
+
+    fun selectClass(className: String) {
+        val nativeByObjectId =
+            buildMap {
+                mutableState.value.bitmapInstances.forEach { bitmap ->
+                    bitmap.nativeSizeBytes?.let { put(bitmap.objectId, it) }
+                }
+            }
+        val instances =
+            instanceQuery
+                ?.instancesOf(className, heapName = mutableState.value.heapFilter)
+                .orEmpty()
+                .map { it.toPresentation(nativeSize = nativeByObjectId[it.objectId]) }
+        mutableState.value =
+            mutableState.value.copy(
+                selectedClassName = className,
+                selectedClassInstances = instances,
+                selectedInstanceDetail = null,
+            )
+    }
+
+    fun selectInstance(objectId: Long) {
+        val detail = instanceQuery?.detailOf(objectId)?.toPresentation()
+        mutableState.value = mutableState.value.copy(selectedInstanceDetail = detail)
+    }
+
+    /** Switches the base class table between all heaps and a single [heap] (null = all heaps). */
+    fun changeHeapFilter(heap: String?) {
+        val base =
+            when (heap) {
+                null -> loadedHeap?.histogram?.classes.orEmpty()
+                else -> loadedHeap?.perHeapClasses?.get(heap).orEmpty()
+            }
+        mutableState.value =
+            mutableState.value.copy(
+                heapFilter = heap,
+                heapBaseClasses = base,
+                selectedClassName = null,
+                selectedClassInstances = emptyList(),
+                selectedInstanceDetail = null,
+            )
+    }
+
+    fun changeClassScope(scope: MemoryClassScope) {
+        mutableState.value = mutableState.value.copy(classScope = scope)
+    }
+
+    fun changeLeakFilter(filter: MemoryLeakFilter) {
+        mutableState.value = mutableState.value.copy(leakFilter = filter)
+    }
+
+    fun changeArrangeBy(arrangeBy: MemoryArrangeBy) {
+        mutableState.value = mutableState.value.copy(arrangeBy = arrangeBy)
+    }
+
+    fun changeSearchText(text: String) {
+        mutableState.value = mutableState.value.copy(searchText = text)
+    }
+
+    fun changeMatchCase(enabled: Boolean) {
+        mutableState.value = mutableState.value.copy(matchCase = enabled)
+    }
+
+    fun changeUseRegex(enabled: Boolean) {
+        mutableState.value = mutableState.value.copy(useRegex = enabled)
     }
 
     suspend fun dumpHeap() {
@@ -428,6 +515,7 @@ internal class MemoryProfilerController(
             is MemoryBackendResult.Success -> {
                 val previous = loadedHeap
                 loadedHeap = result.value
+                instanceQuery = InstanceReferenceQuery(result.value.heapDump)
                 mutableState.value =
                     mutableState.value.copy(
                         summary = result.value.histogram.summary,
@@ -453,6 +541,18 @@ internal class MemoryProfilerController(
                         bitmapInstances = result.value.heapDump.bitmapInstances,
                         activityLeaks = result.value.heapDump.activityLeaks,
                         mappingLoaded = result.value.mapping != null,
+                        selectedClassName = null,
+                        selectedClassInstances = emptyList(),
+                        selectedInstanceDetail = null,
+                        availableHeaps = result.value.availableHeaps,
+                        heapFilter = null,
+                        heapBaseClasses = result.value.histogram.classes,
+                        classScope = MemoryClassScope.ALL,
+                        leakFilter = MemoryLeakFilter.NONE,
+                        arrangeBy = MemoryArrangeBy.CLASS,
+                        searchText = "",
+                        matchCase = false,
+                        useRegex = false,
                     )
             }
         }
@@ -492,4 +592,36 @@ internal class MemoryProfilerController(
                 error = MemoryProfilerError(title = failure.title, detail = failure.detail),
             )
     }
+
+    private fun InstanceQueryRow.toPresentation(nativeSize: Long? = null): MemoryInstanceRow =
+        MemoryInstanceRow(
+            objectId = objectId,
+            index = index,
+            shallowSize = shallowSize,
+            retainedSize = retainedSize,
+            depth = depth,
+            reachable = reachable,
+            nativeSize = nativeSize,
+        )
+
+    private fun InstanceQueryDetail.toPresentation(): MemoryInstanceDetail =
+        MemoryInstanceDetail(
+            objectId = objectId,
+            className = className,
+            shallowSize = shallowSize,
+            retainedSize = retainedSize,
+            depth = depth,
+            isArray = isArray,
+            elementCount = elementCount,
+            fields =
+                fields.map { field ->
+                    MemoryInstanceField(
+                        name = field.name,
+                        displayValue = field.displayValue,
+                        targetObjectId = field.targetObjectId,
+                        targetClassName = field.targetClassName,
+                    )
+                },
+            referenceChain = referenceChain,
+        )
 }

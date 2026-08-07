@@ -5,6 +5,7 @@ import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapObject
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.MemoryHeapNames
 
 enum class HistogramSort {
     COUNT,
@@ -12,8 +13,15 @@ enum class HistogramSort {
 }
 
 class MemoryHistogramAnalyzer {
+    /**
+     * Aggregates class statistics over all objects, or only those belonging to [heapName] when it
+     * is non-null (one of [MemoryHeapNames]). Retained sizes are always the global dominator
+     * values; only counts and shallow sizes are heap-scoped.
+     */
+    @Suppress("LongParameterList")
     fun histogram(
         heapDump: HeapDump,
+        heapName: String? = null,
         sort: HistogramSort = HistogramSort.COUNT,
         retainedSizes: Map<Long, Long> = emptyMap(),
         immediateDominators: Map<Long, Long?> = emptyMap(),
@@ -26,6 +34,9 @@ class MemoryHistogramAnalyzer {
 
         fun accumulate(objects: Iterable<HeapObject>) {
             objects.forEach { heapObject ->
+                if (heapName != null && heapDump.heapByObjectId[heapObject.objectId] != heapName) {
+                    return@forEach
+                }
                 objectCount += 1
                 shallowSize += heapObject.shallowSize
                 totalsByClass
@@ -61,6 +72,12 @@ class MemoryHistogramAnalyzer {
                 ),
             classes = grouped,
         )
+    }
+
+    /** Canonical heap labels actually present in [heapDump], in display order. */
+    fun heapNamesOf(heapDump: HeapDump): List<String> {
+        val present = heapDump.heapByObjectId.values.toHashSet()
+        return MemoryHeapNames.ordered.filter { it in present }
     }
 
     private class MutableClassTotals {

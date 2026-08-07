@@ -10,6 +10,7 @@ import com.androidperformancestudio.memory.model.HeapObjectArray
 import com.androidperformancestudio.memory.model.HeapPrimitiveArray
 import com.androidperformancestudio.memory.model.HeapRoot
 import com.androidperformancestudio.memory.model.HeapRootKind
+import com.androidperformancestudio.memory.model.MemoryHeapNames
 import com.androidperformancestudio.memory.model.MemoryWarning
 import com.androidperformancestudio.memory.model.ObjectReference
 import com.androidperformancestudio.memory.model.PrimitiveType
@@ -18,6 +19,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.util.Locale
 import kotlin.math.max
 
 class HprofParseException(
@@ -131,6 +133,7 @@ class HprofParser {
             primitiveArrays = state.primitiveArrays,
             gcRoots = state.gcRoots.distinctBy { it.objectId to it.kind },
             warnings = state.warnings,
+            heapByObjectId = state.heapByObjectId,
         )
     }
 
@@ -193,7 +196,13 @@ class HprofParser {
                 continue
             }
             when (subTag) {
-                HEAP_DUMP_INFO -> reader.skip(Int.SIZE_BYTES + state.idSize)
+                HEAP_DUMP_INFO -> {
+                    // u4 heap serial number + ID of the heap-name string; all following objects
+                    // belong to this heap until the next HEAP_DUMP_INFO record.
+                    reader.skip(Int.SIZE_BYTES)
+                    val heapNameStringId = reader.readId()
+                    state.currentHeap = normalizeHeapName(state.stringsById[heapNameStringId])
+                }
                 CLASS_DUMP -> parseClassDump(reader, state)
                 INSTANCE_DUMP -> parseInstanceDump(reader, state)
                 OBJECT_ARRAY_DUMP -> parseObjectArrayDump(reader, state)
@@ -308,6 +317,7 @@ class HprofParser {
         val byteCount = reader.readInt()
         val fieldBytes = reader.readBytes(byteCount)
         val heapClass = state.classesById[classObjectId]
+        state.heapByObjectId[objectId] = state.currentHeap
         state.instances +=
             RawInstance(
                 objectId = objectId,
@@ -326,6 +336,7 @@ class HprofParser {
         val elementCount = reader.readInt()
         val arrayClassObjectId = reader.readId()
         val elementIds = List(elementCount) { reader.readId() }
+        state.heapByObjectId[objectId] = state.currentHeap
         state.objectArrays +=
             HeapObjectArray(
                 objectId = objectId,
@@ -349,6 +360,7 @@ class HprofParser {
         if (hasData) {
             reader.skipRepeated(elementCount, primitiveType.byteWidth)
         }
+        state.heapByObjectId[objectId] = state.currentHeap
         state.primitiveArrays +=
             HeapPrimitiveArray(
                 objectId = objectId,
@@ -369,6 +381,8 @@ class HprofParser {
         val primitiveArrays: MutableList<HeapPrimitiveArray> = mutableListOf(),
         val gcRoots: MutableList<HeapRoot> = mutableListOf(),
         val warnings: MutableList<MemoryWarning> = mutableListOf(),
+        val heapByObjectId: MutableMap<Long, String> = mutableMapOf(),
+        var currentHeap: String = MemoryHeapNames.DEFAULT,
     ) {
         fun classNameForObjectId(classId: Long): String =
             classNameStringIdByObjectId[classId]
@@ -490,6 +504,17 @@ class HprofParser {
         private const val PRIMITIVE_ARRAY_DUMP = 0x23
         private const val PRIMITIVE_ARRAY_NODATA_DUMP = 0xc3
         private const val RESERVED_CLASS_IDS = 6
+    }
+
+    /** Maps a raw HPROF heap-name string to the canonical [MemoryHeapNames] label used by the UI. */
+    private fun normalizeHeapName(raw: String?): String {
+        val lower = raw?.lowercase(Locale.ROOT).orEmpty()
+        return when {
+            "image" in lower -> MemoryHeapNames.IMAGE
+            "zygote" in lower -> MemoryHeapNames.ZYGOTE
+            "app" in lower -> MemoryHeapNames.APP
+            else -> MemoryHeapNames.DEFAULT
+        }
     }
 }
 

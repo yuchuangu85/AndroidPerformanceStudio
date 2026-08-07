@@ -209,6 +209,7 @@ class MemoryDeepAnalyzer(
                     estimatedPixelBytes = estimatedPixelBytes,
                     javaSizeBytes = bitmap.shallowSize,
                     nativeSizeBytes = estimatedPixelBytes,
+                    className = bitmap.className,
                 )
             }.sortedWith(compareByDescending<BitmapInstanceStats> { it.retainedSize }.thenBy { it.objectId })
 
@@ -333,14 +334,18 @@ class HeapDiffAnalyzer {
     }
 }
 
-private class ReferenceChainFinder(
+internal class ReferenceChainFinder(
     heapDump: HeapDump,
     private val graph: HeapGraph,
 ) {
     private val roots = heapDump.gcRoots.sortedWith(compareBy({ it.objectId }, { it.kind.name }))
     private val knownObjectIds = graph.ids.toHashSet()
+    private val depthByObjectId = hashMapOf<Long, Int>()
     private val traversal = buildTraversal()
     private val chainCache = hashMapOf<Long, List<ObjectReference>>()
+
+    /** Number of strong edges from a GC root to [targetObjectId]; null when the object is unreachable. */
+    fun depthOf(targetObjectId: Long): Int? = depthByObjectId[targetObjectId]
 
     fun chainTo(targetObjectId: Long): List<ObjectReference> =
         chainCache.getOrPut(targetObjectId) {
@@ -375,11 +380,13 @@ private class ReferenceChainFinder(
                         targetObjectId = root.objectId,
                         targetClassName = graph.classNames[root.objectId].orEmpty(),
                     )
+                depthByObjectId[root.objectId] = 0
                 queue += root.objectId
             }
         }
         while (queue.isNotEmpty()) {
             val current = queue.removeFirst()
+            val currentDepth = depthByObjectId.getValue(current)
             val sourceIsReferenceHolder = isReferenceHolder(graph.classNames[current].orEmpty())
             graph.references[current].orEmpty().forEach { reference ->
                 // A java.lang.ref.* referent is not a strong edge; objects reachable only through
@@ -391,6 +398,7 @@ private class ReferenceChainFinder(
                             targetClassName = graph.classNames[reference.targetObjectId].orEmpty(),
                         )
                     predecessors[reference.targetObjectId] = Predecessor(current, resolved)
+                    depthByObjectId[reference.targetObjectId] = currentDepth + 1
                     queue += reference.targetObjectId
                 }
             }

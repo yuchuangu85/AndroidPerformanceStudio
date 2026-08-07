@@ -26,6 +26,8 @@ data class HeapDump(
     val topClasses: List<ClassStats> = emptyList(),
     val leakSuspects: List<LeakSuspect> = emptyList(),
     val objectRetainedSizes: Map<Long, Long> = emptyMap(),
+    val objectImmediateDominators: Map<Long, Long?> = emptyMap(),
+    val heapByObjectId: Map<Long, String> = emptyMap(),
     val bitmapInstances: List<BitmapInstanceStats> = emptyList(),
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
 )
@@ -181,6 +183,8 @@ data class ClassStats(
     val obfuscatedClassName: String? = null,
     /** Depth of the class in its superclass hierarchy (java.lang.Object == 0). */
     val hierarchyDepth: Int? = null,
+    /** Estimated native footprint aggregated for this class (Bitmap pixel buffers); null when unknown. */
+    val nativeSize: Long? = null,
 ) {
     /** Deobfuscated display name; keeps the obfuscated name in parens when a mapping was applied. */
     val displayClassName: String
@@ -274,7 +278,23 @@ data class BitmapInstanceStats(
     val javaSizeBytes: Long = 0L,
     /** Native pixel-buffer footprint estimate (width × height × 4 B); pixels live in native memory on Android 8+. */
     val nativeSizeBytes: Long? = null,
+    /** Bitmap class name, used for class-level native aggregation. */
+    val className: String = "android.graphics.Bitmap",
 )
+
+/**
+ * Canonical heap labels shown in the Heap selector (the "All heaps" option is represented by a
+ * null filter in the presentation layer).
+ */
+object MemoryHeapNames {
+    const val APP = "App"
+    const val IMAGE = "Image"
+    const val ZYGOTE = "Zygote"
+    const val DEFAULT = "Default"
+
+    /** Preferred display order for the Heap selector. */
+    val ordered: List<String> = listOf(APP, IMAGE, ZYGOTE, DEFAULT)
+}
 
 /** A per-Activity-class summary used to report Activity leaks with live/destroyed counts. */
 data class ActivityLeakEntry(

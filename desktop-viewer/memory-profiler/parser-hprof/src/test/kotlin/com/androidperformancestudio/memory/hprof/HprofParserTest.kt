@@ -56,6 +56,36 @@ class HprofParserTest {
     }
 
     @Test
+    fun `records normalized heap name per object from heap dump info records`() {
+        val appHeapName = 1L
+        val imageHeapName = 2L
+        val className = 4L
+        val classId = 3L
+        val fixture =
+            HprofFixtureBuilder(idSize = 4)
+                .string(appHeapName, "app heap")
+                .string(imageHeapName, "image heap")
+                .string(className, "com.example.Widget")
+                .loadClass(classId, className)
+                .heapDump(
+                    HprofFixtureBuilder().androidHeapDumpInfo(1, appHeapName),
+                    HprofFixtureBuilder().instanceDump(10, classId),
+                    HprofFixtureBuilder().instanceDump(11, classId),
+                    HprofFixtureBuilder().androidHeapDumpInfo(2, imageHeapName),
+                    HprofFixtureBuilder().instanceDump(12, classId),
+                    HprofFixtureBuilder().androidPrimitiveArrayNoData(13, PrimitiveType.BYTE, 8),
+                ).build()
+
+        val heap = parser.parse(fixture)
+
+        assertEquals("App", heap.heapByObjectId[10L])
+        assertEquals("App", heap.heapByObjectId[11L])
+        assertEquals("Image", heap.heapByObjectId[12L])
+        assertEquals("Image", heap.heapByObjectId[13L])
+        assertEquals(emptyList(), heap.warnings)
+    }
+
+    @Test
     fun `records warning for unknown top-level tag and skips it`() {
         val heap =
             parser.parse(

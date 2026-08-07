@@ -10,6 +10,80 @@ import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
 import com.androidperformancestudio.memory.model.NativeHeapTrace
+import com.androidperformancestudio.memory.model.ObjectReference
+
+public enum class MemoryProfilerViewMode {
+    /** Current one-page dashboard: overview cards + leak suspects + native heap + bitmaps. */
+    Dashboard,
+
+    /** Android Studio-style class list → instance → reference drill-down. */
+    ClassList,
+}
+
+/** Class-list scope filter: every class, or only application/project vs framework/system classes. */
+public enum class MemoryClassScope {
+    ALL,
+    PROJECT,
+    SYSTEM,
+}
+
+/** Leak-analysis filter for the class list. */
+public enum class MemoryLeakFilter {
+    NONE,
+    ALL_ISSUE,
+    ACTIVITY_FRAGMENT_LEAK,
+    DUPLICATE_BITMAPS,
+}
+
+/** Class-list ordering: by class name or by package. */
+public enum class MemoryArrangeBy {
+    CLASS,
+    PACKAGE,
+}
+
+/** One row of the instance list shown when a class is selected in [MemoryProfilerViewMode.ClassList]. */
+public data class MemoryInstanceRow(
+    val objectId: Long,
+    val index: Int,
+    val shallowSize: Long,
+    val retainedSize: Long?,
+    val depth: Int?,
+    val reachable: Boolean,
+    /** Estimated native footprint of this instance (Bitmap pixel buffer); null when unknown. */
+    val nativeSize: Long? = null,
+)
+
+/** A single field value of an instance, either a primitive or an object reference. */
+public data class MemoryInstanceField(
+    val name: String,
+    val displayValue: String,
+    val targetObjectId: Long?,
+    val targetClassName: String?,
+)
+
+/** Aggregate metrics shown in the summary bar above the class list. */
+public data class MemoryClassListSummary(
+    val classCount: Int = 0,
+    val leakCount: Int = 0,
+    val duplicateBitmapCount: Int = 0,
+    val totalCount: Int = 0,
+    val totalNativeSize: Long = 0L,
+    val totalShallowSize: Long = 0L,
+    val totalRetainedSize: Long = 0L,
+)
+
+/** Full detail view of one selected heap object. */
+public data class MemoryInstanceDetail(
+    val objectId: Long,
+    val className: String,
+    val shallowSize: Long,
+    val retainedSize: Long?,
+    val depth: Int?,
+    val isArray: Boolean,
+    val elementCount: Int?,
+    val fields: List<MemoryInstanceField>,
+    val referenceChain: List<ObjectReference>,
+)
 
 public data class MemoryProfilerState(
     val devices: List<MemoryDeviceOption> = emptyList(),
@@ -35,6 +109,24 @@ public data class MemoryProfilerState(
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
     val nativeHeapTrace: NativeHeapTrace? = null,
     val nativeHeapAnalysis: NativeHeapAnalysis = NativeHeapAnalysis(),
+    val viewMode: MemoryProfilerViewMode = MemoryProfilerViewMode.Dashboard,
+    val selectedClassName: String? = null,
+    val selectedClassInstances: List<MemoryInstanceRow> = emptyList(),
+    val selectedInstanceDetail: MemoryInstanceDetail? = null,
+    val availableHeaps: List<String> = emptyList(),
+    val heapFilter: String? = null,
+    val classScope: MemoryClassScope = MemoryClassScope.ALL,
+    val leakFilter: MemoryLeakFilter = MemoryLeakFilter.NONE,
+    val arrangeBy: MemoryArrangeBy = MemoryArrangeBy.CLASS,
+    val searchText: String = "",
+    val matchCase: Boolean = false,
+    val useRegex: Boolean = false,
+    /** Base class table for the current [heapFilter] (null = all heaps), before scope/leak/search filters. */
+    val heapBaseClasses: List<ClassStats> = emptyList(),
+    /** Class rows shown in the class-list table after all filters are applied. */
+    val displayedClasses: List<ClassStats> = emptyList(),
+    /** Summary metrics derived from [displayedClasses] by the presenter. */
+    val classListSummary: MemoryClassListSummary = MemoryClassListSummary(),
 )
 
 public data class MemoryDeviceOption(
@@ -66,4 +158,14 @@ public data class MemoryProfilerActions(
     val onSortHistogram: (MemoryHistogramSort) -> Unit = {},
     val onRetry: () -> Unit = {},
     val onHighlightClass: (String) -> Unit = {},
+    val onChangeViewMode: (MemoryProfilerViewMode) -> Unit = {},
+    val onSelectClass: (String) -> Unit = {},
+    val onSelectInstance: (Long) -> Unit = {},
+    val onHeapFilterChange: (String?) -> Unit = {},
+    val onClassScopeChange: (MemoryClassScope) -> Unit = {},
+    val onLeakFilterChange: (MemoryLeakFilter) -> Unit = {},
+    val onArrangeByChange: (MemoryArrangeBy) -> Unit = {},
+    val onSearchChange: (String) -> Unit = {},
+    val onMatchCaseChange: (Boolean) -> Unit = {},
+    val onUseRegexChange: (Boolean) -> Unit = {},
 )

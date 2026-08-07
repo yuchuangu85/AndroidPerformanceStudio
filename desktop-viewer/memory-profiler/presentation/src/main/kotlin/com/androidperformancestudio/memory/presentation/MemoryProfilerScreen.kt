@@ -117,33 +117,55 @@ public fun MemoryProfilerScreen(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(8.dp)
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .background(MaterialTheme.colorScheme.surface),
         ) {
-            ErrorAndWarnings(presentedState, actions, language)
-            if (presentedState.mappingLoaded) {
-                Text(
-                    localizedStringResource(Res.string.mapping_loaded_note, language),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                )
+            Column(
+                modifier = Modifier.padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ErrorAndWarnings(presentedState, actions, language)
+                if (presentedState.mappingLoaded) {
+                    Text(
+                        localizedStringResource(Res.string.mapping_loaded_note, language),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
+                MemoryProfilerViewModeTabs(presentedState, actions, language)
             }
-            Overview(summary = presentedState.summary, activityCount = presentedState.activityCount, language = language)
-            Histogram(
-                classes = presentedState.classes,
-                sort = presentedState.sort,
-                actions = actions,
-                highlightedClassName = presentedState.highlightedClassName,
-                language = language,
-            )
-            LeakSuspectsPhaseTwo(presentedState, language)
-            ActivityLeakSection(presentedState.activityLeaks, language)
-            NativeHeapSection(presentedState.nativeHeapTrace, presentedState.nativeHeapAnalysis, language)
-            HeapDiffSection(presentedState.heapDiff, language)
-            BitmapSection(presentedState.bitmapInstances, language)
-            BitmapDumpGallery(presentedState.bitmapDumpSession, presentedState.bitmapDumpComparison, language)
+            if (presentedState.viewMode == MemoryProfilerViewMode.ClassList) {
+                MemoryProfilerClassListPane(
+                    state = presentedState,
+                    actions = actions,
+                    language = language,
+                    modifier = Modifier.fillMaxSize().weight(1f),
+                )
+            } else {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(8.dp)
+                            .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Overview(summary = presentedState.summary, activityCount = presentedState.activityCount, language = language)
+                    Histogram(
+                        classes = presentedState.classes,
+                        sort = presentedState.sort,
+                        actions = actions,
+                        highlightedClassName = presentedState.highlightedClassName,
+                        language = language,
+                    )
+                    LeakSuspectsPhaseTwo(presentedState, language)
+                    ActivityLeakSection(presentedState.activityLeaks, language)
+                    NativeHeapSection(presentedState.nativeHeapTrace, presentedState.nativeHeapAnalysis, language)
+                    HeapDiffSection(presentedState.heapDiff, language)
+                    BitmapSection(presentedState.bitmapInstances, language)
+                    BitmapDumpGallery(presentedState.bitmapDumpSession, presentedState.bitmapDumpComparison, language)
+                }
+            }
         }
     }
 }
