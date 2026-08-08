@@ -52,8 +52,6 @@ import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.DropdownSelector
-import com.androidperformancestudio.ui.HeaderSpacer
-import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.ui.ViewerColors
@@ -83,54 +81,16 @@ internal fun DeviceTargetPage(
 ) {
     val style = viewerColors(darkTheme)
     val captureActive = captureState.isCaptureActive()
-    val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
-    val selectedThreadId = (state.selectedTarget as? CaptureTarget.Thread)?.tid
     Column(Modifier.fillMaxSize().background(style.workspace)) {
-        HeaderToolbar(
-            language = currentSimpleperfLanguage(),
+        WorkspaceToolbar(
+            state = state,
+            actions = actions,
+            style = style,
+            enabled = !captureActive && !state.isLoading,
+            showGetData = !captureActive,
+            onOpenSettings = { onSettingsSectionChange(CaptureSettingsSection.SAMPLING_TEMPLATE) },
             onNavigateHome = onNavigateHome,
-            onNavigateSettings = { onSettingsSectionChange(CaptureSettingsSection.SAMPLING_TEMPLATE) },
-        ) {
-            DeviceSelector(
-                selectedDevice,
-                state.devices,
-                actions.onSelectDevice,
-                style,
-                Modifier.weight(DEVICE_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
-            HeaderSpacer()
-            AppSelector(
-                state.selectedPackageName,
-                state.selection?.packages.orEmpty(),
-                actions.onSelectPackage,
-                style,
-                Modifier.weight(APP_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
-            HeaderSpacer()
-            ProcessSelector(
-                state.selectedProcessId,
-                state.processesForSelectedPackage,
-                actions.onSelectProcess,
-                style,
-                Modifier.weight(PROCESS_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
-            HeaderSpacer()
-            ThreadSelector(
-                selectedThreadId,
-                state.threadsForSelectedProcess,
-                actions.onSelectThread,
-                style,
-                Modifier.weight(THREAD_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
-            HeaderSpacer()
-            ToolbarCaptureActions(state, actions, style, !captureActive && !state.isLoading, !captureActive)
-            HeaderSpacer()
-            CapabilityPopupButton(state.selection, style)
-        }
+        )
         if (reportState.loadState == ReportLoadState.Closed) {
             Spacer(Modifier.weight(1f))
         } else {
@@ -170,6 +130,105 @@ internal fun DeviceTargetPage(
 }
 
 @Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun WorkspaceToolbar(
+    state: DeviceTargetState,
+    actions: DeviceTargetActions,
+    style: ViewerColors,
+    enabled: Boolean,
+    showGetData: Boolean,
+    onOpenSettings: () -> Unit,
+    onNavigateHome: (() -> Unit)?,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(ViewerDimensions.toolbarHeight)
+                .background(style.toolbar)
+                .border(
+                    ViewerDimensions.hairline,
+                    style.border,
+                    RoundedCornerShape(0.dp),
+                ).padding(horizontal = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (onNavigateHome != null) {
+            HomeButton(
+                contentDescription =
+                    localizedStringResource(
+                        SimpleperfViewerRes.sp_target_back_home,
+                        currentSimpleperfLanguage(),
+                    ),
+                onClick = onNavigateHome,
+                colors = style,
+            )
+        }
+        ToolbarContent(state, actions, style, enabled, showGetData, onOpenSettings)
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun RowScope.ToolbarContent(
+    state: DeviceTargetState,
+    actions: DeviceTargetActions,
+    style: ViewerColors,
+    enabled: Boolean,
+    showGetData: Boolean,
+    onOpenSettings: () -> Unit,
+) {
+    val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
+    val selectedThreadId = (state.selectedTarget as? CaptureTarget.Thread)?.tid
+    DeviceSelector(
+        selectedDevice,
+        state.devices,
+        actions.onSelectDevice,
+        style,
+        Modifier.weight(DEVICE_SELECTOR_WEIGHT),
+        enabled,
+    )
+    AppSelector(
+        state.selectedPackageName,
+        state.selection?.packages.orEmpty(),
+        actions.onSelectPackage,
+        style,
+        Modifier.weight(APP_SELECTOR_WEIGHT),
+        enabled,
+    )
+    ProcessSelector(
+        state.selectedProcessId,
+        state.processesForSelectedPackage,
+        actions.onSelectProcess,
+        style,
+        Modifier.weight(PROCESS_SELECTOR_WEIGHT),
+        enabled,
+    )
+    ThreadSelector(
+        selectedThreadId,
+        state.threadsForSelectedProcess,
+        actions.onSelectThread,
+        style,
+        Modifier.weight(THREAD_SELECTOR_WEIGHT),
+        enabled,
+    )
+    Spacer(Modifier.width(2.dp))
+    ToolbarCaptureActions(state, actions, style, enabled, showGetData)
+    CapabilityPopupButton(state.selection, style)
+    SettingsButton(
+        contentDescription =
+            localizedStringResource(
+                SimpleperfViewerRes.sp_target_settings,
+                currentSimpleperfLanguage(),
+            ),
+        onClick = onOpenSettings,
+        enabled = enabled,
+        colors = style,
+    )
+}
+
+@Composable
 @Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 private fun ToolbarCaptureActions(
     state: DeviceTargetState,
@@ -188,7 +247,6 @@ private fun ToolbarCaptureActions(
         style,
         enabled = enabled && !state.isLoading,
     )
-    HeaderSpacer()
     if (showGetData) {
         MacOSTextButton(
             label = localizedStringResource(SimpleperfViewerRes.sp_capture_get_data, language),
