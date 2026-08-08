@@ -5,7 +5,9 @@ import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
+import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.presentation.MemoryClassifierRow
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
@@ -122,6 +124,32 @@ class MemoryProfilerControllerTest {
                 .isEmpty(),
         )
     }
+
+    @Test
+    fun `selecting a classifier set shows instances from all descendant classes`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend())
+            controller.importHprof(Path.of("heap.hprof"))
+
+            controller.selectClassifier(
+                MemoryClassifierRow(
+                    id = "group:com.example",
+                    label = "com.example",
+                    children =
+                        listOf(
+                            MemoryClassifierRow(
+                                id = "class:com.example.Item",
+                                label = "Item",
+                                className = "com.example.Item",
+                            ),
+                        ),
+                ),
+            )
+
+            assertEquals("group:com.example", controller.state.value.selectedClassifierId)
+            assertEquals("com.example", controller.state.value.selectedClassifierLabel)
+            assertEquals(3, controller.state.value.selectedClassInstances.size)
+        }
 
     @Test
     fun `second heap load exposes diff and layout inspector class highlight`() =
@@ -253,7 +281,15 @@ class MemoryProfilerControllerTest {
 
         private fun loadedHeap(): LoadedHeap =
             LoadedHeap(
-                heapDump = HeapDump(),
+                heapDump =
+                    HeapDump(
+                        instances =
+                            listOf(
+                                HeapInstance(1, 10, "com.example.Item", 8),
+                                HeapInstance(2, 10, "com.example.Item", 8),
+                                HeapInstance(3, 10, "com.example.Item", 8),
+                            ),
+                    ),
                 histogram =
                     HeapHistogram(
                         summary = HeapSummary(objectCount = 3, classCount = 1, shallowSize = 24),

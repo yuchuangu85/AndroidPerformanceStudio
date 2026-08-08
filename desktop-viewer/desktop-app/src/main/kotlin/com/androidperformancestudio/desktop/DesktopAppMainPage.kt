@@ -38,8 +38,6 @@ import com.androidperformancestudio.methodrecording.app.MethodRecordingMainPage
 import com.androidperformancestudio.network.app.NetworkProfilerMainPage
 import com.androidperformancestudio.perfetto.app.PerfettoMainPage
 import com.androidperformancestudio.presentation.CaptureSettingsSection
-import com.androidperformancestudio.session.app.SessionMainPage
-import com.androidperformancestudio.session.model.SessionSegmentKind
 import com.androidperformancestudio.startup.app.StartupProfilerMainPage
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -135,7 +133,6 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             onOpenGpuInspector = { navigator.open(AppDestination.GPU_INSPECTOR) },
                             onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
                             onOpenMethodRecording = { navigator.open(AppDestination.METHOD_RECORDING) },
-                            onOpenUnifiedSession = { navigator.open(AppDestination.UNIFIED_SESSION) },
                         )
                     AppDestination.SOURCE_WORKSPACES ->
                         SourceWorkspacesPage(
@@ -314,29 +311,6 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             androidSdkPath = applicationSettings.androidSdkPath?.let { path -> runCatching { java.nio.file.Path.of(path) }.getOrNull() },
                             initialTraceFile = navigator.methodRecordingTraceFile,
                             onBack = { navigator.open(AppDestination.HOME) },
-                        )
-                    AppDestination.UNIFIED_SESSION ->
-                        SessionMainPage(
-                            language = language,
-                            darkTheme = darkTheme,
-                            onBack = { navigator.open(AppDestination.HOME) },
-                            onOpenSegment = { segment ->
-                                when (segment.kind) {
-                                    SessionSegmentKind.PERFETTO ->
-                                        navigator.openPerfettoTrace(
-                                            segment.artifact,
-                                            localizedStringResource(
-                                                Res.string.opened_from_tool_for_correlation_only,
-                                                language,
-                                                localizedStringResource(Res.string.session_timeline, language),
-                                            ),
-                                        )
-                                    SessionSegmentKind.METHOD_TRACE -> navigator.openMethodRecording(segment.artifact)
-                                    SessionSegmentKind.HPROF -> navigator.openMemoryProfiler(segment.artifact)
-                                    SessionSegmentKind.JAVA_HEAP -> navigator.openMemoryProfiler(segment.artifact, javaHeap = true)
-                                    else -> Unit
-                                }
-                            },
                         )
                 }
                 if (showSettings) {

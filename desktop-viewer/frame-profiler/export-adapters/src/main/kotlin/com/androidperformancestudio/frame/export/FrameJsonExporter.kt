@@ -14,7 +14,7 @@ public class FrameJsonExporter {
         output.parent?.let(Files::createDirectories)
         Files.newBufferedWriter(output).use { writer ->
             writer.appendLine("{")
-            writer.appendLine("  \"schemaVersion\": 2,")
+            writer.appendLine("  \"schemaVersion\": 3,")
             writer.appendLine("  \"summary\": {")
             writer.appendLine("    \"totalFrames\": ${result.summary.totalFrames},")
             writer.appendLine("    \"deadlineClassifiedFrames\": ${result.summary.deadlineClassifiedFrames},")
@@ -56,6 +56,8 @@ public class FrameJsonExporter {
                 writer.appendLine("      \"largestReportedStage\": ${frame.largestReportedStage.jsonValue()},")
                 writer.appendLine("      \"platformJankTypes\": ${frame.platformJankTypes.map { it.name }.jsonArray()},")
                 writer.appendLine("      \"platformJank\": ${sample.platformJank.jsonValue()},")
+                writer.appendLine("      \"platformJankRuleId\": ${sample.platformJankRuleId.jsonValue()},")
+                writer.appendLine("      \"platformJankRuleVersion\": ${sample.platformJankRuleVersion.jsonValue()},")
                 writer.appendLine("      \"eligibleForJank\": ${sample.eligibleForJank},")
                 writer.appendLine("      \"droppedBeforeSample\": ${sample.droppedBeforeSample},")
                 writer.appendLine("      \"states\": ${sample.states.jsonObject()},")

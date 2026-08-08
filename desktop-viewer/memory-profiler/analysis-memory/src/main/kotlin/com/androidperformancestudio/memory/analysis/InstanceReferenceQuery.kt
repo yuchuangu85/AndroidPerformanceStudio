@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.memory.analysis
 
+import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapObject
@@ -57,6 +58,10 @@ class InstanceReferenceQuery(
     private val instancesByClass = heapDump.instances.groupBy { it.className }
     private val arraysByClass =
         (heapDump.objectArrays + heapDump.primitiveArrays).groupBy { it.className }
+    private val heapClasses = heapDump.classes.sortedBy { it.objectId }
+    private val heapClassById = heapClasses.associateBy { it.objectId }
+    private val classObjectShallowSize =
+        heapClasses.firstOrNull { it.name == HeapClass.CLASS_OBJECT_CLASS_NAME }?.instanceSize ?: 0L
     private val objectById =
         buildMap {
             heapDump.instances.forEach { put(it.objectId, it) }
@@ -91,6 +96,21 @@ class InstanceReferenceQuery(
         className: String,
         heapName: String? = null,
     ): List<InstanceQueryRow> {
+        if (className == HeapClass.CLASS_OBJECT_CLASS_NAME) {
+            return heapClasses
+                .filter { heapName == null || heapByObjectId[it.objectId] == heapName }
+                .mapIndexed { index, heapClass ->
+                    val depth = chainFinder.depthOf(heapClass.objectId)
+                    InstanceQueryRow(
+                        objectId = heapClass.objectId,
+                        index = index + 1,
+                        shallowSize = classObjectShallowSize,
+                        retainedSize = retainedSizes[heapClass.objectId],
+                        depth = depth,
+                        reachable = depth != null,
+                    )
+                }
+        }
         val merged =
             (instancesByClass[className].orEmpty() + arraysByClass[className].orEmpty())
                 .filter { heapName == null || heapByObjectId[it.objectId] == heapName }
@@ -111,7 +131,7 @@ class InstanceReferenceQuery(
 
     /** Detailed view of a single object, or null when [objectId] is unknown. */
     fun detailOf(objectId: Long): InstanceQueryDetail? {
-        val obj = objectById[objectId] ?: return null
+        val obj = objectById[objectId] ?: return classDetailOf(objectId)
         val elementCount =
             when (obj) {
                 is HeapObjectArray -> obj.elementCount
@@ -143,6 +163,30 @@ class InstanceReferenceQuery(
             isArray = obj is HeapObjectArray || obj is HeapPrimitiveArray,
             elementCount = elementCount,
             fields = fields,
+            referenceChain = chainFinder.chainTo(objectId),
+            references = inboundReferences[objectId].orEmpty(),
+        )
+    }
+
+    private fun classDetailOf(objectId: Long): InstanceQueryDetail? {
+        val heapClass = heapClassById[objectId] ?: return null
+        return InstanceQueryDetail(
+            objectId = objectId,
+            className = HeapClass.CLASS_OBJECT_CLASS_NAME,
+            shallowSize = classObjectShallowSize,
+            retainedSize = retainedSizes[objectId],
+            depth = chainFinder.depthOf(objectId),
+            isArray = false,
+            elementCount = null,
+            fields =
+                heapClass.staticReferences.map { reference ->
+                    FieldValue(
+                        name = reference.fieldName,
+                        displayValue = renderObjectReference(reference.targetObjectId),
+                        targetObjectId = reference.targetObjectId,
+                        targetClassName = graph.classNames[reference.targetObjectId],
+                    )
+                },
             referenceChain = chainFinder.chainTo(objectId),
             references = inboundReferences[objectId].orEmpty(),
         )

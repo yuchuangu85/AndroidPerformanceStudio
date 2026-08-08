@@ -160,6 +160,95 @@ class MemoryProfilerPresenterTest {
     }
 
     @Test
+    fun `package grouping builds package hierarchy with class leaves`() {
+        val rows =
+            MemoryProfilerPresenter.buildClassifierRows(
+                listOf(
+                    ClassStats("com.example.alpha.First", instanceCount = 2, shallowSize = 20),
+                    ClassStats("com.example.beta.Second", instanceCount = 3, shallowSize = 30),
+                ),
+                MemoryArrangeBy.PACKAGE,
+            )
+
+        val com = rows.single()
+        val example = com.children.single()
+        assertEquals("com", com.label)
+        assertEquals("example", example.label)
+        assertEquals(5L, com.totalCount)
+        assertEquals(listOf("alpha", "beta"), example.children.map { it.label })
+        assertEquals(
+            "com.example.alpha.First",
+            example.children
+                .first()
+                .children
+                .single()
+                .className,
+        )
+    }
+
+    @Test
+    fun `classifier exposes every Android Studio column and sorts numeric columns`() {
+        val rows =
+            MemoryProfilerPresenter.buildClassifierRows(
+                listOf(
+                    ClassStats(
+                        "B",
+                        instanceCount = 1,
+                        shallowSize = 10,
+                        allocations = 1,
+                        deallocations = 0,
+                        allocationsSize = 10,
+                    ),
+                    ClassStats(
+                        "A",
+                        instanceCount = 3,
+                        shallowSize = 30,
+                        allocations = 3,
+                        deallocations = 2,
+                        allocationsSize = 30,
+                    ),
+                ),
+                MemoryArrangeBy.CLASS,
+                MemoryClassifierColumn.TOTAL_COUNT,
+                MemorySortDirection.DESCENDING,
+            )
+
+        assertEquals(listOf("A", "B"), rows.map { it.className })
+        assertEquals(3L, rows.first().allocations)
+        assertEquals(2L, rows.first().deallocations)
+        assertEquals(3L, rows.first().totalCount)
+        assertEquals(30L, rows.first().allocationsSize)
+    }
+
+    @Test
+    fun `first classifier column follows Android Studio grouping names`() {
+        assertEquals("Class Name", MemoryProfilerPresenter.firstColumnLabel(MemoryArrangeBy.CLASS))
+        assertEquals("Package Name", MemoryProfilerPresenter.firstColumnLabel(MemoryArrangeBy.PACKAGE))
+        assertEquals("Callstack Name", MemoryProfilerPresenter.firstColumnLabel(MemoryArrangeBy.CALLSTACK))
+        assertEquals("Allocation Method", MemoryProfilerPresenter.firstColumnLabel(MemoryArrangeBy.ALLOCATION_METHOD))
+    }
+
+    @Test
+    fun `classifier columns keep Android Studio order`() {
+        assertEquals(
+            listOf(
+                MemoryClassifierColumn.NAME,
+                MemoryClassifierColumn.MODULE_NAME,
+                MemoryClassifierColumn.ALLOCATIONS,
+                MemoryClassifierColumn.DEALLOCATIONS,
+                MemoryClassifierColumn.TOTAL_COUNT,
+                MemoryClassifierColumn.NATIVE_SIZE,
+                MemoryClassifierColumn.SHALLOW_SIZE,
+                MemoryClassifierColumn.RETAINED_SIZE,
+                MemoryClassifierColumn.ALLOCATIONS_SIZE,
+                MemoryClassifierColumn.DEALLOCATIONS_SIZE,
+                MemoryClassifierColumn.SHALLOW_SIZE_CHANGE,
+            ),
+            MemoryClassifierColumn.entries,
+        )
+    }
+
+    @Test
     fun `native size is enriched per class from bitmap instances`() {
         val presented =
             MemoryProfilerPresenter.present(

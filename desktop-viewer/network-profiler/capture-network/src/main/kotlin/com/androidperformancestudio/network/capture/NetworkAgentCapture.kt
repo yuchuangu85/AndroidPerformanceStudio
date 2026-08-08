@@ -227,7 +227,7 @@ public data class NetworkAssemblyResult(
  * ### Connection reuse detection
  *
  * An exchange whose phases contain no DNS, CONNECT, or TLS phases is marked
- * as `connectionReused = true`. This indicates the underlying TCP+TLS
+ * as [ConnectionUse.REUSED]. This indicates the underlying TCP+TLS
  * connection was taken from the connection pool rather than established fresh.
  */
 public class NetworkEventAssembler {
@@ -330,7 +330,13 @@ public class NetworkEventAssembler {
         return HttpExchange(
             exchangeIndex = index,
             connectionId = connectionId,
-            connectionUse = if (events.any { it.kind == "connectStart" }) ConnectionUse.NEW else ConnectionUse.UNKNOWN,
+            connectionUse =
+                when {
+                    events.any { it.kind == "connectStart" } -> ConnectionUse.NEW
+                    phases.none { it.kind in setOf(NetworkPhaseKind.DNS, NetworkPhaseKind.CONNECT, NetworkPhaseKind.TLS) } ->
+                        ConnectionUse.REUSED
+                    else -> ConnectionUse.UNKNOWN
+                },
             protocol = events.lastOrNull { it.protocol != null }?.protocol,
             statusCode = statusEvent?.statusCode,
             requestBytes = events.lastOrNull { it.kind == "requestBodyEnd" }?.byteCount,
@@ -340,7 +346,6 @@ public class NetworkEventAssembler {
             cacheDisposition = cache,
             failure = failureEvent?.let { failure -> NetworkFailure(failure.kind, failure.message, events.getOrNull(events.indexOf(failure) - 1)?.kind) },
             tlsHandshake = tlsEvent?.let { TlsHandshake(it.tlsVersion, it.cipherSuite, NetworkConfidence.EXACT) },
-            connectionReused = phases.none { it.kind in setOf(NetworkPhaseKind.DNS, NetworkPhaseKind.CONNECT, NetworkPhaseKind.TLS) },
         ) to unpaired
     }
 
@@ -369,6 +374,7 @@ public class NetworkEventAssembler {
                 val connectionId = exchange.connectionId
                 val use = when {
                     exchange.connectionUse == ConnectionUse.NEW -> ConnectionUse.NEW
+                    exchange.connectionUse == ConnectionUse.REUSED -> ConnectionUse.REUSED
                     connectionId != null && connectionId in seen -> ConnectionUse.REUSED
                     else -> ConnectionUse.UNKNOWN
                 }

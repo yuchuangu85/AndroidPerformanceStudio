@@ -10,6 +10,10 @@ class ProfilerMacOsControlsSourceTest {
         Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/ui/ProfilerMacOsControls.kt"),
         )
+    private val selectorSource =
+        Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/ui/DropdownSelector.kt"),
+        )
 
     @Test
     fun `shared controls lock the approved compact dimensions`() {
@@ -26,22 +30,16 @@ class ProfilerMacOsControlsSourceTest {
         assertTrue(source.contains("public fun ProfilerMacOsToolbar("))
         assertTrue(source.contains("public fun ProfilerMacOsSecondaryToolbar("))
         assertTrue(source.contains("public fun ProfilerCompactButton("))
-        assertTrue(source.contains("public fun ProfilerCompactSelector("))
         assertTrue(source.contains("public fun ProfilerCompactTextField("))
         assertTrue(source.contains("public fun ProfilerToolbarStatus("))
     }
 
     @Test
     fun `selector gates an expanded menu and callbacks on current availability`() {
-        val selector =
-            source
-                .substringAfter("public fun ProfilerCompactSelector(")
-                .substringBefore("/** Compact single-line input")
-
-        assertTrue(selector.contains("val available = enabled && options.isNotEmpty()"))
-        assertTrue(selector.contains("LaunchedEffect(available)"))
-        assertTrue(selector.contains("expanded = expanded && available"))
-        assertTrue(selector.contains("enabled = available"))
-        assertTrue(selector.contains("if (available) {\n                            onSelected(value)\n"))
+        assertTrue(selectorSource.contains("public fun <T> DropdownSelector("))
+        assertTrue(selectorSource.contains("var expanded by remember { mutableStateOf(false) }"))
+        assertTrue(selectorSource.contains("expanded = expanded && canExpand"))
+        assertTrue(selectorSource.contains("clickable(enabled = canExpand)"))
+        assertTrue(selectorSource.contains("onItemSelected(item)"))
     }
 }

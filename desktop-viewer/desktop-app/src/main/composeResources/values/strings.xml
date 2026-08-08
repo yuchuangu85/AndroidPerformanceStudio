@@ -70,9 +70,6 @@
     <string name="view_live_telemetry">View Live Telemetry</string>
     <string name="cpu_method_recording">CPU Method Recording</string>
     <string name="java_kotlin_allocations">Java/Kotlin Allocations</string>
-    <string name="session_timeline">Session Timeline</string>
-    <string name="session_timeline_subtitle">Unified profiler sessions</string>
-    <string name="session_timeline_description">Group captured artifacts from every profiler on one timeline and open each in its tool.</string>
     <string name="text">%1$s: %2$s</string>
     <string name="opened_from_tool_for_correlation_only">Opened from %1$s for correlation only; no causal relationship is inferred.</string>
     <string name="simpleperf">Simpleperf</string>

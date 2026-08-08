@@ -96,7 +96,6 @@ dependencies {
     implementation("com.androidperformancestudio.network:network-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.gpu:gpu-integration-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.benchmark:benchmark-app:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio.session:session-app:0.1.0-SNAPSHOT")
     when {
         hostOs.contains("mac") && targetArch == "x64" -> implementation(compose.desktop.macos_x64)
         hostOs.contains("mac") && targetArch == "arm64" -> implementation(compose.desktop.macos_arm64)

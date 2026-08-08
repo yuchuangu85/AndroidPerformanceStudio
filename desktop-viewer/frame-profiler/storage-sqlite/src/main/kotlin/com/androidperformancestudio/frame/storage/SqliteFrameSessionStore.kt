@@ -73,6 +73,8 @@ public class SqliteFrameSessionStore private constructor(
                     gpu_ns INTEGER,
                     platform_jank INTEGER,
                     platform_jank_types TEXT NOT NULL DEFAULT '',
+                    platform_jank_rule_id TEXT,
+                    platform_jank_rule_version TEXT,
                     eligible_for_jank INTEGER NOT NULL,
                     dropped_before_sample INTEGER NOT NULL DEFAULT 0,
                     activity_name TEXT,
@@ -107,8 +109,8 @@ public class SqliteFrameSessionStore private constructor(
                 ON frame_sample(session_id, window_id, intended_vsync_ns)
                 """.trimIndent(),
             )
-            ensureV2Columns()
-            statement.execute("PRAGMA user_version = 2")
+            ensureCurrentColumns()
+            statement.execute("PRAGMA user_version = 3")
         }
     }
 
@@ -177,7 +179,7 @@ public class SqliteFrameSessionStore private constructor(
         connection.close()
     }
 
-    private fun ensureV2Columns() {
+    private fun ensureCurrentColumns() {
         ensureColumns(
             "frame_session",
             mapOf(
@@ -201,6 +203,8 @@ public class SqliteFrameSessionStore private constructor(
                 "refresh_rate_hz" to "REAL",
                 "frame_timeline_vsync_id" to "INTEGER",
                 "platform_jank_types" to "TEXT NOT NULL DEFAULT ''",
+                "platform_jank_rule_id" to "TEXT",
+                "platform_jank_rule_version" to "TEXT",
                 "dropped_before_sample" to "INTEGER NOT NULL DEFAULT 0",
             ),
         )
@@ -284,9 +288,10 @@ public class SqliteFrameSessionStore private constructor(
                     expected_duration_ns, expected_duration_source, refresh_rate_hz, frame_timeline_vsync_id,
                     total_duration_ns, input_ns, animation_ns,
                     layout_measure_ns, draw_ns, sync_ns, command_issue_ns, swap_buffers_ns, gpu_ns,
-                    platform_jank, platform_jank_types, eligible_for_jank, dropped_before_sample,
+                    platform_jank, platform_jank_types, platform_jank_rule_id, platform_jank_rule_version,
+                    eligible_for_jank, dropped_before_sample,
                     activity_name, window_id, layout_snapshot_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { statement ->
                 frames.forEach { frame ->
@@ -318,11 +323,13 @@ public class SqliteFrameSessionStore private constructor(
                         statement.setInt(23, if (frame.platformJank == true) 1 else 0)
                     }
                     statement.setString(24, frame.platformJankTypes.sortedBy { it.name }.joinToString(",") { it.name })
-                    statement.setInt(25, if (frame.eligibleForJank) 1 else 0)
-                    statement.setLong(26, frame.droppedBeforeSample)
-                    statement.setString(27, frame.activityName)
-                    statement.setString(28, frame.windowId)
-                    statement.setString(29, frame.layoutSnapshotId)
+                    statement.setString(25, frame.platformJankRuleId)
+                    statement.setString(26, frame.platformJankRuleVersion)
+                    statement.setInt(27, if (frame.eligibleForJank) 1 else 0)
+                    statement.setLong(28, frame.droppedBeforeSample)
+                    statement.setString(29, frame.activityName)
+                    statement.setString(30, frame.windowId)
+                    statement.setString(31, frame.layoutSnapshotId)
                     statement.addBatch()
                 }
                 statement.executeBatch()
@@ -422,6 +429,8 @@ public class SqliteFrameSessionStore private constructor(
                     .orEmpty()
                     .splitNotBlank(',')
                     .mapTo(linkedSetOf(), JankType::valueOf),
+            platformJankRuleId = getString("platform_jank_rule_id"),
+            platformJankRuleVersion = getString("platform_jank_rule_version"),
             eligibleForJank = getInt("eligible_for_jank") != 0,
             droppedBeforeSample = getLong("dropped_before_sample"),
             activityName = getString("activity_name"),

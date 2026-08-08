@@ -18,16 +18,18 @@ class HeaderControlTest {
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
         )
         val header = source
-            .substringAfter("private fun Header(")
+            .substringAfter("HeaderToolbar(")
             .substringBefore("private fun CaptureTargetSelector(")
-        val homeButton = header
-            .substringAfter("private fun HomeButton(")
+        val sharedHeader = Files.readString(
+            Path.of("../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/HeaderToolbar.kt"),
+        )
 
-        assertTrue(header.indexOf("HomeButton(") < header.indexOf("Text(packageName"))
-        assertTrue(header.contains("if (onNavigateHome != null)"))
-        assertTrue(homeButton.contains("ProfilerHomeButton("))
-        assertTrue(homeButton.contains("contentDescription = contentDescription"))
-        assertTrue(homeButton.contains("onClick = onClick"))
+        assertTrue(source.indexOf("HeaderToolbar(") < source.indexOf("Text(packageName"))
+        assertTrue(header.contains("onNavigateHome = onNavigateHome"))
+        assertTrue(sharedHeader.contains("if (onNavigateHome != null)"))
+        assertTrue(sharedHeader.contains("HomeButton("))
+        assertTrue(sharedHeader.contains("Res.string.back_to_home"))
+        assertTrue(sharedHeader.contains("onClick = onNavigateHome"))
         assertEquals(
             "Back to home",
             localizedStringResource(Res.string.back_to_home, UiLanguage.ENGLISH),

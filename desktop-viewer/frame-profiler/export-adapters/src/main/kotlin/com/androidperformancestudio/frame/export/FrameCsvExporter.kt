@@ -26,6 +26,8 @@ public class FrameCsvExporter {
                         sample.expectedDurationSource,
                         frame.deadlineVerdict,
                         sample.platformJank,
+                        sample.platformJankRuleId,
+                        sample.platformJankRuleVersion,
                         frame.severity,
                         frame.missedVsyncCount,
                         frame.largestReportedStage,
@@ -42,7 +44,8 @@ public class FrameCsvExporter {
     private companion object {
         const val HEADER =
             "frame_id,source,intended_vsync_ns,duration_ns,expected_duration_ns,expected_source," +
-                "deadline_verdict,platform_jank_signal,severity,missed_vsync_count,largest_reported_stage," +
+                "deadline_verdict,platform_jank_signal,platform_jank_rule_id,platform_jank_rule_version," +
+                "severity,missed_vsync_count,largest_reported_stage," +
                 "platform_jank_types,frame_timeline_vsync_id"
     }
 }

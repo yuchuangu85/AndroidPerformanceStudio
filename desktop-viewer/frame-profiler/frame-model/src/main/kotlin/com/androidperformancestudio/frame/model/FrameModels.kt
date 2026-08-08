@@ -73,6 +73,8 @@ public data class FrameSample(
     val stages: FrameStages = FrameStages(),
     val platformJank: Boolean? = null,
     val platformJankTypes: Set<JankType> = emptySet(),
+    val platformJankRuleId: String? = null,
+    val platformJankRuleVersion: String? = null,
     val states: Map<String, String> = emptyMap(),
     val eligibleForJank: Boolean = true,
     val droppedBeforeSample: Long = 0,

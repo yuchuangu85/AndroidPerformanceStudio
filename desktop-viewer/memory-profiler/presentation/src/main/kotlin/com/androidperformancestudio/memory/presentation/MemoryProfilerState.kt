@@ -39,6 +39,45 @@ public enum class MemoryLeakFilter {
 public enum class MemoryArrangeBy {
     CLASS,
     PACKAGE,
+    CALLSTACK,
+    ALLOCATION_METHOD,
+}
+
+public enum class MemoryClassifierColumn {
+    NAME,
+    MODULE_NAME,
+    ALLOCATIONS,
+    DEALLOCATIONS,
+    TOTAL_COUNT,
+    NATIVE_SIZE,
+    SHALLOW_SIZE,
+    RETAINED_SIZE,
+    ALLOCATIONS_SIZE,
+    DEALLOCATIONS_SIZE,
+    SHALLOW_SIZE_CHANGE,
+}
+
+public enum class MemorySortDirection { ASCENDING, DESCENDING }
+
+/** One node in the classifier tree shown by the class list. Leaf nodes represent classes. */
+public data class MemoryClassifierRow(
+    val id: String,
+    val label: String,
+    val className: String? = null,
+    val moduleName: String? = null,
+    val allocations: Long? = null,
+    val deallocations: Long? = null,
+    val totalCount: Long = 0L,
+    val nativeSize: Long? = null,
+    val shallowSize: Long = 0L,
+    val retainedSize: Long? = null,
+    val allocationsSize: Long? = null,
+    val deallocationsSize: Long? = null,
+    val shallowSizeChange: Long? = null,
+    val depth: Int = 0,
+    val children: List<MemoryClassifierRow> = emptyList(),
+) {
+    val isLeaf: Boolean get() = children.isEmpty()
 }
 
 /** One row of the instance list shown when a class is selected in [MemoryProfilerViewMode.ClassList]. */
@@ -112,6 +151,8 @@ public data class MemoryProfilerState(
     val nativeHeapAnalysis: NativeHeapAnalysis = NativeHeapAnalysis(),
     val viewMode: MemoryProfilerViewMode = MemoryProfilerViewMode.Dashboard,
     val selectedClassName: String? = null,
+    val selectedClassifierId: String? = null,
+    val selectedClassifierLabel: String? = null,
     val selectedClassInstances: List<MemoryInstanceRow> = emptyList(),
     val selectedInstanceDetail: MemoryInstanceDetail? = null,
     val availableHeaps: List<String> = emptyList(),
@@ -119,6 +160,9 @@ public data class MemoryProfilerState(
     val classScope: MemoryClassScope = MemoryClassScope.ALL,
     val leakFilter: MemoryLeakFilter = MemoryLeakFilter.NONE,
     val arrangeBy: MemoryArrangeBy = MemoryArrangeBy.CLASS,
+    /** Groupings supported by the loaded source; heap dumps do not invent allocation stacks. */
+    val availableArrangeBy: List<MemoryArrangeBy> =
+        listOf(MemoryArrangeBy.CLASS, MemoryArrangeBy.PACKAGE),
     val searchText: String = "",
     val matchCase: Boolean = false,
     val useRegex: Boolean = false,
@@ -128,6 +172,10 @@ public data class MemoryProfilerState(
     val displayedClasses: List<ClassStats> = emptyList(),
     /** Summary metrics derived from [displayedClasses] by the presenter. */
     val classListSummary: MemoryClassListSummary = MemoryClassListSummary(),
+    /** Classifier tree; unlike [displayedClasses] this preserves package/callstack hierarchy. */
+    val classifierRows: List<MemoryClassifierRow> = emptyList(),
+    val classifierSortColumn: MemoryClassifierColumn = MemoryClassifierColumn.NAME,
+    val classifierSortDirection: MemorySortDirection = MemorySortDirection.ASCENDING,
 )
 
 public data class MemoryDeviceOption(
@@ -169,4 +217,6 @@ public data class MemoryProfilerActions(
     val onSearchChange: (String) -> Unit = {},
     val onMatchCaseChange: (Boolean) -> Unit = {},
     val onUseRegexChange: (Boolean) -> Unit = {},
+    val onClassifierSort: (MemoryClassifierColumn) -> Unit = {},
+    val onSelectClassifier: (MemoryClassifierRow) -> Unit = {},
 )

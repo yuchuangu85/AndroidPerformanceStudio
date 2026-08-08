@@ -48,6 +48,7 @@ data class HeapClass(
 ) {
     companion object {
         const val UNKNOWN_CLASS_NAME = "<unknown>"
+        const val CLASS_OBJECT_CLASS_NAME = "java.lang.Class"
     }
 }
 
@@ -189,6 +190,20 @@ data class ClassStats(
     val hierarchyDepth: Int? = null,
     /** Estimated native footprint aggregated for this class (Bitmap pixel buffers); null when unknown. */
     val nativeSize: Long? = null,
+    /**
+     * Android Studio classifier metrics. Null means that the source (usually a heap dump) does
+     * not provide the metric.
+     */
+    val moduleName: String? = null,
+    val allocations: Long? = null,
+    val deallocations: Long? = null,
+    val allocationsSize: Long? = null,
+    val deallocationsSize: Long? = null,
+    val shallowSizeChange: Long? = null,
+    /** Allocation call stack/method, when the data came from an allocation recording. */
+    val allocationMethod: String? = null,
+    val allocationCallstack: List<String> = emptyList(),
+    val totalCount: Long? = null,
 ) {
     /** Deobfuscated display name; keeps the obfuscated name in parens when a mapping was applied. */
     val displayClassName: String
@@ -198,6 +213,14 @@ data class ClassStats(
             } else {
                 className
             }
+}
+
+/** Grouping modes used by Android Studio's Memory Classifier. */
+enum class MemoryClassGrouping {
+    CLASS,
+    PACKAGE,
+    CALLSTACK,
+    ALLOCATION_METHOD,
 }
 
 data class HeapSummary(

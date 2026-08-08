@@ -16,7 +16,7 @@ import java.net.URI
  * | userinfo       | Always replaced with `<redacted>`             |
  * | host           | Preserved                                     |
  * | port           | Preserved if present                          |
- * | path           | Preserved verbatim; optional parameterisation |
+ * | path           | Replaced with a stable non-identifying marker |
  * | query          | All values redacted except whitelisted keys   |
  * | fragment       | Always removed                                |
  *
@@ -31,12 +31,11 @@ import java.net.URI
  * `credential`, `apikey`) are **never** whitelisted — even if they appear in the
  * allowlist they are still redacted, and a `redactionWarning` is recorded.
  *
- * ### Path parameterisation (optional)
+ * ### Path minimization
  *
- * Enable `parameterizePath = true` to replace dynamic path segments with
- * placeholders so that `/users/12345/orders/67890` becomes
- * `/users/{id}/orders/{id}`. This is useful for aggregation (counting calls by
- * endpoint rather than by specific resource). Default: `false`.
+ * Paths are unrestricted application data and may contain user identifiers,
+ * credentials, or business data. The default policy therefore replaces every
+ * non-root path with a single marker before the URL leaves the capture process.
  *
  * ### Fallback
  *
@@ -45,12 +44,9 @@ import java.net.URI
  *
  * @param queryKeyAllowlist set of query parameter names whose values should be
  *   preserved. Sensitive keys are always redacted regardless.
- * @param parameterizePath when `true`, dynamic path segments (numeric / UUID /
- *   base64-like) are replaced with `{id}`.
  */
 public class NetworkUrlRedactor(
     public val queryKeyAllowlist: Set<String> = emptySet(),
-    public val parameterizePath: Boolean = false,
 ) {
     /** Warnings produced during the most recent redaction, e.g. blocked allowlist keys. */
     public val redactionWarnings: MutableList<String> = mutableListOf()
@@ -70,7 +66,7 @@ public class NetworkUrlRedactor(
             uri.rawUserInfo?.let { append(REDACTED_VALUE).append('@') }
             append(uri.host)
             if (uri.port != -1) append(':').append(uri.port)
-            append(if (parameterizePath) parameterizeSegments(uri.rawPath.orEmpty()) else uri.rawPath.orEmpty())
+            append(minimizePath(uri.rawPath.orEmpty()))
             uri.rawQuery?.let { query ->
                 append('?')
                 append(query.split('&').joinToString("&") { parameter ->
@@ -88,16 +84,11 @@ public class NetworkUrlRedactor(
     private fun isKeySensitive(key: String): Boolean =
         SENSITIVE_KEYS.any { key.equals(it, ignoreCase = true) }
 
-    private fun parameterizeSegments(path: String): String =
-        path.split('/').joinToString("/") { segment ->
-            when {
-                segment.isEmpty() -> segment
-                else -> {
-                    val match = DYNAMIC_SEGMENT.find(segment)
-                    if (match != null && match.range.first == 0) "{id}${segment.substring(match.range.last + 1)}"
-                    else segment
-                }
-            }
+    private fun minimizePath(path: String): String =
+        when (path) {
+            "" -> ""
+            "/" -> "/"
+            else -> REDACTED_PATH
         }
 
     public companion object {
@@ -110,10 +101,8 @@ public class NetworkUrlRedactor(
             "signature", "sig",
         )
 
-        /** Pattern matching numeric, UUID, and base64-like path segment prefixes. */
-        private val DYNAMIC_SEGMENT: Regex = Regex("""^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}|\p{Nd}+)""")
-
         internal const val REDACTED_VALUE: String = "<redacted>"
+        internal const val REDACTED_PATH: String = "/<redacted-path>"
         internal const val INVALID_URL: String = "redacted://invalid-url"
 
         /** Returns a redactor with the original "deny-all" behaviour (every query value redacted). */

@@ -23,4 +23,21 @@
     <string name="sp_recent_open">Open Recent</string>
     <string name="sp_recent_empty">No Recent Sessions</string>
     <string name="sp_recent_clear_menu">Clear Menu</string>
+
+    <!-- AI analysis dialogs -->
+    <string name="sp_ai_run_title">Run Simpleperf AI Analysis</string>
+    <string name="sp_ai_scope_function">function %1$s</string>
+    <string name="sp_ai_scope_call_node">call node %1$s</string>
+    <string name="sp_ai_scope_report_summary">report summary</string>
+    <string name="sp_ai_run_details">Scope: %1$s\nEvidence: %2$d hotspot(s), %3$d samples\nOnly deterministic source candidates and minimal snippets may be sent.</string>
+    <string name="sp_ai_performance_data_only">Performance data only</string>
+    <string name="sp_ai_analyze">Analyze</string>
+    <string name="sp_ai_cancel">Cancel</string>
+    <string name="sp_ai_result_title">AI Analysis · %1$s</string>
+    <string name="sp_ai_confidence">%1$d%%</string>
+    <string name="sp_ai_open_source">Open Source</string>
+    <string name="sp_ai_open_source_candidate">Open Source Candidate %1$d</string>
+    <string name="sp_ai_close">Close</string>
+    <string name="sp_ai_failed_title">AI Analysis Failed</string>
+
 </resources>

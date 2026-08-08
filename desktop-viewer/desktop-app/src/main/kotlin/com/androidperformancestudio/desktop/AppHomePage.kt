@@ -56,7 +56,6 @@ fun AppHomePage(
     onOpenGpuInspector: () -> Unit,
     onOpenBenchmarkRegression: () -> Unit,
     onOpenMethodRecording: () -> Unit,
-    onOpenUnifiedSession: () -> Unit,
 ) {
     val entries =
         listOf(
@@ -211,18 +210,6 @@ fun AppHomePage(
                     ),
                 actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
                 onClick = onOpenMemoryProfiler,
-                enabled = true,
-            ),
-            HomeFeatureEntry(
-                title = localizedStringResource(Res.string.session_timeline, language),
-                subtitle = localizedStringResource(Res.string.session_timeline_subtitle, language),
-                description =
-                    localizedStringResource(
-                        Res.string.session_timeline_description,
-                        language
-                    ),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
-                onClick = onOpenUnifiedSession,
                 enabled = true,
             ),
         )

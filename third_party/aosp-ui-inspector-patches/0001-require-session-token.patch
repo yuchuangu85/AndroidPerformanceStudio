@@ -7,7 +7,7 @@ diff -ruN  a/agent/native/agent.cc  b/agent/native/agent.cc
  constexpr const char* kInitializeMethodSignature =
 -    "(Ljava/lang/String;Ljava/lang/String;J)I";
 +    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)I";
- 
+
  // Options passed to the agent on attach.
  struct AgentOptions {
    std::string service_jar;
@@ -15,20 +15,20 @@ diff -ruN  a/agent/native/agent.cc  b/agent/native/agent.cc
    std::string pid;
 +  std::string token;
  };
- 
+
 -// Parses options in format: service_jar;payload_jar;pid
 +// Parses options in format: service_jar;payload_jar;pid;token
  std::optional<AgentOptions> parseOptions(const char* options) {
    if (options == nullptr || strlen(options) == 0) return std::nullopt;
- 
+
    std::vector<std::string> args = profiler::Tokenizer::GetTokens(options, ";");
 -  if (args.size() != 3) return std::nullopt;
 +  if (args.size() != 4 || args[3].empty()) return std::nullopt;
- 
+
 -  return AgentOptions{args[0], args[1], args[2]};
 +  return AgentOptions{args[0], args[1], args[2], args[3]};
  }
- 
+
  // Process-wide singleton representing the JVMTI agent tooling.
 @@ -67,13 +68,14 @@
    if (!options_opt) {
@@ -38,12 +38,12 @@ diff -ruN  a/agent/native/agent.cc  b/agent/native/agent.cc
 +        "Invalid options format. Expected: service_jar;payload_jar;pid;token");
      return JNI_OK;
    }
- 
+
    std::string service_jar_path = options_opt->service_jar;
    std::string payload_jar_path = options_opt->payload_jar;
    std::string pid = options_opt->pid;
 +  std::string token = options_opt->token;
- 
+
    JNIEnv* env = profiler::GetThreadLocalJNI(vm);
    if (env == nullptr) {
 @@ -143,6 +145,7 @@
@@ -51,39 +51,39 @@ diff -ruN  a/agent/native/agent.cc  b/agent/native/agent.cc
    jstring arg1 = env->NewStringUTF(payload_jar_path.c_str());
    jstring arg2 = env->NewStringUTF(pid.c_str());
 +  jstring arg3 = env->NewStringUTF(token.c_str());
- 
+
    // Get or instantiate the singleton JvmtiArtTooling engine, then cast its
    // pointer to a jlong so it can be passed to and stored by the Java service
 @@ -153,7 +156,7 @@
    jlong artToolingPtr = reinterpret_cast<jlong>(g_art_tooling);
- 
+
    jint result = env->CallStaticIntMethod(serviceClass, initMethod, arg1, arg2,
 -                                         artToolingPtr);
 +                                         arg3, artToolingPtr);
- 
+
    if (env->ExceptionCheck()) {
      profiler::Log::E(kLogTag, "Exception in %s.%s", kInspectorServiceClassName,
 diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/InspectorLauncher.java  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/InspectorLauncher.java
 ---  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/InspectorLauncher.java	2026-08-08 18:07:41
 +++  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/InspectorLauncher.java	2026-08-08 18:07:41
 @@ -18,6 +18,7 @@
- 
+
  import android.util.Log;
  import com.android.tools.ui.inspector.common.ProtocolConstants;
 +import java.util.function.BiConsumer;
  import java.util.function.Consumer;
- 
+
  /** Entry point for the UI Inspector payload. Starts a Unix domain socket server to listen for commands from the host. */
 @@ -27,18 +28,18 @@
- 
+
    private InspectorLauncher() {}
- 
+
 -  public static synchronized void start(String pid) {
 -    start(pid, Server::startServer);
 +  public static synchronized void start(String pid, String token) {
 +    start(pid, token, Server::startServer);
    }
- 
+
 -  public static synchronized void start(String pid, Consumer<String> serverStarter) {
 +  static synchronized void start(String pid, String token, BiConsumer<String, String> serverStarter) {
      if (serverThread != null && serverThread.isAlive()) {
@@ -111,15 +111,15 @@ diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/
 ---  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/Server.java	2026-08-08 18:07:41
 +++  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/Server.java	2026-08-08 18:07:41
 @@ -46,12 +46,13 @@
- 
+
    private Server() {}
- 
+
 -  public static void startServer(String pid) {
 -    new ServerInstance(pid).run();
 +  public static void startServer(String pid, String token) {
 +    new ServerInstance(pid, token).run();
    }
- 
+
    private static final class ServerInstance {
      private final String socketName;
 +    private final byte[] expectedToken;
@@ -129,13 +129,13 @@ diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/
 @@ -111,8 +112,9 @@
      private LocalServerSocket serverSocket;
      private ScheduledFuture<?> timeoutFuture;
- 
+
 -    ServerInstance(String pid) {
 +    ServerInstance(String pid, String token) {
        this.socketName = ProtocolConstants.getSocketName(pid);
 +      this.expectedToken = token.getBytes(java.nio.charset.StandardCharsets.UTF_8);
      }
- 
+
      void run() {
 @@ -174,7 +176,8 @@
                                          activeOutputStream,
@@ -164,7 +164,7 @@ diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/
    private final Map<String, InspectorBridge> inspectorBridges;
    private final ClassLoader classLoader;
 +  private final byte[] expectedToken;
- 
+
    public SessionHandler(
        InputStream inputStream,
        OutputStream outputStream,
@@ -185,7 +185,7 @@ diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/
 -    this(inputStream, outputStream, crashListener, shutdownLatch, inspectorBridges, SessionHandler.class.getClassLoader());
 +    this(inputStream, outputStream, crashListener, shutdownLatch, inspectorBridges, SessionHandler.class.getClassLoader(), new byte[0]);
    }
- 
+
    @VisibleForTesting
 @@ -63,21 +77,39 @@
        HandlerThreadExecutor.CrashListener crashListener,
@@ -202,7 +202,7 @@ diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/
      this.classLoader = classLoader;
 +    this.expectedToken = Arrays.copyOf(expectedToken, expectedToken.length);
    }
- 
+
 +  @VisibleForTesting
 +  SessionHandler(
 +      InputStream inputStream,
@@ -245,24 +245,24 @@ diff -ruN  a/agent/service/src/main/java/com/android/tools/ui/inspector/service/
              // Register the native JvmtiArtTooling pointer in the bootstrap bridge so JNI callbacks
              // can delegate hooks and heap-walking queries to the JVMTI agent.
              ArtToolingBridge.initialize(artToolingPtr);
- 
+
 -            if (pid == null || pid.isEmpty()) {
 -                Log.e(TAG, "PID is required for initialization");
 +            if (pid == null || pid.isEmpty() || token == null || token.isEmpty()) {
 +                Log.e(TAG, "PID and session token are required for initialization");
                  return RESULT_ERROR;
              }
- 
+
 @@ -79,9 +80,10 @@
                      dexClassLoader
              );
- 
+
 -            Method startMethod = launcherClass.getMethod(START_METHOD_NAME, String.class);
 +            Method startMethod = launcherClass.getMethod(
 +                    START_METHOD_NAME, String.class, String.class);
- 
+
 -            startMethod.invoke(null, pid);
 +            startMethod.invoke(null, pid, token);
- 
+
              return RESULT_OK;
          } catch (Throwable e) {

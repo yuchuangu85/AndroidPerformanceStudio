@@ -14,14 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "session-viewer"
+rootProject.name = "platform-adb"
 
-include(
-    ":session-model",
-    ":session-storage",
-    ":session-app",
-)
-
-includeBuild("../ui-components") {
-    name = "session-viewer-ui-components"
-}
+include(":adb-core")

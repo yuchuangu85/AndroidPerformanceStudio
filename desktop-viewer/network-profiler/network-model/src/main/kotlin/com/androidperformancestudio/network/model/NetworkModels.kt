@@ -171,8 +171,6 @@ public data class HttpExchange(
     /** TLS handshake info. Present only when a new TLS connection was established for this exchange. */
     val tlsHandshake: TlsHandshake? = null,
     val sourceAttributes: Map<String, String> = emptyMap(),
-    /** Whether this exchange used a reused (keep-alive) connection, i.e. no DNS/CONNECT/TLS phases. */
-    val connectionReused: Boolean = false,
 )
 
 public data class HttpCall(

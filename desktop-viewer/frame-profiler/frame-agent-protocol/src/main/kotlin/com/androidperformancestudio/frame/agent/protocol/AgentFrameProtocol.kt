@@ -12,6 +12,9 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 
+public const val JANK_STATS_RULE_ID: String = "androidx.metrics.performance.JankStats.FrameData.isJank.default"
+public const val JANK_STATS_RULE_VERSION: String = "1.0.0"
+
 @Serializable
 public data class AgentFrameStages(
     val inputNs: Long? = null,
@@ -47,6 +50,8 @@ public data class AgentFrameSample(
     val totalDurationNs: Long? = null,
     val stages: AgentFrameStages = AgentFrameStages(),
     val platformJank: Boolean? = null,
+    val platformJankRuleId: String? = null,
+    val platformJankRuleVersion: String? = null,
     val states: Map<String, String> = emptyMap(),
     val eligibleForJank: Boolean = true,
 )

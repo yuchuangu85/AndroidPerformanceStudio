@@ -126,11 +126,15 @@ class VisibleWindowHierarchyParserTest {
 }
 
 internal object EncodedHierarchyFixture {
-    fun zip(packageName: String): ByteArray {
+    fun zip(
+        packageName: String,
+        rootClassName: String = "com.codemx.ui.RealRootLayout",
+        childClassName: String = "com.codemx.ui.RealTitleView",
+    ): ByteArray {
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry("$packageName/$packageName.MainActivity"))
-            zip.write(hierarchy())
+            zip.write(hierarchy(rootClassName, childClassName))
             zip.closeEntry()
         }
         return output.toByteArray()
@@ -221,14 +225,17 @@ internal object EncodedHierarchyFixture {
         return output.toByteArray()
     }
 
-    private fun hierarchy(): ByteArray {
+    private fun hierarchy(
+        rootClassName: String = "com.codemx.ui.RealRootLayout",
+        childClassName: String = "com.codemx.ui.RealTitleView",
+    ): ByteArray {
         val output = ByteArrayOutputStream()
         val encoder = FixtureEncoder(DataOutputStream(output))
 
         encoder.property("window:left", 10)
         encoder.property("window:top", 20)
         encoder.map {
-            property("meta:__name__", "com.codemx.ui.RealRootLayout")
+            property("meta:__name__", rootClassName)
             property("id", "NO_ID")
             property("layout:left", 0)
             property("layout:top", 0)
@@ -282,7 +289,7 @@ internal object EncodedHierarchyFixture {
             }
             property("meta:__childCount__", 1.toShort())
             nestedMap("meta:__child__0") {
-                property("meta:__name__", "com.codemx.ui.RealTitleView")
+                property("meta:__name__", childClassName)
                 property("id", "com.codemx.anrdemo:id/title")
                 property("text:mText", "Title")
                 property("layout:left", 40)

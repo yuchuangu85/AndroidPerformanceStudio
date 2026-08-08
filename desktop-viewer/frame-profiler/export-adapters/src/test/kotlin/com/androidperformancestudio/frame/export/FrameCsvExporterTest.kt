@@ -21,6 +21,8 @@ class FrameCsvExporterTest {
                         source = FrameSource.GFXINFO,
                         totalDurationNs = 10_000_000,
                         expectedDurationNs = 8_333_333,
+                        platformJankRuleId = "jank-rule",
+                        platformJankRuleVersion = "1.2.3",
                     ),
                 ),
             )
@@ -29,5 +31,6 @@ class FrameCsvExporterTest {
 
         assertContains(output.readText(), "MISSED")
         assertContains(output.readText(), "8333333")
+        assertContains(output.readText(), "jank-rule,1.2.3")
     }
 }

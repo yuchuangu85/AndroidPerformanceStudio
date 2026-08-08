@@ -2,6 +2,8 @@ package com.androidperformancestudio.android.frame
 
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameBatch
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameSample
+import com.androidperformancestudio.frame.agent.protocol.JANK_STATS_RULE_ID
+import com.androidperformancestudio.frame.agent.protocol.JANK_STATS_RULE_VERSION
 import java.util.ArrayDeque
 import kotlin.math.abs
 
@@ -100,6 +102,8 @@ internal class FrameMetricsStore(
         } else {
             copy(
                 platformJank = signal.isJank,
+                platformJankRuleId = JANK_STATS_RULE_ID,
+                platformJankRuleVersion = JANK_STATS_RULE_VERSION,
                 states = states + signal.states + ("jankStats" to "true"),
             )
         }

@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.analysis
 
+import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapObjectArray
@@ -31,6 +32,10 @@ class MemoryHistogramAnalyzerTest {
         assertEquals(56, histogram.summary.shallowSize)
         assertEquals(listOf("B", "A"), histogram.classes.map { it.className })
         assertEquals(2, histogram.classes.first().instanceCount)
+        assertEquals(2L, histogram.classes.first().allocations)
+        assertEquals(32L, histogram.classes.first().allocationsSize)
+        assertNull(histogram.classes.first().deallocations)
+        assertNull(histogram.classes.first().shallowSizeChange)
     }
 
     @Test
@@ -99,6 +104,26 @@ class MemoryHistogramAnalyzerTest {
         assertEquals(0, histogram.summary.shallowSize)
         assertEquals(0, histogram.summary.classCount)
         assertTrue(histogram.classes.isEmpty())
+    }
+
+    @Test
+    fun `class dump records are classified as java lang Class like Android Studio`() {
+        val histogram =
+            analyzer.histogram(
+                HeapDump(
+                    classes =
+                        listOf(
+                            HeapClass(10, "java.lang.Class", instanceSize = 32),
+                            HeapClass(11, "com.example.Item", instanceSize = 24),
+                        ),
+                ),
+            )
+
+        val classObjects = histogram.classes.single()
+        assertEquals("java.lang.Class", classObjects.className)
+        assertEquals(2, classObjects.instanceCount)
+        assertEquals(64L, classObjects.shallowSize)
+        assertEquals(2, histogram.summary.objectCount)
     }
 
     @Test

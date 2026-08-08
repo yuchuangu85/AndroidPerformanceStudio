@@ -38,15 +38,15 @@ class UnifiedUiComponentsSourceTest {
 
     @Test
     fun `home navigation has one public control`() {
-        val source = Files.readString(sourceRoot.resolve("HomeButton.kt"))
+        val source = Files.readString(sourceRoot.resolve("button/HomeButton.kt"))
 
-        assertTrue(source.contains("public fun ProfilerHomeButton("))
+        assertTrue(source.contains("fun HomeButton("))
         assertFalse(source.contains("fun MacOSHomeButton("))
     }
 
     @Test
     fun `settings action has one public control`() {
-        val source = Files.readString(sourceRoot.resolve("SettingButton.kt"))
+        val source = Files.readString(sourceRoot.resolve("button/SettingButton.kt"))
 
         assertTrue(source.contains("public fun SettingsButton("))
         assertTrue(source.contains("contentDescription: String? = null"))

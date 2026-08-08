@@ -332,4 +332,5 @@
     <string name="sp_accessibility_flame_single_sample_state_format">%1$s，包含权重 %2$s，%3$s 个样本</string>
     <string name="sp_accessibility_flame_multiple_samples_state_format">%1$s，包含权重 %2$s，%3$s 个样本</string>
     <string name="sp_adb_sdk_path_settings_hint">请前往“设置 &gt; 通用”手动配置 Android SDK 路径。</string>
+    <string name="sp_report_run_ai_analysis">运行 AI 分析</string>
 </resources>

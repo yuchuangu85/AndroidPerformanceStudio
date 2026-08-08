@@ -27,14 +27,13 @@ class ComposeLiveSession private constructor(
     private val processRunner: ProcessRunner,
 ) : AutoCloseable {
     private val closed = AtomicBoolean(false)
-    private var lastRootViewIds: List<Long> = emptyList()
     private var lastFrame: ComposeInspectionFrame? = null
 
     fun capture(hideSystemComposables: Boolean = true): ComposeLiveCapture {
         check(!closed.get() && injection.isTargetAlive()) { "Target Compose process is no longer available" }
-        val views = client.captureViews(injection.packageName)
-        val compose = client.captureTree(views.rootViewIds)
-        lastRootViewIds = views.rootViewIds
+        val stableCapture = StableComposeFrameCapture(client).capture(injection.packageName)
+        val views = stableCapture.views
+        val compose = stableCapture.compose
         lastFrame = compose
         val snapshot = ComposeInspectionProjection.mergeInto(
             snapshot = views.snapshot.copy(

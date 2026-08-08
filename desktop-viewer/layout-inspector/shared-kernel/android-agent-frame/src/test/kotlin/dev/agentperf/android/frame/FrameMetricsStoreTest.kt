@@ -1,5 +1,7 @@
 package com.androidperformancestudio.android.frame
 
+import com.androidperformancestudio.frame.agent.protocol.JANK_STATS_RULE_ID
+import com.androidperformancestudio.frame.agent.protocol.JANK_STATS_RULE_VERSION
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameSample
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameBatchCodec
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameRemoteException
@@ -64,6 +66,8 @@ class FrameMetricsStoreTest {
 
         val sample = store.after(-1).frames.single()
         assertEquals(true, sample.platformJank)
+        assertEquals(JANK_STATS_RULE_ID, sample.platformJankRuleId)
+        assertEquals(JANK_STATS_RULE_VERSION, sample.platformJankRuleVersion)
         assertEquals("feed", sample.states["scroll"])
     }
 
@@ -81,6 +85,8 @@ class FrameMetricsStoreTest {
 
         val sample = store.after(-1).frames.single()
         assertEquals(false, sample.platformJank)
+        assertEquals(JANK_STATS_RULE_ID, sample.platformJankRuleId)
+        assertEquals(JANK_STATS_RULE_VERSION, sample.platformJankRuleVersion)
         assertEquals("details", sample.states["screen"])
     }
 

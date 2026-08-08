@@ -4,4 +4,5 @@
          Add <string name="key">value</string> entries here.
          Qualifier variants (e.g. values-zh/strings.xml) provide locale overrides. -->
     <string name="back_to_home">Back to home</string>
+    <string name="settings">Settings</string>
 </resources>

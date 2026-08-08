@@ -91,6 +91,17 @@
     <string name="arrange_by">排序方式</string>
     <string name="class_option">类</string>
     <string name="package_option">包</string>
+    <string name="callstack_option">调用栈</string>
+    <string name="allocation_method_option">分配方法</string>
+    <string name="package_name">包名</string>
+    <string name="callstack_name">调用栈名称</string>
+    <string name="allocation_method">分配方法</string>
+    <string name="module_name">模块名称</string>
+    <string name="deallocations">释放数</string>
+    <string name="total_count">总数</string>
+    <string name="allocations_size">分配大小</string>
+    <string name="deallocations_size">释放大小</string>
+    <string name="shallow_size_change">浅层大小变化</string>
     <string name="match_case">区分大小写</string>
     <string name="regex">正则</string>
     <string name="allocations">分配数</string>

@@ -31,14 +31,15 @@ class ProfilerThemeSupportTest {
     fun `profiler workspaces retain the compact inspector toolbar boundary`() {
         profilerWorkspaceSources().forEach { source ->
             val content = Files.readString(source)
-            assertTrue(
-                content.contains("ProfilerMacOsToolbar {"),
-                "$source must use the shared compact profiler toolbar",
-            )
-            assertTrue(
-                OUTLINE_DIVIDER.containsMatchIn(content),
-                "$source must separate the toolbar from its inspector panes",
-            )
+            val usesLegacyToolbar = content.contains("ProfilerMacOsToolbar {")
+            val usesSharedHeader = content.contains("HeaderToolbar(")
+            assertTrue(usesLegacyToolbar || usesSharedHeader, "$source must use a shared compact profiler toolbar")
+            if (usesLegacyToolbar) {
+                assertTrue(
+                    OUTLINE_DIVIDER.containsMatchIn(content),
+                    "$source must separate the toolbar from its inspector panes",
+                )
+            }
         }
     }
 
@@ -58,7 +59,7 @@ class ProfilerThemeSupportTest {
     }
 
     @Test
-    fun `every feature uses the CPU profiler home button style`() {
+    fun `every feature uses the shared home button style`() {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         val sharedButton =
             Files.readString(
@@ -104,12 +105,14 @@ class ProfilerThemeSupportTest {
         assertTrue(cpuProfiler.contains(".background(style.panel)"))
         assertTrue(cpuProfiler.contains(".border("))
         assertSharedHomeButtonStyle(sharedButton)
-        assertCpuHomeButtonStyle(perfetto, "Perfetto")
+        assertTrue(perfetto.contains("import com.androidperformancestudio.ui.button.HomeButton"))
+        assertTrue(perfetto.contains("HomeButton("))
 
         profilerHomeButtonConsumers().forEach { source ->
+            val content = Files.readString(source)
             assertTrue(
-                Files.readString(source).contains("ProfilerHomeButton("),
-                "$source must use the shared CPU Profiler home button style",
+                content.contains("HomeButton(") || content.contains("HeaderToolbar("),
+                "$source must use the shared home button",
             )
         }
     }
@@ -120,17 +123,6 @@ class ProfilerThemeSupportTest {
         assertTrue(source.contains("RoundedCornerShape(ViewerDimensions.controlRadius)"))
         assertTrue(source.contains(".background("))
         assertTrue(source.contains(".border("))
-    }
-
-    private fun assertCpuHomeButtonStyle(
-        source: String,
-        owner: String,
-    ) {
-        assertTrue(source.contains(".width(28.dp)"), "$owner home button must be 28dp wide")
-        assertTrue(source.contains(".height(28.dp)"), "$owner home button must be 28dp high")
-        assertTrue(source.contains("RoundedCornerShape(6.dp)"), "$owner home button must use a 6dp radius")
-        assertTrue(source.contains(".background("), "$owner home button must have a panel background")
-        assertTrue(source.contains(".border("), "$owner home button must have a visible border")
     }
 
     private fun profilerHomeButtonConsumers(): List<Path> {

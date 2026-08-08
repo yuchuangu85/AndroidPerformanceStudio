@@ -55,6 +55,8 @@ public data class ConnectionReuseSummary(
     val unknownExchangeCount: Int,
     /** Reuse ratio: reused / (reused + new), or null when no connections are known. */
     val reuseRateAmongKnown: Double?,
+    /** Average CONNECTION_HELD duration in milliseconds for reused exchanges. */
+    val avgConnectionHeldMs: Double?,
 )
 
 /**
@@ -94,6 +96,12 @@ public class NetworkAnalyzer {
         val cacheKnown = exchanges.filter { it.cacheDisposition != CacheDisposition.UNKNOWN }
         val phaseSummaries = summarizePhases(calls)
         val knownConnections = exchanges.filter { it.connectionUse != ConnectionUse.UNKNOWN }
+        val reusedConnectionHeldDurations =
+            exchanges
+                .filter { it.connectionUse == ConnectionUse.REUSED }
+                .mapNotNull { exchange ->
+                    exchange.phases.firstOrNull { it.kind == NetworkPhaseKind.CONNECTION_HELD }?.durationNs
+                }.map { it / 1_000_000.0 }
         return NetworkSummary(
             callCount = calls.size,
             completedCount = calls.count { it.outcome == CallOutcome.COMPLETED },
@@ -113,6 +121,7 @@ public class NetworkAnalyzer {
                 reusedExchangeCount = exchanges.count { it.connectionUse == ConnectionUse.REUSED },
                 unknownExchangeCount = exchanges.count { it.connectionUse == ConnectionUse.UNKNOWN },
                 reuseRateAmongKnown = knownConnections.takeIf { it.isNotEmpty() }?.let { known -> known.count { it.connectionUse == ConnectionUse.REUSED }.toDouble() / known.size },
+                avgConnectionHeldMs = reusedConnectionHeldDurations.takeIf { it.isNotEmpty() }?.average(),
             ),
             phaseSummaries = phaseSummaries,
             largestObservedPhase = phaseSummaries.filter { it.kind != NetworkPhaseKind.TOTAL }.maxByOrNull { it.medianDurationMs ?: -1.0 },

@@ -87,7 +87,11 @@ internal fun FirefoxReportWorkspace(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 onRunAiAnalysis?.let { run ->
                     Box(Modifier.testTag("run-ai-analysis")) {
-                        MacOSTextButton(label = "Run AI Analysis", onClick = run, style = style)
+                        MacOSTextButton(
+                            label = localizedStringResource(SimpleperfViewerRes.sp_report_run_ai_analysis, language),
+                            onClick = run,
+                            style = style,
+                        )
                     }
                 }
                 Box(Modifier.testTag("show-details")) {

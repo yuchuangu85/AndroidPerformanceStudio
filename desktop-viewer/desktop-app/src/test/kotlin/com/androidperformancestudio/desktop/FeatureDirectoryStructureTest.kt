@@ -35,11 +35,8 @@ class FeatureDirectoryStructureTest {
         val layoutBuild = Files.readString(layoutUi.resolve("build.gradle.kts"))
         assertTrue(shellBuild.contains("compose.desktop {"))
         assertTrue(shellBuild.contains("nativeDistributions"))
-        assertTrue(
-            shellBuild.contains(
-                "project(\":layout-inspector:layout-presentation\")",
-            ),
-        )
+        assertTrue(shellBuild.contains("com.androidperformancestudio:presentation:0.1.0-SNAPSHOT"))
+        assertTrue(Files.readString(root.resolve("settings.gradle.kts")).contains("includeBuild(\"layout-inspector\")"))
         assertFalse(layoutBuild.contains("compose.desktop {"))
         assertFalse(layoutBuild.contains("nativeDistributions"))
     }
@@ -55,6 +52,8 @@ class FeatureDirectoryStructureTest {
         assertTrue(Files.isRegularFile(shellSource.resolve("DesktopAppMainPage.kt")))
         assertFalse(Files.exists(root.resolve("layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt")))
         assertFalse(Files.exists(root.resolve("simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt")))
+        assertFalse(Files.exists(root.resolve("session-viewer")), "Unified Session must remain deferred by ADR-0003")
+        assertFalse(Files.readString(shellSource.resolve("AppHomePage.kt")).contains("session_timeline"))
     }
 
     @Test

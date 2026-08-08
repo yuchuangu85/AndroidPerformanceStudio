@@ -24,15 +24,19 @@ class FrameJsonExporterTest {
                 expectedDurationNs = 8_333_333,
                 expectedDurationSource = ExpectedDurationSource.REFRESH_RATE,
                 platformJank = true,
+                platformJankRuleId = "jank-rule",
+                platformJankRuleVersion = "1.2.3",
                 states = mapOf("screen" to "feed\"list"),
             )
 
         FrameJsonExporter().export(FrameJankAnalyzer().analyze(listOf(sample)), output)
 
         val json = output.readText()
-        assertTrue(json.contains("\"schemaVersion\": 2"))
+        assertTrue(json.contains("\"schemaVersion\": 3"))
         assertTrue(json.contains("\"deadlineMissFrames\": 1"))
         assertTrue(json.contains("\"platformJankFrames\": 1"))
+        assertTrue(json.contains("\"platformJankRuleId\": \"jank-rule\""))
+        assertTrue(json.contains("\"platformJankRuleVersion\": \"1.2.3\""))
         assertTrue(json.contains("\"screen\": \"feed\\\"list\""))
         assertTrue(json.contains("\"clusters\": ["))
     }

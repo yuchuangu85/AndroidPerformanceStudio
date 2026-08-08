@@ -48,7 +48,7 @@ import java.util.UUID
  * ### Connection reuse detection
  *
  * HAR entries with `dns=-1`, `connect=-1`, and `ssl=-1` are marked as
- * [HttpExchange.connectionReused] = true (connection taken from pool).
+ * [HttpExchange.connectionUse] = [ConnectionUse.REUSED] (connection taken from pool).
  *
  * @param maxBytes maximum HAR file size in bytes (default 512 MiB).
  */
@@ -171,7 +171,12 @@ public class HarParser(
         val dnsMs = timings.double("dns")?.takeIf { it >= 0 }
         val connectMs = timings.double("connect")?.takeIf { it >= 0 }
         val sslMs = timings.double("ssl")?.takeIf { it >= 0 }
-        val connectionReused = dnsMs == null && connectMs == null && sslMs == null
+        val connectionUse =
+            if (dnsMs == null && connectMs == null && sslMs == null) {
+                ConnectionUse.REUSED
+            } else {
+                ConnectionUse.NEW
+            }
         val call = HttpCall(
             callId = entry.string("_requestId") ?: "har-$index",
             instrumentationId = null,
@@ -183,7 +188,7 @@ public class HarParser(
                 HttpExchange(
                     exchangeIndex = 0,
                     connectionId = entry.string("connection"),
-                    connectionUse = ConnectionUse.UNKNOWN,
+                    connectionUse = connectionUse,
                     protocol = response.string("httpVersion"),
                     statusCode = status,
                     requestBytes = request.long("bodySize")?.takeIf { it >= 0 },
@@ -195,7 +200,6 @@ public class HarParser(
                     requestHeaders = requestHeaders,
                     responseHeaders = responseHeaders,
                     sourceAttributes = unknownTimings,
-                    connectionReused = connectionReused,
                 ),
             ),
             outcome = when {

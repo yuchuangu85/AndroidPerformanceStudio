@@ -248,6 +248,8 @@ object SimpleperfViewerRes {
         get() = Res.string.sp_report_show_details
     val sp_report_hide_details: StringResource
         get() = Res.string.sp_report_hide_details
+    val sp_report_run_ai_analysis: StringResource
+        get() = Res.string.sp_report_run_ai_analysis
     val sp_calltree_all_frames: StringResource
         get() = Res.string.sp_calltree_all_frames
     val sp_calltree_script: StringResource

@@ -53,7 +53,7 @@ class BenchmarkRegressionWorkspaceSourceTest {
     fun `home action preserves direct workspace navigation`() {
         val homeBlock =
             source.substring(
-                source.indexOf("ProfilerHomeButton("),
+                source.indexOf("HomeButton("),
                 source.indexOf("ProfilerCompactButton("),
             )
         assertTrue(homeBlock.contains("onClick = onBack"))

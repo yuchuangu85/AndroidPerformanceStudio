@@ -20,7 +20,6 @@ enum class AppDestination {
     GPU_INSPECTOR,
     BENCHMARK_REGRESSION,
     METHOD_RECORDING,
-    UNIFIED_SESSION,
 }
 
 internal fun com.androidperformancestudio.desktop.AppDestination.shouldMaximizeWindow(): Boolean =

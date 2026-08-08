@@ -74,6 +74,56 @@ class ComposeInspectionArchiveTest {
     }
 
     @Test
+    fun `full fidelity still excludes credentials and session tokens`() {
+        val target = tempDir.resolve("full-fidelity.apinspect")
+        val snapshot = SampleSnapshots.dashboard
+        val source =
+            inspection(
+                packageName = snapshot.packageName,
+                capturedAt = snapshot.capturedAtEpochMillis,
+                privacy = ComposeArchivePrivacy.FULL_FIDELITY,
+            )
+        val detail = source.frame.details.getValue(1)
+        val inspection =
+            source.copy(
+                frame =
+                    source.frame.copy(
+                        details =
+                            mapOf(
+                                1L to
+                                    detail.copy(
+                                        parameters =
+                                            listOf(
+                                                ComposeValue("title", "String", "Visible title"),
+                                                ComposeValue("sessionToken", "String", "eyJhbGciOiJIUzI1NiJ9.payload.signature"),
+                                                ComposeValue("password", "String", "hunter2"),
+                                                ComposeValue("authorizationHeader", "String", "Bearer secret-access-token"),
+                                                ComposeValue("cacheFile", "String", "/storage/emulated/0/Android/data/example/cache/private.bin"),
+                                            ),
+                                    ),
+                            ),
+                    ),
+            )
+
+        service.export(
+            target = target,
+            producerVersion = "test",
+            snapshot = snapshot,
+            screenshotPng = null,
+            rawArtifacts = null,
+            composeInspection = inspection,
+            composePrivacy = ComposeArchivePrivacy.FULL_FIDELITY,
+        )
+
+        val parameters = service.import(target).composeInspection!!.frame.details.getValue(1).parameters
+        assertEquals("Visible title", parameters.single { it.name == "title" }.value)
+        assertEquals("<redacted:sensitive>", parameters.single { it.name == "sessionToken" }.value)
+        assertEquals("<redacted:sensitive>", parameters.single { it.name == "password" }.value)
+        assertEquals("<redacted:sensitive>", parameters.single { it.name == "authorizationHeader" }.value)
+        assertEquals("<redacted:sensitive>", parameters.single { it.name == "cacheFile" }.value)
+    }
+
+    @Test
     fun `mismatched optional compose detail does not block base snapshot import`() {
         val target = tempDir.resolve("mismatch.apinspect")
         val snapshot = SampleSnapshots.dashboard

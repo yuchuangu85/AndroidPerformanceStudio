@@ -1,5 +1,7 @@
 package com.androidperformancestudio.network.har
 
+import com.androidperformancestudio.network.analysis.NetworkAnalyzer
+import com.androidperformancestudio.network.model.ConnectionUse
 import com.androidperformancestudio.network.model.NetworkPhaseKind
 import com.androidperformancestudio.network.model.TimingAvailability
 import kotlin.io.path.createTempFile
@@ -21,7 +23,7 @@ class HarParserTest {
         val call = result.calls.single()
         assertFalse(call.redactedUrl.contains("secret"))
         assertEquals("<redacted>", call.exchanges.single().requestHeaders["Authorization"])
-        assertTrue(call.redactedUrl.contains("/users"))
+        assertTrue(call.redactedUrl.contains("/<redacted-path>"))
         assertEquals(TimingAvailability.UNAVAILABLE, call.exchanges.single().phases.single { it.kind == NetworkPhaseKind.DNS }.availability)
         assertTrue(result.session.warnings.isEmpty())
         assertEquals(100, call.exchanges.single().responseBytes)
@@ -43,6 +45,23 @@ class HarParserTest {
         assertEquals(NetworkPhaseKind.CONNECT, tls.parentKind)
         assertEquals(100, exchange.responseBytes)
         assertEquals(120, exchange.decodedResponseBytes)
+    }
+
+    @Test
+    fun `HAR reuse evidence feeds analyzer metrics`() {
+        val file = createTempFile(suffix = ".har")
+        file.writeText(
+            """{"log":{"version":"1.2","creator":{"name":"fixture"},"entries":[{"startedDateTime":"2026-01-01T00:00:00Z","time":30,"request":{"method":"GET","url":"https://example.test/users/123","headers":[],"bodySize":0},"response":{"status":200,"httpVersion":"HTTP/2","headers":[],"bodySize":100},"timings":{"blocked":1,"dns":-1,"connect":-1,"ssl":-1,"send":1,"wait":20,"receive":8}}]}}""",
+        )
+
+        val result = HarParser().parse(file)
+        val exchange = result.calls.single().exchanges.single()
+        val summary = NetworkAnalyzer().summarize(result.calls)
+
+        assertEquals(ConnectionUse.REUSED, exchange.connectionUse)
+        assertEquals(1, summary.connectionReuse.reusedExchangeCount)
+        assertEquals(0, summary.connectionReuse.newExchangeCount)
+        assertEquals(1.0, summary.connectionReuse.reuseRateAmongKnown)
     }
 
     @Test

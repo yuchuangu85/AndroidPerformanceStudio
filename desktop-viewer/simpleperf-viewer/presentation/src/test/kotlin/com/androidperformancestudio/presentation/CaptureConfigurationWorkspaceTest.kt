@@ -68,7 +68,7 @@ class CaptureConfigurationWorkspaceTest {
         assertTrue(source.contains("CaptureSettingsDialog("))
         assertTrue(source.contains("MacOsPanel("))
         assertTrue(source.contains("MacOsTextField("))
-        assertTrue(source.contains("MacOsChoiceChip("))
+        assertTrue(source.contains("MacOSChoiceChip("))
         assertFalse(source.contains("MaterialTheme.typography.titleLarge"))
         assertFalse(source.contains("FilterChip("))
     }

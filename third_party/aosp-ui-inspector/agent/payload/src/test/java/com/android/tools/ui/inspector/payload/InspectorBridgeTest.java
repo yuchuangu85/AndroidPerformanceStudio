@@ -276,4 +276,3 @@ public final class InspectorBridgeTest {
     assertThat(commandExecutedAfterDispose.get()).isFalse();
   }
 }
-

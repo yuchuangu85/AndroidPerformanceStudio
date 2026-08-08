@@ -32,10 +32,11 @@ includeBuild("ai-core") {
 includeBuild("source-workspace") {
     name = "source-workspace"
 }
-// Shared ADB core infrastructure — provided once by the root build so
-// composite builds (layout-inspector, simpleperf-viewer) resolve it uniquely.
-include(":adb-core")
-project(":adb-core").projectDir = file("platform-adb/adb-core")
+// Shared ADB core infrastructure is an independent build so every feature composite resolves
+// the same published coordinate without duplicating a Gradle project identity.
+includeBuild("platform-adb") {
+    name = "platform-adb"
+}
 
 // Layout Inspector is kept as an isolated composite build.
 includeBuild("layout-inspector") {
@@ -106,9 +107,4 @@ includeBuild("gpu-inspector-integration") {
 // AndroidX Benchmark import, comparison, and CI reporting is kept isolated.
 includeBuild("benchmark-regression") {
     name = "benchmark-regression"
-}
-
-// Unified profiler Session aggregation (final-phase timeline) is kept as an isolated composite build.
-includeBuild("session-viewer") {
-    name = "session-viewer"
 }

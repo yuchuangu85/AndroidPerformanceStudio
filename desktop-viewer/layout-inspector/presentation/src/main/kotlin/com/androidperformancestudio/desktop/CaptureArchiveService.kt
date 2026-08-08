@@ -6,7 +6,7 @@ import com.androidperformancestudio.application.TimelineFrame
 import com.androidperformancestudio.compose.inspection.ComposeArchivePrivacy
 import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
 import com.androidperformancestudio.compose.inspection.ComposeInspectionJson
-import com.androidperformancestudio.compose.inspection.redacted
+import com.androidperformancestudio.compose.inspection.sanitizedForExport
 import com.androidperformancestudio.protocol.CaptureFrameCodec
 import com.androidperformancestudio.protocol.LayoutSnapshot
 import com.androidperformancestudio.protocol.ProtocolCodec
@@ -76,11 +76,7 @@ internal class CaptureArchiveService(
                 aiAnalysisReportJson = aiAnalysis?.let(aiAnalysisReportJson::encode),
                 timelineHistoryJson = timelineFrames.takeIf { it.isNotEmpty() }?.let(timelineHistoryJson::encode),
                 composeInspectionJson = composeInspection?.let { inspection ->
-                    val exportInspection = if (composePrivacy == ComposeArchivePrivacy.FULL_FIDELITY) {
-                        inspection
-                    } else {
-                        inspection.redacted()
-                    }
+                    val exportInspection = inspection.sanitizedForExport(composePrivacy)
                     composeInspectionJson.encode(exportInspection)
                 },
             ),

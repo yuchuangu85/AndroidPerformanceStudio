@@ -91,6 +91,17 @@
     <string name="arrange_by">Arrange by</string>
     <string name="class_option">Class</string>
     <string name="package_option">Package</string>
+    <string name="callstack_option">Callstack</string>
+    <string name="allocation_method_option">Allocation method</string>
+    <string name="package_name">Package Name</string>
+    <string name="callstack_name">Callstack Name</string>
+    <string name="allocation_method">Allocation Method</string>
+    <string name="module_name">Module Name</string>
+    <string name="deallocations">Deallocations</string>
+    <string name="total_count">Total Count</string>
+    <string name="allocations_size">Allocations Size</string>
+    <string name="deallocations_size">Deallocations Size</string>
+    <string name="shallow_size_change">Shallow Size Change</string>
     <string name="match_case">Match case</string>
     <string name="regex">Regex</string>
     <string name="allocations">Allocations</string>

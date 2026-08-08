@@ -40,24 +40,19 @@ class DesktopMemoryProfilerBackendTest {
             assertEquals(hprof, loaded.heapDump.rawHprofFile)
             assertNull(loaded.heapDump.convertedHprofFile)
             assertTrue(loaded.heapDump.id.startsWith("import-"))
-            assertEquals(1, loaded.histogram.summary.objectCount)
+            assertEquals(2, loaded.histogram.summary.objectCount)
+            val sampleClass = loaded.histogram.classes.single { it.className == "com.example.Sample" }
             assertEquals(
                 "com.example.Sample",
-                loaded.histogram.classes
-                    .single()
-                    .className,
+                sampleClass.className,
             )
             assertEquals(
                 24L,
-                loaded.histogram.classes
-                    .single()
-                    .shallowSize,
+                sampleClass.shallowSize,
             )
             assertEquals(
                 24L,
-                loaded.histogram.classes
-                    .single()
-                    .retainedSize,
+                sampleClass.retainedSize,
             )
             assertEquals(0, progress.first())
             assertEquals(100, progress.last())
@@ -111,8 +106,8 @@ class DesktopMemoryProfilerBackendTest {
             assertContentEquals(RAW_ANDROID_HPROF, Files.readAllBytes(loaded.heapDump.rawHprofFile))
             assertTrue(loaded.heapDump.convertedHprofFile?.exists() == true)
             assertEquals("JAVA PROFILE 1.0.2", loaded.heapDump.format)
-            assertEquals(1, loaded.histogram.summary.objectCount)
-            val classStats = loaded.histogram.classes.single()
+            assertEquals(2, loaded.histogram.summary.objectCount)
+            val classStats = loaded.histogram.classes.single { it.className == "com.example.Sample" }
             assertEquals("com.example.Sample", classStats.className)
             assertEquals(24L, classStats.shallowSize)
             assertNull(loaded.warning)
@@ -134,13 +129,9 @@ class DesktopMemoryProfilerBackendTest {
             assertContentEquals(rawAndroidHprof, Files.readAllBytes(loaded.heapDump.rawHprofFile))
             assertNull(loaded.heapDump.convertedHprofFile)
             assertEquals("JAVA PROFILE 1.0.2", loaded.heapDump.format)
-            assertEquals(1, loaded.histogram.summary.objectCount)
-            assertEquals(
-                "com.example.Sample",
-                loaded.histogram.classes
-                    .single()
-                    .className,
-            )
+            assertEquals(2, loaded.histogram.summary.objectCount)
+            val sampleClass = loaded.histogram.classes.single { it.className == "com.example.Sample" }
+            assertEquals("com.example.Sample", sampleClass.className)
             assertContains(loaded.warning.orEmpty(), "Install SDK Platform Tools")
             assertContains(loaded.warning.orEmpty(), "parsed the Android HPROF directly")
         }

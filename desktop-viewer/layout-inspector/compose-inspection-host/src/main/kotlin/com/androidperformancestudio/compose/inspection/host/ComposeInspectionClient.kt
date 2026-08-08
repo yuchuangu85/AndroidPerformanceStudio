@@ -10,16 +10,16 @@ import layoutinspector.compose.inspection.LayoutInspectorComposeProtocol
 import java.time.Clock
 import java.util.UUID
 
-class ComposeInspectionClient(
+internal class ComposeInspectionClient(
     private val protocol: AospInspectorProtocolClient,
     private val adapter: ComposeProtocolAdapter = ComposeProtocolAdapter(),
     private val viewAdapter: ViewProtocolAdapter = ViewProtocolAdapter(),
     private val clock: Clock = Clock.systemUTC(),
-) {
+) : ComposeFrameCaptureClient {
     private var generation = 0
     private var recompositionObservation: RecompositionObservation? = null
 
-    fun captureViews(packageName: String, includeAttributes: Boolean = false): ViewInspectionCapture {
+    override fun captureViews(packageName: String, includeAttributes: Boolean): ViewInspectionCapture {
         val command = ViewInspectorProtocol.Command.newBuilder()
             .setDumpViewsCommand(
                 ViewInspectorProtocol.DumpViewsCommand.newBuilder()
@@ -34,7 +34,7 @@ class ComposeInspectionClient(
         return viewAdapter.convert(packageName, clock.millis(), response.dumpViewsResponse)
     }
 
-    fun captureTree(rootViewIds: List<Long>): ComposeInspectionFrame {
+    override fun captureTree(rootViewIds: List<Long>): ComposeInspectionFrame {
         val frames = rootViewIds.map { rootViewId ->
             val command = LayoutInspectorComposeProtocol.Command.newBuilder()
                 .setGetComposablesCommand(

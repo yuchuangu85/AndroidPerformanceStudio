@@ -178,6 +178,8 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                         onSearchChange = controller::changeSearchText,
                         onMatchCaseChange = controller::changeMatchCase,
                         onUseRegexChange = controller::changeUseRegex,
+                        onClassifierSort = controller::sortClassifier,
+                        onSelectClassifier = controller::selectClassifier,
                     ),
                 language = language,
                 modifier = Modifier.weight(1f),

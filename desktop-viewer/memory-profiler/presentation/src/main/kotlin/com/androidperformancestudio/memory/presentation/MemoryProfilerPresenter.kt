@@ -16,7 +16,156 @@ public object MemoryProfilerPresenter {
             classes = sortedAll,
             displayedClasses = displayed,
             classListSummary = buildSummary(displayed, leakClasses, duplicateClasses),
+            classifierRows =
+                buildClassifierRows(
+                    displayed,
+                    input.arrangeBy,
+                    input.classifierSortColumn,
+                    input.classifierSortDirection,
+                ),
         )
+    }
+
+    /** Builds the same hierarchical classifier shape used by Android Studio. */
+    public fun buildClassifierRows(
+        classes: List<ClassStats>,
+        arrangeBy: MemoryArrangeBy,
+        sortColumn: MemoryClassifierColumn = MemoryClassifierColumn.NAME,
+        sortDirection: MemorySortDirection = MemorySortDirection.ASCENDING,
+    ): List<MemoryClassifierRow> {
+        if (arrangeBy == MemoryArrangeBy.CLASS) {
+            return sortRows(classes.map { leafRow(it) }, sortColumn, sortDirection)
+        }
+        val root = MutableTreeNode("")
+        classes.forEach { stats ->
+            val path =
+                when (arrangeBy) {
+                    MemoryArrangeBy.PACKAGE -> packagePath(stats.className)
+                    MemoryArrangeBy.CALLSTACK ->
+                        if (stats.allocationCallstack.isEmpty()) {
+                            listOf(
+                                "<unknown callstack>",
+                            )
+                        } else {
+                            stats.allocationCallstack
+                        }
+                    MemoryArrangeBy.ALLOCATION_METHOD -> listOf(stats.allocationMethod ?: "<unknown allocation method>")
+                    MemoryArrangeBy.CLASS -> listOf(stats.className)
+                }
+            var node = root
+            path.forEach { segment -> node = node.children.getOrPut(segment) { MutableTreeNode(segment) } }
+            node.leaves += stats
+        }
+        return sortRows(
+            root.children.values.map { it.toRow(0, it.label, sortColumn, sortDirection) },
+            sortColumn,
+            sortDirection,
+        )
+    }
+
+    /** Header text for the first classifier column, matching Android Studio's grouping. */
+    public fun firstColumnLabel(arrangeBy: MemoryArrangeBy): String =
+        when (arrangeBy) {
+            MemoryArrangeBy.CLASS -> "Class Name"
+            MemoryArrangeBy.PACKAGE -> "Package Name"
+            MemoryArrangeBy.CALLSTACK -> "Callstack Name"
+            MemoryArrangeBy.ALLOCATION_METHOD -> "Allocation Method"
+        }
+
+    private fun leafRow(
+        stats: ClassStats,
+        depth: Int = 0,
+    ): MemoryClassifierRow =
+        MemoryClassifierRow(
+            id = "class:${stats.className}",
+            label = stats.displayClassName,
+            className = stats.className,
+            moduleName = stats.moduleName,
+            allocations = stats.allocations,
+            deallocations = stats.deallocations,
+            totalCount = stats.totalCount ?: stats.instanceCount.toLong(),
+            nativeSize = stats.nativeSize,
+            shallowSize = stats.shallowSize,
+            retainedSize = stats.retainedSize,
+            allocationsSize = stats.allocationsSize,
+            deallocationsSize = stats.deallocationsSize,
+            shallowSizeChange = stats.shallowSizeChange,
+            depth = depth,
+        )
+
+    private class MutableTreeNode(
+        val label: String,
+    ) {
+        val children = linkedMapOf<String, MutableTreeNode>()
+        val leaves = mutableListOf<ClassStats>()
+
+        fun toRow(
+            depth: Int,
+            path: String,
+            sortColumn: MemoryClassifierColumn,
+            sortDirection: MemorySortDirection,
+        ): MemoryClassifierRow {
+            val childRows = children.values.map { it.toRow(depth + 1, "$path.${it.label}", sortColumn, sortDirection) }
+            val leafRows = leaves.map { leafRow(it, depth + 1) }
+            val all = sortRows(childRows + leafRows, sortColumn, sortDirection)
+            return MemoryClassifierRow(
+                id = "group:$path",
+                label = label,
+                totalCount = all.sumOf { it.totalCount },
+                allocations = all.mapNotNull { it.allocations }.takeIf { it.size == all.size }?.sum(),
+                deallocations = all.mapNotNull { it.deallocations }.takeIf { it.size == all.size }?.sum(),
+                nativeSize = all.mapNotNull { it.nativeSize }.takeIf { it.size == all.size }?.sum(),
+                shallowSize = all.sumOf { it.shallowSize },
+                retainedSize = all.mapNotNull { it.retainedSize }.takeIf { it.size == all.size }?.sum(),
+                allocationsSize = all.mapNotNull { it.allocationsSize }.takeIf { it.size == all.size }?.sum(),
+                deallocationsSize = all.mapNotNull { it.deallocationsSize }.takeIf { it.size == all.size }?.sum(),
+                shallowSizeChange = all.mapNotNull { it.shallowSizeChange }.takeIf { it.size == all.size }?.sum(),
+                depth = depth,
+                children = all,
+            )
+        }
+    }
+
+    @Suppress("CyclomaticComplexMethod")
+    private fun sortRows(
+        rows: List<MemoryClassifierRow>,
+        column: MemoryClassifierColumn,
+        direction: MemorySortDirection,
+    ): List<MemoryClassifierRow> {
+        fun <T : Comparable<T>> compareValues(selector: (MemoryClassifierRow) -> T?): Comparator<MemoryClassifierRow> =
+            Comparator { left, right ->
+                val leftValue = selector(left)
+                val rightValue = selector(right)
+                when {
+                    leftValue == null && rightValue == null -> 0
+                    leftValue == null -> 1
+                    rightValue == null -> -1
+                    direction == MemorySortDirection.ASCENDING -> leftValue.compareTo(rightValue)
+                    else -> rightValue.compareTo(leftValue)
+                }
+            }
+        val valueComparator =
+            when (column) {
+                MemoryClassifierColumn.NAME -> compareValues { it.label.lowercase() }
+                MemoryClassifierColumn.MODULE_NAME -> compareValues { it.moduleName?.lowercase() }
+                MemoryClassifierColumn.ALLOCATIONS -> compareValues { it.allocations }
+                MemoryClassifierColumn.DEALLOCATIONS -> compareValues { it.deallocations }
+                MemoryClassifierColumn.TOTAL_COUNT -> compareValues { it.totalCount }
+                MemoryClassifierColumn.NATIVE_SIZE -> compareValues { it.nativeSize }
+                MemoryClassifierColumn.SHALLOW_SIZE -> compareValues { it.shallowSize }
+                MemoryClassifierColumn.RETAINED_SIZE -> compareValues { it.retainedSize }
+                MemoryClassifierColumn.ALLOCATIONS_SIZE -> compareValues { it.allocationsSize }
+                MemoryClassifierColumn.DEALLOCATIONS_SIZE -> compareValues { it.deallocationsSize }
+                MemoryClassifierColumn.SHALLOW_SIZE_CHANGE -> compareValues { it.shallowSizeChange }
+            }
+        return rows.sortedWith(valueComparator.thenBy { it.label.lowercase() })
+    }
+
+    private fun packagePath(className: String): List<String> {
+        val segments = className.split('.')
+        if (segments.size <= 1) return listOf("<default package>")
+        // Include a node for every package component; the class is a leaf below the final node.
+        return segments.dropLast(1).ifEmpty { listOf("<default package>") }
     }
 
     public fun sortClasses(
@@ -156,6 +305,9 @@ public object MemoryProfilerPresenter {
             MemoryArrangeBy.PACKAGE ->
                 compareBy<ClassStats> { packageOf(it.className).lowercase() }
                     .thenBy { it.className.lowercase() }
+            MemoryArrangeBy.CALLSTACK,
+            MemoryArrangeBy.ALLOCATION_METHOD,
+            -> compareBy<ClassStats> { it.className.lowercase() }
         }
 
     private fun packageOf(className: String): String {

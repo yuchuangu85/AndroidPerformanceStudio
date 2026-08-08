@@ -32,6 +32,7 @@ class NetworkAnalyzerTest {
         assertEquals(2, summary.connectionReuse.reusedExchangeCount)
         assertEquals(1, summary.connectionReuse.newExchangeCount)
         assertTrue(summary.connectionReuse.reuseRateAmongKnown != null && summary.connectionReuse.reuseRateAmongKnown > 0.6)
+        assertEquals(11.5, summary.connectionReuse.avgConnectionHeldMs)
     }
 
     @Test

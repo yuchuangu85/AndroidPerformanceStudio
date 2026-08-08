@@ -27,9 +27,11 @@ internal class AdbFallbackCapture(
     private val packageName: String,
     private val processRunner: ProcessRunner,
     private val protocolCodec: ProtocolCodec = ProtocolCodec(supportedMajor = 1),
+    private val retrySleeper: (Long) -> Unit = Thread::sleep,
 ) {
     fun capture(): CaptureFrame = try {
-        val windows = captureHierarchy()
+        val hierarchy = captureHierarchy()
+        val windows = hierarchy.windows
         val defaultWindow = windows.maxBy { it.root.nodeCount() }
         val screenshotCapture = captureScreenshotOrNull()
         val display = screenshotCapture?.display ?: inferDisplay(windows)
@@ -40,6 +42,7 @@ internal class AdbFallbackCapture(
             display = display,
             capabilities = AgentCapabilities(
                 viewHierarchy = true,
+                composeSemantics = hierarchy.composeSemantics,
                 screenshots = screenshotCapture != null,
             ),
             root = defaultWindow.root,
@@ -75,32 +78,64 @@ internal class AdbFallbackCapture(
             density = 1f,
         )
 
-    private fun captureHierarchy(): List<WindowSnapshot> {
-        val visibleWindows = processRunner.run(
-            AdbCommandFactory.dumpVisibleWindowViews(serial),
-        )
-        if (visibleWindows.exitCode == 0) {
-            runCatching {
-                VisibleWindowHierarchyParser.parseWindows(
-                    zipBytes = visibleWindows.stdoutBytes,
-                    packageName = packageName,
-                )
-            }.getOrNull()?.let { return it }
+    private fun captureHierarchy(): CapturedHierarchy {
+        repeat(NATIVE_HIERARCHY_ATTEMPTS) { attempt ->
+            val visibleWindows = processRunner.run(
+                AdbCommandFactory.dumpVisibleWindowViews(serial),
+            )
+            if (visibleWindows.exitCode == 0) {
+                runCatching {
+                    VisibleWindowHierarchyParser.parseWindows(
+                        zipBytes = visibleWindows.stdoutBytes,
+                        packageName = packageName,
+                    )
+                }.getOrNull()?.let { nativeWindows ->
+                    return expandShallowComposeHierarchy(nativeWindows)
+                }
+            }
+            if (attempt < NATIVE_HIERARCHY_ATTEMPTS - 1) {
+                retrySleeper(NATIVE_HIERARCHY_RETRY_DELAY_MILLIS)
+            }
         }
-        val hierarchy = checkedRun(AdbCommandFactory.dumpHierarchy(serial)).stdout
-        val root = UiAutomatorHierarchyParser.parse(hierarchy)
-        return listOf(
-            WindowSnapshot(
-                id = "window:uiautomator",
-                title = packageName.substringAfterLast('.'),
-                type = WindowType.ACTIVITY,
-                bounds = root.bounds,
-                root = root,
+        return captureUiAutomatorHierarchy()
+    }
+
+    private fun expandShallowComposeHierarchy(nativeWindows: List<WindowSnapshot>): CapturedHierarchy {
+        val native = CapturedHierarchy(nativeWindows, composeSemantics = false)
+        if (nativeWindows.none { it.root.containsComposeHost() }) return native
+        val accessibility = runCatching { captureUiAutomatorHierarchy() }.getOrNull() ?: return native
+        return accessibility.takeIf {
+            it.composeSemantics && it.windows.sumOf { window -> window.root.nodeCount() } >
+                nativeWindows.sumOf { window -> window.root.nodeCount() }
+        } ?: native
+    }
+
+    private fun captureUiAutomatorHierarchy(): CapturedHierarchy {
+        val output = checkedRun(AdbCommandFactory.dumpHierarchy(serial)).stdout
+        val root = UiAutomatorHierarchyParser.parse(
+            output = output,
+            expectedPackageName = packageName,
+        )
+        return CapturedHierarchy(
+            windows = listOf(
+                WindowSnapshot(
+                    id = "window:uiautomator",
+                    title = packageName.substringAfterLast('.'),
+                    type = WindowType.ACTIVITY,
+                    bounds = root.bounds,
+                    root = root,
+                ),
             ),
+            composeSemantics = root.containsComposeHost(),
         )
     }
 
     private fun UiNode.nodeCount(): Int = 1 + children.sumOf { it.nodeCount() }
+
+    private fun UiNode.containsComposeHost(): Boolean =
+        className.endsWith(".ComposeView") ||
+            className.endsWith(".AndroidComposeView") ||
+            children.any { it.containsComposeHost() }
 
     private fun checkedRun(arguments: List<String>): ProcessResult =
         processRunner.run(arguments).also { result ->
@@ -111,12 +146,25 @@ internal class AdbFallbackCapture(
         val png: ByteArray,
         val display: DisplayInfo,
     )
+
+    private data class CapturedHierarchy(
+        val windows: List<WindowSnapshot>,
+        val composeSemantics: Boolean,
+    )
+
+    private companion object {
+        const val NATIVE_HIERARCHY_ATTEMPTS = 3
+        const val NATIVE_HIERARCHY_RETRY_DELAY_MILLIS = 75L
+    }
 }
 
 internal object UiAutomatorHierarchyParser {
     private val boundsPattern = Regex("""\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]""")
 
-    fun parse(output: String): UiNode {
+    fun parse(
+        output: String,
+        expectedPackageName: String? = null,
+    ): UiNode {
         val xml = output.substringBeforeLast("</hierarchy>", missingDelimiterValue = "")
             .takeIf { it.isNotBlank() }
             ?.plus("</hierarchy>")
@@ -130,11 +178,34 @@ internal object UiAutomatorHierarchyParser {
         }
         val document = factory.newDocumentBuilder()
             .parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
-        val root = document.documentElement.childNodes
+        val roots = document.documentElement.childNodes
             .asElementSequence()
-            .firstOrNull { it.tagName == "node" }
+            .filter { it.tagName == "node" }
+            .toList()
+        val root = expectedPackageName?.let { expected ->
+            roots.asSequence()
+                .flatMap { it.nodeDescendants() }
+                .firstOrNull { it.getAttribute("package") == expected }
+                ?: throw IllegalArgumentException(
+                    "UI Automator hierarchy belongs to " +
+                        roots.asSequence()
+                            .flatMap { it.nodeDescendants() }
+                            .map { it.getAttribute("package") }
+                            .filter(String::isNotBlank)
+                            .distinct()
+                            .joinToString().ifBlank { "an unknown package" } +
+                        ", not $expected",
+                )
+        } ?: roots.firstOrNull()
             ?: throw IllegalArgumentException("UI Automator hierarchy has no root node")
         return root.toViewNode("root")
+    }
+
+    private fun Element.nodeDescendants(): Sequence<Element> = sequence {
+        yield(this@nodeDescendants)
+        childNodes.asElementSequence()
+            .filter { it.tagName == "node" }
+            .forEach { child -> yieldAll(child.nodeDescendants()) }
     }
 
     private fun Element.toViewNode(path: String): ViewNode {

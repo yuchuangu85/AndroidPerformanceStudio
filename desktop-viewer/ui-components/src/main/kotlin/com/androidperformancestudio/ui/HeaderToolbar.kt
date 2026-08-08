@@ -18,6 +18,7 @@ import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.ui_components.generated.resources.Res
 import com.androidperformancestudio.ui_components.generated.resources.back_to_home
+import com.androidperformancestudio.ui_components.generated.resources.settings
 
 @Composable
 fun HeaderToolbar(
@@ -55,6 +56,7 @@ fun HeaderToolbar(
             Box(Modifier.fillMaxHeight().wrapContentWidth()) {
                 SettingsButton(
                     modifier = Modifier.align(Alignment.Center),
+                    contentDescription = localizedStringResource(Res.string.settings, language),
                 ) { onNavigateSettings() }
             }
         }

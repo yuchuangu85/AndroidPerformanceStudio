@@ -234,4 +234,15 @@
     <string name="detail_label_blending">Blending</string>
     <string name="detail_label_layer_cost">Layer cost</string>
     <string name="detail_label_semantics_role">Semantics role</string>
+
+    <!-- AI analysis dialogs -->
+    <string name="ai_analysis_dialog_title">Run AI Analysis</string>
+    <string name="ai_analysis_scope_selected_node">selected node</string>
+    <string name="ai_analysis_scope_report_summary">report summary</string>
+    <string name="ai_analysis_dialog_details">Scope: %1$s\nSource evidence: %2$d node(s)\nOnly locally resolved minimal snippets may be sent.</string>
+    <string name="ai_analysis_performance_data_only">Performance data only (do not upload source snippets)</string>
+    <string name="analyze">Analyze</string>
+
+    <string name="select_source_candidate">Select Source Candidate</string>
+    <string name="source_candidate">Candidate %1$d · %2$s</string>
 </resources>

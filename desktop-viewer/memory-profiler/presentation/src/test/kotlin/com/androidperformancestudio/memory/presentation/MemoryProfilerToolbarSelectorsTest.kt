@@ -1,8 +1,9 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
@@ -38,9 +39,9 @@ class MemoryProfilerToolbarSelectorsTest {
             assertEquals(device.height, process.height)
 
             onNodeWithContentDescription("Device selector").performClick()
-            onNodeWithText("Pixel 8").performClick()
+            onNode(hasText("Pixel 8") and isSelected()).performClick()
             onNodeWithContentDescription("Process selector").performClick()
-            onNodeWithText("com.example (42)").performClick()
+            onNode(hasText("com.example (42)") and isSelected()).performClick()
 
             assertEquals(listOf("device:emulator-5554", "process:42"), events)
         }

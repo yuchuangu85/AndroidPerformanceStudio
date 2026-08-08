@@ -3,6 +3,8 @@ package com.androidperformancestudio.frame.capture
 import com.androidperformancestudio.frame.agent.protocol.AgentExpectedDurationSource
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameBatch
 import com.androidperformancestudio.frame.agent.protocol.AgentFrameSample
+import com.androidperformancestudio.frame.agent.protocol.JANK_STATS_RULE_ID
+import com.androidperformancestudio.frame.agent.protocol.JANK_STATS_RULE_VERSION
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -28,6 +30,9 @@ class FrameMetricsAgentCaptureSessionTest {
                                         expectedDurationSource = AgentExpectedDurationSource.REFRESH_RATE,
                                         refreshRateHz = 120.0,
                                         frameTimelineVsyncId = 99,
+                                        platformJank = true,
+                                        platformJankRuleId = JANK_STATS_RULE_ID,
+                                        platformJankRuleVersion = JANK_STATS_RULE_VERSION,
                                     ),
                                     AgentFrameSample(
                                         sequence = 42,
@@ -54,6 +59,8 @@ class FrameMetricsAgentCaptureSessionTest {
             assertEquals(3L, batch.frames.first().droppedBeforeSample)
             assertEquals(120.0, batch.frames.first().refreshRateHz)
             assertEquals(99L, batch.frames.first().frameTimelineVsyncId)
+            assertEquals(JANK_STATS_RULE_ID, batch.frames.first().platformJankRuleId)
+            assertEquals(JANK_STATS_RULE_VERSION, batch.frames.first().platformJankRuleVersion)
             assertEquals(0L, batch.frames.last().droppedBeforeSample)
             assertEquals(
                 "REFRESH_RATE",

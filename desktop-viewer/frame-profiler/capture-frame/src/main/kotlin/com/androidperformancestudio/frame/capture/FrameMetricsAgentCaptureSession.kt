@@ -232,6 +232,8 @@ private fun AgentFrameSample.toFrameSample(
                 gpuNs = stages.gpuNs,
             ),
         platformJank = platformJank,
+        platformJankRuleId = platformJankRuleId,
+        platformJankRuleVersion = platformJankRuleVersion,
         states = states,
         eligibleForJank = eligibleForJank,
         droppedBeforeSample = droppedBeforeSample,

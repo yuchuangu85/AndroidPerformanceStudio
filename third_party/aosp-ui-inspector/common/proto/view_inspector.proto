@@ -311,5 +311,3 @@ message Response {
         DumpViewsResponse dump_views_response = 1;
     }
 }
-
-

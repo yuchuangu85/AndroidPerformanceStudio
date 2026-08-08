@@ -32,7 +32,7 @@ public final class InspectorLauncherTest {
   public void testStart_doesNotStartNewServerIfAlreadyRunning() throws Exception {
     AtomicInteger callCount = new AtomicInteger(0);
     CountDownLatch latch = new CountDownLatch(1);
-    
+
     Consumer<String> starter = pid -> {
       callCount.incrementAndGet();
       try {

@@ -285,6 +285,134 @@ class LiveDeviceClientTest {
     }
 
     @Test
+    fun `adb capture retries native visible windows before using uiautomator`() {
+        val unrelatedWindows = EncodedHierarchyFixture.zip("com.other.app")
+        val targetWindows = EncodedHierarchyFixture.zip("com.codemx.anrdemo")
+        val runner = fakeRunner(
+            visibleHierarchyResults = listOf(
+                ProcessResult(0, "", "", stdoutBytes = unrelatedWindows),
+                ProcessResult(0, "", "", stdoutBytes = targetWindows),
+            ),
+            hierarchyResult = ProcessResult(
+                exitCode = 1,
+                stdout = "",
+                stderr = "uiautomator must not be used when a native retry succeeds",
+            ),
+            screenshotResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = pngHeader(width = 1080, height = 2400),
+            ),
+        )
+
+        val frame = AdbFallbackCapture(
+            serial = "physical-1",
+            packageName = "com.codemx.anrdemo",
+            processRunner = runner,
+            retrySleeper = {},
+        ).capture()
+        val snapshot = ProtocolCodec(supportedMajor = 1).decodeSnapshot(frame.snapshotJson)
+
+        assertEquals("com.codemx.ui.RealRootLayout", snapshot.root.className)
+        assertEquals(2, runner.commands.count { command ->
+            command.takeLast(4) == listOf("exec-out", "cmd", "window", "dump-visible-window-views")
+        })
+        assertFalse(
+            runner.commands.any { command ->
+                command.takeLast(4) == listOf("exec-out", "uiautomator", "dump", "/dev/tty")
+            },
+        )
+    }
+
+    @Test
+    fun `adb capture rejects uiautomator hierarchy from another package`() {
+        val runner = fakeRunner(
+            hierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = """
+                    <?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+                    <hierarchy rotation="0">
+                      <node class="android.widget.FrameLayout" package="com.hihonor.aod"
+                        bounds="[0,0][1080,2400]" />
+                    </hierarchy>
+                """.trimIndent(),
+                stderr = "",
+            ),
+        )
+
+        val error = assertThrows(AdbFallbackUnavailableException::class.java) {
+            AdbFallbackCapture(
+                serial = "physical-1",
+                packageName = "com.codemx.anrdemo",
+                processRunner = runner,
+                retrySleeper = {},
+            ).capture()
+        }
+
+        assertTrue(error.cause?.message.orEmpty().contains("com.hihonor.aod"))
+        assertTrue(error.cause?.message.orEmpty().contains("com.codemx.anrdemo"))
+    }
+
+    @Test
+    fun `adb capture expands a shallow native Compose host with the richer uiautomator tree`() {
+        val runner = fakeRunner(
+            visibleHierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = EncodedHierarchyFixture.zip(
+                    packageName = "com.codemx.anrdemo",
+                    rootClassName = "android.widget.FrameLayout",
+                    childClassName = "androidx.compose.ui.platform.AndroidComposeView",
+                ),
+            ),
+            hierarchyResult = ProcessResult(
+                exitCode = 0,
+                stdout = """
+                    <?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+                    <hierarchy rotation="0">
+                      <node class="android.widget.FrameLayout" package="com.codemx.anrdemo"
+                        bounds="[0,0][1080,2400]">
+                        <node class="androidx.compose.ui.platform.ComposeView" package="com.codemx.anrdemo"
+                          bounds="[0,0][1080,2400]">
+                          <node text="性能测试" class="android.widget.TextView" package="com.codemx.anrdemo"
+                            bounds="[48,156][384,268]" />
+                          <node text="开始" class="android.widget.Button" package="com.codemx.anrdemo"
+                            bounds="[48,300][384,420]" />
+                        </node>
+                      </node>
+                    </hierarchy>
+                """.trimIndent(),
+                stderr = "",
+            ),
+            screenshotResult = ProcessResult(
+                exitCode = 0,
+                stdout = "",
+                stderr = "",
+                stdoutBytes = pngHeader(width = 1080, height = 2400),
+            ),
+        )
+
+        val frame = AdbFallbackCapture(
+            serial = "physical-1",
+            packageName = "com.codemx.anrdemo",
+            processRunner = runner,
+            retrySleeper = {},
+        ).capture()
+        val snapshot = ProtocolCodec(supportedMajor = 1).decodeSnapshot(frame.snapshotJson)
+
+        assertEquals("android.widget.FrameLayout", snapshot.root.className)
+        val composeView = snapshot.root.children.single()
+        assertEquals("androidx.compose.ui.platform.ComposeView", composeView.className)
+        assertEquals(
+            listOf("android.widget.TextView", "android.widget.Button"),
+            composeView.children.map { it.className },
+        )
+        assertTrue(snapshot.capabilities.composeSemantics)
+    }
+
+    @Test
     fun `explicit systemui connection falls back to visible window adb capture`() {
         val runner = fakeRunner(
             sessionResult = ProcessResult(
@@ -566,13 +694,14 @@ class LiveDeviceClientTest {
         sessionResult: ProcessResult = ProcessResult(0, SESSION_JSON, ""),
         visibleHierarchyResult: ProcessResult =
             ProcessResult(1, "", "visible-window hierarchy unavailable"),
+        visibleHierarchyResults: List<ProcessResult> = listOf(visibleHierarchyResult),
         hierarchyResult: ProcessResult = ProcessResult(1, "", "unexpected hierarchy request"),
         screenshotResult: ProcessResult = ProcessResult(1, "", "unexpected screenshot request"),
     ) = RecordingProcessRunner(
         devices,
         foreground,
         sessionResult,
-        visibleHierarchyResult,
+        visibleHierarchyResults,
         hierarchyResult,
         screenshotResult,
     )
@@ -581,11 +710,12 @@ class LiveDeviceClientTest {
         private val devices: String,
         private val foreground: String,
         private val sessionResult: ProcessResult,
-        private val visibleHierarchyResult: ProcessResult,
+        private val visibleHierarchyResults: List<ProcessResult>,
         private val hierarchyResult: ProcessResult,
         private val screenshotResult: ProcessResult,
     ) : ProcessRunner {
         val commands = mutableListOf<List<String>>()
+        private var visibleHierarchyRequestCount = 0
 
         override fun run(arguments: List<String>): ProcessResult {
             commands += arguments
@@ -596,7 +726,9 @@ class LiveDeviceClientTest {
                 arguments.any { it.endsWith("session.json") } -> sessionResult
                 arguments.takeLast(4) ==
                     listOf("exec-out", "cmd", "window", "dump-visible-window-views") ->
-                    visibleHierarchyResult
+                    visibleHierarchyResults[
+                        visibleHierarchyRequestCount.coerceAtMost(visibleHierarchyResults.lastIndex),
+                    ].also { visibleHierarchyRequestCount += 1 }
                 arguments.takeLast(4) == listOf("exec-out", "uiautomator", "dump", "/dev/tty") ->
                     hierarchyResult
                 arguments.takeLast(3) == listOf("exec-out", "screencap", "-p") -> screenshotResult

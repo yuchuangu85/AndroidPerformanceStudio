@@ -70,9 +70,6 @@
     <string name="view_live_telemetry">查看实时遥测</string>
     <string name="cpu_method_recording">CPU 方法录制</string>
     <string name="java_kotlin_allocations">Java/Kotlin 分配</string>
-    <string name="session_timeline">会话时间线</string>
-    <string name="session_timeline_subtitle">统一分析会话</string>
-    <string name="session_timeline_description">把各 profiler 的抓取产物归入一个会话、在统一时间线查看并在对应工具中打开。</string>
     <string name="text">%1$s: %2$s</string>
     <string name="opened_from_tool_for_correlation_only">Opened from %1$s for correlation only; no causal relationship is inferred.</string>
     <string name="simpleperf">Simpleperf</string>

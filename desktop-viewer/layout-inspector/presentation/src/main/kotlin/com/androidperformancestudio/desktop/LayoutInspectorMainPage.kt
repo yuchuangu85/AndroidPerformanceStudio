@@ -157,7 +157,7 @@ internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
 internal val FULL_COMPOSE_INSPECTION_VISIBLE: Boolean =
-    System.getProperty("agentperf.compose.full.enabled", "false").toBoolean()
+    System.getProperty("agentperf.compose.full.enabled", "true").toBoolean()
 
 private data class AuthorizedComposeTarget(
     val prepared: PreparedComposeInspection,
@@ -1269,17 +1269,29 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 var performanceOnly by remember(input) { mutableStateOf(false) }
                 AlertDialog(
                     onDismissRequest = { pendingAiAnalysisInput = null },
-                    title = { Text("Run AI Analysis") },
+                    title = { Text(localizedStringResource(Res.string.ai_analysis_dialog_title, uiLanguage)) },
                     text = {
                         Column {
+                            val analysisScope =
+                                localizedStringResource(
+                                    if (input.selectedNodeId == null) {
+                                        Res.string.ai_analysis_scope_report_summary
+                                    } else {
+                                        Res.string.ai_analysis_scope_selected_node
+                                    },
+                                    uiLanguage,
+                                )
                             Text(
-                                "Scope: ${if (input.selectedNodeId == null) "report summary" else "selected node"}\n" +
-                                    "Source evidence: ${input.sourceEvidence.size} node(s)\n" +
-                                    "Only locally resolved minimal snippets may be sent.",
+                                localizedStringResource(
+                                    Res.string.ai_analysis_dialog_details,
+                                    uiLanguage,
+                                    analysisScope,
+                                    input.sourceEvidence.size,
+                                ),
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = performanceOnly, onCheckedChange = { performanceOnly = it })
-                                Text("Performance data only (do not upload source snippets)")
+                                Text(localizedStringResource(Res.string.ai_analysis_performance_data_only, uiLanguage))
                             }
                         }
                     },
@@ -1287,10 +1299,12 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         TextButton(onClick = {
                             pendingAiAnalysisInput = null
                             performAiAnalysis(input.copy(includeSourceSnippets = !performanceOnly))
-                        }) { Text("Analyze") }
+                        }) { Text(localizedStringResource(Res.string.analyze, uiLanguage)) }
                     },
                     dismissButton = {
-                        TextButton(onClick = { pendingAiAnalysisInput = null }) { Text("Cancel") }
+                        TextButton(onClick = { pendingAiAnalysisInput = null }) {
+                            Text(localizedStringResource(Res.string.cancel, uiLanguage))
+                        }
                     },
                 )
             }
@@ -3022,7 +3036,7 @@ private fun FindingsPane(
     if (sourceCandidateChoices.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { sourceCandidateChoices = emptyList() },
-            title = { Text("Select Source Candidate") },
+            title = { Text(localizedStringResource(Res.string.select_source_candidate, language)) },
             text = {
                 Column {
                     sourceCandidateChoices.forEachIndexed { index, candidateId ->
@@ -3031,13 +3045,24 @@ private fun FindingsPane(
                                 sourceCandidateChoices = emptyList()
                                 onOpenSourceCandidate?.invoke(candidateId)
                             },
-                        ) { Text("Candidate ${index + 1} · ${candidateId.take(12)}") }
+                        ) {
+                            Text(
+                                localizedStringResource(
+                                    Res.string.source_candidate,
+                                    language,
+                                    index + 1,
+                                    candidateId.take(12),
+                                ),
+                            )
+                        }
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { sourceCandidateChoices = emptyList() }) { Text("Cancel") }
+                TextButton(onClick = { sourceCandidateChoices = emptyList() }) {
+                    Text(localizedStringResource(Res.string.cancel, language))
+                }
             },
         )
     }

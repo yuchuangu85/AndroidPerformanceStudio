@@ -1,6 +1,7 @@
 package com.androidperformancestudio.memory.analysis
 
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapObject
@@ -54,6 +55,25 @@ class MemoryHistogramAnalyzer {
         accumulate(heapDump.objectArrays)
         accumulate(heapDump.primitiveArrays)
 
+        // CLASS_DUMP records are live java.lang.Class objects too. Perflib (and therefore
+        // Android Studio) includes them in its classifier; omitting them makes both the object
+        // count and the java.lang.Class row diverge substantially on real app heaps.
+        val classObjectShallowSize =
+            heapDump.classes.firstOrNull { it.name == HeapClass.CLASS_OBJECT_CLASS_NAME }?.instanceSize ?: 0L
+        heapDump.classes.forEach { heapClass ->
+            if (heapName != null && heapDump.heapByObjectId[heapClass.objectId] != heapName) return@forEach
+            objectCount += 1
+            shallowSize += classObjectShallowSize
+            totalsByClass
+                .getOrPut(HeapClass.CLASS_OBJECT_CLASS_NAME, ::MutableClassTotals)
+                .add(
+                    heapClass.objectId,
+                    classObjectShallowSize,
+                    retainedSizes[heapClass.objectId],
+                    null,
+                )
+        }
+
         val grouped =
             totalsByClass
                 .map { (className, totals) ->
@@ -66,6 +86,12 @@ class MemoryHistogramAnalyzer {
                             deobfuscator?.obfuscatedName(className)?.takeIf { it != className },
                         hierarchyDepth = depthByName[className],
                         nativeSize = totals.nativeSize.takeIf { it > 0L },
+                        // A heap dump is a point-in-time classifier: the number of live objects
+                        // is the only allocation metric it can prove. Deallocations and deltas
+                        // intentionally remain unavailable instead of being fabricated.
+                        allocations = totals.instanceCount.toLong(),
+                        allocationsSize = totals.shallowSize,
+                        totalCount = totals.instanceCount.toLong(),
                     )
                 }.sortedWith(sort.comparator)
 

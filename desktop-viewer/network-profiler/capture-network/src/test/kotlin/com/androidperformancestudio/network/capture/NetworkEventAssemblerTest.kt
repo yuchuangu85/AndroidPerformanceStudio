@@ -28,7 +28,7 @@ class NetworkEventAssemblerTest {
         assertNotNull(call.exchanges.single().phases.firstOrNull { it.kind == NetworkPhaseKind.SERVER_WAIT })
         assertNull(call.exchanges.single().phases.firstOrNull { it.kind == NetworkPhaseKind.DNS })
         // Connection reused: no DNS, CONNECT, or TLS phases
-        assertTrue(call.exchanges.single().connectionReused)
+        assertEquals(ConnectionUse.REUSED, call.exchanges.single().connectionUse)
     }
 
     @Test
@@ -69,7 +69,7 @@ class NetworkEventAssemblerTest {
                 event(12, "callEnd", 22_000_000),
             )
         val call = NetworkEventAssembler().assemble(events).single()
-        assertFalse(call.exchanges.single().connectionReused)
+        assertEquals(ConnectionUse.NEW, call.exchanges.single().connectionUse)
         assertNotNull(call.exchanges.single().tlsHandshake)
         assertEquals("TLSv1.3", call.exchanges.single().tlsHandshake?.tlsVersion)
     }
@@ -92,7 +92,7 @@ class NetworkEventAssemblerTest {
         assertNotNull(held, "CONNECTION_HELD phase should be present")
         assertEquals(1, held.startNs)
         assertEquals(7_000_000, held.endNs)
-        assertTrue(call.exchanges.single().connectionReused)
+        assertEquals(ConnectionUse.REUSED, call.exchanges.single().connectionUse)
     }
 
     @Test
@@ -115,7 +115,7 @@ class NetworkEventAssemblerTest {
         )
         val call = NetworkEventAssembler().assemble(events).single()
         assertEquals(2, call.exchanges.size)
-        assertEquals(ConnectionUse.UNKNOWN, call.exchanges[0].connectionUse)
+        assertEquals(ConnectionUse.REUSED, call.exchanges[0].connectionUse)
         assertEquals(ConnectionUse.REUSED, call.exchanges[1].connectionUse)
     }
 

@@ -18,7 +18,6 @@ rootProject.name = "android-performance-studio"
 
 include(
     ":app-desktop",
-    ":adb-core",
     ":simpleperf-presentation",
     ":simpleperf-application",
     ":platform-toolchain",
@@ -37,7 +36,6 @@ include(
     ":method-recording-app",
 )
 
-project(":adb-core").projectDir = file("../platform-adb/adb-core")
 project(":simpleperf-presentation").projectDir = file("presentation")
 project(":simpleperf-application").projectDir = file("application")
 project(":simpleperf-storage-sqlite").projectDir = file("storage-sqlite")
@@ -49,4 +47,8 @@ project(":method-recording-app").projectDir = file("method-recording-app")
 
 includeBuild("../ui-components") {
     name = "simpleperf-ui-components"
+}
+
+includeBuild("../platform-adb") {
+    name = "simpleperf-platform-adb"
 }

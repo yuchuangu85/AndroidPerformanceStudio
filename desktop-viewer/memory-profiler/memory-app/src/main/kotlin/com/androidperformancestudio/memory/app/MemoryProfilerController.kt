@@ -33,6 +33,8 @@ import com.androidperformancestudio.memory.model.NativeHeapAnalysis
 import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.MemoryArrangeBy
 import com.androidperformancestudio.memory.presentation.MemoryClassScope
+import com.androidperformancestudio.memory.presentation.MemoryClassifierColumn
+import com.androidperformancestudio.memory.presentation.MemoryClassifierRow
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryInstanceDetail
@@ -43,6 +45,7 @@ import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.presentation.MemoryProfilerError
 import com.androidperformancestudio.memory.presentation.MemoryProfilerState
 import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
+import com.androidperformancestudio.memory.presentation.MemorySortDirection
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -266,6 +269,28 @@ internal class MemoryProfilerController(
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = className,
+                selectedClassifierId = "class:$className",
+                selectedClassifierLabel = className,
+                selectedClassInstances = instances,
+                selectedInstanceDetail = null,
+            )
+    }
+
+    fun selectClassifier(row: MemoryClassifierRow) {
+        val classNames = row.classNames()
+        val instances =
+            classNames
+                .flatMap { className ->
+                    instanceQuery
+                        ?.instancesOf(className, heapName = mutableState.value.heapFilter)
+                        .orEmpty()
+                }.sortedBy { it.objectId }
+                .map { it.toPresentation() }
+        mutableState.value =
+            mutableState.value.copy(
+                selectedClassName = row.className,
+                selectedClassifierId = row.id,
+                selectedClassifierLabel = row.label,
                 selectedClassInstances = instances,
                 selectedInstanceDetail = null,
             )
@@ -288,6 +313,8 @@ internal class MemoryProfilerController(
                 heapFilter = heap,
                 heapBaseClasses = base,
                 selectedClassName = null,
+                selectedClassifierId = null,
+                selectedClassifierLabel = null,
                 selectedClassInstances = emptyList(),
                 selectedInstanceDetail = null,
             )
@@ -315,6 +342,23 @@ internal class MemoryProfilerController(
 
     fun changeUseRegex(enabled: Boolean) {
         mutableState.value = mutableState.value.copy(useRegex = enabled)
+    }
+
+    fun sortClassifier(column: MemoryClassifierColumn) {
+        val current = mutableState.value
+        val direction =
+            if (current.classifierSortColumn == column) {
+                if (current.classifierSortDirection == MemorySortDirection.ASCENDING) {
+                    MemorySortDirection.DESCENDING
+                } else {
+                    MemorySortDirection.ASCENDING
+                }
+            } else if (column == MemoryClassifierColumn.NAME || column == MemoryClassifierColumn.MODULE_NAME) {
+                MemorySortDirection.ASCENDING
+            } else {
+                MemorySortDirection.DESCENDING
+            }
+        mutableState.value = current.copy(classifierSortColumn = column, classifierSortDirection = direction)
     }
 
     suspend fun dumpHeap() {
@@ -598,6 +642,8 @@ internal class MemoryProfilerController(
                         activityLeaks = result.value.heapDump.activityLeaks,
                         mappingLoaded = result.value.mapping != null,
                         selectedClassName = null,
+                        selectedClassifierId = null,
+                        selectedClassifierLabel = null,
                         selectedClassInstances = emptyList(),
                         selectedInstanceDetail = null,
                         availableHeaps = result.value.availableHeaps,
@@ -606,6 +652,9 @@ internal class MemoryProfilerController(
                         classScope = MemoryClassScope.ALL,
                         leakFilter = MemoryLeakFilter.NONE,
                         arrangeBy = MemoryArrangeBy.CLASS,
+                        availableArrangeBy = classifierGroupings(result.value.histogram.classes),
+                        classifierSortColumn = MemoryClassifierColumn.NAME,
+                        classifierSortDirection = MemorySortDirection.ASCENDING,
                         searchText = "",
                         matchCase = false,
                         useRegex = false,
@@ -640,6 +689,14 @@ internal class MemoryProfilerController(
         }
     }
 
+    private fun classifierGroupings(classes: List<ClassStats>): List<MemoryArrangeBy> =
+        buildList {
+            add(MemoryArrangeBy.CLASS)
+            add(MemoryArrangeBy.PACKAGE)
+            if (classes.any { it.allocationCallstack.isNotEmpty() }) add(MemoryArrangeBy.CALLSTACK)
+            if (classes.any { it.allocationMethod != null }) add(MemoryArrangeBy.ALLOCATION_METHOD)
+        }
+
     private fun showFailure(failure: MemoryBackendResult.Failure) {
         mutableState.value =
             mutableState.value.copy(
@@ -648,6 +705,8 @@ internal class MemoryProfilerController(
                 error = MemoryProfilerError(title = failure.title, detail = failure.detail),
             )
     }
+
+    private fun MemoryClassifierRow.classNames(): List<String> = className?.let(::listOf) ?: children.flatMap { it.classNames() }
 
     private fun InstanceQueryRow.toPresentation(): MemoryInstanceRow =
         MemoryInstanceRow(

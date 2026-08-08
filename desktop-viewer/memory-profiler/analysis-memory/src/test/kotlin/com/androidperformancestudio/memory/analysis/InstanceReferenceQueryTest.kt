@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.analysis
 
+import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapObjectArray
@@ -150,6 +151,25 @@ class InstanceReferenceQueryTest {
         assertEquals(listOf(1L), heapQuery.instancesOf("com.example.Widget", heapName = "App").map { it.objectId })
         assertEquals(listOf(2L), heapQuery.instancesOf("com.example.Widget", heapName = "Image").map { it.objectId })
         assertEquals(2, heapQuery.instancesOf("com.example.Widget").size)
+    }
+
+    @Test
+    fun `class dump records can be inspected through java lang Class row`() {
+        val query =
+            InstanceReferenceQuery(
+                HeapDump(
+                    classes =
+                        listOf(
+                            HeapClass(10, "java.lang.Class", instanceSize = 32),
+                            HeapClass(11, "com.example.Item", instanceSize = 24),
+                        ),
+                ),
+            )
+
+        val rows = query.instancesOf("java.lang.Class")
+        assertEquals(listOf(10L, 11L), rows.map { it.objectId })
+        assertEquals(listOf(32L, 32L), rows.map { it.shallowSize })
+        assertEquals("java.lang.Class", query.detailOf(11)?.className)
     }
 
     private fun instance(

@@ -55,6 +55,8 @@ class SqliteFrameSessionStoreTest {
                 stages = FrameStages(inputNs = 2L, drawNs = 8L, gpuNs = 4L),
                 platformJank = true,
                 platformJankTypes = setOf(JankType.PLATFORM_REPORTED),
+                platformJankRuleId = "jank-rule",
+                platformJankRuleVersion = "1.2.3",
                 eligibleForJank = false,
                 droppedBeforeSample = 3L,
                 layoutSnapshotId = "layout-1",

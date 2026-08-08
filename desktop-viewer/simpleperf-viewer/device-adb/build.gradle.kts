@@ -3,7 +3,7 @@ plugins {
 }
 
 dependencies {
-    api(project(":adb-core"))
+    api("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
     implementation(project(":simpleperf-application"))
     implementation(project(":profile-model"))
     implementation(project(":platform-toolchain"))

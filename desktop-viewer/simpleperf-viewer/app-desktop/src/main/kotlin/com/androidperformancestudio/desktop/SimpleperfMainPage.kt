@@ -25,6 +25,8 @@ import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.adb.AdbConfiguration
+import com.androidperformancestudio.app_desktop.generated.resources.Res
+import com.androidperformancestudio.app_desktop.generated.resources.*
 import com.androidperformancestudio.adb.AdbDeviceTargetGateway
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.application.DeviceOption
@@ -53,6 +55,7 @@ import com.androidperformancestudio.presentation.HomeScreen
 import com.androidperformancestudio.presentation.ReportActions
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -225,17 +228,21 @@ fun FrameWindowScope.SimpleperfMainPage(
         var performanceOnly by remember(report) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { pendingAiReport = null },
-            title = { Text("Run Simpleperf AI Analysis") },
+            title = { Text(localizedStringResource(Res.string.sp_ai_run_title, resolvedLanguage)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Scope: ${selectedSimpleperfScope(reportState, report)}\n" +
-                            "Evidence: ${report.topFunctions.size.coerceAtMost(20)} hotspot(s), ${report.overview.sampleCount} samples\n" +
-                            "Only deterministic source candidates and minimal snippets may be sent.",
+                        localizedStringResource(
+                            Res.string.sp_ai_run_details,
+                            resolvedLanguage,
+                            selectedSimpleperfScope(reportState, report, resolvedLanguage),
+                            report.topFunctions.size.coerceAtMost(20),
+                            report.overview.sampleCount,
+                        ),
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = performanceOnly, onCheckedChange = { performanceOnly = it })
-                        Text("Performance data only")
+                        Text(localizedStringResource(Res.string.sp_ai_performance_data_only, resolvedLanguage))
                     }
                 }
             },
@@ -261,41 +268,73 @@ fun FrameWindowScope.SimpleperfMainPage(
                             }
                         }
                     },
-                ) { Text("Analyze") }
+                ) { Text(localizedStringResource(Res.string.sp_ai_analyze, resolvedLanguage)) }
             },
-            dismissButton = { TextButton(onClick = { pendingAiReport = null }) { Text("Cancel") } },
+            dismissButton = {
+                TextButton(onClick = { pendingAiReport = null }) {
+                    Text(localizedStringResource(Res.string.sp_ai_cancel, resolvedLanguage))
+                }
+            },
         )
     }
     aiAnalysisResult?.let { result ->
         AlertDialog(
             onDismissRequest = { aiAnalysisResult = null },
-            title = { Text("AI Analysis · ${result.model}") },
+            title = {
+                Text(localizedStringResource(Res.string.sp_ai_result_title, resolvedLanguage, result.model))
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(result.summary)
                     result.findings.take(6).forEach { finding ->
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("${finding.title} (${(finding.confidence * 100).toInt()}%)")
+                            Text(
+                                "${finding.title} (" +
+                                    localizedStringResource(
+                                        Res.string.sp_ai_confidence,
+                                        resolvedLanguage,
+                                        (finding.confidence * 100).toInt(),
+                                    ) +
+                                    ")",
+                            )
                             Text(finding.explanation)
                             Text(finding.recommendation)
                             finding.sourceCandidateIds.forEachIndexed { index, candidateId ->
                                 TextButton(onClick = { onOpenSourceCandidate?.invoke(candidateId) }) {
-                                    Text(if (finding.sourceCandidateIds.size == 1) "Open Source" else "Open Source Candidate ${index + 1}")
+                                    Text(
+                                        if (finding.sourceCandidateIds.size == 1) {
+                                            localizedStringResource(Res.string.sp_ai_open_source, resolvedLanguage)
+                                        } else {
+                                            localizedStringResource(
+                                                Res.string.sp_ai_open_source_candidate,
+                                                resolvedLanguage,
+                                                index + 1,
+                                            )
+                                        },
+                                    )
                                 }
                             }
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { aiAnalysisResult = null }) { Text("Close") } },
+            confirmButton = {
+                TextButton(onClick = { aiAnalysisResult = null }) {
+                    Text(localizedStringResource(Res.string.sp_ai_close, resolvedLanguage))
+                }
+            },
         )
     }
     aiAnalysisError?.let { message ->
         AlertDialog(
             onDismissRequest = { aiAnalysisError = null },
-            title = { Text("AI Analysis Failed") },
+            title = { Text(localizedStringResource(Res.string.sp_ai_failed_title, resolvedLanguage)) },
             text = { Text(message) },
-            confirmButton = { TextButton(onClick = { aiAnalysisError = null }) { Text("Close") } },
+            confirmButton = {
+                TextButton(onClick = { aiAnalysisError = null }) {
+                    Text(localizedStringResource(Res.string.sp_ai_close, resolvedLanguage))
+                }
+            },
         )
     }
 }
@@ -304,17 +343,18 @@ fun FrameWindowScope.SimpleperfMainPage(
 private fun selectedSimpleperfScope(
     state: ReportState,
     report: com.androidperformancestudio.application.ReportData,
+    language: UiLanguage,
 ): String {
     state.workspace.selections.topFunctionKey
-        ?.let { return "function $it" }
+        ?.let { return localizedStringResource(Res.string.sp_ai_scope_function, language, it) }
     state.workspace.selections.callNodeId?.let { nodeId ->
         val index = report.flameGraph.callNodes.indexOf(nodeId)
         report.flameGraph.callNodes
             .frameAt(index ?: -1)
             ?.symbolName
-            ?.let { return "call node $it" }
+            ?.let { return localizedStringResource(Res.string.sp_ai_scope_call_node, language, it) }
     }
-    return "report summary"
+    return localizedStringResource(Res.string.sp_ai_scope_report_summary, language)
 }
 
 @Composable
