@@ -34,7 +34,9 @@
     <string name="confidence_partial">Partial</string>
     <string name="confidence_unknown">Unknown</string>
     <string name="completeness_complete">Complete</string>
+    <string name="confidence_approximated">Approximated</string>
     <string name="outcome_completed">Completed</string>
+    <string name="outcome_success">Success</string>
     <string name="outcome_failed">Failed</string>
     <string name="outcome_cancelled">Cancelled</string>
     <string name="outcome_incomplete">Incomplete</string>

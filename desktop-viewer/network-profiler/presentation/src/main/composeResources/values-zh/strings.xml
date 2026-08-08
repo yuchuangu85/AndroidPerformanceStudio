@@ -34,7 +34,9 @@
     <string name="confidence_partial">部分</string>
     <string name="confidence_unknown">未知</string>
     <string name="completeness_complete">完整</string>
+    <string name="confidence_approximated">近似</string>
     <string name="outcome_completed">已完成</string>
+    <string name="outcome_success">成功</string>
     <string name="outcome_failed">失败</string>
     <string name="outcome_cancelled">已取消</string>
     <string name="outcome_incomplete">未完成</string>

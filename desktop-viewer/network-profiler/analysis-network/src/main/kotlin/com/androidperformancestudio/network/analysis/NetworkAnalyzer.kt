@@ -1,6 +1,12 @@
 package com.androidperformancestudio.network.analysis
 
-import com.androidperformancestudio.network.model.*
+import com.androidperformancestudio.network.model.CacheDisposition
+import com.androidperformancestudio.network.model.CallOutcome
+import com.androidperformancestudio.network.model.ConnectionUse
+import com.androidperformancestudio.network.model.HttpCall
+import com.androidperformancestudio.network.model.HttpExchange
+import com.androidperformancestudio.network.model.NetworkEvidenceSource
+import com.androidperformancestudio.network.model.NetworkPhaseKind
 
 public data class PhaseSummary(
     val source: NetworkEvidenceSource,
@@ -9,13 +15,6 @@ public data class PhaseSummary(
     val missingCount: Int,
     val medianDurationMs: Double?,
     val p95DurationMs: Double?,
-)
-
-public data class ConnectionReuseSummary(
-    val newExchangeCount: Int,
-    val reusedExchangeCount: Int,
-    val unknownExchangeCount: Int,
-    val reuseRateAmongKnown: Double?,
 )
 
 public data class NetworkSummary(
@@ -37,6 +36,55 @@ public data class NetworkSummary(
     val largestObservedPhase: PhaseSummary?,
     val slowestCalls: List<HttpCall>,
     val missingTimingCount: Int,
+    /** Concurrency analysis results (sweep-line algorithm). */
+    val concurrency: ConcurrencySummary = ConcurrencySummary(),
+)
+
+/**
+ * Summary of connection reuse across all exchanges.
+ *
+ * An exchange is considered "reused" when it has no DNS, CONNECT, or TLS phases —
+ * the underlying TCP+TLS connection was taken from the pool.
+ */
+public data class ConnectionReuseSummary(
+    /** Total exchanges that established a new connection (cold). */
+    val newExchangeCount: Int,
+    /** Total exchanges that used a reused connection. */
+    val reusedExchangeCount: Int,
+    /** Exchanges whose connection use could not be determined. */
+    val unknownExchangeCount: Int,
+    /** Reuse ratio: reused / (reused + new), or null when no connections are known. */
+    val reuseRateAmongKnown: Double?,
+)
+
+/**
+ * Concurrency analysis via sweep-line algorithm.
+ *
+ * Each call's [startedNs, endedNs] interval contributes +1 at start and -1 at end.
+ * The sweep-line finds the peak concurrency and provides a time-series for
+ * visualization.
+ */
+public data class ConcurrencySummary(
+    /** Maximum number of concurrent in-flight calls at any point in time. */
+    val peakConcurrency: Int = 0,
+    /** Timestamp (ns) of the peak concurrency. */
+    val peakConcurrencyNs: Long? = null,
+    /** Average concurrent calls over the entire capture window. */
+    val avgConcurrency: Double? = null,
+    /**
+     * Concurrency timeline: pairs of (timestampNs, activeCount), one entry
+     * per concurrency change. Suitable for rendering as a step chart.
+     */
+    val timeline: List<ConcurrencyPoint> = emptyList(),
+)
+
+/**
+ * A single point in the concurrency timeline.
+ * [activeCount] is the number of in-flight calls at [timestampNs].
+ */
+public data class ConcurrencyPoint(
+    val timestampNs: Long,
+    val activeCount: Int,
 )
 
 public class NetworkAnalyzer {
@@ -70,6 +118,7 @@ public class NetworkAnalyzer {
             largestObservedPhase = phaseSummaries.filter { it.kind != NetworkPhaseKind.TOTAL }.maxByOrNull { it.medianDurationMs ?: -1.0 },
             slowestCalls = calls.sortedByDescending { it.durationNs ?: -1 }.take(20),
             missingTimingCount = calls.count { call -> call.endedNs == null || call.exchanges.any { exchange -> exchange.phases.none { it.kind == NetworkPhaseKind.TOTAL && it.durationNs != null } } },
+            concurrency = computeConcurrency(calls),
         )
     }
 
@@ -87,9 +136,60 @@ public class NetworkAnalyzer {
 
     private fun statusFamily(status: Int): String = if (status in 100..599) "${status / 100}xx" else "other"
 
+    /**
+     * Sweep-line algorithm for concurrent request counting.
+     *
+     * For each call with valid [startedNs, endedNs]:
+     * 1. Create +1 event at start, -1 event at end
+     * 2. Sort all events by timestamp (ties: -1 before +1 so end-of-frame is accurate)
+     * 3. Sweep through, tracking active count → peak + timeline
+     *
+     * Calls with null [endedNs] are excluded from the sweep.
+     */
+    private fun computeConcurrency(calls: List<HttpCall>): ConcurrencySummary {
+        val events = calls.mapNotNull { call ->
+            val end = call.endedNs ?: return@mapNotNull null
+            if (end <= call.startedNs) return@mapNotNull null
+            listOf(
+                ConcurrencyEvent(call.startedNs, +1),
+                ConcurrencyEvent(end, -1),
+            )
+        }.flatten().sortedWith(compareBy({ it.timestampNs }, { it.delta }))
+
+        if (events.isEmpty()) return ConcurrencySummary()
+
+        val timeline = mutableListOf<ConcurrencyPoint>()
+        var active = 0
+        var peak = 0
+        var peakNs = 0L
+        var weightedSum = 0.0
+        var lastTs = events.first().timestampNs
+
+        for (event in events) {
+            // Weighted sum contribution from [lastTs, event.timestampNs)
+            if (event.timestampNs > lastTs) {
+                weightedSum += active.toDouble() * (event.timestampNs - lastTs)
+            }
+            active += event.delta
+            timeline.add(ConcurrencyPoint(event.timestampNs, active))
+            if (active > peak) {
+                peak = active
+                peakNs = event.timestampNs
+            }
+            lastTs = event.timestampNs
+        }
+
+        val totalNs = lastTs - events.first().timestampNs
+        val avg = if (totalNs > 0) weightedSum / totalNs else active.toDouble()
+
+        return ConcurrencySummary(peak, peakNs.takeIf { peak > 0 }, avg, timeline)
+    }
+
     private fun percentile(values: List<Double>, fraction: Double): Double? {
         if (values.isEmpty()) return null
         val index = ((values.size - 1) * fraction).toInt().coerceIn(values.indices)
         return values[index]
     }
+
+    private data class ConcurrencyEvent(val timestampNs: Long, val delta: Int)
 }

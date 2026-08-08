@@ -10,6 +10,48 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
+/**
+ * Parses HAR (HTTP Archive) files and converts them into the internal
+ * [NetworkCaptureResult] model.
+ *
+ * ## HAR timings → NetworkPhaseKind mapping
+ *
+ * | HAR timing | NetworkPhaseKind     | Confidence | Notes                                      |
+ * |------------|----------------------|------------|---------------------------------------------|
+ * | blocked    | DISPATCHER_QUEUE     | INFERRED   | Blocked/stalled time before the request     |
+ * | dns        | DNS                  | INFERRED   | -1 means DNS was unavailable (not zero)     |
+ * | connect    | CONNECT              | INFERRED   | TCP connect only; TLS is separate (ssl)     |
+ * | ssl        | TLS                  | INFERRED   | -1 means no TLS / reused connection         |
+ * | send       | REQUEST_BODY         | INFERRED   | In Chrome this includes request header time |
+ * | wait       | SERVER_WAIT          | INFERRED   | Time to first byte (TTFB)                   |
+ * | receive    | RESPONSE_BODY        | INFERRED   | Response body download time                 |
+ * | (omitted)  | REQUEST_HEADERS      | —          | HAR does not separate headers from body     |
+ * | (omitted)  | RESPONSE_HEADERS     | —          | HAR does not separate headers from body     |
+ *
+ * All HAR-derived phases use [NetworkConfidence.INFERRED] because HAR
+ * timings are wall-clock-based and may be collected by different tools
+ * (Chrome DevTools, Fiddler, Charles Proxy) with varying precision and
+ * starting points.
+ *
+ * ### Creator-specific handling
+ *
+ * Different HAR producers have subtle differences in timing semantics:
+ * - **Chrome DevTools**: `send` includes request header time; `blocked`
+ *   includes proxy negotiation and queue time.
+ * - **Fiddler**: `send` starts after Fiddler receives the full request, so
+ *   server-side processing may already be in-flight.
+ * - **Charles Proxy**: `connect` may include SSL time when `ssl` is -1.
+ *
+ * These differences are recorded in the session's `coverage.observedLibraries`
+ * field as `"<creator.name> <creator.version>"` to aid interpretation.
+ *
+ * ### Connection reuse detection
+ *
+ * HAR entries with `dns=-1`, `connect=-1`, and `ssl=-1` are marked as
+ * [HttpExchange.connectionReused] = true (connection taken from pool).
+ *
+ * @param maxBytes maximum HAR file size in bytes (default 512 MiB).
+ */
 public class HarParser(
     private val maxBytes: Long = 512L * 1024L * 1024L,
 ) {
@@ -125,6 +167,11 @@ public class HarParser(
         val unknownTimings = timings.entries.mapNotNull { (name, value) ->
             if (name in knownTimingNames || (value as? JsonPrimitive)?.doubleOrNull == null) null else "har.timings.$name" to value.content
         }.toMap()
+        // Connection reuse detection: dns=-1, connect=-1, ssl=-1 → reused from pool
+        val dnsMs = timings.double("dns")?.takeIf { it >= 0 }
+        val connectMs = timings.double("connect")?.takeIf { it >= 0 }
+        val sslMs = timings.double("ssl")?.takeIf { it >= 0 }
+        val connectionReused = dnsMs == null && connectMs == null && sslMs == null
         val call = HttpCall(
             callId = entry.string("_requestId") ?: "har-$index",
             instrumentationId = null,
@@ -148,6 +195,7 @@ public class HarParser(
                     requestHeaders = requestHeaders,
                     responseHeaders = responseHeaders,
                     sourceAttributes = unknownTimings,
+                    connectionReused = connectionReused,
                 ),
             ),
             outcome = when {
@@ -204,3 +252,5 @@ private fun JsonObject.double(name: String): Double? = this[name]?.jsonPrimitive
 private fun JsonObject.int(name: String): Int? = this[name]?.jsonPrimitive?.intOrNull
 
 private fun JsonObject.long(name: String): Long? = this[name]?.jsonPrimitive?.longOrNull
+
+private fun parseInstant(value: String): Instant = runCatching { Instant.parse(value) }.getOrDefault(Instant.EPOCH)

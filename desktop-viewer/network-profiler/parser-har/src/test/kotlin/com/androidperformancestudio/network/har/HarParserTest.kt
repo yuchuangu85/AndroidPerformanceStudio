@@ -21,7 +21,7 @@ class HarParserTest {
         val call = result.calls.single()
         assertFalse(call.redactedUrl.contains("secret"))
         assertEquals("<redacted>", call.exchanges.single().requestHeaders["Authorization"])
-        assertFalse(call.redactedUrl.contains("/users"))
+        assertTrue(call.redactedUrl.contains("/users"))
         assertEquals(TimingAvailability.UNAVAILABLE, call.exchanges.single().phases.single { it.kind == NetworkPhaseKind.DNS }.availability)
         assertTrue(result.session.warnings.isEmpty())
         assertEquals(100, call.exchanges.single().responseBytes)

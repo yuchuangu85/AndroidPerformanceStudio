@@ -206,6 +206,30 @@ public data class NetworkAssemblyResult(
     val unpairedEvents: Int,
 )
 
+/**
+ * Assembles raw [AgentNetworkEvent] streams into structured [HttpCall] objects.
+ *
+ * ## Phase calculation summary
+ *
+ * Each [NetworkPhase] is derived from specific EventListener callback pairs:
+ * - **DISPATCHER_QUEUE**: `callStart` → first of `dnsStart`/`connectStart` (APPROXIMATED)
+ * - **DNS**: `dnsStart` → `dnsEnd` (EXACT; absent for reused connections)
+ * - **CONNECT**: `connectStart` → `connectEnd` (EXACT; TCP only, absent for reused connections)
+ * - **TLS**: `secureConnectStart` → `secureConnectEnd` (EXACT; absent for plaintext/reused)
+ * - **REQUEST_HEADERS**: `requestHeadersStart` → `requestHeadersEnd` (EXACT)
+ * - **REQUEST_BODY**: `requestBodyStart` → `requestBodyEnd` (EXACT; absent if no body)
+ * - **SERVER_WAIT**: `max(requestBodyEnd, requestHeadersEnd)` → `responseHeadersStart` (DERIVED)
+ * - **RESPONSE_HEADERS**: `responseHeadersStart` → `responseHeadersEnd` (EXACT)
+ * - **RESPONSE_BODY**: `responseBodyStart` → `responseBodyEnd` (EXACT; absent if no body)
+ * - **CONNECTION_HELD**: `connectionAcquired` → `connectionReleased` (EXACT)
+ * - **TOTAL**: first event's monotonicNs → last event's monotonicNs (EXACT or PARTIAL)
+ *
+ * ### Connection reuse detection
+ *
+ * An exchange whose phases contain no DNS, CONNECT, or TLS phases is marked
+ * as `connectionReused = true`. This indicates the underlying TCP+TLS
+ * connection was taken from the connection pool rather than established fresh.
+ */
 public class NetworkEventAssembler {
     public fun assemble(events: List<AgentNetworkEvent>, timeOriginNs: Long = 0): List<HttpCall> = assembleWithDiagnostics(events, timeOriginNs).calls
 
@@ -265,6 +289,12 @@ public class NetworkEventAssembler {
     private fun assembleExchange(events: List<AgentNetworkEvent>, index: Int, originNs: Long): Pair<HttpExchange, Int> {
         val phases = mutableListOf<NetworkPhase>()
         var unpaired = 0
+        // DISPATCHER_QUEUE: callStart → first of dnsStart/connectStart (APPROXIMATED)
+        val callStart = events.firstOrNull { it.kind == "callStart" }
+        val firstAfterStart = events.firstOrNull { it.kind in setOf("dnsStart", "connectStart", "requestHeadersStart") && (callStart == null || it.monotonicNs >= callStart.monotonicNs) }
+        if (callStart != null && firstAfterStart != null && firstAfterStart.monotonicNs > callStart.monotonicNs) {
+            phases += NetworkPhase(NetworkPhaseKind.DISPATCHER_QUEUE, callStart.relative(originNs), firstAfterStart.relative(originNs), NetworkConfidence.APPROXIMATED)
+        }
         listOf(
             PhasePair("proxySelectStart", setOf("proxySelectEnd"), NetworkPhaseKind.PROXY_SELECT, null),
             PhasePair("dnsStart", setOf("dnsEnd"), NetworkPhaseKind.DNS, null),
@@ -310,6 +340,7 @@ public class NetworkEventAssembler {
             cacheDisposition = cache,
             failure = failureEvent?.let { failure -> NetworkFailure(failure.kind, failure.message, events.getOrNull(events.indexOf(failure) - 1)?.kind) },
             tlsHandshake = tlsEvent?.let { TlsHandshake(it.tlsVersion, it.cipherSuite, NetworkConfidence.EXACT) },
+            connectionReused = phases.none { it.kind in setOf(NetworkPhaseKind.DNS, NetworkPhaseKind.CONNECT, NetworkPhaseKind.TLS) },
         ) to unpaired
     }
 

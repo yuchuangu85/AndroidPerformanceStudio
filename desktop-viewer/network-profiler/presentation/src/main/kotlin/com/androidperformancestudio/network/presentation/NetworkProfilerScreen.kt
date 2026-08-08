@@ -164,6 +164,7 @@ private fun NetworkConfidence.displayName(language: UiLanguage): String =
             NetworkConfidence.EXACT -> Res.string.confidence_exact
             NetworkConfidence.DERIVED -> Res.string.confidence_derived
             NetworkConfidence.INFERRED -> Res.string.confidence_inferred
+            NetworkConfidence.APPROXIMATED -> Res.string.confidence_approximated
             NetworkConfidence.PARTIAL -> Res.string.confidence_partial
             NetworkConfidence.UNKNOWN -> Res.string.confidence_unknown
         },
