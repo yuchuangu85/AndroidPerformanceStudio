@@ -157,7 +157,7 @@ internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
 internal val FULL_COMPOSE_INSPECTION_VISIBLE: Boolean =
-    System.getProperty("agentperf.compose.full.enabled", "false").toBoolean()
+    System.getProperty("agentperf.compose.full.enabled", "true").toBoolean()
 
 private data class AuthorizedComposeTarget(
     val prepared: PreparedComposeInspection,
