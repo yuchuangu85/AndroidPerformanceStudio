@@ -17,6 +17,8 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing_ad13e4da
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.loading_session
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_java_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.mapping_imported
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_capture_native_heap
@@ -150,6 +152,18 @@ internal interface MemoryProfilerBackend {
         MemoryBackendResult.Failure(
             title = "Native heap capture unavailable",
             detail = "The selected backend does not support heapprofd captures.",
+        )
+
+    suspend fun importNativeHeap(file: Path): MemoryBackendResult<LoadedNativeHeap> =
+        MemoryBackendResult.Failure(
+            title = "Native heap import unavailable",
+            detail = "The selected backend does not support importing native heap traces.",
+        )
+
+    suspend fun importJavaHeap(file: Path): MemoryBackendResult<LoadedHeap> =
+        MemoryBackendResult.Failure(
+            title = "Java heap import unavailable",
+            detail = "The selected backend does not support importing java_hprof traces.",
         )
 
     fun exportNativeHeap(
@@ -468,6 +482,50 @@ internal class MemoryProfilerController(
                     else -> applyLoadedResult(MemoryBackendResult.Success(heap))
                 }
         }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun importNativeHeap(file: Path) {
+        mutableState.value =
+            mutableState.value.copy(
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.importing, language, file.fileName),
+                error = null,
+            )
+        val result =
+            try {
+                backend.importNativeHeap(file)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.unable_to_import_native_heap, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        applyNativeHeapResult(result)
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun importJavaHeap(file: Path) {
+        mutableState.value =
+            mutableState.value.copy(
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.importing, language, file.fileName),
+                error = null,
+            )
+        val result =
+            try {
+                backend.importJavaHeap(file)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.unable_to_import_java_heap, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        applyLoadedResult(result)
     }
 
     suspend fun refreshSessions() {

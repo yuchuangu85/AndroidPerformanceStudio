@@ -15,7 +15,9 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.export
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_standard_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.file
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof_menu
+import com.androidperformancestudio.memory.memory_app.generated.resources.import_java_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_mapping_menu
+import com.androidperformancestudio.memory.memory_app.generated.resources.import_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.no_recent_sessions
 import com.androidperformancestudio.memory.memory_app.generated.resources.recent_sessions
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
@@ -29,6 +31,10 @@ internal data class MemoryProfilerFileMenuModel(
     val importLabel: String,
     val importMappingLabel: String = "Import mapping.txt…",
     val importMappingEnabled: Boolean = false,
+    val importNativeHeapLabel: String = "Import native heap trace…",
+    val importNativeHeapEnabled: Boolean = false,
+    val importJavaHeapLabel: String = "Import Java heap…",
+    val importJavaHeapEnabled: Boolean = false,
     val exportTitle: String,
     val exportRawHprofLabel: String,
     val exportStandardHprofLabel: String,
@@ -60,6 +66,8 @@ internal fun memoryProfilerFileMenuModel(
     bitmapComparisonExportEnabled: Boolean = false,
     recentSessions: List<MemorySessionMetadata> = emptyList(),
     importMappingEnabled: Boolean = false,
+    importNativeHeapEnabled: Boolean = false,
+    importJavaHeapEnabled: Boolean = false,
     exportNativeHeapEnabled: Boolean = false,
 ): MemoryProfilerFileMenuModel =
     MemoryProfilerFileMenuModel(
@@ -67,6 +75,10 @@ internal fun memoryProfilerFileMenuModel(
         importLabel = localizedStringResource(Res.string.import_hprof_menu, language),
         importMappingLabel = localizedStringResource(Res.string.import_mapping_menu, language),
         importMappingEnabled = importMappingEnabled,
+        importNativeHeapLabel = localizedStringResource(Res.string.import_native_heap, language),
+        importNativeHeapEnabled = importNativeHeapEnabled,
+        importJavaHeapLabel = localizedStringResource(Res.string.import_java_heap, language),
+        importJavaHeapEnabled = importJavaHeapEnabled,
         exportNativeHeapLabel = localizedStringResource(Res.string.export_native_heap_trace, language),
         exportNativeHeapEnabled = exportNativeHeapEnabled,
         exportTitle = localizedStringResource(Res.string.export, language),
@@ -93,6 +105,8 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     model: MemoryProfilerFileMenuModel,
     onImportHprof: () -> Unit,
     onImportMapping: () -> Unit = {},
+    onImportNativeHeap: () -> Unit = {},
+    onImportJavaHeap: () -> Unit = {},
     onExportRawHprof: () -> Unit,
     onExportStandardHprof: () -> Unit,
     onExportCsv: () -> Unit,
@@ -112,6 +126,16 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
                 text = model.importMappingLabel,
                 enabled = model.importMappingEnabled,
                 onClick = onImportMapping,
+            )
+            Item(
+                text = model.importNativeHeapLabel,
+                enabled = model.importNativeHeapEnabled,
+                onClick = onImportNativeHeap,
+            )
+            Item(
+                text = model.importJavaHeapLabel,
+                enabled = model.importJavaHeapEnabled,
+                onClick = onImportJavaHeap,
             )
             Menu(model.recentSessionsTitle, enabled = model.recentSessionsEnabled) {
                 if (model.recentSessions.isEmpty()) {

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="method_recording">Method Recording</string>
+    <string name="back_to_home">Back to home</string>
+    <string name="capture">Capture</string>
+    <string name="stop">Stop</string>
+    <string name="import_trace">Import .trace…</string>
+    <string name="select_device">Select device</string>
+    <string name="select_process">Select process</string>
+    <string name="device_selector">Device selector</string>
+    <string name="process_selector">Process selector</string>
+    <string name="refresh_devices">Refresh Devices</string>
+    <string name="no_devices">No devices</string>
+    <string name="no_processes">No processes</string>
+    <string name="no_trace_loaded">Import or capture a .trace file to analyze Java/Kotlin method execution.</string>
+    <string name="working">Working…</string>
+    <string name="adb_not_found">Android SDK Platform Tools not found. Install it to capture from a device; importing .trace files still works.</string>
+    <string name="function">Function</string>
+    <string name="self_time">Self</string>
+    <string name="total_time">Total</string>
+    <string name="calls">Calls</string>
+    <string name="capture_failed">Method trace capture failed</string>
+    <string name="trace_label">%1$s · %2$s</string>
+</resources>

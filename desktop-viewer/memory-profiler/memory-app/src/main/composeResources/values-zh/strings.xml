@@ -24,6 +24,12 @@
     <string name="capture_native_heap">抓取 Native 堆</string>
     <string name="capturing_native_heap">正在抓取 %1$s 的 Native 堆（heapprofd，约 10 秒）…</string>
     <string name="unable_to_capture_native_heap">Native 堆抓取失败</string>
+    <string name="import_native_heap">导入 Native 堆 trace…</string>
+    <string name="unable_to_import_native_heap">Native 堆 trace 导入失败</string>
+    <string name="native_heap_trace_file_not_found">未找到 Native 堆 trace 文件</string>
+    <string name="import_java_heap">导入 Java 堆…</string>
+    <string name="unable_to_import_java_heap">Java 堆导入失败</string>
+    <string name="java_heap_file_not_found">未找到 Java 堆 trace 文件</string>
     <string name="export_native_heap_trace">导出 Native 堆 trace</string>
     <string name="recent_sessions">最近会话</string>
     <string name="no_recent_sessions">暂无最近会话</string>

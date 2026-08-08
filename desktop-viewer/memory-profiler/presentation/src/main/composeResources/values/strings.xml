@@ -57,6 +57,11 @@
     <string name="capture_native_heap">Capture Native Heap</string>
     <string name="native_heap_total">total allocated %1$s · freed %2$s · %3$s samples</string>
     <string name="native_heap_allocation_entry">%1$s · %2$s allocated · %3$s allocs</string>
+    <string name="native_function">Function</string>
+    <string name="allocated">Allocated</string>
+    <string name="freed">Freed</string>
+    <string name="allocs">Allocs</string>
+    <string name="frees">Frees</string>
     <string name="dashboard">Dashboard</string>
     <string name="class_list">Class List</string>
     <string name="filter_classes">Filter classes</string>
@@ -91,6 +96,7 @@
     <string name="allocations">Allocations</string>
     <string name="native_size">Native Size</string>
     <string name="instance_list">Instance List</string>
+    <string name="references">References</string>
     <string name="leaks_summary">%1$s leaks</string>
     <string name="duplicates_summary">%1$s duplicates</string>
 </resources>

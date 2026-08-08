@@ -23,7 +23,9 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.back_to_home
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_memory_profiler_data
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof
+import com.androidperformancestudio.memory.memory_app.generated.resources.import_java_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_mapping
+import com.androidperformancestudio.memory.memory_app.generated.resources.import_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
 import com.androidperformancestudio.memory.presentation.MemoryProfilerCaptureNativeHeapButton
@@ -42,6 +44,7 @@ import java.awt.Component
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
+import java.nio.file.Path
 import javax.swing.JFileChooser
 
 @Composable
@@ -50,6 +53,8 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
     highlightClassName: String? = null,
+    initialImportFile: Path? = null,
+    initialImportIsJavaHeap: Boolean = false,
 ) {
     val controller =
         remember(language) {
@@ -60,11 +65,22 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     val loaded = controller.loadedHeap
     var showHprofFileDialog by remember { mutableStateOf(false) }
     var showMappingFileDialog by remember { mutableStateOf(false) }
+    var showNativeHeapFileDialog by remember { mutableStateOf(false) }
+    var showJavaHeapFileDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(controller) { controller.refreshDevices() }
     LaunchedEffect(controller) { controller.refreshSessions() }
     LaunchedEffect(highlightClassName) {
         highlightClassName?.let(controller::highlightClass)
+    }
+    LaunchedEffect(initialImportFile, initialImportIsJavaHeap) {
+        initialImportFile?.let { file ->
+            if (initialImportIsJavaHeap) {
+                controller.importJavaHeap(file)
+            } else {
+                controller.importHprof(file)
+            }
+        }
     }
 
     MemoryProfilerFileMenuBar(
@@ -79,10 +95,14 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 bitmapComparisonExportEnabled = state.bitmapDumpComparison != null,
                 recentSessions = controller.recentSessions,
                 importMappingEnabled = !state.isDumping,
+                importNativeHeapEnabled = !state.isDumping,
+                importJavaHeapEnabled = !state.isDumping,
                 exportNativeHeapEnabled = state.nativeHeapTrace != null,
             ),
         onImportHprof = { showHprofFileDialog = true },
         onImportMapping = { showMappingFileDialog = true },
+        onImportNativeHeap = { showNativeHeapFileDialog = true },
+        onImportJavaHeap = { showJavaHeapFileDialog = true },
         onExportNativeHeap = {
             chooseSaveFile(window, "native-heap.pb", language)?.let(controller::exportNativeHeap)
         },
@@ -194,6 +214,36 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             },
         )
     }
+
+    if (showNativeHeapFileDialog) {
+        NativeHeapOpenFileDialog(
+            parent = window,
+            language = language,
+            onCloseRequest = { selectedFile ->
+                showNativeHeapFileDialog = false
+                if (selectedFile != null) {
+                    scope.launch {
+                        controller.importNativeHeap(selectedFile.toPath())
+                    }
+                }
+            },
+        )
+    }
+
+    if (showJavaHeapFileDialog) {
+        JavaHeapOpenFileDialog(
+            parent = window,
+            language = language,
+            onCloseRequest = { selectedFile ->
+                showJavaHeapFileDialog = false
+                if (selectedFile != null) {
+                    scope.launch {
+                        controller.importJavaHeap(selectedFile.toPath())
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -234,6 +284,61 @@ private fun HprofOpenFileDialog(
                 init {
                     isMultipleMode = false
                     filenameFilter = java.io.FilenameFilter { _, name -> name.endsWith(".hprof", ignoreCase = true) }
+                }
+
+                override fun setVisible(value: Boolean) {
+                    super.setVisible(value)
+                    if (value) {
+                        onCloseRequest(files.firstOrNull())
+                    }
+                }
+            }
+        },
+        dispose = FileDialog::dispose,
+    )
+}
+
+@Composable
+private fun NativeHeapOpenFileDialog(
+    parent: Frame,
+    language: UiLanguage,
+    onCloseRequest: (File?) -> Unit,
+) {
+    AwtWindow(
+        create = {
+            object : FileDialog(parent, localizedStringResource(Res.string.import_native_heap, language), FileDialog.LOAD) {
+                init {
+                    isMultipleMode = false
+                    filenameFilter = java.io.FilenameFilter { _, name -> name.endsWith(".pb", ignoreCase = true) }
+                }
+
+                override fun setVisible(value: Boolean) {
+                    super.setVisible(value)
+                    if (value) {
+                        onCloseRequest(files.firstOrNull())
+                    }
+                }
+            }
+        },
+        dispose = FileDialog::dispose,
+    )
+}
+
+@Composable
+private fun JavaHeapOpenFileDialog(
+    parent: Frame,
+    language: UiLanguage,
+    onCloseRequest: (File?) -> Unit,
+) {
+    AwtWindow(
+        create = {
+            object : FileDialog(parent, localizedStringResource(Res.string.import_java_heap, language), FileDialog.LOAD) {
+                init {
+                    isMultipleMode = false
+                    filenameFilter =
+                        java.io.FilenameFilter { _, name ->
+                            name.endsWith(".pb", ignoreCase = true) || name.endsWith(".perfetto-trace", ignoreCase = true)
+                        }
                 }
 
                 override fun setVisible(value: Boolean) {

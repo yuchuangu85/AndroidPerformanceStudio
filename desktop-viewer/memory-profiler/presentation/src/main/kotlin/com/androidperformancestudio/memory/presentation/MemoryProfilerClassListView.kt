@@ -31,6 +31,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.ObjectReference
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.activity_fragment_leak
 import com.androidperformancestudio.memory.presentation.generated.resources.all_classes
@@ -48,6 +50,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.all_
 import com.androidperformancestudio.memory.presentation.generated.resources.all_issues
 import com.androidperformancestudio.memory.presentation.generated.resources.allocations
 import com.androidperformancestudio.memory.presentation.generated.resources.arrange_by
+import com.androidperformancestudio.memory.presentation.generated.resources.array_elements
 import com.androidperformancestudio.memory.presentation.generated.resources.class_list
 import com.androidperformancestudio.memory.presentation.generated.resources.class_name
 import com.androidperformancestudio.memory.presentation.generated.resources.class_option
@@ -58,22 +61,27 @@ import com.androidperformancestudio.memory.presentation.generated.resources.dash
 import com.androidperformancestudio.memory.presentation.generated.resources.depth
 import com.androidperformancestudio.memory.presentation.generated.resources.duplicate_bitmaps
 import com.androidperformancestudio.memory.presentation.generated.resources.duplicates_summary
+import com.androidperformancestudio.memory.presentation.generated.resources.fields
 import com.androidperformancestudio.memory.presentation.generated.resources.filter_by
 import com.androidperformancestudio.memory.presentation.generated.resources.filter_classes
 import com.androidperformancestudio.memory.presentation.generated.resources.heap
 import com.androidperformancestudio.memory.presentation.generated.resources.import_or_dump_an_hprof_file_to_show_class_histogram
 import com.androidperformancestudio.memory.presentation.generated.resources.instance
+import com.androidperformancestudio.memory.presentation.generated.resources.instance_details
 import com.androidperformancestudio.memory.presentation.generated.resources.instance_list
 import com.androidperformancestudio.memory.presentation.generated.resources.leaks_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.match_case
 import com.androidperformancestudio.memory.presentation.generated.resources.native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.no_instances_for_class
+import com.androidperformancestudio.memory.presentation.generated.resources.no_reference_chain
 import com.androidperformancestudio.memory.presentation.generated.resources.none
 import com.androidperformancestudio.memory.presentation.generated.resources.package_option
 import com.androidperformancestudio.memory.presentation.generated.resources.project_classes
+import com.androidperformancestudio.memory.presentation.generated.resources.references
 import com.androidperformancestudio.memory.presentation.generated.resources.regex
 import com.androidperformancestudio.memory.presentation.generated.resources.retained
 import com.androidperformancestudio.memory.presentation.generated.resources.select_a_class_to_view_its_instances
+import com.androidperformancestudio.memory.presentation.generated.resources.select_an_instance_to_view_details
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow
 import com.androidperformancestudio.memory.presentation.generated.resources.system_classes
 import com.androidperformancestudio.memory.presentation.generated.resources.unreachable
@@ -169,15 +177,33 @@ public fun MemoryProfilerClassListPane(
         HorizontalDivider()
         InstanceListTitle(className = state.selectedClassName, language = language)
         HorizontalDivider()
-        InstanceTableHeader(language)
-        InstanceTable(
-            className = state.selectedClassName,
-            instances = state.selectedClassInstances,
-            selectedObjectId = state.selectedInstanceDetail?.objectId,
-            onSelectInstance = actions.onSelectInstance,
-            language = language,
-            modifier = Modifier.fillMaxWidth().weight(1f),
-        )
+        Row(Modifier.fillMaxWidth().weight(1f)) {
+            Column(Modifier.weight(1f)) {
+                InstanceTableHeader(language)
+                InstanceTable(
+                    className = state.selectedClassName,
+                    instances = state.selectedClassInstances,
+                    selectedDetail = state.selectedInstanceDetail,
+                    onSelectInstance = actions.onSelectInstance,
+                    language = language,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+            }
+            VerticalDivider()
+            val detail = state.selectedInstanceDetail
+            if (detail != null) {
+                InstanceDetailPane(
+                    detail = detail,
+                    language = language,
+                    modifier = Modifier.weight(1.2f),
+                )
+            } else {
+                EmptyPaneHint(
+                    text = localizedStringResource(Res.string.select_an_instance_to_view_details, language),
+                    modifier = Modifier.weight(1.2f),
+                )
+            }
+        }
     }
 }
 
@@ -431,7 +457,7 @@ private fun InstanceTableHeader(language: UiLanguage) {
 private fun InstanceTable(
     className: String?,
     instances: List<MemoryInstanceRow>,
-    selectedObjectId: Long?,
+    selectedDetail: MemoryInstanceDetail?,
     onSelectInstance: (Long) -> Unit,
     language: UiLanguage,
     modifier: Modifier,
@@ -444,9 +470,11 @@ private fun InstanceTable(
         else ->
             LazyColumn(modifier) {
                 items(instances, key = { it.objectId }) { row ->
+                    val selected = row.objectId == selectedDetail?.objectId
                     InstanceTableRow(
                         row = row,
-                        selected = row.objectId == selectedObjectId,
+                        selected = selected,
+                        chain = selectedDetail?.takeIf { it.objectId == row.objectId }?.referenceChain,
                         onClick = { onSelectInstance(row.objectId) },
                         language = language,
                     )
@@ -459,34 +487,157 @@ private fun InstanceTable(
 private fun InstanceTableRow(
     row: MemoryInstanceRow,
     selected: Boolean,
+    chain: List<ObjectReference>?,
     onClick: () -> Unit,
     language: UiLanguage,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(28.dp)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                RoundedCornerShape(3.dp),
-            ).clickable(onClick = onClick)
-            .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("#${row.index}", Modifier.weight(1f), fontSize = 12.sp)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .background(
+                    if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                    RoundedCornerShape(3.dp),
+                ).clickable(onClick = onClick)
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "${if (selected) "▾" else "▸"} #${row.index}",
+                modifier = Modifier.weight(1f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = row.depth?.toString() ?: localizedStringResource(Res.string.unreachable, language),
+                Modifier.width(52.dp),
+                fontSize = 12.sp,
+            )
+            Text(row.nativeSize?.let(::formatBytes) ?: "—", Modifier.width(96.dp), fontSize = 12.sp)
+            Text(formatBytes(row.shallowSize), Modifier.width(88.dp), fontSize = 12.sp)
+            Text(
+                text = row.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unreachable, language),
+                modifier = Modifier.width(112.dp),
+                fontSize = 12.sp,
+            )
+        }
+        if (selected && !chain.isNullOrEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(start = 24.dp, bottom = 4.dp, top = 2.dp)) {
+                chain.forEach { reference ->
+                    Text(
+                        text =
+                            buildString {
+                                append("↳ ")
+                                append(reference.fieldName)
+                                if (reference.targetClassName.isNotBlank()) {
+                                    append(" → ")
+                                    append(reference.targetClassName)
+                                }
+                            },
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstanceDetailPane(
+    detail: MemoryInstanceDetail,
+    language: UiLanguage,
+    modifier: Modifier,
+) {
+    Column(modifier.padding(8.dp)) {
         Text(
-            text = row.depth?.toString() ?: localizedStringResource(Res.string.unreachable, language),
-            Modifier.width(52.dp),
-            fontSize = 12.sp,
+            text = "${localizedStringResource(Res.string.instance_details, language)} — ${detail.className}",
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
         )
-        Text(row.nativeSize?.let(::formatBytes) ?: "—", Modifier.width(96.dp), fontSize = 12.sp)
-        Text(formatBytes(row.shallowSize), Modifier.width(88.dp), fontSize = 12.sp)
         Text(
-            text = row.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unreachable, language),
-            modifier = Modifier.width(112.dp),
-            fontSize = 12.sp,
+            text =
+                buildString {
+                    append("ID 0x${java.lang.Long.toHexString(detail.objectId)}")
+                    detail.depth?.let { append(" · ${localizedStringResource(Res.string.depth, language)} $it") }
+                    detail.retainedSize?.let { append(" · ${localizedStringResource(Res.string.retained, language)} ${formatBytes(it)}") }
+                },
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+        Row(Modifier.fillMaxWidth().weight(1f)) {
+            Column(Modifier.weight(1f)) {
+                Text(localizedStringResource(Res.string.fields, language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                if (detail.fields.isEmpty()) {
+                    Text(
+                        text =
+                            detail.elementCount?.let { localizedStringResource(Res.string.array_elements, language, integer(it)) }
+                                ?: localizedStringResource(Res.string.unreachable, language),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                } else {
+                    LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(top = 2.dp)) {
+                        items(detail.fields) { field ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+                                Text(
+                                    text = field.name,
+                                    modifier = Modifier.width(110.dp),
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = field.displayValue,
+                                    modifier = Modifier.weight(1f),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            VerticalDivider(Modifier.padding(horizontal = 6.dp))
+            Column(Modifier.weight(1f)) {
+                Text(localizedStringResource(Res.string.references, language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                if (detail.referenceChain.isEmpty()) {
+                    Text(
+                        text = localizedStringResource(Res.string.no_reference_chain, language),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                } else {
+                    LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(top = 2.dp)) {
+                        items(detail.referenceChain) { reference ->
+                            Text(
+                                text =
+                                    buildString {
+                                        append("↳ ")
+                                        append(reference.fieldName)
+                                        if (reference.targetClassName.isNotBlank()) {
+                                            append(" → ")
+                                            append(reference.targetClassName)
+                                        }
+                                    },
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

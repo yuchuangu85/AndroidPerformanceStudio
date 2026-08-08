@@ -309,12 +309,15 @@ data class ActivityLeakReport(
     val entries: List<ActivityLeakEntry> = emptyList(),
 )
 
-/** Summary of a heapprofd native-heap capture, safe to expose to the presentation layer. */
+/**
+ * Summary of a heapprofd native-heap trace, safe to expose to the presentation layer. The API level
+ * is only known for live captures; imported `.pb` files do not carry it (null).
+ */
 data class NativeHeapTrace(
     val traceFile: String,
     val fileName: String,
     val fileSizeBytes: Long,
-    val deviceSdkApiLevel: Int,
+    val deviceSdkApiLevel: Int? = null,
 )
 
 /** Aggregated allocation statistics for one native function (leaf callstack frame). */

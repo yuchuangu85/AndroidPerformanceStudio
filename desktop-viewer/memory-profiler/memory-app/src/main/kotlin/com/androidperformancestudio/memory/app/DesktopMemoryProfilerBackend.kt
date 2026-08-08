@@ -8,6 +8,9 @@ import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalysisRequest
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalyzer
+import com.androidperformancestudio.memory.analysis.HeapGraphToHeapDump
+import com.androidperformancestudio.memory.analysis.JavaHeapParseResult
+import com.androidperformancestudio.memory.analysis.JavaHeapTraceParser
 import com.androidperformancestudio.memory.analysis.MemoryDeepAnalyzer
 import com.androidperformancestudio.memory.analysis.MemoryHistogramAnalyzer
 import com.androidperformancestudio.memory.analysis.NativeHeapTraceParser
@@ -35,10 +38,13 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_found
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_readable
 import com.androidperformancestudio.memory.memory_app.generated.resources.install_sdk_platform_tools
+import com.androidperformancestudio.memory.memory_app.generated.resources.java_heap_file_not_found
 import com.androidperformancestudio.memory.memory_app.generated.resources.mapping_not_loaded_hint
+import com.androidperformancestudio.memory.memory_app.generated.resources.native_heap_trace_file_not_found
 import com.androidperformancestudio.memory.memory_app.generated.resources.no_heap_objects_parsed
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_capture_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_java_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_list_android_devices
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_list_device_processes
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_load_mapping
@@ -334,6 +340,66 @@ internal class DesktopMemoryProfilerBackend(
         }
     }
 
+    override suspend fun importNativeHeap(file: Path): MemoryBackendResult<LoadedNativeHeap> =
+        withContext(Dispatchers.IO) {
+            if (!Files.isRegularFile(file)) {
+                MemoryBackendResult.Failure(
+                    localizedStringResource(Res.string.native_heap_trace_file_not_found, language),
+                    localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
+                )
+            } else {
+                MemoryBackendResult.Success(
+                    LoadedNativeHeap(
+                        trace =
+                            NativeHeapTrace(
+                                traceFile = file.toString(),
+                                fileName = file.fileName.toString(),
+                                fileSizeBytes = Files.size(file),
+                            ),
+                        analysis = NativeHeapTraceParser.parse(file),
+                    ),
+                )
+            }
+        }
+
+    override suspend fun importJavaHeap(file: Path): MemoryBackendResult<LoadedHeap> =
+        withContext(Dispatchers.IO) {
+            if (!Files.isRegularFile(file)) {
+                MemoryBackendResult.Failure(
+                    localizedStringResource(Res.string.java_heap_file_not_found, language),
+                    localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
+                )
+            } else {
+                when (val result = JavaHeapTraceParser.parse(file)) {
+                    is JavaHeapParseResult.Failure ->
+                        MemoryBackendResult.Failure(
+                            localizedStringResource(Res.string.unable_to_import_java_heap, language),
+                            result.message,
+                        )
+                    is JavaHeapParseResult.Success -> {
+                        val heapDump = HeapGraphToHeapDump.toHeapDump(result.heapGraph)
+                        if (heapDump.instances.isEmpty()) {
+                            MemoryBackendResult.Failure(
+                                localizedStringResource(Res.string.unable_to_import_java_heap, language),
+                                "No Java objects were found in the heap graph.",
+                            )
+                        } else {
+                            MemoryBackendResult.Success(
+                                analyzeAndPackage(
+                                    heapDump = heapDump,
+                                    id = importedSessionId(file),
+                                    packageName = "",
+                                    pid = 0,
+                                    capturedAt = Instant.now(),
+                                    emptyWarningFileName = file.fileName.toString(),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
     override fun exportNativeHeap(
         trace: NativeHeapTrace,
         output: Path,
@@ -474,73 +540,27 @@ internal class DesktopMemoryProfilerBackend(
                     convertedHprofFile = request.convertedFile,
                 )
             val deobfuscated = mapping?.let { parsedFile.withDeobfuscation(it) } ?: parsedFile
-            val deepAnalysis =
-                analyzer.analyze(deobfuscated, deobfuscator = mapping) { analysisProgress ->
-                    onProgress(50 + analysisProgress / 2)
-                }
-            val histogram = deepAnalysis.histogram
             val parserWarning =
                 parsedFile.warnings
                     .joinToString(separator = "\n", transform = { it.message })
                     .ifBlank { null }
-            val emptyHeapWarning =
-                if (histogram.summary.objectCount == 0) {
-                    localizedStringResource(Res.string.no_heap_objects_parsed, language, request.file.fileName)
-                } else {
-                    null
-                }
-            val noMappingWarning =
-                if (mapping == null && histogram.classes.any { isLikelyObfuscatedClassName(it.className) }) {
-                    localizedStringResource(Res.string.mapping_not_loaded_hint, language)
-                } else {
-                    null
-                }
             val capturedAt = Instant.now()
-            val histogramAnalyzer = MemoryHistogramAnalyzer()
-            val availableHeaps = histogramAnalyzer.heapNamesOf(deobfuscated)
-            val perHeapClasses =
-                availableHeaps.associateWith { heapName ->
-                    val heapHistogram =
-                        histogramAnalyzer.histogram(
-                            deobfuscated,
-                            heapName = heapName,
-                            retainedSizes = deepAnalysis.dominatorTree.retainedSizes,
-                            immediateDominators = deepAnalysis.dominatorTree.immediateDominators,
-                            deobfuscator = mapping,
-                        )
-                    heapHistogram.classes
-                }
-            val parsed =
-                deobfuscated.copy(
+            val loaded =
+                analyzeAndPackage(
+                    heapDump = deobfuscated,
                     id = request.sessionMetadata?.sessionId ?: request.file.fileName.toString(),
                     packageName = request.sessionMetadata?.packageName.orEmpty(),
                     pid = request.sessionMetadata?.pid ?: 0,
                     capturedAt = capturedAt,
-                    heapSummary = histogram.summary,
-                    topClasses = histogram.classes,
-                    leakSuspects = deepAnalysis.leakSuspects,
-                    objectRetainedSizes = deepAnalysis.dominatorTree.retainedSizes,
-                    objectImmediateDominators = deepAnalysis.dominatorTree.immediateDominators,
-                    bitmapInstances = deepAnalysis.bitmapInstances,
-                    activityLeaks = deepAnalysis.activityLeaks,
+                    emptyWarningFileName = request.file.fileName.toString(),
+                    extraWarning = listOfNotNull(request.warning, parserWarning).joinToString("\n").ifBlank { null },
+                    cleanupWarning = request.cleanupWarning,
+                    onAnalysisProgress = { onProgress(50 + it / 2) },
                 )
             request.sessionMetadata?.let { metadata ->
-                persistSession(metadata, capturedAt, request.rawFile, request.convertedFile, histogram.summary)
+                persistSession(metadata, capturedAt, request.rawFile, request.convertedFile, loaded.histogram.summary)
             }
-            MemoryBackendResult.Success(
-                LoadedHeap(
-                    heapDump = parsed,
-                    histogram = histogram,
-                    mapping = mapping,
-                    availableHeaps = availableHeaps,
-                    perHeapClasses = perHeapClasses,
-                    warning =
-                        listOfNotNull(request.warning, parserWarning, emptyHeapWarning, noMappingWarning)
-                            .joinToString("\n")
-                            .ifBlank { null },
-                    cleanupWarning = request.cleanupWarning,
-                ),
-            )
+            MemoryBackendResult.Success(loaded)
         } catch (exception: HprofParseException) {
             analysisFailure(exception)
         } catch (exception: IOException) {
@@ -550,6 +570,76 @@ internal class DesktopMemoryProfilerBackend(
         } catch (exception: SQLException) {
             analysisFailure(exception)
         }
+    }
+
+    /**
+     * Runs the deep heap analysis (dominator tree, retained sizes, leak suspects, bitmap/activity
+     * leak detection) and packages the result. Shared by the HPROF load path and the perfetto
+     * `java_hprof` import so both produce an identical [LoadedHeap].
+     */
+    private fun analyzeAndPackage(
+        heapDump: HeapDump,
+        id: String,
+        packageName: String,
+        pid: Int,
+        capturedAt: Instant,
+        emptyWarningFileName: String? = null,
+        extraWarning: String? = null,
+        cleanupWarning: String? = null,
+        onAnalysisProgress: (Int) -> Unit = {},
+    ): LoadedHeap {
+        val deepAnalysis = analyzer.analyze(heapDump, deobfuscator = mapping, onProgress = onAnalysisProgress)
+        val histogram = deepAnalysis.histogram
+        val emptyHeapWarning =
+            if (emptyWarningFileName != null && histogram.summary.objectCount == 0) {
+                localizedStringResource(Res.string.no_heap_objects_parsed, language, emptyWarningFileName)
+            } else {
+                null
+            }
+        val noMappingWarning =
+            if (mapping == null && histogram.classes.any { isLikelyObfuscatedClassName(it.className) }) {
+                localizedStringResource(Res.string.mapping_not_loaded_hint, language)
+            } else {
+                null
+            }
+        val histogramAnalyzer = MemoryHistogramAnalyzer()
+        val availableHeaps = histogramAnalyzer.heapNamesOf(heapDump)
+        val perHeapClasses =
+            availableHeaps.associateWith { heapName ->
+                histogramAnalyzer.histogram(
+                    heapDump,
+                    heapName = heapName,
+                    retainedSizes = deepAnalysis.dominatorTree.retainedSizes,
+                    immediateDominators = deepAnalysis.dominatorTree.immediateDominators,
+                    deobfuscator = mapping,
+                ).classes
+            }
+        val parsed =
+            heapDump.copy(
+                id = id,
+                packageName = packageName,
+                pid = pid,
+                capturedAt = capturedAt,
+                heapSummary = histogram.summary,
+                topClasses = histogram.classes,
+                leakSuspects = deepAnalysis.leakSuspects,
+                objectRetainedSizes = deepAnalysis.dominatorTree.retainedSizes,
+                objectImmediateDominators = deepAnalysis.dominatorTree.immediateDominators,
+                bitmapInstances = deepAnalysis.bitmapInstances,
+                activityLeaks = deepAnalysis.activityLeaks,
+            )
+        return LoadedHeap(
+            heapDump = parsed,
+            histogram = histogram,
+            mapping = mapping,
+            availableHeaps = availableHeaps,
+            perHeapClasses = perHeapClasses,
+            warning =
+                listOfNotNull(extraWarning, emptyHeapWarning, noMappingWarning)
+                    .joinToString("\n")
+                    .ifBlank { null },
+            cleanupWarning = cleanupWarning,
+        )
     }
 
     private fun persistSession(

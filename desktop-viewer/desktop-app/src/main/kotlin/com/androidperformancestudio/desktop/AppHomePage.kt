@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,6 +55,8 @@ fun AppHomePage(
     onOpenNetworkProfiler: () -> Unit,
     onOpenGpuInspector: () -> Unit,
     onOpenBenchmarkRegression: () -> Unit,
+    onOpenMethodRecording: () -> Unit,
+    onOpenUnifiedSession: () -> Unit,
 ) {
     val entries =
         listOf(
@@ -174,6 +177,54 @@ fun AppHomePage(
                 actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
                 onClick = onOpenBenchmarkRegression,
             ),
+            HomeFeatureEntry(
+                title = localizedStringResource(Res.string.view_live_telemetry, language),
+                subtitle = localizedStringResource(Res.string.live_telemetry, language),
+                description =
+                    localizedStringResource(
+                        Res.string.view_live_telemetry_description,
+                        language
+                    ),
+                actionLabel = localizedStringResource(Res.string.planned, language),
+                onClick = {},
+                enabled = false,
+            ),
+            HomeFeatureEntry(
+                title = localizedStringResource(Res.string.cpu_method_recording, language),
+                subtitle = localizedStringResource(Res.string.method_recording, language),
+                description =
+                    localizedStringResource(
+                        Res.string.cpu_method_recording_description,
+                        language
+                    ),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
+                onClick = onOpenMethodRecording,
+                enabled = true,
+            ),
+            HomeFeatureEntry(
+                title = localizedStringResource(Res.string.java_kotlin_allocations, language),
+                subtitle = localizedStringResource(Res.string.allocations, language),
+                description =
+                    localizedStringResource(
+                        Res.string.java_kotlin_allocations_description,
+                        language
+                    ),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
+                onClick = onOpenMemoryProfiler,
+                enabled = true,
+            ),
+            HomeFeatureEntry(
+                title = localizedStringResource(Res.string.session_timeline, language),
+                subtitle = localizedStringResource(Res.string.session_timeline_subtitle, language),
+                description =
+                    localizedStringResource(
+                        Res.string.session_timeline_description,
+                        language
+                    ),
+                actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
+                onClick = onOpenUnifiedSession,
+                enabled = true,
+            ),
         )
 
     val colors = LocalViewerColors.current
@@ -229,6 +280,7 @@ private data class HomeFeatureEntry(
     val description: String,
     val actionLabel: String,
     val onClick: () -> Unit,
+    val enabled: Boolean = true,
 )
 
 @Composable
@@ -240,18 +292,26 @@ private fun FeatureEntryCard(
     val shape = RoundedCornerShape(8.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
-    val containerColor = if (hovered) colors.sectionBackground else colors.panel
+    val enabled = entry.enabled
+    val containerColor = if (enabled && hovered) colors.sectionBackground else colors.panel
     Column(
         modifier =
             modifier
                 .height(HOME_CARD_HEIGHT_DP.dp)
                 .clip(shape)
+                .alpha(if (enabled) 1f else 0.55f)
                 .background(containerColor)
                 .border(1.dp, colors.border, shape)
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onClick = entry.onClick,
+                .then(
+                    if (enabled) {
+                        Modifier.clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = entry.onClick,
+                        )
+                    } else {
+                        Modifier
+                    }
                 )
                 .padding(16.dp),
         verticalArrangement = Arrangement.SpaceBetween,
@@ -280,6 +340,7 @@ private fun FeatureEntryCard(
             text = entry.actionLabel,
             onClick = entry.onClick,
             modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
         )
     }
 }

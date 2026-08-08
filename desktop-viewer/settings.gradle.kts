@@ -107,3 +107,8 @@ includeBuild("gpu-inspector-integration") {
 includeBuild("benchmark-regression") {
     name = "benchmark-regression"
 }
+
+// Unified profiler Session aggregation (final-phase timeline) is kept as an isolated composite build.
+includeBuild("session-viewer") {
+    name = "session-viewer"
+}

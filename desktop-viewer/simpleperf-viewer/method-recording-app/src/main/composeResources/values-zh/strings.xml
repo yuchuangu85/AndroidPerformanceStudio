@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="method_recording">方法记录</string>
+    <string name="back_to_home">返回主页</string>
+    <string name="capture">抓取</string>
+    <string name="stop">停止</string>
+    <string name="import_trace">导入 .trace…</string>
+    <string name="select_device">选择设备</string>
+    <string name="select_process">选择进程</string>
+    <string name="device_selector">设备选择器</string>
+    <string name="process_selector">进程选择器</string>
+    <string name="refresh_devices">刷新设备</string>
+    <string name="no_devices">无设备</string>
+    <string name="no_processes">无进程</string>
+    <string name="no_trace_loaded">导入或抓取 .trace 文件以分析 Java/Kotlin 方法执行。</string>
+    <string name="working">处理中…</string>
+    <string name="adb_not_found">未找到 Android SDK Platform Tools。安装后可从设备抓取；导入 .trace 文件不受影响。</string>
+    <string name="function">函数</string>
+    <string name="self_time">自身耗时</string>
+    <string name="total_time">总耗时</string>
+    <string name="calls">调用次数</string>
+    <string name="capture_failed">方法 trace 抓取失败</string>
+    <string name="trace_label">%1$s · %2$s</string>
+</resources>

@@ -64,7 +64,7 @@ import kotlin.math.roundToInt
     "LongParameterList",
     "ktlint:standard:function-naming",
 )
-internal fun FlameGraphPanel(
+fun FlameGraphPanel(
     state: FlameGraphPanelState,
     query: CallStackAnalysisQuery = CallStackAnalysisQuery(),
     selectedNodeId: FlameCallNodeId? = null,

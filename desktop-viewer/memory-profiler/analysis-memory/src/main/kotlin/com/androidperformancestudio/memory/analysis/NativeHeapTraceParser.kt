@@ -228,7 +228,7 @@ object NativeHeapTraceParser {
                 if (leafFrame == null) {
                     UNKNOWN_SYMBOL
                 } else {
-                    strings[frameFunctions[leafFrame]] ?: UNKNOWN_SYMBOL
+                    CppSymbolDemangler.demangle(strings[frameFunctions[leafFrame]] ?: UNKNOWN_SYMBOL)
                 }
             aggregates.getOrPut(functionName, ::Aggregate).add(sample)
         }

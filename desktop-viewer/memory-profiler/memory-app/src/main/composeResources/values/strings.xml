@@ -24,6 +24,12 @@
     <string name="capture_native_heap">Capture Native Heap</string>
     <string name="capturing_native_heap">Capturing native heap for %1$s (heapprofd, ~10s)…</string>
     <string name="unable_to_capture_native_heap">Native heap capture failed</string>
+    <string name="import_native_heap">Import native heap trace…</string>
+    <string name="unable_to_import_native_heap">Native heap trace import failed</string>
+    <string name="native_heap_trace_file_not_found">Native heap trace file not found</string>
+    <string name="import_java_heap">Import Java heap…</string>
+    <string name="unable_to_import_java_heap">Java heap import failed</string>
+    <string name="java_heap_file_not_found">Java heap trace file not found</string>
     <string name="export_native_heap_trace">Export Native Heap trace</string>
     <string name="recent_sessions">Recent Sessions</string>
     <string name="no_recent_sessions">No recent sessions</string>

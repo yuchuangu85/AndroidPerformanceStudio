@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +54,7 @@ import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
+import com.androidperformancestudio.memory.model.NativeHeapSample
 import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.activity
@@ -84,8 +87,13 @@ import com.androidperformancestudio.memory.presentation.generated.resources.manu
 import com.androidperformancestudio.memory.presentation.generated.resources.mapping_loaded_note
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_allocation_entry
+import com.androidperformancestudio.memory.presentation.generated.resources.native_function
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_total
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_trace_summary
+import com.androidperformancestudio.memory.presentation.generated.resources.allocated
+import com.androidperformancestudio.memory.presentation.generated.resources.allocs
+import com.androidperformancestudio.memory.presentation.generated.resources.freed
+import com.androidperformancestudio.memory.presentation.generated.resources.frees
 import com.androidperformancestudio.memory.presentation.generated.resources.no_activity_leaks_detected
 import com.androidperformancestudio.memory.presentation.generated.resources.no_class_changes_between_the_latest_two_heap_dumps
 import com.androidperformancestudio.memory.presentation.generated.resources.no_leak_suspects_detected
@@ -651,7 +659,7 @@ private fun NativeHeapSection(
                 language,
                 trace.fileName,
                 formatBytes(trace.fileSizeBytes),
-                trace.deviceSdkApiLevel,
+                trace.deviceSdkApiLevel?.toString() ?: "?",
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -666,19 +674,131 @@ private fun NativeHeapSection(
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            analysis.topAllocations.take(10).forEach { sample ->
-                Text(
-                    localizedStringResource(
-                        Res.string.native_heap_allocation_entry,
-                        language,
-                        sample.functionName,
-                        formatBytes(sample.allocatedBytes),
-                        integer(sample.allocCount.toInt()),
-                    ),
-                    fontSize = 12.sp,
-                )
+            var sortColumn by remember { mutableStateOf(NativeHeapSortColumn.ALLOCATED) }
+            var descending by remember { mutableStateOf(true) }
+            val rows =
+                remember(analysis, sortColumn, descending) {
+                    val comparator =
+                        when (sortColumn) {
+                            NativeHeapSortColumn.FUNCTION -> compareBy<NativeHeapSample> { it.functionName }
+                            NativeHeapSortColumn.ALLOCATED -> compareBy { it.allocatedBytes }
+                            NativeHeapSortColumn.FREED -> compareBy { it.freedBytes }
+                            NativeHeapSortColumn.ALLOCS -> compareBy { it.allocCount }
+                            NativeHeapSortColumn.FREES -> compareBy { it.freeCount }
+                        }
+                    analysis.topAllocations.sortedWith(if (descending) comparator.reversed() else comparator)
+                }
+            NativeHeapTableHeader(language, sortColumn, descending) { column ->
+                if (sortColumn == column) {
+                    descending = !descending
+                } else {
+                    sortColumn = column
+                    descending = true
+                }
+            }
+            LazyColumn(Modifier.heightIn(max = 240.dp)) {
+                items(rows) { sample -> NativeHeapTableRow(sample, language) }
             }
         }
+    }
+}
+
+private enum class NativeHeapSortColumn { FUNCTION, ALLOCATED, FREED, ALLOCS, FREES }
+
+@Composable
+private fun NativeHeapTableHeader(
+    language: UiLanguage,
+    sortColumn: NativeHeapSortColumn,
+    descending: Boolean,
+    onSort: (NativeHeapSortColumn) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        NativeHeapHeaderCell(
+            localizedStringResource(Res.string.native_function, language),
+            Modifier.weight(1f),
+            sortColumn == NativeHeapSortColumn.FUNCTION,
+            descending,
+            onSort,
+            NativeHeapSortColumn.FUNCTION,
+        )
+        NativeHeapHeaderCell(
+            localizedStringResource(Res.string.allocated, language),
+            Modifier.width(88.dp),
+            sortColumn == NativeHeapSortColumn.ALLOCATED,
+            descending,
+            onSort,
+            NativeHeapSortColumn.ALLOCATED,
+        )
+        NativeHeapHeaderCell(
+            localizedStringResource(Res.string.freed, language),
+            Modifier.width(80.dp),
+            sortColumn == NativeHeapSortColumn.FREED,
+            descending,
+            onSort,
+            NativeHeapSortColumn.FREED,
+        )
+        NativeHeapHeaderCell(
+            localizedStringResource(Res.string.allocs, language),
+            Modifier.width(56.dp),
+            sortColumn == NativeHeapSortColumn.ALLOCS,
+            descending,
+            onSort,
+            NativeHeapSortColumn.ALLOCS,
+        )
+        NativeHeapHeaderCell(
+            localizedStringResource(Res.string.frees, language),
+            Modifier.width(56.dp),
+            sortColumn == NativeHeapSortColumn.FREES,
+            descending,
+            onSort,
+            NativeHeapSortColumn.FREES,
+        )
+    }
+}
+
+@Composable
+private fun NativeHeapHeaderCell(
+    text: String,
+    modifier: Modifier,
+    active: Boolean,
+    descending: Boolean,
+    onSort: (NativeHeapSortColumn) -> Unit,
+    column: NativeHeapSortColumn,
+) {
+    Text(
+        text = if (active) "$text ${if (descending) "↓" else "↑"}" else text,
+        modifier = modifier.clickable { onSort(column) },
+        fontWeight = FontWeight.Bold,
+        fontSize = 12.sp,
+        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+    )
+}
+
+@Composable
+private fun NativeHeapTableRow(
+    sample: NativeHeapSample,
+    language: UiLanguage,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(26.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            sample.functionName,
+            Modifier.weight(1f),
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(formatBytes(sample.allocatedBytes), Modifier.width(88.dp), fontSize = 12.sp, textAlign = TextAlign.End)
+        Text(formatBytes(sample.freedBytes), Modifier.width(80.dp), fontSize = 12.sp, textAlign = TextAlign.End)
+        Text(integer(sample.allocCount.toInt()), Modifier.width(56.dp), fontSize = 12.sp, textAlign = TextAlign.End)
+        Text(integer(sample.freeCount.toInt()), Modifier.width(56.dp), fontSize = 12.sp, textAlign = TextAlign.End)
     }
 }
 

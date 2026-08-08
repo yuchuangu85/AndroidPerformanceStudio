@@ -19,6 +19,8 @@ enum class AppDestination {
     NETWORK_PROFILER,
     GPU_INSPECTOR,
     BENCHMARK_REGRESSION,
+    METHOD_RECORDING,
+    UNIFIED_SESSION,
 }
 
 internal fun com.androidperformancestudio.desktop.AppDestination.shouldMaximizeWindow(): Boolean =
@@ -40,6 +42,12 @@ class AppNavigator(
         private set
     var sourceLocation by mutableStateOf<SourceLocation?>(null)
         private set
+    var memoryImportFile by mutableStateOf<Path?>(null)
+        private set
+    var memoryImportIsJavaHeap by mutableStateOf(false)
+        private set
+    var methodRecordingTraceFile by mutableStateOf<Path?>(null)
+        private set
 
     fun open(destination: com.androidperformancestudio.desktop.AppDestination) {
         if (destination != AppDestination.LAYOUT_INSPECTOR) inspectorCorrelationHint = null
@@ -48,6 +56,11 @@ class AppNavigator(
             perfettoTraceNotice = null
         }
         if (destination != AppDestination.SOURCE_WORKSPACES) sourceLocation = null
+        if (destination != AppDestination.MEMORY_PROFILER) {
+            memoryImportFile = null
+            memoryImportIsJavaHeap = false
+        }
+        if (destination != AppDestination.METHOD_RECORDING) methodRecordingTraceFile = null
         this.destination = destination
     }
 
@@ -70,5 +83,23 @@ class AppNavigator(
         perfettoTraceFile = path
         perfettoTraceNotice = notice
         destination = AppDestination.PERFETTO
+    }
+
+    /** Opens the memory profiler and imports [file] (HPROF, or java_hprof when [javaHeap]). */
+    fun openMemoryProfiler(
+        file: Path,
+        javaHeap: Boolean = false,
+    ) {
+        inspectorCorrelationHint = null
+        memoryImportFile = file
+        memoryImportIsJavaHeap = javaHeap
+        destination = AppDestination.MEMORY_PROFILER
+    }
+
+    /** Opens method recording and imports the ART [file]. */
+    fun openMethodRecording(file: Path) {
+        inspectorCorrelationHint = null
+        methodRecordingTraceFile = file
+        destination = AppDestination.METHOD_RECORDING
     }
 }
