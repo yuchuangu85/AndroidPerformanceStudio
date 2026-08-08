@@ -9,6 +9,7 @@
 package com.androidperformancestudio.battery.export
 
 import com.androidperformancestudio.battery.analysis.BatteryAnalysisResult
+import com.androidperformancestudio.battery.model.AttributionScope
 import com.androidperformancestudio.battery.model.BatteryExperimentResult
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.ResourceTimer
@@ -110,15 +111,16 @@ public class BatteryCsvExporter {
     public fun export(
         analysis: BatteryAnalysisResult,
         output: Path,
+        attributionScope: AttributionScope = AttributionScope.UID,
     ) {
         output.toAbsolutePath().parent?.let(Files::createDirectories)
         Files.newBufferedWriter(output).use { writer ->
             writer.appendLine("schema_version,run,resource_type,name,duration_ms,count,bytes,energy_mah,energy_uws,source,scope,confidence")
             analysis.runs.forEach { run ->
-                writeTimers(writer, run, "wakelock", run.wakelocks)
-                writeTimers(writer, run, "alarm", run.alarms)
-                writeTimers(writer, run, "job", run.jobs)
-                writeTimers(writer, run, "sensor", run.sensors)
+                writeTimers(writer, run, "wakelock", run.wakelocks, attributionScope)
+                writeTimers(writer, run, "alarm", run.alarms, attributionScope)
+                writeTimers(writer, run, "job", run.jobs, attributionScope)
+                writeTimers(writer, run, "sensor", run.sensors, attributionScope)
                 writer.appendLine("1,${run.iteration},network,total,,,${run.network.totalBytes},,,,,")
                 run.energy.forEach { energy ->
                     writer.appendLine(
@@ -147,6 +149,7 @@ public class BatteryCsvExporter {
         run: BatteryRunDelta,
         kind: String,
         timers: List<ResourceTimer>,
+        attributionScope: AttributionScope,
     ) {
         timers.forEach { timer ->
             writer.appendLine(
@@ -161,7 +164,7 @@ public class BatteryCsvExporter {
                     "",
                     "",
                     "UID_COUNTER",
-                    "UID",
+                    attributionScope.name,
                     timer.confidence.name,
                 ).joinToString(","),
             )
@@ -189,6 +192,12 @@ public class BatteryRawBundleExporter {
                     zip.writeEntry("$prefix/report.txt", snapshot.rawEvidence.report)
                     zip.writeEntry("$prefix/battery.txt", snapshot.rawEvidence.battery)
                     snapshot.rawEvidence.history?.let { zip.writeEntry("$prefix/history.txt", it) }
+                    if (snapshot.conditions.isNotEmpty()) {
+                        zip.writeEntry(
+                            "$prefix/conditions.txt",
+                            snapshot.conditions.entries.joinToString("\n", postfix = "\n") { (key, value) -> "$key=$value" },
+                        )
+                    }
                 }
             }
         }

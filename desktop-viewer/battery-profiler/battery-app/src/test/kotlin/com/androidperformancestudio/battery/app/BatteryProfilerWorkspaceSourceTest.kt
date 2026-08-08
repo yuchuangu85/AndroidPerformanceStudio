@@ -15,8 +15,7 @@ class BatteryProfilerWorkspaceSourceTest {
 
     @Test
     fun `workspace uses layered shared compact chrome without changing battery flows`() {
-        assertTrue(source.contains("ProfilerMacOsToolbar"))
-        assertTrue(source.contains("ProfilerMacOsSecondaryToolbar"))
+        assertTrue(source.contains("HeaderToolbar("))
         assertTrue(source.contains("BatteryProfilerMenuBar("))
         assertTrue(source.contains("DropdownSelector"))
         assertFalse(source.contains("ProfilerCompactSelector"))
@@ -32,22 +31,17 @@ class BatteryProfilerWorkspaceSourceTest {
 
     @Test
     fun `file and advanced actions are removed from the page toolbar`() {
-        val primaryToolbar = source.blockStartingAt(source.indexOf("ProfilerMacOsToolbar {"))
-        val secondaryToolbar = source.blockStartingAt(source.indexOf("ProfilerMacOsSecondaryToolbar {"))
+        val primaryToolbar = source.headerToolbar()
 
         assertFalse(primaryToolbar.contains("Res.string.export_json"))
         assertFalse(primaryToolbar.contains("Res.string.export_csv"))
         assertFalse(primaryToolbar.contains("Res.string.export_raw_bundle"))
         assertFalse(primaryToolbar.contains("Res.string.advanced_reset_stats"))
-        assertFalse(secondaryToolbar.contains("Res.string.export_json"))
-        assertFalse(secondaryToolbar.contains("Res.string.export_csv"))
-        assertFalse(secondaryToolbar.contains("Res.string.export_raw_bundle"))
-        assertFalse(secondaryToolbar.contains("Res.string.advanced_reset_stats"))
     }
 
     @Test
     fun `battery historian is aligned to the far right of the primary toolbar`() {
-        val primaryToolbar = source.blockStartingAt(source.indexOf("ProfilerMacOsToolbar {"))
+        val primaryToolbar = source.headerToolbar()
         val runExperiment = primaryToolbar.indexOf("Res.string.run_experiment")
         val spacer = primaryToolbar.indexOf("Spacer(Modifier.weight(1f))")
         val historian = primaryToolbar.indexOf("Res.string.battery_historian")
@@ -64,13 +58,8 @@ class BatteryProfilerWorkspaceSourceTest {
     }
 
     @Test
-    fun `single secondary toolbar has ordered one dp outline separators before progress and content`() {
-        val primaryToolbar = source.indexOf("ProfilerMacOsToolbar {")
-        val secondaryToolbars =
-            Regex("""ProfilerMacOsSecondaryToolbar \{""")
-                .findAll(source)
-                .map { it.range.first }
-                .toList()
+    fun `single header toolbar has ordered one dp outline separators before progress and content`() {
+        val primaryToolbar = source.indexOf("HeaderToolbar(")
         val progressCondition = source.indexOf("if (state.isRunning &&")
         val progressBlockRange = source.blockRangeStartingAt(progressCondition)
         val progressBlock = source.substring(progressBlockRange)
@@ -80,11 +69,9 @@ class BatteryProfilerWorkspaceSourceTest {
         val conditionalDividers = outlineDivider.findAll(progressBlock).map { it.range.first }.toList()
         val contentBoundary = source.substring(progressBlockRange.last + 1, screen)
 
-        assertEquals(1, secondaryToolbars.size)
         assertEquals(3, dividers.size)
         assertTrue(primaryToolbar < dividers[0])
-        assertTrue(dividers[0] < secondaryToolbars[0])
-        assertTrue(secondaryToolbars[0] < progressCondition)
+        assertTrue(dividers[0] < progressCondition)
         assertEquals(1, conditionalDividers.size)
         assertTrue(conditionalDividers.single() < progress)
         assertEquals(1, outlineDivider.findAll(contentBoundary).count())
@@ -92,6 +79,11 @@ class BatteryProfilerWorkspaceSourceTest {
     }
 
     private fun String.blockStartingAt(startIndex: Int): String = substring(blockRangeStartingAt(startIndex))
+
+    private fun String.headerToolbar(): String {
+        val start = indexOf("HeaderToolbar(")
+        return substring(start, indexOf("HorizontalDivider(", start))
+    }
 
     private fun String.blockRangeStartingAt(startIndex: Int): IntRange {
         val openingBrace = indexOf('{', startIndex)

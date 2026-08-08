@@ -29,7 +29,7 @@ Battery Profiler 是一个 Android 电池与能耗分析工具，核心功能包
 
 1. **设备选择 → 目标枚举**：通过 ADB 列出可归因 UID 的应用包（`cmd package list packages -U`）
 2. **基线采集**：
-   - 可选重置全局 batterystats（`dumpsys batterystats --reset`）
+   - 普通实验不重置全局 batterystats；重置仅作为带警告的独立高级操作
    - 采集 baseline 快照（`dumpsys batterystats --checkin` + `dumpsys batterystats`）
 3. **实验执行**：
    - 可选自动启动目标 App（`am start`）
@@ -53,8 +53,8 @@ Battery Profiler 是一个 Android 电池与能耗分析工具，核心功能包
 
 ### 数据结构
 
-- **BatteryExperimentConfig**：实验配置（mode、durationSeconds、pollingIntervalSeconds、measuredRuns、launchApp）
-- **BatterySnapshot**：单个采集快照，包含 uidStats、deviceState、history、rawEvidence
+- **BatteryExperimentConfig**：实验配置（mode、durationSeconds、pollingIntervalSeconds、measuredRuns、launchApp、cooldownSeconds）
+- **BatterySnapshot**：单个采集快照，包含 uidStats、deviceState、conditions、history、rawEvidence
 - **BatteryRun**：单次实验运行，包含 baseline（基线快照）、samples（中间采样）、finalSnapshot（最终快照）
 - **BatteryRunDelta**：计算后的差值数据，包含 wakelocks、alarms、jobs、sensors、network、energy
 - **EnergyEstimate**：能耗估算，包含 component、energyMah/energyUws、source（HARDWARE_COUNTER/SYSTEM_MODEL 等）、confidence
@@ -82,82 +82,38 @@ Battery Profiler 是一个 Android 电池与能耗分析工具，核心功能包
 - Energy 估算依赖设备硬件支持，部分设备可能只提供 RESOURCE_BASIC 级别数据
 - Battery Historian bugreport 包含隐私敏感信息（账号、SSID、应用列表等）
 
-## 优化建议与改进点
+## 优化评审与落地结果
 
-> 以下内容不替换已有设计，仅作为可考虑的更好实现方式或优化点补充。每条标注 **影响**（高/中/低）与 **可行性**（高/中/低），便于按优先级排序落地。
+本轮评审采用以下兼容约束：JSON 保持 `schemaVersion=1` 且新增字段必须可选；CSV 表头不变；Raw Bundle 保留既有路径并只允许新增文件；SQLite 只增量加列/加表；现有枚举值和操作入口不删除或改名。详见 desktop-viewer 的 ADR-0005。
 
-### 1. batterystats --reset 的全局副作用与替代方案【影响:高 / 可行性:中】
+### 1. 全局 reset 与设备状态修改【部分采纳】
 
-**当前实现问题**：`dumpsys batterystats --reset` 是全局操作，会清空整台设备的电池统计，影响其他正在进行的测量，且需要 `DUMP_SOURCE` / `PACKAGE_USAGE_STATS` 等权限，在用户设备上不易获得。
+普通实验统一使用 baseline → final 差值，不会自动执行 `batterystats --reset`、模拟 unplug、修改亮度、网络或 Doze。现有“重置统计”保留为独立高级操作，并继续显示不可撤销的全局副作用确认。未增加 `resetPolicy`；模拟电池状态不能替代物理断开 USB 供电。
 
-**更好的实现方式**：
-- **首选**：放弃 `--reset`，统一采用 **baseline → final 差值法**（文档已支持 baseline 对比，建议把它作为唯一主路径，把 reset 降级为可选的"洁净环境"辅助）。
-- 进一步引入 **`cmd battery unplug` + `cmd battery set` 模拟电源**：在可控实验中通过 `cmd battery unplug` 让设备进入"非充电态"再采集，避免充电状态污染数据，比 reset 更安全且可逆（结束实验时 `cmd battery reset`）。
-- 如必须 reset，提供"自动复位"流程：实验结束后立即重新采集一份新的 baseline 给后续实验使用，降低"reset 污染其他实验"的概率。
+### 2. Online 轮询观察者效应【已落地】
 
-**补充建议**：在 `BatteryExperimentConfig` 增加 `resetPolicy` 枚举（`NONE` / `BATTERY_STATS_RESET` / `UNPLUG_ONLY`），明确语义而非用布尔开关。
+Online 中间样本只执行 `dumpsys battery`，记录电量、温度、电压和供电状态。完整 checkin/report/history 只在起止 Battery Snapshot 采集，UID 资源结果仍由 baseline/final 差值产生。未增加空转自校准或 `batteryproperties` 分支。
 
-### 2. Online 轮询的观察者效应【影响:中 / 可行性:高】
+### 3. Energy 精度与归因【部分采纳】
 
-**当前实现问题**：Online 模式以 5-60 秒间隔轮询 `dumpsys batterystats`/`dumpsys battery`。`dumpsys` 本身会触发 Binder 调用、唤醒部分统计，可能引入能耗噪声，对"低能耗监控"场景构成自干扰。
+`SYSTEM_MODEL` 始终标记为 `MODELED`；整机电流、Perfetto `android.power` 或 power rail 数据只能属于 `DEVICE` 范围，不能冒充目标 UID 实测。当前链路继续使用设备 OEM batterystats 模型，不支持上传 `power_profile.xml`，也不读取权限和设备语义不稳定的 sysfs 电流节点。Perfetto 能量采集如需接入，应作为独立能力实现。
 
-**更好的实现方式**：
-- **轮询期间只读 `dumpsys battery` 轻量字段**（level/temperature/voltage/charging），不触发完整的 batterystats；完整 batterystats 仅在用户显式"采样"时拉取一次。
-- 提供"轮询能耗自校准"开关：在采集前后各做一次空转（不操作设备）作为本底噪声，从最终结果中扣除。
-- 考虑用 **`dumpsys batteryproperties`**（部分设备支持）替代部分 `dumpsys battery` 查询，避免重复解析。
+### 4. Battery Historian【保留兼容入口】
 
-### 3. Energy 估算的精度与可信度【影响:高 / 可行性:中】
+完整 bugreport 导出保留并标记为 **Legacy**，继续在落盘前提示账号、SSID、应用列表和设备标识等隐私风险。单独 history 不是 Battery Historian 输入的兼容替代；未实现无法保证覆盖完整 bugreport 内容的文本脱敏器。
 
-**当前实现问题**：文档中 EnergyEstimate 区分了 `HARDWARE_COUNTER` 与 `SYSTEM_MODEL` 两类 source，但未说明 power_profile.xml 的获取与校准。Android 的 powerProfile.xml 由厂商配置，不同设备精度差异极大，部分设备只有粗粒度的电流估算。
+### 5. 外部实验条件【已落地】
 
-**更好的实现方式**：
-- **明确标注 powerProfile.xml 来源**：在 `EnergyEstimate` 中增加 `powerProfileSource`（`DEVICE_OEM` / `OVERRIDDEN`）与 `powerProfileVersion`（如有），让用户知道估算基准。
-- **支持自定义 power_profile.xml 覆盖**：允许用户在桌面端上传/编辑 power_profile.xml 并推送到分析链路，便于校准实验。
-- 对 `SYSTEM_MODEL` 类估算，confidence 应显著低于 `HARDWARE_COUNTER`，并在 UI 上用不同颜色/置信区间区分，避免把"模型估算"当成"实测值"。
-- 长期看，优先采集 **`/sys/class/power_supply/.../current_now` 与 `voltage_now`** 的实测电流（如设备可读），用实测功率积分代替模型估算。
+baseline/final 以只读方式记录屏幕亮度、自动亮度模式、屏幕状态、Doze deep/light 状态和默认网络传输类型；条件变化会产生数据质量告警。Raw Bundle 可新增 `conditions.txt`，既有文件路径不变。不记录瞬时 CPU/GPU 频率或完整 telephony dump。
 
-### 4. Battery Historian bugreport 的现代化替代【影响:中 / 可行性:中】
+### 6. Repeated 样本独立性【已落地】
 
-**当前实现问题**：bugreport 体积大、耗时长（10-60 秒甚至更久）、隐私敏感（账号、SSID、应用列表）。Battery Historian 本身依赖 Go runtime，部署门槛高。
+`BatteryExperimentConfig.cooldownSeconds` 默认 30 秒、可设为 0，仅在 Repeated 的相邻轮次间等待。若某轮 baseline 温度相对首轮漂移至少 3°C，结果产生告警；不会无限等待温度恢复。本轮复用现有逐轮表格和统计，不增加盒须图或时序图。
 
-**更好的实现方式**：
-- 优先用 **`bugreportz --progress` + `dumpsys batterystats --history`** 单独提取 history 部分，避免整份 bugreport；很多场景下只需 history 即可。
-- 评估用 **Perfetto `battery_stats` 数据源**（Android 12+ 可通过 `perfetto` 命令直接抓取 batterystats history 的 protobuf 形式），替代 bugreport + Battery Historian 的链路，体积更小、字段更结构化、可在应用内 Perfetto Viewer 直接查看。
-- 对 bugreport 增加 **隐私脱敏预处理**：在 `BatteryHistorianAdapter` 生成 bugreport 后、落盘前，提供一个"脱敏副本"生成选项（移除/打码 `Account`、`Wifi SSID`、`PhoneService` 等 line），原始 bugreport 仅在用户显式选择"保留敏感数据"时保存。
+### 7. 会话中断与增量持久化【已落地】
 
-### 5. PowerState 与外部变量的记录【影响:中 / 可行性:高】
+SQLite 会话状态为 `RUNNING` / `COMPLETED` / `INTERRUPTED`。实验开始写入 `RUNNING`，每完成一轮立即保存该轮，正常结束写入 `COMPLETED`；取消、失败或下次启动发现遗留运行态时写入 `INTERRUPTED`。已完成轮次保留，未完成轮次不续跑，后续测量创建新实验。旧数据库通过增量加列迁移。
 
-**当前实现问题**：`deviceState` 记录电量百分比、温度、电压、充电状态，但未记录屏幕亮度、CPU/GPU 频率、网络制式、信号强度等关键外部变量。这些变量对能耗影响极大，缺失会导致实验难以复现。
+### 8. WakeLock / Alarm / Job 归因【修正后采纳】
 
-**更好的实现方式**：
-- 在 `BatterySnapshot.deviceState` 中扩展记录：
-  - 屏幕亮度（`settings get system screen_brightness` / `dumpsys display`）
-  - CPU/GPU 频率（`/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq`）
-  - 网络制式与信号（`dumpsys telephony.registry` 的 serviceState + signalStrength）
-  - Doze / Doze idle 状态（`dumpsys deviceidle`）
-- 在实验开始前自动"稳定化"：建议固定亮度、关闭自动亮度、固定网络制式、禁用 Doze（`dumpsys deviceidle disable`），结束后恢复，降低变量噪声。
-
-### 6. Repeated 模式的样本独立性与时序【影响:中 / 可行性:高】
-
-**当前实现问题**：Repeated 模式多次运行只做 min/max/median/P90 等统计，但多次运行之间存在状态依赖（缓存预热、GC 残留、温度累积、电池电量随时间下降），样本并不严格独立。
-
-**更好的实现方式**：
-- 每次重复之间插入 **冷却间隔**（如 30-60 秒）并检测温度回落再开始下一次，避免热累积污染。
-- 记录每次运行的 **设备温度**，并在统计中标注"温度漂移"作为数据质量告警（`dataQualityWarnings`）。
-- 提供 **盒须图 + 时序图** 展示多次运行，让用户直观看到是否存在随时间漂移的趋势，而非只看汇总统计。
-
-### 7. 采集会话的并发与中断恢复【影响:低 / 可行性:中】
-
-**当前实现问题**：`SqliteBatterySessionStore` 持久化实验数据，但未说明采集过程被中断（设备断开、App 崩溃、进程被杀）时的恢复策略。
-
-**更好的实现方式**：
-- 在采集会话开始时写一条 `session_started` 记录，结束时写 `session_completed`；启动时检测"已开始未结束"的会话并提供"恢复"或"标记为失败"选项。
-- 对 Repeated 模式，每完成一次 run 即落盘一次（增量持久化），避免整段实验因意外中断而全部丢失。
-
-### 8. WakeLock / Alarm / Job 归因的局限说明【影响:低 / 可行性:高】
-
-**当前实现问题**：文档未提示 batterystats 的归因是基于 UID 的粗粒度统计，无法区分同一 UID 内不同子组件的精确触发，且部分 wakelock 为系统 wakelock（如 `*alarm*`、`*com.google.android.gms*`），归因到具体 App 存在歧义。
-
-**更好的实现方式**：
-- 在分析结果中显式区分 **App-owned wakelock** 与 **system wakelock**，并对 system wakelock 标注 `attributionAmbiguous=true`，避免误导用户。
-- 对 Job/Alarm 触发，若 batterystats 提供了 source package，优先用 source package 归因，而非仅按 UID 归因。
+结果统一表述为 UID-attributed resource，不从名称推断组件所有权。Shared UID 会明确产生包级归因歧义告警；框架代理名称只提示“UID 归因不能证明组件所有权”。仅当原始记录明确提供 source package 时才可采用包归因，不使用名称猜测。

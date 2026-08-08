@@ -37,6 +37,9 @@ public class BatteryStatsParser {
         val sensors = timers(uidRecords, setOf("sr", "sensor"), "sensor", warnings)
         val network = uidRecords.firstOrNull { it.type == "nt" }?.let(::parseNetwork) ?: NetworkUsage()
         val energy = parseEnergy(report, targetUid, warnings)
+        if ((wakelocks.keys + alarms.keys + jobs.keys).any { it.startsWith("*") }) {
+            warnings += "Framework-mediated resource names were observed; UID attribution does not establish component ownership."
+        }
         val history = records.filter { it.type == "h" }.mapNotNull { parseHistoryLine(it.raw) }
         val period =
             records

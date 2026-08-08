@@ -35,7 +35,27 @@ public data class BatteryAnalysisResult(
 public class BatteryAnalyzer {
     public fun analyze(runs: List<BatteryRun>): BatteryAnalysisResult {
         require(runs.isNotEmpty()) { "At least one battery run is required" }
-        val deltas = runs.map(::diff)
+        val firstBaselineTemperature =
+            runs
+                .first()
+                .baseline.deviceState.temperatureTenthsCelsius
+        val deltas =
+            runs.map { run ->
+                val delta = diff(run)
+                val temperature = run.baseline.deviceState.temperatureTenthsCelsius
+                if (firstBaselineTemperature != null &&
+                    temperature != null &&
+                    abs(temperature - firstBaselineTemperature) >= TEMPERATURE_WARNING_TENTHS
+                ) {
+                    delta.copy(
+                        warnings =
+                            (delta.warnings + "Run ${run.iteration} baseline temperature drifted by at least 3°C from run 1.")
+                                .distinct(),
+                    )
+                } else {
+                    delta
+                }
+            }
         return BatteryAnalysisResult(
             runs = deltas,
             wakelockDurationMs = statistics(deltas.map { run -> run.wakelocks.sumOf(ResourceTimer::durationMs).toDouble() }),
@@ -78,6 +98,16 @@ public class BatteryAnalyzer {
                 0
             }
         if (temperatureDelta >= TEMPERATURE_WARNING_TENTHS) warnings += "Battery temperature changed by at least 3°C."
+        (before.conditions.keys + after.conditions.keys).forEach { name ->
+            val old = before.conditions[name]
+            val current = after.conditions[name]
+            if (old != null &&
+                current != null &&
+                old != current
+            ) {
+                warnings += "Experiment condition '$name' changed from '$old' to '$current'."
+            }
+        }
         val wakelocks = diffTimers(before.uidStats.wakelocks, after.uidStats.wakelocks, "wakelock", warnings)
         return BatteryRunDelta(
             runId = run.id,

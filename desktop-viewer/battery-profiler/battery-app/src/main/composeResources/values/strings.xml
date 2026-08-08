@@ -38,7 +38,7 @@
     <string name="found_packages_with_uid_attribution">Found %1$s packages with UID attribution.</string>
     <string name="capturing_baseline_snapshot">Capturing baseline snapshot…</string>
     <string name="baseline_captured_perform_the_target_scenario_then_stop_the_experiment">Baseline captured. Perform the target scenario, then stop the experiment.</string>
-    <string name="captured_online_sample_values_are_cumulative_deltas_not_instantaneous">Captured online sample #%1$s; values are cumulative deltas, not instantaneous power.</string>
+    <string name="captured_online_sample_values_are_cumulative_deltas_not_instantaneous">Captured lightweight online battery-state sample #%1$s.</string>
     <string name="capturing_final_snapshot_and_history">Capturing final snapshot and history…</string>
     <string name="preparing_battery_experiment">Preparing battery experiment…</string>
     <string name="battery_experiment_cancelled">Battery experiment cancelled.</string>
@@ -54,7 +54,9 @@
     <string name="duration_value">Duration: %1$ss</string>
     <string name="polling_value">Polling interval: %1$ss</string>
     <string name="runs_value">Measured runs: %1$s</string>
-    <string name="battery_historian">Battery Historian</string>
+    <string name="cooldown">Cooldown</string>
+    <string name="cooldown_value">Cooldown: %1$ss</string>
+    <string name="battery_historian">Battery Historian (Legacy)</string>
     <string name="unable_to_start_battery_experiment">Unable to start battery experiment.</string>
     <string name="online_sample_failed">Online sample failed: %1$s</string>
     <string name="unable_to_stop_battery_experiment">Unable to stop battery experiment.</string>

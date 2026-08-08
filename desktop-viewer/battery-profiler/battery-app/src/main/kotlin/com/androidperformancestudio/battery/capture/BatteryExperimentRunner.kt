@@ -11,6 +11,7 @@ package com.androidperformancestudio.battery.capture
 import com.androidperformancestudio.battery.model.AttributionScope
 import com.androidperformancestudio.battery.model.BatteryCapabilities
 import com.androidperformancestudio.battery.model.BatteryCapabilityLevel
+import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.model.BatteryEnvironment
 import com.androidperformancestudio.battery.model.BatteryExperimentConfig
 import com.androidperformancestudio.battery.model.BatteryExperimentResult
@@ -19,6 +20,7 @@ import com.androidperformancestudio.battery.model.BatteryRun
 import com.androidperformancestudio.battery.model.BatterySession
 import com.androidperformancestudio.battery.model.BatterySnapshot
 import com.androidperformancestudio.battery.model.BatteryTarget
+import com.androidperformancestudio.battery.model.UidBatteryStats
 import com.androidperformancestudio.battery.parser.BatteryStatsParser
 import com.androidperformancestudio.toolchain.JvmProcessRunner
 import com.androidperformancestudio.toolchain.ProcessRequest
@@ -63,7 +65,12 @@ public class BatteryExperimentRunner(
     }
 
     public suspend fun poll(active: ActiveBatteryExperiment): BatterySnapshot {
-        val snapshot = captureSnapshot(active.session, active.nextSequence++, includeHistory = false)
+        val snapshot =
+            if (active.session.config.mode == BatteryCaptureMode.ONLINE) {
+                captureOnlineSnapshot(active.session, active.nextSequence++)
+            } else {
+                captureSnapshot(active.session, active.nextSequence++, includeHistory = false)
+            }
         active.samples += snapshot
         return snapshot
     }
@@ -79,8 +86,11 @@ public class BatteryExperimentRunner(
     public suspend fun run(
         config: BatteryExperimentConfig,
         onProgress: (BatteryCaptureProgress) -> Unit = {},
+        onSessionStarted: suspend (BatterySession) -> Unit = {},
+        onRunCompleted: suspend (BatterySession, BatteryRun) -> Unit = { _, _ -> },
     ): BatteryExperimentResult {
         val session = prepareSession(config)
+        onSessionStarted(session)
         val totalSteps = config.measuredRuns * 2
         val runs = mutableListOf<BatteryRun>()
         repeat(config.measuredRuns) { index ->
@@ -97,8 +107,14 @@ public class BatteryExperimentRunner(
             }
             onProgress(BatteryCaptureProgress(index * 2 + 1, totalSteps, "Capturing final snapshot for run ${index + 1}…"))
             val final = captureSnapshot(session, active.nextSequence++, includeHistory = true)
-            runs += BatteryRun(active.runId, session.id, index + 1, active.baseline, active.samples.toList(), final)
+            val run = BatteryRun(active.runId, session.id, index + 1, active.baseline, active.samples.toList(), final)
+            runs += run
+            onRunCompleted(session, run)
             onProgress(BatteryCaptureProgress(index * 2 + 2, totalSteps, "Completed run ${index + 1}."))
+            if (config.mode == BatteryCaptureMode.REPEATED && index < config.measuredRuns - 1 && config.cooldownSeconds > 0) {
+                onProgress(BatteryCaptureProgress(index * 2 + 2, totalSteps, "Cooling down for ${config.cooldownSeconds}s…"))
+                delay(config.cooldownSeconds.seconds)
+            }
         }
         return BatteryExperimentResult(session, runs)
     }
@@ -160,6 +176,12 @@ public class BatteryExperimentRunner(
                 null
             }
         val parsed = parser.parse(checkin, report, battery, target.uid)
+        val attributionWarnings =
+            if (target.sharedUid) {
+                listOf("Target UID ${target.uid} is shared by multiple packages; package-level resource attribution is ambiguous.")
+            } else {
+                emptyList()
+            }
         return BatterySnapshot(
             id = UUID.randomUUID().toString(),
             sessionId = session.id,
@@ -170,10 +192,56 @@ public class BatteryExperimentRunner(
             uidStats = parsed.uidStats,
             deviceState = parser.parseDeviceState(battery),
             history = history?.let(parser::parseHistory) ?: parsed.history,
-            warnings = parsed.warnings,
+            warnings = (parsed.warnings + attributionWarnings).distinct(),
             rawEvidence = BatteryRawEvidence(checkin, report, battery, history, durations),
+            conditions = captureConditions(),
         )
     }
+
+    private suspend fun captureOnlineSnapshot(
+        session: BatterySession,
+        sequence: Int,
+    ): BatterySnapshot {
+        val started = System.nanoTime()
+        val battery = commandRunner.execute(listOf("dumpsys", "battery"))
+        return BatterySnapshot(
+            id = UUID.randomUUID().toString(),
+            sessionId = session.id,
+            sequence = sequence,
+            capturedAt = Instant.now(),
+            statsPeriodId = null,
+            bootId = session.environment.bootId,
+            uidStats = UidBatteryStats(target.uid),
+            deviceState = parser.parseDeviceState(battery),
+            rawEvidence =
+                BatteryRawEvidence(
+                    checkin = "",
+                    report = "",
+                    battery = battery,
+                    commandDurationsMs = mapOf("battery" to (System.nanoTime() - started) / NANOS_PER_MILLISECOND),
+                ),
+        )
+    }
+
+    private suspend fun captureConditions(): Map<String, String> =
+        buildMap {
+            optionalCommand(listOf("settings", "get", "system", "screen_brightness"))?.trim()?.takeIf(String::isNotEmpty)?.let {
+                put("screenBrightness", it)
+            }
+            optionalCommand(listOf("settings", "get", "system", "screen_brightness_mode"))?.trim()?.takeIf(String::isNotEmpty)?.let {
+                put("screenBrightnessMode", it)
+            }
+            optionalCommand(listOf("dumpsys", "power"))?.let(::parseScreenState)?.let { put("screenState", it) }
+            optionalCommand(listOf("dumpsys", "deviceidle", "get", "deep"))?.trim()?.takeIf(String::isNotEmpty)?.let {
+                put("dozeDeep", it)
+            }
+            optionalCommand(listOf("dumpsys", "deviceidle", "get", "light"))?.trim()?.takeIf(String::isNotEmpty)?.let {
+                put("dozeLight", it)
+            }
+            optionalCommand(listOf("dumpsys", "connectivity", "--short"))?.let(::parseDefaultNetworkTransport)?.let {
+                put("defaultNetworkTransport", it)
+            }
+        }
 
     private suspend fun launchTarget() {
         val component = target.launcherComponent ?: return
@@ -240,6 +308,27 @@ public class BatteryExperimentRunner(
         const val NANOS_PER_MILLISECOND = 1_000_000L
         const val MILLIS_PER_SECOND = 1_000L
     }
+}
+
+internal fun parseScreenState(output: String): String? =
+    Regex("(?m)^\\s*mScreenState=(\\S+)").find(output)?.groupValues?.get(1)
+        ?: Regex("(?m)^\\s*mWakefulness=(\\S+)").find(output)?.groupValues?.get(1)
+
+internal fun parseDefaultNetworkTransport(output: String): String? {
+    val networkId = Regex("(?m)^Active default network:\\s*(\\d+|none)").find(output)?.groupValues?.get(1) ?: return null
+    if (networkId == "none") return "NONE"
+    val relevant = output.lineSequence().firstOrNull { networkId in it && ("Transports:" in it || "type:" in it) } ?: return null
+    Regex("Transports:\\s*([^}]+?)(?:\\s+Capabilities:|\\])")
+        .find(relevant)
+        ?.groupValues
+        ?.get(1)
+        ?.trim()
+        ?.let { return it }
+    return Regex("type:\\s*([A-Za-z0-9_-]+)")
+        .find(relevant)
+        ?.groupValues
+        ?.get(1)
+        ?.uppercase()
 }
 
 private class JvmBatteryCommandRunner(

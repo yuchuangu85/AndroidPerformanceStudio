@@ -12,6 +12,7 @@ package com.androidperformancestudio.battery.storage
 import com.androidperformancestudio.battery.model.BatteryRun
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.BatterySession
+import com.androidperformancestudio.battery.model.BatterySessionStatus
 import com.androidperformancestudio.battery.model.ResourceTimer
 import java.nio.file.Files
 import java.nio.file.Path
@@ -26,6 +27,7 @@ public data class StoredBatterySession(
     val uid: Int,
     val createdAt: String,
     val runCount: Int,
+    val status: BatterySessionStatus,
 )
 
 public class SqliteBatterySessionStore private constructor(
@@ -38,8 +40,8 @@ public class SqliteBatterySessionStore private constructor(
     ) {
         connection.autoCommit = false
         try {
-            saveSession(session)
-            runs.forEach(::saveRun)
+            saveSession(session, BatterySessionStatus.COMPLETED)
+            runs.forEach(::insertRun)
             deltas.forEach(::saveDelta)
             connection.commit()
         } catch (error: Exception) {
@@ -50,11 +52,52 @@ public class SqliteBatterySessionStore private constructor(
         }
     }
 
+    public fun begin(session: BatterySession) {
+        saveSession(session, BatterySessionStatus.RUNNING)
+    }
+
+    public fun saveRun(
+        session: BatterySession,
+        run: BatteryRun,
+        delta: BatteryRunDelta,
+    ) {
+        connection.autoCommit = false
+        try {
+            saveSession(session, BatterySessionStatus.RUNNING)
+            insertRun(run)
+            saveDelta(delta)
+            connection.commit()
+        } catch (error: Exception) {
+            connection.rollback()
+            throw error
+        } finally {
+            connection.autoCommit = true
+        }
+    }
+
+    public fun markStatus(
+        sessionId: String,
+        status: BatterySessionStatus,
+    ) {
+        connection.prepareStatement("UPDATE battery_sessions SET status=? WHERE id=?").use { statement ->
+            statement.setString(1, status.name)
+            statement.setString(2, sessionId)
+            statement.executeUpdate()
+        }
+    }
+
+    public fun interruptRunningSessions(): Int =
+        connection.prepareStatement("UPDATE battery_sessions SET status=? WHERE status=?").use { statement ->
+            statement.setString(1, BatterySessionStatus.INTERRUPTED.name)
+            statement.setString(2, BatterySessionStatus.RUNNING.name)
+            statement.executeUpdate()
+        }
+
     public fun listSessions(limit: Int = 50): List<StoredBatterySession> {
         require(limit in 1..1000) { "limit must be between 1 and 1000" }
         return connection
             .prepareStatement(
-                "SELECT s.id, s.package_name, s.uid, s.created_at, COUNT(r.id) FROM battery_sessions s LEFT JOIN battery_runs r ON r.session_id=s.id GROUP BY s.id ORDER BY s.created_at DESC LIMIT ?",
+                "SELECT s.id, s.package_name, s.uid, s.created_at, COUNT(r.id), s.status FROM battery_sessions s LEFT JOIN battery_runs r ON r.session_id=s.id GROUP BY s.id ORDER BY s.created_at DESC LIMIT ?",
             ).use { statement ->
                 statement.setInt(1, limit)
                 statement.executeQuery().use { rows ->
@@ -67,6 +110,7 @@ public class SqliteBatterySessionStore private constructor(
                                     rows.getInt(3),
                                     rows.getString(4),
                                     rows.getInt(5),
+                                    BatterySessionStatus.valueOf(rows.getString(6)),
                                 ),
                             )
                         }
@@ -75,13 +119,17 @@ public class SqliteBatterySessionStore private constructor(
             }
     }
 
-    private fun saveSession(session: BatterySession) {
+    private fun saveSession(
+        session: BatterySession,
+        status: BatterySessionStatus,
+    ) {
         connection
             .prepareStatement(
                 """
-                INSERT OR REPLACE INTO battery_sessions
-                (id, device_serial, package_name, uid, attribution_scope, capture_mode, capability_level, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO battery_sessions
+                (id, device_serial, package_name, uid, attribution_scope, capture_mode, capability_level, created_at, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET status=excluded.status
                 """.trimIndent(),
             ).use { statement ->
                 statement.setString(1, session.id)
@@ -92,11 +140,12 @@ public class SqliteBatterySessionStore private constructor(
                 statement.setString(6, session.config.mode.name)
                 statement.setString(7, session.capabilities.level.name)
                 statement.setString(8, session.createdAt.toString())
+                statement.setString(9, status.name)
                 statement.executeUpdate()
             }
     }
 
-    private fun saveRun(run: BatteryRun) {
+    private fun insertRun(run: BatteryRun) {
         connection
             .prepareStatement(
                 "INSERT OR REPLACE INTO battery_runs (id, session_id, iteration, started_at, ended_at, sample_count) VALUES (?, ?, ?, ?, ?, ?)",
@@ -112,7 +161,7 @@ public class SqliteBatterySessionStore private constructor(
         (listOf(run.baseline) + run.samples + run.finalSnapshot).forEach { snapshot ->
             connection
                 .prepareStatement(
-                    "INSERT OR REPLACE INTO battery_snapshots (id, run_id, sequence, captured_at, stats_period_id, boot_id, level, temperature, powered, checkin, report, battery, history, warnings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO battery_snapshots (id, run_id, sequence, captured_at, stats_period_id, boot_id, level, temperature, powered, checkin, report, battery, history, warnings, conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 ).use { statement ->
                     statement.setString(1, snapshot.id)
                     statement.setString(2, run.id)
@@ -128,12 +177,24 @@ public class SqliteBatterySessionStore private constructor(
                     statement.setString(12, snapshot.rawEvidence.battery)
                     statement.setString(13, snapshot.rawEvidence.history)
                     statement.setString(14, snapshot.warnings.joinToString("\n"))
+                    statement.setString(
+                        15,
+                        snapshot.conditions.entries.joinToString("\n") { (key, value) -> "$key=${value.replace("\n", " ")}" },
+                    )
                     statement.executeUpdate()
                 }
         }
     }
 
     private fun saveDelta(delta: BatteryRunDelta) {
+        connection.prepareStatement("DELETE FROM battery_resources WHERE run_id=?").use { statement ->
+            statement.setString(1, delta.runId)
+            statement.executeUpdate()
+        }
+        connection.prepareStatement("DELETE FROM battery_energy WHERE run_id=?").use { statement ->
+            statement.setString(1, delta.runId)
+            statement.executeUpdate()
+        }
         connection
             .prepareStatement(
                 "INSERT OR REPLACE INTO battery_deltas (run_id, duration_ms, total_network_bytes, warnings) VALUES (?, ?, ?, ?)",
@@ -200,13 +261,13 @@ public class SqliteBatterySessionStore private constructor(
             connection.createStatement().use { statement ->
                 statement.execute("PRAGMA foreign_keys = ON")
                 statement.execute(
-                    "CREATE TABLE IF NOT EXISTS battery_sessions (id TEXT PRIMARY KEY, device_serial TEXT NOT NULL, package_name TEXT NOT NULL, uid INTEGER NOT NULL, attribution_scope TEXT NOT NULL, capture_mode TEXT NOT NULL, capability_level TEXT NOT NULL, created_at TEXT NOT NULL)",
+                    "CREATE TABLE IF NOT EXISTS battery_sessions (id TEXT PRIMARY KEY, device_serial TEXT NOT NULL, package_name TEXT NOT NULL, uid INTEGER NOT NULL, attribution_scope TEXT NOT NULL, capture_mode TEXT NOT NULL, capability_level TEXT NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'COMPLETED')",
                 )
                 statement.execute(
                     "CREATE TABLE IF NOT EXISTS battery_runs (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES battery_sessions(id) ON DELETE CASCADE, iteration INTEGER NOT NULL, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, sample_count INTEGER NOT NULL)",
                 )
                 statement.execute(
-                    "CREATE TABLE IF NOT EXISTS battery_snapshots (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES battery_runs(id) ON DELETE CASCADE, sequence INTEGER NOT NULL, captured_at TEXT NOT NULL, stats_period_id TEXT, boot_id TEXT, level INTEGER, temperature INTEGER, powered INTEGER, checkin TEXT NOT NULL, report TEXT NOT NULL, battery TEXT NOT NULL, history TEXT, warnings TEXT NOT NULL)",
+                    "CREATE TABLE IF NOT EXISTS battery_snapshots (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES battery_runs(id) ON DELETE CASCADE, sequence INTEGER NOT NULL, captured_at TEXT NOT NULL, stats_period_id TEXT, boot_id TEXT, level INTEGER, temperature INTEGER, powered INTEGER, checkin TEXT NOT NULL, report TEXT NOT NULL, battery TEXT NOT NULL, history TEXT, warnings TEXT NOT NULL, conditions TEXT NOT NULL DEFAULT '')",
                 )
                 statement.execute(
                     "CREATE TABLE IF NOT EXISTS battery_deltas (run_id TEXT PRIMARY KEY REFERENCES battery_runs(id) ON DELETE CASCADE, duration_ms INTEGER NOT NULL, total_network_bytes INTEGER NOT NULL, warnings TEXT NOT NULL)",
@@ -217,10 +278,26 @@ public class SqliteBatterySessionStore private constructor(
                 statement.execute(
                     "CREATE TABLE IF NOT EXISTS battery_energy (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES battery_runs(id) ON DELETE CASCADE, component TEXT NOT NULL, energy_mah REAL, energy_uws INTEGER, source TEXT NOT NULL, scope TEXT NOT NULL, confidence TEXT NOT NULL)",
                 )
+                if (!connection.hasColumn("battery_sessions", "status")) {
+                    statement.execute("ALTER TABLE battery_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'COMPLETED'")
+                }
+                if (!connection.hasColumn("battery_snapshots", "conditions")) {
+                    statement.execute("ALTER TABLE battery_snapshots ADD COLUMN conditions TEXT NOT NULL DEFAULT ''")
+                }
             }
         }
     }
 }
+
+private fun Connection.hasColumn(
+    table: String,
+    column: String,
+): Boolean =
+    createStatement().use { statement ->
+        statement.executeQuery("PRAGMA table_info($table)").use { rows ->
+            generateSequence { if (rows.next()) rows.getString("name") else null }.any { it == column }
+        }
+    }
 
 private fun PreparedStatement.setNullableInt(
     index: Int,

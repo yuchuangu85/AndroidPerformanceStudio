@@ -53,6 +53,7 @@ class BatteryExportersTest {
                 UidBatteryStats(10123),
                 BatteryDeviceState(),
                 rawEvidence = BatteryRawEvidence("checkin", "report", "battery"),
+                conditions = mapOf("screenState" to "ON"),
             )
         val run = BatteryRun("r", "s", 1, snapshot, emptyList(), snapshot.copy(id = "f", sequence = 1))
         val delta =
@@ -78,12 +79,16 @@ class BatteryExportersTest {
         val csv = directory.resolve("report.csv")
         val zip = directory.resolve("raw.zip")
         BatteryJsonExporter().export(experiment, analysis, json)
-        BatteryCsvExporter().export(analysis, csv)
+        BatteryCsvExporter().export(analysis, csv, AttributionScope.SHARED_UID)
         BatteryRawBundleExporter().export(experiment, zip)
 
         assertContains(Files.readString(json), "\"schemaVersion\": 1")
         assertContains(Files.readString(csv), "wakelock")
-        ZipFile(zip.toFile()).use { assertNotNull(it.getEntry("run-1/snapshot-0/checkin.txt")) }
+        assertContains(Files.readString(csv), "SHARED_UID")
+        ZipFile(zip.toFile()).use {
+            assertNotNull(it.getEntry("run-1/snapshot-0/checkin.txt"))
+            assertNotNull(it.getEntry("run-1/snapshot-0/conditions.txt"))
+        }
     }
 
     @Test

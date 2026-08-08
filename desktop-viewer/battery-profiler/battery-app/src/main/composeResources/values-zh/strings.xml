@@ -38,7 +38,7 @@
     <string name="found_packages_with_uid_attribution">找到 %1$s 个具有 UID 归因信息的应用包。</string>
     <string name="capturing_baseline_snapshot">正在采集基线快照…</string>
     <string name="baseline_captured_perform_the_target_scenario_then_stop_the_experiment">基线快照已采集。请执行目标场景，然后停止实验。</string>
-    <string name="captured_online_sample_values_are_cumulative_deltas_not_instantaneous">已采集在线样本 #%1$s；数值为累计增量，不代表瞬时功耗。</string>
+    <string name="captured_online_sample_values_are_cumulative_deltas_not_instantaneous">已采集轻量在线电池状态样本 #%1$s。</string>
     <string name="capturing_final_snapshot_and_history">正在采集最终快照和历史记录…</string>
     <string name="preparing_battery_experiment">正在准备电池实验…</string>
     <string name="battery_experiment_cancelled">电池实验已取消。</string>
@@ -54,7 +54,9 @@
     <string name="duration_value">时长：%1$s秒</string>
     <string name="polling_value">轮询间隔：%1$s秒</string>
     <string name="runs_value">测量轮次：%1$s</string>
-    <string name="battery_historian">Battery Historian</string>
+    <string name="cooldown">冷却时间</string>
+    <string name="cooldown_value">冷却：%1$s秒</string>
+    <string name="battery_historian">Battery Historian（旧版）</string>
     <string name="unable_to_start_battery_experiment">无法启动电池实验。</string>
     <string name="online_sample_failed">在线样本采集失败：%1$s</string>
     <string name="unable_to_stop_battery_experiment">无法停止电池实验。</string>

@@ -6,6 +6,8 @@ import java.time.Instant
 
 public enum class BatteryCaptureMode { INTERACTIVE, TIMED, REPEATED, ONLINE }
 
+public enum class BatterySessionStatus { RUNNING, COMPLETED, INTERRUPTED }
+
 public enum class BatteryCapabilityLevel { RESOURCE_FULL, RESOURCE_BASIC, ENERGY_ENHANCED, HISTORIAN_EXPORT, UNAVAILABLE }
 
 public enum class AttributionScope { PACKAGE, UID, SHARED_UID, DEVICE }
@@ -36,11 +38,13 @@ public data class BatteryExperimentConfig(
     val pollingIntervalSeconds: Int = 10,
     val measuredRuns: Int = 1,
     val launchApp: Boolean = false,
+    val cooldownSeconds: Int = 30,
 ) {
     init {
         require(durationSeconds in 5..3600) { "durationSeconds must be between 5 and 3600" }
         require(pollingIntervalSeconds in 5..60) { "pollingIntervalSeconds must be between 5 and 60" }
         require(measuredRuns in 1..50) { "measuredRuns must be between 1 and 50" }
+        require(cooldownSeconds in 0..300) { "cooldownSeconds must be between 0 and 300" }
     }
 }
 
@@ -143,6 +147,7 @@ public data class BatterySnapshot(
     val history: List<BatteryHistoryEvent> = emptyList(),
     val warnings: List<String> = emptyList(),
     val rawEvidence: BatteryRawEvidence,
+    val conditions: Map<String, String> = emptyMap(),
 )
 
 public data class BatterySession(

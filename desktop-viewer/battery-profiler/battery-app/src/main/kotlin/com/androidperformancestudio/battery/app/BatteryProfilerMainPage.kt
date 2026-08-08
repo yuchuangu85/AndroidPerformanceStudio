@@ -44,6 +44,8 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.canc
 import com.androidperformancestudio.battery.battery_app.generated.resources.cancel_experiment
 import com.androidperformancestudio.battery.battery_app.generated.resources.capture_mode
 import com.androidperformancestudio.battery.battery_app.generated.resources.choose_location
+import com.androidperformancestudio.battery.battery_app.generated.resources.cooldown
+import com.androidperformancestudio.battery.battery_app.generated.resources.cooldown_value
 import com.androidperformancestudio.battery.battery_app.generated.resources.device
 import com.androidperformancestudio.battery.battery_app.generated.resources.duration
 import com.androidperformancestudio.battery.battery_app.generated.resources.duration_value
@@ -75,8 +77,6 @@ import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
@@ -261,6 +261,16 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                 selectedItemLabel = { localizedStringResource(Res.string.runs_value, language, it) },
                 placeholder = localizedStringResource(Res.string.runs, language),
                 enabled = !state.isRunning,
+            )
+            HeaderSpacer()
+            DropdownSelector(
+                items = listOf(0, 15, 30, 60, 120),
+                selectedItem = state.config.cooldownSeconds,
+                onItemSelected = { value -> controller.updateConfig { it.copy(cooldownSeconds = value) } },
+                itemLabel = { localizedStringResource(Res.string.seconds_short, language, it) },
+                selectedItemLabel = { localizedStringResource(Res.string.cooldown_value, language, it) },
+                placeholder = localizedStringResource(Res.string.cooldown, language),
+                enabled = !state.isRunning && state.config.mode == BatteryCaptureMode.REPEATED,
             )
             HeaderSpacer()
             Checkbox(
