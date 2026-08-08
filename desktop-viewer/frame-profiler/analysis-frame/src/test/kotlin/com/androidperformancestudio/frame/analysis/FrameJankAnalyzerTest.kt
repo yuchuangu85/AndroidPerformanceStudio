@@ -6,7 +6,6 @@ import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.model.FrameStages
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class FrameJankAnalyzerTest {
     private val analyzer = FrameJankAnalyzer()
@@ -21,20 +20,24 @@ class FrameJankAnalyzerTest {
 
         val result = analyzer.analyze(frames)
 
-        assertEquals(JankVerdict.SMOOTH, result.frames.single { it.sample.frameId == 1L }.verdict)
-        assertEquals(JankVerdict.JANK, result.frames.single { it.sample.frameId == 2L }.verdict)
-        assertEquals(0.5, result.summary.jankRate)
+        assertEquals(FrameDeadlineVerdict.MET, result.frames.single { it.sample.frameId == 1L }.deadlineVerdict)
+        assertEquals(FrameDeadlineVerdict.MISSED, result.frames.single { it.sample.frameId == 2L }.deadlineVerdict)
+        assertEquals(0.5, result.summary.deadlineMissRate)
     }
 
     @Test
-    fun `platform classification is authoritative`() {
+    fun `platform signal and deadline miss remain separate`() {
         val platformSmooth = frame(1, durationNs = 20_000_000L, expectedNs = 8_333_333L).copy(platformJank = false)
         val platformJank = frame(2, durationNs = 5_000_000L, expectedNs = 16_666_667L).copy(platformJank = true)
 
         val result = analyzer.analyze(listOf(platformSmooth, platformJank))
 
-        assertEquals(JankVerdict.SMOOTH, result.frames[0].verdict)
-        assertEquals(JankVerdict.JANK, result.frames[1].verdict)
+        assertEquals(FrameDeadlineVerdict.MISSED, result.frames[0].deadlineVerdict)
+        assertEquals(false, result.frames[0].sample.platformJank)
+        assertEquals(FrameDeadlineVerdict.MET, result.frames[1].deadlineVerdict)
+        assertEquals(true, result.frames[1].sample.platformJank)
+        assertEquals(0.5, result.summary.deadlineMissRate)
+        assertEquals(0.5, result.summary.platformJankRate)
     }
 
     @Test
@@ -54,12 +57,12 @@ class FrameJankAnalyzerTest {
             )
 
         assertEquals(2, result.clusters.size)
-        assertEquals(listOf(1L, 4L), result.clusters.first().jankFrameIds)
-        assertEquals(listOf(8L), result.clusters.last().jankFrameIds)
+        assertEquals(listOf(1L, 4L), result.clusters.first().deadlineMissFrameIds)
+        assertEquals(listOf(8L), result.clusters.last().deadlineMissFrameIds)
     }
 
     @Test
-    fun `reports dominant stage for a jank frame`() {
+    fun `reports largest stage without inferring a root cause`() {
         val result =
             analyzer.analyzeFrame(
                 frame(1, 30_000_000L).copy(
@@ -67,8 +70,8 @@ class FrameJankAnalyzerTest {
                 ),
             )
 
-        assertEquals("Layout/Measure", result.bottleneckStage)
-        assertTrue(result.jankTypes.isNotEmpty())
+        assertEquals("Layout/Measure", result.largestReportedStage)
+        assertEquals(emptySet(), result.platformJankTypes)
     }
 
     private fun frame(

@@ -52,6 +52,20 @@ class FrameProfilerControllerTest {
         }
 
     @Test
+    fun `associates an explicit Perfetto trace with the current frame session`() =
+        runBlocking {
+            val directory = createTempDirectory("frame-controller-trace")
+            val input = directory.resolve("framestats.txt").also { it.writeText(FRAMESTATS) }
+            val trace = directory.resolve("frame.perfetto-trace").also { it.writeText("trace") }
+            val controller = FrameProfilerController(databaseFile = directory.resolve("frames.db"))
+
+            controller.importFrameStats(input)
+            controller.associatePerfettoTrace(trace)
+
+            assertEquals(trace.toAbsolutePath(), controller.state.value.perfettoTraceFile)
+        }
+
+    @Test
     fun `captures selected online process and incrementally aggregates polled frames`() =
         runBlocking {
             val directory = createTempDirectory("frame-controller-online")
@@ -131,7 +145,7 @@ class FrameProfilerControllerTest {
         override suspend fun listProcesses(serial: String): FrameBackendResult<List<FrameProcessOption>> =
             FrameBackendResult.Success(listOf(process))
 
-        override fun openCapture(
+        override suspend fun openCapture(
             serial: String,
             process: FrameProcessOption,
             sessionId: String,

@@ -1,0 +1,268 @@
+diff -ruN  a/agent/native/agent.cc  b/agent/native/agent.cc
+---  a/agent/native/agent.cc	2026-08-08 18:07:41
++++  b/agent/native/agent.cc	2026-08-08 18:07:41
+@@ -32,23 +32,24 @@
+     "com/android/tools/ui/inspector/service/InspectorService";
+ constexpr const char* kInitializeMethodName = "initialize";
+ constexpr const char* kInitializeMethodSignature =
+-    "(Ljava/lang/String;Ljava/lang/String;J)I";
++    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)I";
+ 
+ // Options passed to the agent on attach.
+ struct AgentOptions {
+   std::string service_jar;
+   std::string payload_jar;
+   std::string pid;
++  std::string token;
+ };
+ 
+-// Parses options in format: service_jar;payload_jar;pid
++// Parses options in format: service_jar;payload_jar;pid;token
+ std::optional<AgentOptions> parseOptions(const char* options) {
+   if (options == nullptr || strlen(options) == 0) return std::nullopt;
+ 
+   std::vector<std::string> args = profiler::Tokenizer::GetTokens(options, ";");
+-  if (args.size() != 3) return std::nullopt;
++  if (args.size() != 4 || args[3].empty()) return std::nullopt;
+ 
+-  return AgentOptions{args[0], args[1], args[2]};
++  return AgentOptions{args[0], args[1], args[2], args[3]};
+ }
+ 
+ // Process-wide singleton representing the JVMTI agent tooling.
+@@ -67,13 +68,14 @@
+   if (!options_opt) {
+     profiler::Log::E(
+         kLogTag,
+-        "Invalid options format. Expected: service_jar;payload_jar;pid");
++        "Invalid options format. Expected: service_jar;payload_jar;pid;token");
+     return JNI_OK;
+   }
+ 
+   std::string service_jar_path = options_opt->service_jar;
+   std::string payload_jar_path = options_opt->payload_jar;
+   std::string pid = options_opt->pid;
++  std::string token = options_opt->token;
+ 
+   JNIEnv* env = profiler::GetThreadLocalJNI(vm);
+   if (env == nullptr) {
+@@ -143,6 +145,7 @@
+   // Call initialize
+   jstring arg1 = env->NewStringUTF(payload_jar_path.c_str());
+   jstring arg2 = env->NewStringUTF(pid.c_str());
++  jstring arg3 = env->NewStringUTF(token.c_str());
+ 
+   // Get or instantiate the singleton JvmtiArtTooling engine, then cast its
+   // pointer to a jlong so it can be passed to and stored by the Java service
+@@ -153,7 +156,7 @@
+   jlong artToolingPtr = reinterpret_cast<jlong>(g_art_tooling);
+ 
+   jint result = env->CallStaticIntMethod(serviceClass, initMethod, arg1, arg2,
+-                                         artToolingPtr);
++                                         arg3, artToolingPtr);
+ 
+   if (env->ExceptionCheck()) {
+     profiler::Log::E(kLogTag, "Exception in %s.%s", kInspectorServiceClassName,
+diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/InspectorLauncher.java  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/InspectorLauncher.java
+---  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/InspectorLauncher.java	2026-08-08 18:07:41
++++  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/InspectorLauncher.java	2026-08-08 18:07:41
+@@ -18,6 +18,7 @@
+ 
+ import android.util.Log;
+ import com.android.tools.ui.inspector.common.ProtocolConstants;
++import java.util.function.BiConsumer;
+ import java.util.function.Consumer;
+ 
+ /** Entry point for the UI Inspector payload. Starts a Unix domain socket server to listen for commands from the host. */
+@@ -27,18 +28,18 @@
+ 
+   private InspectorLauncher() {}
+ 
+-  public static synchronized void start(String pid) {
+-    start(pid, Server::startServer);
++  public static synchronized void start(String pid, String token) {
++    start(pid, token, Server::startServer);
+   }
+ 
+-  public static synchronized void start(String pid, Consumer<String> serverStarter) {
++  static synchronized void start(String pid, String token, BiConsumer<String, String> serverStarter) {
+     if (serverThread != null && serverThread.isAlive()) {
+       Log.i(TAG, "Inspector server is already running.");
+       return;
+     }
+     serverThread = new Thread(() -> {
+       try {
+-        serverStarter.accept(pid);
++        serverStarter.accept(pid, token);
+       } catch (Throwable t) {
+         // Catching Throwable prevents any unhandled exception or error in the agent
+         // from bringing down the entire application process.
+@@ -46,5 +47,9 @@
+       }
+     }, "ui-inspector-server");
+     serverThread.start();
++  }
++
++  static synchronized void start(String pid, Consumer<String> serverStarter) {
++    start(pid, "test-token", (ignoredPid, ignoredToken) -> serverStarter.accept(ignoredPid));
+   }
+ }
+diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/Server.java  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/Server.java
+---  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/Server.java	2026-08-08 18:07:41
++++  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/Server.java	2026-08-08 18:07:41
+@@ -46,12 +46,13 @@
+ 
+   private Server() {}
+ 
+-  public static void startServer(String pid) {
+-    new ServerInstance(pid).run();
++  public static void startServer(String pid, String token) {
++    new ServerInstance(pid, token).run();
+   }
+ 
+   private static final class ServerInstance {
+     private final String socketName;
++    private final byte[] expectedToken;
+     // Completes when a request to shutdown the server is received.
+     private final CountDownLatch shutdownLatch = new CountDownLatch(1);
+     // Flags whether the server stopped due to an inactivity timeout.
+@@ -111,8 +112,9 @@
+     private LocalServerSocket serverSocket;
+     private ScheduledFuture<?> timeoutFuture;
+ 
+-    ServerInstance(String pid) {
++    ServerInstance(String pid, String token) {
+       this.socketName = ProtocolConstants.getSocketName(pid);
++      this.expectedToken = token.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+     }
+ 
+     void run() {
+@@ -174,7 +176,8 @@
+                                         activeOutputStream,
+                                         crashListener,
+                                         shutdownLatch,
+-                                        inspectorBridges);
++                                        inspectorBridges,
++                                        expectedToken);
+             sessionHandler.processCommands();
+           } finally {
+                         activeOutputStream = null;
+diff -ruN  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/SessionHandler.java  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/SessionHandler.java
+---  a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/SessionHandler.java	2026-08-08 18:07:41
++++  b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/SessionHandler.java	2026-08-08 18:07:41
+@@ -32,6 +32,8 @@
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.io.OutputStream;
++import java.security.MessageDigest;
++import java.util.Arrays;
+ import java.util.HashMap;
+ import java.util.Map;
+ import java.util.concurrent.CountDownLatch;
+@@ -46,14 +48,26 @@
+   private final CountDownLatch shutdownLatch;
+   private final Map<String, InspectorBridge> inspectorBridges;
+   private final ClassLoader classLoader;
++  private final byte[] expectedToken;
+ 
+   public SessionHandler(
+       InputStream inputStream,
+       OutputStream outputStream,
+       HandlerThreadExecutor.CrashListener crashListener,
+       CountDownLatch shutdownLatch,
++      Map<String, InspectorBridge> inspectorBridges,
++      byte[] expectedToken) {
++    this(inputStream, outputStream, crashListener, shutdownLatch, inspectorBridges, SessionHandler.class.getClassLoader(), expectedToken);
++  }
++
++  @VisibleForTesting
++  SessionHandler(
++      InputStream inputStream,
++      OutputStream outputStream,
++      HandlerThreadExecutor.CrashListener crashListener,
++      CountDownLatch shutdownLatch,
+       Map<String, InspectorBridge> inspectorBridges) {
+-    this(inputStream, outputStream, crashListener, shutdownLatch, inspectorBridges, SessionHandler.class.getClassLoader());
++    this(inputStream, outputStream, crashListener, shutdownLatch, inspectorBridges, SessionHandler.class.getClassLoader(), new byte[0]);
+   }
+ 
+   @VisibleForTesting
+@@ -63,21 +77,39 @@
+       HandlerThreadExecutor.CrashListener crashListener,
+       CountDownLatch shutdownLatch,
+       Map<String, InspectorBridge> inspectorBridges,
+-      ClassLoader classLoader) {
++      ClassLoader classLoader,
++      byte[] expectedToken) {
+     this.inputStream = inputStream;
+     this.outputStream = outputStream;
+     this.crashListener = crashListener;
+     this.shutdownLatch = shutdownLatch;
+     this.inspectorBridges = inspectorBridges;
+     this.classLoader = classLoader;
++    this.expectedToken = Arrays.copyOf(expectedToken, expectedToken.length);
+   }
+ 
++  @VisibleForTesting
++  SessionHandler(
++      InputStream inputStream,
++      OutputStream outputStream,
++      HandlerThreadExecutor.CrashListener crashListener,
++      CountDownLatch shutdownLatch,
++      Map<String, InspectorBridge> inspectorBridges,
++      ClassLoader classLoader) {
++    this(inputStream, outputStream, crashListener, shutdownLatch, inspectorBridges, classLoader, new byte[0]);
++  }
++
+   /**
+    * Reads and executes a continuous stream of commands from the host. Loops until the connection is broken or a shutdown command is
+    * received.
+    */
+   public void processCommands() {
+     try {
++      if (expectedToken.length > 0 &&
++          !MessageDigest.isEqual(expectedToken, FramingProtocol.readMessage(inputStream))) {
++        Log.w(TAG, "Rejected unauthenticated inspector connection");
++        return;
++      }
+       while (!Thread.currentThread().isInterrupted()) {
+         byte[] commandBytes = FramingProtocol.readMessage(inputStream);
+         UiInspectorProtocol.Command command = UiInspectorProtocol.Command.parseFrom(commandBytes);
+diff -ruN  a/agent/service/src/main/java/com/android/tools/ui/inspector/service/InspectorService.java  b/agent/service/src/main/java/com/android/tools/ui/inspector/service/InspectorService.java
+---  a/agent/service/src/main/java/com/android/tools/ui/inspector/service/InspectorService.java	2026-08-08 18:07:41
++++  b/agent/service/src/main/java/com/android/tools/ui/inspector/service/InspectorService.java	2026-08-08 18:07:41
+@@ -46,17 +46,18 @@
+      *
+      * @param payloadJarPath absolute path to the payload jar/dex file to load dynamically
+      * @param pid the target process ID of this application
++     * @param token random per-session authentication token
+      * @param artToolingPtr pointer to the native JvmtiArtTooling C++ instance
+      * @return RESULT_OK on success, or an error/exception code on failure
+      */
+-    public static int initialize(String payloadJarPath, String pid, long artToolingPtr) {
++    public static int initialize(String payloadJarPath, String pid, String token, long artToolingPtr) {
+         try {
+             // Register the native JvmtiArtTooling pointer in the bootstrap bridge so JNI callbacks
+             // can delegate hooks and heap-walking queries to the JVMTI agent.
+             ArtToolingBridge.initialize(artToolingPtr);
+ 
+-            if (pid == null || pid.isEmpty()) {
+-                Log.e(TAG, "PID is required for initialization");
++            if (pid == null || pid.isEmpty() || token == null || token.isEmpty()) {
++                Log.e(TAG, "PID and session token are required for initialization");
+                 return RESULT_ERROR;
+             }
+ 
+@@ -79,9 +80,10 @@
+                     dexClassLoader
+             );
+ 
+-            Method startMethod = launcherClass.getMethod(START_METHOD_NAME, String.class);
++            Method startMethod = launcherClass.getMethod(
++                    START_METHOD_NAME, String.class, String.class);
+ 
+-            startMethod.invoke(null, pid);
++            startMethod.invoke(null, pid, token);
+ 
+             return RESULT_OK;
+         } catch (Throwable e) {

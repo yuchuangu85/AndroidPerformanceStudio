@@ -17,6 +17,9 @@ private const val MISSING_HPROF_CONV_MESSAGE =
     "SDK Platform Tools hprof-conv was not found; raw Android HPROF was kept. " +
         "Install SDK Platform Tools or import a standard Java HPROF for analysis."
 
+private const val FAILED_HPROF_CONV_MESSAGE =
+    "hprof-conv could not convert this dump; the raw Android HPROF was kept for the built-in parser."
+
 data class MemoryCaptureRequest(
     val sessionId: String,
     val sessionRoot: Path,
@@ -124,20 +127,14 @@ class MemoryHeapDumpCaptureSession(
         }
 
         val deviceSdkApiLevel = readSdkApiLevel(request.serial, cancellationSignal)
-        val skipConversion = deviceSdkApiLevel != null && deviceSdkApiLevel >= MINIMUM_STANDARD_HPROF_API
-
-        val (hprofConv, conversionResult) =
-            if (skipConversion) {
-                // Android 8.0+ (API >= 26) am dumpheap already emits standard Java HPROF;
-                // hprof-conv is unnecessary and is skipped to reduce steps and failure points.
-                null to StudioResult.Success<MemoryCaptureConversion>(MemoryCaptureConversion.SkippedForApi)
+        // API level is not an HPROF format boundary. Keep the raw dump for the built-in parser and
+        // produce a Java-SE-compatible copy whenever hprof-conv is available.
+        val hprofConv = hprofConvLocator.locate()
+        val conversionResult =
+            if (hprofConv == null) {
+                StudioResult.Success<MemoryCaptureConversion>(MemoryCaptureConversion.MissingTool)
             } else {
-                val located = hprofConvLocator.locate()
-                if (located == null) {
-                    null to StudioResult.Success<MemoryCaptureConversion>(MemoryCaptureConversion.MissingTool)
-                } else {
-                    located to convert(located, rawHprofFile, convertedHprofFile, cancellationSignal)
-                }
+                convert(hprofConv, rawHprofFile, convertedHprofFile, cancellationSignal)
             }
 
         val cleanupWarning = cleanup(request.serial, deviceHprofPath, cancellationSignal)
@@ -154,10 +151,14 @@ class MemoryHeapDumpCaptureSession(
                         ),
                     )
                 }
+                if (conversionResult is StudioResult.Failure) {
+                    add(MemoryCaptureWarning(code = "HPROF_CONV_FAILED", message = FAILED_HPROF_CONV_MESSAGE))
+                }
                 cleanupWarning?.let(::add)
             }
 
-        if (conversionResult is StudioResult.Failure) return conversionResult
+        val converted =
+            conversionResult is StudioResult.Success && conversionResult.value == MemoryCaptureConversion.Converted
 
         return StudioResult.Success(
             MemoryCaptureResult(
@@ -165,9 +166,9 @@ class MemoryHeapDumpCaptureSession(
                 sessionDirectory = sessionDirectory,
                 deviceHprofPath = deviceHprofPath,
                 rawHprofFile = rawHprofFile,
-                convertedHprofFile = if (hprofConv == null) null else convertedHprofFile,
+                convertedHprofFile = convertedHprofFile.takeIf { converted },
                 deviceSdkApiLevel = deviceSdkApiLevel,
-                conversionSkipped = skipConversion,
+                conversionSkipped = false,
                 warnings = warnings,
             ),
         )
@@ -299,14 +300,9 @@ class MemoryHeapDumpCaptureSession(
         listOfNotNull(result.output?.stderr?.text, result.output?.stdout?.text)
             .joinToString(separator = "\n")
             .trim()
+}
 
-    private enum class MemoryCaptureConversion {
-        Converted,
-        MissingTool,
-        SkippedForApi,
-    }
-
-    companion object {
-        const val MINIMUM_STANDARD_HPROF_API: Int = 26
-    }
+private enum class MemoryCaptureConversion {
+    Converted,
+    MissingTool,
 }

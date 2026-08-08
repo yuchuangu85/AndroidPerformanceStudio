@@ -4,6 +4,12 @@
     <string name="recent_gpu_artifacts">Recent GPU artifacts</string>
     <string name="verify">Verify</string>
     <string name="open">Open</string>
+    <string name="open_in_agi">Open in AGI</string>
+    <string name="launch_agi">Launch AGI</string>
+    <string name="open_in_perfetto">Open in Perfetto</string>
+    <string name="open_with_desktop">Open</string>
+    <string name="show_in_files">Show in Files</string>
+    <string name="relocate">Relocate</string>
     <string name="android_gpu_inspector">Android GPU Inspector</string>
     <string name="text">%1$s · %2$s</string>
     <string name="kib">%1$s KiB · %2$s…</string>
@@ -24,4 +30,9 @@
     <string name="warning_agi_version_unknown">AGI version could not be determined.</string>
     <string name="warning_agi_gui_only">No stable automation arguments were detected; AGI will be launched in GUI-only mode.</string>
     <string name="warning_unknown_artifact">Unknown artifact format; it is indexed as opaque evidence.</string>
+    <string name="warning_agi_artifact_open_unverified">Opening an artifact through this configured executable was not verified.</string>
+    <string name="artifact_available">File available</string>
+    <string name="artifact_missing">File missing</string>
+    <string name="artifact_size_changed">File size changed</string>
+    <string name="tool_responsibility_hint">Use AGI for detailed frame and graphics API analysis; use Perfetto for system GPU and FrameTimeline evidence.</string>
 </resources>

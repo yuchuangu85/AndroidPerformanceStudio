@@ -83,6 +83,7 @@ public data class MemoryInstanceDetail(
     val elementCount: Int?,
     val fields: List<MemoryInstanceField>,
     val referenceChain: List<ObjectReference>,
+    val references: List<MemoryInstanceField> = emptyList(),
 )
 
 public data class MemoryProfilerState(

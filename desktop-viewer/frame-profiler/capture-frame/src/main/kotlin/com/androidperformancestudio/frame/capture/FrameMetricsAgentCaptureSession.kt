@@ -217,6 +217,8 @@ private fun AgentFrameSample.toFrameSample(
         frameCompletedNs = frameCompletedNs,
         expectedDurationNs = expectedDurationNs,
         expectedDurationSource = expectedDurationSource.toModel(),
+        refreshRateHz = refreshRateHz,
+        frameTimelineVsyncId = frameTimelineVsyncId,
         totalDurationNs = totalDurationNs,
         stages =
             FrameStages(

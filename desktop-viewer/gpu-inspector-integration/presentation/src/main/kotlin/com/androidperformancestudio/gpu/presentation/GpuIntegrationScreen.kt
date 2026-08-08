@@ -19,17 +19,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.gpu.model.AgiCapability
 import com.androidperformancestudio.gpu.model.AgiLaunchMode
-import com.androidperformancestudio.gpu.model.ArtifactOpenCapability
+import com.androidperformancestudio.gpu.model.ArtifactLocationStatus
 import com.androidperformancestudio.gpu.model.GpuArtifact
 import com.androidperformancestudio.gpu.model.GpuArtifactKind
 import com.androidperformancestudio.gpu.presentation.generated.resources.*
 import com.androidperformancestudio.gpu.presentation.generated.resources.Res
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
+import java.nio.file.Path
+
+public enum class ArtifactPrimaryAction { OPEN_AGI, LAUNCH_AGI, OPEN_PERFETTO, OPEN_DESKTOP, NONE }
+
+public data class GpuArtifactAvailability(
+    val locationStatus: ArtifactLocationStatus,
+    val resolvedPath: Path?,
+    val primaryAction: ArtifactPrimaryAction,
+)
 
 public data class GpuIntegrationState(
     val capability: AgiCapability? = null,
     val artifacts: List<GpuArtifact> = emptyList(),
+    val availabilityByArtifactId: Map<String, GpuArtifactAvailability> = emptyMap(),
+    val isBusy: Boolean = false,
     val message: String? = null,
     val error: String? = null,
 )
@@ -37,6 +48,8 @@ public data class GpuIntegrationState(
 public data class GpuIntegrationActions(
     val onOpenArtifact: (GpuArtifact) -> Unit,
     val onVerifyArtifact: (GpuArtifact) -> Unit,
+    val onRevealArtifact: (GpuArtifact) -> Unit,
+    val onRelocateArtifact: (GpuArtifact) -> Unit,
 )
 
 @Composable
@@ -73,6 +86,11 @@ public fun GpuIntegrationScreen(
                             ?: localizedStringResource(Res.string.unavailable, language),
                     ),
                 )
+                Text(
+                    localizedStringResource(Res.string.tool_responsibility_hint, language),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 state.capability?.warnings.orEmpty().forEach { warning ->
                     Text(
                         localizedWarning(warning, language),
@@ -90,6 +108,7 @@ public fun GpuIntegrationScreen(
         )
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(state.artifacts) { artifact ->
+                val availability = state.availabilityByArtifactId[artifact.id]
                 Card(Modifier.fillMaxWidth()) {
                     Row(
                         Modifier.fillMaxWidth().padding(8.dp),
@@ -119,16 +138,49 @@ public fun GpuIntegrationScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
+                            availability?.let {
+                                Text(
+                                    it.locationStatus.displayName(language),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color =
+                                        if (it.locationStatus == ArtifactLocationStatus.AVAILABLE) {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        } else {
+                                            MaterialTheme.colorScheme.error
+                                        },
+                                )
+                            }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            OutlinedButton(onClick = { actions.onVerifyArtifact(artifact) }) {
+                            OutlinedButton(
+                                enabled = !state.isBusy && availability?.resolvedPath != null,
+                                onClick = { actions.onVerifyArtifact(artifact) },
+                            ) {
                                 Text(localizedStringResource(Res.string.verify, language))
                             }
                             OutlinedButton(
-                                enabled = artifact.openCapability != ArtifactOpenCapability.NONE,
+                                enabled =
+                                    !state.isBusy &&
+                                        availability?.primaryAction != null &&
+                                        availability.primaryAction != ArtifactPrimaryAction.NONE,
                                 onClick = { actions.onOpenArtifact(artifact) },
                             ) {
-                                Text(localizedStringResource(Res.string.open, language))
+                                Text(
+                                    availability?.primaryAction?.displayName(language)
+                                        ?: localizedStringResource(Res.string.unavailable, language),
+                                )
+                            }
+                            OutlinedButton(
+                                enabled = !state.isBusy,
+                                onClick = { actions.onRevealArtifact(artifact) },
+                            ) {
+                                Text(localizedStringResource(Res.string.show_in_files, language))
+                            }
+                            OutlinedButton(
+                                enabled = !state.isBusy,
+                                onClick = { actions.onRelocateArtifact(artifact) },
+                            ) {
+                                Text(localizedStringResource(Res.string.relocate, language))
                             }
                         }
                     }
@@ -161,6 +213,28 @@ private fun AgiLaunchMode.displayName(language: UiLanguage): String =
         language,
     )
 
+private fun ArtifactPrimaryAction.displayName(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            ArtifactPrimaryAction.OPEN_AGI -> Res.string.open_in_agi
+            ArtifactPrimaryAction.LAUNCH_AGI -> Res.string.launch_agi
+            ArtifactPrimaryAction.OPEN_PERFETTO -> Res.string.open_in_perfetto
+            ArtifactPrimaryAction.OPEN_DESKTOP -> Res.string.open_with_desktop
+            ArtifactPrimaryAction.NONE -> Res.string.unavailable
+        },
+        language,
+    )
+
+private fun ArtifactLocationStatus.displayName(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            ArtifactLocationStatus.AVAILABLE -> Res.string.artifact_available
+            ArtifactLocationStatus.MISSING -> Res.string.artifact_missing
+            ArtifactLocationStatus.SIZE_CHANGED -> Res.string.artifact_size_changed
+        },
+        language,
+    )
+
 private fun localizedWarning(
     warning: String,
     language: UiLanguage,
@@ -176,5 +250,7 @@ private fun localizedWarning(
             localizedStringResource(Res.string.warning_agi_gui_only, language)
         "Unknown artifact format; it is indexed as opaque evidence." ->
             localizedStringResource(Res.string.warning_unknown_artifact, language)
+        "Opening an artifact through this configured executable was not verified." ->
+            localizedStringResource(Res.string.warning_agi_artifact_open_unverified, language)
         else -> warning
     }

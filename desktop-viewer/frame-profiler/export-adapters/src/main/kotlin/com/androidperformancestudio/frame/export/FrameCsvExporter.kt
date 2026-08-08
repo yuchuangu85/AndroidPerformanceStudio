@@ -24,11 +24,13 @@ public class FrameCsvExporter {
                         sample.resolvedDurationNs(),
                         sample.expectedDurationNs,
                         sample.expectedDurationSource,
-                        frame.verdict,
+                        frame.deadlineVerdict,
+                        sample.platformJank,
                         frame.severity,
                         frame.missedVsyncCount,
-                        frame.bottleneckStage,
-                        frame.jankTypes.joinToString("|"),
+                        frame.largestReportedStage,
+                        frame.platformJankTypes.joinToString("|"),
+                        sample.frameTimelineVsyncId,
                     ).joinToString(",") { value -> value.toString().escapeCsv() },
                 )
             }
@@ -40,6 +42,7 @@ public class FrameCsvExporter {
     private companion object {
         const val HEADER =
             "frame_id,source,intended_vsync_ns,duration_ns,expected_duration_ns,expected_source," +
-                "verdict,severity,missed_vsync_count,bottleneck_stage,jank_types"
+                "deadline_verdict,platform_jank_signal,severity,missed_vsync_count,largest_reported_stage," +
+                "platform_jank_types,frame_timeline_vsync_id"
     }
 }

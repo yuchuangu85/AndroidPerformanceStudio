@@ -186,10 +186,7 @@ internal class DesktopMemoryProfilerBackend(
                     )
                 val convertedFile = capture.convertedHprofFile
                 val conversionWarning =
-                    if (capture.conversionSkipped) {
-                        // Android 8.0+ produces standard HPROF directly; no hprof-conv needed.
-                        null
-                    } else if (convertedFile == null) {
+                    if (convertedFile == null) {
                         localizedStringResource(Res.string.hprof_conv_unavailable, language)
                     } else {
                         null
@@ -378,7 +375,7 @@ internal class DesktopMemoryProfilerBackend(
                         )
                     is JavaHeapParseResult.Success -> {
                         val heapDump = HeapGraphToHeapDump.toHeapDump(result.heapGraph)
-                        if (heapDump.instances.isEmpty()) {
+                        if (heapDump.instances.isEmpty() && heapDump.objectArrays.isEmpty() && heapDump.primitiveArrays.isEmpty()) {
                             MemoryBackendResult.Failure(
                                 localizedStringResource(Res.string.unable_to_import_java_heap, language),
                                 "No Java objects were found in the heap graph.",
@@ -389,9 +386,10 @@ internal class DesktopMemoryProfilerBackend(
                                     heapDump = heapDump,
                                     id = importedSessionId(file),
                                     packageName = "",
-                                    pid = 0,
+                                    pid = result.heapGraph.pid,
                                     capturedAt = Instant.now(),
                                     emptyWarningFileName = file.fileName.toString(),
+                                    extraWarning = heapDump.warnings.joinToString("\n", transform = { it.message }),
                                 ),
                             )
                         }
@@ -606,13 +604,14 @@ internal class DesktopMemoryProfilerBackend(
         val availableHeaps = histogramAnalyzer.heapNamesOf(heapDump)
         val perHeapClasses =
             availableHeaps.associateWith { heapName ->
-                histogramAnalyzer.histogram(
-                    heapDump,
-                    heapName = heapName,
-                    retainedSizes = deepAnalysis.dominatorTree.retainedSizes,
-                    immediateDominators = deepAnalysis.dominatorTree.immediateDominators,
-                    deobfuscator = mapping,
-                ).classes
+                histogramAnalyzer
+                    .histogram(
+                        heapDump,
+                        heapName = heapName,
+                        retainedSizes = deepAnalysis.dominatorTree.retainedSizes,
+                        immediateDominators = deepAnalysis.dominatorTree.immediateDominators,
+                        deobfuscator = mapping,
+                    ).classes
             }
         val parsed =
             heapDump.copy(

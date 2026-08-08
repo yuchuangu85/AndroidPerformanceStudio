@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.source
 
+import kotlin.math.absoluteValue
+
 public interface SourceIndexView {
     public fun snapshot(snapshotId: SourceSnapshotId): SourceSnapshot?
 
@@ -46,8 +48,30 @@ public class IndexedSourceResolver(
                 }.map { it.candidate(snapshot, files, evidence.id, ResolutionConfidence.EXACT, "Android resource matched") }
             is SourceResolutionEvidence.ManagedSymbol -> managedCandidates(snapshot, files, symbols, evidence)
             is SourceResolutionEvidence.NativeSymbol -> nativeCandidates(snapshot, files, symbols, evidence)
+            is SourceResolutionEvidence.SourceFileLine -> sourceFileCandidates(snapshot, files, symbols, evidence)
         }
     }
+
+    private fun sourceFileCandidates(
+        snapshot: SourceSnapshot,
+        files: Map<String, SourceFile>,
+        symbols: List<SourceSymbol>,
+        evidence: SourceResolutionEvidence.SourceFileLine,
+    ): List<ResolutionCandidate> = files.values
+        .filter { it.relativePath.substringAfterLast('/') == evidence.fileName }
+        .mapNotNull { file ->
+            val packageMatched = symbols.asSequence()
+                .filter { it.relativePath == file.relativePath }
+                .flatMap { symbol -> symbol.qualifiedName.packagePrefixes() }
+                .any { it.hashCode().absoluteValue == evidence.packageHash }
+            file.takeIf { packageMatched }?.candidate(
+                snapshot = snapshot,
+                evidenceId = evidence.id,
+                confidence = ResolutionConfidence.EXACT,
+                reason = "Compose file and package hash matched",
+                line = evidence.line,
+            )
+        }
 
     private fun managedCandidates(
         snapshot: SourceSnapshot,
@@ -90,6 +114,11 @@ public class IndexedSourceResolver(
             symbol.candidate(snapshot, files, evidence.id, ResolutionConfidence.PROBABLE, "Native symbol name matched")
         }
     }
+}
+
+private fun String.packagePrefixes(): Sequence<String> {
+    val parts = split('.')
+    return (1 until parts.size).asSequence().map { parts.take(it).joinToString(".") }
 }
 
 private fun SourceSymbol.candidate(

@@ -24,15 +24,19 @@ data class MemoryDeepAnalysisResult(
 )
 
 class MemoryDeepAnalyzer(
-    private val bitmapThresholdBytes: Long = DEFAULT_BITMAP_THRESHOLD_BYTES,
+    bitmapThresholdBytes: Long = DEFAULT_BITMAP_THRESHOLD_BYTES,
 ) {
+    init {
+        require(bitmapThresholdBytes >= 0L) { "bitmapThresholdBytes must not be negative" }
+    }
+
     fun analyze(
         heapDump: HeapDump,
         deobfuscator: ProguardMapping? = null,
         onProgress: (Int) -> Unit = {},
     ): MemoryDeepAnalysisResult {
         val graph = HeapGraph.from(heapDump)
-        val dominators = DominatorTreeAnalyzer().analyze(heapDump, onProgress)
+        val dominators = DominatorTreeAnalyzer().analyze(graph, onProgress)
         val chainFinder = ReferenceChainFinder(heapDump, graph)
         val leaks = detectLeaks(heapDump, graph, dominators.retainedSizes, chainFinder)
         val bitmaps = bitmapInstances(heapDump, dominators.retainedSizes, chainFinder)
@@ -54,14 +58,8 @@ class MemoryDeepAnalyzer(
     /**
      * Detects leak suspects from strong-reachability heuristics.
      *
-     * Confidence basis (documented in docs/modules/memory-profiler.md):
-     * - Activity multi-instance: 0.85, raised by destroyed-but-retained instances (0.9)
-     * - Static/singleton retaining a Context: 0.95, but only when the target is NOT a long-lived
-     *   application object (whitelisted) and is strongly reachable.
-     * - Handler/Thread retaining an Activity: 0.9
-     * - Bitmap above the retained-size threshold: 0.8
-     * Suspects below [MANUAL_VERIFICATION_THRESHOLD] confidence are tagged
-     * `requiresManualVerification`.
+     * These are reviewable retention signals, not proof of a leak. Confidence remains unset because
+     * no calibrated model exists; every result requires manual verification.
      */
     private fun detectLeaks(
         heapDump: HeapDump,
@@ -70,37 +68,47 @@ class MemoryDeepAnalyzer(
         chainFinder: ReferenceChainFinder,
     ): List<LeakSuspect> {
         val instancesByClass = heapDump.instances.groupBy { it.className }
+        val activityClassIds = heapDump.classIdsAssignableTo("android.app.Activity")
+        val fragmentClassIds =
+            FRAGMENT_BASE_CLASSES.flatMapTo(hashSetOf()) { heapDump.classIdsAssignableTo(it) }
+
+        fun isActivity(instance: HeapInstance): Boolean = instance.classObjectId in activityClassIds
+
         val candidates = mutableListOf<LeakCandidate>()
-        instancesByClass.filterKeys(::isActivityClass).forEach { (className, instances) ->
-            val reachableInstances =
-                instances.filter {
-                    it.objectId in retainedSizes && chainFinder.chainTo(it.objectId).isNotEmpty()
-                }
-            if (reachableInstances.size > 1) {
-                val retained = reachableInstances.maxOfOrNull { retainedSizes[it.objectId] ?: it.shallowSize } ?: 0L
-                val representative = reachableInstances.maxBy { retainedSizes[it.objectId] ?: it.shallowSize }
-                val destroyed = reachableInstances.count(::isDestroyed)
+        heapDump.instances.filter { isActivity(it) && isDestroyed(it) }.forEach { activity ->
+            val chain = chainFinder.chainTo(activity.objectId)
+            if (chainFinder.depthOf(activity.objectId)?.let { it > 0 } == true) {
                 candidates +=
                     LeakCandidate(
-                        className,
-                        "Multiple Activity instances remain reachable",
-                        retained,
-                        reachableInstances.size,
-                        chainFinder.chainTo(representative.objectId),
-                        if (destroyed > 0) 0.9f else 0.85f,
+                        activity.className,
+                        "Destroyed or finished Activity remains strongly reachable",
+                        retainedSizes[activity.objectId] ?: activity.shallowSize,
+                        instancesByClass[activity.className]?.size ?: 1,
+                        chain,
+                        activityOrFragmentLeak = true,
                     )
             }
         }
+        heapDump.instances
+            .filter { it.classObjectId in fragmentClassIds && it.hasNullReference("mFragmentManager") }
+            .forEach { fragment ->
+                val chain = chainFinder.chainTo(fragment.objectId)
+                if (chainFinder.depthOf(fragment.objectId)?.let { it > 0 } == true) {
+                    candidates +=
+                        LeakCandidate(
+                            fragment.className,
+                            "Detached Fragment remains strongly reachable (mFragmentManager is null; may be a false positive)",
+                            retainedSizes[fragment.objectId] ?: fragment.shallowSize,
+                            instancesByClass[fragment.className]?.size ?: 1,
+                            chain,
+                            activityOrFragmentLeak = true,
+                        )
+                }
+            }
         heapDump.classes.forEach { heapClass ->
             heapClass.staticReferences.forEach { reference ->
                 val targetClass = graph.classNames[reference.targetObjectId].orEmpty()
-                // Whitelist long-lived application objects (Application, framework singletons) held
-                // by static fields: they are expected to live for the process lifetime.
-                val eligibleContext =
-                    isContextClass(targetClass) &&
-                        !LeakWhitelist.isLongLived(targetClass) &&
-                        !LeakWhitelist.isLongLived(heapClass.name)
-                if (eligibleContext && chainFinder.chainTo(reference.targetObjectId).isNotEmpty()) {
+                if (isContextClass(targetClass) && chainFinder.chainTo(reference.targetObjectId).isNotEmpty()) {
                     candidates +=
                         LeakCandidate(
                             targetClass,
@@ -109,7 +117,6 @@ class MemoryDeepAnalyzer(
                             retainedSizes[reference.targetObjectId] ?: 0L,
                             instancesByClass[targetClass]?.size ?: 1,
                             chainFinder.chainTo(reference.targetObjectId),
-                            0.95f,
                         )
                 }
             }
@@ -117,8 +124,9 @@ class MemoryDeepAnalyzer(
         heapDump.instances.filter { isHandlerOrThreadClass(it.className) }.forEach { holder ->
             holder.references.forEach { reference ->
                 val targetClass = graph.classNames[reference.targetObjectId].orEmpty()
+                val target = heapDump.instances.firstOrNull { it.objectId == reference.targetObjectId }
                 val chain = chainFinder.chainTo(reference.targetObjectId)
-                if (isActivityClass(targetClass) && chain.isNotEmpty()) {
+                if (target != null && isActivity(target) && chain.isNotEmpty()) {
                     candidates +=
                         LeakCandidate(
                             targetClass,
@@ -126,24 +134,8 @@ class MemoryDeepAnalyzer(
                             retainedSizes[reference.targetObjectId] ?: 0L,
                             instancesByClass[targetClass]?.size ?: 1,
                             chain,
-                            0.9f,
                         )
                 }
-            }
-        }
-        heapDump.instances.filter { isBitmapClass(it.className) }.forEach { bitmap ->
-            val retained = retainedSizes[bitmap.objectId] ?: bitmap.shallowSize
-            val chain = chainFinder.chainTo(bitmap.objectId)
-            if (retained >= bitmapThresholdBytes && chain.isNotEmpty()) {
-                candidates +=
-                    LeakCandidate(
-                        bitmap.className,
-                        "Bitmap retains more than ${bitmapThresholdBytes / MEBIBYTE} MiB",
-                        retained,
-                        instancesByClass[bitmap.className]?.size ?: 1,
-                        chain,
-                        0.8f,
-                    )
             }
         }
         return candidates
@@ -158,23 +150,26 @@ class MemoryDeepAnalyzer(
         retainedSizes: Map<Long, Long>,
         chainFinder: ReferenceChainFinder,
     ): List<ActivityLeakEntry> {
+        val activityClassIds = heapDump.classIdsAssignableTo("android.app.Activity")
         val instancesByClass =
             heapDump.instances
-                .filter { isActivityClass(it.className) }
-                .groupBy { it.className }
+                .filter {
+                    it.classObjectId in activityClassIds
+                }.groupBy { it.className }
         return instancesByClass
             .mapNotNull { (className, instances) ->
                 val reachable =
                     instances.filter {
-                        it.objectId in retainedSizes && chainFinder.chainTo(it.objectId).isNotEmpty()
+                        it.objectId in retainedSizes && chainFinder.depthOf(it.objectId)?.let { depth -> depth > 0 } == true
                     }
                 if (reachable.isEmpty()) return@mapNotNull null
-                val destroyed = reachable.count(::isDestroyed)
-                val representative = reachable.maxBy { retainedSizes[it.objectId] ?: it.shallowSize }
+                val destroyedInstances = reachable.filter(::isDestroyed)
+                if (destroyedInstances.isEmpty()) return@mapNotNull null
+                val representative = destroyedInstances.maxBy { retainedSizes[it.objectId] ?: it.shallowSize }
                 ActivityLeakEntry(
                     className = className,
                     liveInstanceCount = reachable.size,
-                    destroyedInstanceCount = destroyed,
+                    destroyedInstanceCount = destroyedInstances.size,
                     retainedSize = retainedSizes[representative.objectId] ?: representative.shallowSize,
                     referenceChain = chainFinder.chainTo(representative.objectId),
                 )
@@ -189,6 +184,9 @@ class MemoryDeepAnalyzer(
     private fun isDestroyed(instance: HeapInstance): Boolean =
         instance.primitiveFields["mDestroyed"] == 1L || instance.primitiveFields["mFinished"] == 1L
 
+    private fun HeapInstance.hasNullReference(fieldName: String): Boolean =
+        references.any { it.fieldName == fieldName && it.targetObjectId == 0L }
+
     private fun bitmapInstances(
         heapDump: HeapDump,
         retainedSizes: Map<Long, Long>,
@@ -199,7 +197,8 @@ class MemoryDeepAnalyzer(
             .map { bitmap ->
                 val width = bitmap.dimension("mWidth", "width")
                 val height = bitmap.dimension("mHeight", "height")
-                val estimatedPixelBytes = estimatedPixelBytes(width, height)
+                val rowBytes = bitmap.dimension("mRowBytes", "rowBytes")
+                val estimatedPixelBytes = estimatedPixelBytes(width, height, rowBytes)
                 BitmapInstanceStats(
                     objectId = bitmap.objectId,
                     width = width,
@@ -208,28 +207,34 @@ class MemoryDeepAnalyzer(
                     referenceChain = chainFinder.chainTo(bitmap.objectId),
                     estimatedPixelBytes = estimatedPixelBytes,
                     javaSizeBytes = bitmap.shallowSize,
-                    nativeSizeBytes = estimatedPixelBytes,
+                    nativeSizeBytes = bitmap.nativeSizeBytes,
                     className = bitmap.className,
+                    bitmapId = bitmap.primitiveFields["mId"],
+                    bitmapSourceId = bitmap.primitiveFields["mSourceId"],
                 )
             }.sortedWith(compareByDescending<BitmapInstanceStats> { it.retainedSize }.thenBy { it.objectId })
 
     private fun HeapInstance.dimension(vararg names: String): Int? =
         names.firstNotNullOfOrNull { primitiveFields[it]?.toInt()?.takeIf { value -> value >= 0 } }
 
-    /** ARGB_8888 pixel-buffer footprint: width × height × 4 B. */
+    /** Uses rowBytes when present; otherwise assumes ARGB_8888 (width × height × 4 B). */
     private fun estimatedPixelBytes(
         width: Int?,
         height: Int?,
+        rowBytes: Int?,
     ): Long? {
         val w = width?.takeIf { it > 0 }
-        val h = height?.takeIf { it > 0 }
-        return if (w == null || h == null) null else w.toLong() * h.toLong() * ARGB_8888_BYTES_PER_PIXEL
+        val h = height?.takeIf { it > 0 } ?: return null
+        val bytesPerRow =
+            rowBytes?.takeIf { it > 0 }?.toLong()
+                ?: w?.let { Math.multiplyExact(it.toLong(), ARGB_8888_BYTES_PER_PIXEL) }
+        return bytesPerRow?.let { runCatching { Math.multiplyExact(it, h.toLong()) }.getOrNull() }
     }
 
-    private fun isActivityClass(className: String): Boolean = className.endsWith("Activity") || className.contains(".Activity$")
+    private fun isLikelyActivityName(className: String): Boolean = className.endsWith("Activity") || className.contains(".Activity$")
 
     private fun isContextClass(className: String): Boolean =
-        isActivityClass(className) || className.endsWith("Context") || className.endsWith("ContextWrapper")
+        isLikelyActivityName(className) || className.endsWith("Context") || className.endsWith("ContextWrapper")
 
     private fun isHandlerOrThreadClass(className: String): Boolean =
         className.endsWith("Handler") || className.endsWith("Thread") || className.contains("Handler$")
@@ -242,7 +247,7 @@ class MemoryDeepAnalyzer(
         val retainedSize: Long,
         val instanceCount: Int,
         val referenceChain: List<ObjectReference>,
-        val confidence: Float,
+        val activityOrFragmentLeak: Boolean = false,
     ) {
         fun toLeakSuspect(): LeakSuspect =
             LeakSuspect(
@@ -251,39 +256,24 @@ class MemoryDeepAnalyzer(
                 retainedSize = retainedSize,
                 instanceCount = instanceCount,
                 referenceChain = referenceChain,
-                confidence = confidence,
-                requiresManualVerification = confidence < MANUAL_VERIFICATION_THRESHOLD,
+                confidence = 0f,
+                requiresManualVerification = true,
+                activityOrFragmentLeak = activityOrFragmentLeak,
             )
     }
 
     companion object {
+        private val FRAGMENT_BASE_CLASSES =
+            listOf(
+                "android.app.Fragment",
+                "android.support.v4.app.Fragment",
+                "androidx.fragment.app.Fragment",
+            )
         private const val MEBIBYTE = 1024L * 1024L
         const val DEFAULT_BITMAP_THRESHOLD_BYTES: Long = 10L * MEBIBYTE
         const val MANUAL_VERIFICATION_THRESHOLD: Float = 0.7f
         private const val ARGB_8888_BYTES_PER_PIXEL: Long = 4L
     }
-}
-
-/**
- * Long-lived objects that legitimately outlive a single screen and are therefore excluded from
- * Context/Application leak heuristics to reduce false positives.
- */
-object LeakWhitelist {
-    val longLivedClassNames =
-        setOf(
-            "android.app.Application",
-            "android.app.ActivityThread",
-            "android.app.Instrumentation",
-            "android.app.LoadedApk",
-            "android.app.ResourcesManager",
-            "android.content.res.Resources",
-            "android.view.WindowManagerGlobal",
-            "java.lang.Runtime",
-            "dalvik.system.PathClassLoader",
-            "java.lang.Class",
-        )
-
-    fun isLongLived(className: String): Boolean = className in longLivedClassNames || className.endsWith("Application")
 }
 
 class HeapDiffAnalyzer {
@@ -292,7 +282,8 @@ class HeapDiffAnalyzer {
      *
      * Matching by class name only can spuriously merge two distinct classes that share a name
      * (multi-dex, plugin classloaders, or obfuscation renames). Matching by name + superclass
-     * hierarchy depth keeps such entries separate.
+     * hierarchy depth is retained only for compatibility; it does not identify a ClassLoader and
+     * must not be used as an exact cross-dump identity.
      */
     fun diff(
         before: List<ClassStats>,
@@ -387,11 +378,7 @@ internal class ReferenceChainFinder(
         while (queue.isNotEmpty()) {
             val current = queue.removeFirst()
             val currentDepth = depthByObjectId.getValue(current)
-            val sourceIsReferenceHolder = isReferenceHolder(graph.classNames[current].orEmpty())
             graph.references[current].orEmpty().forEach { reference ->
-                // A java.lang.ref.* referent is not a strong edge; objects reachable only through
-                // WeakReference/SoftReference/PhantomReference are collectible and not leaks.
-                if (sourceIsReferenceHolder && reference.fieldName == "referent") return@forEach
                 if (visited.add(reference.targetObjectId)) {
                     val resolved =
                         reference.copy(
@@ -405,11 +392,6 @@ internal class ReferenceChainFinder(
         }
         return Traversal(rootReferences, predecessors)
     }
-
-    private fun isReferenceHolder(className: String): Boolean =
-        className == "java.lang.ref.WeakReference" ||
-            className == "java.lang.ref.SoftReference" ||
-            className == "java.lang.ref.PhantomReference"
 
     private data class Traversal(
         val rootReferences: Map<Long, ObjectReference>,

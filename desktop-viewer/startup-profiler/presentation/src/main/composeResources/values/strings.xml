@@ -4,7 +4,7 @@
     <string name="compared_with_previous_experiment_difference_only_no_statistical_signi">Compared with previous experiment: %1$s (difference only; no statistical significance inferred)</string>
     <string name="startup_profiler">Startup Profiler</string>
     <string name="median_totaltime">Median TotalTime</string>
-    <string name="median_first_frame">Median First Frame</string>
+    <string name="median_first_frame">Median TTID</string>
     <string name="median_fully_drawn">Median Fully Drawn</string>
     <string name="measured_runs">Measured Runs</string>
     <string name="warnings">Warnings</string>
@@ -24,11 +24,21 @@
     <string name="text">%1$s/%2$s</string>
     <string name="text_45f5c8ce">• %1$s</string>
     <string name="p90_n">p90 %1$s · n=%2$s</string>
+    <string name="low_tail_resolution">Tail percentile resolution is low for this sample count.</string>
+    <string name="baseline_comparison">TTID comparison: %1$s · median %2$s · 95%% BCa CI [%3$s, %4$s]</string>
+    <string name="phase_comparison">%1$s phase median difference: %2$s · %3$s</string>
+    <string name="metric_evidence">%1$s: %2$s · %3$s</string>
+    <string name="compilation_evidence">Compilation: requested %1$s · effective %2$s · verified %3$s · Profile source %4$s</string>
+    <string name="environment_evidence">Environment: %1$s · API %2$s · emulator %3$s · battery %4$s · charging %5$s · thermal %6$s · captured %7$s</string>
+    <string name="trace_evidence">Perfetto: %1$s · captured %2$s · truncated %3$s</string>
+    <string name="report_fully_drawn_hint">TTFD unavailable. Integrate reportFullyDrawn(), FullyDrawnReporter, or Compose ReportDrawn* when the main content is ready.</string>
+    <string name="diagnostics">Diagnostics: %1$s</string>
     <string name="mad">MAD %1$s</string>
     <string name="text_aeb7e472">%1$s · %2$s · %3$s</string>
     <string name="total">Total</string>
     <string name="displayed">Displayed</string>
     <string name="fully_drawn">Fully Drawn</string>
+    <string name="agent_first_frame">Agent First Frame</string>
     <string name="agent">Agent</string>
     <string name="full">Full</string>
     <string name="fallback">Fallback</string>

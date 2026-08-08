@@ -28,6 +28,7 @@ public class StartupJsonExporter {
                         put("totalTime", analysis.totalTime.toJson())
                         put("firstFrame", analysis.firstFrame.toJson())
                         put("fullyDrawn", analysis.fullyDrawn.toJson())
+                        put("agentFirstFrame", analysis.agentFirstFrame.toJson())
                     },
                 )
                 put("warnings", buildJsonArray { analysis.warnings.forEach(::add) })
@@ -47,6 +48,68 @@ public class StartupJsonExporter {
                                     put("displayedTimeMs", run.platform.displayedTimeMs)
                                     put("fullyDrawnTimeMs", run.platform.fullyDrawnTimeMs)
                                     put("agentAvailable", run.rawEvidence.agentAvailable)
+                                    put("diagnostics", buildJsonArray { run.diagnostics.forEach(::add) })
+                                    run.context?.let { context ->
+                                        put(
+                                            "context",
+                                            buildJsonObject {
+                                                put("deviceSerial", context.deviceSerial)
+                                                put("packageName", context.packageName)
+                                                put("componentName", context.componentName)
+                                            },
+                                        )
+                                    }
+                                    put(
+                                        "metricEvidence",
+                                        buildJsonObject {
+                                            put("ttid", run.ttidEvidence.toJson())
+                                            put("ttfd", run.ttfdEvidence.toJson())
+                                            put("agentFirstFrame", run.agentFirstFrameEvidence.toJson())
+                                        },
+                                    )
+                                    run.compilationEvidence?.let { evidence ->
+                                        put(
+                                            "compilationEvidence",
+                                            buildJsonObject {
+                                                put("requestedMode", evidence.requestedMode.name)
+                                                put("compilerFilterBefore", evidence.compilerFilterBefore)
+                                                put("compilerFilterAfter", evidence.compilerFilterAfter)
+                                                put("profileStateBefore", evidence.profileStateBefore)
+                                                put("profileStateAfter", evidence.profileStateAfter)
+                                                put("preparationOutput", evidence.preparationOutput)
+                                                put("verified", evidence.verified)
+                                                put("failureReason", evidence.failureReason)
+                                                put("profileSource", evidence.profileSource.name)
+                                                put("profileSourceDeclared", evidence.profileSourceDeclared)
+                                            },
+                                        )
+                                    }
+                                    run.environmentEvidence?.let { evidence ->
+                                        put(
+                                            "environmentEvidence",
+                                            buildJsonObject {
+                                                put("deviceModel", evidence.deviceModel)
+                                                put("apiLevel", evidence.apiLevel)
+                                                put("emulator", evidence.emulator)
+                                                put("batteryPercent", evidence.batteryPercent)
+                                                put("charging", evidence.charging)
+                                                put("thermalStatus", evidence.thermalStatus)
+                                                put("capturedAt", evidence.capturedAt?.toString())
+                                                put("failures", buildJsonArray { evidence.failures.forEach(::add) })
+                                            },
+                                        )
+                                    }
+                                    run.traceEvidence?.let { evidence ->
+                                        put(
+                                            "traceEvidence",
+                                            buildJsonObject {
+                                                put("file", evidence.file)
+                                                put("captured", evidence.captured)
+                                                put("truncated", evidence.truncated)
+                                                put("failureReason", evidence.failureReason)
+                                            },
+                                        )
+                                    }
                                     put("warnings", buildJsonArray { run.warnings.forEach(::add) })
                                     put(
                                         "milestones",
@@ -110,6 +173,15 @@ public class StartupJsonExporter {
             put("p95Ms", p95Ms)
             put("standardDeviationMs", standardDeviationMs)
             put("medianAbsoluteDeviationMs", medianAbsoluteDeviationMs)
+            put("p90LowResolution", p90LowResolution)
+            put("p95LowResolution", p95LowResolution)
+        }
+
+    private fun com.androidperformancestudio.startup.model.StartupMetricEvidence.toJson() =
+        buildJsonObject {
+            put("source", source?.name)
+            put("confidence", confidence.name)
+            put("unavailableReason", unavailableReason)
         }
 
     private companion object {

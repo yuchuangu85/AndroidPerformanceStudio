@@ -1,0 +1,3 @@
+# Require explicit authorization for runtime Compose inspection
+
+Attaching the runtime Compose inspector is an explicit user action preceded by a target, exact Compose version, artifact source/download, capability, restart, and device-state preflight; foreground changes and auto-scan never create injection sessions. The host limits attachment to authorized ADB devices and debuggable processes, authenticates the forwarded socket, leaves `debug_view_attributes` untouched for Compose inspection, and removes forwards and temporary payloads on stop or timeout, accepting extra interaction to keep runtime code injection and its observer effect visible and reversible. Optional View resolution-stack enhancement owns any separately authorized setting change and restoration.

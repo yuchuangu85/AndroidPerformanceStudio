@@ -42,6 +42,8 @@ public data class AgentFrameSample(
     val frameCompletedNs: Long? = null,
     val expectedDurationNs: Long? = null,
     val expectedDurationSource: AgentExpectedDurationSource = AgentExpectedDurationSource.UNKNOWN,
+    val refreshRateHz: Double? = null,
+    val frameTimelineVsyncId: Long? = null,
     val totalDurationNs: Long? = null,
     val stages: AgentFrameStages = AgentFrameStages(),
     val platformJank: Boolean? = null,

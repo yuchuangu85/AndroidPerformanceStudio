@@ -6,6 +6,9 @@
     <string name="refresh">Refresh</string>
     <string name="stop_capture">Stop Capture</string>
     <string name="start_capture">Start Capture</string>
+    <string name="associate_perfetto_trace">Associate Perfetto Trace…</string>
+    <string name="open_trace_in_perfetto">Open Trace in Perfetto</string>
+    <string name="select_perfetto_trace">Select Perfetto Trace</string>
     <string name="file">File</string>
     <string name="export">Export</string>
     <string name="import_framestats">Import FrameStats…</string>

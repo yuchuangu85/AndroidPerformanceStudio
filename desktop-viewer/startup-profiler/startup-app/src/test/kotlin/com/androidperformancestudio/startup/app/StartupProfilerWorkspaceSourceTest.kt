@@ -18,8 +18,8 @@ class StartupProfilerWorkspaceSourceTest {
         assertTrue(source.contains("StartupProfilerFileMenuBar("))
         assertTrue(source.contains("onImport ="))
         assertTrue(source.contains("controller.importJson"))
-        assertTrue(source.contains("ProfilerMacOsToolbar"))
-        assertTrue(source.contains("ProfilerMacOsSecondaryToolbar"))
+        assertTrue(source.contains("HeaderToolbar"))
+        assertTrue(source.contains("HeaderDivider"))
         assertTrue(source.contains("DropdownSelector"))
         assertFalse(source.contains("ProfilerCompactSelector"))
         assertTrue(source.contains("ProfilerToolbarStatus"))
@@ -34,8 +34,7 @@ class StartupProfilerWorkspaceSourceTest {
 
     @Test
     fun `stacked toolbar rows have ordered one dp outline separators before progress and content`() {
-        val primaryToolbar = source.indexOf("ProfilerMacOsToolbar {")
-        val secondaryToolbar = source.indexOf("ProfilerMacOsSecondaryToolbar {")
+        val toolbar = source.indexOf("HeaderToolbar(")
         val progressCondition = source.indexOf("if (state.isRunning && state.totalRuns > 0)")
         val progressBlockRange = source.blockRangeStartingAt(progressCondition)
         val progressBlock = source.substring(progressBlockRange)
@@ -46,9 +45,8 @@ class StartupProfilerWorkspaceSourceTest {
         val contentBoundary = source.substring(progressBlockRange.last + 1, screen)
 
         assertEquals(3, dividers.size)
-        assertTrue(primaryToolbar < dividers[0])
-        assertTrue(dividers[0] < secondaryToolbar)
-        assertTrue(secondaryToolbar < progressCondition)
+        assertTrue(toolbar < dividers[0])
+        assertTrue(dividers[0] < progressCondition)
         assertEquals(1, conditionalDividers.size)
         assertTrue(conditionalDividers.single() < progress)
         assertEquals(1, outlineDivider.findAll(contentBoundary).count())

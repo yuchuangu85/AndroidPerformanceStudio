@@ -12,7 +12,14 @@
     <string name="text_fb68e1ae">%1$s · %2$s</string>
     <string name="p50">p50</string>
     <string name="p95">p95</string>
-    <string name="http_exchange">HTTP %1$s · %2$s · connection %3$s</string>
+    <string name="http_exchange">HTTP %1$s · %2$s · connection %3$s · %4$s</string>
+    <string name="outcome_summary">Completed %1$d · failed %2$d · cancelled %3$d · incomplete %4$d · HTTP %5$s</string>
+    <string name="reuse_summary">Known connection reuse %1$s · new %2$d · reused %3$d · unknown %4$d</string>
+    <string name="largest_phase">Largest observed phase median: %1$s · %2$s</string>
+    <string name="tls_handshake">TLS %1$s · %2$s</string>
+    <string name="connection_new">new</string>
+    <string name="connection_reused">reused</string>
+    <string name="connection_unknown">unknown</string>
     <string name="reused_unknown">reused/unknown</string>
     <string name="phase_detail">%1$s: %2$s · %3$s</string>
     <string name="unavailable">unavailable</string>
@@ -26,7 +33,8 @@
     <string name="confidence_inferred">Inferred</string>
     <string name="confidence_partial">Partial</string>
     <string name="confidence_unknown">Unknown</string>
-    <string name="outcome_success">Success</string>
+    <string name="completeness_complete">Complete</string>
+    <string name="outcome_completed">Completed</string>
     <string name="outcome_failed">Failed</string>
     <string name="outcome_cancelled">Cancelled</string>
     <string name="outcome_incomplete">Incomplete</string>

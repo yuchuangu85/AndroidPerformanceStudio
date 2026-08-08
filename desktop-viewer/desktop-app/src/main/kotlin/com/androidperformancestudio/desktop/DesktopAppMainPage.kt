@@ -166,6 +166,12 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                                     navigator.openSource(candidate.location)
                                 }
                             },
+                            onOpenComposeSource = { fileName, packageHash, line ->
+                                coroutineScope.launch {
+                                    sourceWorkspaceRuntime.resolveComposeSource(fileName, packageHash, line)
+                                        ?.let { navigator.openSource(it.location) }
+                                }
+                            },
                         )
                     AppDestination.SIMPLEPERF ->
                         SimpleperfMainPage(
@@ -238,6 +244,16 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                                         foregroundMismatchPrefix =
                                             localizedStringResource(Res.string.foreground_package_differs, language),
                                     ),
+                                )
+                            },
+                            onOpenPerfetto = { request ->
+                                val correlation =
+                                    request.frameTimelineVsyncId?.let { "FrameTimeline VSync ID $it" }
+                                        ?: request.intendedVsyncNs?.let { "intended VSync $it ns" }
+                                        ?: "frame ${request.frameId ?: "—"}"
+                                navigator.openPerfettoTrace(
+                                    request.traceFile,
+                                    localizedStringResource(Res.string.frame_perfetto_correlation, language, correlation),
                                 )
                             },
                         )

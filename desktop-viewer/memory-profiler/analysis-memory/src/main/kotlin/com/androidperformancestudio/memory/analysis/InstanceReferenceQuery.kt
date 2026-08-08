@@ -17,6 +17,7 @@ data class InstanceQueryRow(
     val retainedSize: Long?,
     val depth: Int?,
     val reachable: Boolean,
+    val nativeSize: Long? = null,
 )
 
 /** A single field value of an instance, either a primitive or an object reference. */
@@ -38,6 +39,8 @@ data class InstanceQueryDetail(
     val elementCount: Int?,
     val fields: List<FieldValue>,
     val referenceChain: List<ObjectReference>,
+    /** Every object/class field that points to this object. */
+    val references: List<FieldValue> = emptyList(),
 )
 
 /**
@@ -62,6 +65,22 @@ class InstanceReferenceQuery(
         }
     private val graph = HeapGraph.from(heapDump)
     private val chainFinder = ReferenceChainFinder(heapDump, graph)
+    private val inboundReferences =
+        buildMap<Long, MutableList<FieldValue>> {
+            graph.references.forEach { (sourceId, references) ->
+                references.forEach { reference ->
+                    if (reference.targetObjectId != 0L) {
+                        getOrPut(reference.targetObjectId, ::mutableListOf) +=
+                            FieldValue(
+                                name = reference.fieldName,
+                                displayValue = renderSourceReference(sourceId),
+                                targetObjectId = sourceId,
+                                targetClassName = graph.classNames[sourceId],
+                            )
+                    }
+                }
+            }
+        }.mapValues { (_, values) -> values.sortedWith(compareBy({ it.targetClassName }, { it.targetObjectId }, { it.name })) }
 
     /**
      * Instances and arrays of [className], ordered by object id with 1-based row indexes.
@@ -85,6 +104,7 @@ class InstanceReferenceQuery(
                 retainedSize = retainedSizes[obj.objectId],
                 depth = depth,
                 reachable = depth != null,
+                nativeSize = (obj as? HeapInstance)?.nativeSizeBytes,
             )
         }
     }
@@ -124,6 +144,7 @@ class InstanceReferenceQuery(
             elementCount = elementCount,
             fields = fields,
             referenceChain = chainFinder.chainTo(objectId),
+            references = inboundReferences[objectId].orEmpty(),
         )
     }
 
@@ -147,12 +168,18 @@ class InstanceReferenceQuery(
             }
 
     private fun renderObjectReference(objectId: Long): String {
+        if (objectId == 0L) return "null"
         val className = graph.classNames[objectId].orEmpty()
         return if (className.isEmpty()) {
             "0x${objectId.toString(HEX_RADIX)}"
         } else {
             "0x${objectId.toString(HEX_RADIX)} · $className"
         }
+    }
+
+    private fun renderSourceReference(objectId: Long): String {
+        val className = graph.classNames[objectId].orEmpty()
+        return if (className.isEmpty()) "0x${objectId.toString(HEX_RADIX)}" else "$className @0x${objectId.toString(HEX_RADIX)}"
     }
 
     private companion object {

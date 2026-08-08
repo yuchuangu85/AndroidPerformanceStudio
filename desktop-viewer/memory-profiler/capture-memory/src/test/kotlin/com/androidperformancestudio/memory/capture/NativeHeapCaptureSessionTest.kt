@@ -39,6 +39,8 @@ class NativeHeapCaptureSessionTest {
                 listOf("getprop", "push", "perfetto", "pull", "rm"),
                 runner.commandKinds,
             )
+            val configPath = Path.of(runner.requests.first { it.arguments.contains("push") }.arguments[3])
+            assertTrue(Files.readString(configPath).contains("name: \"android.heapprofd\""))
             assertTrue(runner.requests.any { it.arguments.contains("heapprofd") || it.arguments.contains("perfetto") })
         }
 

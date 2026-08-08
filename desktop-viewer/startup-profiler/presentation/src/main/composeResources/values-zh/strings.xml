@@ -4,7 +4,7 @@
     <string name="compared_with_previous_experiment_difference_only_no_statistical_signi">与上一次实验相比：%1$s（仅表示差异，不声明统计显著）</string>
     <string name="startup_profiler">启动性能分析器</string>
     <string name="median_totaltime">平台总耗时中位数</string>
-    <string name="median_first_frame">首帧中位数</string>
+    <string name="median_first_frame">TTID 中位数</string>
     <string name="median_fully_drawn">完全绘制中位数</string>
     <string name="measured_runs">采样轮次</string>
     <string name="warnings">警告</string>
@@ -24,11 +24,21 @@
     <string name="text">%1$s/%2$s</string>
     <string name="text_45f5c8ce">• %1$s</string>
     <string name="p90_n">p90 %1$s · n=%2$s</string>
+    <string name="low_tail_resolution">当前样本数的尾部分位数分辨率较低。</string>
+    <string name="baseline_comparison">TTID 对比：%1$s · 中位数差 %2$s · 95%% BCa 区间 [%3$s, %4$s]</string>
+    <string name="phase_comparison">%1$s 阶段中位数差：%2$s · %3$s</string>
+    <string name="metric_evidence">%1$s：%2$s · %3$s</string>
+    <string name="compilation_evidence">编译状态：请求 %1$s · 实际 %2$s · 已验证 %3$s · Profile 来源 %4$s</string>
+    <string name="environment_evidence">环境：%1$s · API %2$s · 模拟器 %3$s · 电量 %4$s · 充电 %5$s · Thermal %6$s · 采集时间 %7$s</string>
+    <string name="trace_evidence">Perfetto：%1$s · 已采集 %2$s · 已截断 %3$s</string>
+    <string name="report_fully_drawn_hint">TTFD 不可用。请在主要内容就绪时接入 reportFullyDrawn()、FullyDrawnReporter 或 Compose ReportDrawn*。</string>
+    <string name="diagnostics">诊断标记：%1$s</string>
     <string name="mad">MAD %1$s</string>
     <string name="text_aeb7e472">%1$s · %2$s · %3$s</string>
     <string name="total">总耗时</string>
     <string name="displayed">已显示</string>
     <string name="fully_drawn">完全绘制</string>
+    <string name="agent_first_frame">Agent 首帧</string>
     <string name="agent">Agent</string>
     <string name="full">完整</string>
     <string name="fallback">回退</string>

@@ -176,10 +176,9 @@ private fun FrameMetrics.toAgentFrame(
         deadline
             ?.let { value -> if (intendedVsync != null && value > intendedVsync) value - intendedVsync else value }
             ?.takeIf { it > 0L }
+    val refreshRate = window.decorView.display?.refreshRate?.takeIf { it > 0f }
     val refreshRateDuration =
-        window.decorView.display
-            ?.refreshRate
-            ?.takeIf { it > 0f }
+        refreshRate
             ?.let { refreshRate -> (NANOS_PER_SECOND / refreshRate).toLong() }
     val expectedDuration = deadlineDuration ?: refreshRateDuration
     val firstDraw = metric(FrameMetrics.FIRST_DRAW_FRAME) == 1L
@@ -198,6 +197,13 @@ private fun FrameMetrics.toAgentFrame(
                 deadlineDuration != null -> AgentExpectedDurationSource.PLATFORM_DEADLINE
                 refreshRateDuration != null -> AgentExpectedDurationSource.REFRESH_RATE
                 else -> AgentExpectedDurationSource.UNKNOWN
+            },
+        refreshRateHz = refreshRate?.toDouble(),
+        frameTimelineVsyncId =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                metric(FrameMetrics.FRAME_TIMELINE_VSYNC_ID)
+            } else {
+                null
             },
         totalDurationNs = totalDuration,
         stages =

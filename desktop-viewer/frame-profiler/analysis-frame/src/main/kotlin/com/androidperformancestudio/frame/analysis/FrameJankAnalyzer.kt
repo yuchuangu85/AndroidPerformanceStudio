@@ -13,9 +13,9 @@ import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.JankType
 import kotlin.math.ceil
 
-public enum class JankVerdict {
-    SMOOTH,
-    JANK,
+public enum class FrameDeadlineVerdict {
+    MET,
+    MISSED,
     UNKNOWN,
 }
 
@@ -30,41 +30,45 @@ public enum class JankSeverity {
 
 public data class AnalyzedFrame(
     val sample: FrameSample,
-    val verdict: JankVerdict,
+    val deadlineVerdict: FrameDeadlineVerdict,
     val severity: JankSeverity,
     val missedVsyncCount: Int?,
-    val jankTypes: Set<JankType>,
-    val bottleneckStage: String?,
+    val platformJankTypes: Set<JankType>,
+    val largestReportedStage: String?,
 )
 
 public data class FrameSummary(
     val totalFrames: Int = 0,
-    val classifiedFrames: Int = 0,
-    val jankFrames: Int = 0,
-    val unknownFrames: Int = 0,
-    val jankRate: Double = 0.0,
+    val deadlineClassifiedFrames: Int = 0,
+    val deadlineMissFrames: Int = 0,
+    val deadlineUnknownFrames: Int = 0,
+    val deadlineMissRate: Double? = null,
+    val platformClassifiedFrames: Int = 0,
+    val platformJankFrames: Int = 0,
+    val platformUnknownFrames: Int = 0,
+    val platformJankRate: Double? = null,
     val p50DurationNs: Long? = null,
     val p95DurationNs: Long? = null,
     val p99DurationNs: Long? = null,
     val worstDurationNs: Long? = null,
 )
 
-public data class JankCluster(
+public data class DeadlineMissCluster(
     val id: Int,
     val firstFrameId: Long,
     val lastFrameId: Long,
-    val jankFrameIds: List<Long>,
+    val deadlineMissFrameIds: List<Long>,
     val durationNs: Long,
     val worstSeverity: JankSeverity,
     val windowId: String?,
     val activityName: String?,
-    val dominantStage: String?,
+    val dominantReportedStage: String?,
 )
 
 public data class FrameAnalysisResult(
     val frames: List<AnalyzedFrame>,
     val summary: FrameSummary,
-    val clusters: List<JankCluster>,
+    val clusters: List<DeadlineMissCluster>,
 )
 
 public class FrameJankAnalyzer(
@@ -89,15 +93,10 @@ public class FrameJankAnalyzer(
         val duration = sample.resolvedDurationNs()
         val expected = sample.expectedDurationNs?.takeIf { it > 0L }
         val verdict =
-            when (sample.platformJank) {
-                true -> JankVerdict.JANK
-                false -> JankVerdict.SMOOTH
-                null ->
-                    if (duration != null && expected != null) {
-                        if (duration > expected) JankVerdict.JANK else JankVerdict.SMOOTH
-                    } else {
-                        JankVerdict.UNKNOWN
-                    }
+            if (duration != null && expected != null) {
+                if (duration > expected) FrameDeadlineVerdict.MISSED else FrameDeadlineVerdict.MET
+            } else {
+                FrameDeadlineVerdict.UNKNOWN
             }
         val missedVsyncCount =
             if (duration != null && expected != null) {
@@ -105,40 +104,39 @@ public class FrameJankAnalyzer(
             } else {
                 null
             }
-        val bottleneck =
+        val largestReportedStage =
             sample.stages
                 .values()
                 .maxByOrNull { it.second }
                 ?.first
-        val types =
-            buildSet {
-                addAll(sample.platformJankTypes)
-                if (sample.platformJank == true) add(JankType.PLATFORM_REPORTED)
-                if (verdict == JankVerdict.JANK && duration != null && expected != null && duration > expected) {
-                    add(JankType.DEADLINE_MISSED)
-                }
-                if (verdict == JankVerdict.JANK) bottleneck?.toJankType()?.let(::add)
-            }
         return AnalyzedFrame(
             sample = sample,
-            verdict = verdict,
+            deadlineVerdict = verdict,
             severity = severity(verdict, duration, expected, missedVsyncCount),
             missedVsyncCount = missedVsyncCount,
-            jankTypes = types,
-            bottleneckStage = bottleneck,
+            platformJankTypes =
+                sample.platformJankTypes +
+                    if (sample.platformJank == true) setOf(JankType.PLATFORM_REPORTED) else emptySet(),
+            largestReportedStage = largestReportedStage,
         )
     }
 
     private fun summarize(frames: List<AnalyzedFrame>): FrameSummary {
         val durations = frames.mapNotNull { it.sample.resolvedDurationNs() }.sorted()
-        val classified = frames.count { it.verdict != JankVerdict.UNKNOWN }
-        val jank = frames.count { it.verdict == JankVerdict.JANK }
+        val deadlineClassified = frames.count { it.deadlineVerdict != FrameDeadlineVerdict.UNKNOWN }
+        val deadlineMisses = frames.count { it.deadlineVerdict == FrameDeadlineVerdict.MISSED }
+        val platformClassified = frames.count { it.sample.platformJank != null }
+        val platformJank = frames.count { it.sample.platformJank == true }
         return FrameSummary(
             totalFrames = frames.size,
-            classifiedFrames = classified,
-            jankFrames = jank,
-            unknownFrames = frames.size - classified,
-            jankRate = if (classified == 0) 0.0 else jank.toDouble() / classified,
+            deadlineClassifiedFrames = deadlineClassified,
+            deadlineMissFrames = deadlineMisses,
+            deadlineUnknownFrames = frames.size - deadlineClassified,
+            deadlineMissRate = deadlineClassified.takeIf { it > 0 }?.let { deadlineMisses.toDouble() / it },
+            platformClassifiedFrames = platformClassified,
+            platformJankFrames = platformJank,
+            platformUnknownFrames = frames.size - platformClassified,
+            platformJankRate = platformClassified.takeIf { it > 0 }?.let { platformJank.toDouble() / it },
             p50DurationNs = durations.percentile(0.50),
             p95DurationNs = durations.percentile(0.95),
             p99DurationNs = durations.percentile(0.99),
@@ -146,11 +144,11 @@ public class FrameJankAnalyzer(
         )
     }
 
-    private fun cluster(frames: List<AnalyzedFrame>): List<JankCluster> {
-        val result = mutableListOf<JankCluster>()
+    private fun cluster(frames: List<AnalyzedFrame>): List<DeadlineMissCluster> {
+        val result = mutableListOf<DeadlineMissCluster>()
         var cursor = 0
         while (cursor < frames.size) {
-            val firstIndex = frames.indexOfFirstFrom(cursor) { it.verdict == JankVerdict.JANK }
+            val firstIndex = frames.indexOfFirstFrom(cursor) { it.deadlineVerdict == FrameDeadlineVerdict.MISSED }
             if (firstIndex < 0) break
             val first = frames[firstIndex]
             val jankFrames = mutableListOf(first)
@@ -158,8 +156,8 @@ public class FrameJankAnalyzer(
             var smoothGap = 0
             while (scan < frames.size) {
                 val candidate = frames[scan]
-                if (!candidate.sameContext(first) || candidate.verdict == JankVerdict.UNKNOWN) break
-                if (candidate.verdict == JankVerdict.JANK) {
+                if (!candidate.sameContext(first) || candidate.deadlineVerdict == FrameDeadlineVerdict.UNKNOWN) break
+                if (candidate.deadlineVerdict == FrameDeadlineVerdict.MISSED) {
                     jankFrames += candidate
                     smoothGap = 0
                 } else {
@@ -170,18 +168,18 @@ public class FrameJankAnalyzer(
             }
             val last = jankFrames.last()
             result +=
-                JankCluster(
+                DeadlineMissCluster(
                     id = result.size,
                     firstFrameId = first.sample.frameId,
                     lastFrameId = last.sample.frameId,
-                    jankFrameIds = jankFrames.map { it.sample.frameId },
+                    deadlineMissFrameIds = jankFrames.map { it.sample.frameId },
                     durationNs = clusterDuration(first.sample, last.sample),
                     worstSeverity = jankFrames.maxBy { it.severity.ordinal }.severity,
                     windowId = first.sample.windowId,
                     activityName = first.sample.activityName,
-                    dominantStage =
+                    dominantReportedStage =
                         jankFrames
-                            .mapNotNull(AnalyzedFrame::bottleneckStage)
+                            .mapNotNull(AnalyzedFrame::largestReportedStage)
                             .groupingBy { it }
                             .eachCount()
                             .maxByOrNull { it.value }
@@ -193,14 +191,14 @@ public class FrameJankAnalyzer(
     }
 
     private fun severity(
-        verdict: JankVerdict,
+        verdict: FrameDeadlineVerdict,
         durationNs: Long?,
         expectedNs: Long?,
         missedVsyncCount: Int?,
     ): JankSeverity =
         when {
-            verdict == JankVerdict.UNKNOWN -> JankSeverity.UNKNOWN
-            verdict == JankVerdict.SMOOTH -> JankSeverity.SMOOTH
+            verdict == FrameDeadlineVerdict.UNKNOWN -> JankSeverity.UNKNOWN
+            verdict == FrameDeadlineVerdict.MET -> JankSeverity.SMOOTH
             durationNs != null && durationNs >= FROZEN_FRAME_NS -> JankSeverity.FROZEN
             expectedNs == null || missedVsyncCount == null || missedVsyncCount <= 1 -> JankSeverity.MINOR
             missedVsyncCount <= 3 -> JankSeverity.MAJOR
@@ -210,11 +208,11 @@ public class FrameJankAnalyzer(
     private fun unknown(sample: FrameSample): AnalyzedFrame =
         AnalyzedFrame(
             sample = sample,
-            verdict = JankVerdict.UNKNOWN,
+            deadlineVerdict = FrameDeadlineVerdict.UNKNOWN,
             severity = JankSeverity.UNKNOWN,
             missedVsyncCount = null,
-            jankTypes = sample.platformJankTypes,
-            bottleneckStage = null,
+            platformJankTypes = sample.platformJankTypes,
+            largestReportedStage = null,
         )
 
     private fun List<Long>.percentile(fraction: Double): Long? {
@@ -222,18 +220,6 @@ public class FrameJankAnalyzer(
         val index = (ceil(size * fraction).toInt() - 1).coerceIn(indices)
         return this[index]
     }
-
-    private fun String.toJankType(): JankType? =
-        when (this) {
-            "Input" -> JankType.SLOW_INPUT
-            "Animation" -> JankType.SLOW_ANIMATION
-            "Layout/Measure" -> JankType.SLOW_LAYOUT
-            "Draw" -> JankType.SLOW_DRAW
-            "Sync" -> JankType.SLOW_SYNC
-            "Command" -> JankType.SLOW_COMMAND
-            "Swap" -> JankType.SLOW_SWAP
-            else -> null
-        }
 
     private fun AnalyzedFrame.sameContext(other: AnalyzedFrame): Boolean =
         sample.windowId == other.sample.windowId && sample.activityName == other.sample.activityName

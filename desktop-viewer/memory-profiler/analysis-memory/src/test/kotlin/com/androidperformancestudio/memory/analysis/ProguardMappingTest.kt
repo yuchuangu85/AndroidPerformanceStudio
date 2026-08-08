@@ -69,6 +69,24 @@ class ProguardMappingTest {
     }
 
     @Test
+    fun `deobfuscation preserves java and descriptor array syntax`() {
+        val mapping = ProguardMappingParser.parse("com.example.Item -> a.b.C:\n")
+        val dump =
+            HeapDump(
+                classes =
+                    listOf(
+                        HeapClass(1, "a.b.C[]"),
+                        HeapClass(2, "[[La/b/C;"),
+                    ),
+            )
+
+        assertEquals(
+            listOf("com.example.Item[]", "[[Lcom/example/Item;"),
+            dump.withDeobfuscation(mapping).classes.map { it.name },
+        )
+    }
+
+    @Test
     fun `obfuscated class heuristic ignores framework classes`() {
         assertTrue(isLikelyObfuscatedClassName("a.b.c"))
         assertTrue(isLikelyObfuscatedClassName("x.y.z.aa"))

@@ -3,6 +3,10 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.presentation.generated.resources.Res
 import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.compose.inspection.ComposableNode as InspectedComposableNode
+import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
+import com.androidperformancestudio.compose.inspection.ComposeValue
+import com.androidperformancestudio.compose.inspection.ComposeParameterReference
 import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.EdgeInsets
 import com.androidperformancestudio.protocol.UiNode
@@ -24,6 +28,7 @@ data class DetailRowModel(
     val label: String,
     val value: String,
     val tone: DetailTone = DetailTone.NORMAL,
+    val composeReference: ComposeParameterReference? = null,
 )
 
 data class DetailSectionModel(
@@ -37,6 +42,8 @@ internal object NodeDetailsPresenter {
         node: UiNode,
         treeDepth: Int,
         language: UiLanguage,
+        composeInspection: ComposeInspectionDocument? = null,
+        composeInspectionWarning: String? = null,
     ): List<DetailSectionModel> {
         val viewNode = node as? ViewNode
         val composeNode = node as? ComposeNode
@@ -163,8 +170,123 @@ internal object NodeDetailsPresenter {
                     row(language, Res.string.detail_label_selected, attributes.selected),
                 ),
             ),
+        ) + composeInspectionSections(
+            node,
+            composeInspection,
+            composeInspectionWarning,
+            language,
         ) + rawPropertiesSection(node, attributes, language)
     }
+
+    private fun composeInspectionSections(
+        node: UiNode,
+        document: ComposeInspectionDocument?,
+        warning: String?,
+        language: UiLanguage,
+    ): List<DetailSectionModel> {
+        val nodeId = (node as? ComposeNode)?.id
+            ?.removePrefix(COMPOSE_INSPECTION_ID_PREFIX)
+            ?.toLongOrNull()
+            ?: return emptyList()
+        val frame = document?.frame
+        val inspectedNode = frame?.roots
+            ?.firstNotNullOfOrNull { root -> root.nodes.firstNotNullOfOrNull { it.find(nodeId) } }
+        val detail = frame?.details?.get(nodeId)
+        val statusRows = buildList {
+            add(row(language, Res.string.detail_label_compose_mode, frame?.mode))
+            add(row(language, Res.string.detail_label_compose_generation, frame?.generation))
+            add(row(language, Res.string.detail_label_compose_completeness, frame?.completeness))
+            warning?.let { add(DetailRowModel("Warning", it, DetailTone.WARNING)) }
+        }
+        return buildList {
+            if (statusRows.isNotEmpty()) {
+                add(DetailSectionModel(localizedStringResource(Res.string.detail_section_compose_inspection, language), statusRows))
+            }
+            inspectedNode?.source?.let { source ->
+                add(
+                    DetailSectionModel(
+                        localizedStringResource(Res.string.detail_section_compose_source, language),
+                        listOf(
+                            row(language, Res.string.detail_label_compose_file, source.fileName),
+                            row(language, Res.string.detail_label_compose_line, source.lineNumber),
+                            row(language, Res.string.detail_label_compose_offset, source.offset),
+                            row(language, Res.string.detail_label_compose_package_hash, source.packageHash),
+                        ),
+                    ),
+                )
+            }
+            if (inspectedNode?.recomposeCount != null || inspectedNode?.skipCount != null) {
+                add(
+                    DetailSectionModel(
+                        localizedStringResource(Res.string.detail_section_recomposition, language),
+                        listOf(
+                            row(language, Res.string.detail_label_recompose_count, inspectedNode.recomposeCount),
+                            row(language, Res.string.detail_label_skip_count, inspectedNode.skipCount),
+                        ),
+                    ),
+                )
+            }
+            detail?.parameters?.toSection(Res.string.detail_section_compose_parameters, language)?.let(::add)
+            detail?.modifiers?.toSection(Res.string.detail_section_compose_modifiers, language)?.let(::add)
+            detail?.mergedSemantics?.toSection(Res.string.detail_section_merged_semantics, language)?.let(::add)
+            detail?.unmergedSemantics?.toSection(Res.string.detail_section_unmerged_semantics, language)?.let(::add)
+            frame?.coverage
+                ?.filter { it.nodeId == nodeId }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { coverage ->
+                    add(
+                        DetailSectionModel(
+                            localizedStringResource(Res.string.detail_section_compose_coverage, language),
+                            coverage.map {
+                                DetailRowModel(
+                                    it.field,
+                                    buildString {
+                                        append(it.state)
+                                        append(" · depth ").append(it.recursionDepth)
+                                        append(" · ").append(it.loadedElements)
+                                        it.totalElements?.let { total -> append('/').append(total) }
+                                        it.reason?.let { reason -> append(" · ").append(reason) }
+                                    },
+                                    if (it.state.name == "COLLECTED") DetailTone.NORMAL else DetailTone.INFO,
+                                )
+                            },
+                        ),
+                    )
+                }
+        }
+    }
+
+    private fun InspectedComposableNode.find(targetId: Long): InspectedComposableNode? {
+        if (id == targetId) return this
+        return children.firstNotNullOfOrNull { it.find(targetId) }
+    }
+
+    private fun List<ComposeValue>.toSection(
+        title: StringResource,
+        language: UiLanguage,
+    ): DetailSectionModel? = takeIf { it.isNotEmpty() }?.let {
+        DetailSectionModel(
+            localizedStringResource(title, language),
+            flatMap { value -> value.rows() },
+        )
+    }
+
+    private fun ComposeValue.rows(prefix: String = name): List<DetailRowModel> =
+        listOf(
+            DetailRowModel(
+                prefix,
+                buildString {
+                    append(type)
+                    value?.let { append(" · ").append(it) }
+                    if (truncated) append(" · <truncated>")
+                    originalSize?.let { append(" · size=").append(it) }
+                },
+                if (truncated) DetailTone.INFO else DetailTone.NORMAL,
+                reference,
+            ),
+        ) + elements.flatMapIndexed { index, child ->
+            child.rows("$prefix.${child.name.ifBlank { index.toString() }}")
+        }
 
     private fun rawPropertiesSection(
         node: UiNode,
@@ -317,4 +439,5 @@ internal object NodeDetailsPresenter {
     private const val SIGNIFICANT_OVERLAP_RATIO = 0.8f
     private const val COMPLEXITY_DEPTH_WARNING = 10
     private const val DESCENDANT_WARNING = 50
+    private const val COMPOSE_INSPECTION_ID_PREFIX = "compose-inspection:"
 }

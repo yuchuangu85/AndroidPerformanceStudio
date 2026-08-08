@@ -73,10 +73,11 @@ import com.androidperformancestudio.memory.presentation.generated.resources.leak
 import com.androidperformancestudio.memory.presentation.generated.resources.match_case
 import com.androidperformancestudio.memory.presentation.generated.resources.native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.no_instances_for_class
-import com.androidperformancestudio.memory.presentation.generated.resources.no_reference_chain
+import com.androidperformancestudio.memory.presentation.generated.resources.no_references
 import com.androidperformancestudio.memory.presentation.generated.resources.none
 import com.androidperformancestudio.memory.presentation.generated.resources.package_option
 import com.androidperformancestudio.memory.presentation.generated.resources.project_classes
+import com.androidperformancestudio.memory.presentation.generated.resources.reference_chain
 import com.androidperformancestudio.memory.presentation.generated.resources.references
 import com.androidperformancestudio.memory.presentation.generated.resources.regex
 import com.androidperformancestudio.memory.presentation.generated.resources.retained
@@ -609,25 +610,17 @@ private fun InstanceDetailPane(
             VerticalDivider(Modifier.padding(horizontal = 6.dp))
             Column(Modifier.weight(1f)) {
                 Text(localizedStringResource(Res.string.references, language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                if (detail.referenceChain.isEmpty()) {
+                if (detail.references.isEmpty()) {
                     Text(
-                        text = localizedStringResource(Res.string.no_reference_chain, language),
+                        text = localizedStringResource(Res.string.no_references, language),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                     )
                 } else {
                     LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(top = 2.dp)) {
-                        items(detail.referenceChain) { reference ->
+                        items(detail.references) { reference ->
                             Text(
-                                text =
-                                    buildString {
-                                        append("↳ ")
-                                        append(reference.fieldName)
-                                        if (reference.targetClassName.isNotBlank()) {
-                                            append(" → ")
-                                            append(reference.targetClassName)
-                                        }
-                                    },
+                                text = "${reference.name} ← ${reference.displayValue}",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -635,6 +628,10 @@ private fun InstanceDetailPane(
                             )
                         }
                     }
+                }
+                Text(localizedStringResource(Res.string.reference_chain, language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                detail.referenceChain.forEach { reference ->
+                    Text("↳ ${reference.fieldName} → ${reference.targetClassName}", fontSize = 11.sp, maxLines = 1)
                 }
             }
         }

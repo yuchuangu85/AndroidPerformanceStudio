@@ -18,6 +18,7 @@ java {
 
 dependencies {
     api(project(":protocol-model"))
+    api(project(":compose-inspection-model"))
     api(project(":analysis-engine"))
     testImplementation(project(":test-fixtures"))
     testImplementation(platform(libs.junit.bom))

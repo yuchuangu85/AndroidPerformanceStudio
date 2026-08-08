@@ -40,13 +40,14 @@ internal class HprofFixtureBuilder(
         classId: Long,
         instanceSize: Int,
         superClassId: Long = 0L,
+        classLoaderId: Long = 0L,
         staticObjectFields: List<Pair<Long, Long>> = emptyList(),
         instanceFields: List<Pair<Long, PrimitiveType>> = emptyList(),
     ): ByteArray =
         byteArrayOf(0x20) +
             id(classId) +
             int(0) +
-            id(superClassId) + id(0) + id(0) + id(0) + id(0) + id(0) +
+            id(superClassId) + id(classLoaderId) + id(0) + id(0) + id(0) + id(0) +
             int(instanceSize) +
             short(0) +
             short(staticObjectFields.size) +

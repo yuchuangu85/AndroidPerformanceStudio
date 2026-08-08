@@ -1,0 +1,120 @@
+/*
+ * Copyright (C) 2026 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+package ui.inspector.protocol;
+option java_package = "com.android.tools.ui.inspector.protocol";
+option java_outer_classname = "UiInspectorProtocol";
+
+// Wraps a command payload targeted to a specific inspector.
+message InspectorMessageCommand {
+    string inspector_id = 1;
+    bytes payload = 2;
+}
+
+// Wraps a response payload from a specific inspector.
+message InspectorMessageResponse {
+    string inspector_id = 1;
+    bytes payload = 2;
+}
+
+// Wraps an event payload from a specific inspector.
+message InspectorMessageEvent {
+    string inspector_id = 1;
+    bytes payload = 2;
+}
+
+// Command to shut down the agent.
+message ShutdownCommand {}
+
+// Response to the shutdown command.
+message ShutdownResponse {}
+
+// Event sent when an uncaught exception occurs in the agent.
+message CrashEvent {
+    string error_message = 1;
+    string stack_trace = 2;
+}
+
+// Command to dynamically load and create a new inspector.
+message CreateInspectorCommand {
+    string inspector_id = 1;
+    string dex_path = 2;
+}
+
+// Response to the create inspector command.
+message CreateInspectorResponse {}
+
+// Command to ask the agent for installed library versions.
+message GetVersionCommand {
+    // A list of library IDs to query (e.g. "androidx.compose.ui:ui").
+    repeated string library_ids = 1;
+}
+
+// Response containing discovered versions.
+message GetVersionResponse {
+    // A map of library IDs to their discovered version string on the agent's classpath.
+    // Example: {"androidx.compose.ui:ui" : "1.5.4"}
+    map<string, string> versions = 1;
+}
+
+// Top-level envelope for all commands sent from host to agent.
+message Command {
+    uint32 command_id = 1;
+    oneof specialized {
+        InspectorMessageCommand inspector_message = 2;
+        ShutdownCommand shutdown = 3;
+        CreateInspectorCommand create_inspector = 4;
+        GetVersionCommand get_version = 5;
+    }
+}
+
+// Top-level envelope for all responses sent from agent to host.
+message Response {
+    uint32 command_id = 1;
+
+    enum Status {
+        SUCCESS = 0;
+        ERROR = 1;
+    }
+    Status status = 2;
+    string error_message = 3;
+
+    oneof specialized {
+        InspectorMessageResponse inspector_message = 4;
+        ShutdownResponse shutdown = 5;
+        CreateInspectorResponse create_inspector = 6;
+        GetVersionResponse get_version = 7;
+    }
+}
+
+// Top-level envelope for all events sent from agent to host.
+message Event {
+    oneof specialized {
+        InspectorMessageEvent inspector_message = 1;
+        CrashEvent crash = 2;
+    }
+}
+
+// Top-level envelope for all messages sent from agent to host.
+message AgentMessage {
+    oneof specialized {
+        // A synchronous reply to a specific Command sent by the host.
+        Response response = 1;
+        // An asynchronous message initiated by the agent.
+        Event event = 2;
+    }
+}

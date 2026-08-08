@@ -75,7 +75,14 @@ class MemoryProfilerPresenterTest {
                 MemoryProfilerState(
                     heapBaseClasses = sampleClasses(),
                     leakFilter = MemoryLeakFilter.ACTIVITY_FRAGMENT_LEAK,
-                    leakSuspects = listOf(LeakSuspect(className = "com.example.Tiny", reason = "")),
+                    leakSuspects =
+                        listOf(
+                            LeakSuspect(
+                                className = "com.example.Tiny",
+                                reason = "",
+                                activityOrFragmentLeak = true,
+                            ),
+                        ),
                 ),
             )
 

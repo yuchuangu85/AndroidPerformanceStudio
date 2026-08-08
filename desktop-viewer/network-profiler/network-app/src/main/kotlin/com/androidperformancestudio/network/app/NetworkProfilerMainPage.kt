@@ -31,15 +31,16 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
-import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -70,8 +71,10 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
     fun start() {
         pollJob = scope.launch(Dispatchers.IO) {
             runCatching { capture.start(state.deviceSerial, state.packageName) }.onSuccess { session ->
-                active = session
-                withContext(Dispatchers.Main) { state = state.copy(capturing = true, message = localizedStringResource(Res.string.agent_session_started, language), error = null) }
+                withContext(Dispatchers.Main) {
+                    active = session
+                    state = state.copy(capturing = true, message = localizedStringResource(Res.string.agent_session_started, language), error = null)
+                }
                 while (isActive) {
                     delay(750.milliseconds)
                     runCatching { capture.poll(session) }.onSuccess { events -> withContext(Dispatchers.Main) { state = state.copy(liveEventCount = state.liveEventCount + events.size, message = localizedStringResource(Res.string.captured_raw_events, language, state.liveEventCount + events.size)) } }.onFailure { cancel("poll failed", it) }
@@ -82,111 +85,111 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
 
     fun stop() {
         val session = active ?: return
-        pollJob?.cancel()
         scope.launch(Dispatchers.IO) {
+            pollJob?.cancelAndJoin()
             runCatching { capture.stop(session) }.onSuccess { withContext(Dispatchers.Main) { complete(it, localizedStringResource(Res.string.capture_completed, language, it.calls.size)) } }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }
-            active = null
+            withContext(Dispatchers.Main) { active = null }
         }
     }
     ViewerTheme(darkTheme = darkTheme) {
-    Column(Modifier.fillMaxSize()) {
-        ProfilerMacOsToolbar {
-            HomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                onClick = {
-                    if (state.capturing)stop()
-                    onBack()
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_har, language),
-                enabled = !state.capturing,
-                onClick = {
-                    chooseHar(window, language)?.let { file ->
-                        runCatching { HarParser().parse(file.toPath()) }
-                            .onSuccess {
-                                complete(
-                                    it,
-                                    localizedStringResource(Res.string.imported_redacted, language, file.name),
-                                )
-                            }.onFailure { state = state.copy(error = it.message) }
-                    }
-                },
-            )
-            ProfilerCompactTextField(
-                label = localizedStringResource(Res.string.device_serial, language),
-                value = state.deviceSerial,
-                onValueChange = { state = state.copy(deviceSerial = it) },
-                enabled = !state.capturing,
-                modifier = Modifier.width(180.dp),
-            )
-            ProfilerCompactTextField(
-                label = localizedStringResource(Res.string.`package`, language),
-                value = state.packageName,
-                onValueChange = { state = state.copy(packageName = it) },
-                enabled = !state.capturing,
-                modifier = Modifier.width(240.dp),
-            )
-            ProfilerCompactButton(
-                text =
-                    if (state.capturing) {
-                        localizedStringResource(Res.string.stop_capture, language)
-                    } else {
-                        localizedStringResource(Res.string.live_capture, language)
+        Column(Modifier.fillMaxSize()) {
+            ProfilerMacOsToolbar {
+                HomeButton(
+                    contentDescription = localizedStringResource(Res.string.back_to_home, language),
+                    onClick = {
+                        if (state.capturing)stop()
+                        onBack()
                     },
-                enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(),
-                onClick = { if (state.capturing) stop() else start() },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.json, language),
-                enabled = state.result != null,
-                onClick = {
-                    chooseSave(window, "network-session.json")?.let {
-                        exporter.writeJson(
-                            requireNotNull(state.result),
-                            requireNotNull(state.summary),
-                            it.toPath(),
-                        )
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.har, language),
-                enabled = state.result != null,
-                onClick = {
-                    chooseSave(window, "network-session.har")?.let {
-                        exporter.writePartialHar(requireNotNull(state.result), it.toPath())
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.csv, language),
-                enabled = state.result != null,
-                onClick = {
-                    chooseSave(window, "network-session.csv")?.let {
-                        exporter.writeCsv(requireNotNull(state.result), it.toPath())
-                    }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.raw_bundle, language),
-                enabled = state.result != null,
-                onClick = {
-                    chooseSave(window, "network-raw-bundle.zip")?.let {
-                        exporter.writeRawBundle(
-                            requireNotNull(state.result),
-                            requireNotNull(state.summary),
-                            it.toPath(),
-                        )
-                    }
-                },
-            )
-            Spacer(Modifier.weight(1f))
-            ProfilerToolbarStatus(state.message, state.error)
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.import_har, language),
+                    enabled = !state.capturing,
+                    onClick = {
+                        chooseHar(window, language)?.let { file ->
+                            runCatching { HarParser().parse(file.toPath()) }
+                                .onSuccess {
+                                    complete(
+                                        it,
+                                        localizedStringResource(Res.string.imported_redacted, language, file.name),
+                                    )
+                                }.onFailure { state = state.copy(error = it.message) }
+                        }
+                    },
+                )
+                ProfilerCompactTextField(
+                    label = localizedStringResource(Res.string.device_serial, language),
+                    value = state.deviceSerial,
+                    onValueChange = { state = state.copy(deviceSerial = it) },
+                    enabled = !state.capturing,
+                    modifier = Modifier.width(180.dp),
+                )
+                ProfilerCompactTextField(
+                    label = localizedStringResource(Res.string.`package`, language),
+                    value = state.packageName,
+                    onValueChange = { state = state.copy(packageName = it) },
+                    enabled = !state.capturing,
+                    modifier = Modifier.width(240.dp),
+                )
+                ProfilerCompactButton(
+                    text =
+                        if (state.capturing) {
+                            localizedStringResource(Res.string.stop_capture, language)
+                        } else {
+                            localizedStringResource(Res.string.live_capture, language)
+                        },
+                    enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(),
+                    onClick = { if (state.capturing) stop() else start() },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.json, language),
+                    enabled = state.result != null,
+                    onClick = {
+                        chooseSave(window, "network-session.json")?.let {
+                            exporter.writeJson(
+                                requireNotNull(state.result),
+                                requireNotNull(state.summary),
+                                it.toPath(),
+                            )
+                        }
+                    },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.har, language),
+                    enabled = state.result != null,
+                    onClick = {
+                        chooseSave(window, "network-session.har")?.let {
+                            exporter.writePartialHar(requireNotNull(state.result), it.toPath())
+                        }
+                    },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.csv, language),
+                    enabled = state.result != null,
+                    onClick = {
+                        chooseSave(window, "network-session.csv")?.let {
+                            exporter.writeCsv(requireNotNull(state.result), it.toPath())
+                        }
+                    },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.raw_bundle, language),
+                    enabled = state.result != null,
+                    onClick = {
+                        chooseSave(window, "network-raw-bundle.zip")?.let {
+                            exporter.writeRawBundle(
+                                requireNotNull(state.result),
+                                requireNotNull(state.summary),
+                                it.toPath(),
+                            )
+                        }
+                    },
+                )
+                Spacer(Modifier.weight(1f))
+                ProfilerToolbarStatus(state.message, state.error)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
-    }
     }
 }
 

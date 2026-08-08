@@ -4,6 +4,12 @@
     <string name="recent_gpu_artifacts">最近 GPU 产物</string>
     <string name="verify">校验</string>
     <string name="open">打开</string>
+    <string name="open_in_agi">用 AGI 打开</string>
+    <string name="launch_agi">启动 AGI</string>
+    <string name="open_in_perfetto">用 Perfetto 打开</string>
+    <string name="open_with_desktop">打开</string>
+    <string name="show_in_files">在文件系统中定位</string>
+    <string name="relocate">重新定位</string>
     <string name="android_gpu_inspector">Android GPU Inspector</string>
     <string name="text">%1$s · %2$s</string>
     <string name="kib">%1$s KiB · %2$s…</string>
@@ -24,4 +30,9 @@
     <string name="warning_agi_version_unknown">无法确定 AGI 版本。</string>
     <string name="warning_agi_gui_only">未检测到稳定的自动化参数，将以仅 GUI 模式启动 AGI。</string>
     <string name="warning_unknown_artifact">未知产物格式，已将其作为不透明证据编入索引。</string>
+    <string name="warning_agi_artifact_open_unverified">尚未验证当前可执行文件能否直接打开产物。</string>
+    <string name="artifact_available">文件可用</string>
+    <string name="artifact_missing">文件缺失</string>
+    <string name="artifact_size_changed">文件大小已变化</string>
+    <string name="tool_responsibility_hint">使用 AGI 分析详细帧与图形 API，使用 Perfetto 查看系统 GPU 与 FrameTimeline 证据。</string>
 </resources>

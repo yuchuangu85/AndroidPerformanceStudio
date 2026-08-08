@@ -253,6 +253,7 @@ class HprofParserTest {
                     builder.classDump(
                         classId = 10,
                         instanceSize = 24,
+                        classLoaderId = 99,
                         staticObjectFields = listOf(2L to 20L),
                         instanceFields =
                             listOf(
@@ -266,6 +267,11 @@ class HprofParserTest {
                         bytes = builder.objectValue(21) + builder.intValue(42),
                     ),
                     builder.instanceDump(objectId = 21, classId = 10),
+                    builder.instanceDump(
+                        objectId = 22,
+                        classId = 10,
+                        bytes = builder.objectValue(0) + builder.intValue(0),
+                    ),
                 ).build()
 
         val heap = parser.parse(fixture)
@@ -288,6 +294,15 @@ class HprofParserTest {
                 .targetObjectId,
         )
         assertEquals(42L, heap.instances.first { it.objectId == 20L }.primitiveFields["count"])
+        assertEquals(99L, heap.classes.single().classLoaderObjectId)
+        assertEquals(
+            0L,
+            heap.instances
+                .first { it.objectId == 22L }
+                .references
+                .single()
+                .targetObjectId,
+        )
     }
 
     private fun rootJniGlobal(): ByteArray = byteArrayOf(0x01) + id(1) + id(2)

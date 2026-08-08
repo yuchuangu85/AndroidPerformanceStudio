@@ -14,4 +14,6 @@
     <string name="imported_file">Imported %1$s</string>
     <string name="artifact_hash_verified">Artifact hash verified.</string>
     <string name="artifact_missing_or_changed">Artifact is missing or changed.</string>
+    <string name="artifact_indexing">Indexing artifact…</string>
+    <string name="artifact_relocated">Relocated to %1$s</string>
 </resources>

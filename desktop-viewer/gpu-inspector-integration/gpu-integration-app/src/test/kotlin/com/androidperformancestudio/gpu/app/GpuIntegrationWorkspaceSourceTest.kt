@@ -13,69 +13,31 @@ class GpuIntegrationWorkspaceSourceTest {
         )
 
     @Test
-    fun `workspace uses shared compact chrome without changing artifact screen`() {
+    fun `workspace uses shared compact chrome`() {
         assertTrue(source.contains("ProfilerMacOsToolbar"))
         assertTrue(source.contains("ProfilerCompactButton"))
+        assertTrue(source.contains("HomeButton("))
         assertTrue(source.contains("GpuIntegrationScreen("))
-        assertFalse(source.contains("import androidx.compose.material3.OutlinedButton"))
         assertFalse(source.contains("import androidx.compose.material3.Button"))
     }
 
     @Test
-    fun `toolbar preserves locator launch importer persistence and enabled wiring`() {
-        val homeBlock =
-            source.substring(
-                source.indexOf("ProfilerHomeButton("),
-                source.indexOf("ProfilerCompactButton("),
-            )
-        assertTrue(homeBlock.contains("onClick = onBack"))
-
-        assertButtonContains(
-            "text = localizedStringResource(Res.string.refresh_agi, language)",
-            "capability = locator.locate()",
-        )
-        assertButtonContains(
-            "text = localizedStringResource(Res.string.configure_agi, language)",
-            "chooseExecutable(window, language)",
-            "capability = locator.locate(file.toPath())",
-        )
-        assertButtonContains(
-            "text = localizedStringResource(Res.string.launch_agi, language)",
-            "enabled = state.capability?.launchSupported == true",
-            "locator.launch(requireNotNull(state.capability))",
-        )
-        assertButtonContains(
-            "text = localizedStringResource(Res.string.import_artifact, language)",
-            "chooseArtifact(window, language)",
-            "indexer.import(",
-            "persist(updated)",
-        )
+    fun `artifact IO runs outside the compose thread`() {
+        assertTrue(source.contains("withContext(Dispatchers.IO)"))
+        assertTrue(source.contains("indexer.import("))
+        assertTrue(source.contains("indexer.verify(artifact)"))
+        assertTrue(source.contains("indexer.relocate(artifact"))
+        assertTrue(source.contains("store.save(updated)"))
     }
 
     @Test
-    fun `artifact actions preserve viewer navigation and verification calls`() {
-        assertTrue(source.contains("ArtifactOpenCapability.PERFETTO -> onOpenTrace(artifact.path)"))
-        assertTrue(source.contains("ArtifactOpenCapability.AGI ->"))
-        assertTrue(source.contains("locator.launch("))
-        assertTrue(source.contains("ArtifactOpenCapability.DESKTOP -> Desktop.getDesktop().open(artifact.path.toFile())"))
-        assertTrue(source.contains("onOpenArtifact = ::open"))
-        assertTrue(source.contains("if (indexer.verify(artifact))"))
-    }
-
-    private fun assertButtonContains(
-        anchor: String,
-        vararg invariants: String,
-    ) {
-        val anchorIndex = source.indexOf(anchor)
-        assertTrue(anchorIndex >= 0, "Missing anchor: $anchor")
-        val blockStart = source.lastIndexOf("ProfilerCompactButton(", anchorIndex)
-        val blockEnd = source.indexOf("ProfilerCompactButton(", anchorIndex + anchor.length).let {
-            if (it >= 0) it else source.indexOf("Spacer(", anchorIndex)
-        }
-        val block = source.substring(blockStart, blockEnd)
-
-        invariants.forEach { invariant ->
-            assertTrue(block.contains(invariant), "Missing `$invariant` near `$anchor`")
-        }
+    fun `runtime availability controls each opening route`() {
+        assertTrue(source.contains("artifactAvailability(artifact"))
+        assertTrue(source.contains("ArtifactPrimaryAction.OPEN_PERFETTO -> onOpenTrace(path)"))
+        assertTrue(source.contains("ArtifactPrimaryAction.OPEN_AGI -> locator.launchArtifact"))
+        assertTrue(source.contains("ArtifactPrimaryAction.LAUNCH_AGI -> locator.launch"))
+        assertTrue(source.contains("ArtifactPrimaryAction.OPEN_DESKTOP -> Desktop.getDesktop().open"))
+        assertTrue(source.contains("onRevealArtifact = ::reveal"))
+        assertTrue(source.contains("onRelocateArtifact = ::relocate"))
     }
 }

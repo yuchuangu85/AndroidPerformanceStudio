@@ -34,9 +34,14 @@ internal class CaptureArchiveCodec(
         }
         val content = payload.toEntries()
         validateEntrySizes(content)
+        val archiveVersion = if (content.containsKey(CaptureArchivePaths.COMPOSE_INSPECTION)) {
+            CAPTURE_ARCHIVE_VERSION
+        } else {
+            LEGACY_CAPTURE_ARCHIVE_VERSION
+        }
         val manifest = CaptureArchiveManifest(
             format = CAPTURE_ARCHIVE_FORMAT,
-            archiveVersion = CAPTURE_ARCHIVE_VERSION,
+            archiveVersion = archiveVersion,
             producerVersion = metadata.producerVersion,
             packageName = metadata.packageName,
             capturedAtEpochMillis = metadata.capturedAtEpochMillis,
@@ -182,10 +187,15 @@ internal class CaptureArchiveCodec(
         if (manifest.format != CAPTURE_ARCHIVE_FORMAT) {
             throw CaptureArchiveFormatException("Unsupported archive format")
         }
-        if (manifest.archiveVersion != CAPTURE_ARCHIVE_VERSION) {
+        if (manifest.archiveVersion !in LEGACY_CAPTURE_ARCHIVE_VERSION..CAPTURE_ARCHIVE_VERSION) {
             throw CaptureArchiveFormatException(
                 "Unsupported archive version ${manifest.archiveVersion}",
             )
+        }
+        if (manifest.archiveVersion == LEGACY_CAPTURE_ARCHIVE_VERSION &&
+            manifest.entries.any { it.path == CaptureArchivePaths.COMPOSE_INSPECTION }
+        ) {
+            throw CaptureArchiveFormatException("Archive v1 cannot contain Compose inspection details")
         }
         REQUIRED_PATHS.forEach { requiredPath ->
             val declared = manifest.entries.singleOrNull { it.path == requiredPath }
@@ -225,6 +235,7 @@ internal class CaptureArchiveCodec(
         val analysisReport = content[CaptureArchivePaths.ANALYSIS_REPORT]
         val aiAnalysisReport = content[CaptureArchivePaths.AI_ANALYSIS_REPORT]
         val timelineHistory = content[CaptureArchivePaths.TIMELINE_HISTORY]
+        val composeInspection = content[CaptureArchivePaths.COMPOSE_INSPECTION]
         return CaptureArchiveDocument(
             metadata = CaptureArchiveMetadata(
                 producerVersion = producerVersion,
@@ -245,7 +256,9 @@ internal class CaptureArchiveCodec(
                 analysisReportJson = analysisReport?.toString(StandardCharsets.UTF_8),
                 aiAnalysisReportJson = aiAnalysisReport?.toString(StandardCharsets.UTF_8),
                 timelineHistoryJson = timelineHistory?.toString(StandardCharsets.UTF_8),
+                composeInspectionJson = composeInspection?.toString(StandardCharsets.UTF_8),
             ),
+            archiveVersion = archiveVersion,
         )
     }
 
@@ -258,6 +271,12 @@ internal class CaptureArchiveCodec(
         val analysisEntries = analysisReportJson?.let { report ->
             linkedMapOf(
                 CaptureArchivePaths.ANALYSIS_REPORT to report.toByteArray(StandardCharsets.UTF_8),
+            )
+        }
+        val composeInspectionEntries = composeInspectionJson?.let { inspection ->
+            linkedMapOf(
+                CaptureArchivePaths.COMPOSE_INSPECTION to
+                    inspection.toByteArray(StandardCharsets.UTF_8),
             )
         }
         val aiAnalysisEntries = aiAnalysisReportJson?.let { report ->
@@ -278,6 +297,12 @@ internal class CaptureArchiveCodec(
             )
         }
         return required.apply {
+            if (composeInspectionEntries != null) {
+                require(optionalEntriesFit(this, composeInspectionEntries)) {
+                    "Compose inspection details exceed the archive limits"
+                }
+                putAll(composeInspectionEntries)
+            }
             if (analysisEntries != null && optionalEntriesFit(required, analysisEntries)) {
                 putAll(analysisEntries)
             }
@@ -343,6 +368,7 @@ internal class CaptureArchiveCodec(
             CaptureArchivePaths.ANALYSIS_REPORT -> MAX_ANALYSIS_REPORT_BYTES.toLong()
             CaptureArchivePaths.AI_ANALYSIS_REPORT -> MAX_ANALYSIS_REPORT_BYTES.toLong()
             CaptureArchivePaths.TIMELINE_HISTORY -> MAX_TIMELINE_HISTORY_BYTES.toLong()
+            CaptureArchivePaths.COMPOSE_INSPECTION -> MAX_COMPOSE_INSPECTION_BYTES.toLong()
             else -> MAX_UNKNOWN_OPTIONAL_BYTES.toLong()
         }
 
@@ -387,13 +413,14 @@ internal class CaptureArchiveCodec(
     }
 
     private companion object {
-        const val MAX_ENTRY_COUNT = 16
+        const val MAX_ENTRY_COUNT = 17
         const val MAX_MANIFEST_BYTES = 256 * 1024
         const val MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024
         const val MAX_RAW_ZIP_BYTES = 32 * 1024 * 1024
         const val MAX_RAW_TEXT_BYTES = 8 * 1024 * 1024
         const val MAX_ANALYSIS_REPORT_BYTES = 4 * 1024 * 1024
         const val MAX_TIMELINE_HISTORY_BYTES = 4 * 1024 * 1024
+        const val MAX_COMPOSE_INSPECTION_BYTES = 64 * 1024 * 1024
         const val MAX_UNKNOWN_OPTIONAL_BYTES = 1024 * 1024
         val REQUIRED_PATHS = setOf(
             CaptureArchivePaths.SNAPSHOT,
@@ -405,6 +432,7 @@ internal class CaptureArchiveCodec(
             CaptureArchivePaths.ANALYSIS_REPORT,
             CaptureArchivePaths.AI_ANALYSIS_REPORT,
             CaptureArchivePaths.TIMELINE_HISTORY,
+            CaptureArchivePaths.COMPOSE_INSPECTION,
         )
     }
 }

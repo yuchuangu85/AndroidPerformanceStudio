@@ -119,6 +119,48 @@ public class SqliteStartupSessionStore private constructor(
                 statement.setInt(21, if (run.rawEvidence.agentAvailable) 1 else 0)
                 statement.executeUpdate()
             }
+        connection
+            .prepareStatement(
+                """
+                UPDATE startup_runs SET
+                ttid_source=?, ttid_unavailable_reason=?, ttfd_source=?, ttfd_unavailable_reason=?,
+                agent_first_frame_source=?, agent_first_frame_unavailable_reason=?,
+                compiler_filter_before=?, compiler_filter_after=?, profile_state_before=?, profile_state_after=?,
+                compilation_verified=?, compilation_failure=?, device_model=?, api_level=?, emulator=?, battery_percent=?,
+                charging=?, thermal_status=?, environment_captured_at=?, environment_failures=?, trace_file=?, trace_captured=?,
+                trace_truncated=?, trace_failure=?, diagnostics=?, profile_source=?, profile_source_declared=? WHERE id=?
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, run.ttidEvidence.source?.name)
+                statement.setString(2, run.ttidEvidence.unavailableReason)
+                statement.setString(3, run.ttfdEvidence.source?.name)
+                statement.setString(4, run.ttfdEvidence.unavailableReason)
+                statement.setString(5, run.agentFirstFrameEvidence.source?.name)
+                statement.setString(6, run.agentFirstFrameEvidence.unavailableReason)
+                statement.setString(7, run.compilationEvidence?.compilerFilterBefore)
+                statement.setString(8, run.compilationEvidence?.compilerFilterAfter)
+                statement.setString(9, run.compilationEvidence?.profileStateBefore)
+                statement.setString(10, run.compilationEvidence?.profileStateAfter)
+                statement.setNullableBoolean(11, run.compilationEvidence?.verified)
+                statement.setString(12, run.compilationEvidence?.failureReason)
+                statement.setString(13, run.environmentEvidence?.deviceModel)
+                statement.setNullableInt(14, run.environmentEvidence?.apiLevel)
+                statement.setNullableBoolean(15, run.environmentEvidence?.emulator)
+                statement.setNullableInt(16, run.environmentEvidence?.batteryPercent)
+                statement.setNullableBoolean(17, run.environmentEvidence?.charging)
+                statement.setNullableInt(18, run.environmentEvidence?.thermalStatus)
+                statement.setString(19, run.environmentEvidence?.capturedAt?.toString())
+                statement.setString(20, run.environmentEvidence?.failures?.joinToString("\n"))
+                statement.setString(21, run.traceEvidence?.file)
+                statement.setNullableBoolean(22, run.traceEvidence?.captured)
+                statement.setNullableBoolean(23, run.traceEvidence?.truncated)
+                statement.setString(24, run.traceEvidence?.failureReason)
+                statement.setString(25, run.diagnostics.joinToString("\n"))
+                statement.setString(26, run.compilationEvidence?.profileSource?.name)
+                statement.setNullableBoolean(27, run.compilationEvidence?.profileSourceDeclared)
+                statement.setString(28, run.id)
+                statement.executeUpdate()
+            }
         run.milestones.forEach { milestone ->
             connection
                 .prepareStatement(
@@ -188,10 +230,19 @@ public class SqliteStartupSessionStore private constructor(
                         status TEXT, launch_state TEXT, activity TEXT, this_time_ms INTEGER, total_time_ms INTEGER,
                         wait_time_ms INTEGER, displayed_time_ms INTEGER, fully_drawn_time_ms INTEGER, complete INTEGER NOT NULL,
                         pid_before INTEGER, pid_after INTEGER, warnings TEXT NOT NULL, am_start_output TEXT NOT NULL,
-                        event_log_output TEXT, compilation_output TEXT, agent_available INTEGER NOT NULL
+                        event_log_output TEXT, compilation_output TEXT, agent_available INTEGER NOT NULL,
+                        ttid_source TEXT, ttid_unavailable_reason TEXT, ttfd_source TEXT, ttfd_unavailable_reason TEXT,
+                        agent_first_frame_source TEXT, agent_first_frame_unavailable_reason TEXT,
+                        compiler_filter_before TEXT, compiler_filter_after TEXT, profile_state_before TEXT, profile_state_after TEXT,
+                        compilation_verified INTEGER, compilation_failure TEXT, device_model TEXT, api_level INTEGER,
+                        emulator INTEGER, battery_percent INTEGER, charging INTEGER, thermal_status INTEGER,
+                        environment_captured_at TEXT, environment_failures TEXT, trace_file TEXT, trace_captured INTEGER,
+                        trace_truncated INTEGER, trace_failure TEXT, diagnostics TEXT,
+                        profile_source TEXT, profile_source_declared INTEGER
                     )
                     """.trimIndent(),
                 )
+                STARTUP_RUN_EVIDENCE_COLUMNS.forEach { (name, type) -> ensureColumn(connection, "startup_runs", name, type) }
                 statement.execute(
                     """
                     CREATE TABLE IF NOT EXISTS startup_milestones (
@@ -212,6 +263,54 @@ public class SqliteStartupSessionStore private constructor(
                 )
             }
         }
+
+        private fun ensureColumn(
+            connection: Connection,
+            table: String,
+            column: String,
+            type: String,
+        ) {
+            val exists =
+                connection.createStatement().use { statement ->
+                    statement.executeQuery("PRAGMA table_info($table)").use { rows ->
+                        var found = false
+                        while (rows.next()) if (rows.getString("name") == column) found = true
+                        found
+                    }
+                }
+            if (!exists) connection.createStatement().use { it.execute("ALTER TABLE $table ADD COLUMN $column $type") }
+        }
+
+        private val STARTUP_RUN_EVIDENCE_COLUMNS =
+            listOf(
+                "ttid_source" to "TEXT",
+                "ttid_unavailable_reason" to "TEXT",
+                "ttfd_source" to "TEXT",
+                "ttfd_unavailable_reason" to "TEXT",
+                "agent_first_frame_source" to "TEXT",
+                "agent_first_frame_unavailable_reason" to "TEXT",
+                "compiler_filter_before" to "TEXT",
+                "compiler_filter_after" to "TEXT",
+                "profile_state_before" to "TEXT",
+                "profile_state_after" to "TEXT",
+                "compilation_verified" to "INTEGER",
+                "compilation_failure" to "TEXT",
+                "device_model" to "TEXT",
+                "api_level" to "INTEGER",
+                "emulator" to "INTEGER",
+                "battery_percent" to "INTEGER",
+                "charging" to "INTEGER",
+                "thermal_status" to "INTEGER",
+                "environment_captured_at" to "TEXT",
+                "environment_failures" to "TEXT",
+                "trace_file" to "TEXT",
+                "trace_captured" to "INTEGER",
+                "trace_truncated" to "INTEGER",
+                "trace_failure" to "TEXT",
+                "diagnostics" to "TEXT",
+                "profile_source" to "TEXT",
+                "profile_source_declared" to "INTEGER",
+            )
     }
 }
 
@@ -227,4 +326,11 @@ private fun java.sql.PreparedStatement.setNullableInt(
     value: Int?,
 ) {
     if (value == null) setNull(index, java.sql.Types.INTEGER) else setInt(index, value)
+}
+
+private fun java.sql.PreparedStatement.setNullableBoolean(
+    index: Int,
+    value: Boolean?,
+) {
+    if (value == null) setNull(index, java.sql.Types.INTEGER) else setInt(index, if (value) 1 else 0)
 }

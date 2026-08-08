@@ -19,7 +19,7 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Requires Android 10+ (API 29+); heapprofd is available on debuggable builds. The captured trace
  * is the raw Perfetto `.pb` stream, which can be exported or opened in Perfetto / Android Studio.
- * Parsing the trace into allocation tables is a follow-up (see docs/modules/memory-profiler.md #3).
+ * Any in-app allocation summary is best-effort; the raw trace remains the authoritative artifact.
  */
 class NativeHeapCaptureSession(
     private val adbExecutable: Path,
@@ -110,7 +110,7 @@ class NativeHeapCaptureSession(
         }
         data_sources {
           config {
-            name: "linux.heapprofd"
+            name: "android.heapprofd"
             target_buffer: 0
             heapprofd_config {
               sampling_interval_bytes: 4096

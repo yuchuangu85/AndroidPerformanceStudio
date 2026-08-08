@@ -8,21 +8,21 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * Best-effort parser for a heapprofd (Perfetto native heap) `.pb` trace.
+ * Best-effort summary reader for a heapprofd (Perfetto native heap) `.pb` trace.
  *
  * Reads the protobuf wire format directly (no protobuf runtime dependency) and extracts the
  * pre-aggregated `ProfilePacket` data: allocation samples grouped by callstack plus interned
- * function names. Interning tables inside the ProfilePacket are used; traces that only intern via
- * the newer `InternedData` packets fall back to `<unknown>` symbol names.
+ * function names. The raw trace remains authoritative and should be opened with Perfetto for full
+ * sequence-state handling, symbolization, call trees, and guardrail diagnostics.
  */
 object NativeHeapTraceParser {
     fun parse(path: Path): NativeHeapAnalysis = parse(Files.readAllBytes(path))
 
-    fun parse(bytes: ByteArray): NativeHeapAnalysis {
-        val strings = HashMap<Long, String>()
-        val frameFunctions = HashMap<Long, Long>()
-        val callstackFrames = HashMap<Long, List<Long>>()
-        val samples = ArrayList<RawSample>()
+    fun parse(bytes: ByteArray): NativeHeapAnalysis = runCatching { parseValidTrace(bytes) }.getOrDefault(NativeHeapAnalysis())
+
+    private fun parseValidTrace(bytes: ByteArray): NativeHeapAnalysis {
+        val sequences = HashMap<Long, InterningState>()
+        val samples = ArrayList<ResolvedSample>()
 
         val trace = ProtoReader(bytes)
         while (trace.isAtEnd.not()) {
@@ -30,34 +30,44 @@ object NativeHeapTraceParser {
             val fieldNumber = tag ushr 3
             val wireType = tag and 7
             if (fieldNumber == TRACE_PACKET_FIELD && wireType == WIRE_LENGTH_DELIMITED) {
-                parsePacket(trace.readLengthDelimited(), strings, frameFunctions, callstackFrames, samples)
+                parsePacket(trace.readLengthDelimited(), sequences, samples)
             } else {
                 trace.skip(wireType)
             }
         }
-        return buildAnalysis(strings, frameFunctions, callstackFrames, samples)
+        return buildAnalysis(samples)
     }
 
     private fun parsePacket(
         bytes: ByteArray,
-        strings: MutableMap<Long, String>,
-        frameFunctions: MutableMap<Long, Long>,
-        callstackFrames: MutableMap<Long, List<Long>>,
-        samples: MutableList<RawSample>,
+        sequences: MutableMap<Long, InterningState>,
+        samples: MutableList<ResolvedSample>,
     ) {
         val packet = ProtoReader(bytes)
+        var sequenceId = 0L
+        var clearIncrementalState = false
+        val internedData = mutableListOf<ByteArray>()
+        val profilePackets = mutableListOf<ByteArray>()
         while (packet.isAtEnd.not()) {
             val tag = packet.readTag()
             val fieldNumber = tag ushr 3
             val wireType = tag and 7
             when {
                 fieldNumber == PROFILE_PACKET_FIELD && wireType == WIRE_LENGTH_DELIMITED ->
-                    parseProfilePacket(packet.readLengthDelimited(), strings, frameFunctions, callstackFrames, samples)
+                    profilePackets += packet.readLengthDelimited()
                 fieldNumber == INTERNED_DATA_FIELD && wireType == WIRE_LENGTH_DELIMITED ->
-                    parseInternedData(packet.readLengthDelimited(), strings, frameFunctions, callstackFrames)
+                    internedData += packet.readLengthDelimited()
+                fieldNumber == TRUSTED_PACKET_SEQUENCE_ID_FIELD && wireType == WIRE_VARINT ->
+                    sequenceId = packet.readVarint()
+                fieldNumber == INCREMENTAL_STATE_CLEARED_FIELD && wireType == WIRE_VARINT ->
+                    clearIncrementalState = packet.readVarint() != 0L
                 else -> packet.skip(wireType)
             }
         }
+        val state = sequences.getOrPut(sequenceId, ::InterningState)
+        if (clearIncrementalState) state.clear()
+        internedData.forEach { parseInternedData(it, state.strings, state.frameFunctions, state.callstackFrames) }
+        profilePackets.forEach { parseProfilePacket(it, state, samples) }
     }
 
     /**
@@ -87,24 +97,36 @@ object NativeHeapTraceParser {
 
     private fun parseProfilePacket(
         bytes: ByteArray,
-        strings: MutableMap<Long, String>,
-        frameFunctions: MutableMap<Long, Long>,
-        callstackFrames: MutableMap<Long, List<Long>>,
-        samples: MutableList<RawSample>,
+        state: InterningState,
+        samples: MutableList<ResolvedSample>,
     ) {
         val profile = ProtoReader(bytes)
+        val internedStrings = mutableListOf<ByteArray>()
+        val frames = mutableListOf<ByteArray>()
+        val callstacks = mutableListOf<ByteArray>()
+        val processDumps = mutableListOf<ByteArray>()
         while (profile.isAtEnd.not()) {
             val tag = profile.readTag()
             val fieldNumber = tag ushr 3
             val wireType = tag and 7
             when {
                 wireType != WIRE_LENGTH_DELIMITED -> profile.skip(wireType)
-                fieldNumber == INTERNED_STRINGS_FIELD -> parseInternedString(profile.readLengthDelimited(), strings)
-                fieldNumber == FRAMES_FIELD -> parseFrame(profile.readLengthDelimited(), frameFunctions)
-                fieldNumber == CALLSTACKS_FIELD -> parseCallstack(profile.readLengthDelimited(), callstackFrames)
-                fieldNumber == PROCESS_DUMPS_FIELD -> parseProcessDump(profile.readLengthDelimited(), samples)
+                fieldNumber == INTERNED_STRINGS_FIELD -> internedStrings += profile.readLengthDelimited()
+                fieldNumber == FRAMES_FIELD -> frames += profile.readLengthDelimited()
+                fieldNumber == CALLSTACKS_FIELD -> callstacks += profile.readLengthDelimited()
+                fieldNumber == PROCESS_DUMPS_FIELD -> processDumps += profile.readLengthDelimited()
                 else -> profile.skip(wireType)
             }
+        }
+        internedStrings.forEach { parseInternedString(it, state.strings) }
+        frames.forEach { parseFrame(it, state.frameFunctions) }
+        callstacks.forEach { parseCallstack(it, state.callstackFrames) }
+        val rawSamples = mutableListOf<RawSample>()
+        processDumps.forEach { parseProcessDump(it, rawSamples) }
+        rawSamples.forEach { sample ->
+            val leafFrame = state.callstackFrames[sample.callstackId]?.lastOrNull()
+            val functionName = leafFrame?.let(state.frameFunctions::get)?.let(state.strings::get) ?: UNKNOWN_SYMBOL
+            samples += ResolvedSample(functionName, sample)
         }
     }
 
@@ -211,26 +233,14 @@ object NativeHeapTraceParser {
         samples.add(sample)
     }
 
-    private fun buildAnalysis(
-        strings: Map<Long, String>,
-        frameFunctions: Map<Long, Long>,
-        callstackFrames: Map<Long, List<Long>>,
-        samples: List<RawSample>,
-    ): NativeHeapAnalysis {
+    private fun buildAnalysis(samples: List<ResolvedSample>): NativeHeapAnalysis {
         val aggregates = HashMap<String, Aggregate>()
         var totalAllocated = 0L
         var totalFreed = 0L
         samples.forEach { sample ->
             totalAllocated += sample.allocated
             totalFreed += sample.freed
-            val leafFrame = callstackFrames[sample.callstackId]?.lastOrNull()
-            val functionName =
-                if (leafFrame == null) {
-                    UNKNOWN_SYMBOL
-                } else {
-                    CppSymbolDemangler.demangle(strings[frameFunctions[leafFrame]] ?: UNKNOWN_SYMBOL)
-                }
-            aggregates.getOrPut(functionName, ::Aggregate).add(sample)
+            aggregates.getOrPut(sample.functionName, ::Aggregate).add(sample.raw)
         }
         return NativeHeapAnalysis(
             totalAllocatedBytes = totalAllocated,
@@ -273,12 +283,34 @@ object NativeHeapTraceParser {
         var freeCount = 0L
     }
 
+    private data class ResolvedSample(
+        val functionName: String,
+        val raw: RawSample,
+    ) {
+        val allocated: Long get() = raw.allocated
+        val freed: Long get() = raw.freed
+    }
+
+    private class InterningState {
+        val strings = HashMap<Long, String>()
+        val frameFunctions = HashMap<Long, Long>()
+        val callstackFrames = HashMap<Long, List<Long>>()
+
+        fun clear() {
+            strings.clear()
+            frameFunctions.clear()
+            callstackFrames.clear()
+        }
+    }
+
     private const val UNKNOWN_SYMBOL = "<unknown>"
     private const val MAX_TOP_ALLOCATIONS = 50
 
     private const val TRACE_PACKET_FIELD = 1
     private const val PROFILE_PACKET_FIELD = 37
     private const val INTERNED_DATA_FIELD = 12
+    private const val TRUSTED_PACKET_SEQUENCE_ID_FIELD = 10
+    private const val INCREMENTAL_STATE_CLEARED_FIELD = 41
     private const val INTERNED_FUNCTION_NAMES_FIELD = 5
     private const val INTERNED_FRAMES_FIELD = 6
     private const val INTERNED_CALLSTACKS_FIELD = 7
@@ -298,7 +330,7 @@ object NativeHeapTraceParser {
     private const val WIRE_LENGTH_DELIMITED = 2
 }
 
-private class ProtoReader(
+internal class ProtoReader(
     private val bytes: ByteArray,
 ) {
     private var position = 0
@@ -310,6 +342,8 @@ private class ProtoReader(
         var result = 0L
         var shift = 0
         while (true) {
+            require(position < bytes.size) { "Truncated protobuf varint" }
+            require(shift < Long.SIZE_BITS) { "Protobuf varint is too long" }
             val byte = bytes[position++].toInt() and 0xff
             result = result or ((byte and 0x7f).toLong() shl shift)
             if (byte and 0x80 == 0) break
@@ -321,21 +355,28 @@ private class ProtoReader(
     fun readTag(): Int = readVarint().toInt()
 
     fun readLengthDelimited(): ByteArray {
-        val length = readVarint().toInt()
+        val encodedLength = readVarint()
+        require(encodedLength <= Int.MAX_VALUE) { "Protobuf field is too large" }
+        val length = encodedLength.toInt()
         val remaining = bytes.size - position
-        val actualLength = if (length < 0) remaining else minOf(length, remaining)
-        val result = bytes.copyOfRange(position, position + actualLength)
-        position += actualLength
+        require(length <= remaining) { "Truncated length-delimited protobuf field" }
+        val result = bytes.copyOfRange(position, position + length)
+        position += length
         return result
     }
 
     fun skip(wireType: Int) {
         when (wireType) {
             0 -> readVarint()
-            1 -> position = (position + 8).coerceAtMost(bytes.size)
+            1 -> skipBytes(8)
             2 -> readLengthDelimited()
-            5 -> position = (position + 4).coerceAtMost(bytes.size)
-            else -> position = bytes.size
+            5 -> skipBytes(4)
+            else -> error("Unsupported protobuf wire type: $wireType")
         }
+    }
+
+    private fun skipBytes(count: Int) {
+        require(count <= bytes.size - position) { "Truncated fixed-width protobuf field" }
+        position += count
     }
 }

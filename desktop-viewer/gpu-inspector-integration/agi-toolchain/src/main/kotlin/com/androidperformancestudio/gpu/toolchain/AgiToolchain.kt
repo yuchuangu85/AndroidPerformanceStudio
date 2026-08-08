@@ -41,32 +41,70 @@ public class AgiLocator(
     public fun locate(configuredPath: Path? = null): AgiCapability {
         val candidates = buildList {
             configuredPath?.let(::add)
-            addAll(defaultCandidates())
             environment["PATH"].orEmpty().split(java.io.File.pathSeparator).filter(String::isNotBlank).forEach { directory ->
-                add(Path.of(directory, if (osName.startsWith("Windows", true)) "agi.exe" else "agi"))
+                executableNames().forEach { name -> add(Path.of(directory, name)) }
             }
+            addAll(defaultCandidates())
         }.distinct().filter { Files.isRegularFile(it) && Files.isExecutable(it) }
-        if (candidates.isEmpty()) return AgiCapability(null, null, false, AgiLaunchMode.UNSUPPORTED, emptySet(), listOf("Android GPU Inspector executable was not found. Configure its local path."))
+        if (candidates.isEmpty()) {
+            return AgiCapability(
+                executable = null,
+                version = null,
+                launchSupported = false,
+                artifactOpenSupported = false,
+                launchMode = AgiLaunchMode.UNSUPPORTED,
+                supportedArguments = emptySet(),
+                warnings = listOf("Android GPU Inspector executable was not found. Configure its local path."),
+            )
+        }
         val executable = candidates.first()
         val versionResult = runner.run(listOf(executable.toString(), "--version"), Duration.ofSeconds(3))
         val helpResult = runner.run(listOf(executable.toString(), "--help"), Duration.ofSeconds(3))
         val version = (versionResult.stdout + versionResult.stderr).lineSequence().firstOrNull { it.isNotBlank() }?.trim()
         val help = helpResult.stdout + helpResult.stderr
         val supported = listOf("--device", "--package", "--activity", "--capture").filter(help::contains).toSet()
+        val artifactOpenSupported = executable.fileName.toString().substringBeforeLast('.').lowercase() in setOf("agi", "gapic")
         val warnings = buildList {
             if (versionResult.timedOut) add("AGI version probe timed out; GUI launch remains available.")
             if (versionResult.exitCode != 0 && version.isNullOrBlank()) add("AGI version could not be determined.")
             if (supported.isEmpty()) add("No stable automation arguments were detected; AGI will be launched in GUI-only mode.")
+            if (!artifactOpenSupported) add("Opening an artifact through this configured executable was not verified.")
         }
-        return AgiCapability(executable, version, true, if (supported.isEmpty()) AgiLaunchMode.GUI_ONLY else AgiLaunchMode.VERIFIED_CLI, supported, warnings)
+        return AgiCapability(
+            executable = executable,
+            version = version,
+            launchSupported = true,
+            artifactOpenSupported = artifactOpenSupported,
+            launchMode = if (supported.isEmpty()) AgiLaunchMode.GUI_ONLY else AgiLaunchMode.VERIFIED_CLI,
+            supportedArguments = supported,
+            warnings = warnings,
+        )
     }
 
     public fun launch(capability: AgiCapability, arguments: List<String> = emptyList()): Process {
         val executable = requireNotNull(capability.executable) { "AGI executable is not configured" }
         require(capability.launchSupported) { "AGI launch is unavailable" }
-        val safeArguments = if (capability.launchMode == AgiLaunchMode.VERIFIED_CLI) arguments.filter { argument -> !argument.startsWith("--") || argument.substringBefore('=') in capability.supportedArguments } else emptyList()
+        val safeArguments =
+            if (capability.launchMode == AgiLaunchMode.VERIFIED_CLI) {
+                arguments.filter { argument -> argument.startsWith("--") && argument.substringBefore('=') in capability.supportedArguments }
+            } else {
+                emptyList()
+            }
         return runner.launch(listOf(executable.toString()) + safeArguments)
     }
+
+    public fun launchArtifact(
+        capability: AgiCapability,
+        artifact: Path,
+    ): Process {
+        val executable = requireNotNull(capability.executable) { "AGI executable is not configured" }
+        require(capability.artifactOpenSupported) { "Opening artifacts with this AGI executable was not verified" }
+        require(Files.isRegularFile(artifact)) { "Artifact does not exist: $artifact" }
+        return runner.launch(listOf(executable.toString(), artifact.toAbsolutePath().normalize().toString()))
+    }
+
+    private fun executableNames(): List<String> =
+        if (osName.startsWith("Windows", true)) listOf("agi.exe", "gapic.exe") else listOf("agi", "gapic")
 
     private fun defaultCandidates(): List<Path> = when {
         osName.startsWith("Mac", true) -> listOf(
@@ -77,6 +115,11 @@ public class AgiLocator(
             Path.of(environment["LOCALAPPDATA"].orEmpty(), "Android GPU Inspector", "agi.exe"),
             Path.of(environment["ProgramFiles"].orEmpty(), "Android GPU Inspector", "agi.exe"),
         )
-        else -> listOf(Path.of("/opt/android-gpu-inspector/agi"), Path.of("/usr/local/bin/agi"))
+        else -> listOf(
+            Path.of("/opt/android-gpu-inspector/agi"),
+            Path.of("/opt/android-gpu-inspector/gapic"),
+            Path.of("/usr/local/bin/agi"),
+            Path.of("/usr/local/bin/gapic"),
+        )
     }
 }

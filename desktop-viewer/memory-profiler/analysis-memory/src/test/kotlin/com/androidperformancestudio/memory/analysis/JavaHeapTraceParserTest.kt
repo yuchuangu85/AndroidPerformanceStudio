@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 /**
  * Verifies the perfetto `java_hprof` wire parser + `HeapDump` conversion against hand-built byte
- * fixtures matching `heap_graph.proto` (TracePacket.heap_graph = 56).
+ * fixtures matching `Trace.packet = 1` and `TracePacket.heap_graph = 56`.
  */
 class JavaHeapTraceParserTest {
     @Test
@@ -31,7 +31,7 @@ class JavaHeapTraceParserTest {
         assertEquals(1, dump.gcRoots.size)
 
         val activity = dump.instances.first { it.objectId == 100L }
-        assertEquals("android/app/Activity", activity.className)
+        assertEquals("android.app.Activity", activity.className)
         assertEquals(16L, activity.shallowSize)
         assertEquals(1, activity.references.size)
         assertEquals("mContext", activity.references[0].fieldName)
@@ -43,7 +43,10 @@ class JavaHeapTraceParserTest {
     fun `decodes packed repeated fields and reference base`() {
         val graph =
             Pb().apply {
-                message(9) { varint(1, 1); string(3, "Foo") }
+                message(9) {
+                    varint(1, 1)
+                    string(3, "Foo")
+                }
                 // object 100 -> references [500, 0] with base 400 (so raw values 100 and 0)
                 message(2) {
                     varint(1, 100)
@@ -59,6 +62,115 @@ class JavaHeapTraceParserTest {
     }
 
     @Test
+    fun `assembles continued packets by sequence and preserves delta state`() {
+        val first =
+            Pb()
+                .apply {
+                    varint(6, 0)
+                    varint(5, 1)
+                    message(2) {
+                        varint(1, 100)
+                        varint(2, 1)
+                        varint(9, 1)
+                    }
+                }.bytes()
+        val second =
+            Pb()
+                .apply {
+                    varint(6, 1)
+                    message(9) {
+                        varint(1, 1)
+                        string(3, "Foo")
+                    }
+                    message(2) {
+                        varint(7, 5)
+                        varint(2, 1)
+                    }
+                }.bytes()
+        val trace =
+            Pb()
+                .apply {
+                    message(1) {
+                        varint(10, 7)
+                        bytesField(56, first)
+                    }
+                    message(1) {
+                        varint(10, 7)
+                        bytesField(56, second)
+                    }
+                }.bytes()
+
+        val graph = assertIs<JavaHeapParseResult.Success>(JavaHeapTraceParser.parse(trace)).heapGraph
+
+        assertEquals(listOf(100L, 105L), graph.objects.map { it.id })
+        assertEquals(listOf(1, 1), graph.objects.map { it.heapType })
+        assertEquals(7L, graph.sequenceId)
+    }
+
+    @Test
+    fun `uses type and superclass field ids and captures Android metadata`() {
+        val graph =
+            Pb()
+                .apply {
+                    message(4) {
+                        varint(1, 1)
+                        string(2, "child")
+                    }
+                    message(4) {
+                        varint(1, 2)
+                        string(2, "parent")
+                    }
+                    message(9) {
+                        varint(1, 1)
+                        string(3, "Parent")
+                        packedVarints(6, listOf(2))
+                    }
+                    message(9) {
+                        varint(1, 2)
+                        string(3, "Child")
+                        varint(5, 1)
+                        varint(8, 99)
+                        packedVarints(6, listOf(1))
+                    }
+                    message(2) {
+                        varint(1, 100)
+                        varint(2, 2)
+                        packedVarints(5, listOf(200, 0))
+                        packedVarints(10, listOf(300))
+                        varint(8, 4096)
+                        varint(9, 3)
+                        varint(13, 20)
+                        varint(14, 10)
+                    }
+                }.bytes()
+
+        val parsed = assertIs<JavaHeapParseResult.Success>(JavaHeapTraceParser.parse(wrapInTracePacket(graph))).heapGraph
+        val dump = HeapGraphToHeapDump.toHeapDump(parsed)
+        val instance = dump.instances.single()
+
+        assertEquals(listOf("child", "parent", "<runtime-internal-0>"), instance.references.map { it.fieldName })
+        assertEquals(0L, instance.references[1].targetObjectId)
+        assertEquals(4096L, instance.nativeSizeBytes)
+        assertEquals(20L, instance.primitiveFields["mWidth"])
+        assertEquals("Image", dump.heapByObjectId[100])
+        assertEquals(99L, dump.classes.first { it.objectId == 2L }.classLoaderObjectId)
+    }
+
+    @Test
+    fun `rejects missing continuation packet and truncated fields`() {
+        val missing =
+            Pb()
+                .apply {
+                    message(1) {
+                        varint(10, 2)
+                        bytesField(56, Pb().apply { varint(6, 1) }.bytes())
+                    }
+                }.bytes()
+        assertIs<JavaHeapParseResult.Failure>(JavaHeapTraceParser.parse(missing))
+        assertIs<JavaHeapParseResult.Failure>(JavaHeapTraceParser.parse(byteArrayOf(0x0a, 0x05, 0x01)))
+    }
+
+    @Test
     fun `rejects a trace without a heap graph`() {
         val trace = Pb().apply { message(1) { string(1, "not a heap graph") } }.bytes()
         val result = JavaHeapTraceParser.parse(trace)
@@ -66,57 +178,89 @@ class JavaHeapTraceParserTest {
         assertTrue(failure.message.contains("heap graph"))
     }
 
-    private fun wrapInTracePacket(heapGraph: ByteArray): ByteArray =
-        Pb().apply { bytesField(56, heapGraph) }.bytes()
+    private fun wrapInTracePacket(heapGraph: ByteArray): ByteArray = Pb().apply { message(1) { bytesField(56, heapGraph) } }.bytes()
 
     private fun traceBytes(): ByteArray =
         wrapInTracePacket(
-            Pb().apply {
-                message(4) { varint(1, 1); string(2, "mContext") }
-                message(4) { varint(1, 2); string(2, "value") }
-                message(9) {
-                    varint(1, 1)
-                    string(3, "android/app/Activity")
-                    varint(4, 16)
-                    varint(7, 1)
-                    packedVarints(6, listOf(1L))
-                }
-                message(9) { varint(1, 2); string(3, "java/lang/String"); varint(4, 24) }
-                message(2) {
-                    varint(1, 100)
-                    varint(2, 1)
-                    varint(3, 16)
-                    packedVarints(4, listOf(1L))
-                    packedVarints(5, listOf(200L))
-                }
-                message(2) { varint(1, 200); varint(2, 2); varint(3, 24) }
-                message(7) { packedVarints(1, listOf(100L)); varint(2, 1) }
-            }.bytes(),
+            Pb()
+                .apply {
+                    message(4) {
+                        varint(1, 1)
+                        string(2, "mContext")
+                    }
+                    message(4) {
+                        varint(1, 2)
+                        string(2, "value")
+                    }
+                    message(9) {
+                        varint(1, 1)
+                        string(3, "android/app/Activity")
+                        varint(4, 16)
+                        varint(7, 1)
+                        packedVarints(6, listOf(1L))
+                    }
+                    message(9) {
+                        varint(1, 2)
+                        string(3, "java/lang/String")
+                        varint(4, 24)
+                    }
+                    message(2) {
+                        varint(1, 100)
+                        varint(2, 1)
+                        varint(3, 16)
+                        packedVarints(4, listOf(1L))
+                        packedVarints(5, listOf(200L))
+                    }
+                    message(2) {
+                        varint(1, 200)
+                        varint(2, 2)
+                        varint(3, 24)
+                    }
+                    message(7) {
+                        packedVarints(1, listOf(100L))
+                        varint(2, 1)
+                    }
+                }.bytes(),
         )
 
     /** Minimal protobuf wire writer for the fixture. */
     private class Pb {
         private val out = ByteArrayOutputStream()
 
-        fun varint(field: Int, value: Long) {
+        fun varint(
+            field: Int,
+            value: Long,
+        ) {
             writeVarint((field shl 3).toLong())
             writeVarint(value)
         }
 
-        fun string(field: Int, value: String) = bytesField(field, value.toByteArray())
+        fun string(
+            field: Int,
+            value: String,
+        ) = bytesField(field, value.toByteArray())
 
-        fun bytesField(field: Int, bytes: ByteArray) {
+        fun bytesField(
+            field: Int,
+            bytes: ByteArray,
+        ) {
             writeVarint((field shl 3 or 2).toLong())
             writeVarint(bytes.size.toLong())
             out.write(bytes)
         }
 
-        fun message(field: Int, build: Pb.() -> Unit) {
+        fun message(
+            field: Int,
+            build: Pb.() -> Unit,
+        ) {
             val inner = Pb().apply(build)
             bytesField(field, inner.bytes())
         }
 
-        fun packedVarints(field: Int, values: List<Long>) {
+        fun packedVarints(
+            field: Int,
+            values: List<Long>,
+        ) {
             val payload = ByteArrayOutputStream()
             values.forEach { value ->
                 var remaining = value

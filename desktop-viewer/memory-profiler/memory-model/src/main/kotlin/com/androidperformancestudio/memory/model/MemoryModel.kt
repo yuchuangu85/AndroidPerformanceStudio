@@ -44,6 +44,7 @@ data class HeapClass(
     val superClassObjectId: Long = 0L,
     val instanceFields: List<HeapField> = emptyList(),
     val staticReferences: List<ObjectReference> = emptyList(),
+    val classLoaderObjectId: Long = 0L,
 ) {
     companion object {
         const val UNKNOWN_CLASS_NAME = "<unknown>"
@@ -103,6 +104,7 @@ data class HeapInstance(
     val fieldBytes: ByteArray = ByteArray(0),
     override val references: List<ObjectReference> = emptyList(),
     val primitiveFields: Map<String, Long> = emptyMap(),
+    val nativeSizeBytes: Long? = null,
 ) : HeapObject {
     override fun equals(other: Any?): Boolean =
         other is HeapInstance &&
@@ -112,7 +114,8 @@ data class HeapInstance(
             shallowSize == other.shallowSize &&
             fieldBytes.contentEquals(other.fieldBytes) &&
             references == other.references &&
-            primitiveFields == other.primitiveFields
+            primitiveFields == other.primitiveFields &&
+            nativeSizeBytes == other.nativeSizeBytes
 
     override fun hashCode(): Int {
         var result = objectId.hashCode()
@@ -122,6 +125,7 @@ data class HeapInstance(
         result = 31 * result + fieldBytes.contentHashCode()
         result = 31 * result + references.hashCode()
         result = 31 * result + primitiveFields.hashCode()
+        result = 31 * result + (nativeSizeBytes?.hashCode() ?: 0)
         return result
     }
 }
@@ -230,6 +234,8 @@ data class LeakSuspect(
     val confidence: Float = 0f,
     /** True when the heuristic confidence is below the manual-verification threshold. */
     val requiresManualVerification: Boolean = false,
+    /** True only for Android Studio-compatible Activity/Fragment lifecycle candidates. */
+    val activityOrFragmentLeak: Boolean = false,
 ) {
     val leakReason: String
         get() = reason
@@ -239,7 +245,7 @@ enum class HeapDiffMatchMode {
     /** Match heap-diff entries by class name only (stable for un-obfuscated dumps). */
     CLASS_NAME,
 
-    /** Match by class name plus superclass hierarchy depth to avoid merging same-name classes. */
+    /** Legacy heuristic; hierarchy depth is not a ClassLoader identity and can still merge classes. */
     CLASS_NAME_AND_HIERARCHY,
 }
 
@@ -272,14 +278,17 @@ data class BitmapInstanceStats(
     val height: Int?,
     val retainedSize: Long,
     val referenceChain: List<ObjectReference> = emptyList(),
-    /** width × height × 4 B (ARGB_8888) estimate of the pixel buffer footprint. */
+    /** Pixel-buffer estimate from rowBytes when available, otherwise width × height × 4 B. */
     val estimatedPixelBytes: Long? = null,
     /** Java-heap footprint of the Bitmap object itself (shallow size). */
     val javaSizeBytes: Long = 0L,
-    /** Native pixel-buffer footprint estimate (width × height × 4 B); pixels live in native memory on Android 8+. */
+    /** Native pixel-buffer bytes only when the backing allocation is known to be native; null otherwise. */
     val nativeSizeBytes: Long? = null,
     /** Bitmap class name, used for class-level native aggregation. */
     val className: String = "android.graphics.Bitmap",
+    /** Perfetto-captured backing storage identity, when available. */
+    val bitmapId: Long? = null,
+    val bitmapSourceId: Long? = null,
 )
 
 /**

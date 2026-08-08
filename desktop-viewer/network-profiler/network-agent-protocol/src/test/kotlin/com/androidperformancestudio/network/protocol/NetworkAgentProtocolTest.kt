@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 class NetworkAgentProtocolTest {
     @Test fun `round trips bounded response frame`() {
         val out = ByteArrayOutputStream()
-        val expected = AgentResponse("EVENTS", events = listOf(AgentNetworkEvent(1, "c", "callStart", 2, method = "GET", url = "https://example.test/")))
+        val expected = AgentResponse("EVENTS", events = listOf(AgentNetworkEvent(1, "c", "callStart", 2, instrumentationId = "client", method = "GET", url = "https://example.test/", tlsVersion = "TLSv1.3")), latestSequence = 1, hasMore = true)
         NetworkAgentCodec.writeResponse(out, expected)
         assertEquals(expected, NetworkAgentCodec.readResponse(ByteArrayInputStream(out.toByteArray())))
     }

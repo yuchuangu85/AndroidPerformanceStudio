@@ -60,6 +60,8 @@ import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.activity
 import com.androidperformancestudio.memory.presentation.generated.resources.activity_leak_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.activity_leaks
+import com.androidperformancestudio.memory.presentation.generated.resources.allocated
+import com.androidperformancestudio.memory.presentation.generated.resources.allocs
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_analysis
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_comparison
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_comparison_summary
@@ -75,6 +77,8 @@ import com.androidperformancestudio.memory.presentation.generated.resources.clas
 import com.androidperformancestudio.memory.presentation.generated.resources.cleanup_warning
 import com.androidperformancestudio.memory.presentation.generated.resources.count
 import com.androidperformancestudio.memory.presentation.generated.resources.count_value
+import com.androidperformancestudio.memory.presentation.generated.resources.freed
+import com.androidperformancestudio.memory.presentation.generated.resources.frees
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_size
@@ -85,15 +89,10 @@ import com.androidperformancestudio.memory.presentation.generated.resources.leak
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspects
 import com.androidperformancestudio.memory.presentation.generated.resources.manual_verification
 import com.androidperformancestudio.memory.presentation.generated.resources.mapping_loaded_note
-import com.androidperformancestudio.memory.presentation.generated.resources.native_heap
-import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_allocation_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.native_function
+import com.androidperformancestudio.memory.presentation.generated.resources.native_heap
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_total
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_trace_summary
-import com.androidperformancestudio.memory.presentation.generated.resources.allocated
-import com.androidperformancestudio.memory.presentation.generated.resources.allocs
-import com.androidperformancestudio.memory.presentation.generated.resources.freed
-import com.androidperformancestudio.memory.presentation.generated.resources.frees
 import com.androidperformancestudio.memory.presentation.generated.resources.no_activity_leaks_detected
 import com.androidperformancestudio.memory.presentation.generated.resources.no_class_changes_between_the_latest_two_heap_dumps
 import com.androidperformancestudio.memory.presentation.generated.resources.no_leak_suspects_detected

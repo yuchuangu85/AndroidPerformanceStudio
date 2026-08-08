@@ -15,6 +15,9 @@ import com.androidperformancestudio.source.SourceCredentialProvider
 import com.androidperformancestudio.source.SourceProviderRegistry
 import com.androidperformancestudio.source.ResolutionCandidate
 import com.androidperformancestudio.source.SourceLocation
+import com.androidperformancestudio.source.SourceResolutionEvidence
+import com.androidperformancestudio.source.PerformanceEvidenceId
+import com.androidperformancestudio.source.ResolutionConfidence
 import com.androidperformancestudio.source.SqliteSourceWorkspaceRepository
 import java.nio.file.Path
 import java.util.prefs.Preferences
@@ -69,6 +72,23 @@ internal class SourceWorkspaceRuntime private constructor(
     }
 
     fun candidate(location: SourceLocation): ResolutionCandidate? = candidates.values.firstOrNull { it.location == location }
+
+    suspend fun resolveComposeSource(fileName: String, packageHash: Int, line: Int): ResolutionCandidate? {
+        val snapshotIds = repository.workspaces().mapNotNull { it.activeSnapshotId }.toSet()
+        val resolved = resolver.resolve(
+            snapshotIds,
+            listOf(
+                SourceResolutionEvidence.SourceFileLine(
+                    id = PerformanceEvidenceId("compose:$packageHash:$fileName:$line"),
+                    fileName = fileName,
+                    packageHash = packageHash,
+                    line = line,
+                ),
+            ),
+        ).filter { it.confidence == ResolutionConfidence.EXACT }
+        rememberCandidates(resolved)
+        return resolved.singleOrNull()
+    }
 
     override fun close() {
         analysisSessions.close()

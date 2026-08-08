@@ -20,6 +20,8 @@ class AgentFrameBatchCodecTest {
                             sequence = 7,
                             packageName = "dev.example",
                             totalDurationNs = 12_000_000,
+                            refreshRateHz = 120.0,
+                            frameTimelineVsyncId = 99,
                             stages = AgentFrameStages(drawNs = 4_000_000),
                         ),
                     ),

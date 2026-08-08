@@ -1,13 +1,20 @@
+@file:Suppress("MaxLineLength")
+
 package com.androidperformancestudio.startup.export
 
 import com.androidperformancestudio.startup.analysis.StartupAnalyzer
+import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.EvidenceConfidence
 import com.androidperformancestudio.startup.model.PlatformLaunchMetrics
+import com.androidperformancestudio.startup.model.StartupCompilationEvidence
+import com.androidperformancestudio.startup.model.StartupEnvironmentEvidence
 import com.androidperformancestudio.startup.model.StartupMilestone
 import com.androidperformancestudio.startup.model.StartupMilestoneKind
+import com.androidperformancestudio.startup.model.StartupProfileSource
 import com.androidperformancestudio.startup.model.StartupRawEvidence
 import com.androidperformancestudio.startup.model.StartupRun
 import com.androidperformancestudio.startup.model.StartupSource
+import com.androidperformancestudio.startup.model.StartupTraceEvidence
 import com.androidperformancestudio.startup.model.StartupType
 import java.nio.file.Files
 import kotlin.test.Test
@@ -68,6 +75,9 @@ class StartupExportersTest {
             assertEquals("event", rawEvidence.eventLogOutput)
             assertEquals("compile", rawEvidence.compilationOutput)
             assertEquals(true, rawEvidence.agentAvailable)
+            assertEquals(StartupProfileSource.BASELINE_PROFILE_PLUGIN, compilationEvidence?.profileSource)
+            assertEquals("Pixel", environmentEvidence?.deviceModel)
+            assertEquals(true, traceEvidence?.captured)
         }
     }
 
@@ -82,6 +92,21 @@ class StartupExportersTest {
             }
 
         assertContains(error.message.orEmpty(), "Unsupported Startup Profiler schema version")
+    }
+
+    @Test
+    fun `imports legacy schema one report without appended evidence`() {
+        val report = Files.createTempFile("startup-import-v1", ".json")
+        Files.writeString(
+            report,
+            """{"schemaVersion":1,"warnings":[],"runs":[{"iteration":1,"runId":"old","requestedType":"COLD","observedType":"COLD","displayedTimeMs":120,"rawEvidence":{"amStartOutput":"raw"}}]}""",
+        )
+
+        val run = StartupJsonImporter().import(report).runs.single()
+
+        assertEquals(StartupSource.EVENT_LOG, run.ttidEvidence.source)
+        assertEquals(null, run.context)
+        assertEquals(null, run.compilationEvidence)
     }
 }
 
@@ -128,6 +153,16 @@ private fun startupAnalysisFixture() =
                         compilationOutput = "compile",
                         agentAvailable = true,
                     ),
+                compilationEvidence =
+                    StartupCompilationEvidence(
+                        CompilationMode.SPEED_PROFILE,
+                        compilerFilterAfter = "speed-profile",
+                        verified = true,
+                        profileSource = StartupProfileSource.BASELINE_PROFILE_PLUGIN,
+                        profileSourceDeclared = true,
+                    ),
+                environmentEvidence = StartupEnvironmentEvidence(deviceModel = "Pixel"),
+                traceEvidence = StartupTraceEvidence(file = "run.perfetto-trace", captured = true),
             ),
         ),
     )

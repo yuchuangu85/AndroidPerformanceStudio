@@ -85,7 +85,7 @@ class CanvasOverlayWiringTest {
         )
 
         assertTrue(generalBounds.text.startsWith("if (showVisibleViewBounds) {"))
-        assertTrue(generalBounds.text.contains("state.activeRoot?.let"))
+        assertTrue(generalBounds.text.contains("previewRoot?.let"))
         assertTrue(generalBounds.text.contains("ViewBoundsOverlay.mappedVisibleBounds"))
         assertTrue(generalBounds.text.contains("borderColors.normal.toComposeColor().copy(alpha = 0.62f)"))
         assertTrue(generalBounds.text.contains("Stroke(width = 1.dp.toPx())"))

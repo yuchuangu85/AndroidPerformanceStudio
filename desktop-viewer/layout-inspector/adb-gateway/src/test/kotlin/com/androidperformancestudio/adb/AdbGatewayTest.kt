@@ -114,6 +114,24 @@ class AdbGatewayTest {
     }
 
     @Test
+    fun `rejects remote path traversal in injection commands`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            AdbCommandFactory.runAsCopy("device", "dev.sample", "/data/local/tmp/agent", "/data/user/0/dev.sample/../escape")
+        }
+    }
+
+    @Test
+    fun `rmdir is constrained to a safe app path`() {
+        assertEquals(
+            listOf("-s", "device", "shell", "run-as", "dev.sample", "rmdir", "/data/user/0/dev.sample/code_cache/session"),
+            AdbCommandFactory.runAsRmdir("device", "dev.sample", "/data/user/0/dev.sample/code_cache/session"),
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            AdbCommandFactory.runAsRmdir("device", "dev.sample", "/data/user/0/dev.sample/../escape")
+        }
+    }
+
+    @Test
     fun `terminates a command that exceeds its deadline`() {
         val startedAt = System.nanoTime()
 

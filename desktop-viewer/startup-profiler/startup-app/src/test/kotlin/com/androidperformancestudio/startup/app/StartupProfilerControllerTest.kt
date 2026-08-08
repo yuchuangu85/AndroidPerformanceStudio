@@ -1,5 +1,6 @@
 package com.androidperformancestudio.startup.app
 
+import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.StartupDevice
 import com.androidperformancestudio.startup.model.StartupTarget
 import kotlinx.coroutines.runBlocking
@@ -23,6 +24,23 @@ class StartupProfilerControllerTest {
             assertEquals("online", controller.state.value.selectedDeviceSerial)
             assertEquals("dev.example/.MainActivity", controller.state.value.selectedComponentName)
             assertEquals(listOf("listDevices", "listTargets:online"), backend.events)
+        }
+
+    @Test
+    fun `requires confirmation before changing package compilation artifacts`() =
+        runBlocking {
+            val controller =
+                StartupProfilerController(
+                    backend = FakeStartupBackend(),
+                    databaseFile = createTempDirectory("startup-controller-confirm").resolve("startup.db"),
+                )
+            controller.refreshDevices()
+            controller.selectCompilationMode(CompilationMode.SPEED)
+
+            controller.runExperiment()
+
+            assertEquals(true, controller.state.value.compilationConfirmationRequired)
+            assertEquals(false, controller.state.value.isRunning)
         }
 
     private class FakeStartupBackend : StartupBackend {

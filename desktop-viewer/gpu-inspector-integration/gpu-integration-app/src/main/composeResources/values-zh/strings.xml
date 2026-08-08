@@ -14,4 +14,6 @@
     <string name="imported_file">已导入 %1$s</string>
     <string name="artifact_hash_verified">产物哈希校验通过。</string>
     <string name="artifact_missing_or_changed">产物缺失或已更改。</string>
+    <string name="artifact_indexing">正在索引产物…</string>
+    <string name="artifact_relocated">已重新定位到 %1$s</string>
 </resources>

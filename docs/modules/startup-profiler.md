@@ -1,150 +1,143 @@
 # Startup Profiler
 
-## 功能作用
+## 功能边界
 
-Startup Profiler 是一个 Android 应用启动时间测量与分析工具，核心功能包括：
+Startup Profiler 是桌面端 Android 启动证据采集与分析工具。它通过 ADB 准备启动状态、执行目标 Activity，并合并平台输出、Event Log 与可用时的应用内 Agent 里程碑。
 
-- **启动时间实验**：通过 ADB 反复启动/停止目标 Activity，精确测量启动耗时
-- **启动类型支持**：支持 Cold（冷启动）、Warm（温启动）、Hot（热启动）三种启动类型
-- **编译模式覆盖**：支持调整编译模式以模拟不同场景：
-  - `CURRENT`：保持当前编译状态
-  - `RESET`：重置编译配置（模拟首次安装）
-  - `VERIFY`：verify 模式
-  - `SPEED_PROFILE`：speed-profile 编译
-  - `SPEED`：speed 编译（全量 AOT）
-- **实验参数可配**：Warm-up runs（预热次数）、Measured runs（测量次数）、Timeout（超时时间）均可配置
-- **统计分析**：`StartupAnalyzer` 对多次测量结果进行统计计算（最小值、最大值、中位数、均值、P90、P95、标准差、MAD）
-- **基线对比**：每次实验保留上次结果作为 baseline，支持回归检测
-- **结果持久化**：通过 `SqliteStartupSessionStore` 保存实验会话和运行数据到 SQLite 数据库
-- **导入/导出**：支持 JSON 格式的导入导出，CSV 格式导出
+当前能力：
 
-## 实现原理
+- 按请求启动模式执行 Cold、Warm、Hot 实验，并记录独立的观测启动模式。
+- 分别保存平台 `TotalTime`、初始显示时间（TTID）和完整显示时间（TTFD）；缺失 TTFD 时不回退为 TTID。
+- 对可调试应用读取 Agent 生命周期/首帧里程碑；Agent 不可用时降级为平台证据。
+- 支持 `CURRENT`、`RESET`、`VERIFY`、`SPEED_PROFILE`、`SPEED` 编译请求。
+- 记录实验前后 compiler filter/Profile 原因、设备环境和可选的逐运行 Perfetto Trace。
+- 计算 min、max、median、mean、P90、P95、标准差和 MAD；对低分辨率尾部分位数和 MAD 异常样本做标注但不删样本。
+- 仅对可比运行组执行 TTID 两样本 BCa 中位数差判断，并展示可用的同域阶段差异。
+- 通过 SQLite 保存会话和运行记录，支持 JSON 导入/导出与 CSV 导出。
+
+“上一轮结果”只有在设备、目标、请求与观测启动模式、启动编译状态、指标语义和环境证据均可比时，才能作为回归 Baseline；当前界面保存上一轮结果不等于已经建立有效回归结论。
+
+## 当前实现
 
 ### 采集流程
 
-1. **设备选择 → 目标枚举**：通过 ADB `cmd package resolve-activity` 列出可启动的 Activity
-2. **Agent 通信**：`SocketStartupAgentConnection` 通过 ADB 端口转发 + Socket 与设备上的 Agent 通信：
-   - Agent 控制 App 进程的启动和停止（`am start` / `am force-stop`）
-   - Agent 接收 App 内通过 `reportFullyDrawn()` 或首帧绘制完成的信号
-3. **实验流程**：
-   - 准备阶段：确保设备唤醒、设置编译模式（如需要）
-   - Warm-up 阶段：执行配置次数的预热启动（不计入统计）
-   - Measured 阶段：执行配置次数的测量启动，每次记录 Displayed Time 或 Fully Drawn Time
-4. **超时处理**：每次启动有超时限制（可配 10-120 秒），超时则标记失败
+1. `DesktopStartupBackend` 通过 `cmd package query-activities` 枚举 Launcher Activity。
+2. `StartupExperimentRunner` 在 Host 端执行 ADB 命令；Agent 不负责 `am start` 或 `force-stop`。
+3. 非 `CURRENT` 编译请求在用户确认后通过 `cmd package compile` 准备目标包；运行前后用 `dumpsys package` 记录并验证 compiler filter 与 Profile 原因。
+4. 每次运行按请求模式准备状态：
+   - **Cold**：`am force-stop` 后重新启动，要求创建新进程。
+   - **Warm**：保留进程，清理既有 Task 后创建新 Activity。
+   - **Hot**：保留进程和 Activity，从后台恢复。
+5. 运行后结合平台 `LaunchState`、启动前后 PID 和 Agent Activity 事件形成 `observedType`；与请求不符时产生警告。
+6. `AmStartOutputParser`、Event Log 和 Agent 分别提供平台指标、TTID/TTFD 与诊断里程碑。
 
-### 数据分析
+Cold、Warm、Hot 的定义以 AndroidX Macrobenchmark [`StartupMode`](https://developer.android.com/reference/androidx/benchmark/macro/StartupMode) 为基线。
 
-- `StartupAnalyzer` 对测量的启动时间进行统计：
-  - 基础统计：count、min、max、median、mean
-  - 百分位数：P90、P95
-  - 离散度：standardDeviation、medianAbsoluteDeviation
-- 识别异常值（outliers）
-- 与 baseline 对比检测回归
+### 启动指标
+
+- **TTID**：系统从启动请求到目标窗口首帧完成显示的时间。
+- **TTFD**：从启动请求到应用调用 `reportFullyDrawn()`、声明主要内容可用的时间。
+- **Agent First Frame**：应用内诊断里程碑，不替代平台 TTID。
+- **TotalTime/WaitTime/ThisTime**：保留 `am start -W` 的原始平台口径，不与 TTID/TTFD 合并成单一“启动耗时”。
+
+Android 无法自动知道应用何时完整可交互；未调用 `reportFullyDrawn()` 时 TTFD 必须保持缺失。参见[官方启动指标说明](https://developer.android.com/topic/performance/vitals/launch-time)。
 
 ### 数据结构
 
-- **StartupRun**：单次运行结果，包含 id、type（COLD/WARM/HOT）、durationMs、compilationMode、startedAt、completedAt
-- **StartupSession**：实验会话，包含 deviceSerial、packageName、componentName、config
-- **StartupExperimentConfig**：实验配置，包含 requestedType、compilationMode、warmupRuns、measuredRuns、timeoutSeconds
-- **StartupAnalysis**：分析结果，包含 runs、statistics、baseline、warnings
+- **StartupExperimentConfig**：请求启动模式、编译请求、可审计的 Profile 来源声明、仅用于 `SPEED_PROFILE` 的编译预热次数、测量次数、超时、实用变化阈值和可选 Trace 开关。
+- **StartupRun**：请求/观测启动模式、平台指标、Agent 里程碑、阶段、警告、PID、指标来源、编译状态、环境、Trace 和原始证据。
+- **StartupMilestone / StartupPhase**：带来源与置信度的诊断边界及其可计算区间。
+- **StartupStatistics / StartupComparison**：前者保存描述性统计和尾部分辨率状态，后者保存可比性、业务阈值与 TTID 两样本 BCa 区间。
 
-### 数据流
+## 实施结果
 
-```
-[Android Device] --ADB Socket--> [Agent] --Start/Stop App--> [StartupExperimentRunner]
-    --> [StartupRun[]] --> [StartupAnalyzer] --> [StartupAnalysis]
-    --> [SqliteStartupSessionStore] (持久化)
-    --> [Compose UI: StartupProfilerScreen]
-```
+- TTID、TTFD 与 Agent First Frame 的来源和缺失原因已追加到 UI、JSON、CSV 与 SQLite，UI/JSON 同时保留置信度；TTFD 缺失仍保持缺失并显示 `reportFullyDrawn` 集成提示。
+- 非 `CURRENT` 编译模式增加持久修改确认；实验记录请求、命令输出、前后 compiler filter/Profile 原因与验证结果。`speed-profile` 还必须显式声明由 Baseline Profile Plugin、Macrobenchmark 或已准备构建变体提供；未声明来源的样本不会进入 A/B 回归组，工具不根据 `dumpsys` 原因猜测来源。
+- 每次 measured run 记录型号、API、模拟器、电量/充电、Thermal Status、时间和读取失败；模拟器、低电量、严重热状态或缺失环境证据会阻止回归结论。
+- P90/P95 低分辨率和 MAD 异常值只做诊断标记；原始样本不删除。上一轮实验仅在运行组可比时执行可配置的实用变化阈值（默认 5%）与 95% BCa TTID 中位数差判断。
+- Perfetto 采集为显式可选项，每次 measured run 保存独立 Trace 文件以及失败/超时截断状态。Android App Startups 派生指标仍需后续接入 Trace Processor；当前不伪造缺失阶段。
+- Warm/Hot 启动模式预置继续由每次运行的状态准备完成；`warmupRuns` 只在 `SPEED_PROFILE` 下作为编译预热，其他编译模式会忽略并告警。
 
-### 启动时间指标
+## 优化项审计
 
-- **Cold Start**：进程从零创建，包含 Application 初始化 + 首 Activity 创建
-- **Warm Start**：进程存在但 Activity 被销毁，Activity 重建
-- **Hot Start**：进程和 Activity 都在内存中，仅重新 onResume
+审计基线为 Android 官方启动语义、AndroidX Macrobenchmark 的公开稳定行为和当前代码。**部分保留**只留下仍需实现且可验证的内容；错误前提和重复能力不进入实施范围。
 
-### Compilation Mode 影响
+| # | 结论 | 审计结果 |
+|---|---|---|
+| 1 | 部分保留 | TTID、TTFD 和 Agent 首帧已经分开；保留证据来源/缺失状态展示和 `reportFullyDrawn` 集成提示。 |
+| 2 | 排除 | 当前没有对 Warm/Hot 执行 `force-stop`，且“Activity 重建即 Hot”违反官方定义；请求/观测类型自检已经存在。 |
+| 3 | 部分保留 | 保留非 `CURRENT` 操作警告、实际编译状态验证和确定性准备；排除无法无损实现的历史状态恢复与编译沙箱。 |
+| 4 | 部分保留 | 保留官方 Profile 产物状态验证和可比 A/B；排除 Host 端自研 Profile 注入及根据 warm runs 生成 Startup Profile。 |
+| 5 | 部分保留 | 保留环境证据与运行门禁；排除修改亮度、省电模式、CPU/GPU 频率和跨设备自定义温度阈值。 |
+| 6 | 部分保留 | 保留小样本/尾部分辨率提示、异常样本标注和两样本不确定性；排除固定“30 次稳定 P95”与自动删除异常值。 |
+| 7 | 部分保留 | 现有里程碑和阶段模型继续使用；只新增可选的逐运行 Perfetto 证据及可信阶段比较。 |
+| 8 | 部分保留 | 分离启动模式预置与编译预热；排除统一 3–5 次预热、强制 `drop_caches` 和相似度自检。 |
 
-不同的编译模式影响 ART 编译器的行为：
-- **SPEED**：全 AOT 编译，启动最快但安装/OTA 慢
-- **SPEED_PROFILE**：基于 Profile 的部分编译，兼顾安装速度和启动速度
-- **RESET**：清除编译结果，模拟首次安装后的 JIT 解释执行
+## 保留的优化项
 
-## 优化建议与改进点
+### 1. 指标证据与缺失状态
 
-> 以下内容不替换已有设计，仅作为可考虑的更好实现方式或优化点补充。每条标注 **影响**（高/中/低）与 **可行性**（高/中/低）。
+- UI 和导出中明确标出 TTID、TTFD、Agent First Frame 的来源与可用性。
+- 缺少 `reportFullyDrawn()` 时显示 TTFD 不可用，不生成估算值。
+- 提供 `ComponentActivity.reportFullyDrawn`、`FullyDrawnReporter` 以及 Compose `ReportDrawn*` 的集成提示，不修改目标应用代码。
 
-### 1. reportFullyDrawn() 依赖的脆弱性【影响:高 / 可行性:中】
+### 3. 启动编译状态验证
 
-**当前实现问题**：Agent 接收 App 内通过 `reportFullyDrawn()` 或"首帧绘制完成"的信号作为结束时间点。但多数 App **未调用 `reportFullyDrawn()`**（需业务代码主动调用），退化为"首帧"——而首帧可能是空白启动屏，不代表用户可交互时间。两者语义差异巨大，混用会污染测量。
+- 对所有非 `CURRENT` 请求显示会持久修改目标包编译产物的确认提示。
+- 记录请求命令、执行结果、实验前后可观察到的 compiler filter 与 Profile 状态。
+- 编译准备失败或实际状态与请求不符时，运行不得进入对应的可比运行组。
+- 建议在专用物理测试设备上运行；不承诺从 `pm dump` 信息恢复此前 Profile 和编译产物。
 
-**更好的实现方式**：
-- 明确区分 **三个时刻**：`displayedTime`（`am` 的 ActivityManager.reportedTime，即系统认定"显示完成"）、`firstFrameTime`（首帧绘制）、`fullyDrawnTime`（业务主动 `reportFullyDrawn()`）。在 `StartupRun` 中记录三者并标注实际采用的时间点 `measuredMarker`。
-- 文档说明"未调用 `reportFullyDrawn()` 时退化为 displayedTime"，避免用户误以为测的是 fully drawn。
-- 提供集成向导：建议 App 在关键启动节点调用 `reportFullyDrawn()`（或 `androidx.core.performance.addFullyDrawnBeforeCallback`），并在工具中展示"App 是否调用了 fully drawn"，帮助用户识别测量口径差异。
+Macrobenchmark 的公开流程同样是重置、编译、测量，而不是恢复未知历史状态。参见 [`CompilationMode`](https://developer.android.com/reference/kotlin/androidx/benchmark/macro/CompilationMode)。
 
-### 2. Hot Start 与 force-stop 的语义矛盾【影响:高 / 可行性:高】
+### 4. 官方 Profile 产物的 A/B 验证
 
-**当前实现问题**：Hot Start 定义为"进程和 Activity 都在内存中，仅重新 onResume"，但采集流程用 `am force-stop` 控制停止。`am force-stop` 会**杀死进程**，杀死后的启动是 Cold Start 而非 Hot Start。当前的 Hot Start 实现路径不清晰，可能存在语义错配。
+- 检测并记录目标构建是否实际处于 `speed-profile` 以及 Profile 的可验证来源。
+- A/B 比较只接受由 Baseline Profile Gradle Plugin、Macrobenchmark 或明确构建变体准备的样本。
+- Baseline Profile 属于设备端 ART 预编译输入；Startup Profile 属于构建期 DEX 布局输入，两者分别呈现。
+- 不实现不稳定的 ADB 自定义 Profile 注入，也不把运行时热点列表导出成 Startup Profile。
 
-**更好的实现方式**：
-- 明确三种启动类型的停止方式：
-  - **Cold**：`am force-stop` 后 `am start`（进程从零创建）。
-  - **Warm**：退出 Activity 但保留进程（`am finish-com` 或 Activity.finish()），再 `am start`。
-  - **Hot**：仅触发 Activity 重建（如 `am start -f 0x10000000` Activity Only flag 或配置变更模拟），进程常驻。
-- 文档显式标注三种类型各自使用的停止/启动命令，避免实现时一律用 `force-stop` 导致 Warm/Hot 实际测的是 Cold。
-- 提供"类型自检"：每次 run 后校验 `processStartTime`（从 `/proc/<pid>/stat` 或 `ActivityManager.ProcessMemoryState`），若进程被重启而声称是 Hot，标记 `typeMismatch=true`。
+参见[Baseline Profile 与 Startup Profile 的区别](https://developer.android.com/topic/performance/baselineprofiles/overview)及[官方 A/B 测量方式](https://developer.android.com/topic/performance/baselineprofiles/measure-baselineprofile)。
 
-### 3. 编译模式的破坏性与恢复【影响:中 / 可行性:高】
+### 5. 启动环境证据与门禁
 
-**当前实现问题**：`RESET`/`SPEED`/`SPEED_PROFILE` 等编译模式通过 `cmd dexopt` / `pm compile` 修改设备编译状态，是**破坏性操作**——会改变设备的全局编译缓存，影响后续其他基准测试，且不自动恢复。
+每个运行至少记录：
 
-**更好的实现方式**：
-- 实验"准备阶段"记录 **原始编译状态快照**（如 `pm dump <pkg>` 的 compiler filter），实验结束后自动恢复到原始状态，并在文档强调"实验会修改设备编译缓存，结束后自动恢复"。
-- 对 `RESET`（尤其破坏性强）在 UI 显示明确警告，要求用户二次确认。
-- 提供"沙箱式编译模式"选项：通过 `pm compile --reset <pkg>` 在子实验维度隔离，避免 warm-up 与 measured 阶段编译状态互相污染（warm-up 本身会让 JIT 跑起来，污染"冷启动"测量）。
+- 设备型号、序列化身份、API Level 和是否模拟器。
+- 电量/充电状态与平台 Thermal Status。
+- 采集时间及环境读取失败原因。
 
-### 4. Baseline Profile / Startup Profile 的集成【影响:中 / 可行性:中】
+低电量、模拟器或热节流状态产生明确警告；需要回归判断时，将其排除出不兼容的可比运行组。工具不静默修改用户设备设置，也不锁定 CPU/GPU 时钟。Android 官方同样不建议为启动等用户体验测试锁频，参见[性能测量原则](https://developer.android.com/topic/performance/measuring-performance)。
 
-**当前实现问题**：编译模式覆盖了 `CURRENT/RESET/VERIFY/SPEED_PROFILE/SPEED`，但未集成现代 Android 启动优化的核心手段：**Baseline Profile**（`baseline-prof.txt`，已随 APK 分发）与 **Startup Profile**。没有 Baseline Profile 的 SPEED_PROFILE 与有 Profile 的 SPEED_PROFILE 启动差异显著，缺少这一维度对比就少了一个关键优化杠杆。
+### 6. 可比性与统计不确定性
 
-**更好的实现方式**：
-- 在 `StartupExperimentConfig` 增加 `baselineProfileMode`（`INSTALLED` / `DISABLED` / `CUSTOM`），支持安装/禁用 APK 自带 Profile，或注入自定义 Profile（`pm compile -m speed-profile --`, `class-profile-file`）。
-- 提供 **A/B 对比预设**：`WITHOUT_PROFILE` vs `WITH_PROFILE`，量化 Baseline Profile 带来的启动收益——这是向团队推荐采用 Profile 的核心证据。
-- 支持导出 `StartupProfile`（基于多次 warm run 的热点方法）作为 Profile 生成输入，形成"测量 → 生成 Profile → 再测量"的闭环。
+- P90/P95 继续作为描述性结果；样本不足以分辨目标分位数时标记低分辨率，不规定任意的统一次数。
+- MAD 只用于标注需检查的运行，原始样本始终保留且默认参与统计。
+- Baseline 比较先验证可比运行组，再结合业务变化阈值和两样本中位数差的 BCa 置信区间。
+- 区间跨越决策边界时结果为“不确定”，不把单一百分比变化显示为回归结论。
 
-### 5. 设备温度与频率控制【影响:中 / 可行性:高】
+统计门禁复用 [ADR-0027](../adr/0027-gate-benchmark-regressions-with-two-sample-uncertainty.md)，不新增另一套规则。
 
-**当前实现问题**：准备阶段"确保设备唤醒"，但未控制 CPU/GPU 频率、温度、省电模式。多次连续启动会触发设备发热，CPU 降频，后期 run 比前期 run 慢，污染统计（系统性偏差而非随机噪声）。
+### 7. Perfetto 启动阶段证据
 
-**更好的实现方式**：
-- 准备阶段额外控制：固定屏幕亮度、关闭省电模式（`settings put global lowpower 0`）、可选固定 CPU 频率（root 设备：`scaling_max_freq`/`scaling_min_freq`）。
-- 每次 run 后记录 **设备温度** 与 **CPU 频率快照**，对频率下降/温度超阈值的 run 标记 `thermalThrottled=true`，在统计中单独标注。
-- 在多次 run 之间插入温度回落检测（`sleepUntilTempBelow`），避免热累积系统性偏差。
+- 每个 measured run 可选保存独立 Perfetto trace，并保留采集失败或截断信息。
+- 使用 Android App Startups 派生指标补充平台阶段；现有 Agent `milestones/phases` 继续作为应用内证据。
+- 只有处于同一时钟域或已有可靠时钟映射的阶段才能组合和比较。
+- 阶段缺失时保持缺失，不按固定模板补齐 `Application.onCreate`、Activity 或首帧边界。
 
-### 6. 样本量与统计稳健性【影响:中 / 可行性:高】
+这与 Macrobenchmark 每次测量保存独立系统 Trace 的公开行为一致，参见[官方 Macrobenchmark 工作流](https://developer.android.com/topic/performance/benchmarking/macrobenchmark-overview)。
 
-**当前实现问题**：`StartupAnalyzer` 输出 min/max/median/mean/P90/P95/stddev/MAD，但未说明推荐样本量与样本量不足时的处理。启动时间受系统 GC、磁盘 IO 影响方差大，10-20 次测量未必足够。
+### 8. 分离启动模式预置与编译预热
 
-**更好的实现方式**：
-- 文档给出 **推荐样本量**（如 ≥30 次以获得稳定 P95），并在样本量 < 阈值时对 P90/P95 标注 `lowConfidence=true`。
-- 提供 **异常值检测**：用 MAD（已有）做异常剔除（`|x - median| > 3*MAD` 的 run 标记为 outlier 并可选排除），输出剔除前后的统计对比，而非直接用 raw 样本。
-- 对比 baseline 时用 **bootstrap 重采样估计 CI**，避免小样本下 t-检验失真。
+- 用 **启动模式预置** 建立 Warm/Hot 所需进程和 Activity 状态，该运行不进入统计。
+- 用 **编译预热** 形成明确的 JIT/Profile 状态；次数属于编译策略而不是启动模式配置。
+- Cold 默认不进行通用启动预热。页缓存或 Shader 缓存策略必须单独声明能力、执行结果和失败原因。
+- 继续通过观测启动模式验证每个 measured run，不用耗时相似度猜测预置是否成功。
 
-### 7. 启动子阶段分解【影响:中 / 可行性:中】
+## 兼容性约束
 
-**当前实现问题**：`StartupRun` 只记录总 `durationMs`，不分解启动内部阶段（Application init、ContentProvider、Activity onCreate/Start/Resume、首帧）。只知道"启动慢"但不知慢在哪个阶段。
+实施遵循以下兼容约束：
 
-**更好的实现方式**：
-- 通过 Perfetto `activity` track 与 `am` 输出，分解启动为子阶段：`processFork`、`applicationOnCreate`、`activityCreate`、`activityStart`、`activityResume`、`firstFrame`。在 `StartupRun` 增加 `stageBreakdown`。
-- 子阶段数据让优化有的放矢：是 Application 初始化慢（考虑延迟初始化）还是 Activity 创建慢（考虑布局精简）。
-- 对比 baseline 时支持子阶段级 diff，自动定位"哪个阶段变慢了"。
-
-### 8. Warm-up 次数的合理性默认【影响:低 / 可行性:高】
-
-**当前实现问题**：Warm-up runs 可配，但默认值未说明。Warm-up 不足时 JIT 未充分预热、Class 未加载完毕，measured 阶段测的其实是"半冷启动"。
-
-**更好的实现方式**：
-- 文档说明默认 Warm-up 次数（建议 3-5 次）与"为什么需要"（预热 JIT、填充磁盘缓存、稳定设备状态）。
-- 对 Cold Start 场景，**Warm-up 本身会让"冷启动"变"温启动"**（进程被杀但 OS 缓存部分保留），建议 Cold Start 测量时每次 run 之间执行更彻底的清理（`drop_caches` 或 `killAll` 后等待磁盘缓存失效），并记录 warm-up 是否真正生效（验证进程确实被重新创建）。
-- 提供"Warm-up 有效性自检"：若 warm-up 后第一次 measured 与无 warm-up 时相似，提示"warm-up 可能未生效"。
+- 新环境、编译状态和 Trace 字段均以可选字段追加；JSON 保持 schema version 1，旧 JSON 可读取，SQLite 通过可空列迁移旧库。
+- 现有 `StartupRun`、`milestones`、`phases` 语义不重命名；新增证据不得改变既有指标口径。
+- 不可比或缺失证据通过显式状态表示，不用默认值伪造成功。

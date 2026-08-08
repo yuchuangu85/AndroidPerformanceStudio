@@ -65,7 +65,7 @@ class NetworkProfilerWorkspaceSourceTest {
     fun `toolbar preserves home navigation and capture field enablement`() {
         val homeBlock =
             source.substring(
-                source.indexOf("ProfilerHomeButton("),
+                source.indexOf("HomeButton("),
                 source.indexOf("ProfilerCompactButton("),
             )
         assertTrue(homeBlock.contains("if (state.capturing)stop()"))

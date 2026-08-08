@@ -8,7 +8,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 
-public const val NETWORK_AGENT_PROTOCOL_VERSION: Int = 1
+public const val NETWORK_AGENT_PROTOCOL_VERSION: Int = 2
 public const val NETWORK_AGENT_PORT: Int = 49_373
 
 @Serializable
@@ -25,12 +25,15 @@ public data class AgentNetworkEvent(
     val callId: String,
     val kind: String,
     val monotonicNs: Long,
+    val instrumentationId: String? = null,
     val method: String? = null,
     val url: String? = null,
     val statusCode: Int? = null,
     val byteCount: Long? = null,
     val protocol: String? = null,
     val connectionId: String? = null,
+    val tlsVersion: String? = null,
+    val cipherSuite: String? = null,
     val message: String? = null,
 )
 
@@ -41,6 +44,8 @@ public data class AgentResponse(
     val processId: Int? = null,
     val events: List<AgentNetworkEvent> = emptyList(),
     val droppedEvents: Long = 0,
+    val latestSequence: Long = 0,
+    val hasMore: Boolean = false,
     val deviceMonotonicNs: Long = System.nanoTime(),
     val message: String? = null,
 )

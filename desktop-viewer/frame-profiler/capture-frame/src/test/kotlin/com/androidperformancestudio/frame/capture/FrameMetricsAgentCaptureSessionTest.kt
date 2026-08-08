@@ -26,6 +26,8 @@ class FrameMetricsAgentCaptureSessionTest {
                                         totalDurationNs = 9_000_000,
                                         expectedDurationNs = 8_333_333,
                                         expectedDurationSource = AgentExpectedDurationSource.REFRESH_RATE,
+                                        refreshRateHz = 120.0,
+                                        frameTimelineVsyncId = 99,
                                     ),
                                     AgentFrameSample(
                                         sequence = 42,
@@ -50,6 +52,8 @@ class FrameMetricsAgentCaptureSessionTest {
             assertEquals(listOf(0L, 1L), batch.frames.map { it.frameId })
             assertEquals(123, batch.frames.first().processId)
             assertEquals(3L, batch.frames.first().droppedBeforeSample)
+            assertEquals(120.0, batch.frames.first().refreshRateHz)
+            assertEquals(99L, batch.frames.first().frameTimelineVsyncId)
             assertEquals(0L, batch.frames.last().droppedBeforeSample)
             assertEquals(
                 "REFRESH_RATE",

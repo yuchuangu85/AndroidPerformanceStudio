@@ -1,0 +1,2 @@
+rule kotlin.** com.android.tools.ui.inspector.kotlin.@1
+rule kotlinx.coroutines.** com.android.tools.ui.inspector.kotlinx.coroutines.@1

@@ -95,6 +95,7 @@ class HprofParser {
                                     targetObjectId = reference.targetObjectId,
                                 )
                             },
+                        classLoaderObjectId = metadata?.classLoaderObjectId ?: 0L,
                     )
                 }.sortedBy { it.objectId }
         val classesById = classes.associateBy(HeapClass::objectId)
@@ -274,7 +275,8 @@ class HprofParser {
         val classObjectId = reader.readId()
         reader.skip(Int.SIZE_BYTES)
         val superClassObjectId = reader.readId()
-        repeat(RESERVED_CLASS_IDS - 1) { reader.readId() }
+        val classLoaderObjectId = reader.readId()
+        repeat(RESERVED_CLASS_IDS - 2) { reader.readId() }
         val instanceSize = reader.readInt().toLong()
         val constantPoolCount = reader.readUnsignedShort()
         repeat(constantPoolCount) {
@@ -303,7 +305,7 @@ class HprofParser {
         state.upsertClass(
             classId = classObjectId,
             instanceSize = instanceSize,
-            metadata = ClassMetadata(superClassObjectId, instanceFields, staticReferences),
+            metadata = ClassMetadata(superClassObjectId, classLoaderObjectId, instanceFields, staticReferences),
         )
     }
 
@@ -417,7 +419,7 @@ class HprofParser {
                 val name = stringsById[field.nameStringId] ?: "<field-${field.nameStringId}>"
                 val value = reader.readValue(field.type)
                 if (field.type == PrimitiveType.OBJECT) {
-                    if (value != 0L) references += ObjectReference(name, value)
+                    references += ObjectReference(name, value)
                 } else {
                     primitiveFields[name] = value
                 }
@@ -457,6 +459,7 @@ class HprofParser {
 
     private data class ClassMetadata(
         val superClassObjectId: Long,
+        val classLoaderObjectId: Long,
         val instanceFields: List<RawField>,
         val staticReferences: List<RawStaticReference>,
     )

@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -29,14 +33,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.startup.model.CompilationMode
+import com.androidperformancestudio.startup.model.StartupProfileSource
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.StartupProfilerActions
 import com.androidperformancestudio.startup.presentation.StartupProfilerScreen
 import com.androidperformancestudio.startup.startup_app.generated.resources.Res
 import com.androidperformancestudio.startup.startup_app.generated.resources.app_activity
 import com.androidperformancestudio.startup.startup_app.generated.resources.back_to_home
+import com.androidperformancestudio.startup.startup_app.generated.resources.cancel
 import com.androidperformancestudio.startup.startup_app.generated.resources.cold
 import com.androidperformancestudio.startup.startup_app.generated.resources.compilation
+import com.androidperformancestudio.startup.startup_app.generated.resources.compilation_change_message
+import com.androidperformancestudio.startup.startup_app.generated.resources.compilation_change_title
+import com.androidperformancestudio.startup.startup_app.generated.resources.continue_action
 import com.androidperformancestudio.startup.startup_app.generated.resources.current
 import com.androidperformancestudio.startup.startup_app.generated.resources.device
 import com.androidperformancestudio.startup.startup_app.generated.resources.export_startup_profiler_report
@@ -45,6 +54,13 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.impo
 import com.androidperformancestudio.startup.startup_app.generated.resources.measured_runs
 import com.androidperformancestudio.startup.startup_app.generated.resources.package_activity
 import com.androidperformancestudio.startup.startup_app.generated.resources.package_agent
+import com.androidperformancestudio.startup.startup_app.generated.resources.perfetto_trace
+import com.androidperformancestudio.startup.startup_app.generated.resources.practical_threshold
+import com.androidperformancestudio.startup.startup_app.generated.resources.profile_baseline_plugin
+import com.androidperformancestudio.startup.startup_app.generated.resources.profile_build_variant
+import com.androidperformancestudio.startup.startup_app.generated.resources.profile_macrobenchmark
+import com.androidperformancestudio.startup.startup_app.generated.resources.profile_source
+import com.androidperformancestudio.startup.startup_app.generated.resources.profile_unverified
 import com.androidperformancestudio.startup.startup_app.generated.resources.refresh
 import com.androidperformancestudio.startup.startup_app.generated.resources.reset
 import com.androidperformancestudio.startup.startup_app.generated.resources.run_experiment
@@ -114,6 +130,26 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     )
 
     ViewerTheme(darkTheme = darkTheme) {
+    if (state.compilationConfirmationRequired) {
+        AlertDialog(
+            onDismissRequest = controller::dismissCompilationConfirmation,
+            title = { Text(localizedStringResource(Res.string.compilation_change_title, language)) },
+            text = { Text(localizedStringResource(Res.string.compilation_change_message, language)) },
+            dismissButton = {
+                TextButton(onClick = controller::dismissCompilationConfirmation) {
+                    Text(localizedStringResource(Res.string.cancel, language))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        controller.dismissCompilationConfirmation()
+                        experimentJob = scope.launch { controller.runExperiment(compilationChangeConfirmed = true) }
+                    },
+                ) { Text(localizedStringResource(Res.string.continue_action, language)) }
+            },
+        )
+    }
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(
             language = language,
@@ -204,13 +240,22 @@ public fun FrameWindowScope.StartupProfilerMainPage(
             )
             HeaderSpacer()
             DropdownSelector(
+                items = StartupProfileSource.entries,
+                selectedItem = state.config.profileSource,
+                onItemSelected = controller::selectProfileSource,
+                itemLabel = { it.label(language) },
+                placeholder = localizedStringResource(Res.string.profile_source, language),
+                enabled = !state.isRunning && state.config.compilationMode == CompilationMode.SPEED_PROFILE,
+            )
+            HeaderSpacer()
+            DropdownSelector(
                 items = (0..10).toList(),
                 selectedItem = state.config.warmupRuns,
                 onItemSelected = { controller.updateCounts(it, state.config.measuredRuns) },
                 itemLabel = Int::toString,
                 selectedItemLabel = {localizedStringResource(Res.string.warm_ups, language, it)},
                 placeholder = localizedStringResource(Res.string.warm_ups, language),
-                enabled = !state.isRunning,
+                enabled = !state.isRunning && state.config.compilationMode == CompilationMode.SPEED_PROFILE,
             )
             HeaderSpacer()
             DropdownSelector(
@@ -230,6 +275,23 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 itemLabel = { localizedStringResource(Res.string.seconds_short, language, it) },
                 selectedItemLabel = {localizedStringResource(Res.string.timeout, language, it)},
                 placeholder = localizedStringResource(Res.string.timeout, language),
+                enabled = !state.isRunning,
+            )
+            HeaderSpacer()
+            Checkbox(
+                checked = state.config.capturePerfettoTrace,
+                onCheckedChange = controller::setPerfettoTraceEnabled,
+                enabled = !state.isRunning,
+            )
+            Text(localizedStringResource(Res.string.perfetto_trace, language), style = MaterialTheme.typography.labelSmall)
+            HeaderSpacer()
+            DropdownSelector(
+                items = listOf(1.0, 3.0, 5.0, 10.0),
+                selectedItem = state.config.practicalChangeThresholdPercent,
+                onItemSelected = controller::updatePracticalThreshold,
+                itemLabel = { it.toString() },
+                selectedItemLabel = { localizedStringResource(Res.string.practical_threshold, language, it) },
+                placeholder = localizedStringResource(Res.string.practical_threshold, language),
                 enabled = !state.isRunning,
             )
         }
@@ -277,6 +339,17 @@ private fun CompilationMode.label(language: UiLanguage): String =
         CompilationMode.SPEED_PROFILE -> localizedStringResource(Res.string.speed_profile, language)
         CompilationMode.SPEED -> localizedStringResource(Res.string.speed, language)
     }
+
+private fun StartupProfileSource.label(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            StartupProfileSource.UNVERIFIED -> Res.string.profile_unverified
+            StartupProfileSource.BASELINE_PROFILE_PLUGIN -> Res.string.profile_baseline_plugin
+            StartupProfileSource.MACROBENCHMARK -> Res.string.profile_macrobenchmark
+            StartupProfileSource.BUILD_VARIANT -> Res.string.profile_build_variant
+        },
+        language,
+    )
 
 private fun chooseSaveFile(
     parent: java.awt.Component,

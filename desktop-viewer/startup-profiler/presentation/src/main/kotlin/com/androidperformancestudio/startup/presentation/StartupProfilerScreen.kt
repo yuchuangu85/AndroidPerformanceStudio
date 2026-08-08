@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.startup.analysis.StartupAnalysisResult
+import com.androidperformancestudio.startup.analysis.StartupComparison
 import com.androidperformancestudio.startup.model.EvidenceConfidence
 import com.androidperformancestudio.startup.model.StartupMilestoneKind
 import com.androidperformancestudio.startup.model.StartupPhase
@@ -50,12 +51,16 @@ import com.androidperformancestudio.startup.presentation.generated.resources.act
 import com.androidperformancestudio.startup.presentation.generated.resources.activity_resumed
 import com.androidperformancestudio.startup.presentation.generated.resources.activity_started
 import com.androidperformancestudio.startup.presentation.generated.resources.agent
+import com.androidperformancestudio.startup.presentation.generated.resources.agent_first_frame
 import com.androidperformancestudio.startup.presentation.generated.resources.agent_phases_separate_clock_domain
 import com.androidperformancestudio.startup.presentation.generated.resources.agent_ready
+import com.androidperformancestudio.startup.presentation.generated.resources.baseline_comparison
 import com.androidperformancestudio.startup.presentation.generated.resources.choose_a_device_and_app_to_run_repeatable_cold_warm
 import com.androidperformancestudio.startup.presentation.generated.resources.cold
-import com.androidperformancestudio.startup.presentation.generated.resources.compared_with_previous_experiment_difference_only_no_statistical_signi
+import com.androidperformancestudio.startup.presentation.generated.resources.compilation_evidence
+import com.androidperformancestudio.startup.presentation.generated.resources.diagnostics
 import com.androidperformancestudio.startup.presentation.generated.resources.displayed
+import com.androidperformancestudio.startup.presentation.generated.resources.environment_evidence
 import com.androidperformancestudio.startup.presentation.generated.resources.estimated
 import com.androidperformancestudio.startup.presentation.generated.resources.exact
 import com.androidperformancestudio.startup.presentation.generated.resources.fallback
@@ -68,11 +73,13 @@ import com.androidperformancestudio.startup.presentation.generated.resources.hot
 import com.androidperformancestudio.startup.presentation.generated.resources.inferred
 import com.androidperformancestudio.startup.presentation.generated.resources.initializer_enter
 import com.androidperformancestudio.startup.presentation.generated.resources.insufficient
+import com.androidperformancestudio.startup.presentation.generated.resources.low_tail_resolution
 import com.androidperformancestudio.startup.presentation.generated.resources.mad
 import com.androidperformancestudio.startup.presentation.generated.resources.measured_runs
 import com.androidperformancestudio.startup.presentation.generated.resources.median_first_frame
 import com.androidperformancestudio.startup.presentation.generated.resources.median_fully_drawn
 import com.androidperformancestudio.startup.presentation.generated.resources.median_totaltime
+import com.androidperformancestudio.startup.presentation.generated.resources.metric_evidence
 import com.androidperformancestudio.startup.presentation.generated.resources.milestones
 import com.androidperformancestudio.startup.presentation.generated.resources.no_agent_phases_available
 import com.androidperformancestudio.startup.presentation.generated.resources.observed
@@ -80,6 +87,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.p90
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_activity_create
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_activity_to_resumed
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_agent_initialization
+import com.androidperformancestudio.startup.presentation.generated.resources.phase_comparison
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_first_frame_to_fully_drawn
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_process_bootstrap
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_range
@@ -87,6 +95,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.pha
 import com.androidperformancestudio.startup.presentation.generated.resources.platform_timeline
 import com.androidperformancestudio.startup.presentation.generated.resources.process_start
 import com.androidperformancestudio.startup.presentation.generated.resources.raw_am_start_w_evidence
+import com.androidperformancestudio.startup.presentation.generated.resources.report_fully_drawn_hint
 import com.androidperformancestudio.startup.presentation.generated.resources.run
 import com.androidperformancestudio.startup.presentation.generated.resources.run_detail
 import com.androidperformancestudio.startup.presentation.generated.resources.stability
@@ -98,6 +107,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.tex
 import com.androidperformancestudio.startup.presentation.generated.resources.this_time
 import com.androidperformancestudio.startup.presentation.generated.resources.total
 import com.androidperformancestudio.startup.presentation.generated.resources.total_time
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_evidence
 import com.androidperformancestudio.startup.presentation.generated.resources.unavailable
 import com.androidperformancestudio.startup.presentation.generated.resources.unknown
 import com.androidperformancestudio.startup.presentation.generated.resources.unstable
@@ -172,7 +182,7 @@ private fun ResultsPane(
             MetricCard(localizedStringResource(Res.string.median_fully_drawn, language), analysis.fullyDrawn, language)
             StabilityCard(analysis, language)
         }
-        state.baseline?.let { baseline -> BaselineComparison(analysis, baseline, language) }
+        state.comparison?.let { comparison -> BaselineComparison(comparison, language) }
         Text(
             localizedStringResource(Res.string.measured_runs, language),
             style = MaterialTheme.typography.titleMedium,
@@ -215,6 +225,9 @@ private fun MetricCard(
                 localizedStringResource(Res.string.p90_n, language, statistics.p90Ms.formatMs(), statistics.count),
                 style = MaterialTheme.typography.bodySmall,
             )
+            if (statistics.p90LowResolution || statistics.p95LowResolution) {
+                Text(localizedStringResource(Res.string.low_tail_resolution, language), style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
@@ -248,30 +261,37 @@ private fun StabilityCard(
 
 @Composable
 private fun BaselineComparison(
-    current: StartupAnalysisResult,
-    baseline: StartupAnalysisResult,
+    comparison: StartupComparison,
     language: UiLanguage,
 ) {
-    val currentMedian = current.totalTime.medianMs
-    val baselineMedian = baseline.totalTime.medianMs
-    val change =
-        if (currentMedian != null &&
-            baselineMedian != null &&
-            baselineMedian > 0
-        ) {
-            (currentMedian - baselineMedian) / baselineMedian * 100
-        } else {
-            null
-        }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-        Text(
-            localizedStringResource(
-                Res.string.compared_with_previous_experiment_difference_only_no_statistical_signi,
-                language,
-                change.formatPercent(),
-            ),
-            modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
-        )
+        Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp)) {
+            Text(
+                localizedStringResource(
+                    Res.string.baseline_comparison,
+                    language,
+                    comparison.status.name
+                        .lowercase()
+                        .replace('_', ' '),
+                    comparison.medianDifferenceMs.formatMs(),
+                    comparison.confidenceIntervalLowMs.formatMs(),
+                    comparison.confidenceIntervalHighMs.formatMs(),
+                ),
+            )
+            comparison.reasons.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            comparison.phaseDifferences.forEach { phase ->
+                Text(
+                    localizedStringResource(
+                        Res.string.phase_comparison,
+                        language,
+                        phase.name,
+                        phase.medianDifferenceMs.formatMs(),
+                        phase.confidence.localizedLabel(language),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 }
 
@@ -335,6 +355,75 @@ private fun RunDetail(
         fontWeight = FontWeight.Bold,
     )
     Text(localizedStringResource(Res.string.platform_timeline, language), fontWeight = FontWeight.SemiBold)
+    Text(
+        localizedStringResource(
+            Res.string.metric_evidence,
+            language,
+            "TTID",
+            run.ttidEvidence.source?.name ?: localizedStringResource(Res.string.unavailable, language),
+            run.ttidEvidence.unavailableReason ?: run.ttidEvidence.confidence.localizedLabel(language),
+        ),
+    )
+    Text(
+        localizedStringResource(
+            Res.string.metric_evidence,
+            language,
+            localizedStringResource(Res.string.agent_first_frame, language),
+            run.agentFirstFrameEvidence.source?.name ?: localizedStringResource(Res.string.unavailable, language),
+            run.agentFirstFrameEvidence.unavailableReason ?: run.agentFirstFrameEvidence.confidence.localizedLabel(language),
+        ),
+    )
+    Text(
+        localizedStringResource(
+            Res.string.metric_evidence,
+            language,
+            "TTFD",
+            run.ttfdEvidence.source?.name ?: localizedStringResource(Res.string.unavailable, language),
+            run.ttfdEvidence.unavailableReason ?: run.ttfdEvidence.confidence.localizedLabel(language),
+        ),
+    )
+    if (run.platform.fullyDrawnTimeMs == null) Text(localizedStringResource(Res.string.report_fully_drawn_hint, language))
+    run.compilationEvidence?.let { evidence ->
+        Text(
+            localizedStringResource(
+                Res.string.compilation_evidence,
+                language,
+                evidence.requestedMode.name,
+                evidence.compilerFilterAfter ?: localizedStringResource(Res.string.unavailable, language),
+                evidence.verified,
+                evidence.profileSource.name,
+            ),
+        )
+    }
+    run.environmentEvidence?.let { evidence ->
+        Text(
+            localizedStringResource(
+                Res.string.environment_evidence,
+                language,
+                evidence.deviceModel.orEmpty().ifEmpty { "—" },
+                evidence.apiLevel ?: "—",
+                evidence.emulator ?: "—",
+                evidence.batteryPercent?.let { "$it%" } ?: "—",
+                evidence.charging ?: "—",
+                evidence.thermalStatus ?: "—",
+                evidence.capturedAt?.toString() ?: "—",
+            ),
+        )
+    }
+    run.traceEvidence?.let { evidence ->
+        Text(
+            localizedStringResource(
+                Res.string.trace_evidence,
+                language,
+                evidence.file ?: evidence.failureReason.orEmpty(),
+                evidence.captured,
+                evidence.truncated,
+            ),
+        )
+    }
+    if (run.diagnostics.isNotEmpty()) {
+        Text(localizedStringResource(Res.string.diagnostics, language, run.diagnostics.joinToString()))
+    }
     TimelineBar(
         listOfNotNull(
             run.platform.thisTimeMs?.let {
@@ -432,8 +521,6 @@ private fun MessagePane(
 }
 
 private fun Number?.formatMs(): String = this?.let { String.format(Locale.US, "%.1f ms", toDouble()) } ?: "—"
-
-private fun Double?.formatPercent(): String = this?.let { String.format(Locale.US, "%+.1f%%", it) } ?: "—"
 
 private fun StartupType.localizedLabel(language: UiLanguage): String =
     localizedStringResource(

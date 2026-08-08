@@ -61,8 +61,32 @@ class MemoryDeepAnalysisTest {
     }
 
     @Test
+    fun `dfs parent follows traversal edges when siblings cross link`() {
+        val result =
+            DominatorTreeAnalyzer().analyze(
+                heap(
+                    instance(1, "Root", refs = listOf(ref("to3", 3), ref("to4", 4))),
+                    instance(2, "Two", refs = listOf(ref("to5", 5))),
+                    instance(3, "Three", refs = listOf(ref("to2", 2), ref("to5", 5))),
+                    instance(4, "Four", refs = listOf(ref("to2", 2))),
+                    instance(5, "Five"),
+                    roots = listOf(HeapRoot(1, HeapRootKind.JNI_GLOBAL)),
+                ),
+            )
+
+        assertEquals(1, result.immediateDominators.getValue(5))
+    }
+
+    @Test
     fun `leak rules include stable shortest root chain and bitmap metadata`() {
-        val activityClass = HeapClass(objectId = 100, name = "com.example.MainActivity", instanceSize = 24)
+        val activityBase = HeapClass(objectId = 100, name = "android.app.Activity")
+        val activityClass =
+            HeapClass(
+                objectId = 1002,
+                name = "com.example.MainActivity",
+                instanceSize = 24,
+                superClassObjectId = 100,
+            )
         val singletonClass =
             HeapClass(
                 objectId = 101,
@@ -71,7 +95,7 @@ class MemoryDeepAnalysisTest {
             )
         val heap =
             HeapDump(
-                classes = listOf(activityClass, singletonClass),
+                classes = listOf(activityBase, activityClass, singletonClass),
                 instances =
                     listOf(
                         instance(1, "com.example.MainActivity"),
@@ -106,9 +130,9 @@ class MemoryDeepAnalysisTest {
         assertEquals(1080, result.bitmapInstances.single().width)
         assertEquals(1920, result.bitmapInstances.single().height)
         assertEquals(1080L * 1920L * 4L, result.bitmapInstances.single().estimatedPixelBytes)
-        assertEquals(1080L * 1920L * 4L, result.bitmapInstances.single().nativeSizeBytes)
+        assertNull(result.bitmapInstances.single().nativeSizeBytes)
         assertEquals(11L * 1024 * 1024, result.bitmapInstances.single().javaSizeBytes)
-        assertTrue(result.leakSuspects.any { it.className == "android.graphics.Bitmap" })
+        assertTrue(result.leakSuspects.all { it.confidence == 0f && it.requiresManualVerification })
     }
 
     @Test
@@ -174,7 +198,7 @@ class MemoryDeepAnalysisTest {
     }
 
     @Test
-    fun `leak whitelist excludes long lived framework holders retaining an activity`() {
+    fun `framework singleton retention is not silently whitelisted`() {
         val frameworkClass =
             HeapClass(
                 objectId = 101,
@@ -190,7 +214,7 @@ class MemoryDeepAnalysisTest {
 
         val result = MemoryDeepAnalyzer().analyze(heap)
 
-        assertTrue(result.leakSuspects.none { it.reason.contains("Static/singleton") })
+        assertTrue(result.leakSuspects.any { it.reason.contains("Static/singleton") })
     }
 
     @Test
@@ -213,22 +237,65 @@ class MemoryDeepAnalysisTest {
         val result = MemoryDeepAnalyzer().analyze(heap)
 
         assertTrue(result.leakSuspects.none { it.className == "android.graphics.Bitmap" })
+        assertTrue(4L !in result.dominatorTree.reachableObjectIds)
     }
 
     @Test
-    fun `activity leak report tracks destroyed but retained activities`() {
+    fun `bitmap estimate uses row bytes when hprof exposes it`() {
         val heap =
             HeapDump(
                 instances =
                     listOf(
+                        HeapInstance(
+                            objectId = 1,
+                            classObjectId = 100,
+                            className = "android.graphics.Bitmap",
+                            primitiveFields = mapOf("mWidth" to 10L, "mHeight" to 3L, "mRowBytes" to 64L),
+                        ),
+                    ),
+                gcRoots = listOf(HeapRoot(1, HeapRootKind.JNI_GLOBAL)),
+            )
+
+        val bitmap = MemoryDeepAnalyzer().analyze(heap).bitmapInstances.single()
+
+        assertEquals(192L, bitmap.estimatedPixelBytes)
+        assertNull(bitmap.nativeSizeBytes)
+    }
+
+    @Test
+    fun `custom weak reference subclass does not retain its referent`() {
+        val referenceClass = HeapClass(100, "java.lang.ref.Reference")
+        val customWeakClass = HeapClass(101, "com.example.CustomWeakReference", superClassObjectId = 100)
+        val heap =
+            HeapDump(
+                classes = listOf(referenceClass, customWeakClass),
+                instances =
+                    listOf(
+                        HeapInstance(1, 101, customWeakClass.name, references = listOf(ref("referent", 2))),
+                        instance(2, "com.example.Target"),
+                    ),
+                gcRoots = listOf(HeapRoot(1, HeapRootKind.JNI_GLOBAL)),
+            )
+
+        val result = MemoryDeepAnalyzer().analyze(heap)
+
+        assertTrue(2L !in result.dominatorTree.reachableObjectIds)
+    }
+
+    @Test
+    fun `activity leak report tracks destroyed but retained activities`() {
+        val activity = HeapClass(99, "android.app.Activity")
+        val mainActivity = HeapClass(100, "com.example.MainActivity", superClassObjectId = 99)
+        val heap =
+            HeapDump(
+                classes = listOf(activity, mainActivity),
+                instances =
+                    listOf(
                         HeapInstance(1, 100, "com.example.MainActivity", primitiveFields = mapOf("mDestroyed" to 1L)),
                         HeapInstance(2, 100, "com.example.MainActivity", primitiveFields = mapOf("mDestroyed" to 0L)),
+                        instance(3, "com.example.Root", refs = listOf(ref("first", 1), ref("second", 2))),
                     ),
-                gcRoots =
-                    listOf(
-                        HeapRoot(1, HeapRootKind.JNI_GLOBAL),
-                        HeapRoot(2, HeapRootKind.JNI_GLOBAL),
-                    ),
+                gcRoots = listOf(HeapRoot(3, HeapRootKind.JNI_GLOBAL)),
             )
 
         val result = MemoryDeepAnalyzer().analyze(heap)
@@ -237,8 +304,56 @@ class MemoryDeepAnalysisTest {
         assertEquals("com.example.MainActivity", entry.className)
         assertEquals(2, entry.liveInstanceCount)
         assertEquals(1, entry.destroyedInstanceCount)
-        assertTrue(result.leakSuspects.any { it.className == "com.example.MainActivity" && it.confidence == 0.9f })
-        assertTrue(result.leakSuspects.all { !it.requiresManualVerification })
+        assertTrue(result.leakSuspects.any { it.className == "com.example.MainActivity" && it.confidence == 0f })
+        assertTrue(result.leakSuspects.all { it.requiresManualVerification })
+        assertTrue(result.leakSuspects.single().activityOrFragmentLeak)
+    }
+
+    @Test
+    fun `fragment leak filter matches Android Studio null fragment manager rule`() {
+        val fragment = HeapClass(100, "androidx.fragment.app.Fragment")
+        val screen = HeapClass(101, "com.example.CheckoutFragment", superClassObjectId = 100)
+        val heap =
+            HeapDump(
+                classes = listOf(fragment, screen),
+                instances =
+                    listOf(
+                        HeapInstance(
+                            1,
+                            101,
+                            screen.name,
+                            references = listOf(ref("mFragmentManager", 0)),
+                        ),
+                        instance(2, "com.example.Root", refs = listOf(ref("fragment", 1))),
+                    ),
+                gcRoots = listOf(HeapRoot(2, HeapRootKind.JNI_GLOBAL)),
+            )
+
+        val suspect = MemoryDeepAnalyzer().analyze(heap).leakSuspects.single()
+
+        assertEquals(screen.name, suspect.className)
+        assertTrue(suspect.activityOrFragmentLeak)
+        assertTrue(suspect.requiresManualVerification)
+    }
+
+    @Test
+    fun `activity detection follows class hierarchy instead of class suffix`() {
+        val base = HeapClass(100, "android.app.Activity")
+        val screen = HeapClass(101, "com.example.CheckoutScreen", superClassObjectId = 100)
+        val heap =
+            HeapDump(
+                classes = listOf(base, screen),
+                instances =
+                    listOf(
+                        HeapInstance(1, 101, screen.name, primitiveFields = mapOf("mDestroyed" to 1L)),
+                        instance(2, "com.example.Root", refs = listOf(ref("screen", 1))),
+                    ),
+                gcRoots = listOf(HeapRoot(2, HeapRootKind.JNI_GLOBAL)),
+            )
+
+        val result = MemoryDeepAnalyzer().analyze(heap)
+
+        assertEquals("com.example.CheckoutScreen", result.activityLeaks.single().className)
     }
 
     @Test

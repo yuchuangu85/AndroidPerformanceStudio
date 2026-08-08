@@ -115,11 +115,20 @@ import com.androidperformancestudio.application.InspectorState
 import com.androidperformancestudio.application.InspectorStore
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.adb.ConnectedDeviceSession
+import com.androidperformancestudio.adb.AdbProcessRunner
 import com.androidperformancestudio.adb.LiveDeviceClient
 import com.androidperformancestudio.adb.VisibleWindowViewsTextRenderer
 import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.ProtocolCodec
 import com.androidperformancestudio.protocol.UiNode
+import com.androidperformancestudio.compose.inspection.host.ComposeInjectionManager
+import com.androidperformancestudio.compose.inspection.host.ComposeInspectionAuthorization
+import com.androidperformancestudio.compose.inspection.host.ComposeInspectorArtifactResolver
+import com.androidperformancestudio.compose.inspection.host.ComposeLiveSession
+import com.androidperformancestudio.compose.inspection.host.PreparedComposeInspection
+import com.androidperformancestudio.compose.inspection.ComposeArchivePrivacy
+import com.androidperformancestudio.compose.inspection.ComposeParameterReference
+import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
@@ -147,6 +156,20 @@ internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 // Re-enable only after completing docs/requirements/ai-analysis-roadmap.md.
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
+internal val FULL_COMPOSE_INSPECTION_VISIBLE: Boolean =
+    System.getProperty("agentperf.compose.full.enabled", "false").toBoolean()
+
+private data class AuthorizedComposeTarget(
+    val prepared: PreparedComposeInspection,
+    val authorization: ComposeInspectionAuthorization,
+)
+
+private sealed interface ComposeAuthorizationUiState {
+    data object Idle : ComposeAuthorizationUiState
+    data object Preparing : ComposeAuthorizationUiState
+    data class Review(val prepared: PreparedComposeInspection) : ComposeAuthorizationUiState
+    data class Failure(val message: String) : ComposeAuthorizationUiState
+}
 
 internal enum class CaptureTargetMode {
     FOREGROUND_APP,
@@ -177,6 +200,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     onOpenMemoryProfiler: ((String) -> Unit)? = null,
     aiAnalysisClient: AiAnalysisClient? = null,
     onOpenSourceCandidate: ((String) -> Unit)? = null,
+    onOpenComposeSource: ((String, Int, Int) -> Unit)? = null,
     correlationHint: InspectorCorrelationHint? = null,
 ) {
     val store = remember { createInitialInspectorStore() }
@@ -187,6 +211,28 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val deviceClient = remember { LiveDeviceClient() }
     val refreshTimingSink = remember { ConsoleRefreshTimingSink }
     var captureTargetMode by remember { mutableStateOf(CaptureTargetMode.FOREGROUND_APP) }
+    val composeProcessRunner = remember { AdbProcessRunner() }
+    val composeArtifactResolver = remember {
+        ComposeInspectorArtifactResolver(
+            cacheDir = Path.of(System.getProperty("user.home"), ".android-performance-studio", "compose-inspectors"),
+        )
+    }
+    val composeInjectionManager = remember {
+        ComposeInjectionManager(composeProcessRunner, composeArtifactResolver)
+    }
+    var fullComposeEnabled by remember { mutableStateOf(false) }
+    var hideSystemComposables by remember { mutableStateOf(true) }
+    var composeAuthorization by remember { mutableStateOf<AuthorizedComposeTarget?>(null) }
+    var composeAuthorizationUiState by remember {
+        mutableStateOf<ComposeAuthorizationUiState>(ComposeAuthorizationUiState.Idle)
+    }
+    var composeSession by remember { mutableStateOf<ComposeLiveSession?>(null) }
+    var recompositionActive by remember { mutableStateOf(false) }
+    val recompositionHeatTracker = remember { RecompositionHeatTracker() }
+    var recompositionHeat by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+    LaunchedEffect(state.composeInspection?.frame?.frameId) {
+        recompositionHeat = recompositionHeatTracker.sample(state.composeInspection)
+    }
     val manualRefreshSession = remember(deviceClient, captureTargetMode) {
         ReusableForegroundSession(
             connect = { serial -> deviceClient.connectTarget(captureTargetMode, serial) },
@@ -234,9 +280,11 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         selectedDeviceSerial = sanitizeSelectedDeviceSerial(selectedDeviceSerial, devices)
     }
 
-    LaunchedEffect(autoScanEnabled, captureTargetMode) {
+    LaunchedEffect(autoScanEnabled, captureTargetMode, fullComposeEnabled, composeAuthorization) {
         if (!autoScanEnabled) {
-            if (store.state.connectionStatus != ConnectionStatus.ARCHIVE) {
+            if (store.state.connectionStatus != ConnectionStatus.ARCHIVE &&
+                store.state.connectionStatus != ConnectionStatus.ERROR
+            ) {
                 store.disconnected()
                 state = store.state
                 aiAnalysisUiState = AiAnalysisUiState.Idle
@@ -248,9 +296,47 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         while (currentCoroutineContext().isActive) {
             val timer = RefreshTimer("auto", refreshTimingSink)
             var session: ConnectedDeviceSession? = null
+            var fullSession: ComposeLiveSession? = null
             try {
                 store.connecting()
                 state = store.state
+                if (fullComposeEnabled) {
+                    val authorized = checkNotNull(composeAuthorization) { "Full Compose inspection is not authorized" }
+                    fullSession = withContext(Dispatchers.IO) {
+                        val injected = composeInjectionManager.attach(authorized.prepared, authorized.authorization)
+                        ComposeLiveSession.open(
+                            injection = injected,
+                            artifactResolver = composeArtifactResolver,
+                            processRunner = composeProcessRunner,
+                            expectedComposeVersion = checkNotNull(authorized.prepared.preflight.composeVersion),
+                            explicitLocalArtifact = System.getProperty("agentperf.compose.inspector.path")
+                                ?.takeIf(String::isNotBlank)?.let(Path::of),
+                        )
+                    }
+                    composeSession = fullSession
+                    if (recompositionActive) withContext(Dispatchers.IO) {
+                        fullSession.startRecompositionObservation()
+                    }
+                    while (currentCoroutineContext().isActive) {
+                        val capture = withContext(Dispatchers.IO) {
+                            fullSession.capture(hideSystemComposables)
+                        }
+                        store.loadCapture(
+                            snapshot = capture.snapshot,
+                            screenshotPng = checkNotNull(capture.screenshotPng) { "ADB screenshot failed" },
+                            composeInspection = capture.composeInspection,
+                        )
+                        importedRawArtifacts = null
+                        hiddenLayerState = HiddenLayerState()
+                        state = store.state
+                        aiAnalysisUiState = AiAnalysisUiState.Idle
+                        delay(
+                            (if (recompositionActive) ACTIVE_COMPOSE_CAPTURE_INTERVAL_MILLIS
+                            else CAPTURE_INTERVAL_MILLIS).milliseconds,
+                        )
+                    }
+                    continue
+                }
                 session = withContext(Dispatchers.IO) {
                     timer.measure("connectTarget") {
                         deviceClient.connectTarget(captureTargetMode, selectedDeviceSerial)
@@ -286,17 +372,39 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             } catch (error: Throwable) {
                 store.connectionFailed(error.message ?: error.javaClass.simpleName)
                 state = store.state
-                delay(RECONNECT_INTERVAL_MILLIS.milliseconds)
+                if (fullComposeEnabled) {
+                    composeAuthorization = null
+                    fullComposeEnabled = false
+                    recompositionActive = false
+                    autoScanEnabled = false
+                } else {
+                    delay(RECONNECT_INTERVAL_MILLIS.milliseconds)
+                }
             } finally {
+                composeSession = null
                 withContext(NonCancellable + Dispatchers.IO) {
+                    fullSession?.close()
                     session?.close()
                 }
             }
         }
     }
 
-    LaunchedEffect(manualRefreshRequest, autoScanEnabled) {
-        if (manualRefreshRequest == 0 || autoScanEnabled) {
+    LaunchedEffect(state.selectedNodeId, state.composeInspection?.frame?.frameId, composeSession) {
+        val document = state.composeInspection ?: return@LaunchedEffect
+        val nodeId = state.selectedNodeId?.removePrefix("compose-inspection:")?.toLongOrNull()
+            ?: return@LaunchedEffect
+        if (document.frame.details.containsKey(nodeId)) return@LaunchedEffect
+        val node = document.frame.roots.asSequence().flatMap { it.nodes.asSequence() }
+            .firstNotNullOfOrNull { it.findComposeNode(nodeId) } ?: return@LaunchedEffect
+        val detail = withContext(Dispatchers.IO) {
+            composeSession?.loadDetail(nodeId, node.anchorHash)
+        } ?: return@LaunchedEffect
+        if (store.loadComposeDetail(document.frame.frameId, detail)) state = store.state
+    }
+
+    LaunchedEffect(manualRefreshRequest, autoScanEnabled, fullComposeEnabled) {
+        if (manualRefreshRequest == 0 || autoScanEnabled || fullComposeEnabled) {
             manualRefreshInProgress = false
             return@LaunchedEffect
         }
@@ -338,6 +446,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var findingsHeightDp by remember { mutableStateOf(FindingsLayout.DEFAULT_HEIGHT_DP) }
     var panelVisibility by remember { mutableStateOf(PanelVisibility()) }
     var hierarchyTreeState by remember { mutableStateOf(HierarchyTreeState()) }
+    var hierarchyIsolationState by remember { mutableStateOf(HierarchyIsolationState()) }
     val viewDisplayOptionsStore = remember { ViewDisplayOptionsStore.desktop() }
     var viewDisplayOptions by remember {
         mutableStateOf(viewDisplayOptionsStore.load())
@@ -359,7 +468,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         }
     }
     val appFocusRequester = remember { FocusRequester() }
-    val exportCaptureArchive: () -> Unit = exportCaptureArchive@{
+    var pendingComposeExportConsent by remember { mutableStateOf(false) }
+    val performExportCaptureArchive: (ComposeArchivePrivacy) -> Unit = exportCaptureArchive@{ composePrivacy ->
         if (archiveUiState is CaptureArchiveUiState.Working) {
             return@exportCaptureArchive
         }
@@ -404,6 +514,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         analysis = analysis,
                         aiAnalysis = aiAnalysis,
                         timelineFrames = timelineFrames,
+                        composeInspection = state.composeInspection,
+                        composePrivacy = composePrivacy,
                     )
                 }
                 CaptureArchiveUiState.Success(
@@ -419,6 +531,13 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     message = error.message ?: error.javaClass.simpleName,
                 )
             }
+        }
+    }
+    val exportCaptureArchive: () -> Unit = {
+        if (state.composeInspection == null) {
+            performExportCaptureArchive(ComposeArchivePrivacy.SAFE_REDACTED)
+        } else {
+            pendingComposeExportConsent = true
         }
     }
     val openCaptureArchive: (Path) -> Unit = openCaptureArchive@{ source ->
@@ -438,6 +557,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     analysis = imported.analysis,
                     aiAnalysis = imported.aiAnalysis,
                     timelineFrames = imported.timelineFrames,
+                    composeInspection = imported.composeInspection,
+                    composeInspectionWarning = imported.composeInspectionWarning,
                 )
                 state = store.state
                 importedRawArtifacts = imported.rawArtifacts
@@ -571,7 +692,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     HierarchyNavigationDirection.DOWN
                 }
                 val rows = ViewDisplayProjection.hierarchyRows(
-                    rows = InspectorPresenter.present(state, uiLanguage).rows,
+                    rows = hierarchyIsolationState.rows(InspectorPresenter.present(state, uiLanguage).rows),
                     hideInvisible = viewDisplayOptions.hideInvisibleHierarchyViews,
                 )
                 hierarchyTreeState.adjacentNodeId(
@@ -622,6 +743,43 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         val updatedOptions = viewDisplayOptions.toggle(option)
         viewDisplayOptions = updatedOptions
         viewDisplayOptionsStore.save(updatedOptions)
+    }
+    val toggleFullComposeInspection: () -> Unit = {
+        if (fullComposeEnabled) {
+            fullComposeEnabled = false
+            composeAuthorization = null
+            recompositionActive = false
+        } else if (composeAuthorizationUiState !is ComposeAuthorizationUiState.Preparing) {
+            composeAuthorizationUiState = ComposeAuthorizationUiState.Preparing
+            coroutineScope.launch {
+                val result = try {
+                    val serial = selectedDeviceSerial
+                        ?: availableDevices.singleOrNull()?.serial
+                        ?: error("Select exactly one authorized device")
+                    val prepared = withContext(Dispatchers.IO) {
+                        val packageName = deviceClient.foregroundPackageName(serial)
+                        val bundleRoot = Path.of(
+                            System.getProperty("agentperf.compose.agent.bundle", "compose-agent-bundle"),
+                        ).toAbsolutePath()
+                        composeInjectionManager.preflight(
+                            serial,
+                            packageName,
+                            bundleRoot,
+                            explicitLocalArtifact = System.getProperty("agentperf.compose.inspector.path")
+                                ?.takeIf(String::isNotBlank)?.let(Path::of),
+                        )
+                    }
+                    ComposeAuthorizationUiState.Review(prepared)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    ComposeAuthorizationUiState.Failure(error.message ?: error.javaClass.simpleName)
+                }
+                if (composeAuthorizationUiState is ComposeAuthorizationUiState.Preparing) {
+                    composeAuthorizationUiState = result
+                }
+            }
+        }
     }
 
     NativeViewerMenuBar(
@@ -709,6 +867,18 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                             }
                         },
                     )
+                    if (FULL_COMPOSE_INSPECTION_VISIBLE) {
+                        HeaderSpacer()
+                        TextButton(onClick = toggleFullComposeInspection) {
+                            Text(
+                                localizedStringResource(
+                                    if (fullComposeEnabled) Res.string.full_compose_on else Res.string.full_compose_off,
+                                    language,
+                                ),
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
                     if (model.windows.size > 1) {
                         HeaderSpacer()
                         WindowSelector(
@@ -740,7 +910,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         autoScanEnabled = autoScanEnabled,
                         manualRefreshInProgress = manualRefreshInProgress,
                     )
-                    if (scanControlState.showManualRefresh) {
+                    if (scanControlState.showManualRefresh && !fullComposeEnabled) {
                         ManualRefreshButton(
                             enabled = scanControlState.manualRefreshEnabled,
                             onClick = {
@@ -756,6 +926,56 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     }
                     AutoScanSwitch(autoScanEnabled) {
                         performAction(ViewerAction.TOGGLE_AUTO_SCAN)
+                    }
+                    if (fullComposeEnabled) {
+                        HeaderSpacer()
+                        Row(
+                            modifier = Modifier.clickable { hideSystemComposables = !hideSystemComposables },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = !hideSystemComposables,
+                                onCheckedChange = { hideSystemComposables = !it },
+                            )
+                            Text(
+                                localizedStringResource(Res.string.system_composables, language),
+                                fontSize = 10.sp,
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        if (recompositionActive) {
+                                            composeSession?.stopRecompositionObservation()
+                                        } else {
+                                            composeSession?.startRecompositionObservation()
+                                        }
+                                    }
+                                    recompositionActive = !recompositionActive
+                                }
+                            },
+                            enabled = composeSession != null,
+                        ) {
+                            Text(
+                                localizedStringResource(
+                                    if (recompositionActive) Res.string.stop_recomposition else Res.string.start_recomposition,
+                                    language,
+                                ),
+                                fontSize = 10.sp,
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    withContext(Dispatchers.IO) { composeSession?.resetRecompositionCounts() }
+                                    recompositionActive = true
+                                }
+                            },
+                            enabled = composeSession != null,
+                        ) {
+                            Text(localizedStringResource(Res.string.reset_recomposition, language), fontSize = 10.sp)
+                        }
                     }
                     HeaderSpacer()
                     HeaderDivider()
@@ -811,6 +1031,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 if (hiddenLayerState != sanitizedHiddenLayerState) {
                                     hiddenLayerState = sanitizedHiddenLayerState
                                 }
+                                val sanitizedIsolation = hierarchyIsolationState.sanitize(rows)
+                                if (hierarchyIsolationState != sanitizedIsolation) {
+                                    hierarchyIsolationState = sanitizedIsolation
+                                }
                             }
                             Row(modifier = Modifier.fillMaxSize()) {
                                 if (panelVisibility.showHierarchy) {
@@ -819,10 +1043,23 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                         treeState = hierarchyTreeState,
                                         viewDisplayOptions = viewDisplayOptions,
                                         hiddenLayerState = hiddenLayerState,
+                                        isolationState = hierarchyIsolationState,
                                         searchState = searchState,
                                         onTreeStateChange = { hierarchyTreeState = it },
                                         onSelect = selectNode,
                                         onToggleHiddenLayer = toggleHiddenLayer,
+                                        onIsolate = { nodeId ->
+                                            hierarchyIsolationState = hierarchyIsolationState.isolate(
+                                                nodeId,
+                                                InspectorPresenter.present(state, uiLanguage).rows,
+                                            )
+                                        },
+                                        onIsolateParent = {
+                                            hierarchyIsolationState = hierarchyIsolationState.parent(
+                                                InspectorPresenter.present(state, uiLanguage).rows,
+                                            )
+                                        },
+                                        onClearIsolation = { hierarchyIsolationState = hierarchyIsolationState.clear() },
                                         onSearchStateChange = { searchState = it },
                                         onAction = performAction,
                                         modifier =
@@ -840,6 +1077,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 }
                                 PreviewPane(
                                     state = state,
+                                    recompositionHeat = recompositionHeat,
+                                    isolationRootNodeId = hierarchyIsolationState.rootNodeId,
                                     showVisibleViewBounds = viewDisplayOptions.showVisibleViewBounds,
                                     hitTestOrder = viewDisplayOptions.canvasHitTestOrder,
                                     hiddenLayerState = hiddenLayerState,
@@ -873,6 +1112,25 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                             .width(normalizedPaneWidths.properties.dp)
                                             .fillMaxHeight(),
                                         onOpenMemoryProfiler = onOpenMemoryProfiler,
+                                        onOpenComposeSource = onOpenComposeSource,
+                                        onLoadComposeParameter = { reference ->
+                                            val document = state.composeInspection ?: return@DetailsPane
+                                            val current = document.frame.details[reference.composableId]
+                                                ?.findValue(reference)
+                                            val maxElements = ((current?.elements?.size ?: 0) * 2)
+                                                .coerceAtLeast(50).coerceAtMost(10_000)
+                                            coroutineScope.launch {
+                                                val expanded = withContext(Dispatchers.IO) {
+                                                    composeSession?.loadParameterDetails(reference, 0, maxElements)
+                                                } ?: return@launch
+                                                if (store.loadComposeParameterDetails(
+                                                        document.frame.frameId,
+                                                        reference,
+                                                        expanded,
+                                                    )
+                                                ) state = store.state
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -1036,9 +1294,107 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     },
                 )
             }
+            when (val composeState = composeAuthorizationUiState) {
+                ComposeAuthorizationUiState.Idle -> Unit
+                ComposeAuthorizationUiState.Preparing -> ExportResultDialog(
+                    title = localizedStringResource(Res.string.compose_preflight_title, uiLanguage),
+                    message = localizedStringResource(Res.string.compose_preflight_running, uiLanguage),
+                    dismissLabel = localizedStringResource(Res.string.cancel, uiLanguage),
+                    onDismiss = { composeAuthorizationUiState = ComposeAuthorizationUiState.Idle },
+                )
+                is ComposeAuthorizationUiState.Failure -> ExportResultDialog(
+                    title = localizedStringResource(Res.string.compose_preflight_failed, uiLanguage),
+                    message = composeState.message,
+                    dismissLabel = localizedStringResource(Res.string.dismiss, uiLanguage),
+                    onDismiss = { composeAuthorizationUiState = ComposeAuthorizationUiState.Idle },
+                )
+                is ComposeAuthorizationUiState.Review -> {
+                    val preflight = composeState.prepared.preflight
+                    AlertDialog(
+                        onDismissRequest = { composeAuthorizationUiState = ComposeAuthorizationUiState.Idle },
+                        title = { Text(localizedStringResource(Res.string.compose_authorize_title, uiLanguage)) },
+                        text = {
+                            Text(
+                                localizedStringResource(
+                                    Res.string.compose_authorize_message,
+                                    uiLanguage,
+                                    preflight.packageName,
+                                    preflight.pid,
+                                    preflight.apiLevel,
+                                    preflight.abi,
+                                    preflight.composeVersion ?: "—",
+                                    preflight.inspectorSource ?: "—",
+                                    localizedStringResource(
+                                        if (preflight.inspectorDownloadRequired) Res.string.download_required
+                                        else Res.string.download_not_required,
+                                        uiLanguage,
+                                    ),
+                                    preflight.bundleFingerprint.take(12),
+                                    preflight.performanceNotice,
+                                ),
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                composeAuthorization = AuthorizedComposeTarget(
+                                    composeState.prepared,
+                                    ComposeInspectionAuthorization.authorize(preflight),
+                                )
+                                composeAuthorizationUiState = ComposeAuthorizationUiState.Idle
+                                captureTargetMode = CaptureTargetMode.FOREGROUND_APP
+                                fullComposeEnabled = true
+                                autoScanEnabled = true
+                            }) { Text(localizedStringResource(Res.string.authorize_attach, uiLanguage)) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                composeAuthorizationUiState = ComposeAuthorizationUiState.Idle
+                            }) { Text(localizedStringResource(Res.string.cancel, uiLanguage)) }
+                        },
+                    )
+                }
+            }
+            if (pendingComposeExportConsent) {
+                var fullFidelity by remember { mutableStateOf(false) }
+                AlertDialog(
+                    onDismissRequest = { pendingComposeExportConsent = false },
+                    title = { Text(localizedStringResource(Res.string.compose_export_title, uiLanguage)) },
+                    text = {
+                        Column {
+                            Text(localizedStringResource(Res.string.compose_export_safe_default, uiLanguage))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable { fullFidelity = !fullFidelity },
+                            ) {
+                                Checkbox(checked = fullFidelity, onCheckedChange = { fullFidelity = it })
+                                Text(localizedStringResource(Res.string.compose_export_full_fidelity, uiLanguage))
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            pendingComposeExportConsent = false
+                            performExportCaptureArchive(
+                                if (fullFidelity) ComposeArchivePrivacy.FULL_FIDELITY
+                                else ComposeArchivePrivacy.SAFE_REDACTED,
+                            )
+                        }) { Text(localizedStringResource(Res.string.export_archive, uiLanguage)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingComposeExportConsent = false }) {
+                            Text(localizedStringResource(Res.string.cancel, uiLanguage))
+                        }
+                    },
+                )
+            }
         }
     }
 }
+
+private fun com.androidperformancestudio.compose.inspection.ComposableNode.findComposeNode(
+    targetId: Long,
+): com.androidperformancestudio.compose.inspection.ComposableNode? =
+    if (id == targetId) this else children.firstNotNullOfOrNull { it.findComposeNode(targetId) }
 
 @Composable
 private fun CorrelationBanner(
@@ -1374,10 +1730,14 @@ private fun HierarchyPane(
     treeState: HierarchyTreeState,
     viewDisplayOptions: ViewDisplayOptions,
     hiddenLayerState: HiddenLayerState,
+    isolationState: HierarchyIsolationState,
     searchState: HierarchySearchState,
     onTreeStateChange: (HierarchyTreeState) -> Unit,
     onSelect: (String) -> Unit,
     onToggleHiddenLayer: (String) -> Unit,
+    onIsolate: (String?) -> Unit,
+    onIsolateParent: () -> Unit,
+    onClearIsolation: () -> Unit,
     onSearchStateChange: (HierarchySearchState) -> Unit,
     onAction: (ViewerAction) -> Unit,
     modifier: Modifier,
@@ -1393,7 +1753,7 @@ private fun HierarchyPane(
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
     val visibleRows = treeState.displayRows(
-        rows = model.rows,
+        rows = isolationState.rows(model.rows),
         hideInvisible = viewDisplayOptions.hideInvisibleHierarchyViews,
     )
     val matchedNodeIds = searchState.matchedNodeIds(visibleRows)
@@ -1448,7 +1808,23 @@ private fun HierarchyPane(
             }
             .focusable(),
     ) {
-        PanelTitle(localizedStringResource(Res.string.hierarchy, language), "${model.rows.size}")
+        PanelTitle(localizedStringResource(Res.string.hierarchy, language)) {
+            Text("${visibleRows.size}", color = colors.mutedText, fontSize = 11.sp)
+            TextButton(
+                onClick = { onIsolate(state.selectedNodeId) },
+                enabled = state.selectedNodeId != null,
+            ) {
+                Text(localizedStringResource(Res.string.isolate_subtree, language), fontSize = 9.sp)
+            }
+            if (isolationState.active) {
+                TextButton(onClick = onIsolateParent) {
+                    Text(localizedStringResource(Res.string.isolate_parent, language), fontSize = 9.sp)
+                }
+                TextButton(onClick = onClearIsolation) {
+                    Text(localizedStringResource(Res.string.clear_isolation, language), fontSize = 9.sp)
+                }
+            }
+        }
         HierarchySearchBar(
             searchState = searchState,
             matchedNodeIds = matchedNodeIds,
@@ -1632,6 +2008,8 @@ private fun HierarchyDisclosure(
 @Composable
 private fun PreviewPane(
     state: InspectorState,
+    recompositionHeat: Map<String, Float>,
+    isolationRootNodeId: String?,
     showVisibleViewBounds: Boolean,
     hitTestOrder: CanvasHitTestOrder,
     hiddenLayerState: HiddenLayerState,
@@ -1648,11 +2026,12 @@ private fun PreviewPane(
         unhoverColor = colors.mutedText.copy(alpha = 0.42f),
         hoverColor = colors.secondaryText.copy(alpha = 0.82f),
     )
-    val selectedBounds = state.activeRoot?.findNodeBoundsSkippingHidden(
+    val previewRoot = isolationRootNodeId?.let { state.activeRoot?.findNode(it) } ?: state.activeRoot
+    val selectedBounds = previewRoot?.findNodeBoundsSkippingHidden(
         targetId = state.selectedNodeId,
         hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
     )
-    val hoveredBounds = state.activeRoot?.findNodeBoundsSkippingHidden(
+    val hoveredBounds = previewRoot?.findNodeBoundsSkippingHidden(
         targetId = state.hoveredNodeId,
         hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
     )
@@ -1665,7 +2044,14 @@ private fun PreviewPane(
     var appOnly by remember { mutableStateOf(true) }
     var previewZoom by remember { mutableStateOf(PreviewZoomState.DEFAULT_SCALE) }
     val previewPan = remember { mutableStateOf(Offset.Zero) }
-    val source = CanvasWindowSource.sourceRect(state, appOnly)
+    val source = if (appOnly && isolationRootNodeId != null) {
+        val display = state.snapshot?.display
+        display?.let {
+            CanvasGeometry.sourceRect(previewRoot?.bounds, it.widthPx, it.heightPx, appOnly = true)
+        }
+    } else {
+        CanvasWindowSource.sourceRect(state, appOnly)
+    }
     val canvasMode = previewCanvasMode(
         hasSource = source != null,
         hasScreenshot = screenshot != null,
@@ -1872,7 +2258,7 @@ private fun PreviewPane(
                                         val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
                                         val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
                                         val candidates = screenPoint?.let {
-                                            state.activeRoot?.let { root ->
+                                            previewRoot?.let { root ->
                                                 CanvasHitTester.hitCandidates(
                                                     root = root,
                                                     point = it,
@@ -1892,7 +2278,7 @@ private fun PreviewPane(
                                         val destination = canvasPixelSize.asDestination() ?: return@onPointerEvent
                                         val screenPoint = CanvasGeometry.unmapPoint(point, source, destination)
                                         val candidates = screenPoint?.let {
-                                            state.activeRoot?.let { root ->
+                                            previewRoot?.let { root ->
                                                 CanvasHitTester.hitCandidates(
                                                     root = root,
                                                     point = it,
@@ -1928,7 +2314,7 @@ private fun PreviewPane(
                                     )
                                 }
                                 if (showVisibleViewBounds) {
-                                    state.activeRoot?.let { root ->
+                                    previewRoot?.let { root ->
                                         ViewBoundsOverlay.mappedVisibleBounds(
                                             root = root,
                                             selectedNodeId = state.selectedNodeId,
@@ -1943,6 +2329,27 @@ private fun PreviewPane(
                                                 style = Stroke(width = 1.dp.toPx()),
                                             )
                                         }
+                                    }
+                                }
+                                previewRoot?.let { root ->
+                                    mappedRecompositionHeat(
+                                        root = root,
+                                        heatByNodeId = recompositionHeat,
+                                        source = source,
+                                        destination = destination,
+                                        hiddenNodeIds = hiddenLayerState.hiddenNodeIds,
+                                    ).forEach { overlay ->
+                                        drawRect(
+                                            color = Color(
+                                                red = 1f,
+                                                green = 0.75f * (1f - overlay.intensity),
+                                                blue = 0.08f,
+                                                alpha = 0.45f + 0.4f * overlay.intensity,
+                                            ),
+                                            topLeft = Offset(overlay.bounds.left, overlay.bounds.top),
+                                            size = Size(overlay.bounds.width, overlay.bounds.height),
+                                            style = Stroke(width = (1f + 3f * overlay.intensity).dp.toPx()),
+                                        )
                                     }
                                 }
                                 selectedBounds?.let { bounds ->
@@ -2195,6 +2602,9 @@ private fun UiNode.findNodeBounds(targetId: String?): Bounds? {
     return children.firstNotNullOfOrNull { it.findNodeBounds(targetId) }
 }
 
+private fun UiNode.findNode(targetId: String): UiNode? =
+    if (id == targetId) this else children.firstNotNullOfOrNull { it.findNode(targetId) }
+
 private fun UiNode.findNodeBoundsSkippingHidden(
     targetId: String?,
     hiddenNodeIds: Set<String>,
@@ -2318,10 +2728,17 @@ private fun DetailsPane(
     state: InspectorState,
     modifier: Modifier,
     onOpenMemoryProfiler: ((String) -> Unit)? = null,
+    onOpenComposeSource: ((String, Int, Int) -> Unit)? = null,
+    onLoadComposeParameter: ((ComposeParameterReference) -> Unit)? = null,
 ) {
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
     val details = InspectorPresenter.present(state, language).details
+    val composeSource = state.selectedNodeId?.removePrefix("compose-inspection:")?.toLongOrNull()?.let { nodeId ->
+        state.composeInspection?.frame?.roots?.firstNotNullOfOrNull { root ->
+            root.nodes.firstNotNullOfOrNull { it.findComposeNode(nodeId) }
+        }?.source
+    }
     var expansionState by remember { mutableStateOf(DetailSectionExpansionState()) }
     Column(modifier.background(colors.panel)) {
         Row(
@@ -2352,6 +2769,20 @@ private fun DetailsPane(
                     )
                     }
             }
+            if (onOpenComposeSource != null && composeSource != null) {
+                Spacer(Modifier.width(6.dp))
+                TextButton(
+                    onClick = {
+                        onOpenComposeSource(
+                            composeSource.fileName,
+                            composeSource.packageHash,
+                            composeSource.lineNumber,
+                        )
+                    },
+                ) {
+                    Text(localizedStringResource(Res.string.open_compose_source, language), fontSize = 10.sp)
+                }
+            }
         }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(details.sections, key = { it.title }) { section ->
@@ -2361,6 +2792,7 @@ private fun DetailsPane(
                     onToggle = {
                         expansionState = expansionState.toggle(section.title)
                     },
+                    onLoadComposeParameter = onLoadComposeParameter,
                 )
             }
         }
@@ -2372,6 +2804,7 @@ private fun DetailSection(
     section: DetailSectionModel,
     expanded: Boolean,
     onToggle: () -> Unit,
+    onLoadComposeParameter: ((ComposeParameterReference) -> Unit)?,
 ) {
     val colors = LocalViewerColors.current
     val riskSection = section.highlightsRenderingRisk
@@ -2425,7 +2858,7 @@ private fun DetailSection(
     }
     if (expanded) {
         section.rows.forEachIndexed { index, row ->
-            DetailRow(row = row, index = index)
+            DetailRow(row = row, index = index, onLoadComposeParameter = onLoadComposeParameter)
         }
     }
     HorizontalDivider(color = colors.border)
@@ -2435,6 +2868,7 @@ private fun DetailSection(
 private fun DetailRow(
     row: DetailRowModel,
     index: Int,
+    onLoadComposeParameter: ((ComposeParameterReference) -> Unit)?,
 ) {
     val colors = LocalViewerColors.current
     val color = when (row.tone) {
@@ -2448,8 +2882,7 @@ private fun DetailRow(
     } else {
         colors.detailRowLight
     }
-    Row(
-        modifier = Modifier
+    val baseModifier = Modifier
             .fillMaxWidth()
             .background(stripeColor)
             .background(
@@ -2459,7 +2892,13 @@ private fun DetailRow(
                     color.copy(alpha = 0.06f)
                 },
             )
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+    Row(
+        modifier = if (row.composeReference != null && onLoadComposeParameter != null) {
+            baseModifier.clickable { onLoadComposeParameter(row.composeReference) }
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+        } else {
+            baseModifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        },
         verticalAlignment = Alignment.Top,
     ) {
         Text(
@@ -2480,6 +2919,15 @@ private fun DetailRow(
             )
         }
     }
+}
+
+private fun com.androidperformancestudio.compose.inspection.ComposableDetail.findValue(
+    reference: ComposeParameterReference,
+): ComposeValue? {
+    fun List<ComposeValue>.find(): ComposeValue? = firstNotNullOfOrNull { value ->
+        if (value.reference == reference) value else value.elements.find()
+    }
+    return parameters.find() ?: modifiers.find() ?: mergedSemantics.find() ?: unmergedSemantics.find()
 }
 
 @Composable
@@ -2859,6 +3307,7 @@ private fun FindingsResizeSeparator(onDrag: (Float) -> Unit) {
 }
 
 private const val CAPTURE_INTERVAL_MILLIS = 1_000L
+private const val ACTIVE_COMPOSE_CAPTURE_INTERVAL_MILLIS = 200L
 private const val RECONNECT_INTERVAL_MILLIS = 1_000L
 
 @Composable

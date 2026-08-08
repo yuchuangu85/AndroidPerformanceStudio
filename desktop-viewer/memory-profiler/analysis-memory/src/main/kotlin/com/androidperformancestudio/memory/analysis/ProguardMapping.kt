@@ -75,7 +75,21 @@ object ProguardMappingParser {
 fun HeapDump.withDeobfuscation(mapping: ProguardMapping): HeapDump {
     if (mapping.isEmpty) return this
 
-    fun remap(name: String): String = mapping.originalName(name)
+    fun remap(name: String): String {
+        val arraySuffix = name.takeLastWhile { it == '[' || it == ']' }
+        if (arraySuffix.isNotEmpty() && arraySuffix.length % 2 == 0) {
+            return mapping.originalName(name.dropLast(arraySuffix.length)) + arraySuffix
+        }
+        val dimensions = name.takeWhile { it == '[' }
+        if (dimensions.isNotEmpty() && name.startsWith("${dimensions}L") && name.endsWith(';')) {
+            val descriptorName = name.substring(dimensions.length + 1, name.length - 1)
+            val usesSlashes = '/' in descriptorName
+            val dotted = descriptorName.replace('/', '.')
+            val original = mapping.originalName(dotted).let { if (usesSlashes) it.replace('.', '/') else it }
+            return "${dimensions}L$original;"
+        }
+        return mapping.originalName(name)
+    }
     return copy(
         classes = classes.map { it.copy(name = remap(it.name)) },
         instances =

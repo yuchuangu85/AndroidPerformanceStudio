@@ -7,7 +7,7 @@ Memory Profiler 是一个 Android 堆内存分析工具，核心功能包括：
 - **Heap Dump 采集**：通过 ADB 在设备上执行 `am dumpheap` 并 pull HPROF 文件，或直接导入已有 HPROF 文件
 - **对象图解析**：`HprofParser` 解析 HPROF 二进制格式，提取 Class（类定义）、Instance（对象实例）、ObjectArray（对象数组）、PrimitiveArray（原始类型数组）、GC Root（垃圾回收根）等信息
 - **类直方图**：按类聚合统计实例数量、Shallow Size（对象自身大小）、Retained Size（支配树分析后的持有大小），支持多列排序
-- **泄漏嫌疑检测**：`DominatorTreeAnalyzer` 基于支配树分析识别潜在内存泄漏对象，提供引用链路径和置信度评估
+- **泄漏证据检测**：基于强引用图、生命周期字段和支配树生成需人工复核的保留证据与引用链
 - **Heap Diff 对比**：`HeapDiffAnalyzer` 对比两次 Heap Dump 之间的类实例数量变化，突出新增、移除和数量变化的类
 - **Activity 计数**：统计当前堆中所有 `*Activity` 子类的存活实例数
 - **Bitmap Dump**：`BitmapDumpParser` 提取堆中 Bitmap 实例的尺寸和 Retained Size，并通过 `BitmapDumpAnalyzer` 对比两次导出之间的 Bitmap 变化
@@ -30,7 +30,7 @@ Memory Profiler 是一个 Android 堆内存分析工具，核心功能包括：
 | 分析组件 | 输入 | 输出 | 算法 |
 |---------|------|------|-----|
 | `MemoryHistogramAnalyzer` | 对象图 | `HeapHistogram`（类统计） | 按 className 聚合 instanceCount + shallowSize |
-| `DominatorTreeAnalyzer` | 对象图 | `LeakSuspect` 列表 | 构建支配树、计算 Retained Size，识别异常大的持有者 |
+| `DominatorTreeAnalyzer` | 对象图 | immediate dominator + retained size | 对 GC Root 强可达子图执行 Lengauer–Tarjan |
 | `HeapDiffAnalyzer` | 前后两次直方图 | `HeapDiff`（变化条目） | 按 className 匹配前后条目，计算 countDelta 和 shallowSizeDelta |
 | `BitmapDumpAnalyzer` | 前后两次 Bitmap Dump | `BitmapDumpComparison` | 对比 Bitmap 列表，识别新增/移除/变化的 Bitmap |
 
@@ -39,7 +39,7 @@ Memory Profiler 是一个 Android 堆内存分析工具，核心功能包括：
 - **HeapDump**：包含 classes、instances、objectArrays、primitiveArrays、gcRoots、leakSuspects、bitmapInstances 等完整对象图
 - **HeapHistogram**：按类聚合的统计表，包含 summary（总计）和 classes（ClassStats 列表）
 - **HeapDiffEntry**：单类的对比结果，包含前后实例数、Shallow Size 及差值
-- **LeakSuspect**：泄漏嫌疑对象，包含 className、reason、retainedSize、referenceChain（引用链路径）、confidence
+- **LeakSuspect**：待复核的保留证据，包含 className、reason、retainedSize、referenceChain；兼容字段 confidence 不代表已校准概率
 
 ### 数据流
 
@@ -53,84 +53,81 @@ Memory Profiler 是一个 Android 堆内存分析工具，核心功能包括：
 
 ### Export
 
-- **Raw HPROF**：原始或转换后的 HPROF 文件
+- **Raw / Converted HPROF**：分别导出设备原始文件和可用时的转换副本
 - **CSV**：类直方图导出
 - **Bitmap Dump**：Bitmap 信息打包导出
 - **Bitmap Comparison**：Bitamp 对比结果 Markdown 导出
 
-## 优化建议与改进点
+## 优化建议审计结果
 
-> 以下内容不替换已有设计，仅作为可考虑的更好实现方式或优化点补充。每条标注 **影响**（高/中/低）与 **可行性**（高/中/低）。
->
-> 状态：标注 ✅ 的条目已实施，详见 [`memory-profiler-optimization-summary.md`](./memory-profiler-optimization-summary.md)。
+本节以 Android/Perfetto 官方语义、现有代码和可运行测试为准。状态含义：**保留**表示建议成立，**部分保留**表示只保留可验证部分，**排除**表示原建议前提不成立且不实施。
 
-### 1. 支配树计算对超大堆的性能与内存【影响:高 / 可行性:中】 ✅
+| # | 审计状态 | 结论 |
+|---|---|---|
+| 1 | 部分保留 | 保留可达对象上的精确支配树和进度；排除采样 retained size、流式/ETA 及无基准的性能承诺。 |
+| 2 | 排除原方案 | API Level 不是 HPROF 格式边界；改为始终保留原始 HPROF，并在工具可用时生成转换副本，转换失败仍由内置解析器读取原文件。 |
+| 3 | 部分保留 | 保留 Android 10+ heapprofd 原始 Perfetto trace 采集；应用内分配表仅为 best-effort 摘要，完整分析交给 Perfetto。 |
+| 4 | 保留 | 保留 mapping.txt 类名还原；数组类名/描述符同样还原，导入 mapping 不产生 Heap Diff。 |
+| 5 | 部分保留 | 保留强/弱引用语义和可复核引用链；排除静态白名单豁免及未经校准的置信度。 |
+| 6 | 部分保留 | 对齐 Android Studio 的 Activity/Fragment 生命周期候选规则；保留强可达证据并排除“多实例即泄漏”。 |
+| 7 | 排除原方案 | hierarchy depth 不能代表 ClassLoader；两次独立 HPROF 的对象 ID 也不是稳定身份。仅保留按类名的统计差异并声明限制。 |
+| 8 | 部分保留 | 保留 Bitmap 排序、现有 Bitmap Dump 图库及像素内存估算；排除把固定 `W×H×4` 当实测 native size。 |
 
-**当前实现问题**：`DominatorTreeAnalyzer` 构建"完整对象图 → 支配树 → Retained Size"。完整支配树计算（如 Lengauer-Tarjan）对大堆（数百 MB、千万对象）是 O(n·α) 但常数大，且需在内存中保留整个对象图，常 OOM 或耗时数十秒。
+### #1 精确支配树与弱引用边【部分保留】
 
-**更好的实现方式**：
-- 引入 **可达性优先（reachability-first）算法**（类似 LeakCanary 2.x / Android Studio Memory Profiler 的思路）：先用 BFS/DFS 做可达性分析识别"无法回收"的对象子集，再在小得多的子集上做支配树，性能提升一个数量级、内存峰值大幅下降。
-- 对超大批量对象（如百万级 byte[]），提供 **采样模式**：只对 N% 采样计算，标注 `sampled=true` 与置信区间，而非全量。
-- 计算改为流式/分批，并在 UI 显示进度与"预计完成时间"，避免长时间无响应。
+- 先计算 GC Root 强可达集合，再对该集合执行精确 Lengauer–Tarjan；不可达对象不参与 retained size 聚合。
+- `java.lang.ref.Reference` 及其子类的 `referent` 不作为强边。
+- 修正迭代 DFS 在交叉边图上的父节点错误，并复用同一 `HeapGraph`，避免一次分析重复建图。
+- **排除**：抽样 retained size、预计完成时间、流式计算和“提升一个数量级”等未实现或无基准结论。
 
-### 2. hprof-conv 的现状与必要性【影响:中 / 可行性:高】 ✅
+### #2 HPROF 转换策略【原方案排除，替代方案已实施】
 
-**当前实现问题**：文档说"Android HPROF 通常需要 `hprof-conv` 转换为标准 Java HPROF 格式"。实际上 Android 8.0+（API 26+）的 `am dumpheap` 已能直接输出标准 MAT 可读 HPROF，`hprof-conv` 在新设备上基本不必要；继续无条件转换徒增步骤与失败点。
+[Android 官方文档](https://developer.android.com/studio/profile/capture-heap-dump)仍区分 Android HPROF 与供其他 Java HPROF 工具使用的转换格式，因此不能用 API 26 作为跳过转换的依据。
 
-**更好的实现方式**：
-- 在采集流程中 **按 API Level 判断**：API < 26 走 `hprof-conv`，API ≥ 26 直接使用原始 HPROF，跳过转换。
-- 对跳过转换的情况，验证 `HprofParser` 能直接解析 Android 原生格式；若解析失败再回退到转换后文件。
-- 文档说明这一行为，避免用户困惑"为何有时转换有时不转换"。
+- 原始 `.raw.hprof` 始终保留，并继续兼容既有 Android HPROF 导入。
+- 找到 `hprof-conv` 时生成 Java SE 兼容副本；找不到或转换失败时保留原始文件并明确告警。
+- `deviceSdkApiLevel`、`conversionSkipped` 等既有字段继续保留，避免破坏调用方；新流程不再按 API 跳过转换。
 
-### 3. Native 内存与 heapprofd 的缺失【影响:高 / 可行性:中】 ✅（采集 + 分配表深度解析）
+### #3 Native Heap / heapprofd【部分保留】
 
-**当前实现问题**：工具只覆盖 Java Heap（HPROF），不分析 Native 内存。Android 性能问题中 Native 堆（SoLoader、Bitmap 像素数据在新版本、JNI malloc、 Vulkan/图形内存）是常见根因，缺失会让"Java 堆正常但内存涨"的案例无从下手。
+- heapprofd 从 Android 10（API 29）起可用；采集数据源修正为官方的 `android.heapprofd`。限制与权限以 [Perfetto Native Heap Profiler](https://perfetto.dev/docs/data-sources/native-heap-profiler) 为准。
+- 原始 Perfetto trace 是权威证据，可导出并由 Perfetto/Android Studio 完整分析。
+- 内置 protobuf reader 只提供 best-effort 分配摘要；损坏输入降级为空摘要，不能宣称完整处理 packet sequence、增量状态、guardrail、采样缩放或完整调用树。
+- 删除自研 Itanium C++ demangler；符号化应复用已安装 NDK/Perfetto 工具并在不可用时保留原符号。
+- **排除**：尚未实现的 pprof 导出，以及“深度解析全部完成”的结论。
 
-**更好的实现方式**：
-- 集成 **`heapprofd`（Perfetto 的 native heap profiler）**：通过 `perfetto -c -` 配置 `linux.heapprofd` 数据源，抓取目标进程的 Native 堆分配，导出 `.heapprofd` 在应用内查看。
-- 对 Bitmap，在新 Android（Android 11+）像素数据存于 Native（`NativeAllocationRegistry`），可在 HPROF 中关联 native allocation tag，建议在 Bitmap 分析中同时展示 `nativeSize` 与 `javaSize`。
-- 长期看，提供 **pprof 格式输出**，便于复用 `pprof` 生态（Go 工具、FlameGraph）分析。
+### #4 mapping.txt 反混淆【保留】
 
-### 4. 混淆类名的 mapping 还原【影响:中 / 可行性:高】 ✅
+- 支持类映射和双名展示，并覆盖 `Foo[]`、`[LFoo;` 等数组表示。
+- mapping 只改变名称解释；对同一堆重新分析时不会生成一次伪 Heap Diff。
+- 成员级反混淆不在当前需求内。
 
-**当前实现问题**：release 构建通常经过 R8/ProGuard 混淆，HPROF 中类名是 `a.b.c`，难以直接定位源码。文档未提及 mapping 还原。
+### #5 泄漏证据【部分保留】
 
-**更好的实现方式**：
-- 支持 **导入 `mapping.txt`**（R8 输出），在解析阶段或展示阶段把混淆类名还原为原始类名（`a.b.c` → `com.example.MainActivity`）。
-- 保留双名展示（`com.example.MainActivity (a.b.c)`），便于在反混淆失效时回溯。
-- 对无 mapping 的情况，提示"未提供 mapping，结果为混淆名"，避免用户误把 `a.b.c` 当真实类。
+- `LeakSuspect` 表示需复核的保留证据，不等同于已证实泄漏；引用链只沿强边构建。
+- 静态字段或框架单例持有 Activity/Context 不再被白名单静默排除，因为长生命周期持有者同样可能造成真实泄漏。
+- 未建立校准数据集前不输出伪精确置信度；兼容字段保留为 `0`，并统一标记 `requiresManualVerification=true`。
+- 大 Bitmap 本身不是泄漏证据，不再仅因尺寸进入泄漏嫌疑列表。
 
-### 5. 泄漏识别的启发式与误报控制【影响:中 / 可行性:高】 ✅
+### #6 Activity/Fragment 保留证据【部分保留】
 
-**当前实现问题**：`LeakSuspect` 基于"支配树中异常大的持有者 + 引用链 + 置信度"，但置信度算法未说明。常见的误报来源：单例的 Application/系统对象、合理长生命周期的缓存。
+- 严格按 HPROF 类继承链识别 `android.app.Activity`、平台 Fragment、Support Fragment 和 AndroidX Fragment 子类。
+- 只有 `mDestroyed` 或 `mFinished` 已置位且对象仍从 GC Root 强可达时，才进入生命周期专项的 Activity 保留报告；静态/Handler 持有仍只作为通用待复核证据。
+- Fragment 按 Android Studio 公开实现，将 `mFragmentManager == null` 且仍强可达的实例列为候选，并明确该规则可能误报尚未 attach 的新实例。
+- Perfetto `android.java_hprof` 不携带通用 primitive 字段，因此该格式可做 Fragment 引用规则，但 Activity 生命周期字段只能在二进制 HPROF 中判断；界面不得把缺失字段解释为“无泄漏”。
+- **排除**：仅凭同类 Activity 多实例直接判定泄漏；配置切换、多窗口和正常导航都可能产生多个实例。
 
-**更好的实现方式**：
-- 明确 **启发式规则**：忽略 GC Root 直接持有的"合理长生命周期"对象（`Application`、`Runtime`、`MainActivity` 的 ViewModel Store 等）作为白名单。
-- 引入 **WeakReference/软引用感知**：被 WeakRef 指向的对象不算泄漏嫌疑。
-- 把 `confidence` 算法文档化（基于 retained size + 引用链深度 + 是否经过生命周期白名单），并对低置信度嫌疑标注 `requiresManualVerification`。
+### #7 Heap Diff 身份【原方案排除】
 
-### 6. Activity 泄漏的专门识别【影响:中 / 可行性:高】 ✅
+- 默认继续按 `className` 比较类计数和 shallow size，并明确同名多 ClassLoader 场景可能合并。
+- `CLASS_NAME_AND_HIERARCHY` 仅为旧调用方保留，不再作为 Controller 默认模式。
+- **排除**：用 hierarchy depth 代替 ClassLoader 身份，以及用 dump-local object ID 跨两次 HPROF 追踪“同一对象”。没有稳定构建与加载器身份时不伪造精确匹配。
 
-**当前实现问题**：只做通用泄漏嫌疑 + Activity 计数。Activity 泄漏是最常见且影响最大的泄漏类型，应单独识别与报告。
+### #8 Bitmap 内存与预览【部分保留】
 
-**更好的实现方式**：
-- 专门扫描 `*Activity` 实例，检查是否存在 **多个实例**（同 Activity 多于 1 个 → 强烈泄漏信号）。
-- 对每个 Activity 实例，构建 **泄漏路径直达 ActivityThread/Application**，并标记"是否已 destroy 但仍在堆中"（通过 `mDestroyed` 字段 / `mFinished` 标志位判断）。
-- 输出 `ActivityLeakReport`，按 Activity 类名分组展示存活实例数 + 引用链，比通用 LeakSuspect 更可操作。
+- 有 `rowBytes` 时用 `rowBytes × height`；否则明确采用 ARGB_8888 的 `width × height × 4` 估算。ARGB_8888 通常为 4 B/像素，参见 [Android 内存管理文档](https://developer.android.com/topic/performance/memory)。
+- HPROF 未提供 backing allocation 归属或 stride 时，`nativeSizeBytes` 保持 `null`，不把估算值冒充实测 native memory。
+- Android 不同版本的 Bitmap 像素数据所在堆不同，参见 [Managing Bitmap Memory](https://developer.android.com/topic/performance/graphics/manage-memory)。
+- 图像内容预览由已有 Bitmap Dump PNG 图库提供；普通 HPROF 不额外推测或重建像素。
 
-### 7. Heap Diff 的类匹配稳定性【影响:中 / 可行性:高】 ✅
-
-**当前实现问题**：`HeapDiffAnalyzer` 按 className 匹配前后条目。混淆场景下 className 不稳定（不同 build 混淆结果可能不同），且类名相同但 classloader 不同（多 dex、插件化）会被错误合并。
-
-**更好的实现方式**：
-- 匹配键增加 **classloader + hierarchy depth** 等维度，避免跨 classloader 合并。
-- 对 diff 结果增加 **对象实例级追踪**（可选高级模式）：用对象 id 在两次 dump 中追踪"同一对象是否存活"，区分"新增对象"与"老对象保留"，比只看类计数更精确。
-
-### 8. 大 Bitmap 的图像预览与体积优先级【影响:低 / 可行性:中】 ✅（预估像素内存标注）
-
-**当前实现问题**：`BitmapDumpParser` 提取 Bitmap 尺寸和 Retained Size，但未展示 Bitmap 内容预览。大 Bitmap（几 MB 的图片）是内存大户，看不到内容难以判断是否合理。
-
-**更好的实现方式**：
-- 对超过阈值的 Bitmap（如 retained > 1MB），从 HPROF 中提取像素数据生成 **缩略图预览**，让用户直观看到是哪张图。
-- 按 retained size 降序展示，并在预览旁标注 `width×height × bytesPerPixel`（推算内存公式），帮助用户识别"超大尺寸图片未压缩"等常见问题。
-- 注意 Bitmap 像素数据可能压缩存储，提取时需解压，限制预览生成数量避免性能问题。
+完整改动与排除项见 [`memory-profiler-optimization-summary.md`](./memory-profiler-optimization-summary.md)。

@@ -3,6 +3,7 @@ package com.androidperformancestudio.application
 import com.androidperformancestudio.analysis.AiAnalysisReport
 import com.androidperformancestudio.analysis.AnalysisReport
 import com.androidperformancestudio.analysis.LayoutMetrics
+import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
 import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.LayoutSnapshot
 import com.androidperformancestudio.protocol.UiNode
@@ -56,6 +57,8 @@ data class InspectorState(
     val selectedTimelineFrameIndex: Int? = null,
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val connectionError: String? = null,
+    val composeInspection: ComposeInspectionDocument? = null,
+    val composeInspectionWarning: String? = null,
 ) {
     val windows: List<WindowSnapshot>
         get() = snapshot?.effectiveWindows.orEmpty()

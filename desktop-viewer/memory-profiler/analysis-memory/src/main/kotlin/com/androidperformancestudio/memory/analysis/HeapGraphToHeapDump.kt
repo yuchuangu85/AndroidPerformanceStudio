@@ -2,69 +2,177 @@ package com.androidperformancestudio.memory.analysis
 
 import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
+import com.androidperformancestudio.memory.model.HeapField
 import com.androidperformancestudio.memory.model.HeapInstance
+import com.androidperformancestudio.memory.model.HeapObjectArray
+import com.androidperformancestudio.memory.model.HeapPrimitiveArray
 import com.androidperformancestudio.memory.model.HeapRoot
 import com.androidperformancestudio.memory.model.HeapRootKind
+import com.androidperformancestudio.memory.model.MemoryHeapNames
+import com.androidperformancestudio.memory.model.MemoryWarning
 import com.androidperformancestudio.memory.model.ObjectReference
+import com.androidperformancestudio.memory.model.PrimitiveType
 
-/**
- * Converts a raw perfetto `java_hprof` [HeapGraphData] into the canonical [HeapDump] model so the
- * existing heap analysis (class histogram, dominator tree / retained sizes, leak suspects) and the
- * class-list UI apply unchanged.
- *
- * Every [HeapGraphObject] becomes a [HeapInstance]; object references become [ObjectReference]s
- * (named via the interned field names). [HeapGraphType]s become [HeapClass]es and roots become
- * [HeapRoot]s. Array objects (kind `KIND_ARRAY`) are kept as instances too — their element
- * references flow through [HeapInstance.references], so the analysis stays correct.
- */
+/** Converts a Perfetto `java_hprof` graph into the profiler's canonical heap model. */
 object HeapGraphToHeapDump {
     fun toHeapDump(graph: HeapGraphData): HeapDump {
-        val typesById = graph.types.associateBy { type -> type.id }
+        val typesById = graph.types.associateBy { it.id }
+        val classNames = graph.types.associate { it.id to normalizeClassName(it.className) }
+        val objectClassNames = graph.objects.associate { it.id to (classNames[it.typeId] ?: HeapClass.UNKNOWN_CLASS_NAME) }
+        val fieldsByType = graph.types.associate { it.id to referenceFields(it, typesById) }
         val classes =
             graph.types.map { type ->
                 HeapClass(
                     objectId = type.id,
-                    name = type.className.ifBlank { HeapClass.UNKNOWN_CLASS_NAME },
+                    name = classNames.getValue(type.id),
                     instanceSize = type.objectSize,
                     superClassObjectId = type.superclassId,
+                    instanceFields =
+                        fieldsByType[type.id].orEmpty().map { fieldId ->
+                            HeapField(graph.fieldNames[fieldId] ?: "<field-$fieldId>", PrimitiveType.OBJECT)
+                        },
+                    classLoaderObjectId = type.classLoaderId,
                 )
             }
-        val instances =
-            graph.objects.map { obj ->
-                val type = typesById[obj.typeId]
-                val references =
-                    obj.referenceObjectIds.mapIndexedNotNull { index, targetId ->
-                        if (targetId == 0L) {
-                            null
-                        } else {
-                            val fieldName =
-                                obj.referenceFieldIds.getOrNull(index)
-                                    ?.let { graph.fieldNames[it] }
-                                    ?: "[$index]"
-                            ObjectReference(fieldName = fieldName, targetObjectId = targetId)
-                        }
-                    }
-                HeapInstance(
-                    objectId = obj.id,
-                    classObjectId = obj.typeId,
-                    className =
-                        type?.className?.ifBlank { HeapClass.UNKNOWN_CLASS_NAME }
-                            ?: HeapClass.UNKNOWN_CLASS_NAME,
-                    shallowSize = obj.selfSize,
-                    references = references,
-                )
+        val instances = mutableListOf<HeapInstance>()
+        val objectArrays = mutableListOf<HeapObjectArray>()
+        val primitiveArrays = mutableListOf<HeapPrimitiveArray>()
+        graph.objects.forEach { obj ->
+            val type = typesById[obj.typeId]
+            val className = objectClassNames.getValue(obj.id)
+            val fieldIds = obj.referenceFieldIds.ifEmpty { fieldsByType[obj.typeId].orEmpty() }
+            val fieldReferences =
+                obj.referenceObjectIds.mapIndexed { index, targetId ->
+                    ObjectReference(
+                        fieldName = graph.fieldNames[fieldIds.getOrNull(index)] ?: "[$index]",
+                        targetObjectId = targetId,
+                        targetClassName = objectClassNames[targetId] ?: HeapClass.UNKNOWN_CLASS_NAME,
+                    )
+                }
+            val runtimeReferences =
+                obj.runtimeInternalObjectIds.mapIndexed { index, targetId ->
+                    ObjectReference(
+                        fieldName = "<runtime-internal-$index>",
+                        targetObjectId = targetId,
+                        targetClassName = objectClassNames[targetId] ?: HeapClass.UNKNOWN_CLASS_NAME,
+                    )
+                }
+            if (type?.isArray == true) {
+                val primitiveType = primitiveArrayType(type.className)
+                if (primitiveType != null) {
+                    primitiveArrays +=
+                        HeapPrimitiveArray(
+                            objectId = obj.id,
+                            primitiveType = primitiveType,
+                            shallowSize = obj.selfSize,
+                        )
+                } else {
+                    objectArrays +=
+                        HeapObjectArray(
+                            objectId = obj.id,
+                            arrayClassObjectId = obj.typeId,
+                            className = className,
+                            elementCount = obj.referenceObjectIds.size,
+                            elementIds = obj.referenceObjectIds,
+                            shallowSize = obj.selfSize,
+                        )
+                }
+            } else {
+                instances +=
+                    HeapInstance(
+                        objectId = obj.id,
+                        classObjectId = obj.typeId,
+                        className = className,
+                        shallowSize = obj.selfSize,
+                        references = fieldReferences + runtimeReferences,
+                        primitiveFields = specialFields(obj),
+                        nativeSizeBytes = obj.nativeAllocationRegistrySize,
+                    )
             }
-        val gcRoots =
-            graph.roots.flatMap { root ->
-                root.objectIds.map { objectId -> HeapRoot(objectId = objectId, kind = rootKind(root.rootType)) }
-            }
+        }
         return HeapDump(
+            pid = graph.pid,
             format = FORMAT,
             classes = classes,
             instances = instances,
-            gcRoots = gcRoots,
+            objectArrays = objectArrays,
+            primitiveArrays = primitiveArrays,
+            gcRoots = graph.roots.flatMap { root -> root.objectIds.map { HeapRoot(it, rootKind(root.rootType)) } },
+            warnings =
+                listOf(
+                    MemoryWarning(
+                        "Perfetto java_hprof omits general primitive field values; lifecycle leak filters may be partial.",
+                    ),
+                ),
+            heapByObjectId = graph.objects.associate { it.id to heapName(it.heapType) },
         )
     }
+
+    private fun referenceFields(
+        type: HeapGraphType,
+        typesById: Map<Long, HeapGraphType>,
+    ): List<Long> {
+        val result = mutableListOf<Long>()
+        val visited = hashSetOf<Long>()
+        var current: HeapGraphType? = type
+        while (current != null && visited.add(current.id)) {
+            result += current.referenceFieldIds
+            current = typesById[current.superclassId]
+        }
+        return result
+    }
+
+    private fun specialFields(obj: HeapGraphObject): Map<String, Long> =
+        buildMap {
+            obj.bitmapId?.let { put("mId", it) }
+            obj.bitmapSourceId?.let { put("mSourceId", it) }
+            obj.bitmapWidth?.let { put("mWidth", it.toLong()) }
+            obj.bitmapHeight?.let { put("mHeight", it.toLong()) }
+            obj.applicationInfoLongVersionCode?.let { put("longVersionCode", it) }
+        }
+
+    private fun normalizeClassName(rawName: String): String {
+        if (rawName.isBlank()) return HeapClass.UNKNOWN_CLASS_NAME
+        val name = rawName.replace('/', '.')
+        if (!name.startsWith("[")) return name.removePrefix("L").removeSuffix(";")
+        var dimensions = 0
+        while (dimensions < name.length && name[dimensions] == '[') dimensions += 1
+        val element =
+            when (val descriptor = name.getOrNull(dimensions)) {
+                'Z' -> "boolean"
+                'C' -> "char"
+                'F' -> "float"
+                'D' -> "double"
+                'B' -> "byte"
+                'S' -> "short"
+                'I' -> "int"
+                'J' -> "long"
+                'L' -> name.substring(dimensions + 1).removeSuffix(";")
+                else -> descriptor?.toString() ?: HeapClass.UNKNOWN_CLASS_NAME
+            }
+        return element + "[]".repeat(dimensions)
+    }
+
+    private fun primitiveArrayType(rawName: String): PrimitiveType? =
+        when (rawName.substringAfterLast('[').firstOrNull()) {
+            'Z' -> PrimitiveType.BOOLEAN
+            'C' -> PrimitiveType.CHAR
+            'F' -> PrimitiveType.FLOAT
+            'D' -> PrimitiveType.DOUBLE
+            'B' -> PrimitiveType.BYTE
+            'S' -> PrimitiveType.SHORT
+            'I' -> PrimitiveType.INT
+            'J' -> PrimitiveType.LONG
+            else -> null
+        }
+
+    private fun heapName(heapType: Int): String =
+        when (heapType) {
+            1 -> MemoryHeapNames.APP
+            2 -> MemoryHeapNames.ZYGOTE
+            3 -> MemoryHeapNames.IMAGE
+            else -> MemoryHeapNames.DEFAULT
+        }
 
     private fun rootKind(rootType: Int): HeapRootKind =
         when (rootType) {

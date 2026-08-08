@@ -9,8 +9,9 @@ public object MemoryProfilerPresenter {
     public fun present(input: MemoryProfilerState): MemoryProfilerState {
         val sortedAll = sortClasses(input.classes, input.sort)
         val leakClasses = leakClassNames(input)
+        val activityFragmentLeakClasses = activityFragmentLeakClassNames(input)
         val duplicateClasses = duplicateBitmapClasses(input)
-        val displayed = buildDisplayedClasses(input, leakClasses, duplicateClasses)
+        val displayed = buildDisplayedClasses(input, leakClasses, activityFragmentLeakClasses, duplicateClasses)
         return input.copy(
             classes = sortedAll,
             displayedClasses = displayed,
@@ -42,13 +43,20 @@ public object MemoryProfilerPresenter {
             input.activityLeaks.forEach { add(it.className) }
         }
 
-    /** Bitmap classes containing at least two instances that share width×height (duplicate heuristic). */
+    private fun activityFragmentLeakClassNames(input: MemoryProfilerState): Set<String> =
+        buildSet {
+            input.activityLeaks.forEach { add(it.className) }
+            input.leakSuspects.filter { it.activityOrFragmentLeak }.forEach { add(it.className) }
+        }
+
+    /** Bitmap classes sharing Perfetto storage identity, or dimensions when that identity is absent. */
     public fun duplicateBitmapClasses(input: MemoryProfilerState): Set<String> {
         val signatures =
             input.bitmapInstances.mapNotNull { bitmap ->
+                bitmap.bitmapId?.let { return@mapNotNull bitmap.className to "${bitmap.bitmapSourceId}:$it" }
                 val width = bitmap.width ?: return@mapNotNull null
                 val height = bitmap.height ?: return@mapNotNull null
-                bitmap.className to (width to height)
+                bitmap.className to "$width:$height"
             }
         val counts = signatures.groupingBy { it }.eachCount()
         return signatures.filter { (counts[it] ?: 0) > 1 }.map { it.first }.toSet()
@@ -57,12 +65,13 @@ public object MemoryProfilerPresenter {
     private fun buildDisplayedClasses(
         input: MemoryProfilerState,
         leakClasses: Set<String>,
+        activityFragmentLeakClasses: Set<String>,
         duplicateClasses: Set<String>,
     ): List<ClassStats> {
         val nativeSizeByClass = nativeSizeByClass(input)
         return input.heapBaseClasses
             .filter { scopeMatches(input.classScope, it.className) }
-            .filter { leakMatches(input.leakFilter, it.className, leakClasses, duplicateClasses) }
+            .filter { leakMatches(input.leakFilter, it.className, leakClasses, activityFragmentLeakClasses, duplicateClasses) }
             .filter { searchMatches(input.searchText, input.matchCase, input.useRegex, it.className) }
             .map { it.copy(nativeSize = nativeSizeByClass[it.className]) }
             .sortedWith(arrangeComparator(input.arrangeBy))
@@ -84,7 +93,11 @@ public object MemoryProfilerPresenter {
         )
 
     private fun nativeSizeByClass(input: MemoryProfilerState): Map<String, Long> {
-        val result = hashMapOf<String, Long>()
+        val result =
+            input.heapBaseClasses
+                .mapNotNull { stats -> stats.nativeSize?.let { stats.className to it } }
+                .toMap()
+                .toMutableMap()
         input.bitmapInstances.forEach { bitmap ->
             val native = bitmap.nativeSizeBytes ?: return@forEach
             result[bitmap.className] = (result[bitmap.className] ?: 0L) + native
@@ -106,12 +119,13 @@ public object MemoryProfilerPresenter {
         filter: MemoryLeakFilter,
         className: String,
         leakClasses: Set<String>,
+        activityFragmentLeakClasses: Set<String>,
         duplicateClasses: Set<String>,
     ): Boolean =
         when (filter) {
             MemoryLeakFilter.NONE -> true
             MemoryLeakFilter.ALL_ISSUE -> className in leakClasses || className in duplicateClasses
-            MemoryLeakFilter.ACTIVITY_FRAGMENT_LEAK -> className in leakClasses
+            MemoryLeakFilter.ACTIVITY_FRAGMENT_LEAK -> className in activityFragmentLeakClasses
             MemoryLeakFilter.DUPLICATE_BITMAPS -> className in duplicateClasses
         }
 

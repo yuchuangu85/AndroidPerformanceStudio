@@ -1,0 +1,3 @@
+# Gate benchmark regressions with comparable cohorts and two-sample uncertainty
+
+Benchmark regression gates compare only runs in the same Comparable Benchmark Cohort and require both a practical change threshold and a BCa confidence interval for the two-sample median difference. Baseline-only MAD and p-values may remain diagnostic evidence but cannot independently pass the gate, because neither establishes that an observed change is both reliable and worth acting on; required comparisons that remain inconclusive or incompatible fail closed in CI unless project policy explicitly treats them as warnings.

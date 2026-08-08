@@ -105,6 +105,7 @@ class InstanceReferenceQueryTest {
         assertEquals("com.example.Widget", detail?.fields?.get(2)?.targetClassName)
         assertEquals(2, detail?.referenceChain?.size)
         assertEquals("GC Root (JNI_GLOBAL)", detail?.referenceChain?.first()?.fieldName)
+        assertEquals(setOf("child", "[0]"), detail?.references?.map { it.name }?.toSet())
     }
 
     @Test

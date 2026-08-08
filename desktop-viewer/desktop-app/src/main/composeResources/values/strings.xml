@@ -40,6 +40,7 @@
     <string name="light">Light</string>
     <string name="dark">Dark</string>
     <string name="layout_correlation_from_frame">Layout correlation from Frame #%1$s · %2$s%3$s</string>
+    <string name="frame_perfetto_correlation">Opened from Frame Profiler for FrameTimeline correlation (%1$s). App, SurfaceFlinger, or GPU attribution requires FrameTimeline evidence in this trace.</string>
     <string name="correlation_only_no_view_causality_is_inferred">correlation only; no View causality is inferred</string>
     <string name="foreground_package_differs">foreground package differs</string>
     <string name="settings_could_not_be_saved_the_current_session_still_uses">%1$s settings could not be saved; the current session still uses the change.</string>

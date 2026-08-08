@@ -54,6 +54,34 @@ class GfxInfoPollingCaptureSessionTest {
             assertEquals(1, session.poll().frames.size)
         }
 
+    @Test
+    fun `warns instead of inventing a drop count when a full window has no overlap`() =
+        runBlocking {
+            var poll = 0
+            val runner =
+                AdbShellRunner { _, arguments ->
+                    if (arguments.last() == "reset") {
+                        ""
+                    } else {
+                        val start = if (poll++ == 0) 100_000_000L else 10_000_000_000L
+                        frameStats((0 until 110).map { index -> frameRow(start + index * 8_333_333L) })
+                    }
+                }
+            val session =
+                GfxInfoPollingCaptureSession(
+                    target = GfxInfoCaptureTarget("device", "com.example", processId = 42),
+                    sessionId = "session",
+                    runner = runner,
+                )
+
+            session.start()
+            session.poll()
+            val second = session.poll()
+
+            assertTrue(second.warnings.any { it.contains("may have been overwritten") })
+            assertTrue(second.frames.all { it.droppedBeforeSample == 0L })
+        }
+
     private fun frameStats(rows: List<String>): String =
         buildString {
             appendLine("---PROFILEDATA---")
@@ -61,6 +89,12 @@ class GfxInfoPollingCaptureSessionTest {
             rows.forEach(::appendLine)
             appendLine("---PROFILEDATA---")
         }
+
+    private fun frameRow(intendedVsyncNs: Long): String =
+        "0,$intendedVsyncNs,$intendedVsyncNs,${intendedVsyncNs + 1},${intendedVsyncNs + 2}," +
+            "${intendedVsyncNs + 3},${intendedVsyncNs + 4},${intendedVsyncNs + 8_333_333},8333333," +
+            "${intendedVsyncNs + 5},${intendedVsyncNs + 5},${intendedVsyncNs + 6}," +
+            "${intendedVsyncNs + 7},${intendedVsyncNs + 8}"
 
     private companion object {
         const val HEADER =

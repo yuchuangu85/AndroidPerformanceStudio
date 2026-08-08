@@ -143,6 +143,17 @@ class MemoryProfilerControllerTest {
         }
 
     @Test
+    fun `importing mapping does not fabricate a heap diff`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend())
+
+            controller.importHprof(Path.of("same.hprof"))
+            controller.importMapping(Path.of("mapping.txt"))
+
+            assertNull(controller.state.value.heapDiff)
+        }
+
+    @Test
     fun `bitmap capture exposes session and compares consecutive dumps`() =
         runTest {
             val backend = FakeBackend()
@@ -222,6 +233,8 @@ class MemoryProfilerControllerTest {
                 MemoryBackendResult.Success(loadedHeap())
             }
         }
+
+        override suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> = MemoryBackendResult.Success(loadedHeap())
 
         override fun exportRaw(
             heapDump: HeapDump,

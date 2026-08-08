@@ -30,7 +30,7 @@ class NetworkProfilerLocalizationTest {
         assertTrue(source.contains("Res.string.request_details, language"))
         assertTrue(source.contains("Res.string.incomplete, language"))
         assertTrue(source.contains("coverage.instrumentationMode.displayName(language)"))
-        assertTrue(source.contains("coverage.completeness.displayName(language)"))
+        assertTrue(source.contains("state.result.session.completeness.status.displayName(language)"))
         assertTrue(source.contains("call.outcome.displayName(language)"))
         assertTrue(source.contains("phase.kind.displayName(language)"))
         assertTrue(source.contains("phase.confidence.displayName(language)"))
@@ -43,13 +43,14 @@ class NetworkProfilerLocalizationTest {
             localizedStringResource(Res.string.request_details, UiLanguage.SIMPLIFIED_CHINESE),
         )
         assertEquals(
-            "HTTP 200 · h2 · 连接 conn-1",
+            "HTTP 200 · h2 · 连接 conn-1 · 复用",
             localizedStringResource(
                 Res.string.http_exchange,
                 UiLanguage.SIMPLIFIED_CHINESE,
                 200,
                 "h2",
                 "conn-1",
+                "复用",
             ),
         )
         assertEquals(

@@ -2,6 +2,7 @@ package com.androidperformancestudio.frame.presentation
 
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.model.FrameSample
+import java.nio.file.Path
 
 public data class FrameProfilerState(
     val devices: List<FrameDeviceOption> = emptyList(),
@@ -11,6 +12,7 @@ public data class FrameProfilerState(
     val importedFileName: String? = null,
     val analysis: FrameAnalysisResult? = null,
     val selectedFrameId: Long? = null,
+    val perfettoTraceFile: Path? = null,
     val isLoading: Boolean = false,
     val isRefreshingDevices: Boolean = false,
     val isCapturing: Boolean = false,

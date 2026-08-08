@@ -67,6 +67,8 @@ public data class FrameSample(
     val presentNs: Long? = null,
     val expectedDurationNs: Long? = null,
     val expectedDurationSource: ExpectedDurationSource = ExpectedDurationSource.UNKNOWN,
+    val refreshRateHz: Double? = null,
+    val frameTimelineVsyncId: Long? = null,
     val totalDurationNs: Long? = null,
     val stages: FrameStages = FrameStages(),
     val platformJank: Boolean? = null,
@@ -92,7 +94,16 @@ public data class FrameCaptureSession(
     val startedAt: Instant,
     val packageName: String? = null,
     val deviceSerial: String? = null,
+    val deviceApiLevel: Int? = null,
+    val agentProtocol: String? = null,
+    val sourceCapabilities: FrameSourceCapabilities? = null,
+    val observedRefreshRatesHz: Set<Double> = emptySet(),
     val importedFile: String? = null,
+    val importedFileSha256: String? = null,
+    val importedAt: Instant? = null,
+    val provenanceComplete: Boolean = true,
+    val provenanceWarnings: List<String> = emptyList(),
+    val perfettoTraceFile: String? = null,
 )
 
 public data class FrameSourceCapabilities(

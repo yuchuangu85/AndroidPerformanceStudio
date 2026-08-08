@@ -11,6 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.network.analysis.NetworkSummary
 import com.androidperformancestudio.network.model.CallOutcome
+import com.androidperformancestudio.network.model.ConnectionUse
+import com.androidperformancestudio.network.model.EvidenceCompleteness
 import com.androidperformancestudio.network.model.HttpCall
 import com.androidperformancestudio.network.model.InstrumentationMode
 import com.androidperformancestudio.network.model.NetworkCaptureResult
@@ -45,7 +47,7 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
             Summary(localizedStringResource(Res.string.failures, language), state.summary?.failureCount?.toString() ?: "—", Modifier.weight(1f))
             Summary(localizedStringResource(Res.string.p50, language), state.summary?.medianDurationMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
             Summary(localizedStringResource(Res.string.p95, language), state.summary?.p95DurationMs?.let { "%.1f ms".format(it) } ?: "—", Modifier.weight(1f))
-            Summary(localizedStringResource(Res.string.dropped, language), state.result?.session?.coverage?.droppedEvents?.toString() ?: "0", Modifier.weight(1f))
+            Summary(localizedStringResource(Res.string.dropped, language), state.result?.session?.completeness?.droppedEvents?.toString() ?: "0", Modifier.weight(1f))
         }
         state.result?.session?.coverage?.let { coverage ->
             Text(
@@ -53,7 +55,7 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
                     Res.string.text,
                     language,
                     coverage.instrumentationMode.displayName(language),
-                    coverage.completeness.displayName(language),
+                    state.result.session.completeness.status.displayName(language),
                     coverage.observedLibraries.joinToString(),
                 ),
             )
@@ -61,11 +63,17 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
                 localizedStringResource(
                     Res.string.not_covered,
                     language,
-                    coverage.unsupportedStacks.joinToString(),
+                    coverage.knownLimitations.joinToString(),
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        state.summary?.let { summary ->
+            Text(localizedStringResource(Res.string.outcome_summary, language, summary.completedCount, summary.failureCount, summary.cancelledCount, summary.incompleteCount, summary.httpStatusFamilies.entries.joinToString { "${it.key}:${it.value}" }.ifEmpty { "—" }), style = MaterialTheme.typography.bodySmall)
+            val reuse = summary.connectionReuse
+            Text(localizedStringResource(Res.string.reuse_summary, language, reuse.reuseRateAmongKnown?.let { "%.1f%%".format(it * 100) } ?: "—", reuse.newExchangeCount, reuse.reusedExchangeCount, reuse.unknownExchangeCount), style = MaterialTheme.typography.bodySmall)
+            summary.largestObservedPhase?.let { phase -> Text(localizedStringResource(Res.string.largest_phase, language, phase.kind.displayName(language), phase.medianDurationMs?.let { "%.2f ms".format(it) } ?: "—"), style = MaterialTheme.typography.bodySmall) }
         }
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -88,8 +96,10 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
                                     exchange.statusCode ?: "—",
                                     exchange.protocol ?: "—",
                                     exchange.connectionId ?: localizedStringResource(Res.string.reused_unknown, language),
+                                    exchange.connectionUse.displayName(language),
                                 ),
                             )
+                            exchange.tlsHandshake?.let { handshake -> Text(localizedStringResource(Res.string.tls_handshake, language, handshake.tlsVersion ?: "—", handshake.cipherSuite ?: "—"), style = MaterialTheme.typography.bodySmall) }
                             exchange.phases.forEach { phase ->
                                 Text(
                                     localizedStringResource(
@@ -163,10 +173,30 @@ private fun NetworkConfidence.displayName(language: UiLanguage): String =
 private fun CallOutcome.displayName(language: UiLanguage): String =
     localizedStringResource(
         when (this) {
-            CallOutcome.SUCCESS -> Res.string.outcome_success
+            CallOutcome.COMPLETED -> Res.string.outcome_completed
             CallOutcome.FAILED -> Res.string.outcome_failed
             CallOutcome.CANCELLED -> Res.string.outcome_cancelled
             CallOutcome.INCOMPLETE -> Res.string.outcome_incomplete
+        },
+        language,
+    )
+
+private fun EvidenceCompleteness.displayName(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            EvidenceCompleteness.COMPLETE -> Res.string.completeness_complete
+            EvidenceCompleteness.PARTIAL -> Res.string.confidence_partial
+            EvidenceCompleteness.UNKNOWN -> Res.string.confidence_unknown
+        },
+        language,
+    )
+
+private fun ConnectionUse.displayName(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            ConnectionUse.NEW -> Res.string.connection_new
+            ConnectionUse.REUSED -> Res.string.connection_reused
+            ConnectionUse.UNKNOWN -> Res.string.connection_unknown
         },
         language,
     )

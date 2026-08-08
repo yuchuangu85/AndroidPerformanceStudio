@@ -17,11 +17,11 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing_ad13e4da
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.loading_session
-import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_java_heap
-import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.mapping_imported
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_capture_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_java_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_load_mapping
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
@@ -113,7 +113,8 @@ internal interface MemoryProfilerBackend {
      * Imports an R8/ProGuard mapping.txt and returns the re-analyzed heap when one was already
      * loaded, or null when only the mapping was stored.
      */
-    suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> = MemoryBackendResult.Success(null)
+    suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> =
+        MemoryBackendResult.Failure("Mapping import unavailable", "The selected backend does not support mapping.txt.")
 
     suspend fun listSessions(): MemoryBackendResult<List<MemorySessionMetadata>> = MemoryBackendResult.Success(emptyList())
 
@@ -257,17 +258,11 @@ internal class MemoryProfilerController(
     }
 
     fun selectClass(className: String) {
-        val nativeByObjectId =
-            buildMap {
-                mutableState.value.bitmapInstances.forEach { bitmap ->
-                    bitmap.nativeSizeBytes?.let { put(bitmap.objectId, it) }
-                }
-            }
         val instances =
             instanceQuery
                 ?.instancesOf(className, heapName = mutableState.value.heapFilter)
                 .orEmpty()
-                .map { it.toPresentation(nativeSize = nativeByObjectId[it.objectId]) }
+                .map { it.toPresentation() }
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = className,
@@ -479,7 +474,7 @@ internal class MemoryProfilerController(
                                 mappingLoaded = true,
                                 warning = localizedStringResource(Res.string.mapping_imported, language),
                             )
-                    else -> applyLoadedResult(MemoryBackendResult.Success(heap))
+                    else -> applyLoadedResult(MemoryBackendResult.Success(heap), compareWithPrevious = false)
                 }
         }
     }
@@ -567,7 +562,10 @@ internal class MemoryProfilerController(
         mutableState.value.bitmapDumpComparison?.let { backend.exportBitmapComparison(it, output) }
     }
 
-    private fun applyLoadedResult(result: MemoryBackendResult<LoadedHeap>) {
+    private fun applyLoadedResult(
+        result: MemoryBackendResult<LoadedHeap>,
+        compareWithPrevious: Boolean = true,
+    ) {
         when (result) {
             is MemoryBackendResult.Failure -> showFailure(result)
             is MemoryBackendResult.Success -> {
@@ -589,11 +587,11 @@ internal class MemoryProfilerController(
                         warning = result.value.warning,
                         cleanupWarning = result.value.cleanupWarning,
                         heapDiff =
-                            previous?.let {
+                            previous?.takeIf { compareWithPrevious }?.let {
                                 HeapDiffAnalyzer().diff(
                                     it.histogram.classes,
                                     result.value.histogram.classes,
-                                    HeapDiffMatchMode.CLASS_NAME_AND_HIERARCHY,
+                                    HeapDiffMatchMode.CLASS_NAME,
                                 )
                             },
                         bitmapInstances = result.value.heapDump.bitmapInstances,
@@ -651,7 +649,7 @@ internal class MemoryProfilerController(
             )
     }
 
-    private fun InstanceQueryRow.toPresentation(nativeSize: Long? = null): MemoryInstanceRow =
+    private fun InstanceQueryRow.toPresentation(): MemoryInstanceRow =
         MemoryInstanceRow(
             objectId = objectId,
             index = index,
@@ -681,5 +679,14 @@ internal class MemoryProfilerController(
                     )
                 },
             referenceChain = referenceChain,
+            references =
+                references.map { reference ->
+                    MemoryInstanceField(
+                        name = reference.name,
+                        displayValue = reference.displayValue,
+                        targetObjectId = reference.targetObjectId,
+                        targetClassName = reference.targetClassName,
+                    )
+                },
         )
 }

@@ -1,0 +1,3 @@
+# Resolve and cache the exact Compose Inspector artifact
+
+Zero-integration Compose inspection resolves the target app's actual Compose UI version and loads the matching inspector from an explicitly supplied artifact when configured, otherwise from a checksum-verified cache, local build cache, configured Maven mirror, or Google Maven in that order. The desktop package ships the cross-version injection runtime but not every historical inspector, never substitutes a nearby Compose version after resolution failure, and records only artifact identity and digest in archives so executable inspector code is neither silently trusted nor embedded in shared captures.

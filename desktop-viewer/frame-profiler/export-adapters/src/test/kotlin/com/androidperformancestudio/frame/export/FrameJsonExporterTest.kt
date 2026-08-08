@@ -30,8 +30,9 @@ class FrameJsonExporterTest {
         FrameJsonExporter().export(FrameJankAnalyzer().analyze(listOf(sample)), output)
 
         val json = output.readText()
-        assertTrue(json.contains("\"schemaVersion\": 1"))
-        assertTrue(json.contains("\"jankFrames\": 1"))
+        assertTrue(json.contains("\"schemaVersion\": 2"))
+        assertTrue(json.contains("\"deadlineMissFrames\": 1"))
+        assertTrue(json.contains("\"platformJankFrames\": 1"))
         assertTrue(json.contains("\"screen\": \"feed\\\"list\""))
         assertTrue(json.contains("\"clusters\": ["))
     }

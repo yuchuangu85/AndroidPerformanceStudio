@@ -4,11 +4,13 @@ import java.nio.file.Path
 import kotlinx.serialization.Serializable
 
 internal const val CAPTURE_ARCHIVE_FORMAT = "agentperf-inspector-capture"
-internal const val CAPTURE_ARCHIVE_VERSION = 1
+internal const val LEGACY_CAPTURE_ARCHIVE_VERSION = 1
+internal const val CAPTURE_ARCHIVE_VERSION = 2
 
 internal object CaptureArchivePaths {
     const val MANIFEST = "manifest.json"
     const val SNAPSHOT = "capture/layout-snapshot.json"
+    const val COMPOSE_INSPECTION = "capture/compose-inspection.json"
     const val SCREENSHOT = "capture/screenshot.png"
     const val ANALYSIS_REPORT = "report/analysis-report.json"
     const val AI_ANALYSIS_REPORT = "report/ai-analysis-report.json"
@@ -29,6 +31,7 @@ internal data class CaptureArchivePayload(
     val analysisReportJson: String? = null,
     val aiAnalysisReportJson: String? = null,
     val timelineHistoryJson: String? = null,
+    val composeInspectionJson: String? = null,
 )
 
 internal data class CaptureArchiveMetadata(
@@ -42,6 +45,7 @@ internal data class CaptureArchiveMetadata(
 internal data class CaptureArchiveDocument(
     val metadata: CaptureArchiveMetadata,
     val payload: CaptureArchivePayload,
+    val archiveVersion: Int = LEGACY_CAPTURE_ARCHIVE_VERSION,
 )
 
 internal data class CaptureArchiveWriteResult(

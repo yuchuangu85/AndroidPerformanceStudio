@@ -46,12 +46,14 @@ public class GfxInfoPollingCaptureSession internal constructor(
         runner = JvmAdbShellRunner(adbExecutable),
     )
 
-    private val seenFrames = hashSetOf<FrameIdentity>()
+    private val seenFrames = linkedMapOf<FrameIdentity, Long>()
     private var nextFrameId = 0L
+    private var hasPolled = false
 
     public suspend fun start(): List<String> {
         seenFrames.clear()
         nextFrameId = 0L
+        hasPolled = false
         return runCatching {
             runner.execute(
                 serial = target.serial,
@@ -73,23 +75,42 @@ public class GfxInfoPollingCaptureSession internal constructor(
                 arguments = listOf("dumpsys", "gfxinfo", target.packageName, "framestats"),
             )
         val parsed = parser.parse(output, sessionId = sessionId, packageName = target.packageName)
+        var overlappingFrames = 0
         val newFrames =
             parsed.frames.mapNotNull { frame ->
                 val identity = frame.identity()
-                if (!seenFrames.add(identity)) {
+                if (identity in seenFrames) {
+                    overlappingFrames += 1
                     null
                 } else {
+                    seenFrames[identity] = frame.intendedVsyncNs ?: nextFrameId
                     frame.copy(
                         frameId = nextFrameId++,
                         processId = target.processId,
                     )
                 }
             }
-        return GfxInfoPollBatch(frames = newFrames, warnings = parsed.warnings)
+        pruneSeenFrames()
+        val windowWarning =
+            if (hasPolled && parsed.frames.size >= FRAMESTATS_WINDOW_WARNING_SIZE && overlappingFrames == 0) {
+                listOf("The gfxinfo window had no overlap with the previous poll; frames may have been overwritten.")
+            } else {
+                emptyList()
+            }
+        hasPolled = true
+        return GfxInfoPollBatch(frames = newFrames, warnings = parsed.warnings + windowWarning)
+    }
+
+    private fun pruneSeenFrames() {
+        val newestTimestamp = seenFrames.values.maxOrNull() ?: return
+        val oldestTimestamp = newestTimestamp - DEDUPLICATION_WINDOW_NS
+        seenFrames.entries.removeAll { (_, timestamp) -> timestamp < oldestTimestamp }
+        while (seenFrames.size > MAX_DEDUPLICATION_IDENTITIES) seenFrames.remove(seenFrames.keys.first())
     }
 
     private fun FrameSample.identity(): FrameIdentity =
         FrameIdentity(
+            windowId = windowId,
             intendedVsyncNs = intendedVsyncNs,
             frameCompletedNs = frameCompletedNs,
             presentNs = presentNs,
@@ -97,11 +118,18 @@ public class GfxInfoPollingCaptureSession internal constructor(
         )
 
     private data class FrameIdentity(
+        val windowId: String?,
         val intendedVsyncNs: Long?,
         val frameCompletedNs: Long?,
         val presentNs: Long?,
         val totalDurationNs: Long?,
     )
+
+    private companion object {
+        const val FRAMESTATS_WINDOW_WARNING_SIZE = 110
+        const val DEDUPLICATION_WINDOW_NS = 5_000_000_000L
+        const val MAX_DEDUPLICATION_IDENTITIES = 1_024
+    }
 }
 
 private class JvmAdbShellRunner(

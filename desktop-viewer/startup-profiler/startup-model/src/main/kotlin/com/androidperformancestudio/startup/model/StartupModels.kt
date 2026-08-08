@@ -13,6 +13,7 @@ public enum class StartupSource {
     AM_START,
     AGENT,
     EVENT_LOG,
+    PERFETTO,
 }
 
 public enum class EvidenceConfidence {
@@ -30,6 +31,13 @@ public enum class CompilationMode(
     VERIFY("verify"),
     SPEED_PROFILE("speed-profile"),
     SPEED("speed"),
+}
+
+public enum class StartupProfileSource {
+    UNVERIFIED,
+    BASELINE_PROFILE_PLUGIN,
+    MACROBENCHMARK,
+    BUILD_VARIANT,
 }
 
 public enum class StartupCapabilityLevel {
@@ -70,12 +78,19 @@ public data class StartupExperimentConfig(
     val warmupRuns: Int = 0,
     val measuredRuns: Int = 5,
     val timeoutSeconds: Int = 30,
+    val capturePerfettoTrace: Boolean = false,
+    val practicalChangeThresholdPercent: Double = 5.0,
+    val profileSource: StartupProfileSource = StartupProfileSource.UNVERIFIED,
 ) {
     init {
         require(warmupRuns in 0..MAX_RUNS) { "warmupRuns must be between 0 and $MAX_RUNS" }
         require(measuredRuns in 1..MAX_RUNS) { "measuredRuns must be between 1 and $MAX_RUNS" }
         require(timeoutSeconds in MIN_TIMEOUT_SECONDS..MAX_TIMEOUT_SECONDS) {
             "timeoutSeconds must be between $MIN_TIMEOUT_SECONDS and $MAX_TIMEOUT_SECONDS"
+        }
+        require(practicalChangeThresholdPercent in 0.0..100.0) { "practicalChangeThresholdPercent must be between 0 and 100" }
+        require(compilationMode == CompilationMode.SPEED_PROFILE || profileSource == StartupProfileSource.UNVERIFIED) {
+            "profileSource is only valid for speed-profile compilation mode"
         }
     }
 
@@ -136,6 +151,49 @@ public data class StartupRawEvidence(
     val agentAvailable: Boolean = false,
 )
 
+public data class StartupMetricEvidence(
+    val source: StartupSource? = null,
+    val confidence: EvidenceConfidence = EvidenceConfidence.UNAVAILABLE,
+    val unavailableReason: String? = null,
+)
+
+public data class StartupCompilationEvidence(
+    val requestedMode: CompilationMode,
+    val compilerFilterBefore: String? = null,
+    val compilerFilterAfter: String? = null,
+    val profileStateBefore: String? = null,
+    val profileStateAfter: String? = null,
+    val preparationOutput: String? = null,
+    val verified: Boolean = false,
+    val failureReason: String? = null,
+    val profileSource: StartupProfileSource = StartupProfileSource.UNVERIFIED,
+    val profileSourceDeclared: Boolean = false,
+)
+
+public data class StartupEnvironmentEvidence(
+    val deviceModel: String? = null,
+    val apiLevel: Int? = null,
+    val emulator: Boolean? = null,
+    val batteryPercent: Int? = null,
+    val charging: Boolean? = null,
+    val thermalStatus: Int? = null,
+    val capturedAt: Instant? = null,
+    val failures: List<String> = emptyList(),
+)
+
+public data class StartupTraceEvidence(
+    val file: String? = null,
+    val captured: Boolean = false,
+    val truncated: Boolean = false,
+    val failureReason: String? = null,
+)
+
+public data class StartupRunContext(
+    val deviceSerial: String,
+    val packageName: String,
+    val componentName: String,
+)
+
 public data class StartupRun(
     val id: String,
     val sessionId: String,
@@ -149,6 +207,14 @@ public data class StartupRun(
     val rawEvidence: StartupRawEvidence,
     val processIdBefore: Int? = null,
     val processIdAfter: Int? = null,
+    val context: StartupRunContext? = null,
+    val ttidEvidence: StartupMetricEvidence = StartupMetricEvidence(),
+    val ttfdEvidence: StartupMetricEvidence = StartupMetricEvidence(),
+    val agentFirstFrameEvidence: StartupMetricEvidence = StartupMetricEvidence(),
+    val compilationEvidence: StartupCompilationEvidence? = null,
+    val environmentEvidence: StartupEnvironmentEvidence? = null,
+    val traceEvidence: StartupTraceEvidence? = null,
+    val diagnostics: List<String> = emptyList(),
 )
 
 public data class StartupStatistics(
@@ -162,4 +228,6 @@ public data class StartupStatistics(
     val p95Ms: Double?,
     val standardDeviationMs: Double?,
     val medianAbsoluteDeviationMs: Double?,
+    val p90LowResolution: Boolean = false,
+    val p95LowResolution: Boolean = false,
 )

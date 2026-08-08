@@ -3,6 +3,10 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.analysis.AiAnalysisReport
 import com.androidperformancestudio.analysis.AnalysisReport
 import com.androidperformancestudio.application.TimelineFrame
+import com.androidperformancestudio.compose.inspection.ComposeArchivePrivacy
+import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
+import com.androidperformancestudio.compose.inspection.ComposeInspectionJson
+import com.androidperformancestudio.compose.inspection.redacted
 import com.androidperformancestudio.protocol.CaptureFrameCodec
 import com.androidperformancestudio.protocol.LayoutSnapshot
 import com.androidperformancestudio.protocol.ProtocolCodec
@@ -19,6 +23,8 @@ internal data class ImportedCapture(
     val analysis: AnalysisReport?,
     val aiAnalysis: AiAnalysisReport?,
     val timelineFrames: List<TimelineFrame>,
+    val composeInspection: ComposeInspectionDocument? = null,
+    val composeInspectionWarning: String? = null,
 )
 
 internal data class ImportedScreenshot(
@@ -33,6 +39,7 @@ internal class CaptureArchiveService(
     private val analysisReportJson: AnalysisReportJson = AnalysisReportJson(),
     private val aiAnalysisReportJson: AiAnalysisReportJson = AiAnalysisReportJson(),
     private val timelineHistoryJson: TimelineHistoryJson = TimelineHistoryJson(),
+    private val composeInspectionJson: ComposeInspectionJson = ComposeInspectionJson(),
 ) {
     fun export(
         target: Path,
@@ -43,9 +50,15 @@ internal class CaptureArchiveService(
         analysis: AnalysisReport? = null,
         aiAnalysis: AiAnalysisReport? = null,
         timelineFrames: List<TimelineFrame> = emptyList(),
+        composeInspection: ComposeInspectionDocument? = null,
+        composePrivacy: ComposeArchivePrivacy = ComposeArchivePrivacy.SAFE_REDACTED,
     ): CaptureArchiveWriteResult {
         screenshotPng?.let(::validatePng)
         val exportSnapshot = snapshot.normalizedToCurrentProtocol()
+        require(composeInspection == null ||
+            composeInspection.packageName == exportSnapshot.packageName &&
+            composeInspection.capturedAtEpochMillis == exportSnapshot.capturedAtEpochMillis
+        ) { "Compose inspection does not belong to the exported layout snapshot" }
         return archiveCodec.write(
             target = target,
             metadata = CaptureArchiveMetadata(
@@ -62,6 +75,14 @@ internal class CaptureArchiveService(
                 analysisReportJson = analysis?.let(analysisReportJson::encode),
                 aiAnalysisReportJson = aiAnalysis?.let(aiAnalysisReportJson::encode),
                 timelineHistoryJson = timelineFrames.takeIf { it.isNotEmpty() }?.let(timelineHistoryJson::encode),
+                composeInspectionJson = composeInspection?.let { inspection ->
+                    val exportInspection = if (composePrivacy == ComposeArchivePrivacy.FULL_FIDELITY) {
+                        inspection
+                    } else {
+                        inspection.redacted()
+                    }
+                    composeInspectionJson.encode(exportInspection)
+                },
             ),
         )
     }
@@ -112,6 +133,21 @@ internal class CaptureArchiveService(
                 "Archive protocol version does not match its snapshot",
             )
         }
+        val composeInspectionResult = document.payload.composeInspectionJson?.let { encoded ->
+            runCatching { composeInspectionJson.decode(encoded) }
+                .fold(
+                    onSuccess = { inspection ->
+                        if (inspection.packageName == snapshot.packageName &&
+                            inspection.capturedAtEpochMillis == snapshot.capturedAtEpochMillis
+                        ) {
+                            inspection to null
+                        } else {
+                            null to "Compose inspection does not match the layout snapshot"
+                        }
+                    },
+                    onFailure = { null to (it.message ?: "Compose inspection is invalid") },
+                )
+        }
         return ImportedCapture(
             snapshot = snapshot,
             screenshotPng = document.payload.screenshotPng,
@@ -126,6 +162,8 @@ internal class CaptureArchiveService(
                         frame
                     }
                 },
+            composeInspection = composeInspectionResult?.first,
+            composeInspectionWarning = composeInspectionResult?.second,
         )
     }
 

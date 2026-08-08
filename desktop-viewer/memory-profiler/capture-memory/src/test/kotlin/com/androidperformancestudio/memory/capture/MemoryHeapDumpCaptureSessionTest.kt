@@ -136,7 +136,7 @@ class MemoryHeapDumpCaptureSessionTest {
         }
 
     @Test
-    fun `skips hprof conv for android api 26 or newer and keeps raw hprof`() =
+    fun `api level does not bypass hprof conversion`() =
         runTest {
             val sdk = createSdkWithHprofConv()
             val runner = RecordingRunner(sdkApiLevel = "33")
@@ -145,11 +145,11 @@ class MemoryHeapDumpCaptureSessionTest {
             val result = session.capture(captureRequest(createTempDirectory("memory-session")))
 
             val success = assertIs<StudioResult.Success<MemoryCaptureResult>>(result)
-            assertNull(success.value.convertedHprofFile)
-            assertTrue(success.value.conversionSkipped)
+            assertNotNull(success.value.convertedHprofFile)
+            assertTrue(!success.value.conversionSkipped)
             assertEquals(33, success.value.deviceSdkApiLevel)
             assertTrue(success.value.warnings.none { it.code == "HPROF_CONV_MISSING" })
-            assertEquals(listOf("dumpheap", "pull", "getprop", "rm"), runner.requests.map { it.commandKind() })
+            assertEquals(listOf("dumpheap", "pull", "getprop", "hprof-conv", "rm"), runner.requests.map { it.commandKind() })
         }
 
     @Test
@@ -168,7 +168,7 @@ class MemoryHeapDumpCaptureSessionTest {
         }
 
     @Test
-    fun `hprof conv failure is structured and still cleans device file`() =
+    fun `hprof conv failure keeps raw dump and still cleans device file`() =
         runTest {
             val sdk = createSdkWithHprofConv()
             val runner = RecordingRunner(failures = mapOf("hprof-conv" to "bad hprof"))
@@ -176,8 +176,14 @@ class MemoryHeapDumpCaptureSessionTest {
 
             val result = session.capture(captureRequest(createTempDirectory("memory-session")))
 
-            val failure = assertIs<StudioResult.Failure>(result)
-            assertEquals("HPROF_CONV_FAILED", failure.error.code)
+            val success = assertIs<StudioResult.Success<MemoryCaptureResult>>(result)
+            assertNull(success.value.convertedHprofFile)
+            assertEquals(
+                "HPROF_CONV_FAILED",
+                success.value.warnings
+                    .single()
+                    .code,
+            )
             assertEquals(listOf("dumpheap", "pull", "getprop", "hprof-conv", "rm"), runner.requests.map { it.commandKind() })
         }
 

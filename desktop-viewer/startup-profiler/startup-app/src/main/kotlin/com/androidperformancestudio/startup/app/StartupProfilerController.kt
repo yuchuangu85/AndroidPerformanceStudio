@@ -1,4 +1,4 @@
-@file:Suppress("MaxLineLength", "ReturnCount", "TooGenericExceptionCaught", "TooManyFunctions")
+@file:Suppress("LongMethod", "MaxLineLength", "ReturnCount", "TooGenericExceptionCaught", "TooManyFunctions")
 
 package com.androidperformancestudio.startup.app
 
@@ -10,6 +10,7 @@ import com.androidperformancestudio.startup.export.StartupJsonExporter
 import com.androidperformancestudio.startup.export.StartupJsonImporter
 import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.StartupDevice
+import com.androidperformancestudio.startup.model.StartupProfileSource
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.StartupProfilerState
 import com.androidperformancestudio.startup.presentation.withCompilationMode
@@ -143,9 +144,36 @@ internal class StartupProfilerController(
         }
     }
 
-    suspend fun runExperiment() {
+    fun setPerfettoTraceEnabled(enabled: Boolean) {
+        if (!mutableState.value.isRunning) {
+            mutableState.value = mutableState.value.copy(config = mutableState.value.config.copy(capturePerfettoTrace = enabled))
+        }
+    }
+
+    fun updatePracticalThreshold(percent: Double) {
+        if (!mutableState.value.isRunning) {
+            mutableState.value =
+                mutableState.value.copy(config = mutableState.value.config.copy(practicalChangeThresholdPercent = percent))
+        }
+    }
+
+    fun selectProfileSource(source: StartupProfileSource) {
+        if (!mutableState.value.isRunning && mutableState.value.config.compilationMode == CompilationMode.SPEED_PROFILE) {
+            mutableState.value = mutableState.value.copy(config = mutableState.value.config.copy(profileSource = source))
+        }
+    }
+
+    fun dismissCompilationConfirmation() {
+        mutableState.value = mutableState.value.copy(compilationConfirmationRequired = false)
+    }
+
+    suspend fun runExperiment(compilationChangeConfirmed: Boolean = false) {
         val snapshot = mutableState.value
         if (snapshot.isRunning) return
+        if (snapshot.config.compilationMode != CompilationMode.CURRENT && !compilationChangeConfirmed) {
+            mutableState.value = snapshot.copy(compilationConfirmationRequired = true)
+            return
+        }
         val serial = snapshot.selectedDeviceSerial ?: return
         val target = snapshot.targets.firstOrNull { it.componentName == snapshot.selectedComponentName } ?: return
         val runner =
@@ -160,10 +188,11 @@ internal class StartupProfilerController(
             snapshot.copy(
                 isRunning = true,
                 completedRuns = 0,
-                totalRuns = snapshot.config.warmupRuns + snapshot.config.measuredRuns,
+                totalRuns = snapshot.config.compilationWarmups + snapshot.config.measuredRuns,
                 operationMessage = localizedStringResource(Res.string.preparing_startup_experiment, language),
                 warnings = emptyList(),
                 errorMessage = null,
+                compilationConfirmationRequired = false,
             )
         try {
             val result =
@@ -176,14 +205,19 @@ internal class StartupProfilerController(
                         )
                 }
             val analysis = analyzer.analyze(result.runs)
+            val comparison =
+                snapshot.analysis?.let {
+                    analyzer.compare(analysis, it, snapshot.config.practicalChangeThresholdPercent)
+                }
             val persistenceWarning = persist(result.session, analysis.runs)
             mutableState.value =
                 mutableState.value.copy(
                     analysis = analysis,
                     baseline = snapshot.analysis,
+                    comparison = comparison,
                     selectedRunId = analysis.runs.firstOrNull()?.id,
                     isRunning = false,
-                    completedRuns = snapshot.config.warmupRuns + snapshot.config.measuredRuns,
+                    completedRuns = snapshot.config.compilationWarmups + snapshot.config.measuredRuns,
                     operationMessage = completedExperimentMessage(analysis.runs.size),
                     warnings = (result.warnings + analysis.warnings + listOfNotNull(persistenceWarning)).distinct(),
                 )
@@ -221,6 +255,7 @@ internal class StartupProfilerController(
                         mutableState.value.copy(
                             analysis = analysis,
                             baseline = null,
+                            comparison = null,
                             selectedRunId = analysis.runs.firstOrNull()?.id,
                             completedRuns = 0,
                             totalRuns = 0,
@@ -310,3 +345,6 @@ internal class StartupProfilerController(
             Path.of(System.getProperty("user.home"), ".android-performance-studio", "startup-profiler", "startup.db")
     }
 }
+
+private val com.androidperformancestudio.startup.model.StartupExperimentConfig.compilationWarmups: Int
+    get() = if (compilationMode == CompilationMode.SPEED_PROFILE) warmupRuns else 0

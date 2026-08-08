@@ -15,6 +15,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import kotlin.math.absoluteValue
 
 class SourceWorkspaceIntegrationTest {
     @Test
@@ -70,6 +71,12 @@ class SourceWorkspaceIntegrationTest {
                 listOf(
                     SourceResolutionEvidence.TypeName(PerformanceEvidenceId("type"), "sample.Widget"),
                     SourceResolutionEvidence.AndroidResource(PerformanceEvidenceId("resource"), "id", "title"),
+                    SourceResolutionEvidence.SourceFileLine(
+                        PerformanceEvidenceId("compose"),
+                        "Widget.kt",
+                        "sample".hashCode().absoluteValue,
+                        2,
+                    ),
                 ),
             )
         }
@@ -78,6 +85,7 @@ class SourceWorkspaceIntegrationTest {
         assertTrue(service.workspaces.value.single().allowAiSourceUpload)
         assertTrue(candidates.any { it.evidenceId.value == "type" && it.confidence == ResolutionConfidence.EXACT })
         assertTrue(candidates.any { it.evidenceId.value == "resource" && it.confidence == ResolutionConfidence.EXACT })
+        assertEquals(2, candidates.single { it.evidenceId.value == "compose" }.location.range?.startLine)
         val content = runBlocking { service.read(candidates.first { it.evidenceId.value == "type" }.location) }
         assertTrue(content.text.contains("class Widget"))
     }

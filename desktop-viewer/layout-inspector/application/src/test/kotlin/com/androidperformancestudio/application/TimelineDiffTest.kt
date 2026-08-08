@@ -3,6 +3,7 @@ package com.androidperformancestudio.application
 import com.androidperformancestudio.fixtures.SampleSnapshots
 import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.ComposeNode
+import com.androidperformancestudio.protocol.UiNode
 import com.androidperformancestudio.protocol.ViewAttributes
 import com.androidperformancestudio.protocol.ViewNode
 import org.junit.jupiter.api.Assertions
@@ -10,6 +11,195 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class TimelineDiffTest {
+    @Test
+    fun `diff keeps repeated resource nodes stable when a sibling is inserted at the front`() {
+        val previous = snapshotWithRoot(
+            children = listOf(
+                repeatedRow("root/0", "Alpha", Bounds(0, 0, 100, 20)),
+                repeatedRow("root/1", "Beta", Bounds(0, 20, 100, 40)),
+            ),
+        )
+        val current = snapshotWithRoot(
+            children = listOf(
+                repeatedRow("root/0", "New", Bounds(0, 0, 100, 20)),
+                repeatedRow("root/1", "Alpha", Bounds(0, 20, 100, 40)),
+                repeatedRow("root/2", "Beta", Bounds(0, 40, 100, 60)),
+            ),
+            capturedAtEpochMillis = 2,
+        )
+
+        val diff = diffSnapshots(previous, current)
+
+        assertEquals(1, diff.addedNodes)
+        assertEquals(0, diff.removedNodes)
+        assertEquals(2, diff.boundsChangedNodes)
+        assertEquals(
+            listOf("root/0"),
+            diff.changes.filter { it.type == TimelineChangeType.ADDED }.map { it.nodeId },
+        )
+        assertEquals(
+            setOf("root/1", "root/2"),
+            diff.changes.filter { it.type == TimelineChangeType.CHANGED }.map { it.nodeId }.toSet(),
+        )
+    }
+
+    @Test
+    fun `diff does not guess between indistinguishable repeated resource nodes after insertion`() {
+        val previous = snapshotWithRoot(
+            children = listOf(
+                repeatedRow("root/0", "Same", Bounds(0, 0, 100, 20)),
+                repeatedRow("root/1", "Same", Bounds(0, 20, 100, 40)),
+            ),
+        )
+        val current = snapshotWithRoot(
+            children = listOf(
+                repeatedRow("root/0", "Same", Bounds(0, 0, 100, 20)),
+                repeatedRow("root/1", "Same", Bounds(0, 20, 100, 40)),
+                repeatedRow("root/2", "Same", Bounds(0, 40, 100, 60)),
+            ),
+            capturedAtEpochMillis = 2,
+        )
+
+        val diff = diffSnapshots(previous, current)
+
+        assertEquals(3, diff.addedNodes)
+        assertEquals(2, diff.removedNodes)
+        assertEquals(0, diff.boundsChangedNodes)
+    }
+
+    @Test
+    fun `diff matches reordered siblings by unique resource identity`() {
+        val previous = snapshotWithRoot(
+            children = listOf(
+                ViewNode(
+                    "root/0",
+                    "TextView",
+                    Bounds(0, 0, 100, 20),
+                    resourceName = "sample:id/title",
+                ),
+                ViewNode(
+                    "root/1",
+                    "Button",
+                    Bounds(0, 20, 100, 40),
+                    resourceName = "sample:id/action",
+                ),
+            ),
+        )
+        val current = snapshotWithRoot(
+            children = listOf(
+                ViewNode(
+                    "root/0",
+                    "Button",
+                    Bounds(0, 0, 100, 20),
+                    resourceName = "sample:id/action",
+                ),
+                ViewNode(
+                    "root/1",
+                    "TextView",
+                    Bounds(0, 20, 100, 40),
+                    resourceName = "sample:id/title",
+                ),
+            ),
+            capturedAtEpochMillis = 2,
+        )
+
+        val diff = diffSnapshots(previous, current)
+
+        assertEquals(0, diff.addedNodes)
+        assertEquals(0, diff.removedNodes)
+        assertEquals(2, diff.boundsChangedNodes)
+        assertEquals(setOf("root/0", "root/1"), diff.changes.map { it.nodeId }.toSet())
+    }
+
+    @Test
+    fun `diff matches reordered compose siblings by unique test tag`() {
+        val previous = snapshotWithRoot(
+            children = listOf(
+                composeButton("root/compose/1", "save", Bounds(0, 0, 100, 20)),
+                composeButton("root/compose/2", "cancel", Bounds(0, 20, 100, 40)),
+            ),
+        )
+        val current = snapshotWithRoot(
+            children = listOf(
+                composeButton("root/compose/3", "cancel", Bounds(0, 0, 100, 20)),
+                composeButton("root/compose/4", "save", Bounds(0, 20, 100, 40)),
+            ),
+            capturedAtEpochMillis = 2,
+        )
+
+        val diff = diffSnapshots(previous, current)
+
+        assertEquals(0, diff.addedNodes)
+        assertEquals(0, diff.removedNodes)
+        assertEquals(2, diff.boundsChangedNodes)
+    }
+
+    @Test
+    fun `diff reports a node moved across parents as removed and added`() {
+        val moved = ViewNode(
+            id = "root/0/0",
+            className = "TextView",
+            bounds = Bounds(0, 0, 100, 20),
+            resourceName = "sample:id/moved",
+        )
+        val previous = snapshotWithRoot(
+            children = listOf(
+                ViewNode(
+                    "root/0",
+                    "LinearLayout",
+                    Bounds(0, 0, 100, 50),
+                    children = listOf(moved),
+                    resourceName = "sample:id/left",
+                ),
+                ViewNode(
+                    "root/1",
+                    "LinearLayout",
+                    Bounds(100, 0, 200, 50),
+                    resourceName = "sample:id/right",
+                ),
+            ),
+        )
+        val current = snapshotWithRoot(
+            children = listOf(
+                ViewNode("root/0", "LinearLayout", Bounds(0, 0, 100, 50), resourceName = "sample:id/left"),
+                ViewNode(
+                    "root/1",
+                    "LinearLayout",
+                    Bounds(100, 0, 200, 50),
+                    children = listOf(moved.copy(id = "root/1/0", bounds = Bounds(100, 0, 200, 20))),
+                    resourceName = "sample:id/right",
+                ),
+            ),
+            capturedAtEpochMillis = 2,
+        )
+
+        val diff = diffSnapshots(previous, current)
+
+        assertEquals(1, diff.addedNodes)
+        assertEquals(1, diff.removedNodes)
+        assertEquals(
+            setOf(TimelineChangeType.ADDED, TimelineChangeType.REMOVED),
+            diff.changes.filter { it.className == "TextView" }.map { it.type }.toSet(),
+        )
+    }
+
+    @Test
+    fun `diff uses position for weak identity only while sibling structure is stable`() {
+        val previous = snapshotWithRoot(
+            children = listOf(ViewNode("root/0", "TextView", Bounds(0, 0, 100, 20), text = "Before")),
+        )
+        val current = snapshotWithRoot(
+            children = listOf(ViewNode("root/0", "TextView", Bounds(0, 0, 100, 20), text = "After")),
+            capturedAtEpochMillis = 2,
+        )
+
+        val diff = diffSnapshots(previous, current)
+
+        assertEquals(0, diff.addedNodes)
+        assertEquals(0, diff.removedNodes)
+        assertEquals(listOf("text"), diff.changes.single().changedProperties)
+    }
+
     @Test
     fun `diff counts added removed and bounds changed nodes`() {
         val previous = SampleSnapshots.dashboard.copy(
@@ -235,5 +425,37 @@ class TimelineDiffTest {
         assertEquals(true, store.selectTimelineFrame(7))
         Assertions.assertEquals(2_000, store.state.snapshot?.capturedAtEpochMillis)
     }
+
+    private fun snapshotWithRoot(
+        children: List<UiNode>,
+        capturedAtEpochMillis: Long = 1,
+    ) = SampleSnapshots.dashboard.copy(
+        capturedAtEpochMillis = capturedAtEpochMillis,
+        root = ViewNode(
+            id = "root",
+            className = "Root",
+            bounds = Bounds(0, 0, 200, 200),
+            children = children,
+        ),
+        windows = emptyList(),
+        defaultWindowId = null,
+    )
+
+    private fun repeatedRow(id: String, text: String, bounds: Bounds) = ViewNode(
+        id = id,
+        className = "TextView",
+        bounds = bounds,
+        resourceName = "sample:id/row_title",
+        text = text,
+    )
+
+    private fun composeButton(id: String, testTag: String, bounds: Bounds) = ComposeNode(
+        id = id,
+        className = "Button",
+        bounds = bounds,
+        semanticsRole = "Button",
+        text = testTag,
+        semanticProperties = mapOf("TestTag" to testTag),
+    )
 
 }

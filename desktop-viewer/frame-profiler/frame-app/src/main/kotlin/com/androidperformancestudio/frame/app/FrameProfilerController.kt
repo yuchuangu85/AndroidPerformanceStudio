@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
@@ -36,6 +37,7 @@ internal class FrameProfilerController(
     private val mutableState = MutableStateFlow(FrameProfilerState())
     private val onlineFrames = mutableListOf<FrameSample>()
     private var activeCapture: OnlineFrameCapture? = null
+    private var currentSession: FrameCaptureSession? = null
 
     val state: StateFlow<FrameProfilerState> = mutableState.asStateFlow()
 
@@ -131,18 +133,20 @@ internal class FrameProfilerController(
                     }
                 onlineFrames.clear()
                 activeCapture = capture
+                currentSession = capture.metadata
                 mutableState.value =
                     snapshot.copy(
                         importedFileName = null,
                         analysis = null,
                         selectedFrameId = null,
+                        perfettoTraceFile = null,
                         isCapturing = true,
                         operationStatus =
                             FrameOperationStatus.Capturing(
                                 packageName = process.packageName,
                                 source = capture.metadata.source.captureLabel(),
                             ),
-                        warnings = startWarnings,
+                        warnings = (startWarnings + capture.metadata.provenanceWarnings).distinct(),
                         errorMessage = null,
                     )
             }
@@ -203,7 +207,9 @@ internal class FrameProfilerController(
                 errorMessage = errorMessage,
             )
         if (capture != null && onlineFrames.isNotEmpty()) {
-            persistenceWarning(capture.metadata, onlineFrames)?.let { warning ->
+            val session = (currentSession ?: capture.metadata).withObservedFrames(onlineFrames)
+            currentSession = session
+            persistenceWarning(session, onlineFrames)?.let { warning ->
                 mutableState.value = mutableState.value.copy(warnings = (mutableState.value.warnings + warning).distinct())
             }
         }
@@ -218,19 +224,30 @@ internal class FrameProfilerController(
                 val parsed = parser.parse(Files.readString(file), sessionId)
                 require(parsed.frames.isNotEmpty()) { "No usable frame rows were found in ${file.fileName}." }
                 val analysis = analyzer.analyze(parsed.frames)
+                val importedAt = Instant.now()
                 val session =
                     FrameCaptureSession(
                         id = sessionId,
                         source = FrameSource.GFXINFO,
-                        startedAt = Instant.now(),
+                        startedAt = importedAt,
+                        sourceCapabilities = parsed.frames.offlineCapabilities(),
                         importedFile = file.toAbsolutePath().toString(),
+                        importedFileSha256 = file.sha256(),
+                        importedAt = importedAt,
+                        provenanceComplete = false,
+                        provenanceWarnings = listOf("The imported framestats file does not identify its device or Android API level."),
                     )
                 LoadedFrameStats(
                     analysis = analysis,
-                    warnings = parsed.warnings + listOfNotNull(persistenceWarning(session, parsed.frames)),
+                    session = session,
+                    warnings =
+                        parsed.warnings +
+                            session.provenanceWarnings +
+                            listOfNotNull(persistenceWarning(session, parsed.frames)),
                 )
             }
         }.onSuccess { loaded ->
+            currentSession = loaded.session
             mutableState.value =
                 mutableState.value.copy(
                     importedFileName = file.fileName.toString(),
@@ -240,6 +257,7 @@ internal class FrameProfilerController(
                             .firstOrNull()
                             ?.sample
                             ?.frameId,
+                    perfettoTraceFile = null,
                     isLoading = false,
                     operationStatus = FrameOperationStatus.ImportedFrames(loaded.analysis.summary.totalFrames),
                     warnings = loaded.warnings,
@@ -256,6 +274,17 @@ internal class FrameProfilerController(
 
     fun selectFrame(frameId: Long) {
         mutableState.value = mutableState.value.copy(selectedFrameId = frameId)
+    }
+
+    suspend fun associatePerfettoTrace(traceFile: Path) {
+        val analysis = mutableState.value.analysis ?: return
+        val session = currentSession ?: return
+        val updated = session.copy(perfettoTraceFile = traceFile.toAbsolutePath().toString())
+        currentSession = updated
+        mutableState.value = mutableState.value.copy(perfettoTraceFile = traceFile.toAbsolutePath(), errorMessage = null)
+        persistenceWarning(updated, analysis.frames.map { it.sample })?.let { warning ->
+            mutableState.value = mutableState.value.copy(warnings = (mutableState.value.warnings + warning).distinct())
+        }
     }
 
     suspend fun exportCsv(output: Path) {
@@ -298,6 +327,7 @@ internal class FrameProfilerController(
 
     private data class LoadedFrameStats(
         val analysis: FrameAnalysisResult,
+        val session: FrameCaptureSession,
         val warnings: List<String>,
     )
 
@@ -305,6 +335,31 @@ internal class FrameProfilerController(
         fun defaultDatabaseFile(): Path =
             Path.of(System.getProperty("user.home"), ".android-performance-studio", "frame-profiler", "frames.db")
     }
+}
+
+private fun FrameCaptureSession.withObservedFrames(frames: List<FrameSample>): FrameCaptureSession =
+    copy(observedRefreshRatesHz = frames.mapNotNull(FrameSample::refreshRateHz).toSet())
+
+private fun List<FrameSample>.offlineCapabilities() =
+    com.androidperformancestudio.frame.model.FrameSourceCapabilities(
+        realtime = false,
+        stageBreakdown = any { it.stages.values().isNotEmpty() },
+        platformJankClassification = false,
+        expectedFrameDeadline = any { it.expectedDurationNs != null },
+        appStateLabels = false,
+    )
+
+private fun Path.sha256(): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    Files.newInputStream(this).use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            digest.update(buffer, 0, read)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
 private fun FrameSource.captureLabel(): String =

@@ -9,6 +9,15 @@ import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.ViewNode
 import com.androidperformancestudio.protocol.WindowSnapshot
 import com.androidperformancestudio.protocol.WindowType
+import com.androidperformancestudio.compose.inspection.CapabilityAvailability
+import com.androidperformancestudio.compose.inspection.ComposableDetail
+import com.androidperformancestudio.compose.inspection.ComposeCapability
+import com.androidperformancestudio.compose.inspection.ComposeCapabilityState
+import com.androidperformancestudio.compose.inspection.ComposeDetailCoverageState
+import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
+import com.androidperformancestudio.compose.inspection.ComposeInspectionFrame
+import com.androidperformancestudio.compose.inspection.ComposeInspectionMode
+import com.androidperformancestudio.compose.inspection.ComposeValue
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -19,6 +28,43 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class InspectorStoreTest {
+    @Test
+    fun `on-demand Compose detail updates capabilities and explicit truncation coverage`() {
+        val snapshot = SampleSnapshots.dashboard
+        val inspection = ComposeInspectionDocument(
+            packageName = snapshot.packageName,
+            capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
+            frame = ComposeInspectionFrame(
+                frameId = "frame",
+                generation = 1,
+                mode = ComposeInspectionMode.FULL,
+                capabilities = listOf(
+                    ComposeCapabilityState(ComposeCapability.PARAMETERS, CapabilityAvailability.NOT_REQUESTED),
+                ),
+                roots = emptyList(),
+            ),
+        )
+        val store = InspectorStore().apply { loadCapture(snapshot, byteArrayOf(), inspection) }
+
+        assertTrue(
+            store.loadComposeDetail(
+                "frame",
+                ComposableDetail(
+                    nodeId = 7,
+                    anchorHash = 9,
+                    parameters = listOf(ComposeValue("items", "ITERABLE", truncated = true)),
+                ),
+            ),
+        )
+
+        val frame = requireNotNull(store.state.composeInspection).frame
+        assertEquals(CapabilityAvailability.AVAILABLE, frame.capabilities.single().availability)
+        assertEquals(
+            ComposeDetailCoverageState.TRUNCATED,
+            frame.coverage.single { it.nodeId == 7L && it.field == "parameters" }.state,
+        )
+    }
+
     @Test
     fun `loading a snapshot selects its root and publishes analysis`() {
         val store = InspectorStore()

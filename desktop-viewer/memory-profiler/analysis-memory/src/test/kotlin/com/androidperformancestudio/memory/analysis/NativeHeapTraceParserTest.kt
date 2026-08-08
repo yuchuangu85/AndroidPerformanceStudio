@@ -8,6 +8,14 @@ import kotlin.test.assertTrue
 
 class NativeHeapTraceParserTest {
     @Test
+    fun `truncated protobuf degrades to an empty summary`() {
+        val result = NativeHeapTraceParser.parse(byteArrayOf(0x0a, 0x80.toByte()))
+
+        assertEquals(0, result.sampleCount)
+        assertTrue(result.topAllocations.isEmpty())
+    }
+
+    @Test
     fun `parses profile packets and aggregates allocations by leaf function`() {
         val trace =
             TraceBuilder()
@@ -72,6 +80,33 @@ class NativeHeapTraceParserTest {
         assertEquals(2048L, result.totalAllocatedBytes)
         assertEquals("malloc", result.topAllocations.single().functionName)
         assertEquals(8L, result.topAllocations.single().allocCount)
+    }
+
+    @Test
+    fun `interned ids are isolated by trusted packet sequence`() {
+        fun packet(
+            sequence: Long,
+            function: String,
+            allocated: Long,
+        ): ByteArray {
+            val internedData =
+                concat(
+                    PB.field(5, concat(PB.fieldVarint(1, 1), PB.field(2, function.encodeToByteArray()))),
+                    PB.field(6, concat(PB.fieldVarint(1, 1), PB.fieldVarint(2, 1))),
+                    PB.field(7, concat(PB.fieldVarint(1, 1), PB.fieldVarint(2, 1))),
+                )
+            val profile =
+                PB.field(
+                    37,
+                    PB.field(5, concat(PB.fieldVarint(1, 42), PB.field(2, sample(1, allocated = allocated)))),
+                )
+            return PB.field(1, concat(PB.fieldVarint(10, sequence), PB.field(12, internedData), profile))
+        }
+        val trace = concat(packet(1, "first", 100), packet(2, "second", 200))
+
+        val result = NativeHeapTraceParser.parse(trace)
+
+        assertEquals(listOf("second", "first"), result.topAllocations.map { it.functionName })
     }
 
     @Test

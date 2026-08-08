@@ -179,6 +179,13 @@ public sealed interface SourceResolutionEvidence {
         override val id: PerformanceEvidenceId,
         val qualifiedName: String,
     ) : SourceResolutionEvidence
+
+    public data class SourceFileLine(
+        override val id: PerformanceEvidenceId,
+        val fileName: String,
+        val packageHash: Int,
+        val line: Int,
+    ) : SourceResolutionEvidence
 }
 
 public data class BuildEvidenceBundle(

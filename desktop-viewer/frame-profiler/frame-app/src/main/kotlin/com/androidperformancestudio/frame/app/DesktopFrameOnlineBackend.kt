@@ -11,10 +11,14 @@ import com.androidperformancestudio.frame.capture.GfxInfoPollBatch
 import com.androidperformancestudio.frame.capture.GfxInfoPollingCaptureSession
 import com.androidperformancestudio.frame.model.FrameCaptureSession
 import com.androidperformancestudio.frame.model.FrameSource
+import com.androidperformancestudio.frame.model.FrameSourceCapabilities
 import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.toolchain.JvmProcessRunner
+import com.androidperformancestudio.toolchain.ProcessRequest
+import com.androidperformancestudio.toolchain.ProcessRunResult
 import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.CancellationException
 import java.nio.file.Path
@@ -45,7 +49,7 @@ internal interface FrameOnlineBackend {
 
     suspend fun listProcesses(serial: String): FrameBackendResult<List<FrameProcessOption>>
 
-    fun openCapture(
+    suspend fun openCapture(
         serial: String,
         process: FrameProcessOption,
         sessionId: String,
@@ -95,12 +99,13 @@ internal class DesktopFrameOnlineBackend(
         }
     }
 
-    override fun openCapture(
+    override suspend fun openCapture(
         serial: String,
         process: FrameProcessOption,
         sessionId: String,
     ): FrameBackendResult<OnlineFrameCapture> {
         val adb = adbLocator() ?: return missingAdb()
+        val apiLevel = readApiLevel(adb, serial)
         val metadata =
             FrameCaptureSession(
                 id = sessionId,
@@ -108,6 +113,15 @@ internal class DesktopFrameOnlineBackend(
                 startedAt = Instant.now(),
                 packageName = process.packageName,
                 deviceSerial = serial,
+                deviceApiLevel = apiLevel,
+                sourceCapabilities = GFXINFO_CAPABILITIES,
+                provenanceComplete = apiLevel != null,
+                provenanceWarnings =
+                    if (apiLevel == null) {
+                        listOf("Unable to read the device Android API level.")
+                    } else {
+                        emptyList()
+                    },
             )
         val target = GfxInfoCaptureTarget(serial, process.packageName, process.pid)
         val gfxInfoDelegate =
@@ -132,7 +146,12 @@ internal class DesktopFrameOnlineBackend(
             }
         val agentCapture =
             object : OnlineFrameCapture {
-                override val metadata: FrameCaptureSession = metadata.copy(source = FrameSource.FRAME_METRICS)
+                override val metadata: FrameCaptureSession =
+                    metadata.copy(
+                        source = FrameSource.FRAME_METRICS,
+                        agentProtocol = "1",
+                        sourceCapabilities = FRAME_METRICS_CAPABILITIES,
+                    )
 
                 override suspend fun start(): List<String> = agentDelegate.start()
 
@@ -153,7 +172,30 @@ internal class DesktopFrameOnlineBackend(
             "Android SDK Platform Tools were not found. Configure ANDROID_HOME or ANDROID_SDK_ROOT.",
         )
 
+    private suspend fun readApiLevel(
+        adb: Path,
+        serial: String,
+    ): Int? =
+        when (
+            val result =
+                JvmProcessRunner().run(
+                    ProcessRequest(
+                        executable = adb,
+                        arguments = listOf("-s", serial, "shell", "getprop", "ro.build.version.sdk"),
+                    ),
+                )
+        ) {
+            is ProcessRunResult.Completed ->
+                result.output.stdout.text
+                    .trim()
+                    .toIntOrNull()
+            is ProcessRunResult.Failed -> null
+        }
+
     private companion object {
+        val FRAME_METRICS_CAPABILITIES = FrameSourceCapabilities(true, true, true, true, true)
+        val GFXINFO_CAPABILITIES = FrameSourceCapabilities(true, true, false, true, false)
+
         fun locateSystemAdb(): Path? {
             val platform = (SystemHostPlatformDetector().detect() as? StudioResult.Success)?.value ?: return null
             return (SystemAdbLocator(platform).locate() as? StudioResult.Success)?.value?.executable

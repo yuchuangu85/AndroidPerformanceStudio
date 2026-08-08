@@ -41,7 +41,12 @@ class MemoryHistogramAnalyzer {
                 shallowSize += heapObject.shallowSize
                 totalsByClass
                     .getOrPut(heapObject.className, ::MutableClassTotals)
-                    .add(heapObject.objectId, heapObject.shallowSize, retainedSizes[heapObject.objectId])
+                    .add(
+                        heapObject.objectId,
+                        heapObject.shallowSize,
+                        retainedSizes[heapObject.objectId],
+                        (heapObject as? com.androidperformancestudio.memory.model.HeapInstance)?.nativeSizeBytes,
+                    )
             }
         }
 
@@ -60,6 +65,7 @@ class MemoryHistogramAnalyzer {
                         obfuscatedClassName =
                             deobfuscator?.obfuscatedName(className)?.takeIf { it != className },
                         hierarchyDepth = depthByName[className],
+                        nativeSize = totals.nativeSize.takeIf { it > 0L },
                     )
                 }.sortedWith(sort.comparator)
 
@@ -85,16 +91,20 @@ class MemoryHistogramAnalyzer {
             private set
         var shallowSize: Long = 0L
             private set
+        var nativeSize: Long = 0L
+            private set
         private val retainedSizesByObjectId = linkedMapOf<Long, Long>()
 
         fun add(
             objectId: Long,
             objectShallowSize: Long,
             objectRetainedSize: Long?,
+            objectNativeSize: Long?,
         ) {
             instanceCount += 1
             shallowSize += objectShallowSize
             objectRetainedSize?.let { retainedSizesByObjectId[objectId] = it }
+            nativeSize += objectNativeSize ?: 0L
         }
 
         fun combinedRetainedSize(immediateDominators: Map<Long, Long?>): Long? {

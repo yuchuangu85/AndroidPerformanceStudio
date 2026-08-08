@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
+import com.androidperformancestudio.frame.frame_app.generated.resources.associate_perfetto_trace
 import com.androidperformancestudio.frame.frame_app.generated.resources.back_to_home
 import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_with_frames
 import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_without_frames
@@ -30,9 +31,11 @@ import com.androidperformancestudio.frame.frame_app.generated.resources.export_f
 import com.androidperformancestudio.frame.frame_app.generated.resources.exported
 import com.androidperformancestudio.frame.frame_app.generated.resources.import_gfxinfo_framestats
 import com.androidperformancestudio.frame.frame_app.generated.resources.imported_frames
+import com.androidperformancestudio.frame.frame_app.generated.resources.open_trace_in_perfetto
 import com.androidperformancestudio.frame.frame_app.generated.resources.process
 import com.androidperformancestudio.frame.frame_app.generated.resources.process_with_pid
 import com.androidperformancestudio.frame.frame_app.generated.resources.refresh
+import com.androidperformancestudio.frame.frame_app.generated.resources.select_perfetto_trace
 import com.androidperformancestudio.frame.frame_app.generated.resources.start_capture
 import com.androidperformancestudio.frame.frame_app.generated.resources.stop_capture
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
@@ -60,6 +63,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
     onOpenLayoutInspector: (FrameLayoutInspectionRequest) -> Unit = {},
+    onOpenPerfetto: (FramePerfettoInspectionRequest) -> Unit = {},
 ) {
     val controller = remember { FrameProfilerController() }
     val state by controller.state.collectAsState()
@@ -96,98 +100,128 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     )
 
     ViewerTheme(darkTheme = darkTheme) {
-    Column(Modifier.fillMaxSize()) {
-        ProfilerMacOsToolbar {
-            HomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                onClick = {
-                    if (state.isCapturing) {
-                        scope.launch {
-                            controller.stopOnlineCapture()
+        Column(Modifier.fillMaxSize()) {
+            ProfilerMacOsToolbar {
+                HomeButton(
+                    contentDescription = localizedStringResource(Res.string.back_to_home, language),
+                    onClick = {
+                        if (state.isCapturing) {
+                            scope.launch {
+                                controller.stopOnlineCapture()
+                                onBack()
+                            }
+                        } else {
                             onBack()
                         }
-                    } else {
-                        onBack()
-                    }
-                },
-            )
-            DropdownSelector(
-                items = state.devices,
-                selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
-                onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
-                itemLabel = { it.name },
-                placeholder = localizedStringResource(Res.string.device, language),
-                enabled = !state.isCapturing,
-                itemEnabled = { it.online },
-            )
-            DropdownSelector(
-                items = state.processes,
-                selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
-                onItemSelected = { controller.selectProcess(it.pid) },
-                itemLabel = {
-                    localizedStringResource(
-                        Res.string.process_with_pid,
-                        language,
-                        it.name,
-                        it.pid,
-                    )
-                },
-                placeholder = localizedStringResource(Res.string.process, language),
-                enabled = !state.isCapturing && state.selectedDeviceSerial != null,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh, language),
-                enabled = !state.isCapturing && !state.isRefreshingDevices,
-                onClick = { scope.launch { controller.refreshDevices() } },
-            )
-            ProfilerCompactButton(
-                text =
-                    if (state.isCapturing) {
-                        localizedStringResource(Res.string.stop_capture, language)
-                    } else {
-                        localizedStringResource(Res.string.start_capture, language)
                     },
-                enabled = state.selectedProcessId != null,
-                onClick = {
-                    scope.launch {
-                        if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()
-                    }
-                },
-            )
-            Spacer(Modifier.weight(1f))
-            ProfilerToolbarStatus(
-                message = operationMessage,
-                error = state.errorMessage,
-            )
-        }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        FrameProfilerScreen(
-            state = state,
-            actions =
-                FrameProfilerActions(
-                    onSelectFrame = controller::selectFrame,
-                    onInspectLayout = { sample ->
-                        sample.packageName?.let { packageName ->
-                            scope.launch {
-                                if (controller.state.value.isCapturing) controller.stopOnlineCapture()
-                                onOpenLayoutInspector(
-                                    FrameLayoutInspectionRequest(
-                                        deviceSerial = state.selectedDeviceSerial,
-                                        packageName = packageName,
-                                        activityName = sample.activityName,
-                                        windowId = sample.windowId,
-                                        frameId = sample.frameId,
-                                    ),
-                                )
-                            }
+                )
+                DropdownSelector(
+                    items = state.devices,
+                    selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+                    onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
+                    itemLabel = { it.name },
+                    placeholder = localizedStringResource(Res.string.device, language),
+                    enabled = !state.isCapturing,
+                    itemEnabled = { it.online },
+                )
+                DropdownSelector(
+                    items = state.processes,
+                    selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
+                    onItemSelected = { controller.selectProcess(it.pid) },
+                    itemLabel = {
+                        localizedStringResource(
+                            Res.string.process_with_pid,
+                            language,
+                            it.name,
+                            it.pid,
+                        )
+                    },
+                    placeholder = localizedStringResource(Res.string.process, language),
+                    enabled = !state.isCapturing && state.selectedDeviceSerial != null,
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.refresh, language),
+                    enabled = !state.isCapturing && !state.isRefreshingDevices,
+                    onClick = { scope.launch { controller.refreshDevices() } },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.associate_perfetto_trace, language),
+                    enabled = !state.isCapturing && state.analysis != null,
+                    onClick = {
+                        chooseTraceFile(window, language)?.let { trace ->
+                            scope.launch { controller.associatePerfettoTrace(trace.toPath()) }
                         }
                     },
-                ),
-            language = language,
-            operationMessage = operationMessage,
-            modifier = Modifier.weight(1f),
-        )
-    }
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
+                    enabled = state.perfettoTraceFile != null,
+                    onClick = {
+                        state.perfettoTraceFile?.let { trace ->
+                            val sample =
+                                state.analysis
+                                    ?.frames
+                                    ?.firstOrNull { it.sample.frameId == state.selectedFrameId }
+                                    ?.sample
+                            onOpenPerfetto(
+                                FramePerfettoInspectionRequest(
+                                    traceFile = trace,
+                                    frameId = sample?.frameId,
+                                    frameTimelineVsyncId = sample?.frameTimelineVsyncId,
+                                    intendedVsyncNs = sample?.intendedVsyncNs,
+                                ),
+                            )
+                        }
+                    },
+                )
+                ProfilerCompactButton(
+                    text =
+                        if (state.isCapturing) {
+                            localizedStringResource(Res.string.stop_capture, language)
+                        } else {
+                            localizedStringResource(Res.string.start_capture, language)
+                        },
+                    enabled = state.selectedProcessId != null,
+                    onClick = {
+                        scope.launch {
+                            if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()
+                        }
+                    },
+                )
+                Spacer(Modifier.weight(1f))
+                ProfilerToolbarStatus(
+                    message = operationMessage,
+                    error = state.errorMessage,
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            FrameProfilerScreen(
+                state = state,
+                actions =
+                    FrameProfilerActions(
+                        onSelectFrame = controller::selectFrame,
+                        onInspectLayout = { sample ->
+                            sample.packageName?.let { packageName ->
+                                scope.launch {
+                                    if (controller.state.value.isCapturing) controller.stopOnlineCapture()
+                                    onOpenLayoutInspector(
+                                        FrameLayoutInspectionRequest(
+                                            deviceSerial = state.selectedDeviceSerial,
+                                            packageName = packageName,
+                                            activityName = sample.activityName,
+                                            windowId = sample.windowId,
+                                            frameId = sample.frameId,
+                                        ),
+                                    )
+                                }
+                            }
+                        },
+                    ),
+                language = language,
+                operationMessage = operationMessage,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 
     if (showImportDialog) {
@@ -264,4 +298,20 @@ private fun chooseSaveFile(
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
 
-private const val POLL_INTERVAL_MILLIS = 1_000L
+private fun chooseTraceFile(
+    parent: java.awt.Component,
+    language: UiLanguage,
+): File? =
+    JFileChooser().run {
+        dialogTitle = localizedStringResource(Res.string.select_perfetto_trace, language)
+        fileFilter =
+            javax.swing.filechooser.FileNameExtensionFilter(
+                "Perfetto trace",
+                "trace",
+                "perfetto-trace",
+                "pftrace",
+            )
+        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
+    }
+
+private const val POLL_INTERVAL_MILLIS = 250L

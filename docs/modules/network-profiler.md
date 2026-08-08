@@ -2,152 +2,126 @@
 
 ## 功能作用
 
-Network Profiler 是一个 Android 网络请求分析工具，核心功能包括：
+Network Profiler 用于采集、导入和分析 Android 应用的 HTTP 调用证据：
 
-- **在线网络采集**：通过设备上的 `NetworkProfilerAgent` 实时捕获 App 的 HTTP 网络请求
-- **Agent 方式采集**：Agent 在 App 进程内通过 OkHttp EventListener 回调获取网络事件的精确时间戳（DNS、Connect、TLS、Request、Response 等各阶段耗时）
-- **HAR 导入**：支持导入 HAR（HTTP Archive）格式文件进行离线分析
-- **网络调用分析**：`NetworkAnalyzer` 分析 HTTP 调用的：
-  - 请求方法（GET/POST 等）
-  - URL（脱敏处理后）
-  - 各阶段耗时分解（DNS 解析、TCP 连接、TLS 握手、请求发送、服务器等待、响应接收）
-  - 状态码和结果（成功/失败/取消/不完整）
-  - 请求/响应体积（字节）
-  - 缓存状态（Hit/Miss/Conditional Hit）
-- **会话管理**：通过 `SqliteNetworkStore` 持久化采集结果
-- **多格式导出**：支持 JSON、HAR、CSV、Raw Bundle 多种导出格式
+- 在线采集显式接入 Network Profiler EventListener 的 OkHttp Client。
+- 离线导入 HAR 1.1/1.2，并保留来源 timing 和缺失语义。
+- 展示 HTTP Call、Exchange、Connection、状态、缓存、TLS 和可用阶段。
+- 分别汇总网络调用结果、HTTP 状态族、阶段分位数和可验证的连接复用率。
+- 将完整会话保存到 SQLite，并导出 JSON、CSV、partial HAR 或 Raw Bundle。
 
-## 实现原理
+## 当前实现
 
-### 采集流程
+### 在线采集覆盖
 
-1. **Agent 部署**：`NetworkAgentCapture` 通过 ADB 与设备上的 Agent 建立连接
-2. **事件捕获**：Agent 在 App 进程中通过 OkHttp EventListener 注册回调，捕获：
-   - `callStart` / `callEnd`：请求开始和结束
-   - `dnsStart` / `dnsEnd`：DNS 解析耗时
-   - `connectStart` / `connectEnd`：TCP 连接耗时
-   - `secureConnectStart` / `secureConnectEnd`：TLS 握手耗时
-   - `requestHeadersStart` / `requestHeadersEnd`：请求头发送耗时
-   - `requestBodyStart` / `requestBodyEnd`：请求体发送耗时
-   - `responseHeadersStart` / `responseHeadersEnd`：响应头接收耗时
-   - `responseBodyStart` / `responseBodyEnd`：响应体接收耗时
-3. **轮询传输**：桌面端以 750ms 间隔轮询 Agent，拉取累积的网络事件
-4. **事件组装**：`NetworkEventAssembler` 将原始事件组装成完整的 `HttpCall` 对象（含 `HttpExchange` 和 `NetworkPhase`）
-5. **HAR 导入**：`HarParser` 解析 HAR JSON 文件，提取 entries 并转换为内部数据模型
+应用通过 `debugImplementation` 引入 Agent，并在目标 `OkHttpClient.Builder` 上显式安装 `NetworkProfiler.eventListenerFactory()`。AndroidX Startup 启动进程内 loopback Server；桌面端通过 `run-as` 读取随机 Token，建立 ADB 端口转发并以协议 v2 握手。
 
-### 数据分析
+在线来源只覆盖已安装该 Factory 的 OkHttp Client：
 
-- **时序分析**：每条请求按阶段分解耗时，识别瓶颈阶段（DNS 慢 / TCP 慢 / TLS 慢 / 服务器慢）
-- **成功率统计**：按状态码分类（2xx/3xx/4xx/5xx）
-- **数据量统计**：请求/响应体积统计
-- **并发分析**：同时进行的请求数
+- Retrofit 使用这些 OkHttp Client 时可被间接观测。
+- WebView、Cronet、URLConnection、native socket 及未接入的 OkHttp Client 不可见。
+- `network-instrumentation` 目前提供覆盖描述和接入提示，不执行自动字节码插桩。
+- `EXPLICIT_FACTORY` 只表示接入方式，不宣称应用网络被完整覆盖。
 
-### 数据结构
+`NetworkCoverage` 保存已观测进程、Client、库、事件能力、时间窗和已知限制；`NetworkEvidenceCompleteness` 独立保存序列缺口、队列丢失、未闭合阶段和跳过记录。
 
-- **HttpCall**：单次 HTTP 调用，包含 callId、method、redactedUrl、startedNs/endedNs、exchanges、outcome、source
-- **HttpExchange**：单次 HTTP 交换，包含 statusCode、requestBytes/responseBytes、phases、failure
-- **NetworkPhase**：单个网络阶段，包含 kind（DISPATCHER_QUEUE/PROXY_SELECT/DNS/CONNECT/TLS/REQUEST_HEADERS/REQUEST_BODY/SERVER_WAIT/RESPONSE_HEADERS/RESPONSE_BODY/CONNECTION_HELD/TOTAL）、startNs/endNs、confidence
-- **NetworkCoverage**：覆盖率信息，包括 observedLibraries、instrumentationMode、supportedEventKinds、unsupportedStacks、droppedEvents、completeness
+### Agent 会话与事件传输
 
-### 数据流
+Agent 转发并采集 OkHttp 4.12 支持的 Call、Proxy、DNS、Connect、TLS、Connection、Request、Response、Cache 和 Failure 生命周期回调。包装已有 EventListener 时，相同回调会先传给原 Listener，再传给 Profiler。
 
-```
-[Android Device] --ADB Socket--> [NetworkAgentCapture] --Poll--> [NetworkEventAssembler]
-    --> [HttpCall[]] --> [NetworkAnalyzer] --> [Summary]
-    --> [SqliteNetworkStore] (持久化)
-    --> [Compose UI: NetworkProfilerScreen]
+事件进入容量为 20,000 的进程级有界队列；队列满时丢弃新事件并保留序列缺口。每次握手会：
 
-[HAR File] --> [HarParser] --> [HttpCall[]] --> [同上]
-```
+- 清除会话开始前的残留事件。
+- 固定起始序列号和 dropped baseline。
+- 轮换 URL path 匿名化 salt。
 
-### 采集覆盖
+桌面端仍以 750ms、每批最多 1,000 条轮询。停止采集时 Agent 固定结束序列号，桌面端以最多 5,000 条一批重复读取，直到收到 `STOPPED`；结束后的事件不会混入当前会话。Push 未实现，因为它只改善实时 UI 延迟，不改善已在 Agent 记录的阶段时间。
 
-`NetworkInstrumentationCoverage` 描述 Agent 的覆盖范围：
-- **EXPLICIT_FACTORY**：App 使用显式的 OkHttpClient Factory 注册，覆盖所有请求
-- **INSTRUMENTED_PARTIAL**：只有部分 OkHttpClient 被 Instrument，部分请求可能未捕获
+### 最小化网络证据
 
-### Export
+Agent 和 HAR 导入使用同一版本化原则，在数据持久化前最小化网络内容：
 
-- **JSON**：完整的 Session + Calls + Summary
-- **HAR**：标准 HAR 格式（含 timings）
-- **CSV**：表格化导出
-- **Raw Bundle**：原始事件数据打包
+- URL 移除 user-info 和 fragment，query 只保留 key 并替换全部 value。
+- 非根 path 使用带随机 salt 的稳定摘要，同一会话内可聚合但不保存原值。
+- HAR Header 保留名称；只有 Content-Type、Content-Length、Content-Encoding 保留值，其余值替换为 `<redacted>`。
+- 请求和响应正文永不采集。
+- 在线会话持久化前把设备序列号替换为会话内匿名标识。
 
-## 优化建议与改进点
+每个会话和导出产物都记录 `redactionPolicyVersion`。最小化不等同于匿名，产物仍应作为可能敏感数据处理。
 
-> 以下内容不替换已有设计，仅作为可考虑的更好实现方式或优化点补充。每条标注 **影响**（高/中/低）与 **可行性**（高/中/低）。
+### 时间语义
 
-### 1. OkHttp 单库覆盖的局限【影响:高 / 可行性:中】
+在线 Agent 保留原始 device monotonic 时间，同时把 Call、Exchange、Phase 和原始事件规范化为相对握手原点的会话时间。握手 RTT 的一半作为 Clock Mapping 误差上界，映射同时保存 Host monotonic 和墙钟锚点。
 
-**当前实现问题**：Agent 通过 OkHttp `EventListener` 回调采集，依赖 App 使用 OkHttp 且使用了被 Instrument 的 `OkHttpClient` 工厂。现代 Android 项目越来越多用 **Retrofit（底层 OkHttp，可覆盖）**、**Ktor（底层可换 OkHttp/CIO）**、**Java `HttpURLConnection`**、**Cronet**、**Volley（可换 stack）**，这些都不在 OkHttp EventListener 覆盖范围内。
+HAR Call 使用相对最早 `startedDateTime` 的偏移，来源时间域标为 `HAR_WALL_CLOCK`。UI、SQLite、JSON 和 HAR 导出统一消费会话相对时间；在线 monotonic 值不会再直接加到墙钟时间。
 
-**更好的实现方式**：
-- 在 Agent 端增加 **多 HTTP 栈支持**：
-  - `HttpURLConnection`：通过 `URL.openConnection` hook / `sun.net.www.protocol` 注册拦截。
-  - Cronet：hook `CronetEngine.newUrlRequest`。
-  - Volley：hook `HurlStack` / `OkHttpStack`。
-- 文档显式列出"已覆盖/未覆盖"的 HTTP 库矩阵，对未覆盖栈在 `NetworkCoverage` 中标记 `unsupportedStacks`（文档已提及该字段，建议补充具体语义示例）。
-- 对完全无法 Instrument 的栈，退而求其次：解析 `atrace`/`systrace` 中的网络标签或 Perfetto `network` track，至少提供粗粒度时序。
+### Call、Exchange、Connection 与阶段
 
-### 2. 轮询拉取 → Push 推送【影响:中 / 可行性:中】
+`NetworkEventAssembler` 按 `callId` 和事件序列组装证据，并根据重复请求/响应循环拆分 Exchange：
 
-**当前实现问题**：桌面端以 750ms 间隔轮询 Agent 拉取累积事件。轮询在高频请求场景下产生延迟（平均 375ms 的检测延迟）与无谓的空轮询 IO。
+- 重定向、认证 challenge 和 route retry 可以形成多个 Exchange。
+- Proxy、DNS、Connect、TLS、请求/响应 Header/Body、Server wait 和 Connection held 均保留各自证据等级。
+- 未找到 end 的 start 保留为 `PARTIAL`，并计入证据完整度。
+- `CONNECT` 是包含 TLS 的外层阶段，`TLS.parentKind=CONNECT`；阶段摘要不会将两者重复相加。
+- 原始事件随会话保存，启发式 Exchange 边界可以被复核。
 
-**更好的实现方式**：
-- 改为 **长连接 push 模型**：Agent 端事件就绪即通过 socket 推送（事件流），桌面端被动接收，延迟从平均半轮询周期降到毫秒级。
-- 保留轮询作为弱网/不稳定连接的降级（socket 断开重试期间用轮询补数据）。
-- 在 socket 上引入背压与缓冲：Agent 端环形缓冲，溢出时丢弃最旧事件并在 `NetworkCoverage.droppedEvents` 中累计（该字段已存在，建议明确语义）。
+Agent 为 Connection 分配进程内稳定的 opaque identity。Exchange 只使用：
 
-### 3. URL 脱敏算法的明确化【影响:高 / 可行性:高】
+- `NEW`：本 Exchange 有新建连接证据。
+- `REUSED`：同一 Connection identity 已在当前会话出现。
+- `UNKNOWN`：证据不足。
 
-**当前实现问题**：`redactedUrl` 字段表明 URL 已脱敏，但未说明脱敏算法。URL 中常含 token、用户 ID、查询参数（如 `?token=xxx&user=123`），脱敏不当会泄露敏感信息；脱敏过度又失去诊断价值（无法区分是哪个 API 慢）。
+复用率只以 `NEW + REUSED` 为分母。`CONNECTION_HELD` 只表示 Call/Exchange 的持有区间，不表示 Socket 生命周期或连接池健康度。HTTP/2 的多个 Call 可以引用同一 Connection。
 
-**更好的实现方式**：
-- 文档明确脱敏策略：**保留 scheme + host + path**，**查询参数按 key 白名单保留**（如 `page`、`size` 可保留；`token`、`auth`、`session`、`key`、`password` 一律替换为 `<redacted>`），其余值用 `***` 替代。
-- 路径中的动态段（如 `/users/12345/orders`）可选规约：默认保留原始值（便于看到是哪个用户慢），提供"路径参数化"开关（→ `/users/{id}/orders`）用于聚合统计。
-- 提供 **可配置脱敏规则**（项目级配置文件），不同业务自定义敏感 key 列表。
-- 对响应体/请求体，默认不采集内容（只采体积），避免泄露 PII；如需采内容，需用户显式开启并支持字段级 redaction。
+TLS 新建连接保存 `tlsVersion`、`cipherSuite`、Connection identity 和可信度；复用连接不会伪造本次握手或 session resumed。证书链和安全告警不属于该 Profiler。
 
-### 4. 阶段映射的损失与语义对齐【影响:中 / 可行性:高】
+### HAR 导入
 
-**当前实现问题**：`NetworkPhase.kind` 枚举 11 种，但 OkHttp EventListener 实际暴露的回调有限（`connectStart/connectEnd` 不分 TCP/TLS 中间态、`requestHeadersStart/End` 不分发送/接收等）。部分 phase 是推断的，存在时序歧义（如 `SERVER_WAIT` = `responseHeadersStart - requestBodyEnd`，但若没有 body 则起点是 `requestHeadersEnd`）。
+`HarParser` 校验 HAR 1.1/1.2、记录 creator、版本和内容 SHA-256。每个 entry 生成一个 Call 和 Exchange：
 
-**更好的实现方式**：
-- 文档补充 **每个 phase 的计算公式**（start/end 各取哪个回调的 ns），消除歧义。
-- 对"推断阶段"（无法直接从 EventListener 取到的，如 `DISPATCHER_QUEUE`、`PROXY_SELECT`）标注 `confidence`（已有字段，建议明确分级：`MEASURED` / `INFERRED` / `APPROXIMATED`）。
-- 评估用 **OkHttp Interceptor**（`Interceptor.Chain`）补充 EventListener 不暴露的细节（如重试、重定向的多次 exchange），EventListener 对重定向/重试的可见性较差。
+- `blocked/dns/connect/ssl/send/wait/receive` 保留原始 duration，不伪造阶段起止时间。
+- timing 使用 `VALUE/NOT_APPLICABLE/UNAVAILABLE/INVALID` 保存来源状态。
+- HAR 1.2 的 `ssl` 标记为嵌套于 `connect`，不会顺序重复累加。
+- `-1` 不会单独被解释为连接复用。
+- `response.bodySize` 与 `content.size` 分别保存为 wire body size 和 decoded content size。
+- 未识别的数值 timing 扩展保存在 `sourceAttributes`；其他未知内容不会绕过脱敏策略。
 
-### 5. 连接复用与 keep-alive 分析【影响:中 / 可行性:中】
+有效的可选 timing 缺失不会使会话自动降级；跳过 entry 或非法 timing 才影响 `NetworkEvidenceCompleteness`。当前解析器仍会在最大 512MiB 限制内一次读取完整文件。
 
-**当前实现问题**：`HttpExchange` 有 `CONNECTION_HELD` phase，说明记录了连接持有期，但未说明是否做"连接复用率""连接池健康度"分析。连接复用是性能优化的关键点（DNS/TLS 每次重连代价大）。
+### 分析与展示
 
-**更好的实现方式**：
-- 增加会话级指标：**连接复用率**（reuse = 无 DNS/Connect/TLS 阶段的请求占比）、**平均连接寿命**、**连接池命中率**。
-- 对每次新建连接（cold connection）单独标注，并对比其总耗时 vs 复用连接的耗时，量化"未复用连接的代价"。
-- 对长连接被异常关闭（`CONNECTION_HELD` 异常短）的情况，作为异常事件提示。
+`NetworkAnalyzer` 当前计算：
 
-### 6. TLS 版本与协议指纹【影响:低 / 可行性:高】
+- `COMPLETED/FAILED/CANCELLED/INCOMPLETE` 网络调用结果；`COMPLETED` 不表示 HTTP 2xx 或业务成功。
+- HTTP 1xx–5xx 状态族，独立于网络调用结果。
+- 来源定义的请求/响应 body bytes，以及 HAR 单独提供的 decoded content bytes。
+- Call p50/p90/p95、慢调用和缺失 TOTAL timing 数量。
+- 已知缓存结果中的命中率。
+- `NEW/REUSED/UNKNOWN` 数量及已知样本连接复用率。
+- 按来源和阶段能力分组的阶段 p50/p95 与缺失数。
 
-**当前实现问题**：`secureConnectStart/End` 记录 TLS 握手耗时，但未记录 TLS 版本、密码套件、证书信息。这些对调试"TLS 慢"或"安全降级"很关键。
+“最大已观测阶段”只是 duration 贡献，不是 DNS、服务器或客户端根因。当前没有实现并发扫描线或 Waterfall；Call 重叠不能冒充实际连接或带宽并发。
 
-**更好的实现方式**：
-- Agent 端从 `SSLSocket`/`OkHttpsURLConnection.handshake` 读取 **TLS 版本、cipher suite、证书链**（CN、有效期），作为 `HttpExchange` 的扩展字段 `tlsHandshake`。
-- 对 TLS 1.0/1.1 等过时协议、自签名证书、即将过期证书给出告警，帮助发现安全配置问题。
-- 注意证书信息脱敏：CN 通常可保留，私钥/完整证书链按需采集。
+UI 展示覆盖与完整度、网络调用结果、HTTP 状态族、连接复用、最大已观测阶段、Call/Exchange 阶段及 TLS 协议信息。
 
-### 7. 并发分析的算法明确【影响:低 / 可行性:中】
+### 持久化与导出
 
-**当前实现问题**：`NetworkAnalyzer` 有"并发分析：同时进行的请求数"，但未说明算法。简单"同时间窗口计数"在大量请求时会失真（重叠区间计数）。
+SQLite schema v2 完整保存并加载 Session、Coverage、Completeness、Clock Mapping、Warning、Call、Exchange、Connection、Phase、Cache、Failure、TLS、最小化 Header 和有序原始事件。v2 使用独立表名保留旧表不被破坏，并由 round-trip 测试验证新会话证据等价。
 
-**更好的实现方式**：
-- 用 **扫描线算法**（sweep line）：对每个请求 [startNs, endNs] 排序端点事件（+1/-1），计算每个时刻的精确并发数，输出并发数时序与峰值。
-- 提供"并发数时序图"叠加在请求时间线上，可视化潮汐式流量，比单一"峰值并发"更有诊断价值。
+- JSON schema v2 包含完整会话、摘要、Call/Exchange/Phase 和原始事件。
+- CSV 明示为单行 Call 摘要。
+- HAR 带 `_aps.partial=true`，是不能恢复正文及全部标准字段的有损互操作投影。
+- Raw Bundle 包含 `network-session.json`、`raw-events.json` 和声明 schema、来源、事件数及脱敏策略的 manifest。
 
-### 8. HAR 导入的字段映射完整性【影响:低 / 可行性:高】
+## 已实现的优化
 
-**当前实现问题**：`HarParser` 解析 HAR entries 转换为内部模型，但 HAR 的 `timings` 字段语义与 OkHttp phase 不完全对应（HAR 有 `block`、`dns`、`connect`、`ssl`、`send`、`wait`、`receive`），映射规则文档未说明。
-
-**更好的实现方式**：
-- 文档提供 **HAR timings → NetworkPhase.kind 映射表**，明确每个 HAR timing 映射到哪个 phase，对无法映射的字段标注。
-- 对 HAR 缺失的字段（如 `requestBytes`/`responseBytes` 需从 `content.size` 推断、HAR 不区分 dispatcher queue），明确标注 `confidence=INFERRED`。
-- 导入时校验 HAR 版本（1.1/1.2）与 `creator` 字段，对 Chrome/Fiddler/Charles 等不同来源的 HAR 做差异化适配（不同工具的 timings 粒度与起始点不同）。
+1. 分离网络采集覆盖、网络证据完整度和单项阶段可信度。
+2. 以会话序列边界隔离队列，检测缺口并在停止时分页排空。
+3. 在 Agent、HAR、SQLite 和导出之间执行版本化的默认不可逆最小化。
+4. 统一在线与 HAR 的会话相对时间，并保存带误差界限的 Clock Mapping。
+5. 按重复事件重建 Call、Exchange 和 Connection，完整转发 OkHttp EventListener。
+6. 只基于 Connection identity 报告 `NEW/REUSED/UNKNOWN` 和已知样本复用率。
+7. 保存 TLS version 与 cipher suite，不扩展为证书安全扫描。
+8. 保持 HAR timing、大小字段、嵌套和缺失状态的原始语义。
+9. 分离网络调用结果、HTTP 状态和阶段 duration 贡献，删除伪并发结论。
+10. 通过 SQLite/JSON round-trip 和真实 Raw Bundle 保留可复核证据。

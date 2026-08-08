@@ -26,8 +26,12 @@ class DominatorTreeAnalyzer {
     fun analyze(
         heapDump: HeapDump,
         onProgress: (Int) -> Unit = {},
+    ): DominatorTreeResult = analyze(HeapGraph.from(heapDump), onProgress)
+
+    internal fun analyze(
+        graph: HeapGraph,
+        onProgress: (Int) -> Unit = {},
     ): DominatorTreeResult {
-        val graph = HeapGraph.from(heapDump)
         if (graph.ids.isEmpty()) {
             onProgress(100)
             return DominatorTreeResult(emptyMap(), emptyMap(), emptySet())
@@ -64,20 +68,25 @@ class DominatorTreeAnalyzer {
         val vertex = IntArray(count + 1)
         val parent = IntArray(count) { -1 }
         var dfsCount = 0
-        val discovered = BooleanArray(count)
-        discovered[SYNTHETIC_ROOT] = true
+        val nextSuccessor = IntArray(count)
         val stack = ArrayDeque<Int>()
+        dfs[SYNTHETIC_ROOT] = ++dfsCount
+        vertex[dfsCount] = SYNTHETIC_ROOT
         stack.add(SYNTHETIC_ROOT)
         while (stack.isNotEmpty()) {
-            val node = stack.removeLast()
-            dfs[node] = ++dfsCount
-            vertex[dfsCount] = node
-            successors[node].asReversed().forEach { target ->
-                if (!discovered[target]) {
-                    discovered[target] = true
-                    parent[target] = node
-                    stack.add(target)
-                }
+            val node = stack.last()
+            val successorIndex = nextSuccessor[node]
+            if (successorIndex >= successors[node].size) {
+                stack.removeLast()
+                continue
+            }
+            nextSuccessor[node] = successorIndex + 1
+            val target = successors[node][successorIndex]
+            if (dfs[target] == 0) {
+                parent[target] = node
+                dfs[target] = ++dfsCount
+                vertex[dfsCount] = target
+                stack.add(target)
             }
         }
 
@@ -198,11 +207,22 @@ internal data class HeapGraph(
                 }
             val ids = (objects.map(HeapObject::objectId) + heapDump.classes.map { it.objectId }).distinct().sorted()
             val knownIds = ids.toHashSet()
+            val referenceClassIds = heapDump.classIdsAssignableTo("java.lang.ref.Reference")
+            val referenceHolderIds =
+                heapDump.instances
+                    .filterTo(hashSetOf()) {
+                        it.classObjectId in referenceClassIds ||
+                            it.className == "java.lang.ref.WeakReference" ||
+                            it.className == "java.lang.ref.SoftReference" ||
+                            it.className == "java.lang.ref.PhantomReference"
+                    }.mapTo(hashSetOf(), HeapObject::objectId)
             val references = linkedMapOf<Long, List<ObjectReference>>()
             objects.forEach { heapObject ->
                 references[heapObject.objectId] =
                     heapObject.references
-                        .filter { it.targetObjectId in knownIds }
+                        .filterNot {
+                            heapObject.objectId in referenceHolderIds && it.fieldName == "referent"
+                        }.filter { it.targetObjectId in knownIds }
                         .sortedWith(compareBy<ObjectReference> { it.fieldName }.thenBy { it.targetObjectId })
             }
             heapDump.classes.forEach { heapClass ->
@@ -229,4 +249,21 @@ internal data class HeapGraph(
             )
         }
     }
+}
+
+/** HPROF class ids assignable to [baseClassName], including indirect subclasses. */
+internal fun HeapDump.classIdsAssignableTo(baseClassName: String): Set<Long> {
+    val classesById = classes.associateBy { it.objectId }
+    val baseIds = classes.filterTo(hashSetOf()) { it.name == baseClassName }.mapTo(hashSetOf()) { it.objectId }
+    if (baseIds.isEmpty()) return emptySet()
+    return classes
+        .filterTo(hashSetOf()) { candidate ->
+            val visited = hashSetOf<Long>()
+            var current: Long? = candidate.objectId
+            while (current != null && current != 0L && visited.add(current)) {
+                if (current in baseIds) return@filterTo true
+                current = classesById[current]?.superClassObjectId
+            }
+            false
+        }.mapTo(hashSetOf()) { it.objectId }
 }

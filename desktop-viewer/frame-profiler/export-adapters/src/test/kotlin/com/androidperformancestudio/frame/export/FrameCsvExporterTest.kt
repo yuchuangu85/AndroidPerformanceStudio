@@ -27,7 +27,7 @@ class FrameCsvExporterTest {
 
         FrameCsvExporter().export(result, output)
 
-        assertContains(output.readText(), "JANK")
+        assertContains(output.readText(), "MISSED")
         assertContains(output.readText(), "8333333")
     }
 }

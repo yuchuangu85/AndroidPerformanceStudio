@@ -1,0 +1,3 @@
+# Preserve Layout Snapshot v1 and add a Compose-capable archive v2
+
+Compose inspection capability parity preserves the existing protocol-v1 `LayoutSnapshot` and archive-v1 compatibility export, while archive v2 adds versioned Compose inspection detail sidecars; this revision is required because released v1 readers reject unknown optional entries larger than 1 MiB and therefore cannot safely ignore the allowed 64 MiB sidecar. Older viewers consume the projected Compose nodes from an explicitly exported v1 archive, newer viewers read both versions and prefer supported v2 details, and upstream AOSP protobuf remains confined to the live agent adapter rather than becoming a durable archive contract.

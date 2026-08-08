@@ -45,28 +45,31 @@ import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.JankSeverity
 import com.androidperformancestudio.frame.presentation.generated.resources.Res
 import com.androidperformancestudio.frame.presentation.generated.resources.activity
-import com.androidperformancestudio.frame.presentation.generated.resources.bottleneck
 import com.androidperformancestudio.frame.presentation.generated.resources.budget
 import com.androidperformancestudio.frame.presentation.generated.resources.budget_source
 import com.androidperformancestudio.frame.presentation.generated.resources.capture_online_or_import_framestats
 import com.androidperformancestudio.frame.presentation.generated.resources.correlate_in_layout_inspector
+import com.androidperformancestudio.frame.presentation.generated.resources.deadline_miss_rate
 import com.androidperformancestudio.frame.presentation.generated.resources.duration
 import com.androidperformancestudio.frame.presentation.generated.resources.frame
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_detail
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline
+import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline_vsync_id
 import com.androidperformancestudio.frame.presentation.generated.resources.frames
 import com.androidperformancestudio.frame.presentation.generated.resources.jank_cluster_summary
 import com.androidperformancestudio.frame.presentation.generated.resources.jank_clusters
-import com.androidperformancestudio.frame.presentation.generated.resources.jank_rate
 import com.androidperformancestudio.frame.presentation.generated.resources.jank_types
+import com.androidperformancestudio.frame.presentation.generated.resources.largest_reported_stage
 import com.androidperformancestudio.frame.presentation.generated.resources.missed_vsync
 import com.androidperformancestudio.frame.presentation.generated.resources.no_jank_clusters_detected
 import com.androidperformancestudio.frame.presentation.generated.resources.opens_the_current_foreground_layout_for_timing_correlation_it_does
 import com.androidperformancestudio.frame.presentation.generated.resources.p50
 import com.androidperformancestudio.frame.presentation.generated.resources.p95
 import com.androidperformancestudio.frame.presentation.generated.resources.platform_jank
+import com.androidperformancestudio.frame.presentation.generated.resources.platform_jank_rate
 import com.androidperformancestudio.frame.presentation.generated.resources.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf
 import com.androidperformancestudio.frame.presentation.generated.resources.source
+import com.androidperformancestudio.frame.presentation.generated.resources.stage_investigation_hint
 import com.androidperformancestudio.frame.presentation.generated.resources.state_detail
 import com.androidperformancestudio.frame.presentation.generated.resources.text
 import com.androidperformancestudio.frame.presentation.generated.resources.unknown_stage
@@ -197,8 +200,13 @@ private fun SummaryCards(
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         MetricCard(localizedStringResource(Res.string.frames, language), summary.totalFrames.toString(), Modifier.weight(1f))
         MetricCard(
-            localizedStringResource(Res.string.jank_rate, language),
-            "%.1f%%".format(summary.jankRate * 100.0),
+            localizedStringResource(Res.string.deadline_miss_rate, language),
+            summary.deadlineMissRate.formatRate(),
+            Modifier.weight(1f),
+        )
+        MetricCard(
+            localizedStringResource(Res.string.platform_jank_rate, language),
+            summary.platformJankRate.formatRate(),
             Modifier.weight(1f),
         )
         MetricCard(localizedStringResource(Res.string.p50, language), summary.p50DurationNs.formatMillis(), Modifier.weight(1f))
@@ -292,15 +300,25 @@ private fun FrameDetail(
             DetailRow(localizedStringResource(Res.string.source, language), frame.sample.source.name)
             frame.sample.activityName?.let { DetailRow(localizedStringResource(Res.string.activity, language), it.substringAfterLast('.')) }
             frame.sample.windowId?.let { DetailRow(localizedStringResource(Res.string.window, language), it) }
-            DetailRow(localizedStringResource(Res.string.verdict, language), frame.verdict.name)
+            DetailRow(localizedStringResource(Res.string.verdict, language), frame.deadlineVerdict.name)
             DetailRow(localizedStringResource(Res.string.platform_jank, language), frame.sample.platformJank?.toString() ?: "—")
             DetailRow(localizedStringResource(Res.string.duration, language), frame.sample.resolvedDurationNs().formatMillis())
             DetailRow(localizedStringResource(Res.string.budget, language), frame.sample.expectedDurationNs.formatMillis())
             DetailRow(localizedStringResource(Res.string.budget_source, language), frame.sample.expectedDurationSource.name)
             DetailRow(localizedStringResource(Res.string.missed_vsync, language), frame.missedVsyncCount?.toString() ?: "—")
-            DetailRow(localizedStringResource(Res.string.bottleneck, language), frame.bottleneckStage ?: "—")
-            if (frame.jankTypes.isNotEmpty()) {
-                DetailRow(localizedStringResource(Res.string.jank_types, language), frame.jankTypes.joinToString { it.name })
+            frame.sample.frameTimelineVsyncId?.let {
+                DetailRow(localizedStringResource(Res.string.frame_timeline_vsync_id, language), it.toString())
+            }
+            DetailRow(localizedStringResource(Res.string.largest_reported_stage, language), frame.largestReportedStage ?: "—")
+            frame.largestReportedStage?.let { stage ->
+                Text(
+                    localizedStringResource(Res.string.stage_investigation_hint, language, stage),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (frame.platformJankTypes.isNotEmpty()) {
+                DetailRow(localizedStringResource(Res.string.jank_types, language), frame.platformJankTypes.joinToString { it.name })
             }
             Spacer(Modifier.height(4.dp))
             frame.sample.stages
@@ -380,8 +398,8 @@ private fun ClusterList(
                                     localizedStringResource(
                                         Res.string.jank_cluster_summary,
                                         language,
-                                        cluster.jankFrameIds.size,
-                                        cluster.dominantStage ?: localizedStringResource(Res.string.unknown_stage, language),
+                                        cluster.deadlineMissFrameIds.size,
+                                        cluster.dominantReportedStage ?: localizedStringResource(Res.string.unknown_stage, language),
                                     ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -397,5 +415,7 @@ private fun ClusterList(
 }
 
 private fun Long?.formatMillis(): String = this?.let { "%.2f ms".format(it / NANOS_PER_MILLISECOND) } ?: "—"
+
+private fun Double?.formatRate(): String = this?.let { "%.1f%%".format(it * 100.0) } ?: "—"
 
 private const val NANOS_PER_MILLISECOND = 1_000_000.0

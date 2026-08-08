@@ -97,6 +97,7 @@
     <string name="native_size">Native 大小</string>
     <string name="instance_list">实例列表</string>
     <string name="references">引用</string>
+    <string name="no_references">无入向引用。</string>
     <string name="leaks_summary">%1$s 个泄漏</string>
     <string name="duplicates_summary">%1$s 个重复</string>
 </resources>

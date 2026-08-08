@@ -40,6 +40,7 @@
     <string name="light">浅色</string>
     <string name="dark">深色</string>
     <string name="layout_correlation_from_frame">来自 Frame #%1$s 的布局关联 · %2$s%3$s</string>
+    <string name="frame_perfetto_correlation">已从 Frame Profiler 打开并按 %1$s 关联 FrameTimeline。应用、SurfaceFlinger 或 GPU 归因必须以此 Trace 中的 FrameTimeline 证据为准。</string>
     <string name="correlation_only_no_view_causality_is_inferred">仅做相关性分析，不推断 View 因果关系</string>
     <string name="foreground_package_differs">当前前台应用不一致</string>
     <string name="settings_could_not_be_saved_the_current_session_still_uses">%1$s设置未能保存；本次会话中的更改仍然有效。</string>

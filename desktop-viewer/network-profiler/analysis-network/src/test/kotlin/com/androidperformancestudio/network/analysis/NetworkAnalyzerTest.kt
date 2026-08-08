@@ -1,52 +1,47 @@
 package com.androidperformancestudio.network.analysis
 
-import com.androidperformancestudio.network.model.CacheDisposition
-import com.androidperformancestudio.network.model.CallOutcome
-import com.androidperformancestudio.network.model.HttpCall
-import com.androidperformancestudio.network.model.HttpExchange
-import com.androidperformancestudio.network.model.NetworkConfidence
-import com.androidperformancestudio.network.model.NetworkEvidenceSource
-import com.androidperformancestudio.network.model.NetworkPhase
-import com.androidperformancestudio.network.model.NetworkPhaseKind
+import com.androidperformancestudio.network.model.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class NetworkAnalyzerTest {
     @Test
-    fun `summarizes failures bytes and percentiles`() {
-        val calls =
-            listOf(
-                call("1", 10_000_000, CallOutcome.SUCCESS),
-                call("2", 20_000_000, CallOutcome.FAILED),
-            )
+    fun `keeps transport outcomes http status and connection reuse separate`() {
+        val calls = listOf(call("1", 10_000_000, CallOutcome.COMPLETED, 500, ConnectionUse.NEW), call("2", 20_000_000, CallOutcome.FAILED, null, ConnectionUse.REUSED))
         val summary = NetworkAnalyzer().summarize(calls)
         assertEquals(2, summary.callCount)
+        assertEquals(1, summary.completedCount)
         assertEquals(1, summary.failureCount)
+        assertEquals(mapOf("5xx" to 1), summary.httpStatusFamilies)
         assertEquals(20, summary.totalRequestBytes)
         assertEquals(40, summary.totalResponseBytes)
+        assertEquals(0.5, summary.connectionReuse.reuseRateAmongKnown)
     }
 
-    private fun call(id: String, duration: Long, outcome: CallOutcome): HttpCall =
+    private fun call(id: String, duration: Long, outcome: CallOutcome, status: Int?, connectionUse: ConnectionUse): HttpCall =
         HttpCall(
-            id,
-            "GET",
-            "https://example.test",
-            0,
-            duration,
-            listOf(
+            callId = id,
+            instrumentationId = "client",
+            method = "GET",
+            redactedUrl = "https://example.test/",
+            startedNs = 0,
+            endedNs = duration,
+            exchanges = listOf(
                 HttpExchange(
-                    0,
-                    null,
-                    "h2",
-                    200,
-                    10,
-                    20,
-                    listOf(NetworkPhase(NetworkPhaseKind.TOTAL, 0, duration, NetworkConfidence.EXACT)),
-                    CacheDisposition.HIT,
-                    null,
+                    exchangeIndex = 0,
+                    connectionId = "connection",
+                    connectionUse = connectionUse,
+                    protocol = "h2",
+                    statusCode = status,
+                    requestBytes = 10,
+                    responseBytes = 20,
+                    decodedResponseBytes = null,
+                    phases = listOf(NetworkPhase(NetworkPhaseKind.TOTAL, 0, duration, NetworkConfidence.EXACT)),
+                    cacheDisposition = CacheDisposition.HIT,
+                    failure = null,
                 ),
             ),
-            outcome,
-            NetworkEvidenceSource.HAR_IMPORT,
+            outcome = outcome,
+            source = NetworkEvidenceSource.HAR_IMPORT,
         )
 }

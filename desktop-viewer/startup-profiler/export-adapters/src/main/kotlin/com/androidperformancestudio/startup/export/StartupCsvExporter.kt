@@ -1,4 +1,4 @@
-@file:Suppress("MaxLineLength")
+@file:Suppress("LongMethod", "MaxLineLength")
 
 package com.androidperformancestudio.startup.export
 
@@ -15,7 +15,7 @@ public class StartupCsvExporter {
         val content =
             buildString {
                 appendLine(
-                    "iteration,runId,requestedType,observedType,totalTimeMs,thisTimeMs,waitTimeMs,displayedTimeMs,fullyDrawnTimeMs,agentAvailable,warnings",
+                    "iteration,runId,requestedType,observedType,totalTimeMs,thisTimeMs,waitTimeMs,displayedTimeMs,fullyDrawnTimeMs,agentAvailable,warnings,ttidSource,ttidUnavailableReason,ttfdSource,ttfdUnavailableReason,agentFirstFrameSource,agentFirstFrameUnavailableReason,compilerFilter,compilationVerified,profileSource,profileSourceDeclared,deviceModel,apiLevel,emulator,batteryPercent,charging,thermalStatus,traceFile,traceCaptured,traceTruncated,traceFailure,diagnostics",
                 )
                 analysis.runs.forEach { run ->
                     appendLine(
@@ -31,6 +31,63 @@ public class StartupCsvExporter {
                             run.platform.fullyDrawnTimeMs.orEmpty(),
                             run.rawEvidence.agentAvailable,
                             run.warnings.joinToString(" | "),
+                            run.ttidEvidence.source
+                                ?.name
+                                .orEmpty(),
+                            run.ttidEvidence.unavailableReason.orEmpty(),
+                            run.ttfdEvidence.source
+                                ?.name
+                                .orEmpty(),
+                            run.ttfdEvidence.unavailableReason.orEmpty(),
+                            run.agentFirstFrameEvidence.source
+                                ?.name
+                                .orEmpty(),
+                            run.agentFirstFrameEvidence.unavailableReason.orEmpty(),
+                            run.compilationEvidence?.compilerFilterAfter.orEmpty(),
+                            run.compilationEvidence
+                                ?.verified
+                                ?.toString()
+                                .orEmpty(),
+                            run.compilationEvidence
+                                ?.profileSource
+                                ?.name
+                                .orEmpty(),
+                            run.compilationEvidence
+                                ?.profileSourceDeclared
+                                ?.toString()
+                                .orEmpty(),
+                            run.environmentEvidence?.deviceModel.orEmpty(),
+                            run.environmentEvidence
+                                ?.apiLevel
+                                ?.toString()
+                                .orEmpty(),
+                            run.environmentEvidence
+                                ?.emulator
+                                ?.toString()
+                                .orEmpty(),
+                            run.environmentEvidence
+                                ?.batteryPercent
+                                ?.toString()
+                                .orEmpty(),
+                            run.environmentEvidence
+                                ?.charging
+                                ?.toString()
+                                .orEmpty(),
+                            run.environmentEvidence
+                                ?.thermalStatus
+                                ?.toString()
+                                .orEmpty(),
+                            run.traceEvidence?.file.orEmpty(),
+                            run.traceEvidence
+                                ?.captured
+                                ?.toString()
+                                .orEmpty(),
+                            run.traceEvidence
+                                ?.truncated
+                                ?.toString()
+                                .orEmpty(),
+                            run.traceEvidence?.failureReason.orEmpty(),
+                            run.diagnostics.joinToString(" | "),
                         ).joinToString(",") { it.toString().csv() },
                     )
                 }
