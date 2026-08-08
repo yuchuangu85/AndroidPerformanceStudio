@@ -48,7 +48,10 @@ internal object FlameGraphDetailsPresenter {
             is FlameGraphDetailsState.Loading ->
                 FlameGraphDetailsContent(
                     title = localizedStringResource(SimpleperfViewerRes.sp_details_loading_frame_details, language),
-                    lines = listOf("Resolving source, symbols, or disassembly for the selected frame."),
+                    lines =
+                        listOf(
+                            localizedStringResource(SimpleperfViewerRes.sp_details_resolving_frame_details, language),
+                        ),
                 )
             is FlameGraphDetailsState.Ready -> content(state.details, language)
         }

@@ -360,8 +360,50 @@ object SimpleperfViewerRes {
         get() = Res.string.sp_flame_unknown
     val sp_flame_undo_transform: StringResource
         get() = Res.string.sp_flame_undo_transform
+    val sp_flame_undo_last_transform: StringResource
+        get() = Res.string.sp_flame_undo_last_transform
     val sp_flame_clear_transforms: StringResource
         get() = Res.string.sp_flame_clear_transforms
+    val sp_flame_collapse_direct_recursion_only: StringResource
+        get() = Res.string.sp_flame_collapse_direct_recursion_only
+    val sp_flame_collapse_function_subtree: StringResource
+        get() = Res.string.sp_flame_collapse_function_subtree
+    val sp_flame_collapse_recursion: StringResource
+        get() = Res.string.sp_flame_collapse_recursion
+    val sp_flame_collapse_resource: StringResource
+        get() = Res.string.sp_flame_collapse_resource
+    val sp_flame_copy_function_name: StringResource
+        get() = Res.string.sp_flame_copy_function_name
+    val sp_flame_drop_samples_with_function: StringResource
+        get() = Res.string.sp_flame_drop_samples_with_function
+    val sp_flame_focus_on_call_node: StringResource
+        get() = Res.string.sp_flame_focus_on_call_node
+    val sp_flame_focus_on_category: StringResource
+        get() = Res.string.sp_flame_focus_on_category
+    val sp_flame_focus_on_function: StringResource
+        get() = Res.string.sp_flame_focus_on_function
+    val sp_flame_focus_on_self_only: StringResource
+        get() = Res.string.sp_flame_focus_on_self_only
+    val sp_flame_merge_function: StringResource
+        get() = Res.string.sp_flame_merge_function
+    val sp_flame_merge_node_only: StringResource
+        get() = Res.string.sp_flame_merge_node_only
+    val sp_flame_nav_collapse_direct_recursion: StringResource
+        get() = Res.string.sp_flame_nav_collapse_direct_recursion
+    val sp_flame_nav_collapse_resource: StringResource
+        get() = Res.string.sp_flame_nav_collapse_resource
+    val sp_flame_nav_collapse_subtree: StringResource
+        get() = Res.string.sp_flame_nav_collapse_subtree
+    val sp_flame_nav_drop_function: StringResource
+        get() = Res.string.sp_flame_nav_drop_function
+    val sp_flame_nav_focus_call_node: StringResource
+        get() = Res.string.sp_flame_nav_focus_call_node
+    val sp_flame_nav_focus_function: StringResource
+        get() = Res.string.sp_flame_nav_focus_function
+    val sp_flame_nav_focus_self: StringResource
+        get() = Res.string.sp_flame_nav_focus_self
+    val sp_flame_nav_merge_call_node: StringResource
+        get() = Res.string.sp_flame_nav_merge_call_node
     val sp_flame_selected_thread_no_samples: StringResource
         get() = Res.string.sp_flame_selected_thread_no_samples
     val sp_flame_selected_range_no_samples: StringResource
@@ -514,6 +556,8 @@ object SimpleperfViewerRes {
         get() = Res.string.sp_details_close
     val sp_details_loading_frame_details: StringResource
         get() = Res.string.sp_details_loading_frame_details
+    val sp_details_resolving_frame_details: StringResource
+        get() = Res.string.sp_details_resolving_frame_details
     val sp_details_symbol_details: StringResource
         get() = Res.string.sp_details_symbol_details
 

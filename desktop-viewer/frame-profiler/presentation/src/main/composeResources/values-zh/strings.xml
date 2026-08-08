@@ -27,10 +27,10 @@
     <string name="text">#%1$s – #%2$s</string>
     <string name="p50">P50</string>
     <string name="p95">P95</string>
-    <string name="frame">Frame</string>
+    <string name="frame">帧</string>
     <string name="activity">Activity</string>
-    <string name="window">Window</string>
-    <string name="state_detail">State · %1$s</string>
+    <string name="window">窗口</string>
+    <string name="state_detail">状态 · %1$s</string>
     <string name="jank_cluster_summary">%1$s 次未命中 · 最大已报告：%2$s</string>
     <string name="unknown_stage">未知阶段</string>
 </resources>

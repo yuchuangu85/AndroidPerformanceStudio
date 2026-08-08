@@ -78,16 +78,26 @@ internal fun CallStackTransform.navigatorLabel(
     language: com.androidperformancestudio.ui.UiLanguage = com.androidperformancestudio.ui.UiLanguage.ENGLISH,
 ): String =
     when (this) {
-        is CallStackTransform.FocusCallNode -> "Focus call node"
-        is CallStackTransform.FocusFunction -> "Focus function"
-        is CallStackTransform.FocusFunctionSelf -> "Focus self"
-        is CallStackTransform.MergeCallNode -> "Merge call node"
-        is CallStackTransform.MergeFunction -> "Merge function"
-        is CallStackTransform.DropFunction -> "Drop function"
-        is CallStackTransform.CollapseResource -> "Collapse ${resource.substringAfterLast('/')}"
-        is CallStackTransform.CollapseRecursion -> "Collapse recursion"
-        is CallStackTransform.CollapseDirectRecursion -> "Collapse direct recursion"
-        is CallStackTransform.CollapseFunctionSubtree -> "Collapse subtree"
+        is CallStackTransform.FocusCallNode ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_focus_call_node, language)
+        is CallStackTransform.FocusFunction ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_focus_function, language)
+        is CallStackTransform.FocusFunctionSelf ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_focus_self, language)
+        is CallStackTransform.MergeCallNode ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_merge_call_node, language)
+        is CallStackTransform.MergeFunction ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_merge_function, language)
+        is CallStackTransform.DropFunction ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_drop_function, language)
+        is CallStackTransform.CollapseResource ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_collapse_resource, language, resource.substringAfterLast('/'))
+        is CallStackTransform.CollapseRecursion ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_collapse_recursion, language)
+        is CallStackTransform.CollapseDirectRecursion ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_collapse_direct_recursion, language)
+        is CallStackTransform.CollapseFunctionSubtree ->
+            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_collapse_subtree, language)
         is CallStackTransform.FocusCategory ->
             localizedStringResource(SimpleperfViewerRes.sp_details_category_value_format, language, category)
     }

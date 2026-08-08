@@ -71,7 +71,7 @@
     <string name="cpu_method_recording">CPU 方法录制</string>
     <string name="java_kotlin_allocations">Java/Kotlin 分配</string>
     <string name="text">%1$s: %2$s</string>
-    <string name="opened_from_tool_for_correlation_only">Opened from %1$s for correlation only; no causal relationship is inferred.</string>
+    <string name="opened_from_tool_for_correlation_only">从 %1$s 打开，仅用于关联分析；不推断因果关系。</string>
     <string name="simpleperf">Simpleperf</string>
     <string name="android_sdk_path">Android SDK 路径</string>
     <string name="android_sdk_path_hint">留空时自动检测 Android SDK。</string>
@@ -104,7 +104,7 @@
     <string name="source_indexed">已索引</string>
     <string name="source_ai_key_configured">API Key 已配置；输入新值可进行替换。</string>
     <string name="source_ai_key_storage_notice">API Key 将保存到系统凭证存储中。</string>
-    <string name="source_openai_api_key">OpenAI API Key</string>
+    <string name="source_openai_api_key">OpenAI API 密钥</string>
     <string name="source_model">模型</string>
     <string name="source_endpoint">接口地址</string>
     <string name="source_save">保存</string>

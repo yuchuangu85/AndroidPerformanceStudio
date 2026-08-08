@@ -155,7 +155,7 @@
     <string name="z_order">Z 轴顺序</string>
     <string name="snapshot_archive_limit_value">快照存档上限 · %1$s MiB</string>
     <string name="alpha_one">Alpha 1.0</string>
-    <string name="find_in_memory_profiler">Find in Memory Profiler</string>
+    <string name="find_in_memory_profiler">在 Memory Profiler 中查找</string>
 
     <!-- Detail panel labels -->
     <string name="archive_limit_value">%1$s MiB (%2$s×)</string>

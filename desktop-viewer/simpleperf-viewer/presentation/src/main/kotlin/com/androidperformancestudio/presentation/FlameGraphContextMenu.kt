@@ -69,32 +69,50 @@ internal object FlameGraphContextCommands {
         val category = table.categoryAt(nodeIndex)?.takeIf(String::isNotBlank)
         val resource = frame.resource.takeIf { value -> value.isNotBlank() && frame.collapsedResource == null }
         return buildList {
-            transform("Merge function", "m", CallStackTransform.MergeFunction(function))
+            transform(SimpleperfViewerRes.sp_flame_merge_function, "m", CallStackTransform.MergeFunction(function))
             if (snapshot.query.direction == CallStackDirection.FORWARD && path != null) {
-                transform("Merge node only", "M", CallStackTransform.MergeCallNode(path))
+                transform(SimpleperfViewerRes.sp_flame_merge_node_only, "M", CallStackTransform.MergeCallNode(path))
             }
-            transform("Focus on function", "f", CallStackTransform.FocusFunction(function))
+            transform(SimpleperfViewerRes.sp_flame_focus_on_function, "f", CallStackTransform.FocusFunction(function))
             if (snapshot.query.direction == CallStackDirection.FORWARD && path != null) {
-                transform("Focus on call node", "F", CallStackTransform.FocusCallNode(path))
+                transform(SimpleperfViewerRes.sp_flame_focus_on_call_node, "F", CallStackTransform.FocusCallNode(path))
             }
-            transform("Focus on self only", "S", CallStackTransform.FocusFunctionSelf(function))
-            category?.let { value -> transform("Focus on category", "g", CallStackTransform.FocusCategory(value)) }
-            transform("Collapse function subtree", "c", CallStackTransform.CollapseFunctionSubtree(function))
-            resource?.let { value -> transform("Collapse resource", "C", CallStackTransform.CollapseResource(value)) }
+            transform(SimpleperfViewerRes.sp_flame_focus_on_self_only, "S", CallStackTransform.FocusFunctionSelf(function))
+            category?.let { value ->
+                transform(SimpleperfViewerRes.sp_flame_focus_on_category, "g", CallStackTransform.FocusCategory(value))
+            }
+            transform(SimpleperfViewerRes.sp_flame_collapse_function_subtree, "c", CallStackTransform.CollapseFunctionSubtree(function))
+            resource?.let { value ->
+                transform(SimpleperfViewerRes.sp_flame_collapse_resource, "C", CallStackTransform.CollapseResource(value))
+            }
             if (table.hasRecursiveCall(function)) {
-                transform("Collapse recursion", "r", CallStackTransform.CollapseRecursion(function))
+                transform(SimpleperfViewerRes.sp_flame_collapse_recursion, "r", CallStackTransform.CollapseRecursion(function))
             }
             if (table.hasDirectRecursiveCall(function)) {
                 transform(
-                    "Collapse direct recursion only",
+                    SimpleperfViewerRes.sp_flame_collapse_direct_recursion_only,
                     "R",
                     CallStackTransform.CollapseDirectRecursion(function),
                 )
             }
-            transform("Drop samples with this function", "D", CallStackTransform.DropFunction(function))
-            add(FlameGraphContextEntry("Copy function name", null, FlameGraphContextCommand.Copy(frame.symbolName)))
+            transform(SimpleperfViewerRes.sp_flame_drop_samples_with_function, "D", CallStackTransform.DropFunction(function))
+            add(
+                FlameGraphContextEntry(
+                    label = "",
+                    shortcut = null,
+                    command = FlameGraphContextCommand.Copy(frame.symbolName),
+                    labelResource = SimpleperfViewerRes.sp_flame_copy_function_name,
+                ),
+            )
             if (hasTransforms) {
-                add(FlameGraphContextEntry("Undo last transform", null, FlameGraphContextCommand.Undo))
+                add(
+                    FlameGraphContextEntry(
+                        label = "",
+                        shortcut = null,
+                        command = FlameGraphContextCommand.Undo,
+                        labelResource = SimpleperfViewerRes.sp_flame_undo_last_transform,
+                    ),
+                )
                 add(
                     FlameGraphContextEntry(
                         label = "",
@@ -145,11 +163,11 @@ internal object FlameGraphContextCommands {
     ): String? = TRANSFORM_SHORTCUTS[Shortcut(key, shiftPressed)]
 
     private fun MutableList<FlameGraphContextEntry>.transform(
-        label: String,
+        labelResource: StringResource,
         shortcut: String,
         transform: CallStackTransform,
     ) {
-        add(FlameGraphContextEntry(label, shortcut, FlameGraphContextCommand.ApplyTransform(transform)))
+        add(FlameGraphContextEntry("", shortcut, FlameGraphContextCommand.ApplyTransform(transform), labelResource))
     }
 }
 
