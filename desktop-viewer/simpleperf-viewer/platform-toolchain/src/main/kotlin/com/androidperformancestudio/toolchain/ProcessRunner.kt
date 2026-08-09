@@ -85,7 +85,7 @@ class ProcessCancellationSignal {
 
 /**
  * Compatibility adapter for existing profiler code. Process execution and lifecycle handling
- * are owned by platform-adb:adb-core.
+ * are owned by platform-core:adb-core.
  */
 class JvmProcessRunner(
     ioDispatcher: CoroutineDispatcher = Dispatchers.IO,

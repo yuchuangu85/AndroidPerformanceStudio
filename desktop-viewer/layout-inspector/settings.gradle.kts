@@ -43,6 +43,6 @@ includeBuild("../ui-components") {
 includeBuild("../ai-core") {
     name = "layout-inspector-ai-core"
 }
-includeBuild("../platform-adb") {
-    name = "layout-inspector-platform-adb"
+includeBuild("../platform-core") {
+    name = "layout-inspector-platform-core"
 }

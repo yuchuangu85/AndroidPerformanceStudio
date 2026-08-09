@@ -49,6 +49,6 @@ includeBuild("../ui-components") {
     name = "simpleperf-ui-components"
 }
 
-includeBuild("../platform-adb") {
-    name = "simpleperf-platform-adb"
+includeBuild("../platform-core") {
+    name = "simpleperf-platform-core"
 }

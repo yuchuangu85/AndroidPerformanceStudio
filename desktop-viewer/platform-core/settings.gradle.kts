@@ -14,6 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "platform-adb"
+rootProject.name = "platform-core"
 
-include(":adb-core")
+include(":adb-core", ":profiler-contracts")

@@ -31,4 +31,19 @@ class SharedCoreModulesContractTest {
             assertFalse(buildScript.contains("ui-components"))
         }
     }
+
+    @Test
+    fun `root build exposes neutral profiler contracts through platform core`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val rootSettings = Files.readString(desktopViewer.resolve("settings.gradle.kts"))
+        val platformSettings = Files.readString(desktopViewer.resolve("platform-core/settings.gradle.kts"))
+        val contractsBuild = Files.readString(desktopViewer.resolve("platform-core/profiler-contracts/build.gradle.kts"))
+        val compatibilityBuild = Files.readString(desktopViewer.resolve("simpleperf-viewer/profile-model/build.gradle.kts"))
+
+        assertTrue(rootSettings.contains("includeBuild(\"platform-core\")"))
+        assertTrue(platformSettings.contains("\":profiler-contracts\""))
+        assertTrue(contractsBuild.contains("`java-library`"))
+        assertFalse(contractsBuild.contains("org.jetbrains.compose"))
+        assertTrue(compatibilityBuild.contains("com.androidperformancestudio:profiler-contracts"))
+    }
 }

@@ -32,10 +32,9 @@ includeBuild("ai-core") {
 includeBuild("source-workspace") {
     name = "source-workspace"
 }
-// Shared ADB core infrastructure is an independent build so every feature composite resolves
-// the same published coordinate without duplicating a Gradle project identity.
-includeBuild("platform-adb") {
-    name = "platform-adb"
+// Neutral profiler contracts and shared platform infrastructure live in one composite build.
+includeBuild("platform-core") {
+    name = "platform-core"
 }
 
 // Layout Inspector is kept as an isolated composite build.
