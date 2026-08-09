@@ -107,6 +107,9 @@
     <string name="source_ai_key_storage_notice">The API key will be stored in the system credential store.</string>
     <string name="source_openai_api_key">OpenAI API Key</string>
     <string name="source_model">Model</string>
+    <string name="source_choose_model">Choose model (%1$d)</string>
+    <string name="source_refresh_models">Refresh models</string>
+    <string name="source_models_load_failed">Could not load models: %1$s</string>
     <string name="source_endpoint">Endpoint</string>
     <string name="source_save">Save</string>
     <string name="source_cancel">Cancel</string>

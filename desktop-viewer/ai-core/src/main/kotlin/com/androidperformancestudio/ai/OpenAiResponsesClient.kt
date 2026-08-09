@@ -1,6 +1,7 @@
 package com.androidperformancestudio.ai
 
 import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -16,11 +17,17 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
+internal val AI_HTTP_SUCCESS_CODES: IntRange =
+    HttpURLConnection.HTTP_OK until HttpURLConnection.HTTP_MULT_CHOICE
+
 public data class AiHttpRequest(
     val url: String,
     val headers: Map<String, String>,
-    val body: String,
+    val body: String = "",
+    val method: AiHttpMethod = AiHttpMethod.POST,
 )
+
+public enum class AiHttpMethod { GET, POST }
 
 public data class AiHttpResponse(
     val statusCode: Int,
@@ -28,7 +35,7 @@ public data class AiHttpResponse(
 )
 
 public fun interface AiHttpTransport {
-    public suspend fun post(request: AiHttpRequest): AiHttpResponse
+    public suspend fun execute(request: AiHttpRequest): AiHttpResponse
 }
 
 public data class StructuredAiRequest(
@@ -71,7 +78,7 @@ public class OpenAiResponsesClient(
     public suspend fun execute(request: StructuredAiRequest): AiTextResponse {
         require(apiKey.isNotBlank()) { "An API key is required for AI requests" }
         val response =
-            post(
+            transport.executeClassified(
                 AiHttpRequest(
                     url = endpoint,
                     headers =
@@ -82,16 +89,8 @@ public class OpenAiResponsesClient(
                     body = buildRequestBody(request),
                 ),
             )
-        if (response.statusCode !in SUCCESS_STATUS_CODES) throw response.statusCode.toRequestException()
+        if (response.statusCode !in AI_HTTP_SUCCESS_CODES) throw response.statusCode.toRequestException()
         return AiTextResponse(model = model, outputText = extractOutputText(response.body))
-    }
-
-    private suspend fun post(request: AiHttpRequest): AiHttpResponse = try {
-        transport.post(request)
-    } catch (failure: HttpTimeoutException) {
-        throw AiRequestException(AiRequestFailureKind.TIMEOUT, cause = failure)
-    } catch (failure: IOException) {
-        throw AiRequestException(AiRequestFailureKind.NETWORK, cause = failure)
     }
 
     private fun buildRequestBody(request: StructuredAiRequest): String =
@@ -132,11 +131,10 @@ public class OpenAiResponsesClient(
     public companion object {
         public const val DEFAULT_ENDPOINT: String = "https://api.openai.com/v1/responses"
 
-        private val SUCCESS_STATUS_CODES: IntRange = 200..299
     }
 }
 
-private fun Int.toRequestException(): AiRequestException = AiRequestException(
+internal fun Int.toRequestException(): AiRequestException = AiRequestException(
     kind = when (this) {
         401, 403 -> AiRequestFailureKind.AUTHENTICATION
         408, 504 -> AiRequestFailureKind.TIMEOUT
@@ -146,16 +144,27 @@ private fun Int.toRequestException(): AiRequestException = AiRequestException(
     statusCode = this,
 )
 
+internal suspend fun AiHttpTransport.executeClassified(request: AiHttpRequest): AiHttpResponse = try {
+    execute(request)
+} catch (failure: HttpTimeoutException) {
+    throw AiRequestException(AiRequestFailureKind.TIMEOUT, cause = failure)
+} catch (failure: IOException) {
+    throw AiRequestException(AiRequestFailureKind.NETWORK, cause = failure)
+}
+
 public class JdkAiHttpTransport : AiHttpTransport {
     private val client: HttpClient =
         HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS)).build()
 
-    override suspend fun post(request: AiHttpRequest): AiHttpResponse {
+    override suspend fun execute(request: AiHttpRequest): AiHttpResponse {
         val builder =
             HttpRequest
                 .newBuilder(URI.create(request.url))
                 .timeout(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
-                .POST(HttpRequest.BodyPublishers.ofString(request.body))
+        when (request.method) {
+            AiHttpMethod.GET -> builder.GET()
+            AiHttpMethod.POST -> builder.POST(HttpRequest.BodyPublishers.ofString(request.body))
+        }
         request.headers.forEach(builder::header)
         return suspendCancellableCoroutine { continuation ->
             val future = client.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString())

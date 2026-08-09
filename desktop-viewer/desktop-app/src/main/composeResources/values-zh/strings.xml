@@ -107,6 +107,9 @@
     <string name="source_ai_key_storage_notice">API Key 将保存到系统凭证存储中。</string>
     <string name="source_openai_api_key">OpenAI API 密钥</string>
     <string name="source_model">模型</string>
+    <string name="source_choose_model">选择模型（%1$d）</string>
+    <string name="source_refresh_models">刷新模型</string>
+    <string name="source_models_load_failed">无法加载模型：%1$s</string>
     <string name="source_endpoint">接口地址</string>
     <string name="source_save">保存</string>
     <string name="source_cancel">取消</string>

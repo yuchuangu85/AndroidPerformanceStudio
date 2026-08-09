@@ -3,6 +3,7 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.ai.CredentialStore
 import com.androidperformancestudio.ai.InMemoryCredentialStore
 import com.androidperformancestudio.ai.MacOsKeychainCredentialStore
+import com.androidperformancestudio.ai.OpenAiModelCatalog
 import com.androidperformancestudio.ai.SqliteAnalysisSessionRepository
 import com.androidperformancestudio.analysis.AiSourceCandidateReference
 import com.androidperformancestudio.source.AospSourceProvider
@@ -48,6 +49,15 @@ internal class SourceWorkspaceRuntime(
     fun aiModel(): String = preferences.get(AI_MODEL_KEY, DEFAULT_AI_MODEL)
 
     fun aiEndpoint(): String = preferences.get(AI_ENDPOINT_KEY, com.androidperformancestudio.ai.OpenAiResponsesClient.DEFAULT_ENDPOINT)
+
+    suspend fun aiModels(
+        apiKeyOverride: String,
+        endpoint: String,
+    ): List<String> {
+        val apiKey = apiKeyOverride.ifBlank { credential("openai:api-key").orEmpty() }
+        require(apiKey.isNotBlank()) { "Configure an OpenAI API key before loading models" }
+        return OpenAiModelCatalog(apiKey, endpoint).listModels()
+    }
 
     fun saveAiConfiguration(
         model: String,
