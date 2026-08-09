@@ -96,6 +96,14 @@ _Avoid_: Heap snapshot、HPROF（HPROF 是文件格式，不是概念）
 关联一个或多个 Capture Artifact 的跨功能容器，共享设备、进程和时间上下文，但不统一各功能的业务数据模型。
 _Avoid_: Session（与功能内会话歧义）、Capture（捕获是动作，不是容器）
 
+**AI Analysis**:
+用户针对当前 Profiler 的选中范围或报告显式发起的受约束分析；输入是可复核的性能证据，输出是可关联源码的 Analysis Finding。后续追问只能作为同一不可变 Analysis Session 上下文内的扩展。
+_Avoid_: 全项目自由对话（边界不可复现）、自主改码 Agent（不属于性能分析）
+
+**AI Source Context**:
+本地确定性解析器生成、经用户预检确认的有界源码候选与片段。AI 只能引用其 Candidate ID，不得自行遍历文件系统或生成路径和行号。
+_Avoid_: 全库任意读取（超出授权边界）、向量检索结果作为可信源码位置
+
 **Battery Snapshot**:
 Battery Profiler 在某一时点取得的电池状态与资源累计值。实验结果由起止 Battery Snapshot 的差值产生。
 

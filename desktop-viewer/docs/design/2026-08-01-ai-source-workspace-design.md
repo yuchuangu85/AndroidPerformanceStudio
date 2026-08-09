@@ -2,9 +2,9 @@
 
 > 日期：2026-08-01
 >
-> 状态：首版核心闭环已实现；Build Evidence/跨平台凭证等加固项持续迭代
+> 状态：基础代码已存在；2026-08-09 将首个可发布闭环收敛为 Layout Inspector + Local Source Workspace
 >
-> 首版范围：Layout Inspector、Simpleperf、Local、GitHub.com、AOSP
+> 当前范围：内部 Feature Flag 下的 Layout/Local 闭环；Simpleperf、GitHub.com、AOSP 和 Agent Runtime 均延后
 
 ## 1. 目标
 
@@ -19,22 +19,25 @@ Android Performance Studio 需要形成如下可信闭环：
   → Finding 打开候选选择器或只读 Source Viewer
 ```
 
-成功标准：
+首个闭环成功标准：
 
-1. 用户可以全局注册 Local、GitHub 或 AOSP 源码工作区。
-2. 每次分析绑定不可变源码快照和可选构建证据包。
-3. AI 不生成文件路径或行号，只排序并解释本地解析器提供的候选。
-4. Layout Inspector 和 Simpleperf 使用统一分析结果模型。
-5. 历史分析可以复现；换机器后可以重新绑定或按 revision 获取源码。
-6. 云端 AI 只接收经授权的最小源码片段。
+1. 用户只需绑定 Local Source Workspace，即可针对 Layout Inspector 当前选择或报告发起分析。
+2. 本地解析器先生成确定性 Candidate；AI 不生成路径或行号，只能引用请求内的 Evidence ID 和 Candidate ID。
+3. 无法证明本地源码与设备 APK 构建一致时，Resolution Confidence 最高为 `PROBABLE`。
+4. 每次请求都展示完整的证据/文件/片段摘要并等待用户确认；超限时阻止发送，不静默截断。
+5. Finding 可打开经哈希验证的源码；源码变更后标记过期，重新分析创建新 Analysis Session。
+6. 归档只保存结构化证据摘要、哈希、引用和版本，不保存源码正文或模型原始响应。
+7. 通过固定 Layout 样例回归和人工有用性评分后，仍先在隐藏 Feature Flag 下内部试用。
 
 ## 2. 非目标
 
-首版不包含：
+首个 Layout/Local 闭环不包含：
 
 - 自动修改代码、应用 Patch、创建分支、Commit 或 PR。
 - 自由聊天和脱离证据的连续问答。
-- Perfetto、Memory、Frame、Startup 等其他 Profiler 的完整接入。
+- Simpleperf、Perfetto、Memory、Frame、Startup 等其他 Profiler 的接入或启用。
+- GitHub.com、AOSP 或 GitHub Enterprise Source Provider 的启用。
+- Koog 或其他 Agent Runtime、MCP、RAG、长期记忆和多 Provider 适配。
 - GitHub Enterprise Server 的正式兼容承诺。
 - 完整 AOSP `repo sync`。
 - 以向量数据库或 embeddings 作为可信源码定位依据。
@@ -44,20 +47,23 @@ Android Performance Studio 需要形成如下可信闭环：
 
 仓库已有以下基础：
 
-- `ai-core/`：OpenAI Responses API、结构化输出请求和 HTTP Transport。
-- `import-core/`：通用单文件导入契约和文件可读性校验。
-- Layout Inspector：`AiAnalysisInputBuilder`、`OpenAiResponsesAnalysisClient`、
-  `AiAnalysisReport` 和归档兼容代码。
-- Layout Inspector 的用户入口由 `AI_ANALYSIS_ENTRY_VISIBLE = false` 隐藏。
-- Simpleperf 已有火焰图、Call Tree、Top Functions、线程和时间范围等可引用性能数据。
+- `ai-core/`：Provider-neutral 契约、OpenAI Responses Adapter、结构化输出校验、SQLite Analysis Session 和 Credential Store。
+- `source-workspace/`：Local/GitHub/AOSP Provider、内容缓存、SQLite 索引、确定性 Resolver 和只读源码读取。
+- `desktop-app/SourceAwareLayoutAiAnalysisClient.kt`：Layout Evidence、Candidate、Session 和 OpenAI Gateway 的现有组合。
+- Layout Inspector 已有分析确认对话框和 Finding 源码入口。
 
-现有 `AiFinding.confidence` 同时承担“结论可信度”的展示，却没有独立的源码定位可信度；
-新模型必须拆分这两个概念。现有 `import-core` 也不足以表达同步、快照、缓存、索引和定位，
-因此更名为 `source-workspace`。
+已知实现差距：
+
+- `AI_ANALYSIS_ENTRY_VISIBLE` 当前为 `true`，与“先隐藏内部试用”冲突。
+- 当前预检只展示范围和证据数，没有列出本次实际文件、片段、大小和超限项。
+- `SourceAwareLayoutAiAnalysisClient` 使用 `take(MAX_CANDIDATES)` 静默截断 Candidate，与已确认的超限策略冲突。
+- `IndexedSourceResolver` 可仅凭符号/资源匹配生成 `EXACT`，尚未在缺少 APK 构建身份时将结果上限为 `PROBABLE`。
+- 历史 Source Viewer 可读取快照缓存，但尚未比较当前 Local 文件哈希并显示 stale 状态。
+- 已存在 Simpleperf 和远程 Provider 代码；本规划不删除底层实现，但它们不进入首个闭环的 UI、验收和发布范围。
 
 ## 4. 领域语言
 
-完整术语见仓库根目录 [`CONTEXT.md`](../../../CONTEXT.md)。本方案使用以下核心概念：
+完整术语见仓库根目录 [`CONTEXT.md`](../../CONTEXT.md)。本方案使用以下核心概念：
 
 - **Source Workspace**：只读注册的源码集合。
 - **Source Snapshot**：工作区的不可变版本身份。
@@ -148,6 +154,10 @@ interface SourceContentReader {
 - Analysis Session、Finding、Evidence reference 和版本模型。
 - Prompt/Payload policy、大小预算、取消、超时和重试协议。
 - 模型、端点和凭证引用配置。
+
+首版继续使用现有 OpenAI Responses Adapter，不引入 Koog 等 Agent Runtime。
+`AiAnalysisGateway` 保留替换缝；只在出现已验证的多步工具调用或第二个 Provider 需求后重新评估运行时引入。
+首个 Layout/Local 闭环只支持 OpenAI Responses API，允许配置模型和凭证；Provider-neutral 契约不等于首版必须实现多 Provider。
 
 不负责：扫描源码、创建源码候选、理解 Layout/Simpleperf 内部表结构、渲染 UI。
 
@@ -272,6 +282,7 @@ data class ResolutionCandidate(
 - 多个 `EXACT` 或任意 `PROBABLE`：打开候选选择器。
 - 只有 `WEAK`：展示搜索结果，不提供误导性的直接跳转。
 - 无候选：Finding 仍可展示，但源码状态为 Unresolved。
+- 无法证明 Local Snapshot 与设备中 APK 的构建身份一致时仍允许分析，但界面必须标记“构建匹配未验证”，且候选最高只能为 `PROBABLE`。
 
 ### 6.4 Analysis
 
@@ -431,7 +442,7 @@ sequenceDiagram
 - Simpleperf 包含选中函数/调用栈、线程和时间范围。
 - 无选择时使用有硬性预算的报告摘要。
 - 预检页允许切换“当前选择 / 整体报告”。
-- 超出预算必须报告省略内容，不能静默截断。
+- 超出预算时阻止发送，预检页展示超限证据/源码项及缩小范围建议；不得静默截断后继续分析。
 
 ### 10.2 Structured Output
 
@@ -465,6 +476,7 @@ AI 可返回：标题、严重级别、解释、整改建议、Analysis Confiden
 - 请求内已存在的 Evidence ID/Candidate ID。
 
 每个 Source Workspace 首次上传源码前单独授权，并支持“仅发送性能数据”模式。
+此外，每次分析都必须在请求发出前展示本次性能证据、源文件与片段摘要，仅在用户显式确认后发送；首版不提供跳过预检的自动发送。
 
 ### 11.2 本地安全
 
@@ -472,6 +484,7 @@ AI 可返回：标题、严重级别、解释、整改建议、Analysis Confiden
 - Source Workspace 永不执行构建脚本或源码中的可执行文件。
 - HTTP redirect 跨主机时不得转发 Authorization header。
 - Token/API Key 只通过 Credential Store abstraction 读取。
+- 首版 OpenAI API Key 由用户在设置中提供并保存到操作系统 Keychain；不建设应用代理、统一密钥、账号或计费服务。
 - 日志只记录 request ID、哈希、大小、模型、耗时和状态，不记录源码/Prompt 正文。
 
 ## 12. 持久化与归档
@@ -495,8 +508,9 @@ Analysis Session、Evidence、Candidate、Finding 和它们的关联。
 
 ### 12.3 归档
 
-报告归档保存分析结果、证据摘要、Provider/repository/revision、相对路径、行范围和内容哈希；
-不保存凭证、绝对路径、源码正文、索引或缓存。旧版 `AiAnalysisReport` 迁移为没有 Source Candidate 的
+报告归档保存分析结果、结构化证据摘要、Candidate/Finding 关联、Provider/model、
+Prompt/Policy 版本、repository/revision、相对路径、行范围和内容哈希；不保存凭证、绝对路径、
+源码正文、模型原始响应、索引或缓存。旧版 `AiAnalysisReport` 迁移为没有 Source Candidate 的
 legacy Analysis Session，仍可查看但不显示跳转。
 
 ## 13. UI 设计
@@ -546,9 +560,13 @@ Source Viewer
 ├ workspace / provider / revision
 ├ relative path : line range
 ├ resolution confidence + reasons
+├ content hash state: current | stale
 ├ read-only highlighted source
 └ Open in IDE | Open in GitHub/AOSP | Copy Location
 ```
+
+打开历史 Finding 时必须比较当前文件与记录的内容哈希。哈希不一致时标记结果已过期，
+仍可查看原定位元数据，但不得将新文件的相同行号视为原候选。重新解析或分析必须创建新的 Analysis Session。
 
 ## 14. 状态、错误与恢复
 
@@ -614,7 +632,12 @@ HTTP 调用即使稍后完成，也不得写入已取消 Session。
 - Source Viewer local/GitHub/AOSP 外部打开动作。
 - Light/Dark、中英文和窄窗口 Golden。
 
-### 16.5 Archive Compatibility
+### 16.5 AI Usefulness
+
+- 使用少量固定 Layout 问题样例，自动验证 Schema、ID 引用和源码跳转，不对模型措辞做逐字比对。
+- 每次发布前对“证据充分、原因合理、建议可执行”做人工评分，内容质量失败时不得仅因结构合法而启用功能。
+
+### 16.6 Archive Compatibility
 
 - 旧 Layout Inspector AI report 可读。
 - 新 Analysis Session 往返不包含源码和凭证。
@@ -622,63 +645,87 @@ HTTP 调用即使稍后完成，也不得写入已取消 Session。
 
 ## 17. 分阶段实施
 
-### Phase 1：模块与持久化骨架
+### Phase 0：先收紧已有暴露面
 
-- 将 `import-core` 更名为 `source-workspace`。
-- 建立 Workspace/Snapshot/Job/Cache/Index 数据模型和迁移。
-- 增加 Local Provider、SQLite repository 和 content cache。
-- 保持 AI 入口隐藏。
+只做范围隔离，不重写已有模块。
 
-### Phase 2：Local 索引与 Source Viewer
+- 将 Layout Inspector `AI_ANALYSIS_ENTRY_VISIBLE` 恢复为隐藏，并保留自动测试防止误开。
+- 首个闭环的 Source Workspaces UI 只暴露 Local 绑定；已有 GitHub/AOSP 代码不删除、不继续扩展。
+- Simpleperf AI 客户端不进入公开导航、验收和发布门槛。
 
-- Kotlin/Java/XML 文件、模块、资源和符号索引。
-- 后台增量任务和 Local 文件变化处理。
-- Source Workspaces 页面、绑定流程和只读 Source Viewer。
-- Layout Inspector 确定性定位，不调用 AI 也可验证跳转。
+**通过条件**：普通用户无法从 Layout Inspector、Simpleperf 或 Source Workspaces UI 误触发延后能力；底层现有测试仍通过。
 
-### Phase 3：Build Evidence 与 Simpleperf Resolver
+### Phase 1：完成 Local 源码可信链
 
-- `mapping.txt`、APK 元数据、Build ID、native symbols。
-- Managed/Native Source Resolution。
-- NDK `llvm-symbolizer` 自动发现与降级。
-- Flame Graph、Call Tree、Top Functions 上下文入口。
+- 复用 `source-workspace` 已有 Snapshot、Cache、Index 和 Resolver，不再建新索引层。
+- Layout Evidence 只从当前选中节点或有界报告摘要生成。
+- 在 Resolver 输出边界统一应用构建匹配上限：未验证 APK 构建身份时，符号/资源匹配最高为 `PROBABLE`。
+- 打开历史 Finding 时比较 Snapshot 哈希与当前 Local 文件哈希，展示 `current/stale`；不把当前文件相同行号当成历史候选。
 
-### Phase 4：GitHub 与 AOSP Provider
+**通过条件**：固定 Layout fixture 在不调用 AI 时即可产生预期 Candidate 并打开源码；未验证构建不出现 `EXACT`；修改本地文件后显示 stale。
 
-- GitHub.com public/private、Keychain、commit archive 和在线发现。
-- AOSP manifest、Gitiles、虚拟工作区和按需物化。
-- 离线、限流、哈希验证和缓存清理。
+### Phase 2：让预检成为真正的发送边界
 
-### Phase 5：统一 AI 分析
+- 由 Coordinator 一次性构建不可变 `AnalysisRequest` 和 Payload Manifest；UI 预览与确认后发送使用同一份对象。
+- Manifest 列出证据数、相对文件、行范围、片段行数/字节数、总大小和仅性能数据模式。
+- 删除 `take(MAX_CANDIDATES)` 式静默截断；任一预算超限都返回可解释的 Blocked 状态和缩小范围建议。
+- 每次请求都需用户确认；取消、未授权工作区或超限时，HTTP Transport 调用数必须为零。
 
-- `AiAnalysisGateway`、统一 Session/Finding Schema 和 Analysis Coordinator。
-- Layout/Simpleperf Evidence Adapter。
-- Payload policy、工作区授权、预检、取消、重试和版本化结果。
-- 替换仅依赖环境变量的正式设置流程。
+**通过条件**：契约测试证明“预览的 payload = 实际发送的 payload”，且取消、未授权、超限三条路径都是零网络请求。
 
-### Phase 6：兼容与启用
+### Phase 3：收口 OpenAI 分析与归档
 
-- 归档 schema migration。
-- 安全、性能、跨平台和 UI Golden 验证。
-- 完成 `ai-analysis-roadmap.md` 的启用门槛后移除/开启
-  `AI_ANALYSIS_ENTRY_VISIBLE` feature gate。
+- 继续使用现有 `AiAnalysisGateway` 和 OpenAI Responses Adapter，不引入 Koog。
+- 正式产品路径从设置和 OS Keychain 读取 API Key；环境变量只可作为开发便利，不得成为用户流程依赖。
+- 保留已有 Schema 和 ID allowlist 验证，补齐超长文本/数组、未知 ID、重复 ID、取消、超时和 HTTP 错误回归。
+- Analysis Session 只保存结构化证据摘要、哈希、Candidate/Finding 关联、Provider/model 和 Prompt/Policy 版本；不保存源码正文和模型原始响应。
+- 失败和重新分析不覆盖旧 Session，也不删除 Snapshot 或 Finding。
 
-## 18. 首版完成定义
+**通过条件**：固定响应 fixture 能往返 Session/Finding 并打开 Candidate；未知 ID 无跳转；数据库、日志和归档中无 API Key、绝对路径、源码正文和原始响应。
 
-满足以下条件才可启用用户入口：
+### Phase 4：内部验证与实验入口
 
-- Local、GitHub.com、AOSP 工作区均可绑定不可变 Snapshot。
-- Layout Inspector 和 Simpleperf 都存在至少一条测试覆盖的 Exact 路径与降级路径。
-- AI 返回未知 Candidate ID 时不会产生跳转。
-- Source payload 可预览，并且未授权时不会发出源码。
-- 凭证、源码、绝对路径不会进入日志或归档。
-- 取消、超时、离线、限流、索引损坏可以恢复。
-- 第 15 节性能基线通过代表性工程验证。
-- 全量相关单元、集成、UI 和归档兼容测试通过。
+- 对固定 Layout 问题样例自动验证 Schema、ID、Confidence、授权、预算、归档和跳转。
+- 发布前人工按“证据充分、原因合理、建议可执行”评分，不对 AI 措辞做逐字快照。
+- 通过后仍先保持隐藏 Feature Flag 供内部试用；收集并固化失败样例后，再单独决定是否增加用户主动开启的实验入口。
+
+**通过条件**：第 18.1 节的所有硬门槛通过，人工样例评分无阻断项，且公开构建仍无默认 AI 入口。
+
+### 延后队列
+
+只在 Layout/Local 内部数据证明需求后按顺序增加：
+
+1. Simpleperf Evidence Adapter 与 Build Evidence。
+2. GitHub.com/AOSP Source Provider UI 和发布保证。
+3. 第二个 AI Provider。
+4. 只当出现已验证的多步工具调用时，才重新评估 Koog；它仍只能作为 `AiAnalysisGateway` 内部实现。
+
+## 18. 完成定义
+
+### 18.1 Layout/Local 首个闭环
+
+使用固定 Layout Inspector 样例作为可自动回归的启用门槛：
+
+- Finding 只能引用请求内存在的 Evidence ID 和 Candidate ID。
+- 确定性解析的正确候选可打开预期本地源文件；构建匹配未验证时不得标记 `EXACT`。
+- AI 返回未知 ID 时拒绝对应引用和跳转。
+- 用户未在本次预检中确认时，不得发送任何源码正文。
+
+### 18.2 内部启用
+
+满足以下条件才可在内部 Feature Flag 下启用：
+
+- 只有 Layout Inspector + Local Source Workspace 进入本次验收矩阵。
+- 预检显示的 Payload Manifest 与实际发送内容一致。
+- 未授权、取消或超限时不产生网络请求。
+- 未验证构建匹配时无 `EXACT`，历史源码改变后显示 stale。
+- 凭证、源码正文、绝对路径和模型原始响应不进入日志或归档。
+- 相关单元、集成、UI、归档兼容测试和人工有用性评分通过。
 
 ## 19. 关联决策
 
-本设计由仓库根目录 `docs/adr/0001` 至 `docs/adr/0021` 的决策记录约束。关键原则是：
+本设计遵循仓库根目录 `CONTEXT.md` 和现有 `docs/adr/0001` 至 `docs/adr/0008` 中的领域与架构边界。
+本次范围收敛和暂不引入 Koog 都可逆，不新增 ADR。本设计的关键原则是：
 
 1. 确定性源码定位先于 AI 排序。
 2. Analysis Confidence 与 Resolution Confidence 分离。
