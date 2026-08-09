@@ -3,6 +3,7 @@
   - [UI Tour: The Timeline](./guide-ui-tour-timeline.md)
   - [UI Tour: The Panels](./guide-ui-tour-panels.md)
   - [Profiler Fundamentals](./guide-profiler-fundamentals.md)
+  - [Capture artifacts and evidence status](./capture-artifacts.md)
   - [Stack samples and call trees](./guide-stack-samples-and-call-trees.md)
   - [Filtering call trees](./guide-filtering-call-trees.md)
   - [Profiling Firefox for Android](./guide-profiling-firefox-android.md)

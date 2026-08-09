@@ -3,6 +3,7 @@
    - [界面导览：时间线](./guide-ui-tour-timeline.md)
    - [界面导览：面板](./guide-ui-tour-panels.md)
    - [分析器基础](./guide-profiler-fundamentals.md)
+   - [Capture Artifact 与证据状态](./capture-artifacts.md)
    - [堆栈样本与调用树](./guide-stack-samples-and-call-trees.md)
    - [筛选调用树](./guide-filtering-call-trees.md)
    - [对 Firefox for Android 进行分析](./guide-profiling-firefox-android.md)

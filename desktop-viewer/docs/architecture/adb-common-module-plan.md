@@ -1,7 +1,13 @@
 # ADB 公共模块提取方案
 
 日期：2026-07-30
-状态：已实施（代码迁移与自动化验证完成，实机和发行包验证留给发布流程）
+状态：已实施（本文前 12 节保留迁移时的历史方案，最终模块名与边界见第 13 节）
+
+> **当前架构：** ADR-0007 已将方案中的 `platform-adb` 提升为
+> `platform-core` composite build。其中 `host-toolchain` 是唯一的 Host Process
+> 实现，`adb-core` 在该实现上提供唯一的共享 ADB 原语。下文的
+> `platform-adb`、`device-adb` 和 `platform-toolchain` 作为迁移前名称保留，
+> 不表示它们仍在当前构建图中。
 
 ## 1. 背景
 
@@ -500,21 +506,23 @@ ADB 操作适合提取到公共模块，但不应直接把现有
 
 ## 13. 实施结果
 
-本方案已按分层边界落地：
+本方案已按 ADR-0007 的最终分层边界落地：
 
-- 新增 `platform-adb/adb-core`，统一 ADB executable 定位、设备模型与解析、
-  输入校验、文本/二进制进程执行、超时与取消、push/pull/forward 及错误模型。
-- 根构建和 Simpleperf composite build 共享同一份 `adb-core` 源码与坐标；独立
-  composite build 继续通过 Simpleperf tooling build 解析该坐标。
-- Layout Inspector 已删除重复的 executable resolver、设备模型和 devices parser；
-  其同步业务网关通过兼容 adapter 使用公共进程执行器，截图与 hierarchy 字节保持
-  原始二进制通道。
-- Simpleperf `device-adb` 已降级为业务 adapter，公共 `AdbDevice`、
-  `AdbDeviceState` 和 parser 来自新 package；原 platform-toolchain 的
-  `JvmProcessRunner` 仅保留兼容 API，实际进程生命周期由 `adb-core` 管理。
-- Perfetto 的设备发现与采集执行已接入 `adb-core`；未参与当前构建的历史
-  `perfetto-viewer/device-adb` 和 `perfetto-viewer/platform-toolchain` 源码已删除。
-- Memory、Frame、Startup 和 Battery 通过共享 adapter/toolchain 使用同一公共
-  设备类型与进程实现，不再构建第二套 ADB ABI。
-- 新增并保留 parser、locator、文本、二进制、超时、取消、参数校验和 desktop
-  runtime classpath 唯一性测试。
+- `platform-core/host-toolchain` 提供 canonical
+  `com.androidperformancestudio.platform.toolchain` API；`JvmHostProcessRunner`
+  是唯一启动 JVM 子进程的实现。`StudioHostProcessExecutor` 只在共享边界把
+  typed Host Toolchain 失败映射为 `StudioError`，不启动进程。
+- `platform-core/adb-core` 统一 ADB executable 定位、无状态
+  `DeviceTarget`、设备发现、输入校验、文本/二进制执行、超时与取消、
+  push/pull/forward 及类型化错误；它组合 `host-toolchain`，不保留第二套
+  process runner。
+- Layout Inspector、Simpleperf、Perfetto、Memory、Frame、Startup、Battery、
+  Network 以及其他已迁移功能直接解析 `platform-core` 坐标；功能网关只保留
+  自身命令和领域映射。
+- Simpleperf 历史 `device-adb` 和 `platform-toolchain` 模块、旧
+  `com.androidperformancestudio.toolchain` package 与兼容 shim 均已删除；
+  Simpleperf 的采集、parser、强类型模型和 UI 保持独立。
+- Perfetto 设备发现和采集执行经 `adb-core`，Trace Processor 的校验、
+  动态私有端口和生命周期则由独立 `platform-perfetto` 负责。
+- parser、locator、文本与二进制通道、超时、取消、参数校验、旧坐标拒绝和
+  Desktop runtime classpath 唯一性均有自动化结构契约。

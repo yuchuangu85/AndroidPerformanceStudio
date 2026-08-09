@@ -64,22 +64,6 @@ class SharedCoreModulesContractTest {
                     "platform-core/adb-core/src/main/kotlin/com/androidperformancestudio/platform/adb/AdbClient.kt",
                 ),
             )
-        val simpleperfAdapter =
-            Files.readString(
-                desktopViewer.resolve(
-                    "platform-core/host-toolchain/src/main/kotlin/" +
-                        "com/androidperformancestudio/toolchain/ProcessRunner.kt",
-                ),
-            )
-        val perfettoTraceProcessorBuild =
-            Files.readString(desktopViewer.resolve("perfetto-viewer/perfetto-trace-processor/build.gradle.kts"))
-        val perfettoTraceProcessor =
-            Files.readString(
-                desktopViewer.resolve(
-                    "perfetto-viewer/perfetto-trace-processor/src/main/kotlin/" +
-                        "com/androidperformancestudio/perfetto/traceprocessor/TraceProcessorSession.kt",
-                ),
-            )
         val perfettoCapture =
             Files.readString(
                 desktopViewer.resolve(
@@ -92,13 +76,35 @@ class SharedCoreModulesContractTest {
         assertTrue(hostRunner.contains("class JvmHostProcessRunner"))
         assertTrue(hostRunner.contains("ProcessBuilder("))
         assertFalse(adbClient.contains("ProcessBuilder("))
-        assertFalse(simpleperfAdapter.contains("ProcessBuilder("))
         assertTrue(adbClient.contains("JvmHostProcessRunner"))
-        assertTrue(simpleperfAdapter.contains("JvmHostProcessRunner"))
-        assertTrue(perfettoTraceProcessorBuild.contains("com.androidperformancestudio:platform-toolchain"))
-        assertFalse(perfettoTraceProcessor.contains("ProcessBuilder("))
-        assertTrue(perfettoTraceProcessor.contains("processRunner.launch("))
-        assertTrue(perfettoCapture.contains("JvmProcessRunner().run(request)"))
+        listOf("platform-toolchain", "device-adb").forEach { legacyModule ->
+            val legacyRoot = desktopViewer.resolve("simpleperf-viewer/$legacyModule")
+            assertFalse(Files.exists(legacyRoot.resolve("build.gradle.kts")), "Legacy module build script must be removed: $legacyModule")
+            assertFalse(Files.exists(legacyRoot.resolve("src")), "Legacy module sources must be removed: $legacyModule")
+        }
+        assertFalse(Files.exists(desktopViewer.resolve("perfetto-viewer/perfetto-trace-processor/build.gradle.kts")))
+        val perfettoSettings = Files.readString(desktopViewer.resolve("platform-perfetto/settings.gradle.kts"))
+        assertTrue(perfettoSettings.contains(":platform-perfetto"))
+        assertTrue(perfettoCapture.contains("AdbClient"))
+        assertFalse(perfettoCapture.contains("ProcessBuilder("))
+        val legacyPackage =
+            desktopViewer.resolve(
+                "platform-core/host-toolchain/src/main/kotlin/com/androidperformancestudio/toolchain",
+            )
+        assertFalse(Files.exists(legacyPackage), "Legacy host-toolchain compatibility package must be removed")
+        val legacyImports =
+            Files.walk(desktopViewer).use { paths ->
+                paths
+                    .filter {
+                        Files.isRegularFile(it) &&
+                            it.toString().endsWith(".kt") &&
+                            it.toString().contains("/src/main/")
+                    }
+                    .filter { Files.readString(it).contains("com.androidperformancestudio.toolchain") }
+                    .map { desktopViewer.relativize(it).toString() }
+                    .toList()
+            }
+        assertTrue(legacyImports.isEmpty(), "Legacy host-toolchain imports must be removed: $legacyImports")
     }
 
     @Test
@@ -110,6 +116,8 @@ class SharedCoreModulesContractTest {
             assertTrue(settings.contains("includeBuild(\"../platform-core\")"))
             assertFalse(settings.contains("includeBuild(\"../simpleperf-viewer\")"))
         }
+        assertTrue(Files.readString(desktopViewer.resolve("frame-profiler/settings.gradle.kts")).contains("includeBuild(\"../platform-perfetto\")"))
+        assertTrue(Files.readString(desktopViewer.resolve("startup-profiler/settings.gradle.kts")).contains("includeBuild(\"../platform-perfetto\")"))
     }
 
     @Test
@@ -128,5 +136,93 @@ class SharedCoreModulesContractTest {
         ).forEach { source ->
             assertFalse(Files.readString(desktopViewer.resolve(source)).contains("ProcessBuilder("))
         }
+    }
+
+    @Test
+    fun `profiler business modules never construct adb processes directly`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val allowed = desktopViewer.resolve("platform-core/host-toolchain/src/main/kotlin/com/androidperformancestudio/platform/toolchain/HostProcessRunner.kt")
+        val offenders =
+            Files.walk(desktopViewer).use { paths ->
+                paths
+                    .filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") && it.toString().contains("/src/main/") }
+                    .filter { it != allowed }
+                    .filter {
+                        val source = Files.readString(it)
+                        source.contains("ProcessBuilder(") && source.contains("adb", ignoreCase = true)
+                    }
+                    .map { desktopViewer.relativize(it).toString() }
+                    .toList()
+            }
+        assertTrue(offenders.isEmpty(), "ADB execution must be routed through platform-core: $offenders")
+    }
+
+    @Test
+    fun `Trace Processor uses a pinned dynamic-port resolver without PATH fallback`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val resolver =
+            Files.readString(
+                desktopViewer.resolve(
+                    "platform-perfetto/platform-perfetto/src/main/kotlin/" +
+                        "com/androidperformancestudio/platform/perfetto/TraceProcessorToolResolver.kt",
+                ),
+            )
+        val context =
+            Files.readString(
+                desktopViewer.resolve(
+                    "platform-perfetto/platform-perfetto/src/main/kotlin/" +
+                        "com/androidperformancestudio/platform/perfetto/TraceAnalysisContext.kt",
+                ),
+            )
+        assertTrue(resolver.contains("PINNED_TRACE_PROCESSOR_VERSION"))
+        assertFalse(resolver.contains("System.getenv(\"PATH\")"))
+        assertFalse(resolver.contains("Path.of(\"trace_processor_shell\")"))
+        assertTrue(context.contains("ServerSocket(0,"))
+        assertFalse(context.contains("9001"))
+        assertFalse(context.contains("9002"))
+    }
+
+    @Test
+    fun `packaging contract covers every supported Trace Processor host`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val manifest = Files.readString(desktopViewer.resolve("platform-perfetto/trace-processor-manifest.json"))
+        val packaging = Files.readString(desktopViewer.resolve("desktop-app/build.gradle.kts"))
+        val releaseWorkflow = Files.readString(desktopViewer.resolve("../.github/workflows/release.yml"))
+        val resolver =
+            Files.readString(
+                desktopViewer.resolve(
+                    "platform-perfetto/platform-perfetto/src/main/kotlin/" +
+                        "com/androidperformancestudio/platform/perfetto/TraceProcessorToolResolver.kt",
+                ),
+            )
+        listOf("macos-x64", "macos-arm64", "linux-x64", "linux-arm64", "windows-x64").forEach { host ->
+            assertTrue(manifest.contains("\"$host\""), "Manifest missing $host")
+        }
+        assertTrue(manifest.contains("\"version\": \"v57.2\""))
+        assertTrue(packaging.contains("JsonSlurper().parse(traceProcessorManifestFile.asFile)"))
+        assertFalse(packaging.contains("c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"))
+        assertFalse(resolver.contains("c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"))
+        assertTrue(resolver.contains("TRACE_PROCESSOR_CHECKSUM_MISMATCH"))
+        assertTrue(packaging.contains("verifyPackagedTraceProcessor"))
+        assertTrue(releaseWorkflow.contains("runner: ubuntu-24.04-arm"))
+        assertTrue(releaseWorkflow.contains("runner: macos-15-intel"))
+        assertTrue(releaseWorkflow.contains("runner: macos-15"))
+        assertTrue(releaseWorkflow.contains("runs-on: windows-latest"))
+        assertTrue(releaseWorkflow.contains("install-trace-processor.sh"))
+    }
+
+    @Test
+    fun `features do not reverse-depend on the Simpleperf composite`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val offenders =
+            Files.walk(desktopViewer, 2).use { paths ->
+                paths
+                    .filter { it.fileName.toString() == "settings.gradle.kts" }
+                    .filter { it.parent.fileName.toString() != "simpleperf-viewer" }
+                    .filter { Files.readString(it).contains("includeBuild(\"../simpleperf-viewer\")") }
+                    .map { desktopViewer.relativize(it).toString() }
+                    .toList()
+            }
+        assertTrue(offenders.isEmpty(), "Shared infrastructure must not be sourced from Simpleperf: $offenders")
     }
 }

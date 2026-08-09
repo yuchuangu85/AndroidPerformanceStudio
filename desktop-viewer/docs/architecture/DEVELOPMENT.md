@@ -31,11 +31,27 @@ layout-inspector/
   samples/
     android-view-app/       API 21+ zero-code Agent integration sample
 simpleperf-viewer/          isolated Simpleperf CPU profiler build
+platform-core/              Capture Artifact, host process, and ADB contracts
+platform-perfetto/          pinned Trace Processor lifecycle and typed query boundary
 frame-profiler/             isolated FrameTimeline/Jank profiler build
 desktop-app/                  process entry, native window, and packaging
 ```
 
 Dependencies flow inward: UI and platform adapters depend on application/domain modules; protocol and analysis modules do not depend on Android or Compose.
+
+Each immutable Capture or Import persists a versioned **Capture Artifact** envelope. The envelope records
+Provenance, SHA-256, format, privacy-safe Device Target and Process Identity when known, Clock Domains and
+bounded Clock Mappings, requested/available Capabilities, Artifact Completeness, limitations, and warnings.
+Feature-specific HTTP calls, frame samples, heap graphs, method timelines, and battery snapshot deltas remain
+in their existing domain models.
+
+Perfetto-backed adapters use `platform-perfetto` with Trace Processor `v57.2`. A packaged or installed binary
+must match the host checksum in `platform-perfetto/trace-processor-manifest.json`; an explicit override must
+report the same version. There is no `PATH` fallback. Install the development binary with:
+
+```bash
+../scripts/install-trace-processor.sh
+```
 
 ## Common commands
 
