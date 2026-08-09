@@ -6,15 +6,14 @@ version="v57.2"
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 checksum_manifest="$repository_root/desktop-viewer/platform-perfetto/trace-processor-manifest.json"
 install_dir="${PERFETTO_TOOLS_DIR:-$HOME/.android-performance-studio/tools/perfetto/$version}"
-mkdir -p "$install_dir"
-# Repo-relative temp path: /tmp resolution differs between MSYS mktemp, native curl and
-# native python on Windows Git Bash, which corrupted the downloaded bytes in CI.
-temporary="$install_dir/.trace_processor.partial"
+temporary="$(mktemp -t trace_processor.XXXXXX)"
 
 cleanup() {
   rm -f "$temporary"
 }
 trap cleanup EXIT
+
+mkdir -p "$install_dir"
 case "$(uname -s)" in
   Darwin) host_os=macos ;;
   Linux) host_os=linux ;;
@@ -38,6 +37,9 @@ if entry is None:
 print(entry["url"], entry["sha256"], sep="\t")
 PY
 )
+# Native python on Windows emits CRLF; the process-substitution read keeps the trailing CR
+# while $(...) command substitution strips it, so normalize both before comparing.
+expected_checksum="${expected_checksum%$'\r'}"
 
 curl --fail --location --retry 3 --output "$temporary" "$download_url"
 actual_checksum="$(python3 - "$temporary" <<'PY'
@@ -46,6 +48,7 @@ with open(sys.argv[1], "rb") as source:
     print(hashlib.sha256(source.read()).hexdigest())
 PY
 )"
+actual_checksum="${actual_checksum%$'\r'}"
 if [[ "$actual_checksum" != "$expected_checksum" ]]; then
   echo "Trace Processor checksum mismatch for $host_key" >&2
   exit 1
