@@ -13,7 +13,7 @@ include(
     ":battery-app",
 )
 
-includeBuild("../simpleperf-viewer") { name = "battery-profiler-simpleperf-tooling" }
+includeBuild("../platform-core") { name = "battery-profiler-platform-core" }
 
 includeBuild("../ui-components") {
     name = "battery-profiler-ui-components"

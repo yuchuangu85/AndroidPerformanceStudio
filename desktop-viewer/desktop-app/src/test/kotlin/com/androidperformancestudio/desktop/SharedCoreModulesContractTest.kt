@@ -67,7 +67,7 @@ class SharedCoreModulesContractTest {
         val simpleperfAdapter =
             Files.readString(
                 desktopViewer.resolve(
-                    "simpleperf-viewer/platform-toolchain/src/main/kotlin/" +
+                    "platform-core/host-toolchain/src/main/kotlin/" +
                         "com/androidperformancestudio/toolchain/ProcessRunner.kt",
                 ),
             )
@@ -99,5 +99,16 @@ class SharedCoreModulesContractTest {
         assertFalse(perfettoTraceProcessor.contains("ProcessBuilder("))
         assertTrue(perfettoTraceProcessor.contains("processRunner.launch("))
         assertTrue(perfettoCapture.contains("JvmProcessRunner().run(request)"))
+    }
+
+    @Test
+    fun `frame startup and battery resolve shared infrastructure from platform core`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+
+        listOf("frame-profiler", "startup-profiler", "battery-profiler").forEach { build ->
+            val settings = Files.readString(desktopViewer.resolve("$build/settings.gradle.kts"))
+            assertTrue(settings.contains("includeBuild(\"../platform-core\")"))
+            assertFalse(settings.contains("includeBuild(\"../simpleperf-viewer\")"))
+        }
     }
 }

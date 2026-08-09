@@ -32,8 +32,8 @@ project(":startup-storage-sqlite").projectDir = file("storage-sqlite")
 project(":startup-export-adapters").projectDir = file("export-adapters")
 project(":startup-presentation").projectDir = file("presentation")
 
-includeBuild("../simpleperf-viewer") {
-    name = "startup-profiler-simpleperf-tooling"
+includeBuild("../platform-core") {
+    name = "startup-profiler-platform-core"
 }
 
 includeBuild("../ui-components") {

@@ -33,8 +33,8 @@ project(":frame-export-adapters").projectDir = file("export-adapters")
 project(":frame-presentation").projectDir = file("presentation")
 
 // Resolves the shared ADB and host process tooling for standalone Frame Profiler builds.
-includeBuild("../simpleperf-viewer") {
-    name = "frame-profiler-simpleperf-tooling"
+includeBuild("../platform-core") {
+    name = "frame-profiler-platform-core"
 }
 
 includeBuild("../ui-components") {
