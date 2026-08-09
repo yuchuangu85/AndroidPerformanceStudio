@@ -69,6 +69,24 @@ class AdbClientTest {
             assertEquals(emptyList(), runner.commands)
         }
 
+    @Test
+    fun `propagates capture cancellation and output bounds through the typed boundary`() =
+        runBlocking {
+            val runner = RecordingRunner()
+            val client = DefaultAdbClient(Path.of("/sdk/adb"), runner)
+
+            client.shell(
+                serial = "emulator-5554",
+                arguments = listOf("id"),
+                maxOutputBytesPerStream = 1024,
+                isCancellationRequested = { true },
+            )
+
+            val request = runner.commands.single()
+            assertEquals(1024, request.maxOutputBytesPerStream)
+            assertEquals(true, request.isCancellationRequested())
+        }
+
     private class RecordingRunner(
         private val textStdout: String = "",
     ) : HostProcessRunner {

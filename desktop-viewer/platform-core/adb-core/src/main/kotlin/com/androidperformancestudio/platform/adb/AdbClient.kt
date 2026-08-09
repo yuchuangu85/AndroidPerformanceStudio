@@ -20,12 +20,16 @@ interface AdbClient {
         serial: String,
         arguments: List<String>,
         timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
     ): AdbTextResult
 
     suspend fun execOut(
         serial: String,
         arguments: List<String>,
         timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
     ): AdbBinaryResult
 
     suspend fun push(
@@ -33,6 +37,8 @@ interface AdbClient {
         localPath: Path,
         remotePath: String,
         timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
     ): AdbTextResult
 
     suspend fun pull(
@@ -40,6 +46,8 @@ interface AdbClient {
         remotePath: String,
         localPath: Path,
         timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
     ): AdbTextResult
 
     suspend fun forward(
@@ -47,12 +55,24 @@ interface AdbClient {
         local: String,
         remote: String,
         timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
     ): AdbTextResult
 
     suspend fun removeForward(
         serial: String,
         local: String,
         timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
+    ): AdbTextResult
+
+    suspend fun bugreport(
+        serial: String,
+        outputPath: Path,
+        timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
     ): AdbTextResult
 
     companion object {
@@ -74,19 +94,37 @@ class DefaultAdbClient(
         serial: String,
         arguments: List<String>,
         timeout: Duration,
-    ): AdbTextResult = executeText(adbDeviceArguments(serial, "shell", arguments), timeout)
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult =
+        executeText(
+            adbDeviceArguments(serial, "shell", arguments),
+            timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
+        )
 
     override suspend fun execOut(
         serial: String,
         arguments: List<String>,
         timeout: Duration,
-    ): AdbBinaryResult = executeBinary(adbDeviceArguments(serial, "exec-out", arguments), timeout)
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbBinaryResult =
+        executeBinary(
+            adbDeviceArguments(serial, "exec-out", arguments),
+            timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
+        )
 
     override suspend fun push(
         serial: String,
         localPath: Path,
         remotePath: String,
         timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
     ): AdbTextResult {
         if (!Files.isRegularFile(localPath)) {
             throw AdbInputException("Local push source is not a file: $localPath")
@@ -98,6 +136,8 @@ class DefaultAdbClient(
                 listOf(localPath.toString(), AdbInputValidator.requireRemotePath(remotePath)),
             ),
             timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
         )
     }
 
@@ -106,6 +146,8 @@ class DefaultAdbClient(
         remotePath: String,
         localPath: Path,
         timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
     ): AdbTextResult =
         executeText(
             adbDeviceArguments(
@@ -114,6 +156,8 @@ class DefaultAdbClient(
                 listOf(AdbInputValidator.requireRemotePath(remotePath), localPath.toString()),
             ),
             timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
         )
 
     override suspend fun forward(
@@ -121,6 +165,8 @@ class DefaultAdbClient(
         local: String,
         remote: String,
         timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
     ): AdbTextResult =
         executeText(
             adbDeviceArguments(
@@ -132,12 +178,16 @@ class DefaultAdbClient(
                 ),
             ),
             timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
         )
 
     override suspend fun removeForward(
         serial: String,
         local: String,
         timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
     ): AdbTextResult =
         executeText(
             adbDeviceArguments(
@@ -146,21 +196,41 @@ class DefaultAdbClient(
                 listOf("--remove", AdbInputValidator.requireForwardEndpoint(local)),
             ),
             timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
+        )
+
+    override suspend fun bugreport(
+        serial: String,
+        outputPath: Path,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult =
+        executeText(
+            adbDeviceArguments(serial, "bugreport", listOf(outputPath.toAbsolutePath().toString())),
+            timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
         )
 
     private suspend fun executeText(
         arguments: List<String>,
         timeout: Duration,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
     ): AdbTextResult {
-        val command = command(arguments, timeout)
+        val command = command(arguments, timeout, maxOutputBytesPerStream, isCancellationRequested)
         return executeText(command).requireSuccess(command)
     }
 
     private suspend fun executeBinary(
         arguments: List<String>,
         timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
     ): AdbBinaryResult {
-        val command = command(arguments, timeout)
+        val command = command(arguments, timeout, maxOutputBytesPerStream, isCancellationRequested)
         return executeBinary(command).requireSuccess(command)
     }
 
@@ -187,7 +257,16 @@ class DefaultAdbClient(
     private fun command(
         arguments: List<String>,
         timeout: Duration,
-    ): AdbCommand = AdbCommand(executable = executable, arguments = arguments, timeout = timeout)
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
+    ): AdbCommand =
+        AdbCommand(
+            executable = executable,
+            arguments = arguments,
+            timeout = timeout,
+            maxOutputBytesPerStream = maxOutputBytesPerStream,
+            isCancellationRequested = isCancellationRequested,
+        )
 }
 
 private fun AdbCommand.toHostRequest(): HostProcessRequest =
