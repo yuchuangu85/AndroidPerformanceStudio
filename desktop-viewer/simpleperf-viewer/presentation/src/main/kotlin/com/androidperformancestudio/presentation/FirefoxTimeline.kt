@@ -550,8 +550,8 @@ private fun firefoxLocalTrackBackground(style: ViewerColors): Color = if (style.
 private fun Long.safeTimelineIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1
 
 private val FIREFOX_TIMELINE_HEADER_HEIGHT = 20.dp
-private val FIREFOX_TIMELINE_LABEL_WIDTH = 150.dp
-private val FIREFOX_LOCAL_TRACK_MARGIN = 15.dp
+internal val FIREFOX_TIMELINE_LABEL_WIDTH = 150.dp
+internal val FIREFOX_LOCAL_TRACK_MARGIN = 15.dp
 private val FIREFOX_ACTIVITY_GRAPH_HEIGHT = 25.dp
 private val FIREFOX_SAMPLE_GRAPH_HEIGHT = 5.dp
 private val FIREFOX_THREAD_TRACK_HEIGHT = 31.dp

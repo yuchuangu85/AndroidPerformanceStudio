@@ -21,7 +21,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -29,15 +28,21 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
-import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.StackChartBlockId
 import com.androidperformancestudio.profileanalysis.StackChartSnapshot
-import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.visualization.FlameGraphPalette
+import com.androidperformancestudio.visualization.FlameNodeVisualState
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 @Composable
 @Suppress(
@@ -51,7 +56,6 @@ internal fun StackChartCanvas(
     snapshot: StackChartSnapshot,
     viewport: StackChartViewport,
     selectedBlockId: StackChartBlockId?,
-    style: ViewerColors,
     onSelect: (StackChartBlockId?) -> Unit,
     onCommitRange: (Long, Long) -> Unit,
 ) {
@@ -65,32 +69,43 @@ internal fun StackChartCanvas(
     var dragStartX by remember { mutableFloatStateOf(Float.NaN) }
     var dragEndX by remember { mutableFloatStateOf(Float.NaN) }
     val density = LocalDensity.current
+    val firefoxStyle = rememberFirefoxFlameGraphStyle()
+    val textMeasurer = rememberTextMeasurer()
     val visible = remember(snapshot, viewport) { StackChartPresenter.visibleBlocks(snapshot.blocks, viewport) }
-    val rowHeightPx = with(density) { STACK_CHART_ROW_HEIGHT_DP.dp.toPx() }
+    val rowHeightPx = firefoxStyle.rowHeightPx
+    val plotLeftPx = with(density) { FIREFOX_TIMELINE_LABEL_WIDTH.toPx() }
+    val plotRightMarginPx = with(density) { FIREFOX_LOCAL_TRACK_MARGIN.toPx() }
+    val textStyle = TextStyle(fontSize = with(density) { firefoxStyle.labelFontSizePx.toSp() })
 
     Box(
         Modifier
             .fillMaxSize()
             .testTag("stack-chart-canvas")
-            .background(style.panel)
+            .background(firefoxStyle.canvasBackground.toComposeColor())
             .onSizeChanged {
                 widthPixels = it.width
                 heightPixels = it.height
             }.pointerInput(snapshot, viewport, widthPixels, rowHeightPx) {
                 detectTapGestures { point ->
-                    val timestamp = StackChartPresenter.timeAtX(point.x, viewport, widthPixels.toFloat())
+                    val plotWidth = (widthPixels - plotLeftPx - plotRightMarginPx).coerceAtLeast(0f)
+                    if (point.x < plotLeftPx || point.x >= plotLeftPx + plotWidth) {
+                        onSelect(null)
+                        return@detectTapGestures
+                    }
+                    val timestamp = StackChartPresenter.timeAtX(point.x - plotLeftPx, viewport, plotWidth)
                     val depth = (point.y / rowHeightPx).toInt()
                     onSelect(StackChartPresenter.hitTest(visible, timestamp, depth))
                 }
-            }.pointerInput(viewport, widthPixels) {
+            }.pointerInput(viewport, widthPixels, plotLeftPx, plotRightMarginPx) {
+                val plotEnd = (widthPixels - plotRightMarginPx).coerceAtLeast(plotLeftPx)
                 detectHorizontalDragGestures(
                     onDragStart = {
-                        dragStartX = it.x
-                        dragEndX = it.x
+                        dragStartX = it.x.coerceIn(plotLeftPx, plotEnd)
+                        dragEndX = dragStartX
                     },
                     onHorizontalDrag = { change, amount ->
                         change.consume()
-                        dragEndX = (dragEndX + amount).coerceIn(0f, widthPixels.toFloat())
+                        dragEndX = (dragEndX + amount).coerceIn(plotLeftPx, plotEnd)
                     },
                     onDragCancel = {
                         dragStartX = Float.NaN
@@ -98,8 +113,9 @@ internal fun StackChartCanvas(
                     },
                     onDragEnd = {
                         if (dragStartX.isFinite() && dragEndX.isFinite() && dragStartX != dragEndX) {
-                            val start = StackChartPresenter.timeAtX(min(dragStartX, dragEndX), viewport, widthPixels.toFloat())
-                            val end = StackChartPresenter.timeAtX(max(dragStartX, dragEndX), viewport, widthPixels.toFloat())
+                            val plotWidth = (plotEnd - plotLeftPx).coerceAtLeast(0f)
+                            val start = StackChartPresenter.timeAtX(min(dragStartX, dragEndX) - plotLeftPx, viewport, plotWidth)
+                            val end = StackChartPresenter.timeAtX(max(dragStartX, dragEndX) - plotLeftPx, viewport, plotWidth)
                             if (start < end) onCommitRange(start, end)
                         }
                         dragStartX = Float.NaN
@@ -109,35 +125,78 @@ internal fun StackChartCanvas(
             },
     ) {
         Canvas(Modifier.fillMaxSize().semantics { contentDescription = callStacksDescription }) {
+            drawRect(firefoxStyle.canvasBackground.toComposeColor())
+            val plotWidth = (size.width - plotLeftPx - plotRightMarginPx).coerceAtLeast(0f)
             visible.forEach { block ->
-                val rect = StackChartPresenter.blockRect(block, viewport, size.width, rowHeightPx)
+                val rawRect = StackChartPresenter.blockRect(block, viewport, plotWidth, rowHeightPx)
+                val rect = rawRect.translate(Offset(plotLeftPx, 0f))
                 val right = (rect.right - STACK_CHART_GAP_PX).coerceAtLeast(rect.left)
                 if (right > rect.left && rect.top < size.height) {
+                    val frame = snapshot.framesById[block.frameId]
+                    val colors =
+                        firefoxStyle.nodeColors(
+                            FlameGraphPalette.categoryRole(null, frame),
+                            FlameNodeVisualState(selected = block.id == selectedBlockId),
+                        )
+                    val drawableHeight = min(rect.height - STACK_CHART_GAP_PX, size.height - rect.top)
                     drawRect(
-                        color = stackChartColor(snapshot.framesById[block.frameId], block.id == selectedBlockId, style),
+                        color = colors.fill.toComposeColor(),
                         topLeft = Offset(rect.left, rect.top),
-                        size = Size(right - rect.left, min(rect.height, size.height - rect.top)),
+                        size = Size(right - rect.left, drawableHeight),
                     )
+                    val labelWidth = (right - rect.left - firefoxStyle.labelStartOffsetPx).roundToInt()
+                    if (frame != null && labelWidth > 0 && drawableHeight >= firefoxStyle.labelFontSizePx) {
+                        val label =
+                            textMeasurer.measure(
+                                text = AnnotatedString(frame.symbolName),
+                                style = textStyle.copy(color = colors.foreground.toComposeColor()),
+                                overflow = TextOverflow.Ellipsis,
+                                maxLines = 1,
+                                constraints = Constraints(maxWidth = labelWidth),
+                            )
+                        drawText(
+                            label,
+                            topLeft =
+                                Offset(
+                                    rect.left + firefoxStyle.labelStartOffsetPx,
+                                    rect.top + firefoxStyle.labelBaselineOffsetPx - label.firstBaseline,
+                                ),
+                        )
+                    }
                 }
             }
+            drawRect(
+                firefoxStyle.viewportBorder.toComposeColor(),
+                topLeft = Offset(plotLeftPx, 0f),
+                size = Size(STACK_CHART_GAP_PX, size.height),
+            )
+            drawRect(
+                firefoxStyle.viewportBorder.toComposeColor(),
+                topLeft = Offset(plotLeftPx + plotWidth, 0f),
+                size = Size(STACK_CHART_GAP_PX, size.height),
+            )
             if (dragStartX.isFinite() && dragEndX.isFinite()) {
                 val left = min(dragStartX, dragEndX)
                 drawRect(
-                    color = style.accent.copy(alpha = 0.2f),
+                    color = firefoxStyle.focusOutline.toComposeColor().copy(alpha = 0.2f),
                     topLeft = Offset(left, 0f),
                     size = Size(max(1f, kotlin.math.abs(dragEndX - dragStartX)), size.height),
                 )
             }
         }
         visible.forEach { block ->
-            val rect = StackChartPresenter.blockRect(block, viewport, widthPixels.toFloat(), rowHeightPx)
+            val plotWidth = (widthPixels - plotLeftPx - plotRightMarginPx).coerceAtLeast(0f)
+            val rect =
+                StackChartPresenter
+                    .blockRect(block, viewport, plotWidth, rowHeightPx)
+                    .translate(Offset(plotLeftPx, 0f))
             if (rect.width > 0f && rect.top < heightPixels) {
                 val frame = snapshot.framesById[block.frameId]
                 Box(
                     Modifier
                         .offset(x = with(density) { rect.left.toDp() }, y = with(density) { rect.top.toDp() })
                         .width(with(density) { rect.width.toDp() })
-                        .height(STACK_CHART_ROW_HEIGHT_DP.dp)
+                        .height(with(density) { rowHeightPx.toDp() })
                         .testTag("stack-block-${block.id.value}")
                         .clickable { onSelect(block.id) }
                         .semantics {
@@ -150,15 +209,4 @@ internal fun StackChartCanvas(
     }
 }
 
-private fun stackChartColor(
-    frame: CallStackFrame?,
-    selected: Boolean,
-    style: ViewerColors,
-): Color {
-    if (selected) return style.accent
-    val palette = listOf(0xFF5B8FF9, 0xFF61DDAA, 0xFF65789B, 0xFFF6BD16, 0xFF7262FD, 0xFF78D3F8)
-    return Color(palette[kotlin.math.abs((frame?.symbolName ?: "unknown").hashCode()) % palette.size])
-}
-
-private const val STACK_CHART_ROW_HEIGHT_DP = 16
 private const val STACK_CHART_GAP_PX = 1f

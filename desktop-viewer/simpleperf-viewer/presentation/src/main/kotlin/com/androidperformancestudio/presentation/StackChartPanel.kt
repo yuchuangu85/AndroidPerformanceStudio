@@ -53,7 +53,6 @@ internal fun StackChartPanel(
                         snapshot = snapshot,
                         viewport = StackChartViewport(start, end),
                         selectedBlockId = state.workspace.selections.stackChartBlockId,
-                        style = style,
                         onSelect = actions.onSelectStackChartBlock,
                         onCommitRange = { rangeStart, rangeEnd -> actions.onTimeRange(rangeStart, rangeEnd) },
                     )
