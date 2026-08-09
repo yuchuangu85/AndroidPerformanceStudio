@@ -48,6 +48,8 @@ import com.androidperformancestudio.battery.model.BatterySession
 import com.androidperformancestudio.battery.model.BatterySessionStatus
 import com.androidperformancestudio.battery.presentation.BatteryProfilerState
 import com.androidperformancestudio.battery.storage.SqliteBatterySessionStore
+import com.androidperformancestudio.contracts.CaptureArtifact
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
@@ -72,6 +74,7 @@ internal class BatteryProfilerController(
     private val mutableState = MutableStateFlow(BatteryProfilerState())
     private var runner: BatteryExperimentRunner? = null
     private var active: ActiveBatteryExperiment? = null
+    private var currentBatterySession: BatterySession? = null
     private var currentSessionId: String? = null
 
     init {
@@ -186,6 +189,8 @@ internal class BatteryProfilerController(
         try {
             val experiment = selectedRunner.start(snapshot.config)
             currentSessionId = experiment.session.id
+            currentBatterySession = experiment.session
+            persistArtifact(experiment.session, "RUNNING")
             val persistenceWarning = beginPersistence(experiment.session)
             runner = selectedRunner
             active = experiment
@@ -290,6 +295,7 @@ internal class BatteryProfilerController(
                     },
                     onSessionStarted = { session ->
                         currentSessionId = session.id
+                        currentBatterySession = session
                         beginPersistence(session)?.let(::addPersistenceWarning)
                     },
                     onRunCompleted = { session, run ->
@@ -330,6 +336,8 @@ internal class BatteryProfilerController(
         return runCatching { withContext(Dispatchers.IO) { jsonImporter.import(input) } }
             .fold(
                 onSuccess = { analysis ->
+                    val artifact = BatteryArtifactFactory().imported(input)
+                    persistArtifact(artifact)
                     mutableState.value =
                         mutableState.value.copy(
                             experiment = null,
@@ -340,6 +348,7 @@ internal class BatteryProfilerController(
                             totalSteps = 0,
                             operationMessage = localizedStringResource(Res.string.imported_analysis, language, input.fileName),
                             warnings = analysis.warnings,
+                            artifact = artifact,
                             errorMessage = null,
                         )
                     true
@@ -368,7 +377,9 @@ internal class BatteryProfilerController(
             csvExporter.export(
                 requireNotNull(mutableState.value.analysis),
                 output,
-                mutableState.value.experiment?.session?.attributionScope ?: AttributionScope.UID,
+                mutableState.value.experiment
+                    ?.session
+                    ?.attributionScope ?: AttributionScope.UID,
             )
         }
 
@@ -455,7 +466,16 @@ internal class BatteryProfilerController(
                 previousExperiment != null && previousExperiment.session.isCompatibleBaselineFor(experiment.session)
             }
         val persistenceWarning = persist(experiment, analysis.runs)
+        val artifact =
+            BatteryArtifactFactory().forSession(
+                experiment.session,
+                "COMPLETED",
+                analysis.warnings,
+                experiment.rawEvidenceMaterial(),
+            )
+        persistArtifact(artifact)
         currentSessionId = null
+        currentBatterySession = null
         mutableState.value =
             mutableState.value.copy(
                 experiment = experiment,
@@ -467,6 +487,7 @@ internal class BatteryProfilerController(
                 completedSteps = mutableState.value.totalSteps,
                 operationMessage = localizedStringResource(Res.string.battery_experiment_completed_run_s, language, analysis.runs.size),
                 warnings = (mutableState.value.warnings + analysis.warnings + listOfNotNull(persistenceWarning)).distinct(),
+                artifact = artifact,
             )
     }
 
@@ -504,14 +525,36 @@ internal class BatteryProfilerController(
         mutableState.value = mutableState.value.copy(warnings = (mutableState.value.warnings + warning).distinct())
     }
 
+    private fun persistArtifact(
+        session: BatterySession,
+        status: String,
+    ) {
+        persistArtifact(BatteryArtifactFactory().forSession(session, status))
+    }
+
+    private fun persistArtifact(artifact: CaptureArtifact) {
+        runCatching {
+            val directory = databaseFile.toAbsolutePath().parent?.resolve("capture-artifacts") ?: Path.of("capture-artifacts")
+            java.nio.file.Files
+                .createDirectories(directory)
+            java.nio.file.Files.writeString(
+                directory.resolve("${artifact.id.value}.capture-artifact.json"),
+                CaptureArtifactJson.encode(artifact),
+            )
+        }
+        mutableState.value = mutableState.value.copy(artifact = artifact)
+    }
+
     private suspend fun interruptPersistence() {
         val sessionId = currentSessionId ?: return
         withContext(NonCancellable + Dispatchers.IO) {
             runCatching {
                 SqliteBatterySessionStore.open(databaseFile).use { it.markStatus(sessionId, BatterySessionStatus.INTERRUPTED) }
+                currentBatterySession?.let { session -> persistArtifact(session, "INTERRUPTED") }
             }
         }
         currentSessionId = null
+        currentBatterySession = null
     }
 
     private suspend fun export(
@@ -546,3 +589,8 @@ private fun BatterySession.isCompatibleBaselineFor(other: BatterySession): Boole
         uid == other.uid &&
         attributionScope == other.attributionScope &&
         environment.initialState.powered == other.environment.initialState.powered
+
+private fun BatteryExperimentResult.rawEvidenceMaterial(): String =
+    runs.flatMap { run -> listOf(run.baseline) + run.samples + run.finalSnapshot }.joinToString("\u0000") { snapshot ->
+        with(snapshot.rawEvidence) { checkin + "\u0000" + report + "\u0000" + battery + "\u0000" + history.orEmpty() }
+    }

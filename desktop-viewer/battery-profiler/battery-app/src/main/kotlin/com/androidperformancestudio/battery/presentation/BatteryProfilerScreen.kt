@@ -124,6 +124,15 @@ private fun EmptyPane(
             ),
         )
         state.operationMessage?.let { Text(it) }
+        state.artifact?.let { artifact ->
+            Text(
+                "Artifact: ${artifact.completeness.name.lowercase()} · " +
+                    "${artifact.availableCapabilities.size} capabilities" +
+                    if (artifact.limitations.isEmpty()) "" else " · ${artifact.limitations.size} limitation(s)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         state.warnings.forEach { Text(it, color = MaterialTheme.colorScheme.tertiary) }
     }
 }

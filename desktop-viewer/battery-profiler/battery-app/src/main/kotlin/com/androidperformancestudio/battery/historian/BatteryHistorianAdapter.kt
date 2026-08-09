@@ -2,9 +2,8 @@
 
 package com.androidperformancestudio.battery.historian
 
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.minutes
@@ -15,18 +14,31 @@ public data class BugreportArtifact(
 )
 
 public fun interface BugreportCommandRunner {
-    public suspend fun execute(arguments: List<String>): Unit
+    public suspend fun execute(
+        serial: String,
+        output: Path,
+    ): Unit
 }
 
 public class BatteryHistorianAdapter(
-    private val adbExecutable: Path,
     private val serial: String,
-    private val runner: BugreportCommandRunner = JvmBugreportCommandRunner(adbExecutable),
+    private val runner: BugreportCommandRunner,
 ) {
+    public constructor(
+        adbExecutable: Path,
+        serial: String,
+    ) : this(serial, AdbBugreportCommandRunner(DefaultAdbClient(adbExecutable)))
+
+    public constructor(
+        adbExecutable: Path,
+        serial: String,
+        runner: BugreportCommandRunner,
+    ) : this(serial, runner)
+
     public suspend fun generateBugreport(output: Path): BugreportArtifact {
         require(output.fileName.toString().endsWith(".zip", ignoreCase = true)) { "Bugreport output must use the .zip extension" }
         output.toAbsolutePath().parent?.let(Files::createDirectories)
-        runner.execute(listOf("-s", serial, "bugreport", output.toAbsolutePath().toString()))
+        runner.execute(serial, output.toAbsolutePath())
         require(Files.isRegularFile(output)) { "ADB completed without producing the bugreport file" }
         return BugreportArtifact(output.toAbsolutePath(), Files.size(output))
     }
@@ -42,31 +54,19 @@ public class BatteryHistorianAdapter(
     }
 }
 
-private class JvmBugreportCommandRunner(
-    private val adbExecutable: Path,
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
+private class AdbBugreportCommandRunner(
+    private val adbClient: AdbClient,
 ) : BugreportCommandRunner {
-    override suspend fun execute(arguments: List<String>) {
-        val request =
-            ProcessRequest(
-                executable = adbExecutable,
-                arguments = arguments,
-                timeout = BUGREPORT_TIMEOUT,
-                maxCapturedCharactersPerStream = MAX_OUTPUT,
-            )
-        when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> Unit
-            is ProcessRunResult.Failed -> {
-                val detail =
-                    result.output
-                        ?.stderr
-                        ?.text
-                        ?.trim()
-                        .orEmpty()
-                        .ifEmpty { result.error.message }
-                throw IllegalStateException(detail)
-            }
-        }
+    override suspend fun execute(
+        serial: String,
+        output: Path,
+    ) {
+        adbClient.bugreport(
+            serial = serial,
+            outputPath = output,
+            timeout = BUGREPORT_TIMEOUT,
+            maxOutputBytesPerStream = MAX_OUTPUT,
+        )
     }
 
     private companion object {

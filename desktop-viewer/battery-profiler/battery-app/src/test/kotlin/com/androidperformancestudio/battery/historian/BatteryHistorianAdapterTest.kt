@@ -16,7 +16,7 @@ class BatteryHistorianAdapterTest {
                 BatteryHistorianAdapter(
                     Path.of("adb"),
                     "serial",
-                    BugreportCommandRunner { arguments -> Files.writeString(Path.of(arguments.last()), "bugreport") },
+                    BugreportCommandRunner { _, output -> Files.writeString(output, "bugreport") },
                 )
 
             val artifact = adapter.generateBugreport(output)

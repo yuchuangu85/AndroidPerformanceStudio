@@ -22,9 +22,8 @@ import com.androidperformancestudio.battery.model.BatterySnapshot
 import com.androidperformancestudio.battery.model.BatteryTarget
 import com.androidperformancestudio.battery.model.UidBatteryStats
 import com.androidperformancestudio.battery.parser.BatteryStatsParser
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import java.nio.file.Path
@@ -56,7 +55,7 @@ public class BatteryExperimentRunner(
     adbExecutable: Path,
     private val serial: String,
     private val target: BatteryTarget,
-    private val commandRunner: BatteryCommandRunner = JvmBatteryCommandRunner(adbExecutable, serial),
+    private val commandRunner: BatteryCommandRunner = AdbBatteryCommandRunner(DefaultAdbClient(adbExecutable), serial),
     private val parser: BatteryStatsParser = BatteryStatsParser(),
 ) {
     public suspend fun start(config: BatteryExperimentConfig): ActiveBatteryExperiment {
@@ -314,6 +313,7 @@ internal fun parseScreenState(output: String): String? =
     Regex("(?m)^\\s*mScreenState=(\\S+)").find(output)?.groupValues?.get(1)
         ?: Regex("(?m)^\\s*mWakefulness=(\\S+)").find(output)?.groupValues?.get(1)
 
+@Suppress("ReturnCount")
 internal fun parseDefaultNetworkTransport(output: String): String? {
     val networkId = Regex("(?m)^Active default network:\\s*(\\d+|none)").find(output)?.groupValues?.get(1) ?: return null
     if (networkId == "none") return "NONE"
@@ -331,33 +331,22 @@ internal fun parseDefaultNetworkTransport(output: String): String? {
         ?.uppercase()
 }
 
-private class JvmBatteryCommandRunner(
-    private val adbExecutable: Path,
+private class AdbBatteryCommandRunner(
+    private val adbClient: AdbClient,
     private val serial: String,
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
 ) : BatteryCommandRunner {
-    override suspend fun execute(arguments: List<String>): String {
-        val request =
-            ProcessRequest(
-                executable = adbExecutable,
-                arguments = listOf("-s", serial, "shell") + arguments,
-                timeout = COMMAND_TIMEOUT,
-                maxCapturedCharactersPerStream = MAX_OUTPUT,
-            )
-        return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> result.output.stdout.text
-            is ProcessRunResult.Failed -> {
-                val detail =
-                    result.output
-                        ?.stderr
-                        ?.text
-                        ?.trim()
-                        .orEmpty()
-                        .ifEmpty { result.error.message }
-                throw BatteryCaptureException(detail)
-            }
+    override suspend fun execute(arguments: List<String>): String =
+        try {
+            adbClient
+                .shell(
+                    serial = serial,
+                    arguments = arguments,
+                    timeout = COMMAND_TIMEOUT,
+                    maxOutputBytesPerStream = MAX_OUTPUT,
+                ).stdout
+        } catch (error: RuntimeException) {
+            throw BatteryCaptureException(error.message ?: "ADB shell command failed").also { it.initCause(error) }
         }
-    }
 
     private companion object {
         val COMMAND_TIMEOUT = 60.seconds

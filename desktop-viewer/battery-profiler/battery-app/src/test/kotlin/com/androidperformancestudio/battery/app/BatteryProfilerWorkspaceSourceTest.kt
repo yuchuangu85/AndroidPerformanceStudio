@@ -78,8 +78,6 @@ class BatteryProfilerWorkspaceSourceTest {
         assertTrue(dividers[2] < screen)
     }
 
-    private fun String.blockStartingAt(startIndex: Int): String = substring(blockRangeStartingAt(startIndex))
-
     private fun String.headerToolbar(): String {
         val start = indexOf("HeaderToolbar(")
         return substring(start, indexOf("HorizontalDivider(", start))

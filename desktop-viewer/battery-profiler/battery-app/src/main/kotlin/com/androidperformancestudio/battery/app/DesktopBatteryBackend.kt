@@ -8,17 +8,17 @@
 package com.androidperformancestudio.battery.app
 
 import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.battery.capture.BatteryExperimentRunner
 import com.androidperformancestudio.battery.historian.BatteryHistorianAdapter
 import com.androidperformancestudio.battery.model.BatteryDevice
 import com.androidperformancestudio.battery.model.BatteryTarget
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
-import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
+import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
+import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.seconds
 
@@ -49,7 +49,7 @@ internal interface BatteryBackend {
 
 internal class DesktopBatteryBackend(
     private val adbLocator: () -> Path? = ::locateSystemAdb,
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
+    private val processRunner: StudioHostProcessExecutor = StudioHostProcessExecutor(),
 ) : BatteryBackend {
     override suspend fun listDevices(): BatteryBackendResult<List<BatteryDevice>> {
         val adb = adbLocator() ?: return missingAdb()
@@ -124,15 +124,15 @@ internal class DesktopBatteryBackend(
         arguments: List<String>,
     ): String {
         val request =
-            ProcessRequest(
+            HostProcessRequest(
                 adb,
                 listOf("-s", serial, "shell") + arguments,
                 timeout = COMMAND_TIMEOUT,
-                maxCapturedCharactersPerStream = MAX_OUTPUT,
+                maxOutputBytesPerStream = MAX_OUTPUT,
             )
         return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> result.output.stdout.text
-            is ProcessRunResult.Failed -> throw IllegalStateException(
+            is HostCommandResult.Completed -> result.output.stdout.text
+            is HostCommandResult.Failed -> throw IllegalStateException(
                 result.output
                     ?.stderr
                     ?.text

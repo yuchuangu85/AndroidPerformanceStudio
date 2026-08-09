@@ -13,6 +13,7 @@ import com.androidperformancestudio.battery.model.AttributionScope
 import com.androidperformancestudio.battery.model.BatteryExperimentResult
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.ResourceTimer
+import com.androidperformancestudio.battery.model.batteryDeviceLocalId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -47,7 +48,7 @@ public class BatteryJsonExporter {
     ) = buildJsonObject {
         put("schemaVersion", 1)
         put("sessionId", experiment.session.id)
-        put("deviceSerial", experiment.session.deviceSerial)
+        put("deviceLocalId", batteryDeviceLocalId(experiment.session.deviceSerial).value)
         put("packageName", experiment.session.packageName)
         put("uid", experiment.session.uid)
         put("attributionScope", experiment.session.attributionScope.name)

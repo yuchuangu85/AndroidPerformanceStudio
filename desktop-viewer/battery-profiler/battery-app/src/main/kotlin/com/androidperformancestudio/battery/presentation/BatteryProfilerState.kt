@@ -5,6 +5,7 @@ import com.androidperformancestudio.battery.model.BatteryDevice
 import com.androidperformancestudio.battery.model.BatteryExperimentConfig
 import com.androidperformancestudio.battery.model.BatteryExperimentResult
 import com.androidperformancestudio.battery.model.BatteryTarget
+import com.androidperformancestudio.contracts.CaptureArtifact
 
 public data class BatteryProfilerState(
     val devices: List<BatteryDevice> = emptyList(),
@@ -24,6 +25,7 @@ public data class BatteryProfilerState(
     val operationMessage: String? = null,
     val warnings: List<String> = emptyList(),
     val errorMessage: String? = null,
+    val artifact: CaptureArtifact? = null,
 )
 
 public data class BatteryProfilerActions(

@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.androidperformancestudio.battery.storage
 
 import com.androidperformancestudio.battery.model.AttributionScope
@@ -19,6 +21,7 @@ import java.sql.DriverManager
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 class SqliteBatterySessionStoreTest {
     @Test
@@ -71,6 +74,15 @@ class SqliteBatterySessionStoreTest {
             store.save(session, listOf(run), listOf(delta))
             assertEquals(1, store.listSessions().single().runCount)
             assertEquals(BatterySessionStatus.COMPLETED, store.listSessions().single().status)
+        }
+        DriverManager.getConnection("jdbc:sqlite:${file.toAbsolutePath()}").use { connection ->
+            val stored =
+                connection.createStatement().executeQuery("SELECT device_serial FROM battery_sessions").use {
+                    check(it.next())
+                    it.getString(1)
+                }
+            assertNotEquals("serial", stored)
+            assertEquals(64, stored.length)
         }
     }
 

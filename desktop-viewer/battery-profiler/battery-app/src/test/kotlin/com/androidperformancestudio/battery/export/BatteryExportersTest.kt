@@ -28,6 +28,7 @@ import kotlin.test.assertNotNull
 
 class BatteryExportersTest {
     @Test
+    @Suppress("LongMethod")
     fun `exports json csv and raw evidence bundle`() {
         val directory = Files.createTempDirectory("battery-export")
         val session =
@@ -83,6 +84,8 @@ class BatteryExportersTest {
         BatteryRawBundleExporter().export(experiment, zip)
 
         assertContains(Files.readString(json), "\"schemaVersion\": 1")
+        assertContains(Files.readString(json), "\"deviceLocalId\"")
+        kotlin.test.assertFalse(Files.readString(json).contains("\"deviceSerial\""))
         assertContains(Files.readString(csv), "wakelock")
         assertContains(Files.readString(csv), "SHARED_UID")
         ZipFile(zip.toFile()).use {

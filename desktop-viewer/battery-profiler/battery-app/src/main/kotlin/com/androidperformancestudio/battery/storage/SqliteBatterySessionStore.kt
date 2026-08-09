@@ -14,6 +14,7 @@ import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.BatterySession
 import com.androidperformancestudio.battery.model.BatterySessionStatus
 import com.androidperformancestudio.battery.model.ResourceTimer
+import com.androidperformancestudio.battery.model.batteryDeviceLocalId
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
@@ -133,7 +134,7 @@ public class SqliteBatterySessionStore private constructor(
                 """.trimIndent(),
             ).use { statement ->
                 statement.setString(1, session.id)
-                statement.setString(2, session.deviceSerial)
+                statement.setString(2, batteryDeviceLocalId(session.deviceSerial).value)
                 statement.setString(3, session.packageName)
                 statement.setInt(4, session.uid)
                 statement.setString(5, session.attributionScope.name)

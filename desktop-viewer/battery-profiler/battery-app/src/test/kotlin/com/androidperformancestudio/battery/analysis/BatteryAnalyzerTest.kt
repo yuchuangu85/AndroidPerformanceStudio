@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.androidperformancestudio.battery.analysis
 
 import com.androidperformancestudio.battery.model.BatteryDeviceState
