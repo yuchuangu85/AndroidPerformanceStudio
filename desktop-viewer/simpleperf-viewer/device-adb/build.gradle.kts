@@ -5,7 +5,6 @@ plugins {
 dependencies {
     api("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
     implementation(project(":simpleperf-application"))
-    implementation(project(":profile-model"))
     implementation(project(":platform-toolchain"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 }

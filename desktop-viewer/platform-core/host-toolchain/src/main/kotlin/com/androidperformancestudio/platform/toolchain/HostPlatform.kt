@@ -1,4 +1,4 @@
-package com.androidperformancestudio.toolchain
+package com.androidperformancestudio.platform.toolchain
 
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
@@ -44,25 +44,15 @@ class SystemHostPlatformDetector(
                 rawOsName.contains("linux", ignoreCase = true) -> HostOperatingSystem.LINUX
                 else -> null
             }
-
         val architecture =
             when (rawArchitecture.lowercase()) {
                 "amd64", "x86_64" -> CpuArchitecture.X64
                 "aarch64", "arm64" -> CpuArchitecture.ARM64
                 else -> null
             }
-
         return when {
-            operatingSystem == null ->
-                unsupported(
-                    code = "UNSUPPORTED_OPERATING_SYSTEM",
-                    message = "Unsupported operating system: $rawOsName",
-                )
-            architecture == null ->
-                unsupported(
-                    code = "UNSUPPORTED_ARCHITECTURE",
-                    message = "Unsupported CPU architecture: $rawArchitecture",
-                )
+            operatingSystem == null -> unsupported("UNSUPPORTED_OPERATING_SYSTEM", "Unsupported operating system: $rawOsName")
+            architecture == null -> unsupported("UNSUPPORTED_ARCHITECTURE", "Unsupported CPU architecture: $rawArchitecture")
             else -> StudioResult.Success(HostPlatform(operatingSystem, architecture))
         }
     }

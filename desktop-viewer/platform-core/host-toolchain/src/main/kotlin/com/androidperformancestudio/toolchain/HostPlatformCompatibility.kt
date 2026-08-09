@@ -1,0 +1,7 @@
+package com.androidperformancestudio.toolchain
+
+typealias HostOperatingSystem = com.androidperformancestudio.platform.toolchain.HostOperatingSystem
+typealias CpuArchitecture = com.androidperformancestudio.platform.toolchain.CpuArchitecture
+typealias HostPlatform = com.androidperformancestudio.platform.toolchain.HostPlatform
+typealias HostPlatformDetector = com.androidperformancestudio.platform.toolchain.HostPlatformDetector
+typealias SystemHostPlatformDetector = com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector

@@ -31,9 +31,9 @@ project(":memory-storage-sqlite").projectDir = file("storage-sqlite")
 project(":memory-export-adapters").projectDir = file("export-adapters")
 project(":memory-presentation").projectDir = file("presentation")
 
-// Makes standalone `./gradlew check` resolve the shared host toolchain and ADB gateway.
-includeBuild("../simpleperf-viewer") {
-    name = "memory-profiler-simpleperf-tooling"
+// Makes standalone `./gradlew check` resolve neutral shared platform dependencies.
+includeBuild("../platform-core") {
+    name = "memory-profiler-platform-core"
 }
 
 includeBuild("../ui-components") {
