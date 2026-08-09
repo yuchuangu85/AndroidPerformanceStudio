@@ -19,7 +19,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class StackChartNavigationTest {
     @Test
-    fun `stack chart zooms and pans in every direction like the flame graph`() =
+    fun `stack chart zooms and pans in every direction`() =
         runDesktopComposeUiTest(width = 365, height = 64) {
             val snapshot = navigationSnapshot()
             setContent {
@@ -70,7 +70,7 @@ class StackChartNavigationTest {
 
             val verticalBlock = onNodeWithTag("stack-block-depth-2")
             val beforeVerticalPan = verticalBlock.fetchSemanticsNode().boundsInRoot
-            onNodeWithTag("stack-chart-canvas").performMouseInput { scroll(-1f) }
+            onNodeWithTag("stack-chart-canvas").performMouseInput { scroll(1f) }
             waitForIdle()
             val afterVerticalPan = verticalBlock.fetchSemanticsNode().boundsInRoot
             assertTrue(
@@ -78,7 +78,7 @@ class StackChartNavigationTest {
                 "Mouse wheel should pan the Stack Chart vertically",
             )
 
-            onNodeWithTag("stack-chart-canvas").performMouseInput { scroll(1f) }
+            onNodeWithTag("stack-chart-canvas").performMouseInput { scroll(-1f) }
             waitForIdle()
             val afterVerticalPanBack = verticalBlock.fetchSemanticsNode().boundsInRoot
             assertTrue(afterVerticalPanBack.top > afterVerticalPan.top, "Reverse wheel should pan the Stack Chart back")

@@ -292,10 +292,11 @@ class DeviceTargetPageBehaviorTest {
         }
 
     @Test
-    fun `active capture locks selectors and exposes stop controls`() =
+    fun `capture button changes from get data to stop and analyze`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             var stopCount = 0
             var cancelCount = 0
+            val captureState = androidx.compose.runtime.mutableStateOf<CaptureState>(CaptureState.Idle)
             val actions =
                 deviceActions(
                     onStopCapture = { stopCount++ },
@@ -305,16 +306,24 @@ class DeviceTargetPageBehaviorTest {
             setContent {
                 HomeScreen(
                     state = readyState(ThreadOption(pid = 42, tid = 43, name = "RenderThread")),
-                    captureState = CaptureState.Recording(Path.of("session"), "simpleperf record"),
+                    captureState = captureState.value,
                     reportState = ReportState(),
                     actions = actions,
                     reportActions = goldenActions(),
                 )
             }
 
+            val captureButtonBounds = onNodeWithText("Get data").fetchSemanticsNode().boundsInRoot
+            captureState.value = CaptureState.Recording(Path.of("session"), "simpleperf record")
+            waitForIdle()
+
             onNodeWithContentDescription("Device selector").assertIsNotEnabled()
             onNodeWithText("Get data").assertDoesNotExist()
-            onNodeWithText("Stop and analyze").performClick()
+            val stopButton = onNodeWithText("Stop and analyze")
+            val stopButtonBounds = stopButton.fetchSemanticsNode().boundsInRoot
+            assertEquals(captureButtonBounds.top, stopButtonBounds.top)
+            assertEquals(captureButtonBounds.right, stopButtonBounds.right)
+            stopButton.performClick()
             onNodeWithText("Cancel").performClick()
 
             assertEquals(1, stopCount)

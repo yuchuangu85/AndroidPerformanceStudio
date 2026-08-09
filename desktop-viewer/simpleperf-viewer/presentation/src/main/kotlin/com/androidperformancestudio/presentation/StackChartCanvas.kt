@@ -117,7 +117,7 @@ internal fun StackChartCanvas(
                         .firstOrNull()
                         ?.scrollDelta
                         ?.y ?: 0f
-                flameGraphScrollRowDelta(delta)?.let { rows ->
+                stackChartScrollDepthDelta(delta)?.let { rows ->
                     scrollDepth =
                         stackChartScrollDepth(
                             snapshot.maxDepth,
@@ -273,5 +273,7 @@ internal fun stackChartScrollDepth(
     val maximum = (maxDepth + 1 - visibleRows).coerceAtLeast(0)
     return requestedDepth.coerceIn(0, maximum)
 }
+
+internal fun stackChartScrollDepthDelta(scrollDeltaY: Float): Int? = flameGraphScrollRowDelta(-scrollDeltaY)
 
 private const val STACK_CHART_GAP_PX = 1f

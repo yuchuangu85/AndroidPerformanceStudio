@@ -120,7 +120,7 @@ internal fun DeviceTargetPage(
                 !captureActive && !state.isLoading,
             )
             HeaderSpacer()
-            ToolbarCaptureActions(state, actions, style, !captureActive && !state.isLoading, !captureActive)
+            ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading)
             HeaderSpacer()
             CapabilityPopupButton(state.selection, style)
         }
@@ -166,12 +166,13 @@ internal fun DeviceTargetPage(
 @Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 private fun ToolbarCaptureActions(
     state: DeviceTargetState,
+    captureState: CaptureState,
     actions: DeviceTargetActions,
     style: ViewerColors,
     enabled: Boolean,
-    showGetData: Boolean,
 ) {
     val language = currentSimpleperfLanguage()
+    val captureActive = captureState.isCaptureActive()
     MacOSTextButton(
         localizedStringResource(
             if (state.isLoading) SimpleperfViewerRes.sp_target_refreshing else SimpleperfViewerRes.sp_target_refresh,
@@ -182,15 +183,26 @@ private fun ToolbarCaptureActions(
         enabled = enabled && !state.isLoading,
     )
     HeaderSpacer()
-    if (showGetData) {
-        MacOSTextButton(
-            label = localizedStringResource(SimpleperfViewerRes.sp_capture_get_data, language),
-            onClick = actions.onStartCapture,
-            style = style,
-            enabled = enabled && state.canEnterCapture && state.captureSetup != null,
-            primary = true,
-        )
-    }
+    MacOSTextButton(
+        label =
+            localizedStringResource(
+                if (captureActive) {
+                    SimpleperfViewerRes.sp_capture_stop_analyze
+                } else {
+                    SimpleperfViewerRes.sp_capture_get_data
+                },
+                language,
+            ),
+        onClick = if (captureActive) actions.onStopCapture else actions.onStartCapture,
+        style = style,
+        enabled =
+            if (captureActive) {
+                captureState is CaptureState.Recording
+            } else {
+                enabled && state.canEnterCapture && state.captureSetup != null
+            },
+        primary = true,
+    )
 }
 
 @Composable
@@ -646,17 +658,6 @@ private fun CaptureActions(
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (captureState.isCaptureActive()) {
-            if (captureState is CaptureState.Recording) {
-                MacOSTextButton(
-                    localizedStringResource(
-                        SimpleperfViewerRes.sp_capture_stop_analyze,
-                        currentSimpleperfLanguage(),
-                    ),
-                    actions.onStopCapture,
-                    style,
-                    primary = true,
-                )
-            }
             MacOSTextButton(
                 localizedStringResource(
                     SimpleperfViewerRes.sp_capture_cancel,

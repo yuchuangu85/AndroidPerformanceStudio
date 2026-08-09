@@ -30,11 +30,10 @@ class CaptureConfigurationWorkspaceTest {
     fun `merged workspace starts data collection without a navigation step`() {
         val source = source("DeviceTargetPage.kt")
 
-        assertTrue(
-            source.contains("label = localizedStringResource(SimpleperfViewerRes.sp_capture_get_data, language)"),
-        )
+        assertTrue(source.contains("SimpleperfViewerRes.sp_capture_get_data"))
+        assertTrue(source.contains("SimpleperfViewerRes.sp_capture_stop_analyze"))
         assertFalse(source.contains("label = \"Get data\""))
-        assertTrue(source.contains("onClick = actions.onStartCapture"))
+        assertTrue(source.contains("onClick = if (captureActive) actions.onStopCapture else actions.onStartCapture"))
         assertFalse(source.contains("Continue to Capture"))
         assertFalse(source.contains("Back to Device & Target"))
     }
