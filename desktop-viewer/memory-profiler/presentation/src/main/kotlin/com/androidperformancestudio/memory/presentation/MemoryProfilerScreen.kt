@@ -148,7 +148,6 @@ public fun MemoryProfilerScreen(
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
                 }
-                MemoryProfilerViewModeTabs(presentedState, actions, language)
             }
             if (presentedState.viewMode == MemoryProfilerViewMode.ClassList) {
                 MemoryProfilerClassListPane(

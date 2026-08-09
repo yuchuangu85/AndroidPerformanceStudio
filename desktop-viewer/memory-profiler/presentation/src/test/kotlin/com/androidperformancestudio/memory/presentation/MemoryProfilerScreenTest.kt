@@ -30,6 +30,7 @@ class MemoryProfilerScreenTest {
             onNodeWithContentDescription("Process selector").assertDoesNotExist()
             onNodeWithText("Dump Heap").assertDoesNotExist()
             onNodeWithText("Import hprof").assertDoesNotExist()
+            onNodeWithText("Class List").assertDoesNotExist()
         }
 
     @Test

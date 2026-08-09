@@ -154,64 +154,6 @@ fun AppHomePage(
                 actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
                 onClick = onOpenNetworkProfiler,
             ),
-            HomeFeatureEntry(
-                title = localizedStringResource(Res.string.gpu_inspector, language),
-                subtitle = localizedStringResource(Res.string.gpu_agi_integration, language),
-                description =
-                    localizedStringResource(
-                        Res.string.discover_and_launch_android_gpu_inspector_then_index_and_verify,
-                        language
-                    ),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
-                onClick = onOpenGpuInspector,
-            ),
-            HomeFeatureEntry(
-                title = localizedStringResource(Res.string.benchmark_regression, language),
-                subtitle = localizedStringResource(Res.string.macrobenchmark_regression, language),
-                description =
-                    localizedStringResource(
-                        Res.string.compare_androidx_benchmark_baselines_and_current_results_with_ci_regre,
-                        language
-                    ),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
-                onClick = onOpenBenchmarkRegression,
-            ),
-            HomeFeatureEntry(
-                title = localizedStringResource(Res.string.view_live_telemetry, language),
-                subtitle = localizedStringResource(Res.string.live_telemetry, language),
-                description =
-                    localizedStringResource(
-                        Res.string.view_live_telemetry_description,
-                        language
-                    ),
-                actionLabel = localizedStringResource(Res.string.planned, language),
-                onClick = {},
-                enabled = false,
-            ),
-            HomeFeatureEntry(
-                title = localizedStringResource(Res.string.cpu_method_recording, language),
-                subtitle = localizedStringResource(Res.string.method_recording, language),
-                description =
-                    localizedStringResource(
-                        Res.string.cpu_method_recording_description,
-                        language
-                    ),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
-                onClick = onOpenMethodRecording,
-                enabled = true,
-            ),
-            HomeFeatureEntry(
-                title = localizedStringResource(Res.string.java_kotlin_allocations, language),
-                subtitle = localizedStringResource(Res.string.allocations, language),
-                description =
-                    localizedStringResource(
-                        Res.string.java_kotlin_allocations_description,
-                        language
-                    ),
-                actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
-                onClick = onOpenMemoryProfiler,
-                enabled = true,
-            ),
         )
 
     val colors = LocalViewerColors.current
