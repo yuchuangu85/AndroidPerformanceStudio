@@ -109,7 +109,6 @@ class UiComponentsDependencyContractTest {
                 "simpleperf-viewer/visualization/build.gradle.kts",
                 "perfetto-viewer/perfetto-app/build.gradle.kts",
                 "perfetto-viewer/perfetto-presentation/build.gradle.kts",
-                "perfetto-viewer/presentation/build.gradle.kts",
                 "memory-profiler/memory-app/build.gradle.kts",
                 "memory-profiler/presentation/build.gradle.kts",
                 "frame-profiler/frame-app/build.gradle.kts",
