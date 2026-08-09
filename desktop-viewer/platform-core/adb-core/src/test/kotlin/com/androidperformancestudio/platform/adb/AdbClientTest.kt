@@ -33,19 +33,28 @@ class AdbClientTest {
         }
 
     @Test
-    fun `builds shell exec-out and forwarding arguments without a shell`() =
+    fun `preserves shell arguments and builds exec-out and forwarding arguments`() =
         runBlocking {
             val runner = RecordingRunner()
             val client = DefaultAdbClient(Path.of("/sdk/adb"), runner)
 
             client.shell("emulator-5554", listOf("getprop", "ro.build.type"))
+            client.shell("emulator-5554", listOf("sh", "-c", "cat config | perfetto -c - --background-wait"))
             client.execOut("emulator-5554", listOf("screencap", "-p"))
             client.forward("emulator-5554", "tcp:39123", "localabstract:agentperf")
             client.removeForward("emulator-5554", "tcp:39123")
 
             assertEquals(
                 listOf(
-                    listOf("-s", "emulator-5554", "shell", "getprop", "ro.build.type"),
+                    listOf("-s", "emulator-5554", "shell", "'getprop'", "'ro.build.type'"),
+                    listOf(
+                        "-s",
+                        "emulator-5554",
+                        "shell",
+                        "'sh'",
+                        "'-c'",
+                        "'cat config | perfetto -c - --background-wait'",
+                    ),
                     listOf("-s", "emulator-5554", "exec-out", "screencap", "-p"),
                     listOf("-s", "emulator-5554", "forward", "tcp:39123", "localabstract:agentperf"),
                     listOf("-s", "emulator-5554", "forward", "--remove", "tcp:39123"),

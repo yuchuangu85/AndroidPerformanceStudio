@@ -98,7 +98,7 @@ class DefaultAdbClient(
         isCancellationRequested: () -> Boolean,
     ): AdbTextResult =
         executeText(
-            adbDeviceArguments(serial, "shell", arguments),
+            adbDeviceArguments(serial, "shell", arguments.map(::quoteRemoteShellArgument)),
             timeout,
             maxOutputBytesPerStream,
             isCancellationRequested,
@@ -308,3 +308,6 @@ private fun adbDeviceArguments(
     operation: String,
     arguments: List<String>,
 ): List<String> = listOf("-s", AdbInputValidator.requireSerial(serial), operation) + arguments
+
+private fun quoteRemoteShellArgument(argument: String): String =
+    "'" + argument.replace("'", "'\"'\"'") + "'"
