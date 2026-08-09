@@ -1,5 +1,6 @@
 package com.androidperformancestudio.frame.storage
 
+import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import com.androidperformancestudio.frame.model.ExpectedDurationSource
 import com.androidperformancestudio.frame.model.FrameCaptureSession
 import com.androidperformancestudio.frame.model.FrameSample
@@ -66,7 +67,11 @@ class SqliteFrameSessionStoreTest {
         SqliteFrameSessionStore.open(database).use { store -> store.save(session, listOf(frame)) }
 
         SqliteFrameSessionStore.open(database).use { store ->
-            assertEquals(session, store.findSession(session.id))
+            val persistedSession =
+                session.copy(
+                    deviceSerial = DeviceIdentityPseudonymizer().localId(requireNotNull(session.deviceSerial)).value,
+                )
+            assertEquals(persistedSession, store.findSession(session.id))
             assertEquals(frame, store.loadFrames(session.id).single())
         }
     }

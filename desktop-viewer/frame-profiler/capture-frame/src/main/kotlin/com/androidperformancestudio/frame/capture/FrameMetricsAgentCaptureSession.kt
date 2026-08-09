@@ -11,9 +11,8 @@ import com.androidperformancestudio.frame.model.ExpectedDurationSource
 import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.model.FrameStages
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
@@ -48,7 +47,7 @@ public class FrameMetricsAgentCaptureSession internal constructor(
     ) : this(
         target = target,
         sessionId = sessionId,
-        transport = SocketAgentFrameTransport(adbExecutable, target),
+        transport = SocketAgentFrameTransport(DefaultAdbClient(adbExecutable), target),
     )
 
     private var cursor = -1L
@@ -84,9 +83,8 @@ public class FrameMetricsAgentCaptureSession internal constructor(
 }
 
 private class SocketAgentFrameTransport(
-    private val adbExecutable: Path,
+    private val adbClient: AdbClient,
     private val target: GfxInfoCaptureTarget,
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
     private val codec: AgentFrameBatchCodec = AgentFrameBatchCodec(),
 ) : AgentFrameTransport {
     private var descriptor: AgentSessionDescriptor? = null
@@ -95,16 +93,8 @@ private class SocketAgentFrameTransport(
     override suspend fun start(): AgentFrameBatch {
         val session =
             AgentSessionDescriptor.parse(
-                executeAdb(
-                    listOf(
-                        "-s",
-                        target.serial,
-                        "shell",
-                        "run-as",
-                        target.packageName,
-                        "cat",
-                        "files/agentperf/session.json",
-                    ),
+                executeShell(
+                    listOf("run-as", target.packageName, "cat", "files/agentperf/session.json"),
                 ),
             )
         if (session.protocolMajor != SUPPORTED_PROTOCOL_MAJOR) {
@@ -114,14 +104,12 @@ private class SocketAgentFrameTransport(
         }
         val port = availableLoopbackPort()
         try {
-            executeAdb(
-                listOf(
-                    "-s",
-                    target.serial,
-                    "forward",
-                    "tcp:$port",
-                    "localabstract:${session.socketName}",
-                ),
+            adbClient.forward(
+                serial = target.serial,
+                local = "tcp:$port",
+                remote = "localabstract:${session.socketName}",
+                timeout = COMMAND_TIMEOUT,
+                maxOutputBytesPerStream = MAX_COMMAND_OUTPUT,
             )
             descriptor = session
             forwardedPort = port
@@ -162,31 +150,26 @@ private class SocketAgentFrameTransport(
         }
 
     private suspend fun removeForward(port: Int) {
-        executeAdb(listOf("-s", target.serial, "forward", "--remove", "tcp:$port"))
+        adbClient.removeForward(
+            serial = target.serial,
+            local = "tcp:$port",
+            timeout = COMMAND_TIMEOUT,
+            maxOutputBytesPerStream = MAX_COMMAND_OUTPUT,
+        )
     }
 
-    private suspend fun executeAdb(arguments: List<String>): String {
-        val request =
-            ProcessRequest(
-                executable = adbExecutable,
-                arguments = arguments,
-                timeout = COMMAND_TIMEOUT,
-                maxCapturedCharactersPerStream = MAX_COMMAND_OUTPUT,
-            )
-        return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> result.output.stdout.text
-            is ProcessRunResult.Failed -> {
-                val detail =
-                    result.output
-                        ?.stderr
-                        ?.text
-                        ?.trim()
-                        .orEmpty()
-                        .ifEmpty { result.error.message }
-                throw FrameMetricsAgentCaptureException(detail)
-            }
+    private suspend fun executeShell(arguments: List<String>): String =
+        try {
+            adbClient
+                .shell(
+                    serial = target.serial,
+                    arguments = arguments,
+                    timeout = COMMAND_TIMEOUT,
+                    maxOutputBytesPerStream = MAX_COMMAND_OUTPUT,
+                ).stdout
+        } catch (error: RuntimeException) {
+            throw FrameMetricsAgentCaptureException(error.message ?: "ADB command failed").also { it.initCause(error) }
         }
-    }
 
     private fun availableLoopbackPort(): Int = ServerSocket(0, 0, InetAddress.getLoopbackAddress()).use { it.localPort }
 

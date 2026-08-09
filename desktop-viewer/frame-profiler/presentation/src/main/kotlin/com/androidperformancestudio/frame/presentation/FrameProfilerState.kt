@@ -1,5 +1,6 @@
 package com.androidperformancestudio.frame.presentation
 
+import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.model.FrameSample
 import java.nio.file.Path
@@ -13,6 +14,7 @@ public data class FrameProfilerState(
     val analysis: FrameAnalysisResult? = null,
     val selectedFrameId: Long? = null,
     val perfettoTraceFile: Path? = null,
+    val artifact: CaptureArtifact? = null,
     val isLoading: Boolean = false,
     val isRefreshingDevices: Boolean = false,
     val isCapturing: Boolean = false,

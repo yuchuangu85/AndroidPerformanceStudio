@@ -1,5 +1,6 @@
 package com.androidperformancestudio.frame.model
 
+import com.androidperformancestudio.contracts.CaptureArtifact
 import java.time.Instant
 
 public enum class FrameSource {
@@ -106,6 +107,7 @@ public data class FrameCaptureSession(
     val provenanceComplete: Boolean = true,
     val provenanceWarnings: List<String> = emptyList(),
     val perfettoTraceFile: String? = null,
+    val artifact: CaptureArtifact? = null,
 )
 
 public data class FrameSourceCapabilities(

@@ -37,6 +37,10 @@ includeBuild("../platform-core") {
     name = "frame-profiler-platform-core"
 }
 
+includeBuild("../platform-perfetto") {
+    name = "frame-profiler-platform-perfetto"
+}
+
 includeBuild("../ui-components") {
     name = "frame-profiler-ui-components"
 }

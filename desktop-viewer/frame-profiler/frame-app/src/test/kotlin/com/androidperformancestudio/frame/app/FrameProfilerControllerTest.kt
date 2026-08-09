@@ -1,5 +1,10 @@
 package com.androidperformancestudio.frame.app
 
+import com.androidperformancestudio.contracts.ArtifactAcquisitionKind
+import com.androidperformancestudio.contracts.ArtifactCompleteness
+import com.androidperformancestudio.contracts.ArtifactProducer
+import com.androidperformancestudio.contracts.CaptureArtifactJson
+import com.androidperformancestudio.frame.analysis.FrameTimelineResult
 import com.androidperformancestudio.frame.capture.GfxInfoPollBatch
 import com.androidperformancestudio.frame.model.ExpectedDurationSource
 import com.androidperformancestudio.frame.model.FrameCaptureSession
@@ -8,7 +13,10 @@ import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
+import com.androidperformancestudio.platform.perfetto.TraceProcessorTool
 import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Instant
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
@@ -118,6 +126,82 @@ class FrameProfilerControllerTest {
             assertEquals(FrameOperationStatus.CaptureStopped(2), controller.state.value.operationStatus)
         }
 
+    @Test
+    fun `bounded capture registers privacy safe Capture evidence and analyzes FrameTimeline rows`() =
+        runBlocking {
+            val directory = createTempDirectory("frame-controller-bounded")
+            val trace = directory.resolve("frame.pftrace").also { it.writeText("trace bytes") }
+            val process = FrameProcessOption(pid = 321, name = "dev.example.app", packageName = "dev.example.app")
+            val controller =
+                FrameProfilerController(
+                    onlineBackend =
+                        FakeFrameOnlineBackend(
+                            process,
+                            FakeOnlineFrameCapture(process.packageName, ArrayDeque()),
+                        ),
+                    databaseFile = directory.resolve("frames.db"),
+                    timelineArtifactAnalyzer = SuccessfulTimelineAnalyzer,
+                    boundedCaptureBackend = FakeBoundedCaptureBackend(trace),
+                )
+            controller.refreshDevices()
+
+            controller.captureFrameTimeline(durationMillis = 1_000L)
+
+            val state = controller.state.value
+            assertNull(state.errorMessage)
+            assertEquals(
+                FrameSource.PERFETTO,
+                assertNotNull(state.analysis)
+                    .frames
+                    .single()
+                    .sample.source,
+            )
+            assertEquals(FrameOperationStatus.CaptureStopped(1), state.operationStatus)
+            val artifact = assertNotNull(state.artifact)
+            assertEquals(ArtifactAcquisitionKind.CAPTURE, artifact.provenance.acquisition.kind)
+            assertEquals(ArtifactProducer.Known("Android Perfetto traced"), artifact.provenance.producer)
+            assertEquals(ArtifactCompleteness.PARTIAL, artifact.completeness)
+            assertFalse(artifact.availableCapabilities.any { it.value == "frame.surface_correlation" })
+            assertFalse(CaptureArtifactJson.encode(artifact).contains("device-1"))
+            assertEquals(trace.toAbsolutePath(), state.perfettoTraceFile)
+        }
+
+    @Test
+    fun `failed bounded analysis preserves UNKNOWN raw evidence instead of fabricating COMPLETE`() =
+        runBlocking {
+            val directory = createTempDirectory("frame-controller-bounded-failure")
+            val trace = directory.resolve("frame.pftrace").also { it.writeText("trace bytes") }
+            val process = FrameProcessOption(pid = 321, name = "dev.example.app", packageName = "dev.example.app")
+            val controller =
+                FrameProfilerController(
+                    onlineBackend =
+                        FakeFrameOnlineBackend(
+                            process,
+                            FakeOnlineFrameCapture(process.packageName, ArrayDeque()),
+                        ),
+                    databaseFile = directory.resolve("frames.db"),
+                    timelineArtifactAnalyzer =
+                        FrameTimelineArtifactAnalyzer { _, _ ->
+                            FrameTimelineProcessingResult.Failure("query failed")
+                        },
+                    boundedCaptureBackend = FakeBoundedCaptureBackend(trace),
+                )
+            controller.refreshDevices()
+
+            controller.captureFrameTimeline(durationMillis = 1_000L)
+
+            val state = controller.state.value
+            assertEquals("query failed", state.errorMessage)
+            assertNull(state.analysis)
+            val artifact = assertNotNull(state.artifact)
+            assertEquals(ArtifactCompleteness.UNKNOWN, artifact.completeness)
+            val sidecar = directory.resolve("capture-artifacts/${artifact.id.value}.json")
+            assertEquals(
+                ArtifactCompleteness.UNKNOWN,
+                CaptureArtifactJson.decode(Files.readString(sidecar)).completeness,
+            )
+        }
+
     private fun frame(
         id: Long,
         durationNs: Long,
@@ -183,7 +267,49 @@ class FrameProfilerControllerTest {
         }
     }
 
+    private class FakeBoundedCaptureBackend(
+        private val trace: Path,
+    ) : BoundedFrameTimelineCaptureBackend {
+        override suspend fun capture(
+            serial: String,
+            process: FrameProcessOption,
+            durationMillis: Long,
+        ): FrameBackendResult<BoundedFrameTimelineCapture> =
+            FrameBackendResult.Success(
+                BoundedFrameTimelineCapture(
+                    traceFile = trace,
+                    startedAt = Instant.EPOCH,
+                    androidApiLevel = 31,
+                ),
+            )
+    }
+
     private companion object {
+        val SuccessfulTimelineAnalyzer =
+            FrameTimelineArtifactAnalyzer { _, _ ->
+                FrameTimelineProcessingResult.Success(
+                    result =
+                        FrameTimelineResult(
+                            frames =
+                                listOf(
+                                    FrameSample(
+                                        frameId = 42,
+                                        sessionId = "perfetto",
+                                        source = FrameSource.PERFETTO,
+                                        totalDurationNs = 18_000_000L,
+                                    ),
+                                ),
+                            capabilities = emptySet(),
+                        ),
+                    tool =
+                        TraceProcessorTool(
+                            path = Path.of("trace_processor_shell"),
+                            version = "v57.2",
+                            sha256 = "a".repeat(64),
+                        ),
+                )
+            }
+
         val FRAMESTATS =
             """
             ---PROFILEDATA---

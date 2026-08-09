@@ -160,6 +160,14 @@ private fun AnalysisContent(
         state.importedFileName?.let {
             Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
+        state.artifact?.let { artifact ->
+            Text(
+                "Artifact: ${artifact.completeness.name.lowercase()} · ${artifact.availableCapabilities.size} capabilities" +
+                    if (artifact.limitations.isEmpty()) "" else " · ${artifact.limitations.size} limitation(s)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         SummaryCards(analysis, language)
         state.warnings.forEach { warning ->
             Text(warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)

@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.frame.storage
 
+import com.androidperformancestudio.contracts.CaptureArtifactJson
+import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import com.androidperformancestudio.frame.model.ExpectedDurationSource
 import com.androidperformancestudio.frame.model.FrameCaptureSession
 import com.androidperformancestudio.frame.model.FrameSample
@@ -20,6 +22,7 @@ import java.util.Base64
 
 public class SqliteFrameSessionStore private constructor(
     private val connection: Connection,
+    private val deviceIdentity: DeviceIdentityPseudonymizer = DeviceIdentityPseudonymizer(),
 ) : AutoCloseable {
     init {
         connection.createStatement().use { statement ->
@@ -110,7 +113,7 @@ public class SqliteFrameSessionStore private constructor(
                 """.trimIndent(),
             )
             ensureCurrentColumns()
-            statement.execute("PRAGMA user_version = 3")
+            statement.execute("PRAGMA user_version = 4")
         }
     }
 
@@ -192,6 +195,7 @@ public class SqliteFrameSessionStore private constructor(
                 "provenance_complete" to "INTEGER NOT NULL DEFAULT 1",
                 "provenance_warnings" to "TEXT NOT NULL DEFAULT ''",
                 "perfetto_trace_file" to "TEXT",
+                "artifact_json" to "TEXT",
             ),
         )
         ensureColumns(
@@ -233,8 +237,8 @@ public class SqliteFrameSessionStore private constructor(
                     session_id, source, started_at_epoch_millis, package_name, device_serial, device_api_level,
                     agent_protocol, source_capabilities, observed_refresh_rates_hz, imported_file,
                     imported_file_sha256, imported_at_epoch_millis, provenance_complete, provenance_warnings,
-                    perfetto_trace_file
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    perfetto_trace_file, artifact_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     source = excluded.source,
                     started_at_epoch_millis = excluded.started_at_epoch_millis,
@@ -249,14 +253,15 @@ public class SqliteFrameSessionStore private constructor(
                     imported_at_epoch_millis = excluded.imported_at_epoch_millis,
                     provenance_complete = excluded.provenance_complete,
                     provenance_warnings = excluded.provenance_warnings,
-                    perfetto_trace_file = excluded.perfetto_trace_file
+                    perfetto_trace_file = excluded.perfetto_trace_file,
+                    artifact_json = excluded.artifact_json
                 """.trimIndent(),
             ).use { statement ->
                 statement.setString(1, session.id)
                 statement.setString(2, session.source.name)
                 statement.setLong(3, session.startedAt.toEpochMilli())
                 statement.setString(4, session.packageName)
-                statement.setString(5, session.deviceSerial)
+                statement.setString(5, session.deviceSerial?.let(deviceIdentity::localId)?.value)
                 statement.setNullableInt(6, session.deviceApiLevel)
                 statement.setString(7, session.agentProtocol)
                 statement.setString(8, session.sourceCapabilities?.encode())
@@ -267,6 +272,7 @@ public class SqliteFrameSessionStore private constructor(
                 statement.setInt(13, if (session.provenanceComplete) 1 else 0)
                 statement.setString(14, session.provenanceWarnings.encodeStrings())
                 statement.setString(15, session.perfettoTraceFile)
+                statement.setString(16, session.artifact?.let(CaptureArtifactJson::encode))
                 statement.executeUpdate()
             }
     }
@@ -390,6 +396,7 @@ public class SqliteFrameSessionStore private constructor(
             provenanceComplete = getInt("provenance_complete") != 0,
             provenanceWarnings = getString("provenance_warnings").orEmpty().decodeStrings(),
             perfettoTraceFile = getString("perfetto_trace_file"),
+            artifact = getString("artifact_json")?.let(CaptureArtifactJson::decode),
         )
 
     private fun ResultSet.toFrame(

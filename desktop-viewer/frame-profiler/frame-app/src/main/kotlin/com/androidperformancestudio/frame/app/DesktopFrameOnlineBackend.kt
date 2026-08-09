@@ -16,10 +16,8 @@ import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
-import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.CancellationException
 import java.nio.file.Path
 import java.time.Instant
@@ -176,21 +174,13 @@ internal class DesktopFrameOnlineBackend(
         adb: Path,
         serial: String,
     ): Int? =
-        when (
-            val result =
-                JvmProcessRunner().run(
-                    ProcessRequest(
-                        executable = adb,
-                        arguments = listOf("-s", serial, "shell", "getprop", "ro.build.version.sdk"),
-                    ),
-                )
-        ) {
-            is ProcessRunResult.Completed ->
-                result.output.stdout.text
-                    .trim()
-                    .toIntOrNull()
-            is ProcessRunResult.Failed -> null
-        }
+        runCatching {
+            DefaultAdbClient(adb)
+                .shell(serial, listOf("getprop", "ro.build.version.sdk"))
+                .stdout
+                .trim()
+                .toIntOrNull()
+        }.getOrNull()
 
     private companion object {
         val FRAME_METRICS_CAPABILITIES = FrameSourceCapabilities(true, true, true, true, true)

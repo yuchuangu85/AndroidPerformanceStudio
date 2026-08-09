@@ -2,9 +2,9 @@ package com.androidperformancestudio.frame.capture
 
 import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.parser.GfxInfoFrameStatsParser
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.AdbException
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.seconds
 
@@ -43,7 +43,7 @@ public class GfxInfoPollingCaptureSession internal constructor(
     ) : this(
         target = target,
         sessionId = sessionId,
-        runner = JvmAdbShellRunner(adbExecutable),
+        runner = TypedAdbShellRunner(DefaultAdbClient(adbExecutable)),
     )
 
     private val seenFrames = linkedMapOf<FrameIdentity, Long>()
@@ -132,35 +132,24 @@ public class GfxInfoPollingCaptureSession internal constructor(
     }
 }
 
-private class JvmAdbShellRunner(
-    private val adbExecutable: Path,
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
+private class TypedAdbShellRunner(
+    private val adbClient: AdbClient,
 ) : AdbShellRunner {
     override suspend fun execute(
         serial: String,
         arguments: List<String>,
-    ): String {
-        val request =
-            ProcessRequest(
-                executable = adbExecutable,
-                arguments = listOf("-s", serial, "shell") + arguments,
-                timeout = COMMAND_TIMEOUT,
-                maxCapturedCharactersPerStream = MAX_FRAMESTATS_CHARACTERS,
-            )
-        return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> result.output.stdout.text
-            is ProcessRunResult.Failed -> {
-                val stderr =
-                    result.output
-                        ?.stderr
-                        ?.text
-                        .orEmpty()
-                        .trim()
-                val detail = stderr.ifEmpty { result.error.message }
-                throw GfxInfoCaptureException(detail)
-            }
+    ): String =
+        try {
+            adbClient
+                .shell(
+                    serial = serial,
+                    arguments = arguments,
+                    timeout = COMMAND_TIMEOUT,
+                    maxOutputBytesPerStream = MAX_FRAMESTATS_CHARACTERS,
+                ).stdout
+        } catch (error: AdbException) {
+            throw GfxInfoCaptureException(error.message ?: "ADB shell command failed").also { it.initCause(error) }
         }
-    }
 
     private companion object {
         val COMMAND_TIMEOUT = 10.seconds

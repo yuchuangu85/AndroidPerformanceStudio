@@ -22,6 +22,7 @@ import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
 import com.androidperformancestudio.frame.frame_app.generated.resources.associate_perfetto_trace
 import com.androidperformancestudio.frame.frame_app.generated.resources.back_to_home
+import com.androidperformancestudio.frame.frame_app.generated.resources.capture_frametimeline
 import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_with_frames
 import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_without_frames
 import com.androidperformancestudio.frame.frame_app.generated.resources.capturing_frame_count
@@ -30,6 +31,7 @@ import com.androidperformancestudio.frame.frame_app.generated.resources.device
 import com.androidperformancestudio.frame.frame_app.generated.resources.export_frame_profiler_report
 import com.androidperformancestudio.frame.frame_app.generated.resources.exported
 import com.androidperformancestudio.frame.frame_app.generated.resources.import_gfxinfo_framestats
+import com.androidperformancestudio.frame.frame_app.generated.resources.import_perfetto_frametimeline
 import com.androidperformancestudio.frame.frame_app.generated.resources.imported_frames
 import com.androidperformancestudio.frame.frame_app.generated.resources.open_trace_in_perfetto
 import com.androidperformancestudio.frame.frame_app.generated.resources.process
@@ -83,7 +85,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
         model =
             frameProfilerFileMenuModel(
                 language = language,
-                importEnabled = !state.isCapturing,
+                importEnabled = !state.isCapturing && !state.isLoading,
                 exportEnabled = state.analysis != null,
             ),
         onImportFrameStats = { showImportDialog = true },
@@ -121,7 +123,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
                     itemLabel = { it.name },
                     placeholder = localizedStringResource(Res.string.device, language),
-                    enabled = !state.isCapturing,
+                    enabled = !state.isCapturing && !state.isLoading,
                     itemEnabled = { it.online },
                 )
                 DropdownSelector(
@@ -137,21 +139,35 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                         )
                     },
                     placeholder = localizedStringResource(Res.string.process, language),
-                    enabled = !state.isCapturing && state.selectedDeviceSerial != null,
+                    enabled = !state.isCapturing && !state.isLoading && state.selectedDeviceSerial != null,
                 )
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.refresh, language),
-                    enabled = !state.isCapturing && !state.isRefreshingDevices,
+                    enabled = !state.isCapturing && !state.isLoading && !state.isRefreshingDevices,
                     onClick = { scope.launch { controller.refreshDevices() } },
                 )
                 ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.import_perfetto_frametimeline, language),
+                    enabled = !state.isCapturing && !state.isLoading,
+                    onClick = {
+                        chooseTraceFile(window, language)?.let { trace ->
+                            scope.launch { controller.importPerfettoTrace(trace.toPath()) }
+                        }
+                    },
+                )
+                ProfilerCompactButton(
                     text = localizedStringResource(Res.string.associate_perfetto_trace, language),
-                    enabled = !state.isCapturing && state.analysis != null,
+                    enabled = !state.isCapturing && !state.isLoading && state.analysis != null,
                     onClick = {
                         chooseTraceFile(window, language)?.let { trace ->
                             scope.launch { controller.associatePerfettoTrace(trace.toPath()) }
                         }
                     },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.capture_frametimeline, language),
+                    enabled = state.selectedProcessId != null && !state.isCapturing && !state.isLoading,
+                    onClick = { scope.launch { controller.captureFrameTimeline() } },
                 )
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
@@ -181,7 +197,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                         } else {
                             localizedStringResource(Res.string.start_capture, language)
                         },
-                    enabled = state.selectedProcessId != null,
+                    enabled = state.selectedProcessId != null && (state.isCapturing || !state.isLoading),
                     onClick = {
                         scope.launch {
                             if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()

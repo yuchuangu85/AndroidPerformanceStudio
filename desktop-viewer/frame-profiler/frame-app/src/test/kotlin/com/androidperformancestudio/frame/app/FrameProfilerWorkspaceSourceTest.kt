@@ -38,8 +38,13 @@ class FrameProfilerWorkspaceSourceTest {
 
         assertBlockContains(
             "localizedStringResource(Res.string.refresh, language)",
-            "enabled = !state.isCapturing && !state.isRefreshingDevices",
+            "enabled = !state.isCapturing && !state.isLoading && !state.isRefreshingDevices",
             "controller.refreshDevices()",
+        )
+        assertBlockContains(
+            "localizedStringResource(Res.string.capture_frametimeline, language)",
+            "enabled = state.selectedProcessId != null && !state.isCapturing && !state.isLoading",
+            "controller.captureFrameTimeline()",
         )
         assertBlockContains(
             "localizedStringResource(Res.string.start_capture, language)",
@@ -80,7 +85,7 @@ class FrameProfilerWorkspaceSourceTest {
         )
         assertBlockContains(
             "localizedStringResource(Res.string.process, language)",
-            "enabled = !state.isCapturing && state.selectedDeviceSerial != null",
+            "enabled = !state.isCapturing && !state.isLoading && state.selectedDeviceSerial != null",
             "controller.selectProcess(it.pid)",
         )
     }

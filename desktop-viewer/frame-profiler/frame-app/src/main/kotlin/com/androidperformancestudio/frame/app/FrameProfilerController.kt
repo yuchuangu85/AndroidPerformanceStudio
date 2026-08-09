@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.frame.app
 
+import com.androidperformancestudio.contracts.CaptureArtifact
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.FrameJankAnalyzer
 import com.androidperformancestudio.frame.export.FrameCsvExporter
@@ -26,6 +28,7 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
+@Suppress("LongParameterList")
 internal class FrameProfilerController(
     private val onlineBackend: FrameOnlineBackend = DesktopFrameOnlineBackend(),
     private val parser: GfxInfoFrameStatsParser = GfxInfoFrameStatsParser(),
@@ -33,6 +36,8 @@ internal class FrameProfilerController(
     private val exporter: FrameCsvExporter = FrameCsvExporter(),
     private val jsonExporter: FrameJsonExporter = FrameJsonExporter(),
     private val databaseFile: Path = defaultDatabaseFile(),
+    private val timelineArtifactAnalyzer: FrameTimelineArtifactAnalyzer = PerfettoFrameTimelineArtifactAnalyzer(),
+    private val boundedCaptureBackend: BoundedFrameTimelineCaptureBackend = DesktopBoundedFrameTimelineCaptureBackend(),
 ) {
     private val mutableState = MutableStateFlow(FrameProfilerState())
     private val onlineFrames = mutableListOf<FrameSample>()
@@ -215,6 +220,127 @@ internal class FrameProfilerController(
         }
     }
 
+    /** Captures a bounded Android 12+ FrameTimeline trace without entering Live Frame Observation mode. */
+    @Suppress("LongMethod")
+    suspend fun captureFrameTimeline(durationMillis: Long = DEFAULT_FRAME_TIMELINE_CAPTURE_MILLIS) {
+        val snapshot = mutableState.value
+        if (snapshot.isCapturing || snapshot.isLoading) return
+        val serial = snapshot.selectedDeviceSerial ?: return
+        val process = snapshot.processes.firstOrNull { it.pid == snapshot.selectedProcessId } ?: return
+        mutableState.value =
+            snapshot.copy(
+                isLoading = true,
+                operationStatus = FrameOperationStatus.Capturing(process.packageName, "Perfetto FrameTimeline"),
+                errorMessage = null,
+            )
+        val capture =
+            try {
+                boundedCaptureBackend.capture(serial, process, durationMillis)
+            } catch (error: CancellationException) {
+                mutableState.value = snapshot.copy(isLoading = false)
+                throw error
+            } catch (error: Exception) {
+                mutableState.value =
+                    mutableState.value.copy(
+                        isLoading = false,
+                        operationStatus = null,
+                        errorMessage = error.message ?: "FrameTimeline capture failed.",
+                    )
+                return
+            }
+        if (capture is FrameBackendResult.Failure) {
+            mutableState.value =
+                mutableState.value.copy(
+                    isLoading = false,
+                    operationStatus = null,
+                    errorMessage = capture.message,
+                )
+            return
+        }
+        capture as FrameBackendResult.Success
+        val captured = capture.value
+        val factory = FrameCaptureArtifactFactory()
+        val rawArtifact =
+            try {
+                withContext(Dispatchers.IO) {
+                    factory.captured(captured.traceFile, serial, process.pid, process.packageName).also(::persistArtifact)
+                }
+            } catch (error: Exception) {
+                mutableState.value =
+                    mutableState.value.copy(
+                        perfettoTraceFile = captured.traceFile.toAbsolutePath(),
+                        isLoading = false,
+                        operationStatus = FrameOperationStatus.CaptureStopped(0),
+                        errorMessage = error.message ?: "Captured FrameTimeline evidence could not be registered.",
+                    )
+                return
+            }
+        mutableState.value =
+            mutableState.value.copy(
+                importedFileName = null,
+                analysis = null,
+                selectedFrameId = null,
+                perfettoTraceFile = captured.traceFile.toAbsolutePath(),
+                artifact = rawArtifact,
+                warnings = emptyList(),
+            )
+        when (val processed = timelineArtifactAnalyzer.analyze(captured.traceFile, rawArtifact)) {
+            is FrameTimelineProcessingResult.Failure ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        isLoading = false,
+                        operationStatus = FrameOperationStatus.CaptureStopped(0),
+                        errorMessage = processed.reason,
+                    )
+            is FrameTimelineProcessingResult.Success -> {
+                if (processed.result.frames.isEmpty()) {
+                    mutableState.value =
+                        mutableState.value.copy(
+                            isLoading = false,
+                            operationStatus = FrameOperationStatus.CaptureStopped(0),
+                            errorMessage = "Captured trace contains no FrameTimeline rows.",
+                        )
+                    return
+                }
+                val finalArtifact = factory.analyzed(rawArtifact, processed.tool, processed.result.capabilities)
+                val sessionId = "perfetto-${finalArtifact.id.value.removePrefix("frame-")}"
+                val frames = processed.result.frames.map { it.copy(sessionId = sessionId) }
+                val session =
+                    FrameCaptureSession(
+                        id = sessionId,
+                        source = FrameSource.PERFETTO,
+                        startedAt = captured.startedAt,
+                        packageName = process.packageName,
+                        deviceApiLevel = captured.androidApiLevel,
+                        sourceCapabilities = frameTimelineSourceCapabilities(),
+                        perfettoTraceFile = captured.traceFile.toAbsolutePath().toString(),
+                        artifact = finalArtifact,
+                    )
+                val analysis = analyzer.analyze(frames)
+                val persistenceWarning =
+                    withContext(Dispatchers.IO) {
+                        persistArtifact(finalArtifact)
+                        persistenceWarning(session, frames)
+                    }
+                currentSession = session
+                mutableState.value =
+                    mutableState.value.copy(
+                        analysis = analysis,
+                        selectedFrameId =
+                            analysis.frames
+                                .firstOrNull()
+                                ?.sample
+                                ?.frameId,
+                        artifact = finalArtifact,
+                        isLoading = false,
+                        operationStatus = FrameOperationStatus.CaptureStopped(frames.size),
+                        warnings = listOfNotNull(persistenceWarning),
+                        errorMessage = null,
+                    )
+            }
+        }
+    }
+
     suspend fun importFrameStats(file: Path) {
         if (mutableState.value.isCapturing) return
         mutableState.value = mutableState.value.copy(isLoading = true, errorMessage = null, operationStatus = null)
@@ -269,6 +395,71 @@ internal class FrameProfilerController(
                     isLoading = false,
                     errorMessage = error.message ?: "FrameStats import failed.",
                 )
+        }
+    }
+
+    /** Imports a bounded Android 12+ trace and uses FrameTimeline as the authoritative source. */
+    @Suppress("LongMethod")
+    suspend fun importPerfettoTrace(file: Path) {
+        if (mutableState.value.isCapturing) return
+        mutableState.value = mutableState.value.copy(isLoading = true, errorMessage = null, operationStatus = null)
+        runCatching {
+            withContext(Dispatchers.IO) {
+                require(Files.isRegularFile(file)) { "Trace file does not exist: $file" }
+                val factory = FrameCaptureArtifactFactory()
+                val artifact = factory.imported(file)
+                persistArtifact(artifact)
+                val processed = timelineArtifactAnalyzer.analyze(file, artifact)
+                when (processed) {
+                    is FrameTimelineProcessingResult.Failure -> error(processed.reason)
+                    is FrameTimelineProcessingResult.Success -> {
+                        require(processed.result.frames.isNotEmpty()) { "No FrameTimeline rows were found in ${file.fileName}." }
+                        val finalArtifact = factory.analyzed(artifact, processed.tool, processed.result.capabilities)
+                        val sessionId = "perfetto-${finalArtifact.id.value.removePrefix("frame-")}"
+                        val frames = processed.result.frames.map { it.copy(sessionId = sessionId) }
+                        val session =
+                            FrameCaptureSession(
+                                id = sessionId,
+                                source = FrameSource.PERFETTO,
+                                startedAt = Instant.now(),
+                                importedFile = file.toAbsolutePath().toString(),
+                                importedFileSha256 = finalArtifact.sha256.value,
+                                importedAt = Instant.now(),
+                                sourceCapabilities = frameTimelineSourceCapabilities(),
+                                provenanceComplete = true,
+                                perfettoTraceFile = file.toAbsolutePath().toString(),
+                                artifact = finalArtifact,
+                            )
+                        persistArtifact(finalArtifact)
+                        LoadedFrameStats(
+                            analysis = analyzer.analyze(frames),
+                            session = session,
+                            warnings = listOfNotNull(persistenceWarning(session, frames)),
+                        )
+                    }
+                }
+            }
+        }.onSuccess { loaded ->
+            currentSession = loaded.session
+            mutableState.value =
+                mutableState.value.copy(
+                    importedFileName = file.fileName.toString(),
+                    analysis = loaded.analysis,
+                    selectedFrameId =
+                        loaded.analysis.frames
+                            .firstOrNull()
+                            ?.sample
+                            ?.frameId,
+                    perfettoTraceFile = file.toAbsolutePath(),
+                    artifact = loaded.session.artifact,
+                    isLoading = false,
+                    operationStatus = FrameOperationStatus.ImportedFrames(loaded.analysis.summary.totalFrames),
+                    warnings = loaded.warnings,
+                    errorMessage = null,
+                )
+        }.onFailure { error ->
+            mutableState.value =
+                mutableState.value.copy(isLoading = false, errorMessage = error.message ?: "Perfetto FrameTimeline import failed.")
         }
     }
 
@@ -332,10 +523,27 @@ internal class FrameProfilerController(
     )
 
     private companion object {
+        const val DEFAULT_FRAME_TIMELINE_CAPTURE_MILLIS = 10_000L
+
         fun defaultDatabaseFile(): Path =
             Path.of(System.getProperty("user.home"), ".android-performance-studio", "frame-profiler", "frames.db")
     }
+
+    private fun persistArtifact(artifact: CaptureArtifact) {
+        val directory = databaseFile.parent?.resolve("capture-artifacts") ?: Path.of("capture-artifacts")
+        Files.createDirectories(directory)
+        Files.writeString(directory.resolve("${artifact.id.value}.json"), CaptureArtifactJson.encode(artifact))
+    }
 }
+
+private fun frameTimelineSourceCapabilities() =
+    com.androidperformancestudio.frame.model.FrameSourceCapabilities(
+        realtime = false,
+        stageBreakdown = false,
+        platformJankClassification = true,
+        expectedFrameDeadline = true,
+        appStateLabels = true,
+    )
 
 private fun FrameCaptureSession.withObservedFrames(frames: List<FrameSample>): FrameCaptureSession =
     copy(observedRefreshRatesHz = frames.mapNotNull(FrameSample::refreshRateHz).toSet())
