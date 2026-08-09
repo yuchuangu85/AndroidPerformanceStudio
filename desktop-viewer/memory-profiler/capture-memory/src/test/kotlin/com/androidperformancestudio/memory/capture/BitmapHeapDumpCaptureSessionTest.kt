@@ -1,11 +1,11 @@
 package com.androidperformancestudio.memory.capture
 
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
@@ -23,7 +23,7 @@ class BitmapHeapDumpCaptureSessionTest {
         runTest {
             val root = createTempDirectory("bitmap-capture")
             val runner = BitmapRunner()
-            val session = BitmapHeapDumpCaptureSession(Path.of("adb"), runner::run)
+            val session = BitmapHeapDumpCaptureSession(ProcessRunnerAdbClient(runner::run))
 
             val result = session.capture(request(root))
 
@@ -42,7 +42,7 @@ class BitmapHeapDumpCaptureSessionTest {
     fun `rejects devices below api 35 before dumpheap`() =
         runTest {
             val runner = BitmapRunner(sdk = 34)
-            val session = BitmapHeapDumpCaptureSession(Path.of("adb"), runner::run)
+            val session = BitmapHeapDumpCaptureSession(ProcessRunnerAdbClient(runner::run))
 
             val result = session.capture(request(createTempDirectory("bitmap-api")))
 
@@ -63,13 +63,13 @@ class BitmapHeapDumpCaptureSessionTest {
     private class BitmapRunner(
         private val sdk: Int = 35,
     ) {
-        val requests = mutableListOf<ProcessRequest>()
+        val requests = mutableListOf<HostProcessRequest>()
         val commands = mutableListOf<String>()
 
         suspend fun run(
-            request: ProcessRequest,
-            signal: ProcessCancellationSignal,
-        ): ProcessRunResult {
+            request: HostProcessRequest,
+            signal: HostCancellationSignal,
+        ): HostCommandResult {
             check(!signal.isCancelled)
             requests += request
             val kind = request.kind()
@@ -81,13 +81,13 @@ class BitmapHeapDumpCaptureSessionTest {
                     "meminfo" -> "Java Heap: 30 0 0\nNative Heap: 40 0 0\nTOTAL PSS: 100 TOTAL RSS: 200"
                     else -> ""
                 }
-            return ProcessRunResult.Completed(
-                ProcessOutput(
+            return HostCommandResult.Completed(
+                HostCommandOutput(
                     pid = 1,
                     command = request.command,
                     exitCode = 0,
-                    stdout = CapturedProcessText(stdout, false),
-                    stderr = CapturedProcessText("", false),
+                    stdout = HostCapturedText(stdout, false),
+                    stderr = HostCapturedText("", false),
                     startedAt = Instant.EPOCH,
                     finishedAt = Instant.EPOCH,
                 ),
@@ -96,7 +96,7 @@ class BitmapHeapDumpCaptureSessionTest {
     }
 }
 
-private fun ProcessRequest.kind(): String =
+private fun HostProcessRequest.kind(): String =
     when {
         arguments.contains("getprop") -> "getprop"
         arguments.contains("dumpheap") -> "dumpheap"

@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.storage
 
+import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.io.path.Path
@@ -27,13 +28,18 @@ class SqliteMemorySessionStoreTest {
 
         SqliteMemorySessionStore.open(database).use { store ->
             store.upsert(metadata)
-            assertEquals(metadata, store.find("session-1"))
+            assertEquals(persisted(metadata), store.find("session-1"))
         }
 
         SqliteMemorySessionStore.open(database).use { reopened ->
-            assertEquals(metadata, reopened.find("session-1"))
+            assertEquals(persisted(metadata), reopened.find("session-1"))
         }
     }
+
+    private fun persisted(metadata: MemorySessionMetadata): MemorySessionMetadata =
+        metadata.copy(
+            deviceSerial = DeviceIdentityPseudonymizer().localId(requireNotNull(metadata.deviceSerial)).value,
+        )
 
     @Test
     fun `indexes sessions by newest capture first`() {
@@ -58,6 +64,18 @@ class SqliteMemorySessionStoreTest {
             assertEquals(Instant.ofEpochMilli(2L), loaded?.capturedAt)
             assertNull(loaded?.convertedHprofFile)
             assertEquals(1, store.listRecent().size)
+        }
+    }
+
+    @Test
+    fun `imported session without a device keeps its identity empty`() {
+        val database = createTempDirectory("memory-db").resolve("sessions.db")
+        val imported = metadata("imported", 1L).copy(deviceSerial = "")
+
+        SqliteMemorySessionStore.open(database).use { store ->
+            store.upsert(imported)
+
+            assertEquals(imported, store.find("imported"))
         }
     }
 

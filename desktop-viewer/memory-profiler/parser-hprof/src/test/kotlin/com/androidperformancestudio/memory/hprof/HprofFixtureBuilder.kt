@@ -36,6 +36,7 @@ internal class HprofFixtureBuilder(
 
     fun heapDumpEnd() = apply { record(0x2c, ByteArray(0)) }
 
+    @Suppress("LongParameterList")
     fun classDump(
         classId: Long,
         instanceSize: Int,

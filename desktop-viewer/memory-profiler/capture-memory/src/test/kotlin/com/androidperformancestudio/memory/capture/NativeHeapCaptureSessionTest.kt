@@ -5,11 +5,11 @@ package com.androidperformancestudio.memory.capture
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
@@ -27,7 +27,7 @@ class NativeHeapCaptureSessionTest {
         runTest {
             val runner = RecordingRunner(sdkApiLevel = "33")
             val sessionRoot = createTempDirectory("native-heap-session")
-            val session = NativeHeapCaptureSession(adbExecutable = Path.of("adb"), processRunner = runner::run)
+            val session = NativeHeapCaptureSession(ProcessRunnerAdbClient(runner::run))
 
             val result = session.capture(nativeRequest(sessionRoot))
 
@@ -48,7 +48,7 @@ class NativeHeapCaptureSessionTest {
     fun `capture rejects devices below api 29 without running perfetto`() =
         runTest {
             val runner = RecordingRunner(sdkApiLevel = "28")
-            val session = NativeHeapCaptureSession(adbExecutable = Path.of("adb"), processRunner = runner::run)
+            val session = NativeHeapCaptureSession(ProcessRunnerAdbClient(runner::run))
 
             val result = session.capture(nativeRequest(createTempDirectory("native-heap-session")))
 
@@ -61,7 +61,7 @@ class NativeHeapCaptureSessionTest {
     fun `perfetto failure is structured and still cleans device files`() =
         runTest {
             val runner = RecordingRunner(sdkApiLevel = "33", failures = mapOf("perfetto" to "heapprofd not available"))
-            val session = NativeHeapCaptureSession(adbExecutable = Path.of("adb"), processRunner = runner::run)
+            val session = NativeHeapCaptureSession(ProcessRunnerAdbClient(runner::run))
 
             val result = session.capture(nativeRequest(createTempDirectory("native-heap-session")))
 
@@ -74,7 +74,7 @@ class NativeHeapCaptureSessionTest {
     fun `empty pulled trace is reported as a failure`() =
         runTest {
             val runner = RecordingRunner(sdkApiLevel = "33", traceBytes = ByteArray(0))
-            val session = NativeHeapCaptureSession(adbExecutable = Path.of("adb"), processRunner = runner::run)
+            val session = NativeHeapCaptureSession(ProcessRunnerAdbClient(runner::run))
 
             val result = session.capture(nativeRequest(createTempDirectory("native-heap-session")))
 
@@ -96,13 +96,13 @@ class NativeHeapCaptureSessionTest {
         private val traceBytes: ByteArray = "fake-perfetto-trace".encodeToByteArray(),
         private val failures: Map<String, String> = emptyMap(),
     ) {
-        val requests = mutableListOf<ProcessRequest>()
+        val requests = mutableListOf<HostProcessRequest>()
         val commandKinds = mutableListOf<String>()
 
         suspend fun run(
-            request: ProcessRequest,
-            signal: ProcessCancellationSignal,
-        ): ProcessRunResult {
+            request: HostProcessRequest,
+            signal: HostCancellationSignal,
+        ): HostCommandResult {
             check(!signal.isCancelled)
             requests += request
             val kind = request.commandKind()
@@ -114,36 +114,36 @@ class NativeHeapCaptureSessionTest {
             return if (failureText == null) completed(request) else failed(request, failureText)
         }
 
-        private fun completed(request: ProcessRequest): ProcessRunResult.Completed =
-            ProcessRunResult.Completed(output(request, exitCode = 0))
+        private fun completed(request: HostProcessRequest): HostCommandResult.Completed =
+            HostCommandResult.Completed(output(request, exitCode = 0))
 
         private fun failed(
-            request: ProcessRequest,
+            request: HostProcessRequest,
             stderr: String,
-        ): ProcessRunResult.Failed =
-            ProcessRunResult.Failed(
+        ): HostCommandResult.Failed =
+            HostCommandResult.Failed(
                 error = StudioError(ErrorCategory.PROCESS_EXIT, "PROCESS_EXIT_1", "Process exited with code 1"),
                 output = output(request, exitCode = 1, stderr = stderr),
             )
 
         private fun output(
-            request: ProcessRequest,
+            request: HostProcessRequest,
             exitCode: Int,
             stderr: String = "",
-        ): ProcessOutput =
-            ProcessOutput(
+        ): HostCommandOutput =
+            HostCommandOutput(
                 pid = 1L,
                 command = request.command,
                 exitCode = exitCode,
-                stdout = CapturedProcessText(if (request.arguments.contains("getprop")) sdkApiLevel else "", truncated = false),
-                stderr = CapturedProcessText(stderr, truncated = false),
+                stdout = HostCapturedText(if (request.arguments.contains("getprop")) sdkApiLevel else "", truncated = false),
+                stderr = HostCapturedText(stderr, truncated = false),
                 startedAt = Instant.EPOCH,
                 finishedAt = Instant.EPOCH,
             )
     }
 }
 
-private fun ProcessRequest.commandKind(): String =
+private fun HostProcessRequest.commandKind(): String =
     when {
         arguments.contains("getprop") -> "getprop"
         arguments.contains("push") -> "push"

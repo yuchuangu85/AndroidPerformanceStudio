@@ -262,6 +262,7 @@ class MemoryProfilerControllerTest {
             }
         }
 
+        @Suppress("MaxLineLength")
         override suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> = MemoryBackendResult.Success(loadedHeap())
 
         override fun exportRaw(

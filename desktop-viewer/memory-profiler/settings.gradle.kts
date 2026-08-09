@@ -36,6 +36,10 @@ includeBuild("../platform-core") {
     name = "memory-profiler-platform-core"
 }
 
+includeBuild("../platform-perfetto") {
+    name = "memory-profiler-platform-perfetto"
+}
+
 includeBuild("../ui-components") {
     name = "memory-profiler-ui-components"
 }

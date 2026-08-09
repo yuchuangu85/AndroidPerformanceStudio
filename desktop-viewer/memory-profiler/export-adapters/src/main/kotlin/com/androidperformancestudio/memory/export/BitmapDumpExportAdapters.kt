@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.memory.export
 
+import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpImage
 import com.androidperformancestudio.memory.model.BitmapDumpSession
@@ -113,7 +114,7 @@ class BitmapDumpExportAdapters {
               "session_id": ${json(session.id)},
               "package": ${json(session.packageName)},
               "timestamp": ${json(session.capturedAt.toString())},
-              "device_serial": ${json(session.deviceSerial)},
+              "device_local_id": ${json(DEVICE_IDENTITY.localId(session.deviceSerial).value)},
               "sdk": ${session.sdkLevel},
               "pid": ${session.pid},
               "hprof": ${json(session.hprofFile.fileName.toString())},
@@ -260,3 +261,5 @@ class BitmapDumpExportAdapters {
         const val CONTROL_CHARACTER_LIMIT = 0x20
     }
 }
+
+private val DEVICE_IDENTITY = DeviceIdentityPseudonymizer()

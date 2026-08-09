@@ -15,10 +15,12 @@ import com.androidperformancestudio.memory.model.PrimitiveType
 
 /** Converts a Perfetto `java_hprof` graph into the profiler's canonical heap model. */
 object HeapGraphToHeapDump {
+    @Suppress("LongMethod")
     fun toHeapDump(graph: HeapGraphData): HeapDump {
         val typesById = graph.types.associateBy { it.id }
         val classNames = graph.types.associate { it.id to normalizeClassName(it.className) }
-        val objectClassNames = graph.objects.associate { it.id to (classNames[it.typeId] ?: HeapClass.UNKNOWN_CLASS_NAME) }
+        val objectClassNames =
+            graph.objects.associate { it.id to (classNames[it.typeId] ?: HeapClass.UNKNOWN_CLASS_NAME) }
         val fieldsByType = graph.types.associate { it.id to referenceFields(it, typesById) }
         val classes =
             graph.types.map { type ->
@@ -32,6 +34,9 @@ object HeapGraphToHeapDump {
                             HeapField(graph.fieldNames[fieldId] ?: "<field-$fieldId>", PrimitiveType.OBJECT)
                         },
                     classLoaderObjectId = type.classLoaderId,
+                    instanceSizeKnown = type.objectSizeKnown,
+                    superClassObjectIdKnown = type.superclassIdKnown,
+                    classLoaderObjectIdKnown = type.classLoaderIdKnown,
                 )
             }
         val instances = mutableListOf<HeapInstance>()
@@ -65,6 +70,7 @@ object HeapGraphToHeapDump {
                             objectId = obj.id,
                             primitiveType = primitiveType,
                             shallowSize = obj.selfSize,
+                            shallowSizeKnown = obj.selfSizeKnown,
                         )
                 } else {
                     objectArrays +=
@@ -75,6 +81,7 @@ object HeapGraphToHeapDump {
                             elementCount = obj.referenceObjectIds.size,
                             elementIds = obj.referenceObjectIds,
                             shallowSize = obj.selfSize,
+                            shallowSizeKnown = obj.selfSizeKnown,
                         )
                 }
             } else {
@@ -87,6 +94,7 @@ object HeapGraphToHeapDump {
                         references = fieldReferences + runtimeReferences,
                         primitiveFields = specialFields(obj),
                         nativeSizeBytes = obj.nativeAllocationRegistrySize,
+                        shallowSizeKnown = obj.selfSizeKnown,
                     )
             }
         }
@@ -99,11 +107,36 @@ object HeapGraphToHeapDump {
             primitiveArrays = primitiveArrays,
             gcRoots = graph.roots.flatMap { root -> root.objectIds.map { HeapRoot(it, rootKind(root.rootType)) } },
             warnings =
-                listOf(
-                    MemoryWarning(
-                        "Perfetto java_hprof omits general primitive field values; lifecycle leak filters may be partial.",
-                    ),
-                ),
+                buildList {
+                    add(
+                        MemoryWarning(
+                            "Perfetto java_hprof omits general primitive field values; " +
+                                "lifecycle leak filters may be partial.",
+                        ),
+                    )
+                    if (graph.types.any { !it.objectSizeKnown }) {
+                        add(
+                            MemoryWarning(
+                                "Perfetto java_hprof does not report class instance sizes; size fields are unknown.",
+                            ),
+                        )
+                    }
+                    if (graph.types.any { !it.superclassIdKnown || !it.classLoaderIdKnown || !it.kindKnown }) {
+                        add(
+                            MemoryWarning(
+                                "Perfetto java_hprof omitted class relationship or kind fields; " +
+                                    "those values remain unknown.",
+                            ),
+                        )
+                    }
+                    if (graph.objects.any { !it.selfSizeKnown }) {
+                        add(
+                            MemoryWarning(
+                                "Perfetto java_hprof omitted object shallow sizes; size fields remain unknown.",
+                            ),
+                        )
+                    }
+                },
             heapByObjectId = graph.objects.associate { it.id to heapName(it.heapType) },
         )
     }
@@ -131,6 +164,7 @@ object HeapGraphToHeapDump {
             obj.applicationInfoLongVersionCode?.let { put("longVersionCode", it) }
         }
 
+    @Suppress("CyclomaticComplexMethod", "ReturnCount")
     private fun normalizeClassName(rawName: String): String {
         if (rawName.isBlank()) return HeapClass.UNKNOWN_CLASS_NAME
         val name = rawName.replace('/', '.')
@@ -166,6 +200,7 @@ object HeapGraphToHeapDump {
             else -> null
         }
 
+    @Suppress("MagicNumber")
     private fun heapName(heapType: Int): String =
         when (heapType) {
             1 -> MemoryHeapNames.APP
@@ -174,6 +209,7 @@ object HeapGraphToHeapDump {
             else -> MemoryHeapNames.DEFAULT
         }
 
+    @Suppress("CyclomaticComplexMethod", "MagicNumber")
     private fun rootKind(rootType: Int): HeapRootKind =
         when (rootType) {
             1 -> HeapRootKind.JNI_GLOBAL

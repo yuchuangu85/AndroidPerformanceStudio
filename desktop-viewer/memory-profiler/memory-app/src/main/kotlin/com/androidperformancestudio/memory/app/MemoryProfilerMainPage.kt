@@ -48,6 +48,7 @@ import java.nio.file.Path
 import javax.swing.JFileChooser
 
 @Composable
+@Suppress("LongParameterList")
 fun FrameWindowScope.MemoryProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     darkTheme: Boolean = isSystemInDarkTheme(),

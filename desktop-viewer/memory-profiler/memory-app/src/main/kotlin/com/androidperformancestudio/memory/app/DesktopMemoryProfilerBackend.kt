@@ -53,6 +53,7 @@ import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.NativeHeapEvidenceSource
 import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
@@ -60,7 +61,7 @@ import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
+import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
@@ -75,13 +76,15 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
-@Suppress("TooManyFunctions")
+@Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
 internal class DesktopMemoryProfilerBackend(
     private val dataRoot: Path = defaultDataRoot(),
     private val adbLocator: () -> Path? = ::locateSystemAdb,
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
     private val bitmapCaptureSessionFactory: (Path) -> BitmapHeapDumpCaptureSession = ::BitmapHeapDumpCaptureSession,
     private val language: UiLanguage = UiLanguage.ENGLISH,
+    private val nativeHeapArtifactAnalyzer: NativeHeapArtifactAnalyzer = PerfettoNativeHeapArtifactAnalyzer(),
+    private val javaHeapArtifactAnalyzer: JavaHeapArtifactAnalyzer = PerfettoJavaHeapArtifactAnalyzer(),
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
     private val analyzer = MemoryDeepAnalyzer()
@@ -89,6 +92,8 @@ internal class DesktopMemoryProfilerBackend(
     private val bitmapParser = BitmapDumpParser()
     private val bitmapAnalyzer = BitmapDumpAnalyzer()
     private val bitmapExports = BitmapDumpExportAdapters()
+    private val artifactFactory = MemoryCaptureArtifactFactory(dataRoot)
+    private val artifactStore = MemoryArtifactStore(dataRoot.resolve("capture-artifacts"))
 
     private var mapping: ProguardMapping? = null
     private var lastLoadRequest: HeapLoadRequest? = null
@@ -298,6 +303,7 @@ internal class DesktopMemoryProfilerBackend(
             }
         }
 
+    @Suppress("ReturnCount")
     override suspend fun captureNativeHeap(
         serial: String,
         process: MemoryProcessOption,
@@ -321,6 +327,22 @@ internal class DesktopMemoryProfilerBackend(
                 result.toBackendFailure(localizedStringResource(Res.string.unable_to_capture_native_heap, language))
             is StudioResult.Success -> {
                 val capture = result.value
+                val artifact =
+                    artifactFactory.nativeCapture(
+                        id = "native-$sessionId",
+                        file = capture.traceFile,
+                        rawSerial = serial,
+                        processId = process.pid,
+                        packageName = process.packageName,
+                    )
+                val processed = nativeHeapArtifactAnalyzer.analyze(capture.traceFile, artifact)
+                val resolved = resolveNativeProcessing(processed, artifact, capture.traceFile)
+                resolved.failureReason?.let { reason ->
+                    return MemoryBackendResult.Failure(
+                        localizedStringResource(Res.string.unable_to_capture_native_heap, language),
+                        reason,
+                    )
+                }
                 MemoryBackendResult.Success(
                     LoadedNativeHeap(
                         trace =
@@ -329,8 +351,11 @@ internal class DesktopMemoryProfilerBackend(
                                 fileName = capture.traceFile.fileName.toString(),
                                 fileSizeBytes = Files.size(capture.traceFile),
                                 deviceSdkApiLevel = capture.deviceSdkApiLevel,
+                                artifact = resolved.artifact,
+                                evidenceSource = resolved.source,
+                                fallbackReason = resolved.fallbackReason,
                             ),
-                        analysis = NativeHeapTraceParser.parse(capture.traceFile),
+                        analysis = resolved.analysis,
                     ),
                 )
             }
@@ -345,6 +370,15 @@ internal class DesktopMemoryProfilerBackend(
                     localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
                 )
             } else {
+                val artifact = artifactFactory.nativeImport("native-${java.util.UUID.randomUUID()}", file)
+                val processed = nativeHeapArtifactAnalyzer.analyze(file, artifact)
+                val resolved = resolveNativeProcessing(processed, artifact, file)
+                resolved.failureReason?.let { reason ->
+                    return@withContext MemoryBackendResult.Failure(
+                        localizedStringResource(Res.string.unable_to_capture_native_heap, language),
+                        reason,
+                    )
+                }
                 MemoryBackendResult.Success(
                     LoadedNativeHeap(
                         trace =
@@ -352,8 +386,11 @@ internal class DesktopMemoryProfilerBackend(
                                 traceFile = file.toString(),
                                 fileName = file.fileName.toString(),
                                 fileSizeBytes = Files.size(file),
+                                artifact = resolved.artifact,
+                                evidenceSource = resolved.source,
+                                fallbackReason = resolved.fallbackReason,
                             ),
-                        analysis = NativeHeapTraceParser.parse(file),
+                        analysis = resolved.analysis,
                     ),
                 )
             }
@@ -367,14 +404,12 @@ internal class DesktopMemoryProfilerBackend(
                     localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
                 )
             } else {
-                when (val result = JavaHeapTraceParser.parse(file)) {
-                    is JavaHeapParseResult.Failure ->
-                        MemoryBackendResult.Failure(
-                            localizedStringResource(Res.string.unable_to_import_java_heap, language),
-                            result.message,
-                        )
-                    is JavaHeapParseResult.Success -> {
-                        val heapDump = HeapGraphToHeapDump.toHeapDump(result.heapGraph)
+                val artifact = artifactFactory.javaImport("java-${java.util.UUID.randomUUID()}", file)
+                when (val processed = javaHeapArtifactAnalyzer.analyze(file, artifact)) {
+                    is JavaHeapProcessingResult.Success -> {
+                        val finalArtifact = artifactFactory.javaProcessorResult(artifact, processed)
+                        artifactStore.write(finalArtifact)
+                        val heapDump = processed.heapDump.copy(artifact = finalArtifact)
                         if (heapDump.instances.isEmpty() && heapDump.objectArrays.isEmpty() && heapDump.primitiveArrays.isEmpty()) {
                             MemoryBackendResult.Failure(
                                 localizedStringResource(Res.string.unable_to_import_java_heap, language),
@@ -386,7 +421,7 @@ internal class DesktopMemoryProfilerBackend(
                                     heapDump = heapDump,
                                     id = importedSessionId(file),
                                     packageName = "",
-                                    pid = result.heapGraph.pid,
+                                    pid = 0,
                                     capturedAt = Instant.now(),
                                     emptyWarningFileName = file.fileName.toString(),
                                     extraWarning = heapDump.warnings.joinToString("\n", transform = { it.message }),
@@ -394,6 +429,42 @@ internal class DesktopMemoryProfilerBackend(
                             )
                         }
                     }
+                    is JavaHeapProcessingResult.Unavailable ->
+                        when (val result = JavaHeapTraceParser.parse(file)) {
+                            is JavaHeapParseResult.Failure ->
+                                MemoryBackendResult.Failure(
+                                    localizedStringResource(Res.string.unable_to_import_java_heap, language),
+                                    result.message,
+                                )
+                            is JavaHeapParseResult.Success -> {
+                                val finalArtifact = artifactFactory.javaWireFallback(artifact, processed.reason)
+                                artifactStore.write(finalArtifact)
+                                val heapDump = HeapGraphToHeapDump.toHeapDump(result.heapGraph).copy(artifact = finalArtifact)
+                                if (heapDump.instances.isEmpty() && heapDump.objectArrays.isEmpty() && heapDump.primitiveArrays.isEmpty()) {
+                                    MemoryBackendResult.Failure(
+                                        localizedStringResource(Res.string.unable_to_import_java_heap, language),
+                                        "No Java objects were found in the heap graph.",
+                                    )
+                                } else {
+                                    MemoryBackendResult.Success(
+                                        analyzeAndPackage(
+                                            heapDump = heapDump,
+                                            id = importedSessionId(file),
+                                            packageName = "",
+                                            pid = result.heapGraph.pid,
+                                            capturedAt = Instant.now(),
+                                            emptyWarningFileName = file.fileName.toString(),
+                                            extraWarning = heapDump.warnings.joinToString("\n", transform = { it.message }),
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    is JavaHeapProcessingResult.Failure ->
+                        MemoryBackendResult.Failure(
+                            localizedStringResource(Res.string.unable_to_import_java_heap, language),
+                            processed.reason,
+                        )
                 }
             }
         }
@@ -575,6 +646,7 @@ internal class DesktopMemoryProfilerBackend(
      * leak detection) and packages the result. Shared by the HPROF load path and the perfetto
      * `java_hprof` import so both produce an identical [LoadedHeap].
      */
+    @Suppress("LongParameterList")
     private fun analyzeAndPackage(
         heapDump: HeapDump,
         id: String,
@@ -676,6 +748,48 @@ internal class DesktopMemoryProfilerBackend(
             title = localizedStringResource(Res.string.bitmap_dump_failed, language),
             detail = exception.message ?: exception::class.simpleName.orEmpty(),
         )
+
+    private fun resolveNativeProcessing(
+        processed: NativeHeapProcessingResult,
+        artifact: com.androidperformancestudio.contracts.CaptureArtifact,
+        file: Path,
+    ): NativeHeapResolution =
+        when (processed) {
+            is NativeHeapProcessingResult.Success -> {
+                val finalArtifact = artifactFactory.processorResult(artifact, processed)
+                artifactStore.write(finalArtifact)
+                NativeHeapResolution(
+                    analysis = processed.analysis,
+                    artifact = finalArtifact,
+                    source = NativeHeapEvidenceSource.TRACE_PROCESSOR,
+                )
+            }
+            is NativeHeapProcessingResult.Unavailable ->
+                try {
+                    val fallback = NativeHeapTraceParser.parseStrict(file)
+                    val finalArtifact = artifactFactory.wireFallback(artifact, processed.reason)
+                    artifactStore.write(finalArtifact)
+                    NativeHeapResolution(
+                        analysis = fallback,
+                        artifact = finalArtifact,
+                        source = NativeHeapEvidenceSource.WIRE_FALLBACK,
+                        fallbackReason = processed.reason,
+                    )
+                } catch (error: Exception) {
+                    NativeHeapResolution(failureReason = "Native trace is corrupt; wire fallback was not used: ${error.message}")
+                }
+            is NativeHeapProcessingResult.Failure -> NativeHeapResolution(failureReason = processed.reason)
+        }
+
+    private data class NativeHeapResolution(
+        val analysis: com.androidperformancestudio.memory.model.NativeHeapAnalysis =
+            com.androidperformancestudio.memory.model
+                .NativeHeapAnalysis(),
+        val artifact: com.androidperformancestudio.contracts.CaptureArtifact? = null,
+        val source: NativeHeapEvidenceSource = NativeHeapEvidenceSource.TRACE_PROCESSOR,
+        val fallbackReason: String? = null,
+        val failureReason: String? = null,
+    )
 
     private fun StudioResult.Failure.toBackendFailure(title: String): MemoryBackendResult.Failure =
         MemoryBackendResult.Failure(title = title, detail = error.message)

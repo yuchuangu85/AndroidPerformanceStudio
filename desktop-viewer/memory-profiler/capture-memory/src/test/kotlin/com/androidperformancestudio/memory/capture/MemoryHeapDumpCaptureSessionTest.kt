@@ -5,11 +5,11 @@ package com.androidperformancestudio.memory.capture
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
@@ -192,9 +192,9 @@ class MemoryHeapDumpCaptureSessionTest {
         runner: RecordingRunner,
     ): MemoryHeapDumpCaptureSession =
         MemoryHeapDumpCaptureSession(
-            adbExecutable = Path.of("adb"),
+            adbClient = ProcessRunnerAdbClient(runner::run),
             hprofConvLocator = AndroidSdkHprofConvLocator(mapOf("ANDROID_HOME" to sdkRoot.toString()), null),
-            processRunner = runner::run,
+            hostProcessRunner = runner::run,
         )
 
     private fun captureRequest(sessionRoot: Path): MemoryCaptureRequest =
@@ -223,12 +223,12 @@ class MemoryHeapDumpCaptureSessionTest {
         private val failures: Map<String, String> = emptyMap(),
         private val sdkApiLevel: String = "25",
     ) {
-        val requests = mutableListOf<ProcessRequest>()
+        val requests = mutableListOf<HostProcessRequest>()
 
         suspend fun run(
-            request: ProcessRequest,
-            signal: ProcessCancellationSignal,
-        ): ProcessRunResult {
+            request: HostProcessRequest,
+            signal: HostCancellationSignal,
+        ): HostCommandResult {
             check(!signal.isCancelled)
             requests += request
             if (request.arguments.contains("getprop")) {
@@ -241,38 +241,38 @@ class MemoryHeapDumpCaptureSessionTest {
         }
 
         private fun completed(
-            request: ProcessRequest,
+            request: HostProcessRequest,
             stdout: String = "",
-        ): ProcessRunResult.Completed = ProcessRunResult.Completed(output(request, exitCode = 0, stdout = stdout))
+        ): HostCommandResult.Completed = HostCommandResult.Completed(output(request, exitCode = 0, stdout = stdout))
 
         private fun failed(
-            request: ProcessRequest,
+            request: HostProcessRequest,
             stderr: String,
-        ): ProcessRunResult.Failed =
-            ProcessRunResult.Failed(
+        ): HostCommandResult.Failed =
+            HostCommandResult.Failed(
                 error = StudioError(ErrorCategory.PROCESS_EXIT, "PROCESS_EXIT_1", "Process exited with code 1"),
                 output = output(request, exitCode = 1, stderr = stderr),
             )
 
         private fun output(
-            request: ProcessRequest,
+            request: HostProcessRequest,
             exitCode: Int,
             stderr: String = "",
             stdout: String = "",
-        ): ProcessOutput =
-            ProcessOutput(
+        ): HostCommandOutput =
+            HostCommandOutput(
                 pid = 1L,
                 command = request.command,
                 exitCode = exitCode,
-                stdout = CapturedProcessText(stdout, truncated = false),
-                stderr = CapturedProcessText(stderr, truncated = false),
+                stdout = HostCapturedText(stdout, truncated = false),
+                stderr = HostCapturedText(stderr, truncated = false),
                 startedAt = Instant.EPOCH,
                 finishedAt = Instant.EPOCH,
             )
     }
 }
 
-private fun ProcessRequest.commandKind(): String =
+private fun HostProcessRequest.commandKind(): String =
     when {
         arguments.contains("dumpheap") -> "dumpheap"
         arguments.contains("pull") -> "pull"

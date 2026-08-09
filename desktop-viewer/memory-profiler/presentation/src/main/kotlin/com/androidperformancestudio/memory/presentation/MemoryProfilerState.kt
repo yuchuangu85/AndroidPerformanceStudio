@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.memory.model.ActivityLeakEntry
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
@@ -149,6 +150,7 @@ public data class MemoryProfilerState(
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
     val nativeHeapTrace: NativeHeapTrace? = null,
     val nativeHeapAnalysis: NativeHeapAnalysis = NativeHeapAnalysis(),
+    val artifact: CaptureArtifact? = null,
     val viewMode: MemoryProfilerViewMode = MemoryProfilerViewMode.Dashboard,
     val selectedClassName: String? = null,
     val selectedClassifierId: String? = null,

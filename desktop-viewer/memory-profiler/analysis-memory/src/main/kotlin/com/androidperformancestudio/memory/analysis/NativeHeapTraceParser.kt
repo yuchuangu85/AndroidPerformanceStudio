@@ -20,6 +20,13 @@ object NativeHeapTraceParser {
 
     fun parse(bytes: ByteArray): NativeHeapAnalysis = runCatching { parseValidTrace(bytes) }.getOrDefault(NativeHeapAnalysis())
 
+    /**
+     * Strict validation used only when the authoritative Trace Processor is unavailable. Unlike
+     * [parse], malformed protobuf bytes are surfaced to the feature backend and are never
+     * presented as a normal empty fallback result.
+     */
+    fun parseStrict(path: Path): NativeHeapAnalysis = parseValidTrace(Files.readAllBytes(path))
+
     private fun parseValidTrace(bytes: ByteArray): NativeHeapAnalysis {
         val sequences = HashMap<Long, InterningState>()
         val samples = ArrayList<ResolvedSample>()

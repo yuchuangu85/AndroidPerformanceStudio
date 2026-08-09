@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.memory.analysis
 
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -10,7 +11,7 @@ object JavaHeapTraceParser {
     fun parse(path: Path): JavaHeapParseResult =
         try {
             parse(Files.readAllBytes(path))
-        } catch (exception: Exception) {
+        } catch (exception: IOException) {
             JavaHeapParseResult.Failure("Unable to read Java heap trace: ${exception.message}")
         }
 
@@ -107,6 +108,7 @@ object JavaHeapTraceParser {
         if (state.complete) completeGraphs += state.toData()
     }
 
+    @Suppress("CyclomaticComplexMethod")
     private fun parseHeapGraphChunk(bytes: ByteArray): HeapGraphChunk {
         val graph = ProtoReader(bytes)
         val chunk = HeapGraphChunk()
@@ -120,7 +122,8 @@ object JavaHeapTraceParser {
                     chunk.objects += parseObject(graph.readLengthDelimited())
                 fieldNumber == HEAP_GRAPH_FIELD_NAMES && wireType == WIRE_LENGTH_DELIMITED ->
                     parseInternedString(graph.readLengthDelimited(), chunk.fieldNames)
-                fieldNumber == HEAP_GRAPH_CONTINUED && wireType == WIRE_VARINT -> chunk.continued = graph.readVarint() != 0L
+                fieldNumber == HEAP_GRAPH_CONTINUED && wireType == WIRE_VARINT ->
+                    chunk.continued = graph.readVarint() != 0L
                 fieldNumber == HEAP_GRAPH_INDEX && wireType == WIRE_VARINT -> chunk.index = graph.readVarint()
                 fieldNumber == HEAP_GRAPH_ROOTS && wireType == WIRE_LENGTH_DELIMITED ->
                     chunk.roots += parseRoot(graph.readLengthDelimited())
@@ -162,9 +165,19 @@ object JavaHeapTraceParser {
                 else -> reader.skip(wireType)
             }
         }
-        return HeapGraphType(id, className, objectSize, superclassId, kind, referenceFieldIds, locationId, classLoaderId)
+        return HeapGraphType(
+            id,
+            className,
+            objectSize,
+            superclassId,
+            kind,
+            referenceFieldIds,
+            locationId,
+            classLoaderId,
+        )
     }
 
+    @Suppress("CyclomaticComplexMethod")
     private fun parseObject(bytes: ByteArray): RawHeapGraphObject {
         val reader = ProtoReader(bytes)
         val raw = RawHeapGraphObject()
@@ -325,6 +338,10 @@ data class HeapGraphType(
     val referenceFieldIds: List<Long>,
     val locationId: Long = 0L,
     val classLoaderId: Long = 0L,
+    val objectSizeKnown: Boolean = true,
+    val superclassIdKnown: Boolean = true,
+    val classLoaderIdKnown: Boolean = true,
+    val kindKnown: Boolean = true,
 ) {
     val isArray: Boolean get() = kind == KIND_ARRAY
 
@@ -348,6 +365,7 @@ data class HeapGraphObject(
     val bitmapWidth: Int? = null,
     val bitmapHeight: Int? = null,
     val applicationInfoLongVersionCode: Long? = null,
+    val selfSizeKnown: Boolean = true,
 )
 
 data class HeapGraphRoot(

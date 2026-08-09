@@ -131,6 +131,15 @@ public fun MemoryProfilerScreen(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 ErrorAndWarnings(presentedState, actions, language)
+                presentedState.artifact?.let { artifact ->
+                    Text(
+                        "Evidence: ${artifact.kind.value} · ${artifact.completeness} · " +
+                            "${artifact.availableCapabilities.size} capabilities",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
                 if (presentedState.mappingLoaded) {
                     Text(
                         localizedStringResource(Res.string.mapping_loaded_note, language),
@@ -662,6 +671,21 @@ private fun NativeHeapSection(
             ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        trace.artifact?.let { artifact ->
+            Text(
+                "Source: ${trace.evidenceSource}; completeness: ${artifact.completeness}; " +
+                    "capabilities: ${artifact.availableCapabilities.joinToString { it.value }}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+            trace.fallbackReason?.let { reason ->
+                Text(
+                    "Best-effort fallback: $reason",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                )
+            }
+        }
         if (analysis.topAllocations.isNotEmpty()) {
             Text(
                 localizedStringResource(
@@ -696,7 +720,7 @@ private fun NativeHeapSection(
                 }
             }
             LazyColumn(Modifier.heightIn(max = 240.dp)) {
-                items(rows) { sample -> NativeHeapTableRow(sample, language) }
+                items(rows) { sample -> NativeHeapTableRow(sample) }
             }
         }
     }
@@ -759,6 +783,7 @@ private fun NativeHeapTableHeader(
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun NativeHeapHeaderCell(
     text: String,
     modifier: Modifier,
@@ -778,10 +803,7 @@ private fun NativeHeapHeaderCell(
 }
 
 @Composable
-private fun NativeHeapTableRow(
-    sample: NativeHeapSample,
-    language: UiLanguage,
-) {
+private fun NativeHeapTableRow(sample: NativeHeapSample) {
     Row(
         modifier = Modifier.fillMaxWidth().height(26.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

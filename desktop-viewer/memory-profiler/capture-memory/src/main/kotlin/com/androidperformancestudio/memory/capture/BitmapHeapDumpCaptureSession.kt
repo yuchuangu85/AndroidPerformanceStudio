@@ -5,10 +5,10 @@ package com.androidperformancestudio.memory.capture
 import com.androidperformancestudio.memory.model.ProcessMemorySnapshot
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.AdbException
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.minutes
@@ -53,14 +53,13 @@ data class BitmapCaptureResult(
 )
 
 class BitmapHeapDumpCaptureSession(
-    private val adbExecutable: Path,
-    private val processRunner: MemoryCaptureProcessRunner = { request, signal ->
-        JvmProcessRunner().run(request, signal)
-    },
+    private val adbClient: AdbClient,
 ) {
+    constructor(adbExecutable: Path) : this(DefaultAdbClient(adbExecutable))
+
     suspend fun capture(
         request: BitmapCaptureRequest,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
         onProgress: (BitmapCaptureProgress) -> Unit = {},
     ): StudioResult<BitmapCaptureResult> {
         onProgress(BitmapCaptureProgress(BitmapCaptureStage.CheckingDevice, 5))
@@ -148,39 +147,48 @@ class BitmapHeapDumpCaptureSession(
         serial: String,
         arguments: List<String>,
         timeout: kotlin.time.Duration,
-        cancellationSignal: ProcessCancellationSignal,
-    ): StudioResult<String> {
-        val result =
-            processRunner(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial) + arguments,
-                    timeout = timeout,
+        cancellationSignal: HostCancellationSignal,
+    ): StudioResult<String> =
+        try {
+            val output =
+                when (arguments.firstOrNull()) {
+                    "shell" ->
+                        adbClient
+                            .shell(
+                                serial = serial,
+                                arguments = arguments.drop(1),
+                                timeout = timeout,
+                                isCancellationRequested = cancellationSignal::isCancelled,
+                            ).stdout
+                    "pull" ->
+                        adbClient
+                            .pull(
+                                serial = serial,
+                                remotePath = arguments[1],
+                                localPath = Path.of(arguments[2]),
+                                timeout = timeout,
+                                isCancellationRequested = cancellationSignal::isCancelled,
+                            ).stdout
+                    else -> error("Unsupported typed ADB operation: ${arguments.firstOrNull()}")
+                }
+            StudioResult.Success(output.trim())
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw error
+        } catch (error: AdbException) {
+            StudioResult.Failure(
+                StudioError(
+                    category = com.androidperformancestudio.model.ErrorCategory.PROCESS_EXIT,
+                    code = "ADB_COMMAND_FAILED",
+                    message = error.message.orEmpty(),
+                    cause = error,
                 ),
-                cancellationSignal,
             )
-        return when (result) {
-            is ProcessRunResult.Completed ->
-                StudioResult.Success(
-                    result.output.stdout.text
-                        .trim(),
-                )
-            is ProcessRunResult.Failed ->
-                StudioResult.Failure(
-                    StudioError(
-                        category = result.error.category,
-                        code = result.error.code,
-                        message = combinedOutput(result).ifBlank { result.error.message },
-                        cause = result.error.cause,
-                    ),
-                )
         }
-    }
 
     private suspend fun cleanup(
         serial: String,
         devicePath: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): MemoryCaptureWarning? =
         when (runAdb(serial, listOf("shell", "rm", "-f", devicePath), 30.seconds, cancellationSignal)) {
             is StudioResult.Success -> null
@@ -224,12 +232,6 @@ class BitmapHeapDumpCaptureSession(
                 message = message,
             ),
         )
-
-    private fun combinedOutput(result: ProcessRunResult.Failed): String =
-        listOf(result.output?.stderr?.text, result.output?.stdout?.text)
-            .filterNotNull()
-            .joinToString("\n")
-            .trim()
 
     companion object {
         const val MINIMUM_BITMAP_DUMP_API: Int = 35

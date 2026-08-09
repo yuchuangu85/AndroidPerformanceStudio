@@ -144,7 +144,8 @@ class JavaHeapTraceParserTest {
                     }
                 }.bytes()
 
-        val parsed = assertIs<JavaHeapParseResult.Success>(JavaHeapTraceParser.parse(wrapInTracePacket(graph))).heapGraph
+        val parsed =
+            assertIs<JavaHeapParseResult.Success>(JavaHeapTraceParser.parse(wrapInTracePacket(graph))).heapGraph
         val dump = HeapGraphToHeapDump.toHeapDump(parsed)
         val instance = dump.instances.single()
 
@@ -178,7 +179,10 @@ class JavaHeapTraceParserTest {
         assertTrue(failure.message.contains("heap graph"))
     }
 
-    private fun wrapInTracePacket(heapGraph: ByteArray): ByteArray = Pb().apply { message(1) { bytesField(56, heapGraph) } }.bytes()
+    private fun wrapInTracePacket(heapGraph: ByteArray): ByteArray {
+        val packet = Pb().apply { message(1) { bytesField(56, heapGraph) } }
+        return packet.bytes()
+    }
 
     private fun traceBytes(): ByteArray =
         wrapInTracePacket(

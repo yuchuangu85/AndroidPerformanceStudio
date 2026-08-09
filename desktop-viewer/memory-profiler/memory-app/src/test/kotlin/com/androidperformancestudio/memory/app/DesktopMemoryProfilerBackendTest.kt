@@ -2,12 +2,18 @@ package com.androidperformancestudio.memory.app
 
 import com.androidperformancestudio.memory.capture.AndroidSdkHprofConvLocator
 import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
+import com.androidperformancestudio.memory.model.NativeHeapEvidenceSource
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbBinaryResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.AdbCommandFailedException
+import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbTextResult
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.RandomAccessFile
@@ -23,8 +29,82 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 
 class DesktopMemoryProfilerBackendTest {
+    @Test
+    fun `native import uses visible partial wire fallback only when the tool is unavailable`() =
+        kotlinx.coroutines.test.runTest {
+            val root = createTempDirectory("native-fallback")
+            val trace = root.resolve("native.pb").also { Files.write(it, byteArrayOf()) }
+            val backend =
+                DesktopMemoryProfilerBackend(
+                    dataRoot = root,
+                    nativeHeapArtifactAnalyzer =
+                        NativeHeapArtifactAnalyzer { _, _ ->
+                            NativeHeapProcessingResult.Unavailable("TRACE_PROCESSOR_NOT_FOUND: install the pinned tool")
+                        },
+                )
+
+            val loaded = assertIs<MemoryBackendResult.Success<LoadedNativeHeap>>(backend.importNativeHeap(trace)).value
+
+            assertEquals(NativeHeapEvidenceSource.WIRE_FALLBACK, loaded.trace.evidenceSource)
+            assertEquals(
+                "PARTIAL",
+                loaded.trace.artifact
+                    ?.completeness
+                    ?.name,
+            )
+            assertContains(loaded.trace.fallbackReason.orEmpty(), "TRACE_PROCESSOR_NOT_FOUND")
+            assertTrue(
+                root
+                    .resolve("capture-artifacts")
+                    .toFile()
+                    .listFiles()
+                    .orEmpty()
+                    .isNotEmpty(),
+            )
+        }
+
+    @Test
+    fun `native import does not wire-fallback query failures`() =
+        kotlinx.coroutines.test.runTest {
+            val root = createTempDirectory("native-query-failure")
+            val trace = root.resolve("native.pb").also { Files.writeString(it, "valid-enough") }
+            val backend =
+                DesktopMemoryProfilerBackend(
+                    dataRoot = root,
+                    nativeHeapArtifactAnalyzer =
+                        NativeHeapArtifactAnalyzer { _, _ ->
+                            NativeHeapProcessingResult.Failure("TRACE_QUERY_FAILED: schema changed")
+                        },
+                )
+
+            val failure = assertIs<MemoryBackendResult.Failure>(backend.importNativeHeap(trace))
+
+            assertContains(failure.detail, "TRACE_QUERY_FAILED")
+            assertTrue(!root.resolve("capture-artifacts").toFile().exists())
+        }
+
+    @Test
+    fun `native import reports corrupt bytes when fallback parser cannot validate them`() =
+        kotlinx.coroutines.test.runTest {
+            val root = createTempDirectory("native-corrupt")
+            val trace = root.resolve("native.pb").also { Files.writeString(it, "not protobuf") }
+            val backend =
+                DesktopMemoryProfilerBackend(
+                    dataRoot = root,
+                    nativeHeapArtifactAnalyzer =
+                        NativeHeapArtifactAnalyzer { _, _ ->
+                            NativeHeapProcessingResult.Unavailable("TRACE_PROCESSOR_NOT_FOUND")
+                        },
+                )
+
+            val failure = assertIs<MemoryBackendResult.Failure>(backend.importNativeHeap(trace))
+
+            assertContains(failure.detail, "corrupt")
+        }
+
     @Test
     fun `standard hprof import parses and builds histogram end to end`() =
         kotlinx.coroutines.test.runTest {
@@ -146,13 +226,13 @@ class DesktopMemoryProfilerBackendTest {
             adbLocator = { Path.of("adb") },
             captureSessionFactory = { adb ->
                 MemoryHeapDumpCaptureSession(
-                    adbExecutable = adb,
+                    adbClient = CaptureRunnerAdbClient(runner::run),
                     hprofConvLocator =
                         AndroidSdkHprofConvLocator(
                             environment = mapOf("ANDROID_HOME" to sdkRoot.toString()),
                             defaultSdkRoot = null,
                         ),
-                    processRunner = runner::run,
+                    hostProcessRunner = runner::run,
                 )
             },
         )
@@ -182,9 +262,9 @@ class DesktopMemoryProfilerBackendTest {
         val commandKinds = mutableListOf<String>()
 
         suspend fun run(
-            request: ProcessRequest,
-            signal: ProcessCancellationSignal,
-        ): ProcessRunResult {
+            request: HostProcessRequest,
+            signal: HostCancellationSignal,
+        ): HostCommandResult {
             check(!signal.isCancelled)
             val kind = request.commandKind()
             commandKinds += kind
@@ -192,20 +272,20 @@ class DesktopMemoryProfilerBackendTest {
                 "pull" -> Files.write(Path.of(request.arguments.last()), rawBytes)
                 "hprof-conv" -> Files.write(Path.of(request.arguments.last()), checkNotNull(convertedBytes))
             }
-            return ProcessRunResult.Completed(
-                ProcessOutput(
+            return HostCommandResult.Completed(
+                HostCommandOutput(
                     pid = 1L,
                     command = request.command,
                     exitCode = 0,
-                    stdout = CapturedProcessText("", truncated = false),
-                    stderr = CapturedProcessText("", truncated = false),
+                    stdout = HostCapturedText("", truncated = false),
+                    stderr = HostCapturedText("", truncated = false),
                     startedAt = Instant.EPOCH,
                     finishedAt = Instant.EPOCH,
                 ),
             )
         }
 
-        private fun ProcessRequest.commandKind(): String =
+        private fun HostProcessRequest.commandKind(): String =
             when {
                 arguments.contains("dumpheap") -> "dumpheap"
                 arguments.contains("pull") -> "pull"
@@ -294,5 +374,102 @@ class DesktopMemoryProfilerBackendTest {
         private const val INSTANCE_DUMP = 0x21
         private const val CLASS_DUMP_ID_FIELDS = 6
         private val RAW_ANDROID_HPROF = "ANDROID PROFILE 1.0.3\u0000invalid-standard-data".encodeToByteArray()
+    }
+}
+
+private class CaptureRunnerAdbClient(
+    private val invocation: suspend (HostProcessRequest, HostCancellationSignal) -> HostCommandResult,
+) : AdbClient {
+    override suspend fun listDevices(): List<AdbDevice> = emptyList()
+
+    override suspend fun shell(
+        serial: String,
+        arguments: List<String>,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = execute(serial, listOf("shell") + arguments, timeout)
+
+    override suspend fun execOut(
+        serial: String,
+        arguments: List<String>,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbBinaryResult = error("Not used")
+
+    override suspend fun push(
+        serial: String,
+        localPath: Path,
+        remotePath: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = error("Not used")
+
+    override suspend fun pull(
+        serial: String,
+        remotePath: String,
+        localPath: Path,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = execute(serial, listOf("pull", remotePath, localPath.toString()), timeout)
+
+    override suspend fun forward(
+        serial: String,
+        local: String,
+        remote: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = error("Not used")
+
+    override suspend fun removeForward(
+        serial: String,
+        local: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = error("Not used")
+
+    override suspend fun bugreport(
+        serial: String,
+        outputPath: Path,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = error("Not used")
+
+    private suspend fun execute(
+        serial: String,
+        arguments: List<String>,
+        timeout: Duration,
+    ): AdbTextResult {
+        val request =
+            HostProcessRequest(
+                executable = Path.of("adb"),
+                arguments = listOf("-s", serial) + arguments,
+                timeout = timeout,
+            )
+        return when (val result = invocation(request, HostCancellationSignal())) {
+            is HostCommandResult.Completed ->
+                AdbTextResult(
+                    exitCode = result.output.exitCode ?: 0,
+                    stdout = result.output.stdout.text,
+                    stderr = result.output.stderr.text,
+                    duration = Duration.ZERO,
+                )
+            is HostCommandResult.Failed ->
+                throw AdbCommandFailedException(
+                    request.command,
+                    result.output?.exitCode ?: 1,
+                    result.output
+                        ?.stderr
+                        ?.text
+                        .orEmpty()
+                        .ifBlank { result.error.message },
+                )
+        }
     }
 }

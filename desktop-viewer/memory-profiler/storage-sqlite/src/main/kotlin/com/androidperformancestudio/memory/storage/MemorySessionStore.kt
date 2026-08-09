@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.storage
 
+import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
@@ -21,6 +22,7 @@ data class MemorySessionMetadata(
 
 class SqliteMemorySessionStore private constructor(
     private val connection: Connection,
+    private val deviceIdentity: DeviceIdentityPseudonymizer = DeviceIdentityPseudonymizer(),
 ) : AutoCloseable {
     init {
         connection.createStatement().use { statement ->
@@ -82,7 +84,14 @@ class SqliteMemorySessionStore private constructor(
             ).use { statement ->
                 statement.setString(SESSION_ID_PARAMETER, metadata.sessionId)
                 statement.setString(PACKAGE_NAME_PARAMETER, metadata.packageName)
-                statement.setString(DEVICE_SERIAL_PARAMETER, metadata.deviceSerial)
+                statement.setString(
+                    DEVICE_SERIAL_PARAMETER,
+                    metadata.deviceSerial
+                        .takeIf(String::isNotBlank)
+                        ?.let(deviceIdentity::localId)
+                        ?.value
+                        .orEmpty(),
+                )
                 statement.setLong(CAPTURED_AT_PARAMETER, metadata.capturedAt.toEpochMilli())
                 statement.setString(RAW_HPROF_PARAMETER, metadata.rawHprofFile.toString())
                 statement.setString(CONVERTED_HPROF_PARAMETER, metadata.convertedHprofFile?.toString())

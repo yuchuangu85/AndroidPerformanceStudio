@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.memory.model
 
+import com.androidperformancestudio.contracts.CapabilityId
+import com.androidperformancestudio.contracts.CaptureArtifact
 import java.nio.file.Path
 import java.time.Instant
 
@@ -30,6 +32,7 @@ data class HeapDump(
     val heapByObjectId: Map<Long, String> = emptyMap(),
     val bitmapInstances: List<BitmapInstanceStats> = emptyList(),
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
+    val artifact: CaptureArtifact? = null,
 )
 
 data class MemoryWarning(
@@ -45,6 +48,10 @@ data class HeapClass(
     val instanceFields: List<HeapField> = emptyList(),
     val staticReferences: List<ObjectReference> = emptyList(),
     val classLoaderObjectId: Long = 0L,
+    /** False for Perfetto graph inputs where the class instance size is not reported. */
+    val instanceSizeKnown: Boolean = true,
+    val superClassObjectIdKnown: Boolean = true,
+    val classLoaderObjectIdKnown: Boolean = true,
 ) {
     companion object {
         const val UNKNOWN_CLASS_NAME = "<unknown>"
@@ -85,6 +92,7 @@ sealed interface HeapObject {
     val objectId: Long
     val className: String
     val shallowSize: Long
+    val shallowSizeKnown: Boolean
     val retainedSize: Long?
         get() = null
     val references: List<ObjectReference>
@@ -106,6 +114,7 @@ data class HeapInstance(
     override val references: List<ObjectReference> = emptyList(),
     val primitiveFields: Map<String, Long> = emptyMap(),
     val nativeSizeBytes: Long? = null,
+    override val shallowSizeKnown: Boolean = true,
 ) : HeapObject {
     override fun equals(other: Any?): Boolean =
         other is HeapInstance &&
@@ -116,7 +125,8 @@ data class HeapInstance(
             fieldBytes.contentEquals(other.fieldBytes) &&
             references == other.references &&
             primitiveFields == other.primitiveFields &&
-            nativeSizeBytes == other.nativeSizeBytes
+            nativeSizeBytes == other.nativeSizeBytes &&
+            shallowSizeKnown == other.shallowSizeKnown
 
     override fun hashCode(): Int {
         var result = objectId.hashCode()
@@ -127,6 +137,7 @@ data class HeapInstance(
         result = 31 * result + references.hashCode()
         result = 31 * result + primitiveFields.hashCode()
         result = 31 * result + (nativeSizeBytes?.hashCode() ?: 0)
+        result = 31 * result + shallowSizeKnown.hashCode()
         return result
     }
 }
@@ -138,6 +149,7 @@ data class HeapObjectArray(
     val elementCount: Int = 0,
     val elementIds: List<Long> = emptyList(),
     override val shallowSize: Long = 0L,
+    override val shallowSizeKnown: Boolean = true,
 ) : HeapObject {
     override val references: List<ObjectReference>
         get() =
@@ -153,6 +165,7 @@ data class HeapPrimitiveArray(
     val primitiveType: PrimitiveType = PrimitiveType.UNKNOWN,
     val elementCount: Int = 0,
     override val shallowSize: Long = 0L,
+    override val shallowSizeKnown: Boolean = true,
 ) : HeapObject {
     override val className: String = primitiveType.arrayClassName
 }
@@ -350,7 +363,22 @@ data class NativeHeapTrace(
     val fileName: String,
     val fileSizeBytes: Long,
     val deviceSdkApiLevel: Int? = null,
+    val artifact: CaptureArtifact? = null,
+    val evidenceSource: NativeHeapEvidenceSource = NativeHeapEvidenceSource.TRACE_PROCESSOR,
+    val fallbackReason: String? = null,
 )
+
+enum class NativeHeapEvidenceSource { TRACE_PROCESSOR, WIRE_FALLBACK }
+
+object NativeHeapCapabilities {
+    val ALLOCATIONS = CapabilityId("native_heap.allocations")
+    val DEALLOCATIONS = CapabilityId("native_heap.deallocations")
+    val COUNTS = CapabilityId("native_heap.counts")
+    val CALL_STACKS = CapabilityId("native_heap.call_stacks")
+    val SYMBOLS = CapabilityId("native_heap.symbols")
+
+    val ALL: Set<CapabilityId> = setOf(ALLOCATIONS, DEALLOCATIONS, COUNTS, CALL_STACKS, SYMBOLS)
+}
 
 /** Aggregated allocation statistics for one native function (leaf callstack frame). */
 data class NativeHeapSample(
@@ -359,6 +387,7 @@ data class NativeHeapSample(
     val freedBytes: Long,
     val allocCount: Long,
     val freeCount: Long,
+    val callStack: List<String> = listOf(functionName),
 )
 
 /** Parsed allocation table from a heapprofd (.pb) trace. */

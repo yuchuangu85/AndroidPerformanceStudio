@@ -2,16 +2,19 @@ package com.androidperformancestudio.memory.capture
 
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.AdbException
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-typealias MemoryCaptureProcessRunner = suspend (ProcessRequest, ProcessCancellationSignal) -> ProcessRunResult
+typealias MemoryHostProcessRunner = suspend (HostProcessRequest, HostCancellationSignal) -> HostCommandResult
 
 private const val MISSING_HPROF_CONV_MESSAGE =
     "SDK Platform Tools hprof-conv was not found; raw Android HPROF was kept. " +
@@ -90,16 +93,24 @@ class AndroidSdkHprofConvLocator(
 }
 
 class MemoryHeapDumpCaptureSession(
-    private val adbExecutable: Path,
+    private val adbClient: AdbClient,
     private val hprofConvLocator: AndroidSdkHprofConvLocator = AndroidSdkHprofConvLocator(),
-    private val processRunner: MemoryCaptureProcessRunner = { request, signal ->
-        JvmProcessRunner().run(request, signal)
+    private val hostProcessRunner: MemoryHostProcessRunner = { request, signal ->
+        StudioHostProcessExecutor().run(request, signal)
     },
 ) {
+    constructor(
+        adbExecutable: Path,
+        hprofConvLocator: AndroidSdkHprofConvLocator = AndroidSdkHprofConvLocator(),
+        hostProcessRunner: MemoryHostProcessRunner = { request, signal ->
+            StudioHostProcessExecutor().run(request, signal)
+        },
+    ) : this(DefaultAdbClient(adbExecutable), hprofConvLocator, hostProcessRunner)
+
     @Suppress("ReturnCount", "LongMethod")
     suspend fun capture(
         request: MemoryCaptureRequest,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): StudioResult<MemoryCaptureResult> {
         val sessionDirectory = request.sessionRoot.resolve(request.sessionId)
         val rawHprofFile = sessionDirectory.resolve("${request.sessionId}.raw.hprof")
@@ -177,55 +188,64 @@ class MemoryHeapDumpCaptureSession(
     private suspend fun runAdb(
         serial: String,
         adbArguments: List<String>,
-        cancellationSignal: ProcessCancellationSignal,
-    ): StudioResult<Unit> {
-        val result =
-            processRunner(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial) + adbArguments,
-                    timeout = 2.minutes,
-                ),
-                cancellationSignal,
-            )
-        return when (result) {
-            is ProcessRunResult.Completed -> StudioResult.Success(Unit)
-            is ProcessRunResult.Failed -> StudioResult.Failure(adbError(adbArguments, result))
+        cancellationSignal: HostCancellationSignal,
+    ): StudioResult<Unit> =
+        try {
+            when (adbArguments.firstOrNull()) {
+                "shell" ->
+                    adbClient.shell(
+                        serial = serial,
+                        arguments = adbArguments.drop(1),
+                        timeout = 2.minutes,
+                        isCancellationRequested = cancellationSignal::isCancelled,
+                    )
+                "pull" ->
+                    adbClient.pull(
+                        serial = serial,
+                        remotePath = adbArguments[1],
+                        localPath = Path.of(adbArguments[2]),
+                        timeout = 2.minutes,
+                        isCancellationRequested = cancellationSignal::isCancelled,
+                    )
+                else -> error("Unsupported typed ADB operation: ${adbArguments.firstOrNull()}")
+            }
+            StudioResult.Success(Unit)
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw error
+        } catch (error: AdbException) {
+            StudioResult.Failure(adbError(adbArguments, error))
         }
-    }
 
     /** Reads the device Android API level via getprop; returns null when it cannot be determined. */
     private suspend fun readSdkApiLevel(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal,
-    ): Int? {
-        val result =
-            processRunner(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial, "shell", "getprop", "ro.build.version.sdk"),
+        cancellationSignal: HostCancellationSignal,
+    ): Int? =
+        try {
+            adbClient
+                .shell(
+                    serial = serial,
+                    arguments = listOf("getprop", "ro.build.version.sdk"),
                     timeout = 30.seconds,
-                ),
-                cancellationSignal,
-            )
-        return when (result) {
-            is ProcessRunResult.Completed ->
-                result.output.stdout.text
-                    .trim()
-                    .toIntOrNull()
-            is ProcessRunResult.Failed -> null
+                    isCancellationRequested = cancellationSignal::isCancelled,
+                ).stdout
+                .trim()
+                .toIntOrNull()
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw error
+        } catch (_: RuntimeException) {
+            null
         }
-    }
 
     private suspend fun convert(
         hprofConv: Path,
         rawHprofFile: Path,
         convertedHprofFile: Path,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<MemoryCaptureConversion> {
         val result =
-            processRunner(
-                ProcessRequest(
+            hostProcessRunner(
+                HostProcessRequest(
                     executable = hprofConv,
                     arguments = listOf(rawHprofFile.toString(), convertedHprofFile.toString()),
                     timeout = 2.minutes,
@@ -233,8 +253,8 @@ class MemoryHeapDumpCaptureSession(
                 cancellationSignal,
             )
         return when (result) {
-            is ProcessRunResult.Completed -> StudioResult.Success(MemoryCaptureConversion.Converted)
-            is ProcessRunResult.Failed ->
+            is HostCommandResult.Completed -> StudioResult.Success(MemoryCaptureConversion.Converted)
+            is HostCommandResult.Failed ->
                 StudioResult.Failure(
                     StudioError(
                         category = result.error.category,
@@ -249,18 +269,18 @@ class MemoryHeapDumpCaptureSession(
     private suspend fun cleanup(
         serial: String,
         deviceHprofPath: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): MemoryCaptureWarning? {
         val result =
-            processRunner(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial, "shell", "rm", "-f", deviceHprofPath),
+            runCatching {
+                adbClient.shell(
+                    serial = serial,
+                    arguments = listOf("rm", "-f", deviceHprofPath),
                     timeout = 30.seconds,
-                ),
-                cancellationSignal,
-            )
-        return if (result is ProcessRunResult.Completed) {
+                    isCancellationRequested = cancellationSignal::isCancelled,
+                )
+            }
+        return if (result.isSuccess) {
             null
         } else {
             MemoryCaptureWarning(
@@ -272,31 +292,37 @@ class MemoryHeapDumpCaptureSession(
 
     private fun adbError(
         adbArguments: List<String>,
-        result: ProcessRunResult.Failed,
+        error: RuntimeException,
     ): StudioError {
-        val message = combinedOutput(result).ifBlank { result.error.message }
+        val message = error.message.orEmpty()
         return when {
             adbArguments.contains("dumpheap") ->
                 StudioError(
-                    category = result.error.category,
+                    category = com.androidperformancestudio.model.ErrorCategory.PROCESS_EXIT,
                     code = "DUMPHEAP_FAILED",
                     message =
                         "Heap dump failed; target app may not be debuggable " +
                             "or shell lacks dump permission. $message",
-                    cause = result.error.cause,
+                    cause = error,
                 )
             adbArguments.contains("pull") ->
                 StudioError(
-                    category = result.error.category,
+                    category = com.androidperformancestudio.model.ErrorCategory.PROCESS_EXIT,
                     code = "PULL_FAILED",
                     message = "Failed to pull raw heap dump from device. $message",
-                    cause = result.error.cause,
+                    cause = error,
                 )
-            else -> result.error
+            else ->
+                StudioError(
+                    category = com.androidperformancestudio.model.ErrorCategory.PROCESS_EXIT,
+                    code = "ADB_COMMAND_FAILED",
+                    message = message,
+                    cause = error,
+                )
         }
     }
 
-    private fun combinedOutput(result: ProcessRunResult.Failed): String =
+    private fun combinedOutput(result: HostCommandResult.Failed): String =
         listOfNotNull(result.output?.stderr?.text, result.output?.stdout?.text)
             .joinToString(separator = "\n")
             .trim()

@@ -240,6 +240,7 @@ class HprofParserTest {
     }
 
     @Test
+    @Suppress("LongMethod")
     fun `retains gc roots static references and decoded instance fields`() {
         val builder = HprofFixtureBuilder()
         val fixture =

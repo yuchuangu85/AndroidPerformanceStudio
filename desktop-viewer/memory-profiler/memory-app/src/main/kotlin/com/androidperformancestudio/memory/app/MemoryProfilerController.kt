@@ -448,6 +448,7 @@ internal class MemoryProfilerController(
                         error = null,
                         nativeHeapTrace = result.value.trace,
                         nativeHeapAnalysis = result.value.analysis,
+                        artifact = result.value.trace.artifact,
                     )
         }
     }
@@ -630,6 +631,7 @@ internal class MemoryProfilerController(
                         error = null,
                         warning = result.value.warning,
                         cleanupWarning = result.value.cleanupWarning,
+                        artifact = result.value.heapDump.artifact,
                         heapDiff =
                             previous?.takeIf { compareWithPrevious }?.let {
                                 HeapDiffAnalyzer().diff(
