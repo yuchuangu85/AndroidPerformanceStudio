@@ -1,4 +1,12 @@
-@file:Suppress("ComplexCondition", "CyclomaticComplexMethod", "LongMethod", "MagicNumber", "MaxLineLength", "ReturnCount", "TooManyFunctions")
+@file:Suppress(
+    "ComplexCondition",
+    "CyclomaticComplexMethod",
+    "LongMethod",
+    "MagicNumber",
+    "MaxLineLength",
+    "ReturnCount",
+    "TooManyFunctions",
+)
 
 package com.androidperformancestudio.startup.analysis
 

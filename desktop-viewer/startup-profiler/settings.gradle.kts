@@ -36,6 +36,10 @@ includeBuild("../platform-core") {
     name = "startup-profiler-platform-core"
 }
 
+includeBuild("../platform-perfetto") {
+    name = "startup-profiler-platform-perfetto"
+}
+
 includeBuild("../ui-components") {
     name = "startup-profiler-ui-components"
 }

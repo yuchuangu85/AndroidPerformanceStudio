@@ -11,7 +11,6 @@ package com.androidperformancestudio.startup.app
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
@@ -39,7 +38,6 @@ import com.androidperformancestudio.startup.presentation.StartupProfilerActions
 import com.androidperformancestudio.startup.presentation.StartupProfilerScreen
 import com.androidperformancestudio.startup.startup_app.generated.resources.Res
 import com.androidperformancestudio.startup.startup_app.generated.resources.app_activity
-import com.androidperformancestudio.startup.startup_app.generated.resources.back_to_home
 import com.androidperformancestudio.startup.startup_app.generated.resources.cancel
 import com.androidperformancestudio.startup.startup_app.generated.resources.cold
 import com.androidperformancestudio.startup.startup_app.generated.resources.compilation
@@ -79,12 +77,9 @@ import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerMacOsSecondaryToolbar
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -130,196 +125,196 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     )
 
     ViewerTheme(darkTheme = darkTheme) {
-    if (state.compilationConfirmationRequired) {
-        AlertDialog(
-            onDismissRequest = controller::dismissCompilationConfirmation,
-            title = { Text(localizedStringResource(Res.string.compilation_change_title, language)) },
-            text = { Text(localizedStringResource(Res.string.compilation_change_message, language)) },
-            dismissButton = {
-                TextButton(onClick = controller::dismissCompilationConfirmation) {
-                    Text(localizedStringResource(Res.string.cancel, language))
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        controller.dismissCompilationConfirmation()
-                        experimentJob = scope.launch { controller.runExperiment(compilationChangeConfirmed = true) }
-                    },
-                ) { Text(localizedStringResource(Res.string.continue_action, language)) }
-            },
-        )
-    }
-    Column(Modifier.fillMaxSize()) {
-        HeaderToolbar(
-            language = language,
-            onNavigateHome = {
-                experimentJob?.cancel()
-                onBack()
-            },
-            onNavigateSettings = null
-        ) {
-            DropdownSelector(
-                items = state.devices,
-                selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
-                onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
-                itemLabel = { it.name },
-                placeholder = localizedStringResource(Res.string.device, language),
-                enabled = !state.isRunning,
-                itemEnabled = { it.online },
-            )
-            HeaderSpacer()
-            DropdownSelector(
-                items = state.targets,
-                selectedItem = state.targets.firstOrNull { it.componentName == state.selectedComponentName },
-                onItemSelected = { controller.selectTarget(it.componentName) },
-                itemLabel = {
-                    localizedStringResource(
-                        Res.string.package_activity,
-                        language,
-                        it.packageName,
-                        it.componentName.substringAfter('/'),
-                    )
-                },
-                selectedItemLabel = {
-                    if (it.debuggable) {
-                        localizedStringResource(Res.string.package_agent, language, it.packageName)
-                    } else {
-                        it.packageName
+        if (state.compilationConfirmationRequired) {
+            AlertDialog(
+                onDismissRequest = controller::dismissCompilationConfirmation,
+                title = { Text(localizedStringResource(Res.string.compilation_change_title, language)) },
+                text = { Text(localizedStringResource(Res.string.compilation_change_message, language)) },
+                dismissButton = {
+                    TextButton(onClick = controller::dismissCompilationConfirmation) {
+                        Text(localizedStringResource(Res.string.cancel, language))
                     }
                 },
-                placeholder = localizedStringResource(Res.string.app_activity, language),
-                enabled = !state.isRunning && state.selectedDeviceSerial != null,
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh, language),
-                enabled = !state.isRunning && !state.isRefreshing,
-                onClick = { scope.launch { controller.refreshDevices() } },
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text =
-                    if (state.isRunning) {
-                        localizedStringResource(Res.string.stop_experiment, language)
-                    } else {
-                        localizedStringResource(Res.string.run_experiment, language)
-                    },
-                enabled = state.selectedComponentName != null,
-                onClick = {
-                    if (state.isRunning) {
-                        experimentJob?.cancel()
-                    } else {
-                        experimentJob = scope.launch { controller.runExperiment() }
-                    }
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            controller.dismissCompilationConfirmation()
+                            experimentJob = scope.launch { controller.runExperiment(compilationChangeConfirmed = true) }
+                        },
+                    ) { Text(localizedStringResource(Res.string.continue_action, language)) }
                 },
-            )
-            HeaderSpacer()
-            ProfilerToolbarStatus(
-                message = state.operationMessage,
-                error = state.errorMessage,
-            )
-            HeaderDivider()
-            HeaderSpacer()
-            DropdownSelector(
-                items = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT),
-                selectedItem = state.config.requestedType,
-                onItemSelected = controller::selectStartupType,
-                itemLabel = { it.label(language) },
-                placeholder = localizedStringResource(Res.string.startup_type, language),
-                enabled = !state.isRunning,
-            )
-            HeaderSpacer()
-            DropdownSelector(
-                items = CompilationMode.entries,
-                selectedItem = state.config.compilationMode,
-                onItemSelected = controller::selectCompilationMode,
-                itemLabel = { it.label(language) },
-                placeholder = localizedStringResource(Res.string.compilation, language),
-                enabled = !state.isRunning,
-            )
-            HeaderSpacer()
-            DropdownSelector(
-                items = StartupProfileSource.entries,
-                selectedItem = state.config.profileSource,
-                onItemSelected = controller::selectProfileSource,
-                itemLabel = { it.label(language) },
-                placeholder = localizedStringResource(Res.string.profile_source, language),
-                enabled = !state.isRunning && state.config.compilationMode == CompilationMode.SPEED_PROFILE,
-            )
-            HeaderSpacer()
-            DropdownSelector(
-                items = (0..10).toList(),
-                selectedItem = state.config.warmupRuns,
-                onItemSelected = { controller.updateCounts(it, state.config.measuredRuns) },
-                itemLabel = Int::toString,
-                selectedItemLabel = {localizedStringResource(Res.string.warm_ups, language, it)},
-                placeholder = localizedStringResource(Res.string.warm_ups, language),
-                enabled = !state.isRunning && state.config.compilationMode == CompilationMode.SPEED_PROFILE,
-            )
-            HeaderSpacer()
-            DropdownSelector(
-                items = listOf(1, 3, 5, 10, 20, 30),
-                selectedItem = state.config.measuredRuns,
-                onItemSelected = { controller.updateCounts(state.config.warmupRuns, it) },
-                itemLabel = Int::toString,
-                selectedItemLabel = {localizedStringResource(Res.string.measured_runs, language, it)},
-                placeholder = localizedStringResource(Res.string.measured_runs, language),
-                enabled = !state.isRunning,
-            )
-            HeaderSpacer()
-            DropdownSelector(
-                items = listOf(10, 20, 30, 45, 60, 120),
-                selectedItem = state.config.timeoutSeconds,
-                onItemSelected = controller::updateTimeout,
-                itemLabel = { localizedStringResource(Res.string.seconds_short, language, it) },
-                selectedItemLabel = {localizedStringResource(Res.string.timeout, language, it)},
-                placeholder = localizedStringResource(Res.string.timeout, language),
-                enabled = !state.isRunning,
-            )
-            HeaderSpacer()
-            Checkbox(
-                checked = state.config.capturePerfettoTrace,
-                onCheckedChange = controller::setPerfettoTraceEnabled,
-                enabled = !state.isRunning,
-            )
-            Text(localizedStringResource(Res.string.perfetto_trace, language), style = MaterialTheme.typography.labelSmall)
-            HeaderSpacer()
-            DropdownSelector(
-                items = listOf(1.0, 3.0, 5.0, 10.0),
-                selectedItem = state.config.practicalChangeThresholdPercent,
-                onItemSelected = controller::updatePracticalThreshold,
-                itemLabel = { it.toString() },
-                selectedItemLabel = { localizedStringResource(Res.string.practical_threshold, language, it) },
-                placeholder = localizedStringResource(Res.string.practical_threshold, language),
-                enabled = !state.isRunning,
             )
         }
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = MaterialTheme.colorScheme.outline,
-        )
-        if (state.isRunning && state.totalRuns > 0) {
+        Column(Modifier.fillMaxSize()) {
+            HeaderToolbar(
+                language = language,
+                onNavigateHome = {
+                    experimentJob?.cancel()
+                    onBack()
+                },
+                onNavigateSettings = null,
+            ) {
+                DropdownSelector(
+                    items = state.devices,
+                    selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+                    onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
+                    itemLabel = { it.name },
+                    placeholder = localizedStringResource(Res.string.device, language),
+                    enabled = !state.isRunning,
+                    itemEnabled = { it.online },
+                )
+                HeaderSpacer()
+                DropdownSelector(
+                    items = state.targets,
+                    selectedItem = state.targets.firstOrNull { it.componentName == state.selectedComponentName },
+                    onItemSelected = { controller.selectTarget(it.componentName) },
+                    itemLabel = {
+                        localizedStringResource(
+                            Res.string.package_activity,
+                            language,
+                            it.packageName,
+                            it.componentName.substringAfter('/'),
+                        )
+                    },
+                    selectedItemLabel = {
+                        if (it.debuggable) {
+                            localizedStringResource(Res.string.package_agent, language, it.packageName)
+                        } else {
+                            it.packageName
+                        }
+                    },
+                    placeholder = localizedStringResource(Res.string.app_activity, language),
+                    enabled = !state.isRunning && state.selectedDeviceSerial != null,
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.refresh, language),
+                    enabled = !state.isRunning && !state.isRefreshing,
+                    onClick = { scope.launch { controller.refreshDevices() } },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text =
+                        if (state.isRunning) {
+                            localizedStringResource(Res.string.stop_experiment, language)
+                        } else {
+                            localizedStringResource(Res.string.run_experiment, language)
+                        },
+                    enabled = state.selectedComponentName != null,
+                    onClick = {
+                        if (state.isRunning) {
+                            experimentJob?.cancel()
+                        } else {
+                            experimentJob = scope.launch { controller.runExperiment() }
+                        }
+                    },
+                )
+                HeaderSpacer()
+                ProfilerToolbarStatus(
+                    message = state.operationMessage,
+                    error = state.errorMessage,
+                )
+                HeaderDivider()
+                HeaderSpacer()
+                DropdownSelector(
+                    items = listOf(StartupType.COLD, StartupType.WARM, StartupType.HOT),
+                    selectedItem = state.config.requestedType,
+                    onItemSelected = controller::selectStartupType,
+                    itemLabel = { it.label(language) },
+                    placeholder = localizedStringResource(Res.string.startup_type, language),
+                    enabled = !state.isRunning,
+                )
+                HeaderSpacer()
+                DropdownSelector(
+                    items = CompilationMode.entries,
+                    selectedItem = state.config.compilationMode,
+                    onItemSelected = controller::selectCompilationMode,
+                    itemLabel = { it.label(language) },
+                    placeholder = localizedStringResource(Res.string.compilation, language),
+                    enabled = !state.isRunning,
+                )
+                HeaderSpacer()
+                DropdownSelector(
+                    items = StartupProfileSource.entries,
+                    selectedItem = state.config.profileSource,
+                    onItemSelected = controller::selectProfileSource,
+                    itemLabel = { it.label(language) },
+                    placeholder = localizedStringResource(Res.string.profile_source, language),
+                    enabled = !state.isRunning && state.config.compilationMode == CompilationMode.SPEED_PROFILE,
+                )
+                HeaderSpacer()
+                DropdownSelector(
+                    items = (0..10).toList(),
+                    selectedItem = state.config.warmupRuns,
+                    onItemSelected = { controller.updateCounts(it, state.config.measuredRuns) },
+                    itemLabel = Int::toString,
+                    selectedItemLabel = { localizedStringResource(Res.string.warm_ups, language, it) },
+                    placeholder = localizedStringResource(Res.string.warm_ups, language),
+                    enabled = !state.isRunning && state.config.compilationMode == CompilationMode.SPEED_PROFILE,
+                )
+                HeaderSpacer()
+                DropdownSelector(
+                    items = listOf(1, 3, 5, 10, 20, 30),
+                    selectedItem = state.config.measuredRuns,
+                    onItemSelected = { controller.updateCounts(state.config.warmupRuns, it) },
+                    itemLabel = Int::toString,
+                    selectedItemLabel = { localizedStringResource(Res.string.measured_runs, language, it) },
+                    placeholder = localizedStringResource(Res.string.measured_runs, language),
+                    enabled = !state.isRunning,
+                )
+                HeaderSpacer()
+                DropdownSelector(
+                    items = listOf(10, 20, 30, 45, 60, 120),
+                    selectedItem = state.config.timeoutSeconds,
+                    onItemSelected = controller::updateTimeout,
+                    itemLabel = { localizedStringResource(Res.string.seconds_short, language, it) },
+                    selectedItemLabel = { localizedStringResource(Res.string.timeout, language, it) },
+                    placeholder = localizedStringResource(Res.string.timeout, language),
+                    enabled = !state.isRunning,
+                )
+                HeaderSpacer()
+                Checkbox(
+                    checked = state.config.capturePerfettoTrace,
+                    onCheckedChange = controller::setPerfettoTraceEnabled,
+                    enabled = !state.isRunning,
+                )
+                Text(localizedStringResource(Res.string.perfetto_trace, language), style = MaterialTheme.typography.labelSmall)
+                HeaderSpacer()
+                DropdownSelector(
+                    items = listOf(1.0, 3.0, 5.0, 10.0),
+                    selectedItem = state.config.practicalChangeThresholdPercent,
+                    onItemSelected = controller::updatePracticalThreshold,
+                    itemLabel = { it.toString() },
+                    selectedItemLabel = { localizedStringResource(Res.string.practical_threshold, language, it) },
+                    placeholder = localizedStringResource(Res.string.practical_threshold, language),
+                    enabled = !state.isRunning,
+                )
+            }
             HorizontalDivider(
                 thickness = 1.dp,
                 color = MaterialTheme.colorScheme.outline,
             )
-            LinearProgressIndicator(
-                progress = { state.completedRuns.toFloat() / state.totalRuns.toFloat() },
-                modifier = Modifier.fillMaxWidth(),
+            if (state.isRunning && state.totalRuns > 0) {
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                LinearProgressIndicator(
+                    progress = { state.completedRuns.toFloat() / state.totalRuns.toFloat() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            StartupProfilerScreen(
+                state = state,
+                actions = StartupProfilerActions(onSelectRun = controller::selectRun),
+                language = language,
+                modifier = Modifier.weight(1f),
             )
         }
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = MaterialTheme.colorScheme.outline,
-        )
-        StartupProfilerScreen(
-            state = state,
-            actions = StartupProfilerActions(onSelectRun = controller::selectRun),
-            language = language,
-            modifier = Modifier.weight(1f),
-        )
-    }
     }
 }
 

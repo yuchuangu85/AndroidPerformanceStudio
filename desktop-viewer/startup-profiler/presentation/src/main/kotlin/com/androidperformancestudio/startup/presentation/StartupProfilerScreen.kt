@@ -420,6 +420,22 @@ private fun RunDetail(
                 evidence.truncated,
             ),
         )
+        evidence.artifact?.let { artifact ->
+            Text(
+                "Artifact: ${artifact.completeness.name.lowercase()} · ${artifact.availableCapabilities.size} capabilities",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        evidence.rootCause?.let { rootCause ->
+            Text(
+                "Root-cause evidence: ${if (rootCause.correlated) "correlated" else "not correlated"}" +
+                    rootCause.correlationErrorBoundNs?.let { " · error ±$it ns" }.orEmpty() +
+                    if (rootCause.limitations.isEmpty()) "" else " · ${rootCause.limitations.joinToString()}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
     if (run.diagnostics.isNotEmpty()) {
         Text(localizedStringResource(Res.string.diagnostics, language, run.diagnostics.joinToString()))

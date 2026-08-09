@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.startup.app
 
+import com.androidperformancestudio.contracts.CaptureArtifactJson
+import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.startup.analysis.StartupAnalyzer
 import com.androidperformancestudio.startup.capture.StartupExperimentProgress
 import com.androidperformancestudio.startup.capture.StartupExperimentProgressStage
@@ -10,7 +12,9 @@ import com.androidperformancestudio.startup.export.StartupJsonExporter
 import com.androidperformancestudio.startup.export.StartupJsonImporter
 import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.StartupDevice
+import com.androidperformancestudio.startup.model.StartupPerfettoRootCauseEvidence
 import com.androidperformancestudio.startup.model.StartupProfileSource
+import com.androidperformancestudio.startup.model.StartupRun
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.StartupProfilerState
 import com.androidperformancestudio.startup.presentation.withCompilationMode
@@ -38,6 +42,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.nio.file.Files
 import java.nio.file.Path
 
 internal class StartupProfilerController(
@@ -204,7 +209,8 @@ internal class StartupProfilerController(
                             operationMessage = progress.localizedMessage(language),
                         )
                 }
-            val analysis = analyzer.analyze(result.runs)
+            val processedRuns = enrichPerfettoEvidence(result.runs)
+            val analysis = analyzer.analyze(processedRuns)
             val comparison =
                 snapshot.analysis?.let {
                     analyzer.compare(analysis, it, snapshot.config.practicalChangeThresholdPercent)
@@ -285,6 +291,48 @@ internal class StartupProfilerController(
     suspend fun exportJson(output: Path) {
         val analysis = mutableState.value.analysis ?: return
         export(output, "JSON") { jsonExporter.export(analysis, output) }
+    }
+
+    private suspend fun enrichPerfettoEvidence(runs: List<StartupRun>): List<StartupRun> =
+        runs.map { run ->
+            val trace = run.traceEvidence
+            val file = trace?.file?.let(Path::of)
+            if (trace?.captured != true || file == null || !Files.isRegularFile(file)) {
+                run
+            } else {
+                when (val processed = StartupPerfettoEvidenceAnalyzer().analyze(run)) {
+                    is StudioResult.Success -> {
+                        persistArtifact(processed.value.artifact)
+                        run.copy(traceEvidence = trace.copy(artifact = processed.value.artifact, rootCause = processed.value.evidence))
+                    }
+                    is StudioResult.Failure -> {
+                        val artifact = StartupTraceArtifactFactory().captured(run, file)
+                        persistArtifact(artifact)
+                        run.copy(
+                            traceEvidence =
+                                trace.copy(
+                                    artifact = artifact,
+                                    rootCause =
+                                        StartupPerfettoRootCauseEvidence(
+                                            correlated = false,
+                                            limitations =
+                                                listOf(
+                                                    "Perfetto evidence could not be queried: ${processed.error.code}: ${processed.error.message}",
+                                                ),
+                                        ),
+                                ),
+                        )
+                    }
+                }
+            }
+        }
+
+    private fun persistArtifact(artifact: com.androidperformancestudio.contracts.CaptureArtifact) {
+        runCatching {
+            val directory = databaseFile.toAbsolutePath().parent?.resolve("capture-artifacts") ?: Path.of("capture-artifacts")
+            Files.createDirectories(directory)
+            Files.writeString(directory.resolve("${artifact.id.value}.capture-artifact.json"), CaptureArtifactJson.encode(artifact))
+        }
     }
 
     private suspend fun export(

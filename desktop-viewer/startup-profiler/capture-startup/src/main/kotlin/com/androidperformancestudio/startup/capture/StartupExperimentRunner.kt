@@ -12,6 +12,8 @@
 
 package com.androidperformancestudio.startup.capture
 
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.startup.agent.protocol.AgentStartupEvent
 import com.androidperformancestudio.startup.agent.protocol.AgentStartupResult
 import com.androidperformancestudio.startup.model.CompilationMode
@@ -34,9 +36,6 @@ import com.androidperformancestudio.startup.model.StartupTraceEvidence
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.parser.AmStartOutputParser
 import com.androidperformancestudio.startup.parser.StartupEventLogParser
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import java.nio.file.Files
@@ -112,11 +111,11 @@ public class StartupExperimentRunner internal constructor(
     ) : this(
         serial = serial,
         target = target,
-        commandRunner = JvmStartupCommandRunner(adbExecutable, serial),
+        commandRunner = TypedStartupCommandRunner(DefaultAdbClient(adbExecutable), serial),
         agentFactory =
             if (target.debuggable) {
                 StartupAgentClientFactory {
-                    SocketStartupAgentConnection(adbExecutable, serial, target.packageName)
+                    SocketStartupAgentConnection(DefaultAdbClient(adbExecutable), serial, target.packageName)
                 }
             } else {
                 null
@@ -703,62 +702,43 @@ private data class TraceStart(
     val failureReason: String? = null,
 )
 
-private class JvmStartupCommandRunner(
-    private val adbExecutable: Path,
+private class TypedStartupCommandRunner(
+    private val adbClient: AdbClient,
     private val serial: String,
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
 ) : StartupCommandRunner {
     override suspend fun execute(arguments: List<String>): String = execute(arguments, DEFAULT_TIMEOUT_SECONDS)
 
     override suspend fun execute(
         arguments: List<String>,
         timeoutSeconds: Int,
-    ): String {
-        val request =
-            ProcessRequest(
-                executable = adbExecutable,
-                arguments = listOf("-s", serial, "shell") + arguments,
-                timeout = timeoutSeconds.seconds,
-                maxCapturedCharactersPerStream = MAX_OUTPUT,
-            )
-        return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> result.output.stdout.text
-            is ProcessRunResult.Failed -> {
-                val detail =
-                    result.output
-                        ?.stderr
-                        ?.text
-                        ?.trim()
-                        .orEmpty()
-                        .ifEmpty { result.error.message }
-                throw StartupCaptureException(detail)
-            }
+    ): String =
+        try {
+            adbClient
+                .shell(
+                    serial = serial,
+                    arguments = arguments,
+                    timeout = timeoutSeconds.seconds,
+                    maxOutputBytesPerStream = MAX_OUTPUT,
+                ).stdout
+        } catch (error: RuntimeException) {
+            throw StartupCaptureException(error.message ?: "ADB shell command failed").also { it.initCause(error) }
         }
-    }
 
     override suspend fun pull(
         remote: String,
         local: Path,
         timeoutSeconds: Int,
     ) {
-        val result =
-            processRunner.run(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial, "pull", remote, local.toString()),
-                    timeout = timeoutSeconds.seconds,
-                    maxCapturedCharactersPerStream = MAX_OUTPUT,
-                ),
+        try {
+            adbClient.pull(
+                serial = serial,
+                remotePath = remote,
+                localPath = local,
+                timeout = timeoutSeconds.seconds,
+                maxOutputBytesPerStream = MAX_OUTPUT,
             )
-        if (result is ProcessRunResult.Failed) {
-            throw StartupCaptureException(
-                result.output
-                    ?.stderr
-                    ?.text
-                    ?.trim()
-                    .orEmpty()
-                    .ifEmpty { result.error.message },
-            )
+        } catch (error: RuntimeException) {
+            throw StartupCaptureException(error.message ?: "ADB pull failed").also { it.initCause(error) }
         }
     }
 

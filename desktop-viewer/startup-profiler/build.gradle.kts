@@ -2,6 +2,7 @@ import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
+import org.jlleitschuh.gradle.ktlint.KtlintExtension
 
 plugins {
     kotlin("jvm") version "2.4.0" apply false
@@ -34,6 +35,13 @@ subprojects {
         buildUponDefaultConfig = true
         allRules = false
         config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+    }
+
+    extensions.configure<KtlintExtension> {
+        filter {
+            exclude("**/build/generated/**")
+            exclude { element -> element.file.path.contains("/build/generated/") }
+        }
     }
 
     dependencies {

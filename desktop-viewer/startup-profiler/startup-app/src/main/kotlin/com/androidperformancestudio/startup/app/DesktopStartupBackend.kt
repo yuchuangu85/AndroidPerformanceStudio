@@ -7,13 +7,11 @@ import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.startup.capture.StartupExperimentRunner
 import com.androidperformancestudio.startup.model.StartupDevice
 import com.androidperformancestudio.startup.model.StartupTarget
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
-import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.seconds
 
@@ -40,7 +38,6 @@ internal interface StartupBackend {
 
 internal class DesktopStartupBackend(
     private val adbLocator: () -> Path? = ::locateSystemAdb,
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
 ) : StartupBackend {
     override suspend fun listDevices(): StartupBackendResult<List<StartupDevice>> {
         val adb = adbLocator() ?: return missingAdb()
@@ -110,28 +107,10 @@ internal class DesktopStartupBackend(
         adb: Path,
         serial: String,
         arguments: List<String>,
-    ): String {
-        val request =
-            ProcessRequest(
-                executable = adb,
-                arguments = listOf("-s", serial, "shell") + arguments,
-                timeout = COMMAND_TIMEOUT,
-                maxCapturedCharactersPerStream = MAX_OUTPUT,
-            )
-        return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> result.output.stdout.text
-            is ProcessRunResult.Failed -> {
-                val detail =
-                    result.output
-                        ?.stderr
-                        ?.text
-                        ?.trim()
-                        .orEmpty()
-                        .ifEmpty { result.error.message }
-                throw IllegalStateException(detail)
-            }
-        }
-    }
+    ): String =
+        DefaultAdbClient(adb)
+            .shell(serial, arguments, COMMAND_TIMEOUT, MAX_OUTPUT)
+            .stdout
 
     private fun missingAdb(): StartupBackendResult.Failure =
         StartupBackendResult.Failure("Android SDK Platform Tools were not found. Configure ANDROID_HOME or ANDROID_SDK_ROOT.")

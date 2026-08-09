@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.startup.export
 
+import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import com.androidperformancestudio.startup.analysis.StartupAnalysisResult
 import com.androidperformancestudio.startup.model.StartupStatistics
 import kotlinx.serialization.encodeToString
@@ -53,7 +54,10 @@ public class StartupJsonExporter {
                                         put(
                                             "context",
                                             buildJsonObject {
-                                                put("deviceSerial", context.deviceSerial)
+                                                put(
+                                                    "deviceLocalId",
+                                                    DEVICE_IDENTITY.localId(context.deviceSerial).value,
+                                                )
                                                 put("packageName", context.packageName)
                                                 put("componentName", context.componentName)
                                             },
@@ -188,3 +192,5 @@ public class StartupJsonExporter {
         val JSON = Json { prettyPrint = true }
     }
 }
+
+private val DEVICE_IDENTITY = DeviceIdentityPseudonymizer()

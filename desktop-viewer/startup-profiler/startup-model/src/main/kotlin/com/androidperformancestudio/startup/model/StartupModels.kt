@@ -1,5 +1,6 @@
 package com.androidperformancestudio.startup.model
 
+import com.androidperformancestudio.contracts.CaptureArtifact
 import java.time.Instant
 
 public enum class StartupType {
@@ -88,13 +89,16 @@ public data class StartupExperimentConfig(
         require(timeoutSeconds in MIN_TIMEOUT_SECONDS..MAX_TIMEOUT_SECONDS) {
             "timeoutSeconds must be between $MIN_TIMEOUT_SECONDS and $MAX_TIMEOUT_SECONDS"
         }
-        require(practicalChangeThresholdPercent in 0.0..100.0) { "practicalChangeThresholdPercent must be between 0 and 100" }
+        require(practicalChangeThresholdPercent in 0.0..MAX_PERCENT) {
+            "practicalChangeThresholdPercent must be between 0 and 100"
+        }
         require(compilationMode == CompilationMode.SPEED_PROFILE || profileSource == StartupProfileSource.UNVERIFIED) {
             "profileSource is only valid for speed-profile compilation mode"
         }
     }
 
     private companion object {
+        const val MAX_PERCENT = 100.0
         const val MAX_RUNS = 100
         const val MIN_TIMEOUT_SECONDS = 5
         const val MAX_TIMEOUT_SECONDS = 300
@@ -186,6 +190,25 @@ public data class StartupTraceEvidence(
     val captured: Boolean = false,
     val truncated: Boolean = false,
     val failureReason: String? = null,
+    val artifact: CaptureArtifact? = null,
+    val rootCause: StartupPerfettoRootCauseEvidence? = null,
+)
+
+public data class StartupPerfettoRootCauseEvidence(
+    val schedulingSlices: List<StartupPerfettoSlice> = emptyList(),
+    val binderSlices: List<StartupPerfettoSlice> = emptyList(),
+    val mainThreadSlices: List<StartupPerfettoSlice> = emptyList(),
+    val frameSlices: List<StartupPerfettoSlice> = emptyList(),
+    val correlated: Boolean = false,
+    val correlationErrorBoundNs: Long? = null,
+    val limitations: List<String> = emptyList(),
+)
+
+public data class StartupPerfettoSlice(
+    val timestampNs: Long,
+    val durationNs: Long,
+    val name: String,
+    val threadName: String? = null,
 )
 
 public data class StartupRunContext(

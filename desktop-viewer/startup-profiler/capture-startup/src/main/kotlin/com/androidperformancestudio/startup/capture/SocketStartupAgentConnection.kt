@@ -2,12 +2,10 @@
 
 package com.androidperformancestudio.startup.capture
 
+import com.androidperformancestudio.platform.adb.AdbClient
 import com.androidperformancestudio.startup.agent.protocol.AgentSessionDescriptor
 import com.androidperformancestudio.startup.agent.protocol.AgentStartupResult
 import com.androidperformancestudio.startup.agent.protocol.AgentStartupResultCodec
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -16,14 +14,12 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
-import java.nio.file.Path
 import kotlin.time.Duration.Companion.seconds
 
 internal class SocketStartupAgentConnection(
-    private val adbExecutable: Path,
+    private val adbClient: AdbClient,
     private val serial: String,
     private val packageName: String,
-    private val processRunner: JvmProcessRunner = JvmProcessRunner(),
     private val codec: AgentStartupResultCodec = AgentStartupResultCodec(),
 ) : StartupAgentConnection {
     private var descriptor: AgentSessionDescriptor? = null
@@ -32,14 +28,20 @@ internal class SocketStartupAgentConnection(
     override suspend fun open() {
         val session =
             AgentSessionDescriptor.parse(
-                executeAdb(listOf("-s", serial, "shell", "run-as", packageName, "cat", "files/agentperf/session.json")),
+                executeShell(listOf("run-as", packageName, "cat", "files/agentperf/session.json")),
             )
         if (session.protocolMajor != SUPPORTED_PROTOCOL_MAJOR) {
             throw StartupCaptureException("Unsupported Agent protocol ${session.protocolMajor}.${session.protocolMinor}.")
         }
         val port = ServerSocket(0, 0, InetAddress.getLoopbackAddress()).use { it.localPort }
         try {
-            executeAdb(listOf("-s", serial, "forward", "tcp:$port", "localabstract:${session.socketName}"))
+            adbClient.forward(
+                serial,
+                "tcp:$port",
+                "localabstract:${session.socketName}",
+                COMMAND_TIMEOUT,
+                MAX_OUTPUT,
+            )
             descriptor = session
             forwardedPort = port
             request("STARTUP_CAPABILITIES ${session.token}")
@@ -81,31 +83,15 @@ internal class SocketStartupAgentConnection(
         }
 
     private suspend fun removeForward(port: Int) {
-        executeAdb(listOf("-s", serial, "forward", "--remove", "tcp:$port"))
+        adbClient.removeForward(serial, "tcp:$port", COMMAND_TIMEOUT, MAX_OUTPUT)
     }
 
-    private suspend fun executeAdb(arguments: List<String>): String {
-        val request =
-            ProcessRequest(
-                executable = adbExecutable,
-                arguments = arguments,
-                timeout = COMMAND_TIMEOUT,
-                maxCapturedCharactersPerStream = MAX_OUTPUT,
-            )
-        return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> result.output.stdout.text
-            is ProcessRunResult.Failed -> {
-                val detail =
-                    result.output
-                        ?.stderr
-                        ?.text
-                        ?.trim()
-                        .orEmpty()
-                        .ifEmpty { result.error.message }
-                throw StartupCaptureException(detail)
-            }
+    private suspend fun executeShell(arguments: List<String>): String =
+        try {
+            adbClient.shell(serial, arguments, COMMAND_TIMEOUT, MAX_OUTPUT).stdout
+        } catch (error: RuntimeException) {
+            throw StartupCaptureException(error.message ?: "ADB command failed").also { it.initCause(error) }
         }
-    }
 
     private companion object {
         const val SUPPORTED_PROTOCOL_MAJOR = 1

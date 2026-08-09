@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.startup.storage
 
+import com.androidperformancestudio.contracts.CaptureArtifactJson
+import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import com.androidperformancestudio.startup.model.StartupRun
 import com.androidperformancestudio.startup.model.StartupSession
 import java.nio.file.Files
@@ -19,6 +21,7 @@ public data class StoredStartupSession(
 
 public class SqliteStartupSessionStore private constructor(
     private val connection: Connection,
+    private val deviceIdentity: DeviceIdentityPseudonymizer = DeviceIdentityPseudonymizer(),
 ) : AutoCloseable {
     public fun save(
         session: StartupSession,
@@ -36,7 +39,7 @@ public class SqliteStartupSessionStore private constructor(
                     """.trimIndent(),
                 ).use { statement ->
                     statement.setString(1, session.id)
-                    statement.setString(2, session.deviceSerial)
+                    statement.setString(2, deviceIdentity.localId(session.deviceSerial).value)
                     statement.setString(3, session.packageName)
                     statement.setString(4, session.componentName)
                     statement.setString(5, session.requestedType.name)
@@ -128,7 +131,8 @@ public class SqliteStartupSessionStore private constructor(
                 compiler_filter_before=?, compiler_filter_after=?, profile_state_before=?, profile_state_after=?,
                 compilation_verified=?, compilation_failure=?, device_model=?, api_level=?, emulator=?, battery_percent=?,
                 charging=?, thermal_status=?, environment_captured_at=?, environment_failures=?, trace_file=?, trace_captured=?,
-                trace_truncated=?, trace_failure=?, diagnostics=?, profile_source=?, profile_source_declared=? WHERE id=?
+                trace_truncated=?, trace_failure=?, trace_artifact_json=?, trace_correlated=?, trace_correlation_error_ns=?,
+                trace_limitations=?, diagnostics=?, profile_source=?, profile_source_declared=? WHERE id=?
                 """.trimIndent(),
             ).use { statement ->
                 statement.setString(1, run.ttidEvidence.source?.name)
@@ -155,10 +159,20 @@ public class SqliteStartupSessionStore private constructor(
                 statement.setNullableBoolean(22, run.traceEvidence?.captured)
                 statement.setNullableBoolean(23, run.traceEvidence?.truncated)
                 statement.setString(24, run.traceEvidence?.failureReason)
-                statement.setString(25, run.diagnostics.joinToString("\n"))
-                statement.setString(26, run.compilationEvidence?.profileSource?.name)
-                statement.setNullableBoolean(27, run.compilationEvidence?.profileSourceDeclared)
-                statement.setString(28, run.id)
+                statement.setString(25, run.traceEvidence?.artifact?.let(CaptureArtifactJson::encode))
+                statement.setNullableBoolean(26, run.traceEvidence?.rootCause?.correlated)
+                statement.setNullableLong(27, run.traceEvidence?.rootCause?.correlationErrorBoundNs)
+                statement.setString(
+                    28,
+                    run.traceEvidence
+                        ?.rootCause
+                        ?.limitations
+                        ?.joinToString("\n"),
+                )
+                statement.setString(29, run.diagnostics.joinToString("\n"))
+                statement.setString(30, run.compilationEvidence?.profileSource?.name)
+                statement.setNullableBoolean(31, run.compilationEvidence?.profileSourceDeclared)
+                statement.setString(32, run.id)
                 statement.executeUpdate()
             }
         run.milestones.forEach { milestone ->
@@ -237,7 +251,8 @@ public class SqliteStartupSessionStore private constructor(
                         compilation_verified INTEGER, compilation_failure TEXT, device_model TEXT, api_level INTEGER,
                         emulator INTEGER, battery_percent INTEGER, charging INTEGER, thermal_status INTEGER,
                         environment_captured_at TEXT, environment_failures TEXT, trace_file TEXT, trace_captured INTEGER,
-                        trace_truncated INTEGER, trace_failure TEXT, diagnostics TEXT,
+                        trace_truncated INTEGER, trace_failure TEXT, trace_artifact_json TEXT, trace_correlated INTEGER,
+                        trace_correlation_error_ns INTEGER, trace_limitations TEXT, diagnostics TEXT,
                         profile_source TEXT, profile_source_declared INTEGER
                     )
                     """.trimIndent(),
@@ -307,6 +322,10 @@ public class SqliteStartupSessionStore private constructor(
                 "trace_captured" to "INTEGER",
                 "trace_truncated" to "INTEGER",
                 "trace_failure" to "TEXT",
+                "trace_artifact_json" to "TEXT",
+                "trace_correlated" to "INTEGER",
+                "trace_correlation_error_ns" to "INTEGER",
+                "trace_limitations" to "TEXT",
                 "diagnostics" to "TEXT",
                 "profile_source" to "TEXT",
                 "profile_source_declared" to "INTEGER",
