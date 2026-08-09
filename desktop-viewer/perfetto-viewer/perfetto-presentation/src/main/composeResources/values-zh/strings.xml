@@ -2,6 +2,8 @@
 <resources>
     <string name="trace_template">轨迹模板</string>
     <string name="configuration">配置</string>
+    <string name="data_sources">数据源</string>
+    <string name="capability_query_failed">能力查询失败；当前仅检查 Android 版本：%1$s</string>
     <string name="system_wide_for_example_com_example_app">全系统（例如 com.example.app）</string>
     <string name="comma_separated_atrace_categories_or_ftrace_events">使用逗号分隔 atrace 类别或 ftrace 事件</string>
     <string name="paste_a_valid_perfetto_traceconfig">粘贴有效的 Perfetto TraceConfig</string>

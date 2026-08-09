@@ -18,5 +18,6 @@ class PerfettoCaptureCommandTest {
 
         assertTrue(source.contains("/data/misc/perfetto-traces/aps-perfetto-trace.pftrace"))
         assertFalse(source.contains("/data/local/tmp/aps-perfetto-trace.pftrace"))
+        assertTrue(source.contains("60.seconds"))
     }
 }

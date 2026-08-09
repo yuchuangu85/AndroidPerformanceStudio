@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -31,18 +34,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureState
+import com.androidperformancestudio.perfetto.model.PerfettoDeviceCapabilities
+import com.androidperformancestudio.perfetto.model.PerfettoProbe
+import com.androidperformancestudio.perfetto.model.PerfettoProbeGroup
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
+import com.androidperformancestudio.perfetto.model.defaultProbes
 import com.androidperformancestudio.perfetto_presentation.generated.resources.Res
 import com.androidperformancestudio.perfetto_presentation.generated.resources.additional_categories_events
 import com.androidperformancestudio.perfetto_presentation.generated.resources.app_performance
 import com.androidperformancestudio.perfetto_presentation.generated.resources.app_performance_description
 import com.androidperformancestudio.perfetto_presentation.generated.resources.buffer_mb
+import com.androidperformancestudio.perfetto_presentation.generated.resources.capability_query_failed
 import com.androidperformancestudio.perfetto_presentation.generated.resources.comma_separated_atrace_categories_or_ftrace_events
 import com.androidperformancestudio.perfetto_presentation.generated.resources.completed_mb
 import com.androidperformancestudio.perfetto_presentation.generated.resources.configuration
 import com.androidperformancestudio.perfetto_presentation.generated.resources.custom
 import com.androidperformancestudio.perfetto_presentation.generated.resources.custom_description
 import com.androidperformancestudio.perfetto_presentation.generated.resources.custom_traceconfig_text_protobuf
+import com.androidperformancestudio.perfetto_presentation.generated.resources.data_sources
 import com.androidperformancestudio.perfetto_presentation.generated.resources.duration_seconds
 import com.androidperformancestudio.perfetto_presentation.generated.resources.failed
 import com.androidperformancestudio.perfetto_presentation.generated.resources.graphics_pipeline
@@ -77,6 +86,7 @@ fun PerfettoCapturePage(
     onStopCapture: () -> Unit,
     onOpenTrace: (Path) -> Unit,
     selectedDeviceSerial: String? = null,
+    deviceCapabilities: PerfettoDeviceCapabilities? = null,
     modifier: Modifier = Modifier,
 ) {
     var selectedTemplate by remember { mutableStateOf(PerfettoTraceTemplate.SYSTEM_OVERVIEW) }
@@ -85,6 +95,7 @@ fun PerfettoCapturePage(
     var bufferSizeKb by remember { mutableStateOf(32768) }
     var additionalCategories by remember { mutableStateOf("") }
     var customConfigText by remember { mutableStateOf("") }
+    var enabledProbes by remember { mutableStateOf(selectedTemplate.defaultProbes()) }
 
     Row(
         modifier = modifier.fillMaxSize(),
@@ -92,8 +103,22 @@ fun PerfettoCapturePage(
     ) {
         PerfettoTemplatePanel(
             selectedTemplate = selectedTemplate,
-            onSelectTemplate = { selectedTemplate = it },
-            modifier = Modifier.width(260.dp).fillMaxHeight(),
+            onSelectTemplate = {
+                selectedTemplate = it
+                enabledProbes = it.defaultProbes()
+            },
+            modifier = Modifier.width(220.dp).fillMaxHeight(),
+            language = language,
+        )
+        PerfettoDataSourcesPanel(
+            selectedTemplate = selectedTemplate,
+            enabledProbes = enabledProbes,
+            onProbeChange = { probe, enabled ->
+                enabledProbes = if (enabled) enabledProbes + probe else enabledProbes - probe
+            },
+            targetPackage = targetPackage,
+            capabilities = deviceCapabilities,
+            modifier = Modifier.width(300.dp).fillMaxHeight(),
             language = language,
         )
         PerfettoConfigurationPanel(
@@ -110,12 +135,96 @@ fun PerfettoCapturePage(
             onAdditionalCategoriesChange = { additionalCategories = it },
             customConfigText = customConfigText,
             onCustomConfigTextChange = { customConfigText = it },
+            enabledProbes = enabledProbes,
+            deviceCapabilities = deviceCapabilities,
             onStartCapture = onStartCapture,
             onStopCapture = onStopCapture,
             onOpenTrace = onOpenTrace,
             modifier = Modifier.weight(1f).fillMaxHeight(),
             language = language,
         )
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
+private fun PerfettoDataSourcesPanel(
+    selectedTemplate: PerfettoTraceTemplate,
+    enabledProbes: Set<PerfettoProbe>,
+    onProbeChange: (PerfettoProbe, Boolean) -> Unit,
+    targetPackage: String,
+    capabilities: PerfettoDeviceCapabilities?,
+    modifier: Modifier = Modifier,
+    language: UiLanguage,
+) {
+    PerfettoWorkspacePanel(
+        title = localizedStringResource(Res.string.data_sources, language),
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            capabilities?.queryError?.let { error ->
+                Text(
+                    text = localizedStringResource(Res.string.capability_query_failed, language, error),
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp,
+                )
+            }
+            if (selectedTemplate != PerfettoTraceTemplate.CUSTOM) {
+                PerfettoProbeGroup.entries.forEach { group ->
+                    val probes = PerfettoProbe.entries.filter { it.group == group }
+                    Text(
+                        text = group.displayName.uppercase(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    probes.forEach { probe ->
+                        val reason =
+                            capabilities?.unsupportedReason(probe)
+                                ?: if (probe.requiresTargetPackage && targetPackage.isBlank()) "Requires a target package" else null
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = probe in enabledProbes && reason == null,
+                                onCheckedChange = { onProbeChange(probe, it) },
+                                enabled = reason == null,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Column(modifier = Modifier.weight(1f).padding(start = 5.dp)) {
+                                Text(
+                                    text = probe.displayName,
+                                    color =
+                                        if (reason ==
+                                            null
+                                        ) {
+                                            MaterialTheme.colorScheme.onSurface
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    fontSize = 10.sp,
+                                    lineHeight = 12.sp,
+                                )
+                                reason?.let {
+                                    Text(
+                                        text = it,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontSize = 8.sp,
+                                        lineHeight = 10.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -223,6 +332,8 @@ private fun PerfettoConfigurationPanel(
     onAdditionalCategoriesChange: (String) -> Unit,
     customConfigText: String,
     onCustomConfigTextChange: (String) -> Unit,
+    enabledProbes: Set<PerfettoProbe>,
+    deviceCapabilities: PerfettoDeviceCapabilities?,
     onStartCapture: (PerfettoCaptureConfig, String) -> Unit,
     onStopCapture: () -> Unit,
     onOpenTrace: (Path) -> Unit,
@@ -236,6 +347,7 @@ private fun PerfettoConfigurationPanel(
             state = captureState,
             selectedDeviceSerial = selectedDeviceSerial,
             customConfigReady = customConfigReady,
+            capabilitiesReady = selectedDeviceSerial == null || deviceCapabilities != null,
         )
 
     PerfettoWorkspacePanel(
@@ -324,6 +436,11 @@ private fun PerfettoConfigurationPanel(
                                     bufferSizeKb = bufferSizeKb,
                                     additionalCategories = additionalCategories,
                                     customConfigText = customConfigText,
+                                    enabledProbes =
+                                        enabledProbes.filterTo(mutableSetOf()) { probe ->
+                                            deviceCapabilities?.unsupportedReason(probe) == null &&
+                                                (!probe.requiresTargetPackage || targetPackage.isNotBlank())
+                                        },
                                 ),
                                 deviceSerial,
                             )
@@ -400,6 +517,7 @@ private fun createCaptureConfig(
     bufferSizeKb: Int,
     additionalCategories: String,
     customConfigText: String,
+    enabledProbes: Set<PerfettoProbe>,
 ): PerfettoCaptureConfig =
     PerfettoCaptureConfig(
         template = selectedTemplate,
@@ -415,17 +533,19 @@ private fun createCaptureConfig(
             customConfigText.takeIf {
                 selectedTemplate == PerfettoTraceTemplate.CUSTOM && it.isNotBlank()
             },
+        enabledProbes = enabledProbes,
     )
 
 private fun isCaptureStartAllowed(
     state: PerfettoCaptureState,
     selectedDeviceSerial: String?,
     customConfigReady: Boolean,
+    capabilitiesReady: Boolean,
 ): Boolean {
     val preparing = state is PerfettoCaptureState.Preparing
     val recording = state is PerfettoCaptureState.Recording
     val pulling = state is PerfettoCaptureState.Pulling
-    return selectedDeviceSerial != null && customConfigReady && !preparing && !recording && !pulling
+    return selectedDeviceSerial != null && capabilitiesReady && customConfigReady && !preparing && !recording && !pulling
 }
 
 @Composable

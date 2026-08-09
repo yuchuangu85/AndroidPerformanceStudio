@@ -177,7 +177,7 @@ class PerfettoCaptureSession(
         val shellCommand = "cat $DEVICE_CONFIG_PATH | perfetto --txt -c - -o $DEVICE_TRACE_PATH --background-wait"
 
         val startedAt = Instant.now()
-        return when (val result = adbCall { adbClient.shell(deviceSerial, listOf("sh", "-c", shellCommand), 35.seconds) }) {
+        return when (val result = adbCall { adbClient.shell(deviceSerial, listOf("sh", "-c", shellCommand), 60.seconds) }) {
             is StudioResult.Failure -> result
             is StudioResult.Success -> {
                 val output = result.value.stdout + "\n" + result.value.stderr

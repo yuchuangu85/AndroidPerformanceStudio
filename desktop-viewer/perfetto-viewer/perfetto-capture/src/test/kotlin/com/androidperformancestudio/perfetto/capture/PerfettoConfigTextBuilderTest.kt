@@ -1,6 +1,7 @@
 package com.androidperformancestudio.perfetto.capture
 
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
+import com.androidperformancestudio.perfetto.model.PerfettoProbe
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -100,5 +101,37 @@ class PerfettoConfigTextBuilderTest {
             )
 
         assertEquals(null, automaticCompletionDelayMillis(config))
+    }
+
+    @Test
+    fun `selected record page probes are composed into one trace config`() {
+        val text =
+            PerfettoConfigTextBuilder.build(
+                PerfettoCaptureConfig(
+                    template = PerfettoTraceTemplate.SYSTEM_OVERVIEW,
+                    targetPackage = "com.example.app",
+                    enabledProbes =
+                        setOf(
+                            PerfettoProbe.SYSCALLS,
+                            PerfettoProbe.JAVA_HEAP_DUMP,
+                            PerfettoProbe.POWER_RAILS,
+                            PerfettoProbe.GPU_MEMORY,
+                            PerfettoProbe.ANDROID_LOG,
+                            PerfettoProbe.NETWORK_PACKETS,
+                            PerfettoProbe.CALLSTACK_SAMPLING,
+                            PerfettoProbe.TRACK_EVENTS,
+                        ),
+                ),
+            )
+
+        assertTrue(text.contains("raw_syscalls/sys_enter"))
+        assertTrue(text.contains("name: \"android.java_hprof\""))
+        assertTrue(text.contains("name: \"android.power\""))
+        assertTrue(text.contains("name: \"android.gpu.memory\""))
+        assertTrue(text.contains("name: \"android.log\""))
+        assertTrue(text.contains("name: \"android.network_packets\""))
+        assertTrue(text.contains("name: \"linux.perf\""))
+        assertTrue(text.contains("name: \"track_event\""))
+        assertEquals(1, Regex("name: \"linux.ftrace\"").findAll(text).count())
     }
 }

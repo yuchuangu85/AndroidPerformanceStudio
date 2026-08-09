@@ -40,12 +40,14 @@ import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.analysis.DiagnosticQuery
 import com.androidperformancestudio.perfetto.analysis.DiagnosticResult
 import com.androidperformancestudio.perfetto.analysis.PerfettoDiagnostics
+import com.androidperformancestudio.perfetto.capture.PerfettoCapabilityDetector
 import com.androidperformancestudio.perfetto.capture.PerfettoCaptureSession
 import com.androidperformancestudio.perfetto.export.TraceExporter
 import com.androidperformancestudio.perfetto.model.PerfettoArtifactFactory
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureState
 import com.androidperformancestudio.perfetto.model.PerfettoDevice
+import com.androidperformancestudio.perfetto.model.PerfettoDeviceCapabilities
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
 import com.androidperformancestudio.perfetto.model.TraceSession
 import com.androidperformancestudio.perfetto.presentation.PerfettoCapturePage
@@ -105,6 +107,7 @@ import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
@@ -150,6 +153,7 @@ fun FrameWindowScope.PerfettoMainPage(
 ) {
     val coroutineScope = rememberCoroutineScope()
     val captureSession = remember { PerfettoCaptureSession() }
+    val capabilityDetector = remember { PerfettoCapabilityDetector() }
     val sessionStore = remember { TraceSessionStore() }
     val uiServer = remember { PerfettoUiServer() }
     val exporter = remember { TraceExporter() }
@@ -162,6 +166,8 @@ fun FrameWindowScope.PerfettoMainPage(
     var adbPath by remember { mutableStateOf("adb") }
     var devices by remember { mutableStateOf<List<PerfettoDevice>>(emptyList()) }
     var selectedDeviceSerial by remember { mutableStateOf<String?>(null) }
+    var deviceCapabilities by remember { mutableStateOf<PerfettoDeviceCapabilities?>(null) }
+    var capabilityRefreshKey by remember { mutableStateOf(0) }
     var analysisContext by remember { mutableStateOf<TraceAnalysisContext?>(null) }
     var analysisContexts by remember { mutableStateOf<TraceAnalysisContexts?>(null) }
     var diagnosticQuery by remember { mutableStateOf<DiagnosticQuery?>(null) }
@@ -191,6 +197,11 @@ fun FrameWindowScope.PerfettoMainPage(
     LaunchedEffect(adbPath) {
         devices = discoverPerfettoDevices(adbPath)
         selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, devices)
+    }
+    LaunchedEffect(adbPath, selectedDeviceSerial, devices, capabilityRefreshKey) {
+        deviceCapabilities = null
+        val device = devices.firstOrNull { it.serial == selectedDeviceSerial } ?: return@LaunchedEffect
+        deviceCapabilities = withContext(Dispatchers.IO) { capabilityDetector.detect(adbPath, device) }
     }
     LaunchedEffect(Unit) {
         when (val result = sessionStore.listRecent()) {
@@ -309,6 +320,7 @@ fun FrameWindowScope.PerfettoMainPage(
                             val refreshed = discoverPerfettoDevices(adbPath)
                             devices = refreshed
                             selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, refreshed)
+                            capabilityRefreshKey++
                         }
                     },
                 )
@@ -331,6 +343,7 @@ fun FrameWindowScope.PerfettoMainPage(
                             captureState = captureState,
                             language = language,
                             selectedDeviceSerial = selectedDeviceSerial,
+                            deviceCapabilities = deviceCapabilities,
                             onStartCapture = { config, deviceSerial ->
                                 coroutineScope.launch {
                                     captureSession.startCapture(adbPath, deviceSerial, config)

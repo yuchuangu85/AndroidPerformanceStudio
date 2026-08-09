@@ -5,6 +5,7 @@ import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
+import com.androidperformancestudio.perfetto.model.PerfettoProbe
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
 import com.androidperformancestudio.perfetto.model.TraceSession
 import kotlinx.serialization.json.Json
@@ -103,6 +104,9 @@ class TraceSessionStore(
                 },
             )
             session.captureConfig.customConfigText?.let { put("customConfigText", it) }
+            session.captureConfig.enabledProbes?.let { probes ->
+                put("enabledProbes", buildJsonArray { probes.forEach { add(JsonPrimitive(it.name)) } })
+            }
             session.notes?.let { put("notes", it) }
             put("isProtected", session.isProtected)
             session.artifact?.let { artifact -> put("artifact", json.parseToJsonElement(CaptureArtifactJson.encode(artifact))) }
@@ -127,6 +131,13 @@ class TraceSessionStore(
                         bufferSizeKb = objectValue.int("bufferSizeKb") ?: 32768,
                         additionalCategories = objectValue.stringArray("additionalCategories"),
                         customConfigText = objectValue.string("customConfigText"),
+                        enabledProbes =
+                            objectValue["enabledProbes"]?.let {
+                                objectValue
+                                    .stringArray("enabledProbes")
+                                    .mapNotNull { name -> PerfettoProbe.entries.firstOrNull { probe -> probe.name == name } }
+                                    .toSet()
+                            },
                     ),
                 deviceSerial = "",
                 deviceModel = objectValue.string("deviceModel").orEmpty(),

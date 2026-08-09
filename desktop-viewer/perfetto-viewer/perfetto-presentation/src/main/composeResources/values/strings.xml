@@ -2,6 +2,8 @@
 <resources>
     <string name="trace_template">TRACE TEMPLATE</string>
     <string name="configuration">CONFIGURATION</string>
+    <string name="data_sources">DATA SOURCES</string>
+    <string name="capability_query_failed">Capability query failed; only Android version checks are active: %1$s</string>
     <string name="system_wide_for_example_com_example_app">System-wide (for example com.example.app)</string>
     <string name="comma_separated_atrace_categories_or_ftrace_events">Comma-separated atrace categories or ftrace events</string>
     <string name="paste_a_valid_perfetto_traceconfig">Paste a valid Perfetto TraceConfig</string>

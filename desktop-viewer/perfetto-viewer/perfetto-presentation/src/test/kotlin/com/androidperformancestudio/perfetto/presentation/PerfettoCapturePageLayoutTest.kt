@@ -15,10 +15,12 @@ class PerfettoCapturePageLayoutTest {
         )
 
     @Test
-    fun `capture page is split into compact template and configuration panels`() {
+    fun `capture page is split into template data source and configuration panels`() {
         assertTrue(source.contains("private fun PerfettoTemplatePanel("))
+        assertTrue(source.contains("private fun PerfettoDataSourcesPanel("))
         assertTrue(source.contains("private fun PerfettoConfigurationPanel("))
-        assertTrue(source.contains("Modifier.width(260.dp)"))
+        assertTrue(source.contains("Modifier.width(300.dp)"))
+        assertTrue(source.contains("Checkbox("))
         assertTrue(source.contains("PerfettoCompactTextField("))
         assertTrue(source.contains("PerfettoCompactButton("))
     }
