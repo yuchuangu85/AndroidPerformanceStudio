@@ -73,6 +73,12 @@ class AppNavigator(
         activate(AppDestination.PERFETTO)
     }
 
+    /** Clears the pending Perfetto trace intent once the page is left. */
+    fun clearPerfettoTrace() {
+        perfettoTraceFile = null
+        perfettoTraceNotice = null
+    }
+
     /** Opens the memory profiler and imports [file] (HPROF, or java_hprof when [javaHeap]). */
     fun openMemoryProfiler(
         file: Path,

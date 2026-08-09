@@ -118,6 +118,9 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
         if (navigator.destination.shouldMaximizeWindow()) {
             window.placement = WindowPlacement.Maximized
         }
+        if (navigator.destination != AppDestination.PERFETTO) {
+            navigator.clearPerfettoTrace()
+        }
     }
 
     ViewerTheme(
@@ -239,6 +242,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                         PerfettoMainPage(
                             language = language,
                             darkTheme = darkTheme,
+                            isActive = active,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
                             initialTraceNotice = navigator.perfettoTraceNotice,

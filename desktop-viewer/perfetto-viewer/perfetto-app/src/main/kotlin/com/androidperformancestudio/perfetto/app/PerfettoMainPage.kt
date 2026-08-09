@@ -149,6 +149,7 @@ internal fun exportRawTraceFile(
 fun FrameWindowScope.PerfettoMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     darkTheme: Boolean = isSystemInDarkTheme(),
+    isActive: Boolean = true,
     onNavigateHome: (() -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,
     initialTraceFile: Path? = null,
@@ -439,6 +440,22 @@ fun FrameWindowScope.PerfettoMainPage(
             captureSession.cancelCapture()
             uiServer.stop()
             analysisContext?.close()
+        }
+    }
+    // The shell keeps this page composed (hidden via alpha) when navigating away, so onDispose
+    // never fires. Reset the active trace/view state explicitly when the page goes inactive.
+    LaunchedEffect(isActive) {
+        if (!isActive) {
+            traceOpenJob?.cancel()
+            traceOpenJob = null
+            fileDialogOpen = false
+            captureSession.cancelCapture()
+            uiServer.stop()
+            activeTraceFile = null
+            activeArtifact = null
+            diagnosticQuery = null
+            diagnosticResult = null
+            diagnosticError = null
         }
     }
 }
