@@ -20,6 +20,8 @@ data class AdbDevice(
     val statusDetail: String? = null,
 )
 
+typealias DeviceTarget = AdbDevice
+
 private val AdbDeviceState.defaultRawState: String
     get() =
         when (this) {
