@@ -19,13 +19,15 @@ class PerfettoUiServer(
 ) {
     private var server: HttpServer? = null
     private var executor: ExecutorService? = null
+
+    @Volatile
     private var currentTraceFile: Path? = null
     private var hasUiAssets: Boolean = false
     val isRunning: Boolean get() = server != null
 
-    fun start(uiAssetsDir: Path?): StudioResult<Unit> =
-        try {
-            if (server != null) stop()
+    fun start(uiAssetsDir: Path?): StudioResult<Unit> {
+        if (server != null) return StudioResult.Success(Unit)
+        return try {
             server =
                 HttpServer.create(InetSocketAddress(port), 0).apply {
                     createContext("/trace") { exchange ->
@@ -69,6 +71,7 @@ class PerfettoUiServer(
                 ),
             )
         }
+    }
 
     fun openTrace(traceFile: Path): StudioResult<Unit> =
         try {

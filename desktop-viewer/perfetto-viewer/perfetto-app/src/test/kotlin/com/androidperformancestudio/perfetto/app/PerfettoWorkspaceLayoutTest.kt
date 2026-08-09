@@ -3,6 +3,7 @@ package com.androidperformancestudio.perfetto.app
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -51,5 +52,13 @@ class PerfettoWorkspaceLayoutTest {
         assertTrue(source.contains("Modifier.width(240.dp)"))
         assertTrue(source.contains("Res.string.select_a_diagnostic_on_the_left_to_view_its_result"))
         assertFalse(source.contains("chunked(3)"))
+    }
+
+    @Test
+    fun `repeated trace opens keep blocking work off the UI thread`() {
+        assertEquals(1, Regex("artifactFactory\\.imported").findAll(source).count())
+        assertTrue(source.contains("traceOpenJob?.cancel()"))
+        assertTrue(source.contains("traceOpenMutex.withLock"))
+        assertTrue(source.contains("withContext(Dispatchers.IO) { contextToClose?.close() }"))
     }
 }

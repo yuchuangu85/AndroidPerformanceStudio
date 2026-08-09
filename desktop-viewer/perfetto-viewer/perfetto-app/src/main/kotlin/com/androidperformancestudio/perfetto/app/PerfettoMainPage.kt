@@ -106,7 +106,10 @@ import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -173,6 +176,28 @@ fun FrameWindowScope.PerfettoMainPage(
     var diagnosticQuery by remember { mutableStateOf<DiagnosticQuery?>(null) }
     var diagnosticResult by remember { mutableStateOf<String?>(null) }
     var diagnosticError by remember { mutableStateOf<String?>(null) }
+    var fileDialogOpen by remember { mutableStateOf(false) }
+    var traceOpenJob by remember { mutableStateOf<Job?>(null) }
+    val traceOpenMutex = remember { Mutex() }
+    val openTrace: (Path, com.androidperformancestudio.contracts.CaptureArtifact?) -> Unit = { traceFile, artifact ->
+        traceOpenJob?.cancel()
+        traceOpenJob =
+            coroutineScope.launch {
+                traceOpenMutex.withLock {
+                    val importedArtifact =
+                        artifact ?: withContext(Dispatchers.IO) {
+                            artifactFactory.imported(UUID.randomUUID().toString(), traceFile, Instant.now())
+                        }
+                    activeTraceFile = traceFile
+                    activeArtifact = importedArtifact
+                    recentFiles = (listOf(traceFile) + recentFiles).distinct().take(10)
+                    when (val opened = withContext(Dispatchers.IO) { launchTraceInUi(traceFile, uiServer) }) {
+                        is StudioResult.Failure -> diagnosticError = opened.error.message
+                        is StudioResult.Success -> diagnosticError = null
+                    }
+                }
+            }
+    }
     val exportRawTrace: (Path) -> Unit = { traceFile ->
         coroutineScope.launch(Dispatchers.IO) {
             val defaultName =
@@ -210,15 +235,7 @@ fun FrameWindowScope.PerfettoMainPage(
         }
     }
     LaunchedEffect(initialTraceFile) {
-        initialTraceFile?.let { traceFile ->
-            activeTraceFile = traceFile
-            activeArtifact = artifactFactory.imported(UUID.randomUUID().toString(), traceFile, Instant.now())
-            recentFiles = (listOf(traceFile) + recentFiles).distinct().take(10)
-            when (val opened = launchTraceInUi(traceFile, uiServer)) {
-                is StudioResult.Failure -> diagnosticError = opened.error.message
-                is StudioResult.Success -> diagnosticError = null
-            }
-        }
+        initialTraceFile?.let { openTrace(it, null) }
     }
     LaunchedEffect(captureState) {
         val completed = captureState as? PerfettoCaptureState.Completed ?: return@LaunchedEffect
@@ -244,10 +261,11 @@ fun FrameWindowScope.PerfettoMainPage(
         }
     }
     LaunchedEffect(activeTraceFile, activeArtifact) {
-        analysisContext?.close()
+        val contextToClose = analysisContext
         analysisContext = null
         diagnosticResult = null
         diagnosticError = null
+        withContext(Dispatchers.IO) { contextToClose?.close() }
     }
 
     PerfettoFileMenuBar(
@@ -255,14 +273,15 @@ fun FrameWindowScope.PerfettoMainPage(
         canExport = activeTraceFile != null,
         recentFiles = recentFiles,
         onOpen = {
-            coroutineScope.launch(Dispatchers.IO) {
-                val file = chooseTraceFile(language) ?: return@launch
-                activeTraceFile = file.toPath()
-                activeArtifact = artifactFactory.imported(UUID.randomUUID().toString(), file.toPath(), Instant.now())
-                recentFiles = (listOf(file.toPath()) + recentFiles).distinct().take(10)
-                when (val opened = launchTraceInUi(file.toPath(), uiServer)) {
-                    is StudioResult.Failure -> diagnosticError = opened.error.message
-                    is StudioResult.Success -> diagnosticError = null
+            if (!fileDialogOpen) {
+                fileDialogOpen = true
+                try {
+                    // The modal chooser must run on the UI thread, or repeated clicks stack
+                    // concurrent JFileChoosers (non-modal from a background thread) and deadlock AWT.
+                    val file = chooseTraceFile(language)
+                    if (file != null) openTrace(file.toPath(), null)
+                } finally {
+                    fileDialogOpen = false
                 }
             }
         },
@@ -292,14 +311,7 @@ fun FrameWindowScope.PerfettoMainPage(
         },
         onExportRawTrace = { activeTraceFile?.let(exportRawTrace) },
         onOpenRecent = { path ->
-            activeTraceFile = path
-            activeArtifact =
-                sessions.firstOrNull { it.traceFile == path }?.artifact
-                    ?: artifactFactory.imported(UUID.randomUUID().toString(), path, Instant.now())
-            when (val opened = launchTraceInUi(path, uiServer)) {
-                is StudioResult.Failure -> diagnosticError = opened.error.message
-                is StudioResult.Success -> diagnosticError = null
-            }
+            openTrace(path, sessions.firstOrNull { it.traceFile == path }?.artifact)
         },
         onClearRecent = { recentFiles = emptyList() },
     )
@@ -351,14 +363,7 @@ fun FrameWindowScope.PerfettoMainPage(
                             },
                             onStopCapture = { coroutineScope.launch { captureSession.stopCapture() } },
                             onOpenTrace = { traceFile ->
-                                activeTraceFile = traceFile
-                                activeArtifact =
-                                    sessions.firstOrNull { it.traceFile == traceFile }?.artifact
-                                        ?: artifactFactory.imported(UUID.randomUUID().toString(), traceFile, Instant.now())
-                                when (val opened = launchTraceInUi(traceFile, uiServer)) {
-                                    is StudioResult.Failure -> diagnosticError = opened.error.message
-                                    is StudioResult.Success -> diagnosticError = null
-                                }
+                                openTrace(traceFile, sessions.firstOrNull { it.traceFile == traceFile }?.artifact)
                             },
                             modifier = Modifier.weight(1f),
                         )
@@ -366,14 +371,7 @@ fun FrameWindowScope.PerfettoMainPage(
                             language = language,
                             sessions = sessions,
                             onOpen = { session ->
-                                activeTraceFile = session.traceFile
-                                activeArtifact =
-                                    session.artifact
-                                        ?: artifactFactory.imported(UUID.randomUUID().toString(), session.traceFile, Instant.now())
-                                when (val opened = launchTraceInUi(session.traceFile, uiServer)) {
-                                    is StudioResult.Failure -> diagnosticError = opened.error.message
-                                    is StudioResult.Success -> diagnosticError = null
-                                }
+                                openTrace(session.traceFile, session.artifact)
                             },
                             onDelete = { session ->
                                 coroutineScope.launch {
