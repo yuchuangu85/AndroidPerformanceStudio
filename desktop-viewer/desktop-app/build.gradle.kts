@@ -94,18 +94,23 @@ val verifyPackagedTraceProcessor =
     tasks.register("verifyPackagedTraceProcessor") {
         val binaryName = if (targetOs == "windows") "trace_processor_shell.exe" else "trace_processor_shell"
         val binary = perfettoTools.file(binaryName)
+        // Materialize script values into locals so the action stays serializable under the
+        // configuration cache: closing over script vals captures the script object.
+        val version = traceProcessorVersion
+        val hostKey = "$targetOs-$targetArch"
+        val checksums = traceProcessorChecksums
         inputs.file(binary)
         inputs.file(traceProcessorManifestFile)
         doLast {
             val file = binary.asFile
             check(file.isFile) {
-                "Pinned Trace Processor $traceProcessorVersion is missing: $file. Run scripts/install-trace-processor.sh $targetOs-$targetArch."
+                "Pinned Trace Processor $version is missing: $file. Run scripts/install-trace-processor.sh $hostKey."
             }
             val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.readBytes()))
-            val expected = checkNotNull(traceProcessorChecksums["$targetOs-$targetArch"]) {
-                "No pinned Trace Processor checksum for $targetOs-$targetArch"
+            val expected = checkNotNull(checksums[hostKey]) {
+                "No pinned Trace Processor checksum for $hostKey"
             }
-            check(actual == expected) { "Pinned Trace Processor checksum mismatch for $targetOs-$targetArch" }
+            check(actual == expected) { "Pinned Trace Processor checksum mismatch for $hostKey" }
         }
     }
 

@@ -6,14 +6,15 @@ version="v57.2"
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 checksum_manifest="$repository_root/desktop-viewer/platform-perfetto/trace-processor-manifest.json"
 install_dir="${PERFETTO_TOOLS_DIR:-$HOME/.android-performance-studio/tools/perfetto/$version}"
-temporary="$(mktemp -t trace_processor.XXXXXX)"
+mkdir -p "$install_dir"
+# Repo-relative temp path: /tmp resolution differs between MSYS mktemp, native curl and
+# native python on Windows Git Bash, which corrupted the downloaded bytes in CI.
+temporary="$install_dir/.trace_processor.partial"
 
 cleanup() {
   rm -f "$temporary"
 }
 trap cleanup EXIT
-
-mkdir -p "$install_dir"
 case "$(uname -s)" in
   Darwin) host_os=macos ;;
   Linux) host_os=linux ;;
