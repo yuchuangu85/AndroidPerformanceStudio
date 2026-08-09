@@ -1,4 +1,5 @@
 package com.androidperformancestudio.perfetto.model
+import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.model.StudioError
 import java.nio.file.Path
 import java.time.Instant
@@ -68,6 +69,7 @@ data class CaptureMetadata(
     val traceFileSizeBytes: Long,
     val config: PerfettoCaptureConfig,
     val command: String,
+    val artifact: CaptureArtifact,
 )
 
 data class PerfettoDevice(

@@ -80,8 +80,10 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("macos-arm64.pkg"))
         assertTrue(workflow.contains("macos-x64.dmg"))
         assertTrue(workflow.contains("macos-x64.pkg"))
-        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-linux-x64.deb"))
-        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-linux-x64.rpm"))
+        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-linux-${'$'}ARCH.deb"))
+        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-linux-${'$'}ARCH.rpm"))
+        assertTrue(workflow.contains("linux-x64.deb"))
+        assertTrue(workflow.contains("linux-arm64.deb"))
         assertTrue(workflow.contains("Release asset mismatch."))
         assertTrue(workflow.contains("gh release create"))
         assertTrue(workflow.contains("gh release upload"))
@@ -104,15 +106,15 @@ class ReleaseWorkflowTest {
     }
 
     @Test
-    fun `trace processor launcher comes from the pinned Perfetto submodule`() {
+    fun `trace processor installer downloads and verifies the pinned native binary`() {
         val installer = Files.readString(Path.of("../../scripts/install-trace-processor.sh"))
-        val gitmodules = Files.readString(Path.of("../../.gitmodules"))
+        val manifest = Files.readString(Path.of("../platform-perfetto/trace-processor-manifest.json"))
 
-        assertTrue(installer.contains("third_party/perfetto"))
-        assertTrue(installer.contains("tools/trace_processor"))
-        assertTrue(installer.contains("ls-files --stage -- third_party/perfetto"))
-        assertTrue(!installer.contains("rev-list -n 1 \"${'$'}version\""))
+        assertTrue(installer.contains("entry[\"url\"]"))
+        assertTrue(installer.contains("curl --fail --location --retry 3"))
+        assertTrue(installer.contains("actual_checksum"))
+        assertTrue(installer.contains("--version"))
         assertTrue(!installer.contains("get.perfetto.dev"))
-        assertTrue(!gitmodules.contains("branch = v57.2"))
+        assertTrue(manifest.contains("perfetto-luci-artifacts/v57.2"))
     }
 }

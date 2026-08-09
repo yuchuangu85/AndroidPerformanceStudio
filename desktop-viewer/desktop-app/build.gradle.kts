@@ -1,5 +1,8 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+import java.util.HexFormat
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -14,6 +17,13 @@ val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-t
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
 val profilerAppResources = layout.buildDirectory.dir("generated/profiler-app-resources")
+val traceProcessorManifestFile = rootProject.layout.projectDirectory.file("platform-perfetto/trace-processor-manifest.json")
+val traceProcessorManifest = JsonSlurper().parse(traceProcessorManifestFile.asFile) as Map<*, *>
+val traceProcessorVersion = checkNotNull(traceProcessorManifest["version"]) as String
+val traceProcessorChecksums =
+    (checkNotNull(traceProcessorManifest["artifacts"]) as Map<*, *>).mapValues { (_, artifact) ->
+        checkNotNull((artifact as Map<*, *>)["sha256"]) as String
+    }
 val prepareProfilerAppResources =
     tasks.register<Sync>("prepareProfilerAppResources") {
         inputs.file(firefoxProfilerDist.file("index.html"))
@@ -72,6 +82,34 @@ val hostArch =
     }
 val targetArch = project.findProperty("target.arch")?.toString()?.lowercase() ?: hostArch
 val targetJavaHome = project.findProperty("target.javaHome")?.toString()
+val targetOs =
+    when {
+        hostOs.contains("mac") -> "macos"
+        hostOs.contains("win") -> "windows"
+        hostOs.contains("linux") -> "linux"
+        else -> error("Unsupported desktop host operating system: $hostOs")
+    }
+
+val verifyPackagedTraceProcessor =
+    tasks.register("verifyPackagedTraceProcessor") {
+        val binaryName = if (targetOs == "windows") "trace_processor_shell.exe" else "trace_processor_shell"
+        val binary = perfettoTools.file(binaryName)
+        inputs.file(binary)
+        inputs.file(traceProcessorManifestFile)
+        doLast {
+            val file = binary.asFile
+            check(file.isFile) {
+                "Pinned Trace Processor $traceProcessorVersion is missing: $file. Run scripts/install-trace-processor.sh $targetOs-$targetArch."
+            }
+            val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.readBytes()))
+            val expected = checkNotNull(traceProcessorChecksums["$targetOs-$targetArch"]) {
+                "No pinned Trace Processor checksum for $targetOs-$targetArch"
+            }
+            check(actual == expected) { "Pinned Trace Processor checksum mismatch for $targetOs-$targetArch" }
+        }
+    }
+
+prepareProfilerAppResources.configure { dependsOn(verifyPackagedTraceProcessor) }
 
 require(targetArch == "x64" || targetArch == "arm64") {
     "Unsupported target.arch=$targetArch. Compose Desktop supports x64 and arm64 desktop runtimes; Windows x86 is not supported."
@@ -101,12 +139,19 @@ dependencies {
         hostOs.contains("mac") && targetArch == "arm64" -> implementation(compose.desktop.macos_arm64)
         hostOs.contains("win") && targetArch == "x64" -> implementation(compose.desktop.windows_x64)
         hostOs.contains("linux") && targetArch == "x64" -> implementation(compose.desktop.linux_x64)
+        hostOs.contains("linux") && targetArch == "arm64" -> implementation(compose.desktop.linux_arm64)
         else -> error("Unsupported Compose Desktop target: $hostOs-$targetArch")
     }
     implementation("org.jetbrains.compose.components:components-resources:1.11.1")
     implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
+    testImplementation("com.androidperformancestudio:platform-perfetto:0.1.0-SNAPSHOT")
+    testImplementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
+    testImplementation("com.androidperformancestudio.memory:analysis-memory:0.1.0-SNAPSHOT")
+    testImplementation("com.androidperformancestudio.frame:analysis-frame:0.1.0-SNAPSHOT")
+    testImplementation("com.androidperformancestudio.startup:analysis-startup:0.1.0-SNAPSHOT")
+    testImplementation("com.androidperformancestudio.startup:startup-model:0.1.0-SNAPSHOT")
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

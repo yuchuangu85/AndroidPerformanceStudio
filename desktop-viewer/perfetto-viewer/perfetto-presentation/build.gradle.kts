@@ -7,7 +7,6 @@ dependencies {
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":perfetto-model"))
     implementation(project(":perfetto-capture"))
-    implementation(project(":perfetto-trace-processor"))
     implementation(project(":perfetto-ui-server"))
     implementation(project(":perfetto-analysis"))
     implementation(project(":perfetto-storage"))

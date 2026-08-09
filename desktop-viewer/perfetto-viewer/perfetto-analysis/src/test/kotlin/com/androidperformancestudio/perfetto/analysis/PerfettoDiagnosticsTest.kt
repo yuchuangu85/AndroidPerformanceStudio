@@ -39,4 +39,22 @@ class PerfettoDiagnosticsTest {
             assertFalse(Regex("\\bLIKE\\b", RegexOption.IGNORE_CASE).containsMatchIn(query.sql), query.id)
         }
     }
+
+    @Test
+    fun `diagnostics expose pinned typed columns and render mapped rows instead of raw processor output`() {
+        val diagnostic = PerfettoDiagnostics.all.first { it.id == "cpu_hotspots" }
+        val traceQuery = diagnostic.typedQuery()
+
+        assertEquals(
+            listOf("thread_name", "process_name", "slice_count", "total_dur_ms"),
+            traceQuery.schema.columns.map { it.name },
+        )
+        assertEquals(
+            "thread_name | process_name | slice_count | total_dur_ms\nmain | example.app | 3 | 42",
+            DiagnosticResult(
+                columns = traceQuery.schema.columns.map { it.name },
+                rows = listOf(DiagnosticRow(listOf("main", "example.app", "3", "42"))),
+            ).toPlainText(),
+        )
+    }
 }

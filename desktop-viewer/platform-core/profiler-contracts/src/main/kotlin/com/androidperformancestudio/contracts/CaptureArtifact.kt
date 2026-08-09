@@ -107,6 +107,8 @@ data class ArtifactAcquisition(
 data class ArtifactProvenance(
     val producer: ArtifactProducer = ArtifactProducer.Unknown,
     val acquisition: ArtifactAcquisition,
+    /** Verified tools that transformed or analyzed the producer's immutable evidence. */
+    val processors: List<ArtifactProducer.Known> = emptyList(),
 )
 
 @Serializable
@@ -173,6 +175,9 @@ value class DeviceLocalId private constructor(
     }
 
     companion object {
+        /** Restores an already privacy-safe value without hashing it a second time. */
+        fun fromPersisted(value: String): DeviceLocalId = DeviceLocalId(value)
+
         fun fromRawSerial(
             rawSerial: String,
             applicationSalt: ByteArray,

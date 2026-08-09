@@ -20,7 +20,6 @@ include(
     ":perfetto-app",
     ":perfetto-presentation",
     ":perfetto-capture",
-    ":perfetto-trace-processor",
     ":perfetto-ui-server",
     ":perfetto-model",
     ":perfetto-analysis",
@@ -28,9 +27,13 @@ include(
     ":perfetto-export",
 )
 
-// Resolves shared ADB, host-toolchain, and profile model dependencies in standalone builds.
-includeBuild("../simpleperf-viewer") {
-    name = "perfetto-viewer-simpleperf-tooling"
+// Resolves neutral profiler contracts, ADB, and host tooling in standalone builds.
+includeBuild("../platform-core") {
+    name = "perfetto-viewer-platform-core"
+}
+
+includeBuild("../platform-perfetto") {
+    name = "perfetto-viewer-platform-perfetto"
 }
 
 includeBuild("../ui-components") {

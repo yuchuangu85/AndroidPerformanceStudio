@@ -1,5 +1,6 @@
 package com.androidperformancestudio.perfetto.storage
 
+import com.androidperformancestudio.perfetto.model.PerfettoArtifactFactory
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
 import com.androidperformancestudio.perfetto.model.TraceSession
@@ -14,6 +15,7 @@ class TraceSessionStoreTest {
     fun `round trips paths and text containing json delimiters`() {
         val root = Files.createTempDirectory("perfetto-session-store-test")
         val trace = root.resolve("trace,with{json}\"quotes.pftrace")
+        Files.writeString(trace, "trace")
         val session =
             TraceSession(
                 id = "session-1",
@@ -35,12 +37,15 @@ class TraceSessionStoreTest {
                 fileSizeBytes = 42,
                 notes = "binder, \"jank\"",
                 isProtected = true,
+                artifact = PerfettoArtifactFactory(ByteArray(32) { 1 }).imported("artifact-1", trace, Instant.EPOCH),
             )
         val store = TraceSessionStore(root.resolve("index"))
 
         assertIs<com.androidperformancestudio.model.StudioResult.Success<Unit>>(store.save(session))
         val listed = assertIs<com.androidperformancestudio.model.StudioResult.Success<List<TraceSession>>>(store.listRecent()).value
-        assertEquals(session, listed.single())
+        assertEquals(session.copy(deviceSerial = ""), listed.single())
+        assertEquals(session.artifact, listed.single().artifact)
+        assertEquals(false, Files.readString(root.resolve("index/sessions.json")).contains("emulator-5554"))
 
         assertIs<com.androidperformancestudio.model.StudioResult.Success<Unit>>(store.delete(session.id))
         assertEquals(

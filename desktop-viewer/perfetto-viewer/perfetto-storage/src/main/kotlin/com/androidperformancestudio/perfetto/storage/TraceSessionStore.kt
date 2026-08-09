@@ -1,5 +1,6 @@
 package com.androidperformancestudio.perfetto.storage
 
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
@@ -88,7 +89,6 @@ class TraceSessionStore(
             put("traceFile", session.traceFile.toString())
             put("template", session.captureConfig.template.name)
             session.captureConfig.targetPackage?.let { put("targetPackage", it) }
-            put("deviceSerial", session.deviceSerial)
             put("deviceModel", session.deviceModel)
             put("androidSdk", session.androidSdk)
             put("capturedAt", session.capturedAt.toString())
@@ -105,6 +105,7 @@ class TraceSessionStore(
             session.captureConfig.customConfigText?.let { put("customConfigText", it) }
             session.notes?.let { put("notes", it) }
             put("isProtected", session.isProtected)
+            session.artifact?.let { artifact -> put("artifact", json.parseToJsonElement(CaptureArtifactJson.encode(artifact))) }
         }
 
     private fun parseSession(element: kotlinx.serialization.json.JsonElement): TraceSession? {
@@ -127,7 +128,7 @@ class TraceSessionStore(
                         additionalCategories = objectValue.stringArray("additionalCategories"),
                         customConfigText = objectValue.string("customConfigText"),
                     ),
-                deviceSerial = objectValue.string("deviceSerial").orEmpty(),
+                deviceSerial = "",
                 deviceModel = objectValue.string("deviceModel").orEmpty(),
                 androidSdk = objectValue.int("androidSdk") ?: 0,
                 capturedAt = Instant.parse(objectValue.string("capturedAt") ?: return null),
@@ -135,6 +136,7 @@ class TraceSessionStore(
                 fileSizeBytes = objectValue.long("fileSizeBytes") ?: 0,
                 notes = objectValue.string("notes"),
                 isProtected = objectValue.boolean("isProtected") ?: false,
+                artifact = objectValue["artifact"]?.let { CaptureArtifactJson.decode(it.toString()) },
             )
         }.getOrNull()
     }

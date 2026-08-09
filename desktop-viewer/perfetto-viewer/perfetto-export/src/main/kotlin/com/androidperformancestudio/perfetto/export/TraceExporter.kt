@@ -1,5 +1,6 @@
 package com.androidperformancestudio.perfetto.export
 
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
@@ -31,6 +32,11 @@ class TraceExporter {
                 zip.putNextEntry(ZipEntry("metadata.properties"))
                 zip.write(buildMetadataProperties(session).toByteArray())
                 zip.closeEntry()
+                session.artifact?.let { artifact ->
+                    zip.putNextEntry(ZipEntry("capture-artifact.json"))
+                    zip.write(CaptureArtifactJson.encode(artifact).toByteArray())
+                    zip.closeEntry()
+                }
             }
             StudioResult.Success(outputFile)
         } catch (e: Exception) {
@@ -51,7 +57,6 @@ class TraceExporter {
                 buildJsonObject {
                     put("id", session.id)
                     put("capturedAt", session.capturedAt.toString())
-                    put("deviceSerial", session.deviceSerial)
                     put("deviceModel", session.deviceModel)
                     put("androidSdk", session.androidSdk)
                     put("durationNanos", session.durationNanos)
@@ -81,12 +86,12 @@ class TraceExporter {
         buildString {
             appendLine("session.id=${escapeProperty(session.id)}")
             appendLine("captured.at=${session.capturedAt}")
-            appendLine("device.serial=${escapeProperty(session.deviceSerial)}")
             appendLine("device.model=${escapeProperty(session.deviceModel)}")
             appendLine("device.sdk=${session.androidSdk}")
             appendLine("trace.template=${session.captureConfig.template.name}")
             appendLine("trace.duration.seconds=${session.captureConfig.durationSeconds}")
             appendLine("trace.buffer.kb=${session.captureConfig.bufferSizeKb}")
+            session.artifact?.let { appendLine("artifact.sha256=${it.sha256.value}") }
             appendLine("exporter.version=1.0")
         }
 

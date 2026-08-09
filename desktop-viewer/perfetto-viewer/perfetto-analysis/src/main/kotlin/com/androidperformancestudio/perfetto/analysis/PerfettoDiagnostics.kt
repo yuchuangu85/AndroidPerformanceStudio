@@ -1,5 +1,9 @@
 package com.androidperformancestudio.perfetto.analysis
 
+import com.androidperformancestudio.platform.perfetto.TraceColumn
+import com.androidperformancestudio.platform.perfetto.TraceQuery
+import com.androidperformancestudio.platform.perfetto.TraceQuerySchema
+
 enum class DiagnosticCategory(
     val displayName: String,
 ) {
@@ -15,8 +19,35 @@ data class DiagnosticQuery(
     val category: DiagnosticCategory,
     val title: String,
     val description: String,
+    val columns: List<String>,
     val sql: String,
+) {
+    init {
+        require(columns.isNotEmpty() && columns.distinct().size == columns.size) { "diagnostic columns must be unique" }
+    }
+
+    fun typedQuery(): TraceQuery<DiagnosticRow> {
+        val typedColumns = columns.map { name -> TraceColumn.string(name) }
+        return TraceQuery(sql, TraceQuerySchema.v57_2(*typedColumns.toTypedArray())) { row ->
+            DiagnosticRow(typedColumns.map { column -> row[column] })
+        }
+    }
+}
+
+data class DiagnosticRow(
+    val values: List<String?>,
 )
+
+data class DiagnosticResult(
+    val columns: List<String>,
+    val rows: List<DiagnosticRow>,
+) {
+    fun toPlainText(): String =
+        buildList {
+            add(columns.joinToString(" | "))
+            rows.forEach { row -> add(row.values.joinToString(" | ") { it ?: "unknown" }) }
+        }.joinToString("\n")
+}
 
 object PerfettoDiagnostics {
     val all: List<DiagnosticQuery> =
@@ -26,6 +57,7 @@ object PerfettoDiagnostics {
                 category = DiagnosticCategory.CPU,
                 title = "CPU Scheduling Hotspots",
                 description = "Threads with the most CPU scheduling time",
+                columns = listOf("thread_name", "process_name", "slice_count", "total_dur_ms"),
                 sql =
                     """
                     SELECT thread.name AS thread_name, process.name AS process_name,
@@ -45,6 +77,7 @@ object PerfettoDiagnostics {
                 category = DiagnosticCategory.CPU,
                 title = "CPU Frequency Distribution",
                 description = "Time spent at each CPU frequency",
+                columns = listOf("cpu", "freq_mhz", "intervals", "total_dur_s"),
                 sql =
                     """
                     INCLUDE PERFETTO MODULE linux.cpu.frequency;
@@ -65,6 +98,7 @@ object PerfettoDiagnostics {
                 category = DiagnosticCategory.BINDER,
                 title = "Binder Transaction Latency",
                 description = "Binder calls with the highest total duration",
+                columns = listOf("client", "server", "txn_count", "avg_dur_ms", "max_dur_ms"),
                 sql =
                     """
                     INCLUDE PERFETTO MODULE android.binder;
@@ -86,6 +120,7 @@ object PerfettoDiagnostics {
                 category = DiagnosticCategory.GRAPHICS,
                 title = "Frame Jank Detection",
                 description = "Frames that missed their device-specific FrameTimeline deadline",
+                columns = listOf("process_name", "frame_count", "janky_frames", "avg_dur_ms", "max_dur_ms", "max_overrun_ms"),
                 sql =
                     """
                     INCLUDE PERFETTO MODULE android.frames.per_frame_metrics;
@@ -111,6 +146,7 @@ object PerfettoDiagnostics {
                 category = DiagnosticCategory.MEMORY,
                 title = "Memory Usage Timeline",
                 description = "Process memory counters over the trace duration",
+                columns = listOf("process_name", "min_kb", "max_kb", "avg_kb"),
                 sql =
                     """
                     INCLUDE PERFETTO MODULE linux.memory.process;
@@ -131,6 +167,7 @@ object PerfettoDiagnostics {
                 category = DiagnosticCategory.INPUT,
                 title = "Input Event Latency",
                 description = "Input dispatch to app response time",
+                columns = listOf("process_name", "event_count", "avg_dur_ms", "max_dur_ms"),
                 sql =
                     """
                     SELECT COALESCE(process.name, 'unknown') AS process_name,
@@ -152,6 +189,7 @@ object PerfettoDiagnostics {
                 category = DiagnosticCategory.CPU,
                 title = "Thread State Breakdown",
                 description = "Time spent in each scheduler state (Running/R/S/D)",
+                columns = listOf("thread_name", "process_name", "scheduler_state", "transitions", "total_dur_ms"),
                 sql =
                     """
                     SELECT thread.name AS thread_name, process.name AS process_name,
@@ -172,6 +210,7 @@ object PerfettoDiagnostics {
                 category = DiagnosticCategory.CPU,
                 title = "Thread Wakeup Latency",
                 description = "Time between waking and running on CPU",
+                columns = listOf("thread_name", "process_name", "wakeups", "avg_latency_us", "max_latency_us"),
                 sql =
                     """
                     INCLUDE PERFETTO MODULE sched.runnable;

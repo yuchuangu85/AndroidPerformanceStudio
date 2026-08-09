@@ -286,9 +286,17 @@ jobs:
         run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
 
   package-linux:
-    name: Package Linux x64 DEB and RPM
+    name: Package Linux ${{ matrix.arch }} DEB and RPM
     needs: [resolve, test, prepare-release]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
     steps:
@@ -323,11 +331,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fakeroot rpm
       - name: Build DEB and RPM
-        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=x64 --no-daemon
+        run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=${{ matrix.arch }} --no-daemon
       - name: Prepare Linux assets
         shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           deb_packages=(desktop-viewer/desktop-app/build/compose/binaries/main/deb/*.deb)
@@ -341,8 +350,8 @@ jobs:
             exit 1
           fi
           mkdir -p release-assets
-          cp "${deb_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-x64.deb"
-          cp "${rpm_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-x64.rpm"
+          cp "${deb_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-$ARCH.deb"
+          cp "${rpm_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-$ARCH.rpm"
       - name: Upload Linux installers to release
         shell: bash
         env:
@@ -381,6 +390,8 @@ jobs:
               f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-x64.pkg",
               f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-x64.deb",
               f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-x64.rpm",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-arm64.deb",
+              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-arm64.rpm",
           }
           actual = {asset["name"] for asset in release["assets"]}
           missing = sorted(expected - actual)

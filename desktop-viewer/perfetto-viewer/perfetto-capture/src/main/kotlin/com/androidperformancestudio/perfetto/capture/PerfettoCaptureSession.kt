@@ -4,12 +4,17 @@ import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.model.CaptureMetadata
+import com.androidperformancestudio.perfetto.model.PerfettoArtifactFactory
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureState
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.AdbCommandCancelledException
+import com.androidperformancestudio.platform.adb.AdbCommandFailedException
+import com.androidperformancestudio.platform.adb.AdbCommandTimeoutException
+import com.androidperformancestudio.platform.adb.AdbException
+import com.androidperformancestudio.platform.adb.AdbProcessStartException
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,15 +27,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 private const val DEVICE_CONFIG_PATH = "/data/local/tmp/perfetto-config.pbtxt"
 private const val DEVICE_TRACE_PATH = "/data/misc/perfetto-traces/aps-perfetto-trace.pftrace"
 private const val MILLISECONDS_PER_SECOND = 1_000L
+private const val REMOTE_STOP_POLL_ATTEMPTS = 20
+private const val REMOTE_STOP_POLL_DELAY_MILLIS = 250L
 private val CUSTOM_DURATION_PATTERN = Regex("(?m)^\\s*duration_ms\\s*:\\s*(\\d+)\\s*$")
 
 internal fun automaticCompletionDelayMillis(config: PerfettoCaptureConfig): Long? =
@@ -46,8 +55,9 @@ internal fun automaticCompletionDelayMillis(config: PerfettoCaptureConfig): Long
     }
 
 class PerfettoCaptureSession(
-    private val processRunner: PerfettoAdbProcessRunner = PerfettoAdbProcessRunner(::runAdbThroughCore),
+    private val adbClientFactory: (Path) -> AdbClient = ::DefaultAdbClient,
     private val sessionDir: Path = Files.createTempDirectory("perfetto-capture"),
+    private val artifactFactory: PerfettoArtifactFactory = PerfettoArtifactFactory(),
 ) {
     private val _state = MutableStateFlow<PerfettoCaptureState>(PerfettoCaptureState.Idle)
     val state: StateFlow<PerfettoCaptureState> = _state.asStateFlow()
@@ -57,7 +67,7 @@ class PerfettoCaptureSession(
     private val captureScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var completionJob: Job? = null
     private var activeConfig: PerfettoCaptureConfig? = null
-    private var activeAdbPath: String? = null
+    private var activeAdbClient: AdbClient? = null
     private var activeDeviceSerial: String? = null
     private var activePerfettoPid: Long? = null
     private var activeDeviceModel: String = "unknown"
@@ -97,20 +107,28 @@ class PerfettoCaptureSession(
             }
 
             val configText = PerfettoConfigTextBuilder.build(config)
+            val adbClient =
+                try {
+                    adbClientFactory(Path.of(adbPath))
+                } catch (error: IllegalArgumentException) {
+                    val failure = captureFailure<Unit>("ADB_PATH_INVALID", error.message ?: "ADB path is invalid")
+                    setFailed((failure as StudioResult.Failure).error)
+                    return@withContext failure
+                }
 
-            val pushResult = pushConfig(adbPath, deviceSerial, configText)
+            val pushResult = pushConfig(adbClient, deviceSerial, configText)
             if (pushResult is StudioResult.Failure) {
-                cleanupDeviceFiles(adbPath, deviceSerial)
+                cleanupDeviceFiles(adbClient, deviceSerial)
                 setFailed(pushResult.error)
                 return@withContext pushResult
             }
 
-            val startResult = startDeviceCapture(adbPath, deviceSerial)
+            val startResult = startDeviceCapture(adbClient, deviceSerial)
             when (startResult) {
                 is StudioResult.Success -> {
                     val (startTime, pid) = startResult.value
-                    val deviceInfo = readDeviceInfo(adbPath, deviceSerial)
-                    activeAdbPath = adbPath
+                    val deviceInfo = readDeviceInfo(adbClient, deviceSerial)
+                    activeAdbClient = adbClient
                     activeDeviceSerial = deviceSerial
                     activePerfettoPid = pid
                     activeDeviceModel = deviceInfo.first
@@ -121,7 +139,7 @@ class PerfettoCaptureSession(
                     return@withContext StudioResult.Success(Unit)
                 }
                 is StudioResult.Failure -> {
-                    cleanupDeviceFiles(adbPath, deviceSerial)
+                    cleanupDeviceFiles(adbClient, deviceSerial)
                     setFailed(startResult.error)
                     return@withContext startResult
                 }
@@ -139,44 +157,30 @@ class PerfettoCaptureSession(
     }
 
     private suspend fun pushConfig(
-        adbPath: String,
+        adbClient: AdbClient,
         deviceSerial: String,
         configText: String,
     ): StudioResult<Unit> {
         val tempFile = Files.createTempFile("perfetto-config", ".pbtxt")
         Files.writeString(tempFile, configText)
         try {
-            val request =
-                ProcessRequest(
-                    executable = Path.of(adbPath),
-                    arguments = listOf("-s", deviceSerial, "push", tempFile.toString(), DEVICE_CONFIG_PATH),
-                )
-            return when (val result = processRunner.run(request)) {
-                is ProcessRunResult.Completed -> StudioResult.Success(Unit)
-                is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
-            }
+            return adbCall { adbClient.push(deviceSerial, tempFile, DEVICE_CONFIG_PATH) }
         } finally {
             Files.deleteIfExists(tempFile)
         }
     }
 
     private suspend fun startDeviceCapture(
-        adbPath: String,
+        adbClient: AdbClient,
         deviceSerial: String,
     ): StudioResult<Pair<Instant, Long>> {
         val shellCommand = "cat $DEVICE_CONFIG_PATH | perfetto --txt -c - -o $DEVICE_TRACE_PATH --background-wait"
 
-        val request =
-            ProcessRequest(
-                executable = Path.of(adbPath),
-                arguments = listOf("-s", deviceSerial, "shell", shellCommand),
-                timeout = 35.seconds,
-            )
         val startedAt = Instant.now()
-        return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
-            is ProcessRunResult.Completed -> {
-                val output = result.output.stdout.text + "\n" + result.output.stderr.text
+        return when (val result = adbCall { adbClient.shell(deviceSerial, listOf("sh", "-c", shellCommand), 35.seconds) }) {
+            is StudioResult.Failure -> result
+            is StudioResult.Success -> {
+                val output = result.value.stdout + "\n" + result.value.stderr
                 val pid =
                     Regex("(?m)^\\s*(\\d+)\\s*$")
                         .find(output)
@@ -220,15 +224,15 @@ class PerfettoCaptureSession(
                 return@withLock captureFailure(code = "NOT_RECORDING", message = "Capture is not recording")
             }
 
-            val adb = activeAdbPath.orEmpty()
+            val adbClient = activeAdbClient ?: return@withLock captureFailure("ADB_CLIENT_MISSING", "Capture ADB client is unavailable")
             val serial = activeDeviceSerial.orEmpty()
             val pid = activePerfettoPid
-            if (requestRemoteStop && pid != null) stopRemoteCapture(adb, serial, pid)
-            if (pid != null && !waitForRemoteStop(adb, serial, pid)) {
-                stopRemoteCapture(adb, serial, pid)
-                if (!waitForRemoteStop(adb, serial, pid)) {
-                    forceStopRemoteCapture(adb, serial, pid)
-                    cleanupDeviceFiles(adb, serial)
+            if (requestRemoteStop && pid != null) stopRemoteCapture(adbClient, serial, pid)
+            if (pid != null && !waitForRemoteStop(adbClient, serial, pid)) {
+                stopRemoteCapture(adbClient, serial, pid)
+                if (!waitForRemoteStop(adbClient, serial, pid)) {
+                    forceStopRemoteCapture(adbClient, serial, pid)
+                    cleanupDeviceFiles(adbClient, serial)
                     val error =
                         StudioError(
                             category = ErrorCategory.PROCESS_TIMEOUT,
@@ -244,15 +248,29 @@ class PerfettoCaptureSession(
             val traceFile = sessionDir.resolve("trace-${System.currentTimeMillis()}.pftrace")
             val pullResult =
                 try {
-                    pullTrace(adb, serial, traceFile)
+                    pullTrace(adbClient, serial, traceFile)
                 } finally {
-                    cleanupDeviceFiles(adb, serial)
+                    cleanupDeviceFiles(adbClient, serial)
                 }
             if (pullResult is StudioResult.Failure) {
                 setFailed(pullResult.error)
                 return@withLock pullResult
             }
             val capturedAt = recordingStartedAt ?: Instant.now()
+            val artifact =
+                try {
+                    artifactFactory.captured(
+                        id = UUID.randomUUID().toString(),
+                        traceFile = traceFile,
+                        deviceSerial = serial,
+                        deviceModel = activeDeviceModel,
+                        capturedAt = capturedAt,
+                    )
+                } catch (error: IOException) {
+                    return@withLock failArtifactRegistration(error)
+                } catch (error: IllegalArgumentException) {
+                    return@withLock failArtifactRegistration(error)
+                }
             val completed =
                 PerfettoCaptureState.Completed(
                     traceFile = traceFile,
@@ -267,6 +285,7 @@ class PerfettoCaptureSession(
                             traceFileSizeBytes = Files.size(traceFile),
                             config = config,
                             command = "perfetto --txt -c - -o $DEVICE_TRACE_PATH --background-wait",
+                            artifact = artifact,
                         ),
                 )
             _state.value = completed
@@ -275,72 +294,48 @@ class PerfettoCaptureSession(
         }
 
     private suspend fun stopRemoteCapture(
-        adbPath: String,
+        adbClient: AdbClient,
         deviceSerial: String,
         pid: Long,
     ) {
-        processRunner.run(
-            ProcessRequest(
-                executable = Path.of(adbPath),
-                arguments = listOf("-s", deviceSerial, "shell", "kill", "-TERM", pid.toString()),
-                timeout = 5.seconds,
-            ),
-        )
+        adbCall { adbClient.shell(deviceSerial, listOf("kill", "-TERM", pid.toString()), 5.seconds) }
     }
 
     private suspend fun forceStopRemoteCapture(
-        adbPath: String,
+        adbClient: AdbClient,
         deviceSerial: String,
         pid: Long,
     ) {
-        processRunner.run(
-            ProcessRequest(
-                executable = Path.of(adbPath),
-                arguments = listOf("-s", deviceSerial, "shell", "kill", "-KILL", pid.toString()),
-                timeout = 5.seconds,
-            ),
-        )
+        adbCall { adbClient.shell(deviceSerial, listOf("kill", "-KILL", pid.toString()), 5.seconds) }
     }
 
     private suspend fun waitForRemoteStop(
-        adbPath: String,
+        adbClient: AdbClient,
         deviceSerial: String,
         pid: Long,
     ): Boolean {
-        repeat(20) {
-            val result =
-                processRunner.run(
-                    ProcessRequest(
-                        executable = Path.of(adbPath),
-                        arguments = listOf("-s", deviceSerial, "shell", "kill", "-0", pid.toString()),
-                        timeout = 2.seconds,
-                    ),
-                )
-            if (result is ProcessRunResult.Failed) return true
-            delay(250)
+        repeat(REMOTE_STOP_POLL_ATTEMPTS) {
+            val result = adbCall { adbClient.shell(deviceSerial, listOf("kill", "-0", pid.toString()), 2.seconds) }
+            if (result is StudioResult.Failure && result.error.code == "ADB_COMMAND_FAILED") return true
+            delay(REMOTE_STOP_POLL_DELAY_MILLIS)
         }
         return false
     }
 
     private suspend fun readDeviceInfo(
-        adbPath: String,
+        adbClient: AdbClient,
         deviceSerial: String,
     ): Pair<String, Int> {
-        val request =
-            ProcessRequest(
-                executable = Path.of(adbPath),
-                arguments =
-                    listOf(
-                        "-s",
-                        deviceSerial,
-                        "shell",
-                        "getprop ro.product.model; getprop ro.build.version.sdk",
-                    ),
-                timeout = 5.seconds,
-            )
-        val result = processRunner.run(request) as? ProcessRunResult.Completed ?: return Pair("unknown", 0)
+        val result =
+            adbCall {
+                adbClient.shell(
+                    deviceSerial,
+                    listOf("sh", "-c", "getprop ro.product.model; getprop ro.build.version.sdk"),
+                    5.seconds,
+                )
+            } as? StudioResult.Success ?: return Pair("unknown", 0)
         val lines =
-            result.output.stdout.text
+            result.value.stdout
                 .lineSequence()
                 .map(String::trim)
                 .filter(String::isNotEmpty)
@@ -349,11 +344,11 @@ class PerfettoCaptureSession(
     }
 
     private suspend fun pullTrace(
-        adbPath: String,
+        adbClient: AdbClient,
         deviceSerial: String,
         traceFile: Path,
     ): StudioResult<Unit> {
-        if (adbPath.isBlank() || deviceSerial.isBlank()) {
+        if (deviceSerial.isBlank()) {
             return StudioResult.Failure(
                 StudioError(
                     category = ErrorCategory.CONFIGURATION,
@@ -362,28 +357,15 @@ class PerfettoCaptureSession(
                 ),
             )
         }
-        val request =
-            ProcessRequest(
-                executable = Path.of(adbPath),
-                arguments = listOf("-s", deviceSerial, "pull", DEVICE_TRACE_PATH, traceFile.toString()),
-            )
-        return when (val result = processRunner.run(request)) {
-            is ProcessRunResult.Completed -> StudioResult.Success(Unit)
-            is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
-        }
+        return adbCall { adbClient.pull(deviceSerial, DEVICE_TRACE_PATH, traceFile) }
     }
 
     private suspend fun cleanupDeviceFiles(
-        adbPath: String,
+        adbClient: AdbClient,
         deviceSerial: String,
     ) {
-        if (adbPath.isBlank() || deviceSerial.isBlank()) return
-        processRunner.run(
-            ProcessRequest(
-                executable = Path.of(adbPath),
-                arguments = listOf("-s", deviceSerial, "shell", "rm", "-f", DEVICE_TRACE_PATH, DEVICE_CONFIG_PATH),
-            ),
-        )
+        if (deviceSerial.isBlank()) return
+        adbCall { adbClient.shell(deviceSerial, listOf("rm", "-f", DEVICE_TRACE_PATH, DEVICE_CONFIG_PATH)) }
     }
 
     private fun <T> captureFailure(
@@ -403,10 +385,22 @@ class PerfettoCaptureSession(
         clearActiveCapture()
     }
 
+    private fun failArtifactRegistration(error: Throwable): StudioResult<PerfettoCaptureState.Completed> {
+        val failure =
+            StudioError(
+                category = ErrorCategory.DATA_VALIDATION,
+                code = "PERFETTO_ARTIFACT_INVALID",
+                message = error.message ?: "Captured Perfetto evidence could not be registered",
+                cause = error,
+            )
+        setFailed(failure)
+        return StudioResult.Failure(failure)
+    }
+
     private fun clearActiveCapture() {
         activeConfig = null
         completionJob = null
-        activeAdbPath = null
+        activeAdbClient = null
         activeDeviceSerial = null
         activePerfettoPid = null
         activeDeviceModel = "unknown"
@@ -415,8 +409,23 @@ class PerfettoCaptureSession(
     }
 }
 
-fun interface PerfettoAdbProcessRunner {
-    suspend fun run(request: ProcessRequest): ProcessRunResult
-}
+private suspend fun <T> adbCall(block: suspend () -> T): StudioResult<T> =
+    try {
+        StudioResult.Success(block())
+    } catch (error: AdbCommandFailedException) {
+        adbFailure(ErrorCategory.PROCESS_EXIT, "ADB_COMMAND_FAILED", error)
+    } catch (error: AdbCommandTimeoutException) {
+        adbFailure(ErrorCategory.PROCESS_TIMEOUT, "ADB_COMMAND_TIMEOUT", error)
+    } catch (error: AdbProcessStartException) {
+        adbFailure(ErrorCategory.PROCESS_START, "ADB_PROCESS_START_FAILED", error)
+    } catch (error: AdbCommandCancelledException) {
+        adbFailure(ErrorCategory.PROCESS_CANCELLED, "ADB_COMMAND_CANCELLED", error)
+    } catch (error: AdbException) {
+        adbFailure(ErrorCategory.UNKNOWN, "ADB_COMMAND_FAILED", error)
+    }
 
-private suspend fun runAdbThroughCore(request: ProcessRequest): ProcessRunResult = JvmProcessRunner().run(request)
+private fun <T> adbFailure(
+    category: ErrorCategory,
+    code: String,
+    error: Throwable,
+): StudioResult<T> = StudioResult.Failure(StudioError(category, code, error.message.orEmpty(), error))

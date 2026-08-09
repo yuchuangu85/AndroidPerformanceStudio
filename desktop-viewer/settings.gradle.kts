@@ -37,6 +37,11 @@ includeBuild("platform-core") {
     name = "platform-core"
 }
 
+// Shared verified Perfetto capture configuration and Trace Processor analysis.
+includeBuild("platform-perfetto") {
+    name = "platform-perfetto"
+}
+
 // Layout Inspector is kept as an isolated composite build.
 includeBuild("layout-inspector") {
     name = "layout-inspector"

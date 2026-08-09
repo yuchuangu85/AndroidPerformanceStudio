@@ -1,4 +1,5 @@
 package com.androidperformancestudio.perfetto.model
+import com.androidperformancestudio.contracts.CaptureArtifact
 import java.nio.file.Path
 import java.time.Instant
 
@@ -14,6 +15,7 @@ data class TraceSession(
     val fileSizeBytes: Long,
     val notes: String? = null,
     val isProtected: Boolean = false,
+    val artifact: CaptureArtifact? = null,
 )
 
 data class TraceSummary(

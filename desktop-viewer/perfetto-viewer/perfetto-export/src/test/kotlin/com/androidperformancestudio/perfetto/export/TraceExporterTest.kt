@@ -1,6 +1,7 @@
 package com.androidperformancestudio.perfetto.export
 
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.perfetto.model.PerfettoArtifactFactory
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
 import com.androidperformancestudio.perfetto.model.PerfettoTraceTemplate
 import com.androidperformancestudio.perfetto.model.TraceSession
@@ -41,6 +42,14 @@ class TraceExporterTest {
                 fileSizeBytes = traceBytes.size.toLong(),
                 notes = "jank, binder: \"slow\"",
                 isProtected = true,
+                artifact =
+                    PerfettoArtifactFactory(ByteArray(32) { 2 }).captured(
+                        id = "artifact-1",
+                        traceFile = trace,
+                        deviceSerial = "serial=1",
+                        deviceModel = "Pixel Test",
+                        capturedAt = Instant.parse("2026-07-25T01:02:03Z"),
+                    ),
             )
         val output = root.resolve("session.zip")
 
@@ -60,6 +69,9 @@ class TraceExporterTest {
                     .jsonPrimitive.content,
             )
             assertContentEquals(traceBytes, zip.getInputStream(zip.getEntry("trace.pftrace")).readBytes())
+            val artifact = zip.getInputStream(zip.getEntry("capture-artifact.json")).bufferedReader().readText()
+            assertEquals(false, artifact.contains("serial=1"))
+            assertEquals(false, jsonText.contains("serial=1"))
         }
     }
 }
