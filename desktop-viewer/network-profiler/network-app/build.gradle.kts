@@ -4,6 +4,7 @@ plugins {
 }
 dependencies {
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
     implementation(project(":network-model"))
     implementation(project(":network-agent-protocol"))
     implementation(project(":capture-network"))

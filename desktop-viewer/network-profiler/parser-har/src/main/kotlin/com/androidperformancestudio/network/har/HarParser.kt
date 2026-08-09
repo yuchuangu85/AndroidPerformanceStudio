@@ -256,5 +256,3 @@ private fun JsonObject.double(name: String): Double? = this[name]?.jsonPrimitive
 private fun JsonObject.int(name: String): Int? = this[name]?.jsonPrimitive?.intOrNull
 
 private fun JsonObject.long(name: String): Long? = this[name]?.jsonPrimitive?.longOrNull
-
-private fun parseInstant(value: String): Instant = runCatching { Instant.parse(value) }.getOrDefault(Instant.EPOCH)

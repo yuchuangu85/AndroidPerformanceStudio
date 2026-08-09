@@ -1,6 +1,7 @@
 package com.androidperformancestudio.network.storage
 
 import com.androidperformancestudio.network.model.*
+import java.sql.DriverManager
 import java.time.Instant
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
@@ -9,11 +10,22 @@ import kotlin.test.assertEquals
 class SqliteNetworkStoreTest {
     @Test fun `round trips complete minimized network evidence idempotently`() {
         val result = fixture()
-        SqliteNetworkStore.open(createTempDirectory().resolve("db.sqlite")).use { store ->
+        val database = createTempDirectory().resolve("db.sqlite")
+        SqliteNetworkStore.open(database).use { store ->
             store.save(result)
             store.save(result)
             assertEquals(1, store.listRecent().size)
-            assertEquals(result, store.load(result.session.id))
+            assertEquals(
+                result.copy(session = result.session.copy(deviceSerial = networkDeviceLocalId("device"))),
+                store.load(result.session.id),
+            )
+        }
+        DriverManager.getConnection("jdbc:sqlite:$database").use { connection ->
+            val stored = connection.createStatement().executeQuery("SELECT device_serial FROM network_session_v2").use {
+                check(it.next())
+                it.getString(1)
+            }
+            assertEquals(networkDeviceLocalId("device"), stored)
         }
     }
 

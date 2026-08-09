@@ -129,7 +129,7 @@ public class NetworkExporter {
 
     private fun sessionJson(session: NetworkSession): JsonObject = buildJsonObject {
         put("id", session.id)
-        session.deviceSerial?.let { put("deviceSerial", it) }
+        session.deviceSerial?.let { put("deviceLocalId", networkDeviceLocalId(it)) }
         session.packageName?.let { put("packageName", it) }
         put("startedAt", session.startedAt.toString())
         session.endedAt?.let { put("endedAt", it.toString()) }

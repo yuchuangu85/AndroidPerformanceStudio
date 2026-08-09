@@ -18,6 +18,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.contracts.CaptureArtifact
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.network.analysis.NetworkAnalyzer
 import com.androidperformancestudio.network.capture.ActiveNetworkCapture
 import com.androidperformancestudio.network.capture.NetworkAgentCapture
@@ -46,6 +48,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
 import java.nio.file.Path
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -62,10 +65,15 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
     var pollJob by remember { mutableStateOf<Job?>(null) }
     var state by remember { mutableStateOf(NetworkProfilerState()) }
 
-    fun complete(result: com.androidperformancestudio.network.model.NetworkCaptureResult, message: String) {
+    fun complete(result: com.androidperformancestudio.network.model.NetworkCaptureResult, message: String, artifact: CaptureArtifact) {
         val summary = analyzer.summarize(result.calls)
         runCatching { SqliteNetworkStore.open(db).use { it.save(result) } }
-        state = state.copy(capturing = false, result = result, summary = summary, selectedCallId = result.calls.firstOrNull()?.callId, message = message, error = null)
+        runCatching {
+            val directory = db.toAbsolutePath().parent.resolve("capture-artifacts")
+            Files.createDirectories(directory)
+            Files.writeString(directory.resolve("${artifact.id.value}.capture-artifact.json"), CaptureArtifactJson.encode(artifact))
+        }
+        state = state.copy(capturing = false, result = result, summary = summary, selectedCallId = result.calls.firstOrNull()?.callId, message = message, error = null, artifact = artifact)
     }
 
     fun start() {
@@ -87,7 +95,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
         val session = active ?: return
         scope.launch(Dispatchers.IO) {
             pollJob?.cancelAndJoin()
-            runCatching { capture.stop(session) }.onSuccess { withContext(Dispatchers.Main) { complete(it, localizedStringResource(Res.string.capture_completed, language, it.calls.size)) } }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }
+            runCatching { capture.stop(session) }.onSuccess { result -> withContext(Dispatchers.Main) { complete(result, localizedStringResource(Res.string.capture_completed, language, result.calls.size), NetworkArtifactFactory().agent(result)) } }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }
             withContext(Dispatchers.Main) { active = null }
         }
     }
@@ -107,10 +115,11 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     onClick = {
                         chooseHar(window, language)?.let { file ->
                             runCatching { HarParser().parse(file.toPath()) }
-                                .onSuccess {
+                                .onSuccess { result ->
                                     complete(
-                                        it,
+                                        result,
                                         localizedStringResource(Res.string.imported_redacted, language, file.name),
+                                        NetworkArtifactFactory().har(file.toPath(), result),
                                     )
                                 }.onFailure { state = state.copy(error = it.message) }
                         }

@@ -6,10 +6,8 @@ import com.androidperformancestudio.network.model.NetworkPhaseKind
 import com.androidperformancestudio.network.protocol.AgentNetworkEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class NetworkEventAssemblerTest {
     @Test
@@ -131,18 +129,18 @@ class NetworkEventAssemblerTest {
         kind: String,
         time: Long,
         status: Int? = null,
-    tlsVersion: String? = null,
-    connection: String? = null,
-): AgentNetworkEvent =
-    AgentNetworkEvent(
-        sequence,
-        "call",
-        kind,
-        time,
-        method = "GET",
-        url = "https://example.test/path",
-        statusCode = status,
-        tlsVersion = tlsVersion,
-        connectionId = connection,
-    )
+        tlsVersion: String? = null,
+        connection: String? = null,
+    ): AgentNetworkEvent =
+        AgentNetworkEvent(
+            sequence,
+            "call",
+            kind,
+            time,
+            method = "GET",
+            url = "https://example.test/path",
+            statusCode = status,
+            tlsVersion = tlsVersion,
+            connectionId = connection,
+        )
 }

@@ -23,6 +23,10 @@ class NetworkExporterTest {
         ZipFile(bundle.toFile()).use { zip ->
             assertNotNull(zip.getEntry("network-session.json"))
             assertNotNull(zip.getEntry("raw-events.json"))
+            val sessionJson = zip.getInputStream(zip.getEntry("network-session.json")).bufferedReader().readText()
+            assertTrue(sessionJson.contains("deviceLocalId"))
+            assertTrue(!sessionJson.contains("\"deviceSerial\""))
+            assertTrue(!sessionJson.contains("\"device\""))
             assertTrue(zip.getInputStream(zip.getEntry("manifest.txt")).bufferedReader().readText().contains("privacy=minimized_network_evidence"))
         }
     }

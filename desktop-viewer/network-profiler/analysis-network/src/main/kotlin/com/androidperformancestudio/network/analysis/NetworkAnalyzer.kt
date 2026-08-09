@@ -4,7 +4,6 @@ import com.androidperformancestudio.network.model.CacheDisposition
 import com.androidperformancestudio.network.model.CallOutcome
 import com.androidperformancestudio.network.model.ConnectionUse
 import com.androidperformancestudio.network.model.HttpCall
-import com.androidperformancestudio.network.model.HttpExchange
 import com.androidperformancestudio.network.model.NetworkEvidenceSource
 import com.androidperformancestudio.network.model.NetworkPhaseKind
 
@@ -200,5 +199,8 @@ public class NetworkAnalyzer {
         return values[index]
     }
 
-    private data class ConcurrencyEvent(val timestampNs: Long, val delta: Int)
+    private data class ConcurrencyEvent(
+        val timestampNs: Long,
+        val delta: Int,
+    )
 }

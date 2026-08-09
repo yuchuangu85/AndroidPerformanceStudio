@@ -69,14 +69,16 @@ public class NetworkUrlRedactor(
             append(minimizePath(uri.rawPath.orEmpty()))
             uri.rawQuery?.let { query ->
                 append('?')
-                append(query.split('&').joinToString("&") { parameter ->
-                    val key = parameter.substringBefore('=')
-                    val value = if (isKeySensitive(key) || key !in queryKeyAllowlist) REDACTED_VALUE else parameter.substringAfter('=', "")
-                    if (isKeySensitive(key) && key in queryKeyAllowlist) {
-                        redactionWarnings += "Query key \"$key\" is in the allowlist but is classified as sensitive and was redacted."
-                    }
-                    "$key=$value"
-                })
+                append(
+                    query.split('&').joinToString("&") { parameter ->
+                        val key = parameter.substringBefore('=')
+                        val value = if (isKeySensitive(key) || key !in queryKeyAllowlist) REDACTED_VALUE else parameter.substringAfter('=', "")
+                        if (isKeySensitive(key) && key in queryKeyAllowlist) {
+                            redactionWarnings += "Query key \"$key\" is in the allowlist but is classified as sensitive and was redacted."
+                        }
+                        "$key=$value"
+                    },
+                )
             }
         }
     }.getOrElse { INVALID_URL }

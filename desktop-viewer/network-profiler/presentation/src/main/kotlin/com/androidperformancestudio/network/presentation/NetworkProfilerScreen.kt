@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.network.analysis.NetworkSummary
 import com.androidperformancestudio.network.model.CallOutcome
 import com.androidperformancestudio.network.model.ConnectionUse
@@ -33,6 +34,7 @@ public data class NetworkProfilerState(
     val selectedCallId: String? = null,
     val message: String? = null,
     val error: String? = null,
+    val artifact: CaptureArtifact? = null,
 )
 
 public data class NetworkProfilerActions(
@@ -76,6 +78,14 @@ public fun NetworkProfilerScreen(state: NetworkProfilerState, actions: NetworkPr
             summary.largestObservedPhase?.let { phase -> Text(localizedStringResource(Res.string.largest_phase, language, phase.kind.displayName(language), phase.medianDurationMs?.let { "%.2f ms".format(it) } ?: "—"), style = MaterialTheme.typography.bodySmall) }
         }
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+        state.artifact?.let { artifact ->
+            Text(
+                "Artifact: ${artifact.completeness.name.lowercase()} · ${artifact.availableCapabilities.size} capabilities" +
+                    if (artifact.limitations.isEmpty()) "" else " · ${artifact.limitations.size} limitation(s)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { items(state.result?.calls.orEmpty()) { call -> CallCard(call, call.callId == state.selectedCallId, language) { actions.selectCall(call.callId) } } }

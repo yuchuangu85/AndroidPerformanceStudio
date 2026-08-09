@@ -76,7 +76,7 @@ public class SqliteNetworkStore private constructor(
             statement.setString(i++, session.id)
             statement.setString(i++, session.startedAt.toString())
             statement.setString(i++, session.endedAt?.toString())
-            statement.setString(i++, session.deviceSerial)
+            statement.setString(i++, session.deviceSerial?.let(::networkDeviceLocalId))
             statement.setString(i++, session.packageName)
             statement.setString(i++, session.status.name)
             statement.setString(i++, session.sourceTimeDomain.name)
