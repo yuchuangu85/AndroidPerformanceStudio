@@ -1,5 +1,11 @@
 package com.androidperformancestudio.platform.adb
 
+import com.androidperformancestudio.platform.toolchain.HostProcessBinaryResult
+import com.androidperformancestudio.platform.toolchain.HostProcessLaunchRequest
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.HostProcessRunner
+import com.androidperformancestudio.platform.toolchain.HostProcessTextResult
+import com.androidperformancestudio.platform.toolchain.RunningHostProcess
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 import kotlin.test.Test
@@ -26,7 +32,7 @@ class AdbClientTest {
                     listOf("-s", "emulator-5554", "forward", "tcp:39123", "localabstract:agentperf"),
                     listOf("-s", "emulator-5554", "forward", "--remove", "tcp:39123"),
                 ),
-                runner.commands.map(AdbCommand::arguments),
+                runner.commands.map(HostProcessRequest::arguments),
             )
         }
 
@@ -45,17 +51,20 @@ class AdbClientTest {
             assertEquals(emptyList(), runner.commands)
         }
 
-    private class RecordingRunner : ProcessRunner {
-        val commands = mutableListOf<AdbCommand>()
+    private class RecordingRunner : HostProcessRunner {
+        val commands = mutableListOf<HostProcessRequest>()
 
-        override suspend fun executeText(command: AdbCommand): AdbTextResult {
-            commands += command
-            return AdbTextResult(0, "", "", Duration.ZERO)
+        override suspend fun executeText(request: HostProcessRequest): HostProcessTextResult {
+            commands += request
+            return HostProcessTextResult(-1, 0, "", "", Duration.ZERO, false, false)
         }
 
-        override suspend fun executeBinary(command: AdbCommand): AdbBinaryResult {
-            commands += command
-            return AdbBinaryResult(0, byteArrayOf(), byteArrayOf(), Duration.ZERO)
+        override suspend fun executeBinary(request: HostProcessRequest): HostProcessBinaryResult {
+            commands += request
+            return HostProcessBinaryResult(-1, 0, byteArrayOf(), byteArrayOf(), Duration.ZERO, false, false)
         }
+
+        override fun launch(request: HostProcessLaunchRequest): RunningHostProcess =
+            error("not used")
     }
 }

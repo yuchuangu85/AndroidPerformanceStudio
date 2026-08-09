@@ -3,16 +3,19 @@ package com.androidperformancestudio.perfetto.traceprocessor
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.toolchain.HostProcessLaunchRequest
+import com.androidperformancestudio.platform.toolchain.RunningHostProcess
 import com.androidperformancestudio.toolchain.JvmProcessRunner
 import com.androidperformancestudio.toolchain.ProcessRequest
 import com.androidperformancestudio.toolchain.ProcessRunResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
-import java.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -25,7 +28,7 @@ class TraceProcessorSession(
     val httpPort: Int = 9001,
     private val processRunner: JvmProcessRunner = JvmProcessRunner(),
 ) {
-    private var process: Process? = null
+    private var process: RunningHostProcess? = null
     private var serverLog: Path? = null
 
     var isRunning: Boolean = false
@@ -56,28 +59,30 @@ class TraceProcessorSession(
                 val logFile = Files.createTempFile("aps-trace-processor", ".log")
                 serverLog = logFile
                 process =
-                    ProcessBuilder(
-                        binary.path.toString(),
-                        "server",
-                        "http",
-                        "--port",
-                        httpPort.toString(),
-                        traceFile.toString(),
-                    ).redirectErrorStream(true)
-                        .redirectOutput(logFile.toFile())
-                        .start()
-                val deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos()
+                    processRunner.launch(
+                        HostProcessLaunchRequest(
+                            executable = binary.path,
+                            arguments =
+                                listOf(
+                                    "server",
+                                    "http",
+                                    "--port",
+                                    httpPort.toString(),
+                                    traceFile.toString(),
+                                ),
+                            outputFile = logFile,
+                        ),
+                    )
+                val deadline = System.nanoTime() + 10.seconds.inWholeNanoseconds
                 while (System.nanoTime() < deadline && process?.isAlive == true) {
                     if (isHttpReady()) {
                         isRunning = true
                         return@withContext StudioResult.Success(Unit)
                     }
-                    Thread.sleep(50)
+                    delay(50)
                 }
                 val failedProcess = process
-                failedProcess?.destroy()
-                if (failedProcess?.isAlive == true) failedProcess.destroyForcibly()
-                failedProcess?.waitFor()
+                failedProcess?.close()
                 val output = runCatching { Files.readString(logFile) }.getOrDefault("").take(1000)
                 stop()
                 StudioResult.Failure(
@@ -87,6 +92,9 @@ class TraceProcessorSession(
                         message = "trace_processor did not become ready${output.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()}",
                     ),
                 )
+            } catch (exception: CancellationException) {
+                stop()
+                throw exception
             } catch (exception: Exception) {
                 stop()
                 StudioResult.Failure(
@@ -142,8 +150,7 @@ class TraceProcessorSession(
         }
 
     fun stop() {
-        process?.destroy()
-        if (process?.isAlive == true) process?.destroyForcibly()
+        process?.close()
         process = null
         serverLog?.let { runCatching { Files.deleteIfExists(it) } }
         serverLog = null

@@ -1,10 +1,11 @@
 package com.androidperformancestudio.adb
 
-import com.androidperformancestudio.platform.adb.AdbCommand
-import com.androidperformancestudio.platform.adb.AdbCommandTimeoutException
 import com.androidperformancestudio.platform.adb.AdbExecutableLocator
-import com.androidperformancestudio.platform.adb.AdbProcessStartException
-import com.androidperformancestudio.platform.adb.JvmProcessRunner
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.HostProcessRunner
+import com.androidperformancestudio.platform.toolchain.HostProcessStartException
+import com.androidperformancestudio.platform.toolchain.HostProcessTimeoutException
+import com.androidperformancestudio.platform.toolchain.JvmHostProcessRunner
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 import java.nio.charset.StandardCharsets
@@ -24,14 +25,14 @@ fun interface ProcessRunner {
 class AdbProcessRunner(
     private val executable: String = resolveAdbExecutable(),
     private val timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
-    private val delegate: com.androidperformancestudio.platform.adb.ProcessRunner = JvmProcessRunner(),
+    private val delegate: HostProcessRunner = JvmHostProcessRunner(),
 ) : ProcessRunner {
     override fun run(arguments: List<String>): ProcessResult =
         try {
             val result =
                 runBlocking {
                     delegate.executeBinary(
-                        AdbCommand(
+                        HostProcessRequest(
                             executable = Path.of(executable),
                             arguments = arguments,
                             timeout = timeoutMillis.milliseconds,
@@ -44,13 +45,13 @@ class AdbProcessRunner(
                 stderr = result.stderr.toString(StandardCharsets.UTF_8),
                 stdoutBytes = result.stdout,
             )
-        } catch (error: AdbCommandTimeoutException) {
+        } catch (error: HostProcessTimeoutException) {
             ProcessResult(
                 exitCode = TIMEOUT_EXIT_CODE,
                 stdout = "",
                 stderr = error.message.orEmpty(),
             )
-        } catch (error: AdbProcessStartException) {
+        } catch (error: HostProcessStartException) {
             ProcessResult(
                 exitCode = COMMAND_NOT_FOUND_EXIT_CODE,
                 stdout = "",
