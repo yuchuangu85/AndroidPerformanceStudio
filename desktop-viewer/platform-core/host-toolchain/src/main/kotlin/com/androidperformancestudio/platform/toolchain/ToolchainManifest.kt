@@ -1,4 +1,4 @@
-package com.androidperformancestudio.toolchain
+package com.androidperformancestudio.platform.toolchain
 
 data class ToolchainManifest(
     val schemaVersion: Int,

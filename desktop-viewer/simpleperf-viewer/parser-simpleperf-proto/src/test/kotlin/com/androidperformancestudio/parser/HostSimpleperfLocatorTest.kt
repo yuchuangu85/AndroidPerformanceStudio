@@ -3,10 +3,10 @@ package com.androidperformancestudio.parser
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.time.Instant
@@ -21,7 +21,7 @@ class HostSimpleperfLocatorTest {
         runBlocking {
             val executable = Files.createTempFile("simpleperf-configured-", "")
             executable.writeText("configured")
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             val locator =
                 HostSimpleperfLocator(
                     configuredExecutable = executable,
@@ -97,7 +97,7 @@ class HostSimpleperfLocatorTest {
                     configuredExecutable = null,
                     bundledExecutable = null,
                     pathDirectories = listOf(directory),
-                    processInvocation = { request, _ -> ProcessRunResult.Failed(expected, output(request, 1, "")) },
+                    processInvocation = { request, _ -> HostCommandResult.Failed(expected, output(request, 1, "")) },
                 )
 
             val failure = assertIs<StudioResult.Failure>(locator.locate())
@@ -118,23 +118,23 @@ class HostSimpleperfLocatorTest {
         }
 
     private fun completed(
-        request: ProcessRequest,
+        request: HostProcessRequest,
         stdout: String,
         stderr: String = "",
-    ): ProcessRunResult.Completed = ProcessRunResult.Completed(output(request, 0, stdout, stderr))
+    ): HostCommandResult.Completed = HostCommandResult.Completed(output(request, 0, stdout, stderr))
 
     private fun output(
-        request: ProcessRequest,
+        request: HostProcessRequest,
         exitCode: Int,
         stdout: String,
         stderr: String = "",
-    ): ProcessOutput =
-        ProcessOutput(
+    ): HostCommandOutput =
+        HostCommandOutput(
             pid = 1,
             command = request.command,
             exitCode = exitCode,
-            stdout = CapturedProcessText(stdout, false),
-            stderr = CapturedProcessText(stderr, false),
+            stdout = HostCapturedText(stdout, false),
+            stderr = HostCapturedText(stderr, false),
             startedAt = Instant.EPOCH,
             finishedAt = Instant.EPOCH,
         )

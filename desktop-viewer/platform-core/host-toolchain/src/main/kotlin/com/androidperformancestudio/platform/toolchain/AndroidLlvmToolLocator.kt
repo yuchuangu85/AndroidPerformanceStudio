@@ -1,6 +1,6 @@
 @file:Suppress("MaxLineLength")
 
-package com.androidperformancestudio.toolchain
+package com.androidperformancestudio.platform.toolchain
 
 import com.androidperformancestudio.model.StudioResult
 import java.io.File

@@ -5,15 +5,17 @@ package com.androidperformancestudio.methodcapture
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.AdbException
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.seconds
 
-typealias MethodTraceCaptureProcessRunner = suspend (ProcessRequest, ProcessCancellationSignal) -> ProcessRunResult
+typealias MethodTraceCaptureProcessRunner = suspend (HostProcessRequest, HostCancellationSignal) -> HostCommandResult
 
 /**
  * Captures a Java/Kotlin method trace from the target process via `am profile start/stop`.
@@ -22,14 +24,14 @@ typealias MethodTraceCaptureProcessRunner = suspend (ProcessRequest, ProcessCanc
  * file is the ART method-trace format parsed by `ArtTraceParser`. The UI can call [requestStop] to
  * end the capture early (which trips the stop signal and flushes via `am profile stop`).
  */
+@Suppress("TooManyFunctions")
 class MethodTraceCaptureSession(
-    private val adbExecutable: Path,
-    private val processRunner: MethodTraceCaptureProcessRunner = { request, signal ->
-        JvmProcessRunner().run(request, signal)
-    },
+    private val adbClient: AdbClient,
 ) {
+    constructor(adbExecutable: Path) : this(DefaultAdbClient(adbExecutable))
+
     @Volatile
-    private var activeStopSignal: ProcessCancellationSignal? = null
+    private var activeStopSignal: HostCancellationSignal? = null
 
     /** True while a capture is between `am profile start` and `am profile stop`. */
     internal val isRecording: Boolean
@@ -42,7 +44,7 @@ class MethodTraceCaptureSession(
 
     suspend fun capture(
         request: MethodTraceCaptureRequest,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): StudioResult<MethodTraceCaptureResult> {
         val sdkLevel = readSdkApiLevel(request.serial, cancellationSignal)
         if (sdkLevel == null) {
@@ -72,7 +74,7 @@ class MethodTraceCaptureSession(
             return startResult
         }
 
-        val stopSignal = ProcessCancellationSignal()
+        val stopSignal = HostCancellationSignal()
         activeStopSignal = stopSignal
         try {
             awaitCaptureDuration(request.durationSeconds, stopSignal, cancellationSignal)
@@ -129,41 +131,39 @@ class MethodTraceCaptureSession(
 
     private suspend fun awaitCaptureDuration(
         durationSeconds: Int,
-        stopSignal: ProcessCancellationSignal,
-        cancellationSignal: ProcessCancellationSignal,
+        stopSignal: HostCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ) {
         val deadlineNanos = System.nanoTime() + durationSeconds * NANOS_PER_SECOND
         while (System.nanoTime() < deadlineNanos && !stopSignal.isCancelled && !cancellationSignal.isCancelled) {
-            kotlinx.coroutines.delay(100)
+            kotlinx.coroutines.delay(CAPTURE_STOP_POLL_INTERVAL_MS)
         }
     }
 
     private suspend fun readSdkApiLevel(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal,
-    ): Int? {
-        val result =
-            processRunner(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial, "shell", "getprop", "ro.build.version.sdk"),
+        cancellationSignal: HostCancellationSignal,
+    ): Int? =
+        try {
+            adbClient
+                .shell(
+                    serial = serial,
+                    arguments = listOf("getprop", "ro.build.version.sdk"),
                     timeout = COMMAND_TIMEOUT,
-                ),
-                cancellationSignal,
-            )
-        return when (result) {
-            is ProcessRunResult.Completed ->
-                result.output.stdout.text
-                    .trim()
-                    .toIntOrNull()
-            is ProcessRunResult.Failed -> null
+                    isCancellationRequested = cancellationSignal::isCancelled,
+                ).stdout
+                .trim()
+                .toIntOrNull()
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw error
+        } catch (_: RuntimeException) {
+            null
         }
-    }
 
     private suspend fun waitForTraceFile(
         serial: String,
         deviceTracePath: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): Boolean {
         repeat(FILE_POLL_ATTEMPTS) {
             if (traceFileExists(serial, deviceTracePath, cancellationSignal)) return true
@@ -175,56 +175,64 @@ class MethodTraceCaptureSession(
     private suspend fun traceFileExists(
         serial: String,
         deviceTracePath: String,
-        cancellationSignal: ProcessCancellationSignal,
-    ): Boolean {
-        val result =
-            processRunner(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial, "shell", "ls", "-l", deviceTracePath),
-                    timeout = COMMAND_TIMEOUT,
-                ),
-                cancellationSignal,
+        cancellationSignal: HostCancellationSignal,
+    ): Boolean =
+        runCatching {
+            adbClient.shell(
+                serial = serial,
+                arguments = listOf("ls", "-l", deviceTracePath),
+                timeout = COMMAND_TIMEOUT,
+                isCancellationRequested = cancellationSignal::isCancelled,
             )
-        return result is ProcessRunResult.Completed
-    }
+        }.isSuccess
 
     private suspend fun runAdb(
         serial: String,
         arguments: List<String>,
         timeout: kotlin.time.Duration,
-        cancellationSignal: ProcessCancellationSignal,
-    ): StudioResult<Unit> {
-        val result =
-            processRunner(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial) + arguments,
-                    timeout = timeout,
-                ),
-                cancellationSignal,
-            )
-        return when (result) {
-            is ProcessRunResult.Completed -> StudioResult.Success(Unit)
-            is ProcessRunResult.Failed -> StudioResult.Failure(adbError(arguments, result))
+        cancellationSignal: HostCancellationSignal,
+    ): StudioResult<Unit> =
+        try {
+            when (arguments.firstOrNull()) {
+                "shell" ->
+                    adbClient.shell(
+                        serial = serial,
+                        arguments = arguments.drop(1),
+                        timeout = timeout,
+                        isCancellationRequested = cancellationSignal::isCancelled,
+                    )
+                "pull" ->
+                    adbClient.pull(
+                        serial = serial,
+                        remotePath = arguments[1],
+                        localPath = Path.of(arguments[2]),
+                        timeout = timeout,
+                        isCancellationRequested = cancellationSignal::isCancelled,
+                    )
+                else -> error("Unsupported typed ADB operation: ${arguments.firstOrNull()}")
+            }
+            StudioResult.Success(Unit)
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw error
+        } catch (error: AdbException) {
+            StudioResult.Failure(adbError(arguments, error))
         }
-    }
 
     private suspend fun cleanup(
         serial: String,
         devicePaths: List<String>,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): MethodTraceWarning? {
         val result =
-            processRunner(
-                ProcessRequest(
-                    executable = adbExecutable,
-                    arguments = listOf("-s", serial, "shell", "rm", "-f") + devicePaths,
+            runCatching {
+                adbClient.shell(
+                    serial = serial,
+                    arguments = listOf("rm", "-f") + devicePaths,
                     timeout = COMMAND_TIMEOUT,
-                ),
-                cancellationSignal,
-            )
-        return if (result is ProcessRunResult.Completed) {
+                    isCancellationRequested = cancellationSignal::isCancelled,
+                )
+            }
+        return if (result.isSuccess) {
             null
         } else {
             MethodTraceWarning(
@@ -236,41 +244,36 @@ class MethodTraceCaptureSession(
 
     private fun adbError(
         adbArguments: List<String>,
-        result: ProcessRunResult.Failed,
+        error: RuntimeException,
     ): StudioError {
-        val message = combinedOutput(result).ifBlank { result.error.message }
+        val message = error.message.orEmpty()
         return when {
             adbArguments.contains("start") && adbArguments.contains("am") ->
                 StudioError(
-                    category = result.error.category,
+                    category = ErrorCategory.PROCESS_EXIT,
                     code = "METHOD_TRACE_START_FAILED",
                     message =
                         "Failed to start method tracing; the target process may not be debuggable " +
                             "or profileable. $message",
-                    cause = result.error.cause,
+                    cause = error,
                 )
             adbArguments.contains("stop") && adbArguments.contains("am") ->
                 StudioError(
-                    category = result.error.category,
+                    category = ErrorCategory.PROCESS_EXIT,
                     code = "METHOD_TRACE_STOP_FAILED",
                     message = "Failed to stop method tracing. $message",
-                    cause = result.error.cause,
+                    cause = error,
                 )
             adbArguments.contains("pull") ->
                 StudioError(
-                    category = result.error.category,
+                    category = ErrorCategory.PROCESS_EXIT,
                     code = "METHOD_TRACE_PULL_FAILED",
                     message = "Failed to pull the method trace. $message",
-                    cause = result.error.cause,
+                    cause = error,
                 )
-            else -> result.error
+            else -> StudioError(ErrorCategory.PROCESS_EXIT, "ADB_COMMAND_FAILED", message, error)
         }
     }
-
-    private fun combinedOutput(result: ProcessRunResult.Failed): String =
-        listOfNotNull(result.output?.stderr?.text, result.output?.stdout?.text)
-            .joinToString(separator = "\n")
-            .trim()
 
     private fun failure(
         code: String,
@@ -285,6 +288,7 @@ class MethodTraceCaptureSession(
         )
 
     companion object {
+        private const val CAPTURE_STOP_POLL_INTERVAL_MS = 100L
         const val MINIMUM_API: Int = 21
         private const val NANOS_PER_SECOND = 1_000_000_000L
         private const val FILE_POLL_ATTEMPTS = 20

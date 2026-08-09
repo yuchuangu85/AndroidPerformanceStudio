@@ -63,12 +63,12 @@ import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.visualization.NavigationAction
 import org.jetbrains.compose.resources.StringResource

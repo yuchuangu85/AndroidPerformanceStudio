@@ -4,12 +4,12 @@ package com.androidperformancestudio.application
 
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
-import com.androidperformancestudio.toolchain.AndroidLlvmTool
-import com.androidperformancestudio.toolchain.AndroidLlvmToolProvider
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.AndroidLlvmTool
+import com.androidperformancestudio.platform.toolchain.AndroidLlvmToolProvider
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -147,31 +147,31 @@ private fun resolverFixture(
 }
 
 private class RecordingInvoker(
-    private val block: (suspend (ProcessRequest) -> ProcessRunResult)? = null,
+    private val block: (suspend (HostProcessRequest) -> HostCommandResult)? = null,
 ) : FlameGraphProcessInvoker {
-    val requests = mutableListOf<ProcessRequest>()
-    val results = ArrayDeque<ProcessRunResult>()
+    val requests = mutableListOf<HostProcessRequest>()
+    val results = ArrayDeque<HostCommandResult>()
 
-    override suspend fun run(request: ProcessRequest): ProcessRunResult {
+    override suspend fun run(request: HostProcessRequest): HostCommandResult {
         requests += request
         return block?.invoke(request) ?: results.removeFirst()
     }
 }
 
-private fun completed(stdout: String): ProcessRunResult =
-    ProcessRunResult.Completed(
-        ProcessOutput(
+private fun completed(stdout: String): HostCommandResult =
+    HostCommandResult.Completed(
+        HostCommandOutput(
             pid = 1,
             command = emptyList(),
             exitCode = 0,
-            stdout = CapturedProcessText(stdout, truncated = false),
-            stderr = CapturedProcessText("", truncated = false),
+            stdout = HostCapturedText(stdout, truncated = false),
+            stderr = HostCapturedText("", truncated = false),
             startedAt = Instant.EPOCH,
             finishedAt = Instant.EPOCH,
         ),
     )
 
-private fun failed(code: String): ProcessRunResult = ProcessRunResult.Failed(StudioError(ErrorCategory.PROCESS_EXIT, code, code))
+private fun failed(code: String): HostCommandResult = HostCommandResult.Failed(StudioError(ErrorCategory.PROCESS_EXIT, code, code))
 
 private fun assertFallback(
     result: FlameGraphFrameDetails,

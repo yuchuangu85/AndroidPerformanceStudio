@@ -1,4 +1,4 @@
-package com.androidperformancestudio.toolchain
+package com.androidperformancestudio.platform.toolchain
 
 import com.androidperformancestudio.model.ErrorCategory
 import kotlinx.coroutines.async
@@ -18,8 +18,8 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-class JvmProcessRunnerTest {
-    private val runner = JvmProcessRunner()
+class StudioHostProcessExecutorTest {
+    private val runner = StudioHostProcessExecutor()
 
     @Test
     fun `drains stdout and stderr concurrently with bounded capture`() =
@@ -28,11 +28,11 @@ class JvmProcessRunnerTest {
                 runner.run(
                     javaRequest("flood").copy(
                         timeout = 10.seconds,
-                        maxCapturedCharactersPerStream = 4_096,
+                        maxOutputBytesPerStream = 4_096,
                     ),
                 )
 
-            val completed = assertIs<ProcessRunResult.Completed>(result)
+            val completed = assertIs<HostCommandResult.Completed>(result)
             assertEquals(0, completed.output.exitCode)
             val stdout = completed.output.stdout
             val stderr = completed.output.stderr
@@ -47,7 +47,7 @@ class JvmProcessRunnerTest {
         runBlocking {
             val result = runner.run(javaRequest("exit", "7"))
 
-            val failed = assertIs<ProcessRunResult.Failed>(result)
+            val failed = assertIs<HostCommandResult.Failed>(result)
             assertEquals(ErrorCategory.PROCESS_EXIT, failed.error.category)
             val output = assertNotNull(failed.output)
             assertEquals(7, output.exitCode)
@@ -60,7 +60,7 @@ class JvmProcessRunnerTest {
         runBlocking {
             val result = runner.run(javaRequest("sleep", "30000").copy(timeout = 150.milliseconds))
 
-            val failed = assertIs<ProcessRunResult.Failed>(result)
+            val failed = assertIs<HostCommandResult.Failed>(result)
             assertEquals(ErrorCategory.PROCESS_TIMEOUT, failed.error.category)
             assertFalse(isAlive(failed.output?.pid))
         }
@@ -71,7 +71,7 @@ class JvmProcessRunnerTest {
             val pidFile = Files.createTempFile("aps-process-pid-", ".txt")
             pidFile.deleteIfExists()
             try {
-                val cancellation = ProcessCancellationSignal()
+                val cancellation = HostCancellationSignal()
                 val deferred =
                     async {
                         runner.run(
@@ -83,7 +83,7 @@ class JvmProcessRunnerTest {
 
                 cancellation.cancel()
 
-                val failed = assertIs<ProcessRunResult.Failed>(deferred.await())
+                val failed = assertIs<HostCommandResult.Failed>(deferred.await())
                 assertEquals(ErrorCategory.PROCESS_CANCELLED, failed.error.category)
                 assertEquals(pid, failed.output?.pid)
                 assertFalse(isAlive(pid))
@@ -92,14 +92,14 @@ class JvmProcessRunnerTest {
             }
         }
 
-    private fun javaRequest(vararg fixtureArguments: String): ProcessRequest =
-        ProcessRequest(
+    private fun javaRequest(vararg fixtureArguments: String): HostProcessRequest =
+        HostProcessRequest(
             executable = javaExecutable(),
             arguments =
                 listOf(
                     "-cp",
                     System.getProperty("java.class.path"),
-                    ProcessFixtureMain::class.qualifiedName.orEmpty(),
+                    StudioProcessFixture::class.qualifiedName.orEmpty(),
                 ) + fixtureArguments,
             timeout = 5.seconds,
         )

@@ -3,10 +3,11 @@ package com.androidperformancestudio.capture
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.AdbCommandFailedException
+import com.androidperformancestudio.platform.adb.AdbException
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import java.nio.file.Path
 
 data class BundledSimpleperfAsset(
@@ -42,35 +43,34 @@ data class PreparedSimpleperf(
     val abi: String?,
 )
 
-typealias CaptureProcessInvocation =
-    suspend (ProcessRequest, ProcessCancellationSignal) -> ProcessRunResult
-
 fun interface DeviceSimpleperfPreparer {
     suspend fun prepare(
         serial: String,
         availability: DeviceSimpleperfAvailability,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<PreparedSimpleperf>
 }
 
 class DeviceSimpleperfManager(
-    private val adbExecutable: Path,
+    private val adbClient: AdbClient,
     assets: List<BundledSimpleperfAsset>,
-    private val processInvocation: CaptureProcessInvocation = { request, signal ->
-        JvmProcessRunner().run(request, signal)
-    },
 ) : DeviceSimpleperfPreparer {
+    constructor(
+        adbExecutable: Path,
+        assets: List<BundledSimpleperfAsset>,
+    ) : this(DefaultAdbClient(adbExecutable), assets)
+
     private val assetsByAbi = assets.associateBy(BundledSimpleperfAsset::abi)
 
     suspend fun prepare(
         serial: String,
         availability: DeviceSimpleperfAvailability,
-    ): StudioResult<PreparedSimpleperf> = prepare(serial, availability, ProcessCancellationSignal())
+    ): StudioResult<PreparedSimpleperf> = prepare(serial, availability, HostCancellationSignal())
 
     override suspend fun prepare(
         serial: String,
         availability: DeviceSimpleperfAvailability,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<PreparedSimpleperf> =
         availability.deviceVersion?.let { version ->
             StudioResult.Success(
@@ -86,7 +86,7 @@ class DeviceSimpleperfManager(
     private suspend fun prepareBundled(
         serial: String,
         abis: List<String>,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<PreparedSimpleperf> {
         val asset = abis.firstNotNullOfOrNull(assetsByAbi::get) ?: return unsupportedAbi(abis)
         return when (val checksum = remoteChecksum(serial, cancellationSignal)) {
@@ -102,65 +102,55 @@ class DeviceSimpleperfManager(
 
     private suspend fun remoteChecksum(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal,
-    ): StudioResult<String?> {
-        val request = shellRequest(serial, "sha256sum", REMOTE_SIMPLEPERF)
-        return when (val result = processInvocation(request, cancellationSignal)) {
-            is ProcessRunResult.Completed ->
-                StudioResult.Success(
-                    result.output.stdout.text
-                        .trim()
-                        .substringBefore(' ')
-                        .takeIf(String::isNotBlank),
-                )
-            is ProcessRunResult.Failed ->
-                if (result.error.category == ErrorCategory.PROCESS_EXIT) {
-                    StudioResult.Success(null)
-                } else {
-                    StudioResult.Failure(result.error)
-                }
+        cancellationSignal: HostCancellationSignal,
+    ): StudioResult<String?> =
+        try {
+            StudioResult.Success(
+                adbClient
+                    .shell(
+                        serial = serial,
+                        arguments = listOf("sha256sum", REMOTE_SIMPLEPERF),
+                        isCancellationRequested = cancellationSignal::isCancelled,
+                    ).stdout
+                    .trim()
+                    .substringBefore(' ')
+                    .takeIf(String::isNotBlank),
+            )
+        } catch (_: AdbCommandFailedException) {
+            StudioResult.Success(null)
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw error
+        } catch (error: AdbException) {
+            StudioResult.Failure(adbStudioError(error))
         }
-    }
 
     private suspend fun deploy(
         serial: String,
         asset: BundledSimpleperfAsset,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<PreparedSimpleperf> {
-        val requests =
-            listOf(
-                shellRequest(serial, "mkdir", "-p", REMOTE_DIRECTORY),
-                adbRequest(serial, "push", asset.executable.toString(), REMOTE_SIMPLEPERF),
-                shellRequest(serial, "chmod", EXECUTABLE_MODE, REMOTE_SIMPLEPERF),
-                shellRequest(serial, REMOTE_SIMPLEPERF, "--version"),
+        val cancelled = cancellationSignal::isCancelled
+        return try {
+            adbClient.shell(serial, listOf("mkdir", "-p", REMOTE_DIRECTORY), isCancellationRequested = cancelled)
+            adbClient.push(serial, asset.executable, REMOTE_SIMPLEPERF, isCancellationRequested = cancelled)
+            adbClient.shell(
+                serial,
+                listOf("chmod", EXECUTABLE_MODE, REMOTE_SIMPLEPERF),
+                isCancellationRequested = cancelled,
             )
-        var version: String? = null
-        for (request in requests) {
-            when (val result = processInvocation(request, cancellationSignal)) {
-                is ProcessRunResult.Failed -> return StudioResult.Failure(result.error)
-                is ProcessRunResult.Completed ->
-                    version =
-                        result.output.stdout.text
-                            .trim()
-                            .ifEmpty { version }
-            }
+            val version =
+                adbClient
+                    .shell(serial, listOf(REMOTE_SIMPLEPERF, "--version"), isCancellationRequested = cancelled)
+                    .stdout
+                    .trim()
+                    .ifEmpty { null }
+            prepared(asset, SimpleperfSource.BUNDLED_PUSHED, version)
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw error
+        } catch (error: AdbException) {
+            StudioResult.Failure(adbStudioError(error))
         }
-        return prepared(asset, SimpleperfSource.BUNDLED_PUSHED, version)
     }
-
-    private fun shellRequest(
-        serial: String,
-        vararg arguments: String,
-    ): ProcessRequest = adbRequest(serial, "shell", *arguments)
-
-    private fun adbRequest(
-        serial: String,
-        vararg arguments: String,
-    ): ProcessRequest =
-        ProcessRequest(
-            executable = adbExecutable,
-            arguments = listOf("-s", serial) + arguments,
-        )
 
     private fun prepared(
         asset: BundledSimpleperfAsset,
@@ -192,3 +182,11 @@ class DeviceSimpleperfManager(
         private const val EXECUTABLE_MODE = "755"
     }
 }
+
+private fun adbStudioError(error: RuntimeException): StudioError =
+    StudioError(
+        category = ErrorCategory.PROCESS_EXIT,
+        code = "ADB_COMMAND_FAILED",
+        message = error.message ?: "ADB command failed",
+        cause = error,
+    )

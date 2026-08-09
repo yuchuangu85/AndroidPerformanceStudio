@@ -5,8 +5,8 @@ import com.androidperformancestudio.adb.AdbDeviceRefresher
 import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import java.nio.file.Path
 
 data class MethodTraceDeviceOption(
@@ -29,12 +29,12 @@ data class MethodTraceProcessOption(
 class MethodRecordingDeviceGateway(
     private val adbExecutable: Path,
     private val processRunner: MethodTraceCaptureProcessRunner = { request, signal ->
-        JvmProcessRunner().run(request, signal)
+        StudioHostProcessExecutor().run(request, signal)
     },
 ) {
     suspend fun refreshDevices(): StudioResult<List<MethodTraceDeviceOption>> {
         val refresher = AdbDeviceRefresher(adbExecutable, processInvocation = processRunner)
-        return when (val result = refresher.refresh(ProcessCancellationSignal())) {
+        return when (val result = refresher.refresh(HostCancellationSignal())) {
             is StudioResult.Failure -> result
             is StudioResult.Success ->
                 StudioResult.Success(
@@ -43,7 +43,7 @@ class MethodRecordingDeviceGateway(
                             if (device.state == AdbDeviceState.ONLINE) {
                                 val properties =
                                     AdbDevicePropertiesReader(adbExecutable, processInvocation = processRunner)
-                                        .read(device.serial, ProcessCancellationSignal())
+                                        .read(device.serial, HostCancellationSignal())
                                 (properties as? StudioResult.Success)?.value?.sdkInt
                             } else {
                                 null
@@ -61,7 +61,7 @@ class MethodRecordingDeviceGateway(
 
     suspend fun loadProcesses(serial: String): StudioResult<List<MethodTraceProcessOption>> {
         val catalog = AdbTargetCatalog(adbExecutable, processRunner)
-        return when (val result = catalog.refresh(serial, ProcessCancellationSignal())) {
+        return when (val result = catalog.refresh(serial, HostCancellationSignal())) {
             is StudioResult.Failure -> result
             is StudioResult.Success -> {
                 val profileable =

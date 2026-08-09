@@ -2,10 +2,10 @@ package com.androidperformancestudio.adb
 
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
 import java.nio.file.Path
 
 data class AndroidPackage(
@@ -49,12 +49,12 @@ data class AdbTargetSnapshot(
 class AdbTargetCatalog(
     private val adbExecutable: Path,
     private val processInvocation: ProcessInvocation = { request, signal ->
-        JvmProcessRunner().run(request, signal)
+        StudioHostProcessExecutor().run(request, signal)
     },
 ) {
     suspend fun refresh(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): StudioResult<AdbTargetSnapshot> =
         when (val packages = execute(serial, PACKAGE_ARGUMENTS, cancellationSignal)) {
             is StudioResult.Failure -> packages
@@ -64,7 +64,7 @@ class AdbTargetCatalog(
     suspend fun listThreads(
         serial: String,
         pid: Int,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): StudioResult<List<AndroidThread>> {
         require(pid > 0) { "pid must be positive" }
         return when (
@@ -83,25 +83,25 @@ class AdbTargetCatalog(
     private suspend fun execute(
         serial: String,
         shellArguments: List<String>,
-        cancellationSignal: ProcessCancellationSignal,
-        captureLimit: Int = ProcessRequest.DEFAULT_CAPTURE_LIMIT,
+        cancellationSignal: HostCancellationSignal,
+        captureLimit: Int = HostProcessRequest.DEFAULT_MAX_OUTPUT_BYTES,
     ): StudioResult<String> {
         val request =
-            ProcessRequest(
+            HostProcessRequest(
                 executable = adbExecutable,
                 arguments = listOf("-s", serial, "shell") + shellArguments,
-                maxCapturedCharactersPerStream = captureLimit,
+                maxOutputBytesPerStream = captureLimit,
             )
         return when (val result = processInvocation(request, cancellationSignal)) {
-            is ProcessRunResult.Completed -> StudioResult.Success(result.output.stdout.text)
-            is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
+            is HostCommandResult.Completed -> StudioResult.Success(result.output.stdout.text)
+            is HostCommandResult.Failed -> StudioResult.Failure(result.error)
         }
     }
 
     private suspend fun refreshProcesses(
         serial: String,
         packages: List<AndroidPackage>,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<AdbTargetSnapshot> =
         when (val processes = execute(serial, PROCESS_ARGUMENTS, cancellationSignal)) {
             is StudioResult.Failure -> processes
@@ -117,7 +117,7 @@ class AdbTargetCatalog(
     private suspend fun refreshPackageCapabilities(
         serial: String,
         packageOutput: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<AdbTargetSnapshot> =
         when (val packageDetails = loadPackageDetails(serial, cancellationSignal)) {
             is StudioResult.Failure -> packageDetails
@@ -135,7 +135,7 @@ class AdbTargetCatalog(
 
     private suspend fun loadPackageDetails(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<String> {
         val appTypes =
             execute(
@@ -153,7 +153,7 @@ class AdbTargetCatalog(
 
     private suspend fun loadFallbackPackageDetails(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<String> {
         val packageList =
             execute(

@@ -1,12 +1,12 @@
 package com.androidperformancestudio.export
 
 import com.androidperformancestudio.model.StudioError
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import com.androidperformancestudio.storage.TopFunction
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.isRegularFile
@@ -15,9 +15,9 @@ import kotlin.time.Duration.Companion.minutes
 
 fun interface ExternalProcessRunner {
     suspend fun run(
-        request: ProcessRequest,
-        cancellationSignal: ProcessCancellationSignal,
-    ): ProcessRunResult
+        request: HostProcessRequest,
+        cancellationSignal: HostCancellationSignal,
+    ): HostCommandResult
 }
 
 data class SimpleperfReportRow(
@@ -72,14 +72,14 @@ private fun Long.toPercentageOf(total: Double): Double = if (total == 0.0) 0.0 e
 
 sealed interface ExternalValidationResult {
     data class Success(
-        val output: ProcessOutput,
+        val output: HostCommandOutput,
         val reportRows: List<SimpleperfReportRow> = emptyList(),
         val artifact: Path? = null,
     ) : ExternalValidationResult
 
     data class Failure(
         val error: StudioError,
-        val output: ProcessOutput? = null,
+        val output: HostCommandOutput? = null,
     ) : ExternalValidationResult
 }
 
@@ -89,14 +89,14 @@ class SimpleperfReportAdapter(
 ) {
     suspend fun generate(
         perfData: Path,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
         timeout: Duration = DEFAULT_EXTERNAL_TIMEOUT,
     ): ExternalValidationResult {
         require(simpleperfExecutable.isRegularFile()) { "simpleperf executable does not exist: $simpleperfExecutable" }
         require(perfData.isRegularFile()) { "perf.data does not exist: $perfData" }
         val result =
             runner.run(
-                ProcessRequest(
+                HostProcessRequest(
                     simpleperfExecutable,
                     listOf("report", "-i", perfData.toString(), "--sort", "symbol"),
                     timeout = timeout,
@@ -115,7 +115,7 @@ class ReportHtmlAdapter(
     suspend fun generate(
         perfData: Path,
         destinationHtml: Path,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
         timeout: Duration = DEFAULT_EXTERNAL_TIMEOUT,
     ): ExternalValidationResult {
         require(pythonExecutable.isRegularFile()) { "Python executable does not exist: $pythonExecutable" }
@@ -124,7 +124,7 @@ class ReportHtmlAdapter(
         destinationHtml.parent?.let(Files::createDirectories)
         val result =
             runner.run(
-                ProcessRequest(
+                HostProcessRequest(
                     pythonExecutable,
                     listOf(reportHtmlScript.toString(), "-i", perfData.toString(), "-o", destinationHtml.toString()),
                     timeout = timeout,
@@ -157,12 +157,12 @@ fun externalOpenInstructions(protobuf: Path): ExternalOpenInstructions =
                 "Simpleperf protobuf support depends on the viewer build.",
     )
 
-private fun ProcessRunResult.toValidationResult(
-    rows: (ProcessOutput) -> List<SimpleperfReportRow> = { emptyList() },
+private fun HostCommandResult.toValidationResult(
+    rows: (HostCommandOutput) -> List<SimpleperfReportRow> = { emptyList() },
 ): ExternalValidationResult =
     when (this) {
-        is ProcessRunResult.Completed -> ExternalValidationResult.Success(output, rows(output))
-        is ProcessRunResult.Failed -> ExternalValidationResult.Failure(error, output)
+        is HostCommandResult.Completed -> ExternalValidationResult.Success(output, rows(output))
+        is HostCommandResult.Failed -> ExternalValidationResult.Failure(error, output)
     }
 
 private fun parseSimpleperfReport(text: String): List<SimpleperfReportRow> =
@@ -179,7 +179,7 @@ private fun parseSimpleperfReport(text: String): List<SimpleperfReportRow> =
         }.toList()
 
 private fun defaultExternalRunner(): ExternalProcessRunner {
-    val runner = JvmProcessRunner()
+    val runner = StudioHostProcessExecutor()
     return ExternalProcessRunner(runner::run)
 }
 

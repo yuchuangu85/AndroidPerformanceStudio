@@ -3,10 +3,10 @@ package com.androidperformancestudio.parser
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -29,13 +29,13 @@ data class SimpleperfConversionResult(
 
 class SimpleperfReportConverter(
     private val processInvocation: ParserProcessInvocation = { request, signal ->
-        JvmProcessRunner().run(request, signal)
+        StudioHostProcessExecutor().run(request, signal)
     },
 ) {
     suspend fun convert(
         simpleperf: HostSimpleperf,
         request: SimpleperfConversionRequest,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): StudioResult<SimpleperfConversionResult> {
         val preconditionFailure = validateInput(request) ?: prepareOutput(request.protobufTrace)
         return if (preconditionFailure != null) {
@@ -48,17 +48,17 @@ class SimpleperfReportConverter(
     private suspend fun execute(
         simpleperf: HostSimpleperf,
         request: SimpleperfConversionRequest,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<SimpleperfConversionResult> {
         val processRequest =
-            ProcessRequest(
+            HostProcessRequest(
                 executable = simpleperf.executable,
                 arguments = request.arguments(),
                 timeout = 30.minutes,
             )
         return when (val result = processInvocation(processRequest, cancellationSignal)) {
-            is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
-            is ProcessRunResult.Completed -> completed(request.protobufTrace, result)
+            is HostCommandResult.Failed -> StudioResult.Failure(result.error)
+            is HostCommandResult.Completed -> completed(request.protobufTrace, result)
         }
     }
 
@@ -83,7 +83,7 @@ class SimpleperfReportConverter(
 
     private fun completed(
         output: Path,
-        result: ProcessRunResult.Completed,
+        result: HostCommandResult.Completed,
     ): StudioResult<SimpleperfConversionResult> =
         if (output.isRegularFile() && output.fileSize() > 0L) {
             StudioResult.Success(

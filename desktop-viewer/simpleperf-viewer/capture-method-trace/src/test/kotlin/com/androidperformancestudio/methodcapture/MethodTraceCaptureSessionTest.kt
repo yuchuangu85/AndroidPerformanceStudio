@@ -3,9 +3,12 @@ package com.androidperformancestudio.methodcapture
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -13,9 +16,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.test.runTest
 
 /**
  * Verifies the `am profile` command sequence and structured failures via a fake process runner
@@ -23,111 +23,115 @@ import kotlinx.coroutines.test.runTest
  */
 class MethodTraceCaptureSessionTest {
     @Test
-    fun `captures a method trace in the expected command order`() = runTest {
-        val commands = mutableListOf<List<String>>()
-        val session = MethodTraceCaptureSession(Path.of("adb"), recordingRunner(commands, "fake trace"))
+    fun `captures a method trace in the expected command order`() =
+        runTest {
+            val commands = mutableListOf<List<String>>()
+            val session = MethodTraceCaptureSession(ProcessInvocationAdbClient(recordingRunner(commands, "fake trace")))
 
-        val sessionDir = Files.createTempDirectory("mt-session")
-        val result =
-            session.capture(
-                MethodTraceCaptureRequest(
-                    sessionId = "capture-1",
-                    sessionRoot = sessionDir,
-                    serial = "emulator-5554",
-                    pid = 42,
-                    packageName = "com.example",
-                    durationSeconds = 0,
-                ),
-            )
-
-        val success = assertIs<StudioResult.Success<MethodTraceCaptureResult>>(result)
-        assertTrue(Files.size(success.value.traceFile) > 0)
-        val flatten = commands.joinToString(" ") { it.joinToString(" ") }
-        assertTrue(flatten.contains("getprop ro.build.version.sdk"))
-        assertTrue(flatten.contains("am profile start 42"))
-        assertTrue(flatten.contains("am profile stop 42"))
-        assertTrue(flatten.contains("pull"))
-        assertTrue(flatten.contains("rm -f"))
-        assertTrue(flatten.contains("aps-capture-1.trace"))
-    }
-
-    @Test
-    fun `requestStop ends the capture early`() = runTest {
-        val commands = mutableListOf<List<String>>()
-        val session = MethodTraceCaptureSession(Path.of("adb"), recordingRunner(commands, "fake trace"))
-        val sessionDir = Files.createTempDirectory("mt-session")
-
-        val deferred =
-            async {
+            val sessionDir = Files.createTempDirectory("mt-session")
+            val result =
                 session.capture(
                     MethodTraceCaptureRequest(
-                        sessionId = "capture-2",
+                        sessionId = "capture-1",
                         sessionRoot = sessionDir,
                         serial = "emulator-5554",
                         pid = 42,
                         packageName = "com.example",
-                        durationSeconds = 30,
+                        durationSeconds = 0,
                     ),
                 )
-            }
-        // Wait until the session is between start and stop, then end it early.
-        while (!session.isRecording) {
-            delay(1)
+
+            val success = assertIs<StudioResult.Success<MethodTraceCaptureResult>>(result)
+            assertTrue(Files.size(success.value.traceFile) > 0)
+            val flatten = commands.joinToString(" ") { it.joinToString(" ") }
+            assertTrue(flatten.contains("getprop ro.build.version.sdk"))
+            assertTrue(flatten.contains("am profile start 42"))
+            assertTrue(flatten.contains("am profile stop 42"))
+            assertTrue(flatten.contains("pull"))
+            assertTrue(flatten.contains("rm -f"))
+            assertTrue(flatten.contains("aps-capture-1.trace"))
         }
-        session.requestStop()
-        val result = deferred.await()
-
-        assertIs<StudioResult.Success<MethodTraceCaptureResult>>(result)
-        val flatten = commands.joinToString(" ") { it.joinToString(" ") }
-        assertTrue(flatten.contains("am profile stop 42"))
-    }
 
     @Test
-    fun `rejects devices below API 21 with only the getprop command`() = runTest {
-        val commands = mutableListOf<List<String>>()
-        val session = MethodTraceCaptureSession(Path.of("adb"), recordingRunner(commands, "fake", sdk = "19"))
+    fun `requestStop ends the capture early`() =
+        runTest {
+            val commands = mutableListOf<List<String>>()
+            val session = MethodTraceCaptureSession(ProcessInvocationAdbClient(recordingRunner(commands, "fake trace")))
+            val sessionDir = Files.createTempDirectory("mt-session")
 
-        val sessionDir = Files.createTempDirectory("mt-session")
-        val result =
-            session.capture(
-                MethodTraceCaptureRequest(
-                    sessionId = "capture-3",
-                    sessionRoot = sessionDir,
-                    serial = "emulator-5554",
-                    pid = 42,
-                    packageName = "com.example",
-                ),
-            )
-        val failure = assertIs<StudioResult.Failure>(result)
-        assertEquals("METHOD_TRACE_UNSUPPORTED_API", failure.error.code)
-        assertEquals(1, commands.size) // only getprop ran
-    }
+            val deferred =
+                async {
+                    session.capture(
+                        MethodTraceCaptureRequest(
+                            sessionId = "capture-2",
+                            sessionRoot = sessionDir,
+                            serial = "emulator-5554",
+                            pid = 42,
+                            packageName = "com.example",
+                            durationSeconds = 30,
+                        ),
+                    )
+                }
+            // Wait until the session is between start and stop, then end it early.
+            while (!session.isRecording) {
+                delay(1)
+            }
+            session.requestStop()
+            val result = deferred.await()
+
+            assertIs<StudioResult.Success<MethodTraceCaptureResult>>(result)
+            val flatten = commands.joinToString(" ") { it.joinToString(" ") }
+            assertTrue(flatten.contains("am profile stop 42"))
+        }
 
     @Test
-    fun `maps an am profile start failure and cleans up`() = runTest {
-        val commands = mutableListOf<List<String>>()
-        val session =
-            MethodTraceCaptureSession(
-                Path.of("adb"),
-                recordingRunner(commands, "fake", failStart = true),
-            )
+    fun `rejects devices below API 21 with only the getprop command`() =
+        runTest {
+            val commands = mutableListOf<List<String>>()
+            val session =
+                MethodTraceCaptureSession(ProcessInvocationAdbClient(recordingRunner(commands, "fake", sdk = "19")))
 
-        val sessionDir = Files.createTempDirectory("mt-session")
-        val result =
-            session.capture(
-                MethodTraceCaptureRequest(
-                    sessionId = "capture-4",
-                    sessionRoot = sessionDir,
-                    serial = "emulator-5554",
-                    pid = 42,
-                    packageName = "com.example",
-                ),
-            )
-        val failure = assertIs<StudioResult.Failure>(result)
-        assertEquals("METHOD_TRACE_START_FAILED", failure.error.code)
-        val flatten = commands.joinToString(" ") { it.joinToString(" ") }
-        assertTrue(flatten.contains("rm -f"))
-    }
+            val sessionDir = Files.createTempDirectory("mt-session")
+            val result =
+                session.capture(
+                    MethodTraceCaptureRequest(
+                        sessionId = "capture-3",
+                        sessionRoot = sessionDir,
+                        serial = "emulator-5554",
+                        pid = 42,
+                        packageName = "com.example",
+                    ),
+                )
+            val failure = assertIs<StudioResult.Failure>(result)
+            assertEquals("METHOD_TRACE_UNSUPPORTED_API", failure.error.code)
+            assertEquals(1, commands.size) // only getprop ran
+        }
+
+    @Test
+    fun `maps an am profile start failure and cleans up`() =
+        runTest {
+            val commands = mutableListOf<List<String>>()
+            val session =
+                MethodTraceCaptureSession(
+                    ProcessInvocationAdbClient(recordingRunner(commands, "fake", failStart = true)),
+                )
+
+            val sessionDir = Files.createTempDirectory("mt-session")
+            val result =
+                session.capture(
+                    MethodTraceCaptureRequest(
+                        sessionId = "capture-4",
+                        sessionRoot = sessionDir,
+                        serial = "emulator-5554",
+                        pid = 42,
+                        packageName = "com.example",
+                    ),
+                )
+            val failure = assertIs<StudioResult.Failure>(result)
+            assertEquals("METHOD_TRACE_START_FAILED", failure.error.code)
+            val flatten = commands.joinToString(" ") { it.joinToString(" ") }
+            assertTrue(flatten.contains("rm -f"))
+        }
 
     private fun recordingRunner(
         commands: MutableList<List<String>>,
@@ -153,23 +157,23 @@ class MethodTraceCaptureSessionTest {
             }
         }
 
-    private fun completed(output: String): ProcessRunResult.Completed {
+    private fun completed(output: String): HostCommandResult.Completed {
         val now = Instant.now()
-        return ProcessRunResult.Completed(
-            ProcessOutput(
+        return HostCommandResult.Completed(
+            HostCommandOutput(
                 pid = 0L,
                 command = emptyList(),
                 exitCode = 0,
-                stdout = CapturedProcessText(output, false),
-                stderr = CapturedProcessText("", false),
+                stdout = HostCapturedText(output, false),
+                stderr = HostCapturedText("", false),
                 startedAt = now,
                 finishedAt = now,
             ),
         )
     }
 
-    private fun failed(message: String): ProcessRunResult.Failed =
-        ProcessRunResult.Failed(
+    private fun failed(message: String): HostCommandResult.Failed =
+        HostCommandResult.Failed(
             StudioError(
                 category = ErrorCategory.PROCESS_EXIT,
                 code = "PROCESS_EXIT_1",

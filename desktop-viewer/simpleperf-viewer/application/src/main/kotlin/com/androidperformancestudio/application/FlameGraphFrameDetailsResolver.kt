@@ -2,12 +2,12 @@
 
 package com.androidperformancestudio.application
 
-import com.androidperformancestudio.toolchain.AndroidLlvmTool
-import com.androidperformancestudio.toolchain.AndroidLlvmToolLocator
-import com.androidperformancestudio.toolchain.AndroidLlvmToolProvider
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.AndroidLlvmTool
+import com.androidperformancestudio.platform.toolchain.AndroidLlvmToolLocator
+import com.androidperformancestudio.platform.toolchain.AndroidLlvmToolProvider
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.isRegularFile
@@ -61,7 +61,7 @@ sealed interface FlameGraphDetailsState {
 }
 
 fun interface FlameGraphProcessInvoker {
-    suspend fun run(request: ProcessRequest): ProcessRunResult
+    suspend fun run(request: HostProcessRequest): HostCommandResult
 }
 
 fun interface FlameGraphFrameDetailsProvider {
@@ -103,7 +103,7 @@ class FlameGraphFrameDetailsResolver(
         val readelf = toolProvider.locate(AndroidLlvmTool.READELF) ?: return null
         val result =
             processInvoker.run(
-                ProcessRequest(
+                HostProcessRequest(
                     executable = readelf,
                     arguments = listOf("-n", binary.toString()),
                     timeout = TOOL_TIMEOUT,
@@ -111,8 +111,8 @@ class FlameGraphFrameDetailsResolver(
             )
         val actual =
             when (result) {
-                is ProcessRunResult.Completed -> parseBuildId(result.output.stdout.text)
-                is ProcessRunResult.Failed -> null
+                is HostCommandResult.Completed -> parseBuildId(result.output.stdout.text)
+                is HostCommandResult.Failed -> null
             }
         return if (actual != null && actual != expected) {
             request.fallback("Build ID mismatch: expected ${request.buildId}, found $actual")
@@ -128,15 +128,15 @@ class FlameGraphFrameDetailsResolver(
     ): SourceAttempt {
         val result =
             processInvoker.run(
-                ProcessRequest(
+                HostProcessRequest(
                     executable = symbolizer,
                     arguments = listOf("--obj=$binary", request.address.hex()),
                     timeout = TOOL_TIMEOUT,
                 ),
             )
         return when (result) {
-            is ProcessRunResult.Failed -> SourceAttempt.Missed(result.error.code)
-            is ProcessRunResult.Completed -> parseSource(result.output.stdout.text)
+            is HostCommandResult.Failed -> SourceAttempt.Missed(result.error.code)
+            is HostCommandResult.Completed -> parseSource(result.output.stdout.text)
         }
     }
 
@@ -172,7 +172,7 @@ class FlameGraphFrameDetailsResolver(
         val stop = saturatedAdd(request.address, DISASSEMBLY_BYTES_AFTER)
         val result =
             processInvoker.run(
-                ProcessRequest(
+                HostProcessRequest(
                     executable = objdump,
                     arguments =
                         listOf(
@@ -186,8 +186,8 @@ class FlameGraphFrameDetailsResolver(
                 ),
             )
         return when (result) {
-            is ProcessRunResult.Failed -> DisassemblyAttempt.Missed(result.error.code)
-            is ProcessRunResult.Completed -> {
+            is HostCommandResult.Failed -> DisassemblyAttempt.Missed(result.error.code)
+            is HostCommandResult.Completed -> {
                 val lines =
                     result.output.stdout.text
                         .lines()
@@ -252,7 +252,7 @@ private sealed interface DisassemblyAttempt {
 }
 
 private fun defaultProcessInvoker(): FlameGraphProcessInvoker {
-    val runner = JvmProcessRunner()
+    val runner = StudioHostProcessExecutor()
     return FlameGraphProcessInvoker { request -> runner.run(request) }
 }
 

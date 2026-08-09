@@ -20,8 +20,6 @@ include(
     ":app-desktop",
     ":simpleperf-presentation",
     ":simpleperf-application",
-    ":platform-toolchain",
-    ":device-adb",
     ":capture-simpleperf",
     ":parser-simpleperf-proto",
     ":profile-model",

@@ -1,10 +1,10 @@
-package com.androidperformancestudio.toolchain
+package com.androidperformancestudio.platform.toolchain
 
 import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.system.exitProcess
 
-object ProcessFixtureMain {
+object StudioProcessFixture {
     @JvmStatic
     fun main(arguments: Array<String>) {
         when (arguments.firstOrNull()) {

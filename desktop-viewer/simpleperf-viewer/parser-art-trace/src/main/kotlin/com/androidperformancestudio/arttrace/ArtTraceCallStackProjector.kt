@@ -24,7 +24,8 @@ object ArtTraceCallStackProjector {
         // Frames for events whose methods never appeared in the method table (defensive).
         analysis.events.forEach { event ->
             if (!frames.containsKey(event.methodId)) {
-                frames[event.methodId] = toFrame(ArtMethod(event.methodId, "", "0x${event.methodId.toString(16)}", "", ""))
+                frames[event.methodId] =
+                    toFrame(ArtMethod(event.methodId, "", "0x${event.methodId.toString(HEX_RADIX)}", "", ""))
             }
         }
 
@@ -47,6 +48,7 @@ object ArtTraceCallStackProjector {
         return CallStackTable(framesById = frames, stacks = stacks)
     }
 
+    @Suppress("LongParameterList")
     private fun emitInterval(
         stack: ArrayDeque<Long>,
         start: Long,
@@ -68,7 +70,10 @@ object ArtTraceCallStackProjector {
             )
     }
 
-    private fun applyEvent(stack: ArrayDeque<Long>, event: ArtTraceEvent) {
+    private fun applyEvent(
+        stack: ArrayDeque<Long>,
+        event: ArtTraceEvent,
+    ) {
         when (event.action) {
             ArtTraceAction.ENTER -> stack.addLast(event.methodId)
             ArtTraceAction.EXIT, ArtTraceAction.UNROLL -> if (stack.isNotEmpty()) stack.removeLast()
@@ -81,10 +86,12 @@ object ArtTraceCallStackProjector {
         return CallStackFrame(
             frameId = method.methodId,
             functionId = FlameFunctionId(method.methodId),
-            symbolName = qualified.ifBlank { "0x${method.methodId.toString(16)}" },
+            symbolName = qualified.ifBlank { "0x${method.methodId.toString(HEX_RADIX)}" },
             resource = method.className,
             virtualAddress = method.methodId,
             implementation = FrameImplementation.MANAGED,
         )
     }
+
+    private const val HEX_RADIX = 16
 }

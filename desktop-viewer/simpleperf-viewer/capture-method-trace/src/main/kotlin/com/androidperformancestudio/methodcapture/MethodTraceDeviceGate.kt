@@ -4,7 +4,7 @@ import com.androidperformancestudio.adb.AdbDeviceCapabilityDetector
 import com.androidperformancestudio.adb.AdbDevicePropertiesReader
 import com.androidperformancestudio.adb.AdbTargetCatalog
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import java.nio.file.Path
 
 /** Whether `am profile` method tracing is available for a device + app. */
@@ -20,6 +20,7 @@ data class MethodTraceDeviceSupport(
  * be traced.
  */
 object MethodTraceDeviceGate {
+    @Suppress("ReturnCount")
     suspend fun evaluate(
         serial: String,
         packageName: String,
@@ -30,7 +31,7 @@ object MethodTraceDeviceGate {
             when (
                 val result =
                     AdbDevicePropertiesReader(adbExecutable, processInvocation = processRunner)
-                        .read(serial, ProcessCancellationSignal())
+                        .read(serial, HostCancellationSignal())
             ) {
                 is StudioResult.Failure -> return result
                 is StudioResult.Success -> result.value
@@ -40,7 +41,9 @@ object MethodTraceDeviceGate {
             return StudioResult.Success(
                 MethodTraceDeviceSupport(
                     supported = false,
-                    reason = "Method tracing requires Android API ${MethodTraceCaptureSession.MINIMUM_API}+; device is API $sdkLevel.",
+                    reason =
+                        "Method tracing requires Android API ${MethodTraceCaptureSession.MINIMUM_API}+; " +
+                            "device is API $sdkLevel.",
                     sdkApiLevel = sdkLevel,
                 ),
             )
@@ -50,27 +53,31 @@ object MethodTraceDeviceGate {
             when (
                 val result =
                     AdbDeviceCapabilityDetector(adbExecutable, processRunner)
-                        .detect(properties, ProcessCancellationSignal())
+                        .detect(properties, HostCancellationSignal())
             ) {
                 is StudioResult.Failure -> return result
                 is StudioResult.Success -> result.value
             }
         if (capabilities.isRoot) {
-            return StudioResult.Success(MethodTraceDeviceSupport(supported = true, reason = null, sdkApiLevel = sdkLevel))
+            return StudioResult.Success(
+                MethodTraceDeviceSupport(supported = true, reason = null, sdkApiLevel = sdkLevel),
+            )
         }
 
         val target =
             when (
                 val result =
                     AdbTargetCatalog(adbExecutable, processRunner)
-                        .refresh(serial, ProcessCancellationSignal())
+                        .refresh(serial, HostCancellationSignal())
             ) {
                 is StudioResult.Failure -> return result
                 is StudioResult.Success -> result.value
             }
         val app = target.packages.firstOrNull { candidate -> candidate.packageName == packageName }
         if (app != null && (app.debuggable || app.profileableByShell)) {
-            return StudioResult.Success(MethodTraceDeviceSupport(supported = true, reason = null, sdkApiLevel = sdkLevel))
+            return StudioResult.Success(
+                MethodTraceDeviceSupport(supported = true, reason = null, sdkApiLevel = sdkLevel),
+            )
         }
         return StudioResult.Success(
             MethodTraceDeviceSupport(

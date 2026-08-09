@@ -1,9 +1,9 @@
 package com.androidperformancestudio.export
 
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
 import com.androidperformancestudio.storage.TopFunction
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRunResult
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.time.Instant
@@ -84,14 +84,14 @@ class ExternalValidationAdaptersTest {
         assertEquals(emptyList(), comparison.mismatchedSymbols)
     }
 
-    private fun completed(stdout: String): ProcessRunResult.Completed =
-        ProcessRunResult.Completed(
-            ProcessOutput(
+    private fun completed(stdout: String): HostCommandResult.Completed =
+        HostCommandResult.Completed(
+            HostCommandOutput(
                 1,
                 emptyList(),
                 0,
-                CapturedProcessText(stdout, false),
-                CapturedProcessText("", false),
+                HostCapturedText(stdout, false),
+                HostCapturedText("", false),
                 Instant.EPOCH,
                 Instant.EPOCH,
             ),

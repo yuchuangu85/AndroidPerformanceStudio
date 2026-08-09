@@ -25,6 +25,7 @@ enum class MethodTopMethodSort { SYMBOL, SELF_MICROS, TOTAL_MICROS, CALL_COUNT }
  * (enter events), taken from the [analysis] rather than the interval samples.
  */
 object MethodTopMethodsReducer {
+    @Suppress("LongParameterList", "CyclomaticComplexMethod")
     fun topMethods(
         table: CallStackTable,
         analysis: ArtTraceAnalysis,
@@ -62,8 +63,7 @@ object MethodTopMethodsReducer {
             .asSequence()
             .filter { functionId ->
                 query.isEmpty() || symbolOf(table, functionId).lowercase().contains(query)
-            }
-            .map { functionId ->
+            }.map { functionId ->
                 MethodTopMethod(
                     symbolName = symbolOf(table, functionId),
                     resource = resourceOf(table, functionId),
@@ -72,20 +72,25 @@ object MethodTopMethodsReducer {
                     callCount = callCounts[functionId] ?: 0L,
                     threadCount = threads[functionId]?.size ?: 0,
                 )
-            }
-            .sortedWith(topMethodComparator(sort, descending))
+            }.sortedWith(topMethodComparator(sort, descending))
             .take(limit)
             .toList()
     }
 
-    private fun symbolOf(table: CallStackTable, functionId: Long): String {
+    private fun symbolOf(
+        table: CallStackTable,
+        functionId: Long,
+    ): String {
         val frame =
             table.framesById.values.firstOrNull { it.functionId.value == functionId }
-                ?: return "0x${functionId.toString(16)}"
+                ?: return "0x${functionId.toString(HEX_RADIX)}"
         return frame.symbolName
     }
 
-    private fun resourceOf(table: CallStackTable, functionId: Long): String {
+    private fun resourceOf(
+        table: CallStackTable,
+        functionId: Long,
+    ): String {
         val frame = table.framesById.values.firstOrNull { it.functionId.value == functionId } ?: return ""
         return frame.resource
     }
@@ -106,4 +111,5 @@ object MethodTopMethodsReducer {
     }
 
     private const val NANOS_PER_MICRO = 1000L
+    private const val HEX_RADIX = 16
 }

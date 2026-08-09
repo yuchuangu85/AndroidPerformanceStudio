@@ -21,10 +21,10 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
-import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 

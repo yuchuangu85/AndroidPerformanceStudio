@@ -1,3 +1,5 @@
+@file:Suppress("ComplexCondition", "MaxLineLength")
+
 package com.androidperformancestudio.arttrace
 
 import kotlin.test.Test
@@ -154,8 +156,7 @@ class ArtTraceParserTest {
                 .apply {
                     u32(TRACE_MAGIC)
                     u16(7)
-                }
-                .build()
+                }.build()
         assertIs<ArtTraceParseResult.Failure>(ArtTraceParser.parse(trace))
     }
 
@@ -168,8 +169,7 @@ class ArtTraceParserTest {
                     u16(4)
                     u64(0L)
                     // header truncated — no padding, no packets
-                }
-                .build()
+                }.build()
         assertIs<ArtTraceParseResult.Failure>(ArtTraceParser.parse(trace))
     }
 
@@ -180,8 +180,7 @@ class ArtTraceParserTest {
                 .apply {
                     u32(TRACE_MAGIC)
                     u16(1)
-                }
-                .build()
+                }.build()
         val result = ArtTraceParser.parse(trace)
         val failure = assertIs<ArtTraceParseResult.Failure>(result)
         assertTrue(failure.message.contains("version 1"))
@@ -189,7 +188,10 @@ class ArtTraceParserTest {
 
     // --- Fixture builders ----------------------------------------------------------------
 
-    private fun streamingTrace(version: Int, packets: TraceBuilder.() -> Unit): ByteArray {
+    private fun streamingTrace(
+        version: Int,
+        packets: TraceBuilder.() -> Unit,
+    ): ByteArray {
         val builder =
             TraceBuilder().apply {
                 u32(TRACE_MAGIC)
@@ -201,7 +203,11 @@ class ArtTraceParserTest {
         return builder.build()
     }
 
-    private fun classicTrace(version: Int, text: String, records: List<ClassicRecord>): ByteArray {
+    private fun classicTrace(
+        version: Int,
+        text: String,
+        records: List<ClassicRecord>,
+    ): ByteArray {
         val builder =
             TraceBuilder().apply {
                 u32(TRACE_MAGIC)
@@ -221,29 +227,40 @@ class ArtTraceParserTest {
         return builder.build()
     }
 
-    private fun TraceBuilder.threadPacket(tid: Int, name: String) {
+    private fun TraceBuilder.threadPacket(
+        tid: Int,
+        name: String,
+    ) {
         u8(0) // kThreadInfoHeaderV2
         u32(tid.toLong())
         u16(name.length)
         string(name)
     }
 
-    private fun TraceBuilder.methodPacket(methodId: Long, info: String) {
+    private fun TraceBuilder.methodPacket(
+        methodId: Long,
+        info: String,
+    ) {
         u8(1) // kMethodInfoHeaderV2
         u64(methodId)
         u16(info.length)
         string(info)
     }
 
-    private fun TraceBuilder.entryBlock(threadId: Int, entries: List<EntryDelta>, dual: Boolean) {
+    private fun TraceBuilder.entryBlock(
+        threadId: Int,
+        entries: List<EntryDelta>,
+        dual: Boolean,
+    ) {
         val payload =
-            TraceBuilder().apply {
-                entries.forEach { entry ->
-                    sleb(entry.method.toLong())
-                    uleb(entry.time.toLong())
-                    if (dual) uleb(entry.cpu.toLong())
-                }
-            }.build()
+            TraceBuilder()
+                .apply {
+                    entries.forEach { entry ->
+                        sleb(entry.method.toLong())
+                        uleb(entry.time.toLong())
+                        if (dual) uleb(entry.cpu.toLong())
+                    }
+                }.build()
         u8(2) // kEntryHeaderV2
         u32(threadId.toLong())
         u24(entries.size)
@@ -251,8 +268,18 @@ class ArtTraceParserTest {
         bytes(payload)
     }
 
-    private data class EntryDelta(val method: Int, val time: Int, val cpu: Int = 0)
-    private data class ClassicRecord(val thread: Int, val methodValue: Long, val cpuMicros: Long, val wallMicros: Long)
+    private data class EntryDelta(
+        val method: Int,
+        val time: Int,
+        val cpu: Int = 0,
+    )
+
+    private data class ClassicRecord(
+        val thread: Int,
+        val methodValue: Long,
+        val cpuMicros: Long,
+        val wallMicros: Long,
+    )
 
     private class TraceBuilder {
         private val out = ArrayList<Byte>()

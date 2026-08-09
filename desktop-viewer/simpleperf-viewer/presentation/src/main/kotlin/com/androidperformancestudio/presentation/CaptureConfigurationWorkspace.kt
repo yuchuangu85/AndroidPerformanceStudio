@@ -62,7 +62,6 @@ import com.androidperformancestudio.presentation.generated.resources.SimpleperfV
 import com.androidperformancestudio.ui.DISABLED_CHIP_ALPHA
 import com.androidperformancestudio.ui.DURATION_FIELD_WEIGHT
 import com.androidperformancestudio.ui.MAX_EVENT_CHIPS
-import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.ui.RATE_FIELD_WEIGHT
 import com.androidperformancestudio.ui.SELECTED_TEMPLATE_ALPHA
 import com.androidperformancestudio.ui.UiLanguage
@@ -70,6 +69,7 @@ import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.ui.viewerColors
 
 enum class CaptureSettingsSection {
@@ -307,10 +307,22 @@ private fun SettingsPanel(
     Column(modifier.fillMaxHeight().padding(22.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(section.title(locale), color = style.text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    section.title(locale),
+                    color = style.text,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(section.subtitle(locale), color = style.secondaryText, fontSize = 10.sp)
             }
-            onDismiss?.let { MacOSTextButton(localizedStringResource(SimpleperfViewerRes.sp_target_done, locale), it, style, primary = true) }
+            onDismiss?.let {
+                MacOSTextButton(
+                    localizedStringResource(SimpleperfViewerRes.sp_target_done, locale),
+                    it,
+                    style,
+                    primary = true,
+                )
+            }
         }
         Spacer(Modifier.height(14.dp))
         Column(
@@ -900,4 +912,3 @@ private fun SamplingTemplate.localizedTemplateDescription(locale: java.util.Loca
         },
         locale,
     )
-

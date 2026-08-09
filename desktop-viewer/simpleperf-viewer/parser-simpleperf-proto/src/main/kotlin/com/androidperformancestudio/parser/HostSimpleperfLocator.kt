@@ -3,10 +3,10 @@ package com.androidperformancestudio.parser
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -46,14 +46,14 @@ data class HostSimpleperfCandidate(
 )
 
 typealias ParserProcessInvocation =
-    suspend (ProcessRequest, ProcessCancellationSignal) -> ProcessRunResult
+    suspend (HostProcessRequest, HostCancellationSignal) -> HostCommandResult
 
 class HostSimpleperfLocator(
     private val configuredExecutable: Path?,
     private val bundledExecutable: BundledHostSimpleperf?,
     private val pathDirectories: List<Path>,
     private val processInvocation: ParserProcessInvocation = { request, signal ->
-        JvmProcessRunner().run(request, signal)
+        StudioHostProcessExecutor().run(request, signal)
     },
 ) {
     fun candidates(): List<HostSimpleperfCandidate> =
@@ -68,9 +68,9 @@ class HostSimpleperfLocator(
         }.filter { it.executable.isRegularFile() }
             .distinctBy { it.executable.toAbsolutePath().normalize() }
 
-    suspend fun locate(): StudioResult<HostSimpleperf> = locate(ProcessCancellationSignal())
+    suspend fun locate(): StudioResult<HostSimpleperf> = locate(HostCancellationSignal())
 
-    suspend fun locate(cancellationSignal: ProcessCancellationSignal): StudioResult<HostSimpleperf> {
+    suspend fun locate(cancellationSignal: HostCancellationSignal): StudioResult<HostSimpleperf> {
         val candidate = candidates().firstOrNull() ?: return notFound()
         return when (val digest = calculateDigest(candidate)) {
             is StudioResult.Failure -> digest
@@ -93,17 +93,17 @@ class HostSimpleperfLocator(
     private suspend fun verifyVersion(
         candidate: HostSimpleperfCandidate,
         digest: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<HostSimpleperf> =
         when (
             val result =
                 processInvocation(
-                    ProcessRequest(candidate.executable, arguments = listOf("--version")),
+                    HostProcessRequest(candidate.executable, arguments = listOf("--version")),
                     cancellationSignal,
                 )
         ) {
-            is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
-            is ProcessRunResult.Completed -> {
+            is HostCommandResult.Failed -> StudioResult.Failure(result.error)
+            is HostCommandResult.Completed -> {
                 val version =
                     result.output.stdout.text
                         .ifBlank { result.output.stderr.text }

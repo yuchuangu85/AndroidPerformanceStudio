@@ -32,7 +32,7 @@ import com.androidperformancestudio.methodrecording.app.generated.resources.sele
 import com.androidperformancestudio.methodrecording.app.generated.resources.select_process
 import com.androidperformancestudio.methodrecording.app.generated.resources.stop
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.SystemHostPlatformDetector
+import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
@@ -40,13 +40,14 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
+import kotlinx.coroutines.launch
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
 import java.nio.file.Path
-import kotlinx.coroutines.launch
 
 /** The CPU Method Recording workspace: capture/import an ART `.trace` and analyze it. */
+@Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
 @Composable
 fun FrameWindowScope.MethodRecordingMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
@@ -147,6 +148,7 @@ fun FrameWindowScope.MethodRecordingMainPage(
     }
 }
 
+@Suppress("FunctionName", "ktlint:standard:function-naming")
 @Composable
 private fun TraceOpenFileDialog(
     parent: Frame,
@@ -173,6 +175,7 @@ private fun TraceOpenFileDialog(
     )
 }
 
+@Suppress("ReturnCount")
 private fun locateSystemAdb(androidSdkPath: Path?): Path? {
     val platform = (SystemHostPlatformDetector().detect() as? StudioResult.Success)?.value ?: return null
     val location =

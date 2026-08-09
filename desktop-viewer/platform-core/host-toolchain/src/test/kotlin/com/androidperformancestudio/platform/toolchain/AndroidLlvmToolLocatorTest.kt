@@ -1,4 +1,4 @@
-package com.androidperformancestudio.toolchain
+package com.androidperformancestudio.platform.toolchain
 
 import java.nio.file.Files
 import java.nio.file.Path

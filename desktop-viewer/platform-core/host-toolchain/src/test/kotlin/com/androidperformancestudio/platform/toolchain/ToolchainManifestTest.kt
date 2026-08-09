@@ -1,4 +1,4 @@
-package com.androidperformancestudio.toolchain
+package com.androidperformancestudio.platform.toolchain
 
 import kotlin.test.Test
 import kotlin.test.assertFalse

@@ -20,9 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.androidperformancestudio.arttrace.MethodTopMethod
 import com.androidperformancestudio.application.FlameGraphPanelState
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.arttrace.MethodTopMethod
 import com.androidperformancestudio.methodrecording.app.generated.resources.Res
 import com.androidperformancestudio.methodrecording.app.generated.resources.calls
 import com.androidperformancestudio.methodrecording.app.generated.resources.function
@@ -47,6 +47,7 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 
 /** The method-recording workspace body: top-methods table plus the shared flame graph. */
+@Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
 @Composable
 fun MethodRecordingScreen(
     state: MethodRecordingState,
@@ -87,6 +88,16 @@ fun MethodRecordingScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+        state.artifact?.let { artifact ->
+            Text(
+                text =
+                    "Artifact: ${artifact.provenance.producer::class.simpleName ?: "Unknown"} · " +
+                        artifact.completeness.name.lowercase() +
+                        if (artifact.limitations.isNotEmpty()) " · ${artifact.limitations.size} limitation(s)" else "",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
 
         MethodTopMethodsTable(
             methods = state.topMethods,
@@ -115,6 +126,7 @@ fun MethodRecordingScreen(
     }
 }
 
+@Suppress("FunctionName", "MagicNumber", "ktlint:standard:function-naming")
 @Composable
 private fun MethodTopMethodsTable(
     methods: List<MethodTopMethod>,
@@ -164,6 +176,7 @@ private fun MethodTopMethodsTable(
     }
 }
 
+@Suppress("FunctionName", "ktlint:standard:function-naming")
 @Composable
 private fun TableHeader(
     text: String,
@@ -178,6 +191,7 @@ private fun TableHeader(
     )
 }
 
+@Suppress("MagicNumber")
 private fun formatMicros(micros: Long): String =
     when {
         micros >= 1_000_000L -> "%.2f s".format(micros / 1_000_000.0)

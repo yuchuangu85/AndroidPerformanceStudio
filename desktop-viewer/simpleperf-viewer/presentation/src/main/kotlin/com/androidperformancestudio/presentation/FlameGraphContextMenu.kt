@@ -55,6 +55,7 @@ internal data class FlameGraphContextEntry(
 )
 
 internal object FlameGraphContextCommands {
+    @Suppress("LongMethod")
     fun entries(
         snapshot: FlameGraphSnapshot,
         nodeId: FlameCallNodeId,
@@ -77,16 +78,32 @@ internal object FlameGraphContextCommands {
             if (snapshot.query.direction == CallStackDirection.FORWARD && path != null) {
                 transform(SimpleperfViewerRes.sp_flame_focus_on_call_node, "F", CallStackTransform.FocusCallNode(path))
             }
-            transform(SimpleperfViewerRes.sp_flame_focus_on_self_only, "S", CallStackTransform.FocusFunctionSelf(function))
+            transform(
+                SimpleperfViewerRes.sp_flame_focus_on_self_only,
+                "S",
+                CallStackTransform.FocusFunctionSelf(function),
+            )
             category?.let { value ->
                 transform(SimpleperfViewerRes.sp_flame_focus_on_category, "g", CallStackTransform.FocusCategory(value))
             }
-            transform(SimpleperfViewerRes.sp_flame_collapse_function_subtree, "c", CallStackTransform.CollapseFunctionSubtree(function))
+            transform(
+                SimpleperfViewerRes.sp_flame_collapse_function_subtree,
+                "c",
+                CallStackTransform.CollapseFunctionSubtree(function),
+            )
             resource?.let { value ->
-                transform(SimpleperfViewerRes.sp_flame_collapse_resource, "C", CallStackTransform.CollapseResource(value))
+                transform(
+                    SimpleperfViewerRes.sp_flame_collapse_resource,
+                    "C",
+                    CallStackTransform.CollapseResource(value),
+                )
             }
             if (table.hasRecursiveCall(function)) {
-                transform(SimpleperfViewerRes.sp_flame_collapse_recursion, "r", CallStackTransform.CollapseRecursion(function))
+                transform(
+                    SimpleperfViewerRes.sp_flame_collapse_recursion,
+                    "r",
+                    CallStackTransform.CollapseRecursion(function),
+                )
             }
             if (table.hasDirectRecursiveCall(function)) {
                 transform(
@@ -95,7 +112,11 @@ internal object FlameGraphContextCommands {
                     CallStackTransform.CollapseDirectRecursion(function),
                 )
             }
-            transform(SimpleperfViewerRes.sp_flame_drop_samples_with_function, "D", CallStackTransform.DropFunction(function))
+            transform(
+                SimpleperfViewerRes.sp_flame_drop_samples_with_function,
+                "D",
+                CallStackTransform.DropFunction(function),
+            )
             add(
                 FlameGraphContextEntry(
                     label = "",

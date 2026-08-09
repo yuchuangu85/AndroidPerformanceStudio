@@ -3,10 +3,10 @@ package com.androidperformancestudio.parser
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
@@ -26,7 +26,7 @@ class SimpleperfReportConverterTest {
             val directory = Files.createTempDirectory("aps-convert-")
             val perfData = directory.resolve("perf.data").also { it.writeText("perf") }
             val output = directory.resolve("perf.trace")
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             val converter =
                 SimpleperfReportConverter(
                     processInvocation = { request, _ ->
@@ -93,7 +93,7 @@ class SimpleperfReportConverterTest {
             val expected = StudioError(ErrorCategory.PROCESS_EXIT, "PROCESS_EXIT_1", "conversion failed")
             val converter =
                 SimpleperfReportConverter { request, _ ->
-                    ProcessRunResult.Failed(expected, processOutput(request, 1, "", "bad record"))
+                    HostCommandResult.Failed(expected, processOutput(request, 1, "", "bad record"))
                 }
 
             val result = converter.convert(hostSimpleperf(), SimpleperfConversionRequest(perfData, output))
@@ -112,23 +112,23 @@ class SimpleperfReportConverterTest {
         )
 
     private fun completed(
-        request: ProcessRequest,
+        request: HostProcessRequest,
         stdout: String = "",
         stderr: String = "",
-    ): ProcessRunResult.Completed = ProcessRunResult.Completed(processOutput(request, 0, stdout, stderr))
+    ): HostCommandResult.Completed = HostCommandResult.Completed(processOutput(request, 0, stdout, stderr))
 
     private fun processOutput(
-        request: ProcessRequest,
+        request: HostProcessRequest,
         exitCode: Int,
         stdout: String,
         stderr: String,
-    ): ProcessOutput =
-        ProcessOutput(
+    ): HostCommandOutput =
+        HostCommandOutput(
             pid = 1,
             command = request.command,
             exitCode = exitCode,
-            stdout = CapturedProcessText(stdout, false),
-            stderr = CapturedProcessText(stderr, false),
+            stdout = HostCapturedText(stdout, false),
+            stderr = HostCapturedText(stderr, false),
             startedAt = Instant.EPOCH,
             finishedAt = Instant.EPOCH,
         )

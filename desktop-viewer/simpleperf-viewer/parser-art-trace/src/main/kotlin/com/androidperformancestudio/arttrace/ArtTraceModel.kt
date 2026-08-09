@@ -1,6 +1,6 @@
 package com.androidperformancestudio.arttrace
 
-/**
+/*
  * Parsed model of an ART method-trace (`.trace`) file — the binary output of `am profile
  * start/stop` (and `Debug.startMethodTracing`).
  *
@@ -68,6 +68,11 @@ data class ArtTraceAnalysis(
 )
 
 sealed interface ArtTraceParseResult {
-    data class Success(val analysis: ArtTraceAnalysis) : ArtTraceParseResult
-    data class Failure(val message: String) : ArtTraceParseResult
+    data class Success(
+        val analysis: ArtTraceAnalysis,
+    ) : ArtTraceParseResult
+
+    data class Failure(
+        val message: String,
+    ) : ArtTraceParseResult
 }

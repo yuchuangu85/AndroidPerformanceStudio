@@ -7,8 +7,8 @@ import com.androidperformancestudio.platform.adb.AdbExecutableLocator
 import com.androidperformancestudio.platform.adb.AdbLocatorConfiguration
 import com.androidperformancestudio.platform.adb.AdbNotExecutableException
 import com.androidperformancestudio.platform.adb.AdbNotFoundException
-import com.androidperformancestudio.toolchain.HostOperatingSystem
-import com.androidperformancestudio.toolchain.HostPlatform
+import com.androidperformancestudio.platform.toolchain.HostOperatingSystem
+import com.androidperformancestudio.platform.toolchain.HostPlatform
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path

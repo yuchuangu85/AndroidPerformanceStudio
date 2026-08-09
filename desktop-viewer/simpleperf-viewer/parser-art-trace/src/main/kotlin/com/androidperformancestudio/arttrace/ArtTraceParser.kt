@@ -1,5 +1,8 @@
+@file:Suppress("MagicNumber")
+
 package com.androidperformancestudio.arttrace
 
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -21,11 +24,12 @@ import java.nio.file.Path
  * Events carry the method *index* (`methodWord ushr 2`); consumers resolve display names through
  * [ArtTraceAnalysis.methods], falling back to the raw id for symbols missing from the table.
  */
+@Suppress("TooManyFunctions")
 object ArtTraceParser {
     fun parse(path: Path): ArtTraceParseResult =
         try {
             parse(Files.readAllBytes(path))
-        } catch (exception: Exception) {
+        } catch (exception: IOException) {
             ArtTraceParseResult.Failure("Unable to read trace file: ${exception.message}")
         }
 
@@ -48,7 +52,10 @@ object ArtTraceParser {
 
     // --- Streaming format (versions 4/5) ------------------------------------------------
 
-    private fun parseStreaming(reader: ArtTraceBinaryReader, version: Int): ArtTraceParseResult {
+    private fun parseStreaming(
+        reader: ArtTraceBinaryReader,
+        version: Int,
+    ): ArtTraceParseResult {
         val startTimeNanos = reader.readU64() // bytes 6..13
         reader.skip(HEADER_LENGTH - 14) // pad to the 32-byte header
         val dualClock = version == 5
@@ -85,6 +92,7 @@ object ArtTraceParser {
         return buildAnalysis(header(version, startTimeNanos, dualClock), methods, threads, events, warnings)
     }
 
+    @Suppress("LongParameterList")
     private fun parseEntryBlock(
         block: ArtTraceBinaryReader,
         numRecords: Int,
@@ -121,7 +129,10 @@ object ArtTraceParser {
 
     // --- Classic format (versions 2/3) --------------------------------------------------
 
-    private fun parseClassic(reader: ArtTraceBinaryReader, version: Int): ArtTraceParseResult {
+    private fun parseClassic(
+        reader: ArtTraceBinaryReader,
+        version: Int,
+    ): ArtTraceParseResult {
         val dataOffset = reader.readU16() // bytes 6..7
         val startTimeNanos = reader.readU64() * NANOS_PER_MICRO // bytes 8..15
         reader.skip(HEADER_LENGTH - 16) // pad to the 32-byte header
@@ -203,7 +214,10 @@ object ArtTraceParser {
 
     // --- Shared helpers -----------------------------------------------------------------
 
-    private fun parseMethodInfo(methodId: Long, info: String): ArtMethod {
+    private fun parseMethodInfo(
+        methodId: Long,
+        info: String,
+    ): ArtMethod {
         val fields = info.trim().split('\t')
         return ArtMethod(
             methodId = methodId,
@@ -250,13 +264,18 @@ object ArtTraceParser {
         )
     }
 
-    private fun header(version: Int, startTimeNanos: Long, dualClock: Boolean): ArtTraceHeader =
+    private fun header(
+        version: Int,
+        startTimeNanos: Long,
+        dualClock: Boolean,
+    ): ArtTraceHeader =
         ArtTraceHeader(
             version = version,
             startTimeNanos = startTimeNanos,
             clockSource = if (dualClock) ArtClockSource.DUAL else ArtClockSource.SINGLE,
         )
 
+    @Suppress("ReturnCount")
     private fun ByteArray.endsWith(needle: ByteArray): Boolean {
         if (size < needle.size) return false
         for (index in needle.indices) {

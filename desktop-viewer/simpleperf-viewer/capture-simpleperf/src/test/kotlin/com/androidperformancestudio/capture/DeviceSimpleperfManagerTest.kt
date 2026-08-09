@@ -2,10 +2,10 @@ package com.androidperformancestudio.capture
 
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 import java.time.Instant
@@ -47,7 +47,7 @@ class DeviceSimpleperfManagerTest {
     @Test
     fun `reuses a bundled simpleperf with matching remote checksum`() =
         runBlocking {
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             val manager =
                 manager { request ->
                     requests += request
@@ -70,7 +70,7 @@ class DeviceSimpleperfManagerTest {
     @Test
     fun `pushes chmods and verifies a missing bundled simpleperf`() =
         runBlocking {
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             val manager =
                 manager { request ->
                     requests += request
@@ -95,7 +95,7 @@ class DeviceSimpleperfManagerTest {
                     listOf("-s", "serial-1", "shell", "chmod", "755", "/data/local/tmp/aps/simpleperf"),
                     listOf("-s", "serial-1", "shell", "/data/local/tmp/aps/simpleperf", "--version"),
                 ),
-                requests.map(ProcessRequest::arguments),
+                requests.map(HostProcessRequest::arguments),
             )
         }
 
@@ -113,31 +113,30 @@ class DeviceSimpleperfManagerTest {
             assertEquals("BUNDLED_SIMPLEPERF_ABI_UNAVAILABLE", failure.error.code)
         }
 
-    private fun manager(invocation: suspend (ProcessRequest) -> ProcessRunResult): DeviceSimpleperfManager =
+    private fun manager(invocation: suspend (HostProcessRequest) -> HostCommandResult): DeviceSimpleperfManager =
         DeviceSimpleperfManager(
-            adbExecutable = Path.of("adb"),
+            adbClient = ProcessInvocationAdbClient { request, _ -> invocation(request) },
             assets = listOf(asset),
-            processInvocation = { request, _ -> invocation(request) },
         )
 
     private fun completed(
-        request: ProcessRequest,
+        request: HostProcessRequest,
         stdout: String,
-    ): ProcessRunResult.Completed =
-        ProcessRunResult.Completed(
-            ProcessOutput(
+    ): HostCommandResult.Completed =
+        HostCommandResult.Completed(
+            HostCommandOutput(
                 pid = 1,
                 command = request.command,
                 exitCode = 0,
-                stdout = CapturedProcessText(stdout, truncated = false),
-                stderr = CapturedProcessText("", truncated = false),
+                stdout = HostCapturedText(stdout, truncated = false),
+                stderr = HostCapturedText("", truncated = false),
                 startedAt = Instant.EPOCH,
                 finishedAt = Instant.EPOCH,
             ),
         )
 
-    private fun failedExit(): ProcessRunResult.Failed =
-        ProcessRunResult.Failed(
+    private fun failedExit(): HostCommandResult.Failed =
+        HostCommandResult.Failed(
             com.androidperformancestudio.model.StudioError(
                 category = ErrorCategory.PROCESS_EXIT,
                 code = "PROCESS_EXIT_1",

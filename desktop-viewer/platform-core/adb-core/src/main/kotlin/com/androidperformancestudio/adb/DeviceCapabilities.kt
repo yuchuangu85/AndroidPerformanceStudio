@@ -3,11 +3,11 @@ package com.androidperformancestudio.adb
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.JvmProcessRunner
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
 import java.nio.file.Path
 
 enum class CapabilityReadiness {
@@ -52,12 +52,12 @@ data class DeviceCapabilities(
 class AdbDeviceCapabilityDetector(
     private val adbExecutable: Path,
     private val processInvocation: ProcessInvocation = { request, signal ->
-        JvmProcessRunner().run(request, signal)
+        StudioHostProcessExecutor().run(request, signal)
     },
 ) {
     suspend fun detect(
         properties: AndroidDeviceProperties,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): StudioResult<DeviceCapabilities> =
         when (val rootResult = detectRoot(properties.serial, cancellationSignal)) {
             is StudioResult.Failure -> rootResult
@@ -67,7 +67,7 @@ class AdbDeviceCapabilityDetector(
     private suspend fun detectWithRoot(
         properties: AndroidDeviceProperties,
         isRoot: Boolean,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<DeviceCapabilities> =
         if (isRoot) {
             detectWithRootAccess(properties, RootAccess.ACTIVE, cancellationSignal)
@@ -86,7 +86,7 @@ class AdbDeviceCapabilityDetector(
     private suspend fun detectWithRootAccess(
         properties: AndroidDeviceProperties,
         rootAccess: RootAccess,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<DeviceCapabilities> =
         when (val simpleperfResult = detectSimpleperf(properties.serial, cancellationSignal)) {
             is StudioResult.Failure -> simpleperfResult
@@ -106,11 +106,11 @@ class AdbDeviceCapabilityDetector(
         properties: AndroidDeviceProperties,
         rootAccess: RootAccess,
         probe: SimpleperfProbe,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<DeviceCapabilities> {
         val request = adbShellRequest(properties.serial, "simpleperf", "list")
         return when (val result = processInvocation(request, cancellationSignal)) {
-            is ProcessRunResult.Completed ->
+            is HostCommandResult.Completed ->
                 StudioResult.Success(
                     DeviceCapabilityEvaluator.evaluate(
                         properties,
@@ -120,7 +120,7 @@ class AdbDeviceCapabilityDetector(
                         parseEventNames(result.output.stdout.text),
                     ),
                 )
-            is ProcessRunResult.Failed ->
+            is HostCommandResult.Failed ->
                 if (result.error.category == ErrorCategory.PROCESS_EXIT) {
                     StudioResult.Success(
                         DeviceCapabilityEvaluator.evaluate(properties, rootAccess, true, probe.version, emptyList()),
@@ -133,31 +133,31 @@ class AdbDeviceCapabilityDetector(
 
     private suspend fun detectBuildType(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<String> {
         val request = adbShellRequest(serial, "getprop", "ro.build.type")
         return when (val result = processInvocation(request, cancellationSignal)) {
-            is ProcessRunResult.Completed ->
+            is HostCommandResult.Completed ->
                 StudioResult.Success(
                     result.output.stdout.text
                         .trim(),
                 )
-            is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
+            is HostCommandResult.Failed -> StudioResult.Failure(result.error)
         }
     }
 
     private suspend fun detectRoot(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<Boolean> {
         val request = adbShellRequest(serial, "id", "-u")
         return when (val result = processInvocation(request, cancellationSignal)) {
-            is ProcessRunResult.Completed -> parseRoot(result.output)
-            is ProcessRunResult.Failed -> StudioResult.Failure(result.error)
+            is HostCommandResult.Completed -> parseRoot(result.output)
+            is HostCommandResult.Failed -> StudioResult.Failure(result.error)
         }
     }
 
-    private fun parseRoot(output: ProcessOutput): StudioResult<Boolean> {
+    private fun parseRoot(output: HostCommandOutput): StudioResult<Boolean> {
         val uid =
             output.stdout.text
                 .trim()
@@ -178,18 +178,18 @@ class AdbDeviceCapabilityDetector(
 
     private suspend fun detectSimpleperf(
         serial: String,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<SimpleperfProbe> {
         val request = adbShellRequest(serial, "simpleperf", "--version")
         return when (val result = processInvocation(request, cancellationSignal)) {
-            is ProcessRunResult.Completed ->
+            is HostCommandResult.Completed ->
                 StudioResult.Success(
                     SimpleperfProbe(
                         available = true,
                         version = firstOutputLine(result.output),
                     ),
                 )
-            is ProcessRunResult.Failed ->
+            is HostCommandResult.Failed ->
                 if (result.error.category == ErrorCategory.PROCESS_EXIT) {
                     StudioResult.Success(SimpleperfProbe(available = false, version = null))
                 } else {
@@ -198,7 +198,7 @@ class AdbDeviceCapabilityDetector(
         }
     }
 
-    private fun firstOutputLine(output: ProcessOutput): String? =
+    private fun firstOutputLine(output: HostCommandOutput): String? =
         sequenceOf(output.stdout.text, output.stderr.text)
             .flatMap(CharSequence::lineSequence)
             .map(String::trim)
@@ -207,8 +207,8 @@ class AdbDeviceCapabilityDetector(
     private fun adbShellRequest(
         serial: String,
         vararg shellArguments: String,
-    ): ProcessRequest =
-        ProcessRequest(
+    ): HostProcessRequest =
+        HostProcessRequest(
             executable = adbExecutable,
             arguments = listOf("-s", serial, "shell") + shellArguments,
         )

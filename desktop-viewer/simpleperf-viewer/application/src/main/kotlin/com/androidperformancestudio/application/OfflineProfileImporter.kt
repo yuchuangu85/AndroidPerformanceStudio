@@ -1,5 +1,22 @@
+@file:Suppress("TooManyFunctions")
+
 package com.androidperformancestudio.application
 
+import com.androidperformancestudio.contracts.ArtifactAcquisition
+import com.androidperformancestudio.contracts.ArtifactAcquisitionKind
+import com.androidperformancestudio.contracts.ArtifactCompleteness
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
+import com.androidperformancestudio.contracts.ArtifactFormat
+import com.androidperformancestudio.contracts.ArtifactId
+import com.androidperformancestudio.contracts.ArtifactKind
+import com.androidperformancestudio.contracts.ArtifactLimitation
+import com.androidperformancestudio.contracts.ArtifactLocation
+import com.androidperformancestudio.contracts.ArtifactProducer
+import com.androidperformancestudio.contracts.ArtifactProvenance
+import com.androidperformancestudio.contracts.CapabilityId
+import com.androidperformancestudio.contracts.CaptureArtifact
+import com.androidperformancestudio.contracts.CaptureArtifactJson
+import com.androidperformancestudio.contracts.Sha256
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.NormalizedProfileRecord
 import com.androidperformancestudio.model.StudioError
@@ -12,10 +29,10 @@ import com.androidperformancestudio.parser.SimpleperfProfileNormalizer
 import com.androidperformancestudio.parser.SimpleperfReadSummary
 import com.androidperformancestudio.parser.SimpleperfRecordReader
 import com.androidperformancestudio.parser.SimpleperfReportConverter
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import com.androidperformancestudio.storage.DataQualitySummary
 import com.androidperformancestudio.storage.ProfileImportResult
 import com.androidperformancestudio.storage.SQLiteSampleStore
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -66,17 +83,18 @@ data class OfflineImportResult(
     val readSummary: SimpleperfReadSummary,
     val profileImport: ProfileImportResult,
     val quality: DataQualitySummary,
+    val artifact: CaptureArtifact? = null,
 )
 
 fun interface HostSimpleperfResolver {
-    suspend fun locate(cancellationSignal: ProcessCancellationSignal): StudioResult<HostSimpleperf>
+    suspend fun locate(cancellationSignal: HostCancellationSignal): StudioResult<HostSimpleperf>
 }
 
 fun interface PerfDataConverter {
     suspend fun convert(
         hostSimpleperf: HostSimpleperf,
         request: SimpleperfConversionRequest,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<SimpleperfConversionResult>
 }
 
@@ -97,7 +115,7 @@ class OfflineProfileImporter(
 
     suspend fun import(
         request: OfflineImportRequest,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): StudioResult<OfflineImportResult> =
         runImport {
             validate(request)?.let { return@runImport it }
@@ -107,7 +125,7 @@ class OfflineProfileImporter(
     suspend fun importCapturedSession(
         sessionDirectory: Path,
         batchSize: Int = SQLiteSampleStore.DEFAULT_BATCH_SIZE,
-        cancellationSignal: ProcessCancellationSignal = ProcessCancellationSignal(),
+        cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): StudioResult<OfflineImportResult> =
         runImport {
             val session = sessionDirectory.toAbsolutePath().normalize()
@@ -118,6 +136,17 @@ class OfflineProfileImporter(
                     "CAPTURED_SESSION_PERF_DATA_NOT_FOUND",
                     "Captured session does not contain perf.data",
                 )
+            }
+            val artifactFile = session.resolve("capture-artifact.json")
+            if (artifactFile.isRegularFile()) {
+                val artifact = runCatching { CaptureArtifactJson.decode(Files.readString(artifactFile)) }.getOrNull()
+                if (artifact == null || artifact.sha256 != ArtifactFileEvidence.sha256(perfData)) {
+                    return@runImport failure(
+                        ErrorCategory.DATA_VALIDATION,
+                        "CAPTURED_SESSION_HASH_MISMATCH",
+                        "Captured session perf.data no longer matches its Capture Artifact hash",
+                    )
+                }
             }
             val request =
                 OfflineImportRequest(
@@ -176,7 +205,7 @@ class OfflineProfileImporter(
 
     private suspend fun importValidated(
         request: OfflineImportRequest,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<OfflineImportResult> {
         ensureActive(cancellationSignal)
         val artifacts = prepareArtifacts(request)
@@ -187,7 +216,7 @@ class OfflineProfileImporter(
     private suspend fun importPrepared(
         request: OfflineImportRequest,
         artifacts: ImportArtifacts,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<OfflineImportResult> {
         if (request.format == OfflineProfileFormat.GECKO_PROFILE_JSON_GZIP) {
             return indexGeckoProfile(request, artifacts, cancellationSignal)
@@ -244,7 +273,7 @@ class OfflineProfileImporter(
     private suspend fun convertIfNecessary(
         request: OfflineImportRequest,
         artifacts: ImportArtifacts,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<PreparedTrace> {
         if (request.format == OfflineProfileFormat.SIMPLEPERF_PROTOBUF) {
             return StudioResult.Success(PreparedTrace(artifacts.protobufTrace, null))
@@ -267,12 +296,12 @@ class OfflineProfileImporter(
         }
     }
 
-    @Suppress("NestedBlockDepth", "ReturnCount")
+    @Suppress("NestedBlockDepth", "ReturnCount", "LongMethod")
     private fun indexTrace(
         request: OfflineImportRequest,
         artifacts: ImportArtifacts,
         prepared: PreparedTrace,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<OfflineImportResult> {
         deleteDatabaseArtifacts(artifacts.database)
         val normalizer = SimpleperfProfileNormalizer()
@@ -314,6 +343,7 @@ class OfflineProfileImporter(
                     }
                     profileImport = writer.finish()
                 }
+                val quality = store.dataQuality()
                 val result =
                     OfflineImportResult(
                         sessionDirectory = artifacts.sessionDirectory,
@@ -324,9 +354,11 @@ class OfflineProfileImporter(
                         hostSimpleperf = prepared.hostSimpleperf,
                         readSummary = checkNotNull(readSummary),
                         profileImport = checkNotNull(profileImport),
-                        quality = store.dataQuality(),
+                        quality = quality,
+                        artifact = createImportArtifact(request, artifacts, prepared.hostSimpleperf, quality),
                     )
                 writeSuccess(request, result)
+                writeArtifact(result)
                 return StudioResult.Success(result)
             }
         } finally {
@@ -338,7 +370,7 @@ class OfflineProfileImporter(
     private fun indexGeckoProfile(
         request: OfflineImportRequest,
         artifacts: ImportArtifacts,
-        cancellationSignal: ProcessCancellationSignal,
+        cancellationSignal: HostCancellationSignal,
     ): StudioResult<OfflineImportResult> {
         deleteDatabaseArtifacts(artifacts.database)
         var readSummary: SimpleperfReadSummary? = null
@@ -363,6 +395,7 @@ class OfflineProfileImporter(
                         )
                     profileImport = writer.finish()
                 }
+                val quality = store.dataQuality()
                 val result =
                     OfflineImportResult(
                         sessionDirectory = artifacts.sessionDirectory,
@@ -373,9 +406,11 @@ class OfflineProfileImporter(
                         hostSimpleperf = null,
                         readSummary = checkNotNull(readSummary),
                         profileImport = checkNotNull(profileImport),
-                        quality = store.dataQuality(),
+                        quality = quality,
+                        artifact = createImportArtifact(request, artifacts, null, quality),
                     )
                 writeSuccess(request, result)
+                writeArtifact(result)
                 return StudioResult.Success(result)
             }
         } finally {
@@ -415,7 +450,7 @@ private data class PreparedTrace(
     val hostSimpleperf: HostSimpleperf?,
 )
 
-private fun ensureActive(signal: ProcessCancellationSignal) {
+private fun ensureActive(signal: HostCancellationSignal) {
     if (signal.isCancelled) throw CancellationException("Offline import cancelled")
 }
 
@@ -485,6 +520,91 @@ private fun writeFailure(
     )
 }
 
+@Suppress("LongMethod")
+private fun createImportArtifact(
+    request: OfflineImportRequest,
+    artifacts: ImportArtifacts,
+    hostSimpleperf: HostSimpleperf?,
+    quality: DataQualitySummary,
+): CaptureArtifact {
+    val evidence =
+        artifacts.perfData
+            ?: artifacts.protobufTrace.takeIf(Path::isRegularFile)
+            ?: checkNotNull(artifacts.geckoProfile)
+    val existing =
+        artifacts.sessionDirectory.resolve("capture-artifact.json").takeIf(Path::isRegularFile)?.let {
+            runCatching { CaptureArtifactJson.decode(Files.readString(it)) }.getOrNull()
+        }
+    val processor =
+        hostSimpleperf?.let {
+            ArtifactProducer.Known("Host simpleperf", it.version, Sha256(it.sha256))
+        }
+    val requested = setOf(CPU_SAMPLES, CPU_CALL_STACKS, CPU_THREAD_TIMELINE)
+    val available =
+        buildSet {
+            if (quality.lostSampleCount == 0L && quality.unknownRecords == 0L) add(CPU_SAMPLES)
+            if (quality.unwindErrorSamples == 0L && quality.emptyStackSamples == 0L) add(CPU_CALL_STACKS)
+            add(CPU_THREAD_TIMELINE)
+        }
+    val limitations =
+        (requested - available).map { capability ->
+            ArtifactLimitation(
+                capability,
+                "profile-data-quality",
+                "Imported CPU evidence contains lost, unknown, empty-stack, or unwind-error records.",
+            )
+        }
+    if (existing != null && existing.sha256 == ArtifactFileEvidence.sha256(evidence)) {
+        return existing.copy(
+            location = ArtifactLocation(evidence.toAbsolutePath().normalize().toString()),
+            provenance =
+                existing.provenance.copy(
+                    processors = existing.provenance.processors + listOfNotNull(processor),
+                ),
+            availableCapabilities = available,
+            limitations = existing.limitations + limitations,
+        )
+    }
+    val hash = ArtifactFileEvidence.sha256(evidence)
+    return CaptureArtifact(
+        id = ArtifactId("cpu-${java.util.UUID.randomUUID()}"),
+        kind = ArtifactKind("cpu.simpleperf"),
+        location = ArtifactLocation(evidence.toAbsolutePath().normalize().toString()),
+        sha256 = hash,
+        format = ArtifactFormat(request.format.artifactFormatName()),
+        provenance =
+            ArtifactProvenance(
+                producer = ArtifactProducer.Unknown,
+                acquisition =
+                    ArtifactAcquisition(
+                        ArtifactAcquisitionKind.IMPORT,
+                        "Android Performance Studio",
+                        performedAtEpochMillis = System.currentTimeMillis(),
+                    ),
+                processors = listOfNotNull(processor),
+            ),
+        availableCapabilities = available,
+        completeness = ArtifactCompleteness.UNKNOWN,
+        limitations = limitations,
+    )
+}
+
+private fun OfflineProfileFormat.artifactFormatName(): String =
+    when (this) {
+        OfflineProfileFormat.PERF_DATA -> "simpleperf-perf-data"
+        OfflineProfileFormat.SIMPLEPERF_PROTOBUF -> "simpleperf-protobuf"
+        OfflineProfileFormat.GECKO_PROFILE_JSON_GZIP -> "gecko-profile-json-gzip"
+    }
+
+private fun writeArtifact(result: OfflineImportResult) {
+    result.artifact?.let { artifact ->
+        Files.writeString(
+            result.sessionDirectory.resolve("capture-artifact.json"),
+            CaptureArtifactJson.encode(artifact),
+        )
+    }
+}
+
 private fun failure(
     category: ErrorCategory,
     code: String,
@@ -493,3 +613,6 @@ private fun failure(
 ): StudioResult.Failure = StudioResult.Failure(StudioError(category, code, message, cause))
 
 private const val GECKO_PROFILE_VERSION = 24
+private val CPU_SAMPLES = CapabilityId("cpu.samples")
+private val CPU_CALL_STACKS = CapabilityId("cpu.call_stacks")
+private val CPU_THREAD_TIMELINE = CapabilityId("cpu.thread_timeline")

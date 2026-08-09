@@ -5,6 +5,8 @@ import com.androidperformancestudio.arttrace.ArtTraceFlameGraphBuilder
 import com.androidperformancestudio.arttrace.ArtTraceParseResult
 import com.androidperformancestudio.arttrace.ArtTraceParser
 import com.androidperformancestudio.arttrace.MethodTopMethodsReducer
+import com.androidperformancestudio.contracts.CaptureArtifact
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.methodcapture.MethodRecordingDeviceGateway
 import com.androidperformancestudio.methodcapture.MethodTraceCaptureRequest
 import com.androidperformancestudio.methodcapture.MethodTraceCaptureSession
@@ -18,15 +20,15 @@ import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.profileanalysis.CallStackTable
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Drives the method-recording workspace: device/process discovery, live `am profile` capture, and
@@ -48,7 +50,10 @@ class MethodRecordingController(
     suspend fun refreshDevices() {
         val gw = gateway
         if (gw == null) {
-            mutableState.value = mutableState.value.copy(error = localizedStringResource(Res.string.adb_not_found, language))
+            mutableState.value =
+                mutableState.value.copy(
+                    error = localizedStringResource(Res.string.adb_not_found, language),
+                )
             return
         }
         when (val result = gw.refreshDevices()) {
@@ -65,7 +70,11 @@ class MethodRecordingController(
                         selectedPid = null,
                         error = null,
                     )
-                val automatic = current ?: result.value.filter { it.online }.singleOrNull()?.serial
+                val automatic =
+                    current ?: result.value
+                        .filter { it.online }
+                        .singleOrNull()
+                        ?.serial
                 if (automatic != null && automatic != current) {
                     selectDevice(automatic)
                 }
@@ -94,13 +103,18 @@ class MethodRecordingController(
         }
     }
 
-    suspend fun importTrace(path: Path) {
+    suspend fun importTrace(
+        path: Path,
+        artifact: CaptureArtifact? = null,
+    ) {
         mutableState.value = mutableState.value.copy(isLoading = true, error = null)
         when (val result = ArtTraceParser.parse(path)) {
             is ArtTraceParseResult.Failure ->
                 mutableState.value = mutableState.value.copy(isLoading = false, error = result.message)
             is ArtTraceParseResult.Success -> {
                 val analysis = result.analysis
+                val evidence = artifact ?: MethodRecordingArtifactFactory().imported(path)
+                persistArtifact(evidence, path.parent)
                 val table = ArtTraceCallStackProjector.toCallStackTable(analysis)
                 callStackTable = table
                 mutableState.value =
@@ -117,13 +131,14 @@ class MethodRecordingController(
                                 formatBytes(Files.size(path)),
                             ),
                         capturePhase = MethodTraceCapturePhase.Completed(path),
+                        artifact = evidence,
                         error = null,
                     )
             }
         }
     }
 
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "ReturnCount")
     suspend fun startCapture() {
         val session = captureSession ?: return
         val snapshot = mutableState.value
@@ -160,9 +175,29 @@ class MethodRecordingController(
                     mutableState.value.copy(capturePhase = MethodTraceCapturePhase.Failed(message), error = message)
             }
             is StudioResult.Success -> {
+                val artifact =
+                    MethodRecordingArtifactFactory().captured(
+                        file = result.value.traceFile,
+                        serial = serial,
+                        pid = process.pid,
+                        packageName = process.packageName,
+                        warningMessages = result.value.warnings.map { it.message },
+                    )
+                persistArtifact(artifact, result.value.sessionDirectory)
                 mutableState.value = mutableState.value.copy(isLoading = true)
-                importTrace(result.value.traceFile)
+                importTrace(result.value.traceFile, artifact)
             }
+        }
+    }
+
+    private fun persistArtifact(
+        artifact: CaptureArtifact,
+        directory: Path?,
+    ) {
+        val targetDirectory = directory ?: sessionRoot.resolve("capture-artifacts")
+        runCatching {
+            Files.createDirectories(targetDirectory)
+            Files.writeString(targetDirectory.resolve("capture-artifact.json"), CaptureArtifactJson.encode(artifact))
         }
     }
 
@@ -170,6 +205,7 @@ class MethodRecordingController(
         captureSession?.requestStop()
     }
 
+    @Suppress("MagicNumber")
     private fun formatBytes(bytes: Long): String =
         when {
             bytes >= 1L shl 30 -> "%.1f GB".format(bytes.toDouble() / (1L shl 30))

@@ -91,7 +91,11 @@ internal fun CallStackTransform.navigatorLabel(
         is CallStackTransform.DropFunction ->
             localizedStringResource(SimpleperfViewerRes.sp_flame_nav_drop_function, language)
         is CallStackTransform.CollapseResource ->
-            localizedStringResource(SimpleperfViewerRes.sp_flame_nav_collapse_resource, language, resource.substringAfterLast('/'))
+            localizedStringResource(
+                SimpleperfViewerRes.sp_flame_nav_collapse_resource,
+                language,
+                resource.substringAfterLast('/'),
+            )
         is CallStackTransform.CollapseRecursion ->
             localizedStringResource(SimpleperfViewerRes.sp_flame_collapse_recursion, language)
         is CallStackTransform.CollapseDirectRecursion ->

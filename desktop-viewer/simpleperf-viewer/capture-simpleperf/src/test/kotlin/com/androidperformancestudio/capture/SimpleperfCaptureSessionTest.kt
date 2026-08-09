@@ -2,13 +2,17 @@
 
 package com.androidperformancestudio.capture
 
+import com.androidperformancestudio.contracts.ArtifactAcquisitionKind
+import com.androidperformancestudio.contracts.ArtifactCompleteness
+import com.androidperformancestudio.contracts.CaptureArtifactJson
+import com.androidperformancestudio.contracts.ClockDomain
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.toolchain.CapturedProcessText
-import com.androidperformancestudio.toolchain.ProcessOutput
-import com.androidperformancestudio.toolchain.ProcessRequest
-import com.androidperformancestudio.toolchain.ProcessRunResult
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -27,21 +31,21 @@ class SimpleperfCaptureSessionTest {
     fun `creates the remote output directory before recording`() =
         runBlocking {
             val root = Files.createTempDirectory("aps-capture-output-dir-")
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             val session =
                 SimpleperfCaptureSession(
-                    adbExecutable = Path.of("adb"),
                     simpleperfPreparer = preparedDeviceSimpleperf(),
-                    processInvocation = { request, _ ->
-                        requests += request
-                        when {
-                            "pull" in request.arguments -> {
-                                Files.writeString(Path.of(request.arguments.last()), "perf-data")
-                                completed(request, stdout = "pulled")
+                    adbClient =
+                        ProcessInvocationAdbClient { request, _ ->
+                            requests += request
+                            when {
+                                "pull" in request.arguments -> {
+                                    Files.writeString(Path.of(request.arguments.last()), "perf-data")
+                                    completed(request, stdout = "pulled")
+                                }
+                                else -> completed(request, stdout = "ok")
                             }
-                            else -> completed(request, stdout = "ok")
-                        }
-                    },
+                        },
                 )
 
             assertIs<CaptureState.Completed>(session.capture(captureRequest(root)))
@@ -54,26 +58,27 @@ class SimpleperfCaptureSessionTest {
         }
 
     @Test
+    @Suppress("LongMethod")
     fun `records pulls and persists a reproducible session`() =
         runBlocking {
             val root = Files.createTempDirectory("aps-capture-test-")
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             val session =
                 SimpleperfCaptureSession(
-                    adbExecutable = Path.of("adb"),
                     simpleperfPreparer = preparedDeviceSimpleperf(),
-                    processInvocation = { request, _ ->
-                        requests += request
-                        when {
-                            "record" in request.arguments ->
-                                completed(request, stdout = "recorded", stderr = "record warning")
-                            "pull" in request.arguments -> {
-                                Files.writeString(Path.of(request.arguments.last()), "perf-data")
-                                completed(request, stdout = "pulled")
+                    adbClient =
+                        ProcessInvocationAdbClient { request, _ ->
+                            requests += request
+                            when {
+                                "record" in request.arguments ->
+                                    completed(request, stdout = "recorded", stderr = "record warning")
+                                "pull" in request.arguments -> {
+                                    Files.writeString(Path.of(request.arguments.last()), "perf-data")
+                                    completed(request, stdout = "pulled")
+                                }
+                                else -> completed(request, stdout = "removed")
                             }
-                            else -> completed(request, stdout = "removed")
-                        }
-                    },
+                        },
                 )
             val request = captureRequest(root)
 
@@ -114,6 +119,17 @@ class SimpleperfCaptureSessionTest {
                     .readText()
                     .contains("status=COMPLETED"),
             )
+            val artifactJson = completed.sessionDirectory.resolve("capture-artifact.json").readText()
+            val artifact = CaptureArtifactJson.decode(artifactJson)
+            assertEquals(ArtifactAcquisitionKind.CAPTURE, artifact.provenance.acquisition.kind)
+            assertEquals(ArtifactCompleteness.COMPLETE, artifact.completeness)
+            assertEquals(321, artifact.process?.pid)
+            assertTrue(ClockDomain("simpleperf.perf_time") in artifact.clockDomains)
+            assertTrue(artifact.device?.rawSerial == null)
+            assertTrue("serial-1" !in artifactJson)
+            assertTrue("serial-1" !in completed.sessionDirectory.resolve("session.properties").readText())
+            assertTrue("serial-1" !in completed.sessionDirectory.resolve("capture-command.txt").readText())
+            assertTrue("serial-1" !in completed.sessionDirectory.resolve("record.properties").readText())
         }
 
     @Test
@@ -126,29 +142,31 @@ class SimpleperfCaptureSessionTest {
                     code = "PROCESS_EXIT_1",
                     message = "permission denied",
                 )
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             val session =
                 SimpleperfCaptureSession(
-                    adbExecutable = Path.of("adb"),
                     simpleperfPreparer = preparedDeviceSimpleperf(),
-                    processInvocation = { request, _ ->
-                        requests += request
-                        if ("record" in request.arguments) {
-                            failed(
-                                request = request,
-                                error = expected,
-                                stderr = "failed to open perf event",
-                            )
-                        } else {
-                            completed(request, stdout = "removed")
-                        }
-                    },
+                    adbClient =
+                        ProcessInvocationAdbClient { request, _ ->
+                            requests += request
+                            if ("record" in request.arguments) {
+                                failed(
+                                    request = request,
+                                    error = expected,
+                                    stderr = "failed to open perf event",
+                                )
+                            } else {
+                                completed(request, stdout = "removed")
+                            }
+                        },
                 )
 
             val result = session.capture(captureRequest(root))
 
             val failure = assertIs<CaptureState.Failed>(result)
-            assertEquals(expected, failure.error)
+            assertEquals(expected.category, failure.error.category)
+            assertEquals(expected.code, failure.error.code)
+            assertTrue(failure.error.message.contains("failed to open perf event"))
             assertEquals(remoteCleanupArguments(), requests.last().arguments)
             assertEquals("failed to open perf event", failure.sessionDirectory.resolve("record.stderr.log").readText())
             assertEquals("removed", failure.sessionDirectory.resolve("cleanup.stdout.log").readText())
@@ -164,6 +182,7 @@ class SimpleperfCaptureSessionTest {
                     .readText()
                     .contains("status=FAILED"),
             )
+            assertTrue(!failure.sessionDirectory.resolve("capture-artifact.json").exists())
         }
 
     @Test
@@ -175,24 +194,24 @@ class SimpleperfCaptureSessionTest {
                     "doesn't exist or isn't debuggable/profileable."
             val session =
                 SimpleperfCaptureSession(
-                    adbExecutable = Path.of("adb"),
                     simpleperfPreparer = preparedDeviceSimpleperf(),
-                    processInvocation = { request, _ ->
-                        if ("record" in request.arguments) {
-                            failed(
-                                request = request,
-                                error =
-                                    StudioError(
-                                        category = ErrorCategory.PROCESS_EXIT,
-                                        code = "PROCESS_EXIT_1",
-                                        message = "Process exited with code 1",
-                                    ),
-                                stderr = stderr,
-                            )
-                        } else {
-                            completed(request, stdout = "")
-                        }
-                    },
+                    adbClient =
+                        ProcessInvocationAdbClient { request, _ ->
+                            if ("record" in request.arguments) {
+                                failed(
+                                    request = request,
+                                    error =
+                                        StudioError(
+                                            category = ErrorCategory.PROCESS_EXIT,
+                                            code = "PROCESS_EXIT_1",
+                                            message = "Process exited with code 1",
+                                        ),
+                                    stderr = stderr,
+                                )
+                            } else {
+                                completed(request, stdout = "")
+                            }
+                        },
                 )
 
             val failure = assertIs<CaptureState.Failed>(session.capture(captureRequest(root)))
@@ -211,29 +230,29 @@ class SimpleperfCaptureSessionTest {
     fun `cancels an active record and retains cancellation evidence`() =
         runBlocking {
             val root = Files.createTempDirectory("aps-capture-cancel-")
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             val session =
                 SimpleperfCaptureSession(
-                    adbExecutable = Path.of("adb"),
                     simpleperfPreparer = preparedDeviceSimpleperf(),
-                    processInvocation = { request, signal ->
-                        requests += request
-                        if ("record" in request.arguments) {
-                            while (!signal.isCancelled) delay(10)
-                            failed(
-                                request = request,
-                                error =
-                                    StudioError(
-                                        category = ErrorCategory.PROCESS_CANCELLED,
-                                        code = "PROCESS_CANCELLED",
-                                        message = "cancelled",
-                                    ),
-                                stderr = "cancelled by user",
-                            )
-                        } else {
-                            completed(request, stdout = "removed after cancellation")
-                        }
-                    },
+                    adbClient =
+                        ProcessInvocationAdbClient { request, signal ->
+                            requests += request
+                            if ("record" in request.arguments) {
+                                while (!signal.isCancelled) delay(10)
+                                failed(
+                                    request = request,
+                                    error =
+                                        StudioError(
+                                            category = ErrorCategory.PROCESS_CANCELLED,
+                                            code = "PROCESS_CANCELLED",
+                                            message = "cancelled",
+                                        ),
+                                    stderr = "cancelled by user",
+                                )
+                            } else {
+                                completed(request, stdout = "removed after cancellation")
+                            }
+                        },
                 )
             val capture = async { session.capture(captureRequest(root)) }
             while (session.state.value !is CaptureState.Recording) delay(10)
@@ -242,7 +261,13 @@ class SimpleperfCaptureSessionTest {
 
             val cancelled = assertIs<CaptureState.Cancelled>(capture.await())
             assertEquals(remoteCleanupArguments(), requests.last().arguments)
-            assertEquals("cancelled by user", cancelled.sessionDirectory.resolve("record.stderr.log").readText())
+            assertEquals("", cancelled.sessionDirectory.resolve("record.stderr.log").readText())
+            assertTrue(
+                cancelled.sessionDirectory
+                    .resolve("session.properties")
+                    .readText()
+                    .contains("status=CANCELLED"),
+            )
             assertEquals(
                 "removed after cancellation",
                 cancelled.sessionDirectory.resolve("cleanup.stdout.log").readText(),
@@ -253,30 +278,30 @@ class SimpleperfCaptureSessionTest {
     fun `stops recording gracefully then pulls the completed profile`() =
         runBlocking {
             val root = Files.createTempDirectory("aps-capture-stop-")
-            val requests = mutableListOf<ProcessRequest>()
+            val requests = mutableListOf<HostProcessRequest>()
             var stopRequested = false
             val session =
                 SimpleperfCaptureSession(
-                    adbExecutable = Path.of("adb"),
                     simpleperfPreparer = preparedDeviceSimpleperf(),
-                    processInvocation = { request, _ ->
-                        requests += request
-                        when {
-                            "record" in request.arguments -> {
-                                while (!stopRequested) delay(10)
-                                completed(request, stdout = "record stopped cleanly")
+                    adbClient =
+                        ProcessInvocationAdbClient { request, _ ->
+                            requests += request
+                            when {
+                                "record" in request.arguments -> {
+                                    while (!stopRequested) delay(10)
+                                    completed(request, stdout = "record stopped cleanly")
+                                }
+                                "pkill" in request.arguments -> {
+                                    stopRequested = true
+                                    completed(request, stdout = "signal delivered")
+                                }
+                                "pull" in request.arguments -> {
+                                    Files.writeString(Path.of(request.arguments.last()), "perf-data")
+                                    completed(request, stdout = "pulled")
+                                }
+                                else -> completed(request, stdout = "removed")
                             }
-                            "pkill" in request.arguments -> {
-                                stopRequested = true
-                                completed(request, stdout = "signal delivered")
-                            }
-                            "pull" in request.arguments -> {
-                                Files.writeString(Path.of(request.arguments.last()), "perf-data")
-                                completed(request, stdout = "pulled")
-                            }
-                            else -> completed(request, stdout = "removed")
-                        }
-                    },
+                        },
                 )
             val capture = async { session.capture(captureRequest(root).withManualStop()) }
             while (session.state.value !is CaptureState.Recording) delay(10)
@@ -319,36 +344,36 @@ class SimpleperfCaptureSessionTest {
         }
 
     private fun completed(
-        request: ProcessRequest,
+        request: HostProcessRequest,
         stdout: String,
         stderr: String = "",
-    ): ProcessRunResult.Completed =
-        ProcessRunResult.Completed(
+    ): HostCommandResult.Completed =
+        HostCommandResult.Completed(
             output(request, exitCode = 0, stdout = stdout, stderr = stderr),
         )
 
     private fun failed(
-        request: ProcessRequest,
+        request: HostProcessRequest,
         error: StudioError,
         stderr: String,
-    ): ProcessRunResult.Failed =
-        ProcessRunResult.Failed(
+    ): HostCommandResult.Failed =
+        HostCommandResult.Failed(
             error = error,
             output = output(request, exitCode = 1, stdout = "", stderr = stderr),
         )
 
     private fun output(
-        request: ProcessRequest,
+        request: HostProcessRequest,
         exitCode: Int,
         stdout: String,
         stderr: String,
-    ): ProcessOutput =
-        ProcessOutput(
+    ): HostCommandOutput =
+        HostCommandOutput(
             pid = 1,
             command = request.command,
             exitCode = exitCode,
-            stdout = CapturedProcessText(stdout, truncated = false),
-            stderr = CapturedProcessText(stderr, truncated = false),
+            stdout = HostCapturedText(stdout, truncated = false),
+            stderr = HostCapturedText(stderr, truncated = false),
             startedAt = Instant.EPOCH,
             finishedAt = Instant.EPOCH,
         )

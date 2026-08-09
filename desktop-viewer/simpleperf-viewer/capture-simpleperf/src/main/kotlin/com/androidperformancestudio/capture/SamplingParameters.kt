@@ -102,9 +102,9 @@ data class SimpleperfRecordCommand(
         requireCommandToken(simpleperfPath, "simpleperfPath")
     }
 
-    val adbArguments: List<String> =
+    val shellArguments: List<String> =
         buildList {
-            addAll(listOf("-s", serial, "shell", simpleperfPath, "record"))
+            addAll(listOf(simpleperfPath, "record"))
             addAll(parameters.eventArguments())
             addAll(parameters.rate.arguments())
             parameters.durationSeconds?.let { addAll(listOf("--duration", it.toCommandNumber())) }
@@ -112,6 +112,8 @@ data class SimpleperfRecordCommand(
             addAll(parameters.target.arguments())
             addAll(listOf("-o", parameters.outputPath))
         }
+
+    val adbArguments: List<String> = listOf("-s", serial, "shell") + shellArguments
 
     fun preview(adbExecutable: String = "adb"): String = commandOf(adbExecutable, adbArguments)
 }

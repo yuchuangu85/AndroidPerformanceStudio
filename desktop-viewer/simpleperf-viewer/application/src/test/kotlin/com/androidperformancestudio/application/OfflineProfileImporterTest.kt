@@ -1,12 +1,24 @@
 package com.androidperformancestudio.application
 
 import com.android.tools.profiler.proto.SimpleperfReport
+import com.androidperformancestudio.contracts.ArtifactAcquisition
+import com.androidperformancestudio.contracts.ArtifactAcquisitionKind
+import com.androidperformancestudio.contracts.ArtifactCompleteness
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
+import com.androidperformancestudio.contracts.ArtifactId
+import com.androidperformancestudio.contracts.ArtifactKind
+import com.androidperformancestudio.contracts.ArtifactLocation
+import com.androidperformancestudio.contracts.ArtifactProducer
+import com.androidperformancestudio.contracts.ArtifactProvenance
+import com.androidperformancestudio.contracts.CapabilityId
+import com.androidperformancestudio.contracts.CaptureArtifact
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.parser.HostSimpleperf
 import com.androidperformancestudio.parser.HostSimpleperfSource
 import com.androidperformancestudio.parser.SimpleperfConversionResult
+import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import com.androidperformancestudio.storage.SQLiteSampleStore
-import com.androidperformancestudio.toolchain.ProcessCancellationSignal
 import kotlinx.coroutines.test.runTest
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
@@ -58,6 +70,11 @@ class OfflineProfileImporterTest {
             assertTrue(imported.database.exists())
             assertContentEquals(input.readBytes(), checkNotNull(imported.protobufTrace).readBytes())
             assertTrue(imported.sessionDirectory.resolve("import.properties").exists())
+            val artifact = checkNotNull(imported.artifact)
+            assertEquals(ArtifactAcquisitionKind.IMPORT, artifact.provenance.acquisition.kind)
+            assertEquals(ArtifactProducer.Unknown, artifact.provenance.producer)
+            assertEquals(null, artifact.requestedCapabilities)
+            assertEquals(ArtifactCompleteness.UNKNOWN, artifact.completeness)
         }
 
     @Test
@@ -204,7 +221,7 @@ class OfflineProfileImporterTest {
                         symbolDirectory = symbols,
                         proguardMapping = mapping,
                     ),
-                    ProcessCancellationSignal(),
+                    HostCancellationSignal(),
                 )
 
             val imported = assertIs<StudioResult.Success<OfflineImportResult>>(result).value
@@ -280,6 +297,47 @@ class OfflineProfileImporterTest {
             assertTrue(session.resolve("profile.sqlite").exists())
             assertTrue(session.resolve("simpleperf.protobuf").exists())
         }
+
+    @Test
+    fun `rejects captured perf data changed after artifact registration`() =
+        runTest {
+            val session = Files.createTempDirectory("aps-captured-hash-")
+            val perfData = session.resolve("perf.data").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            session.resolve("capture-artifact.json").writeText(CaptureArtifactJson.encode(captureArtifact(perfData)))
+            perfData.writeBytes(byteArrayOf(9, 9, 9))
+            val importer =
+                OfflineProfileImporter(
+                    hostSimpleperfResolver = { error("hash must be checked before locating tools") },
+                    perfDataConverter = { _, _, _ -> error("hash must be checked before conversion") },
+                )
+
+            val result = importer.importCapturedSession(session)
+
+            assertEquals("CAPTURED_SESSION_HASH_MISMATCH", assertIs<StudioResult.Failure>(result).error.code)
+        }
+
+    private fun captureArtifact(perfData: Path): CaptureArtifact {
+        val capabilities = setOf(CapabilityId("cpu.samples"))
+        return CaptureArtifact(
+            id = ArtifactId("captured-cpu"),
+            kind = ArtifactKind("cpu.simpleperf"),
+            location = ArtifactLocation(perfData.toString()),
+            sha256 = ArtifactFileEvidence.sha256(perfData),
+            provenance =
+                ArtifactProvenance(
+                    producer = ArtifactProducer.Known("Android simpleperf"),
+                    acquisition =
+                        ArtifactAcquisition(
+                            ArtifactAcquisitionKind.CAPTURE,
+                            "Android Performance Studio",
+                            performedAtEpochMillis = 0L,
+                        ),
+                ),
+            requestedCapabilities = capabilities,
+            availableCapabilities = capabilities,
+            completeness = ArtifactCompleteness.COMPLETE,
+        )
+    }
 
     @Suppress("LongMethod")
     private fun profileTrace(lookupsAfterSample: Boolean = false): ByteArray {

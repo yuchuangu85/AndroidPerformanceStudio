@@ -1,3 +1,5 @@
+@file:Suppress("MagicNumber")
+
 package com.androidperformancestudio.arttrace
 
 /**
@@ -5,8 +7,11 @@ package com.androidperformancestudio.arttrace
  * throws [ArtTraceFormatException]; the parser catches it and reports a structured [ArtTraceParseResult.Failure]
  * so a truncated file never crashes the app.
  */
-internal class ArtTraceFormatException(message: String) : Exception(message)
+internal class ArtTraceFormatException(
+    message: String,
+) : Exception(message)
 
+@Suppress("TooManyFunctions")
 internal class ArtTraceBinaryReader(
     private val bytes: ByteArray,
 ) {
@@ -104,6 +109,7 @@ internal class ArtTraceBinaryReader(
     }
 
     /** Consumes bytes up to and including the first occurrence of [needle] (or to EOF). */
+    @Suppress("NestedBlockDepth")
     fun readUntilInclusive(needle: ByteArray): ByteArray {
         val out = ArrayList<Byte>(needle.size * 2)
         while (position < bytes.size) {
