@@ -19,8 +19,8 @@ include(
 
 project(":gpu-integration-presentation").projectDir = file("presentation")
 
-includeBuild("../simpleperf-viewer") {
-    name = "gpu-inspector-simpleperf-tooling"
+includeBuild("../platform-core") {
+    name = "gpu-inspector-platform-core"
 }
 
 includeBuild("../ui-components") {

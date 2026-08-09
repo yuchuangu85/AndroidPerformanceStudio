@@ -8,6 +8,10 @@ import com.androidperformancestudio.network.protocol.AgentNetworkEvent
 import com.androidperformancestudio.network.protocol.NETWORK_AGENT_PORT
 import com.androidperformancestudio.network.protocol.NETWORK_AGENT_PROTOCOL_VERSION
 import com.androidperformancestudio.network.protocol.NetworkAgentCodec
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.HostProcessRunner
+import com.androidperformancestudio.platform.toolchain.HostProcessTimeoutException
+import com.androidperformancestudio.platform.toolchain.JvmHostProcessRunner
 import java.net.InetAddress
 import java.net.Socket
 import java.nio.file.Path
@@ -15,7 +19,7 @@ import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
-import java.util.concurrent.TimeUnit
+import kotlin.time.toKotlinDuration
 
 public data class CommandResult(
     val exitCode: Int,
@@ -25,16 +29,26 @@ public data class CommandResult(
 )
 
 public interface AdbCommandRunner {
-    public fun run(arguments: List<String>, timeout: Duration = Duration.ofSeconds(10)): CommandResult
+    public suspend fun run(arguments: List<String>, timeout: Duration = Duration.ofSeconds(10)): CommandResult
 }
 
-public class ProcessAdbCommandRunner : AdbCommandRunner {
-    override fun run(arguments: List<String>, timeout: Duration): CommandResult {
-        val process = ProcessBuilder(arguments).start()
-        val finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)
-        if (!finished) process.destroyForcibly()
-        return CommandResult(if (finished) process.exitValue() else -1, process.inputStream.bufferedReader().readText(), process.errorStream.bufferedReader().readText(), !finished)
-    }
+public class ProcessAdbCommandRunner(
+    private val delegate: HostProcessRunner = JvmHostProcessRunner(),
+) : AdbCommandRunner {
+    override suspend fun run(arguments: List<String>, timeout: Duration): CommandResult =
+        try {
+            val result =
+                delegate.executeText(
+                    HostProcessRequest(
+                        executable = Path.of(requireNotNull(arguments.firstOrNull()) { "ADB command is empty" }),
+                        arguments = arguments.drop(1),
+                        timeout = timeout.toKotlinDuration(),
+                    ),
+                )
+            CommandResult(result.exitCode, result.stdout, result.stderr, false)
+        } catch (_: HostProcessTimeoutException) {
+            CommandResult(-1, "", "", true)
+        }
 }
 
 public class ActiveNetworkCapture internal constructor(
@@ -58,7 +72,7 @@ public class NetworkAgentCapture(
     private val adb: Path = Path.of("adb"),
     private val runner: AdbCommandRunner = ProcessAdbCommandRunner(),
 ) {
-    public fun start(serial: String, packageName: String): ActiveNetworkCapture {
+    public suspend fun start(serial: String, packageName: String): ActiveNetworkCapture {
         require(serial.isNotBlank()) { "Device serial is required" }
         require(PACKAGE_PATTERN.matches(packageName)) { "Invalid Android package name" }
         val tokenResult = runner.run(listOf(adb.toString(), "-s", serial, "shell", "run-as", packageName, "cat", "files/aps-network/token"))
@@ -111,7 +125,7 @@ public class NetworkAgentCapture(
         return response.events
     }
 
-    public fun stop(capture: ActiveNetworkCapture): NetworkCaptureResult {
+    public suspend fun stop(capture: ActiveNetworkCapture): NetworkCaptureResult {
         var finalResponse: com.androidperformancestudio.network.protocol.AgentResponse? = null
         try {
             do {

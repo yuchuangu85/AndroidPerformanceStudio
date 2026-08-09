@@ -27,8 +27,8 @@ project(":network-storage-sqlite").projectDir = file("storage-sqlite")
 project(":network-export-adapters").projectDir = file("export-adapters")
 project(":network-presentation").projectDir = file("presentation")
 
-includeBuild("../simpleperf-viewer") {
-    name = "network-profiler-simpleperf-tooling"
+includeBuild("../platform-core") {
+    name = "network-profiler-platform-core"
 }
 
 includeBuild("../ui-components") {

@@ -48,7 +48,7 @@ data class HostProcessLaunchRequest(
     val arguments: List<String> = emptyList(),
     val workingDirectory: Path? = null,
     val environmentOverrides: Map<String, String> = emptyMap(),
-    val outputFile: Path,
+    val outputFile: Path? = null,
 ) {
     val command: List<String> = listOf(executable.toString()) + arguments
 }
@@ -195,7 +195,7 @@ class JvmHostProcessRunner(
         val process =
             startProcess(request.command, request.workingDirectory, request.environmentOverrides) {
                 redirectErrorStream(true)
-                redirectOutput(request.outputFile.toFile())
+                request.outputFile?.let { redirectOutput(it.toFile()) } ?: redirectOutput(ProcessBuilder.Redirect.DISCARD)
             }
         return ManagedJvmHostProcess(process)
     }

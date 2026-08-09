@@ -127,7 +127,6 @@ class JvmHostProcessRunnerTest {
     fun `managed process termination closes the full process tree`() =
         runBlocking {
             val pidFile = Files.createTempFile("aps-managed-child-pid-", ".txt")
-            val logFile = Files.createTempFile("aps-managed-process-", ".log")
             pidFile.deleteIfExists()
             try {
                 val process =
@@ -135,7 +134,6 @@ class JvmHostProcessRunnerTest {
                         HostProcessLaunchRequest(
                             executable = javaExecutable(),
                             arguments = request("spawn-child", pidFile.toString()).arguments,
-                            outputFile = logFile,
                         ),
                     )
                 val childPid = waitForPid(pidFile)
@@ -146,7 +144,6 @@ class JvmHostProcessRunnerTest {
                 assertFalse(isAlive(childPid))
             } finally {
                 pidFile.deleteIfExists()
-                logFile.deleteIfExists()
             }
         }
 

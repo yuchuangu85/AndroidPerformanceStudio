@@ -111,4 +111,22 @@ class SharedCoreModulesContractTest {
             assertFalse(settings.contains("includeBuild(\"../simpleperf-viewer\")"))
         }
     }
+
+    @Test
+    fun `remaining feature builds do not own shared process or Simpleperf infrastructure`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+
+        listOf("network-profiler", "gpu-inspector-integration", "benchmark-regression").forEach { build ->
+            val settings = Files.readString(desktopViewer.resolve("$build/settings.gradle.kts"))
+            assertFalse(settings.contains("includeBuild(\"../simpleperf-viewer\")"))
+        }
+        listOf(
+            "network-profiler/capture-network/src/main/kotlin/" +
+                "com/androidperformancestudio/network/capture/NetworkAgentCapture.kt",
+            "gpu-inspector-integration/agi-toolchain/src/main/kotlin/" +
+                "com/androidperformancestudio/gpu/toolchain/AgiToolchain.kt",
+        ).forEach { source ->
+            assertFalse(Files.readString(desktopViewer.resolve(source)).contains("ProcessBuilder("))
+        }
+    }
 }

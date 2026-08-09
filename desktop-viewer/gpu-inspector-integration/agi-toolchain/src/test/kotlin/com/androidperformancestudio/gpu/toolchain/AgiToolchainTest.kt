@@ -1,8 +1,7 @@
 package com.androidperformancestudio.gpu.toolchain
 
 import com.androidperformancestudio.gpu.model.AgiLaunchMode
-import java.io.InputStream
-import java.io.OutputStream
+import com.androidperformancestudio.platform.toolchain.RunningHostProcess
 import java.time.Duration
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.createTempFile
@@ -20,7 +19,7 @@ class AgiToolchainTest {
         val runner = object : HostProcessRunner {
             override fun run(arguments: List<String>, timeout: Duration) = ProcessResult(0, if (arguments.last() == "--version") "AGI 4.0" else "usage", "", false)
 
-            override fun launch(arguments: List<String>): Process = error("not used")
+            override fun launch(arguments: List<String>): RunningHostProcess = error("not used")
         }
         val capability = AgiLocator(runner, emptyMap(), "Linux").locate(executable)
         assertEquals(AgiLaunchMode.GUI_ONLY, capability.launchMode)
@@ -40,7 +39,7 @@ class AgiToolchainTest {
                 override fun run(arguments: List<String>, timeout: Duration) =
                     ProcessResult(0, if (arguments.last() == "--version") "AGI 3.3.3" else "usage", "", false)
 
-                override fun launch(arguments: List<String>): Process {
+                override fun launch(arguments: List<String>): RunningHostProcess {
                     launchedArguments = arguments
                     return completedProcess()
                 }
@@ -53,18 +52,11 @@ class AgiToolchainTest {
         assertEquals(listOf(executable.toString(), artifact.toAbsolutePath().toString()), launchedArguments)
     }
 
-    private fun completedProcess(): Process =
-        object : Process() {
-            override fun getOutputStream(): OutputStream = OutputStream.nullOutputStream()
+    private fun completedProcess(): RunningHostProcess =
+        object : RunningHostProcess {
+            override val pid: Long = -1
+            override val isAlive: Boolean = false
 
-            override fun getInputStream(): InputStream = InputStream.nullInputStream()
-
-            override fun getErrorStream(): InputStream = InputStream.nullInputStream()
-
-            override fun waitFor(): Int = 0
-
-            override fun exitValue(): Int = 0
-
-            override fun destroy() = Unit
+            override fun terminate() = Unit
         }
 }

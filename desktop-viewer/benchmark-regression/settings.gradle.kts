@@ -24,9 +24,6 @@ project(":benchmark-storage-sqlite").projectDir = file("storage-sqlite")
 project(":benchmark-export-adapters").projectDir = file("export-adapters")
 project(":benchmark-presentation").projectDir = file("presentation")
 
-includeBuild("../simpleperf-viewer") {
-    name = "benchmark-regression-simpleperf-tooling"
-}
 
 includeBuild("../ui-components") {
     name = "benchmark-regression-ui-components"
