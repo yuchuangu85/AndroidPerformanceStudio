@@ -538,29 +538,30 @@ internal class DesktopMemoryProfilerBackend(
             }
         }
 
-    override suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedHeap> {
-        val file = metadata.convertedHprofFile ?: metadata.rawHprofFile
-        if (!Files.isRegularFile(file)) {
-            return MemoryBackendResult.Failure(
-                localizedStringResource(Res.string.hprof_file_not_found, language),
-                localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
+    override suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedHeap> =
+        withContext(Dispatchers.IO) {
+            val file = metadata.convertedHprofFile ?: metadata.rawHprofFile
+            if (!Files.isRegularFile(file)) {
+                return@withContext MemoryBackendResult.Failure(
+                    localizedStringResource(Res.string.hprof_file_not_found, language),
+                    localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
+                )
+            }
+            loadHeap(
+                HeapLoadRequest(
+                    file = file,
+                    rawFile = metadata.rawHprofFile,
+                    convertedFile = metadata.convertedHprofFile,
+                    sessionMetadata =
+                        CapturedSessionIdentity(
+                            serial = metadata.deviceSerial,
+                            packageName = metadata.packageName,
+                            sessionId = metadata.sessionId,
+                            pid = 0,
+                        ),
+                ),
             )
         }
-        return loadHeap(
-            HeapLoadRequest(
-                file = file,
-                rawFile = metadata.rawHprofFile,
-                convertedFile = metadata.convertedHprofFile,
-                sessionMetadata =
-                    CapturedSessionIdentity(
-                        serial = metadata.deviceSerial,
-                        packageName = metadata.packageName,
-                        sessionId = metadata.sessionId,
-                        pid = 0,
-                    ),
-            ),
-        )
-    }
 
     override fun exportRaw(
         heapDump: HeapDump,
