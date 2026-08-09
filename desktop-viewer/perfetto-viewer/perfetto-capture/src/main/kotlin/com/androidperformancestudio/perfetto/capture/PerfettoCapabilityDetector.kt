@@ -32,7 +32,7 @@ class PerfettoCapabilityDetector(
                     .toList()
             androidSdk = properties.getOrNull(0)?.toIntOrNull() ?: androidSdk
             buildType = properties.getOrNull(1) ?: buildType
-            val query = adb.shell(device.serial, listOf("perfetto", "--query", "--long"), 15.seconds)
+            val query = adb.shell(device.serial, PERFETTO_QUERY_ARGUMENTS, 15.seconds)
             PerfettoDeviceCapabilities(
                 androidSdk = androidSdk,
                 buildType = buildType,
@@ -56,6 +56,8 @@ class PerfettoCapabilityDetector(
             queryError = error.message ?: "Unable to query Perfetto data sources",
         )
 }
+
+internal val PERFETTO_QUERY_ARGUMENTS = listOf("perfetto", "--query")
 
 internal fun parsePerfettoDataSourceNames(output: String): Set<String> =
     output

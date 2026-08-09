@@ -81,6 +81,7 @@ internal fun SourceWorkspacesPage(
     runtime: SourceWorkspaceRuntime,
     initialLocation: SourceLocation? = null,
     onNavigateHome: () -> Unit,
+    onOpenAiSettings: () -> Unit,
 ) {
     val workspaces by runtime.service.workspaces.collectAsState()
     val visibleWorkspaces = workspaces.filter { it.config.kind == SourceProviderKind.LOCAL }
@@ -91,7 +92,6 @@ internal fun SourceWorkspacesPage(
     var sourceText by remember { mutableStateOf<String?>(null) }
     var sourceState by remember { mutableStateOf<SourceContentState?>(null) }
     var dialog by remember { mutableStateOf<RemoteWorkspaceDialog?>(null) }
-    var showAiSettings by remember { mutableStateOf(false) }
     var pageError by remember { mutableStateOf<String?>(null) }
     val colors = LocalViewerColors.current
 
@@ -156,7 +156,7 @@ internal fun SourceWorkspacesPage(
                 }
                 MacOSTextButton(
                     localizedStringResource(Res.string.source_ai_settings, language),
-                    onClick = { showAiSettings = true },
+                    onClick = onOpenAiSettings,
                     colors
                 )
             }
@@ -249,22 +249,6 @@ internal fun SourceWorkspacesPage(
                 }
             }
         }
-    }
-
-    if (showAiSettings) {
-        AiCredentialDialog(
-            language = language,
-            configured = runtime.credential("openai:api-key") != null,
-            currentModel = runtime.aiModel(),
-            currentEndpoint = runtime.aiEndpoint(),
-            onLoadModels = runtime::aiModels,
-            onDismiss = { showAiSettings = false },
-            onSave = { apiKey, model, endpoint ->
-                apiKey.takeIf(String::isNotBlank)?.let { runtime.saveCredential("openai:api-key", it) }
-                runtime.saveAiConfiguration(model, endpoint)
-                showAiSettings = false
-            },
-        )
     }
 
     dialog?.let { kind ->
@@ -454,131 +438,6 @@ private fun openExternal(
             URI.create("https://android.googlesource.com/${config.project}/+/${revision ?: config.ref}/${location.relativePath}#${location.range?.startLine ?: 1}"),
         )
     }
-}
-
-@Composable
-private fun AiCredentialDialog(
-    language: UiLanguage,
-    configured: Boolean,
-    currentModel: String,
-    currentEndpoint: String,
-    onLoadModels: suspend (String, String) -> List<String>,
-    onDismiss: () -> Unit,
-    onSave: (String, String, String) -> Unit,
-) {
-    var apiKey by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf(currentModel) }
-    var endpoint by remember { mutableStateOf(currentEndpoint) }
-    var models by remember { mutableStateOf<List<String>>(emptyList()) }
-    var modelsExpanded by remember { mutableStateOf(false) }
-    var modelsLoading by remember { mutableStateOf(false) }
-    var modelsError by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    suspend fun refreshModels() {
-        modelsLoading = true
-        modelsError = null
-        runCatching {
-            withContext(Dispatchers.IO) { onLoadModels(apiKey.trim(), endpoint.trim()) }
-        }.onSuccess {
-            models = it
-        }.onFailure {
-            modelsError = it.message ?: it.javaClass.simpleName
-        }
-        modelsLoading = false
-    }
-    LaunchedEffect(configured) {
-        if (configured) refreshModels()
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(localizedStringResource(Res.string.source_ai_settings, language)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    if (configured) {
-                        localizedStringResource(Res.string.source_ai_key_configured, language)
-                    } else {
-                        localizedStringResource(Res.string.source_ai_key_storage_notice, language)
-                    },
-                )
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text(localizedStringResource(Res.string.source_openai_api_key, language)) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box {
-                        TextButton(
-                            enabled = models.isNotEmpty(),
-                            onClick = { modelsExpanded = true },
-                        ) {
-                            Text(localizedStringResource(Res.string.source_choose_model, language, models.size))
-                        }
-                        DropdownMenu(
-                            expanded = modelsExpanded,
-                            onDismissRequest = { modelsExpanded = false },
-                        ) {
-                            models.forEach { modelId ->
-                                DropdownMenuItem(
-                                    text = { Text(modelId) },
-                                    onClick = {
-                                        model = modelId
-                                        modelsExpanded = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    TextButton(
-                        enabled = !modelsLoading && endpoint.isNotBlank() && (configured || apiKey.isNotBlank()),
-                        onClick = { scope.launch { refreshModels() } },
-                    ) {
-                        Text(localizedStringResource(Res.string.source_refresh_models, language))
-                    }
-                    if (modelsLoading) {
-                        CircularProgressIndicator(Modifier.width(20.dp).height(20.dp))
-                    }
-                }
-                modelsError?.let { error ->
-                    Text(
-                        localizedStringResource(Res.string.source_models_load_failed, language, error),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                OutlinedTextField(
-                    value = model,
-                    onValueChange = { model = it },
-                    label = { Text(localizedStringResource(Res.string.source_model, language)) },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = endpoint,
-                    onValueChange = { endpoint = it },
-                    label = { Text(localizedStringResource(Res.string.source_endpoint, language)) },
-                    singleLine = true,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = model.isNotBlank() && endpoint.isNotBlank() && (configured || apiKey.isNotBlank()),
-                onClick = { onSave(apiKey.trim(), model.trim(), endpoint.trim()) },
-            ) {
-                Text(localizedStringResource(Res.string.source_save, language))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(localizedStringResource(Res.string.source_cancel, language))
-            }
-        },
-    )
 }
 
 @Composable

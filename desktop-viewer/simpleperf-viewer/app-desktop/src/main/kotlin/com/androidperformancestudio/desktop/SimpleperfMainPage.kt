@@ -40,8 +40,10 @@ import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_result
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_run_details
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_run_title
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_scope_call_node
+import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_scope_filtered_report
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_scope_function
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_scope_report_summary
+import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_scope_stack_block
 import com.androidperformancestudio.application.DeviceOption
 import com.androidperformancestudio.application.DeviceSelection
 import com.androidperformancestudio.application.DeviceTargetController
@@ -50,6 +52,7 @@ import com.androidperformancestudio.application.OfflineProfileImporter
 import com.androidperformancestudio.application.ReportController
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
+import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureSession
 import com.androidperformancestudio.capture.CaptureState
@@ -133,7 +136,7 @@ fun FrameWindowScope.SimpleperfMainPage(
     val captureState by controller.captureState.collectAsState()
     val reportState by reportController.state.collectAsState()
     val scope = rememberCoroutineScope()
-    var pendingAiReport by remember { mutableStateOf<com.androidperformancestudio.application.ReportData?>(null) }
+    var pendingAiAnalysis by remember { mutableStateOf<PendingSimpleperfAiAnalysis?>(null) }
     var aiAnalysisWorking by remember { mutableStateOf(false) }
     var aiAnalysisResult by remember { mutableStateOf<SimpleperfAiAnalysisReport?>(null) }
     var aiAnalysisError by remember { mutableStateOf<String?>(null) }
@@ -231,16 +234,16 @@ fun FrameWindowScope.SimpleperfMainPage(
             aiAnalysisClient?.let {
                 {
                     (reportState.loadState as? ReportLoadState.Ready)?.report?.let { report ->
-                        pendingAiReport = report
+                        pendingAiAnalysis = PendingSimpleperfAiAnalysis(report, reportState)
                     }
                 }
             },
     )
 
-    pendingAiReport?.let { report ->
-        var performanceOnly by remember(report) { mutableStateOf(false) }
+    pendingAiAnalysis?.let { pending ->
+        var performanceOnly by remember(pending) { mutableStateOf(false) }
         AlertDialog(
-            onDismissRequest = { pendingAiReport = null },
+            onDismissRequest = { pendingAiAnalysis = null },
             title = { Text(localizedStringResource(Res.string.sp_ai_run_title, resolvedLanguage)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -248,9 +251,9 @@ fun FrameWindowScope.SimpleperfMainPage(
                         localizedStringResource(
                             Res.string.sp_ai_run_details,
                             resolvedLanguage,
-                            selectedSimpleperfScope(reportState, report, resolvedLanguage),
-                            report.topFunctions.size.coerceAtMost(20),
-                            report.overview.sampleCount,
+                            selectedSimpleperfScope(pending.state, pending.report, resolvedLanguage),
+                            extractSimpleperfEvidence(pending.report, pending.state).size,
+                            pending.report.overview.sampleCount,
                         ),
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -263,14 +266,18 @@ fun FrameWindowScope.SimpleperfMainPage(
                 TextButton(
                     enabled = !aiAnalysisWorking,
                     onClick = {
-                        pendingAiReport = null
+                        pendingAiAnalysis = null
                         aiAnalysisWorking = true
                         aiAnalysisError = null
                         scope.launch {
                             try {
                                 aiAnalysisResult =
                                     withContext(Dispatchers.IO) {
-                                        requireNotNull(aiAnalysisClient).analyze(report, reportState, !performanceOnly)
+                                        requireNotNull(aiAnalysisClient).analyze(
+                                            pending.report,
+                                            pending.state,
+                                            !performanceOnly,
+                                        )
                                     }
                             } catch (cancellation: CancellationException) {
                                 throw cancellation
@@ -284,7 +291,7 @@ fun FrameWindowScope.SimpleperfMainPage(
                 ) { Text(localizedStringResource(Res.string.sp_ai_analyze, resolvedLanguage)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingAiReport = null }) {
+                TextButton(onClick = { pendingAiAnalysis = null }) {
                     Text(localizedStringResource(Res.string.sp_ai_cancel, resolvedLanguage))
                 }
             },
@@ -352,20 +359,45 @@ fun FrameWindowScope.SimpleperfMainPage(
     }
 }
 
+private data class PendingSimpleperfAiAnalysis(
+    val report: com.androidperformancestudio.application.ReportData,
+    val state: ReportState,
+)
+
 @Suppress("ReturnCount")
 private fun selectedSimpleperfScope(
     state: ReportState,
     report: com.androidperformancestudio.application.ReportData,
     language: UiLanguage,
 ): String {
-    state.workspace.selections.topFunctionKey
-        ?.let { return localizedStringResource(Res.string.sp_ai_scope_function, language, it) }
-    state.workspace.selections.callNodeId?.let { nodeId ->
-        val index = report.flameGraph.callNodes.indexOf(nodeId)
-        report.flameGraph.callNodes
-            .frameAt(index ?: -1)
-            ?.symbolName
-            ?.let { return localizedStringResource(Res.string.sp_ai_scope_call_node, language, it) }
+    when (state.selectedTab) {
+        ReportTab.TOP_FUNCTIONS ->
+            state.workspace.selections.topFunctionKey
+                ?.let { return localizedStringResource(Res.string.sp_ai_scope_function, language, it) }
+
+        ReportTab.CALL_TREE, ReportTab.FLAME_GRAPH ->
+            state.workspace.selections.callNodeId?.let { nodeId ->
+                val index = report.flameGraph.callNodes.indexOf(nodeId)
+                report.flameGraph.callNodes
+                    .frameAt(index ?: -1)
+                    ?.symbolName
+                    ?.let { return localizedStringResource(Res.string.sp_ai_scope_call_node, language, it) }
+            }
+
+        ReportTab.STACK_CHART -> {
+            val snapshot = (report.stackChart as? com.androidperformancestudio.storage.PanelProjection.Ready)?.value
+            snapshot
+                ?.blocks
+                ?.firstOrNull { it.id == state.workspace.selections.stackChartBlockId }
+                ?.let { snapshot.framesById[it.frameId] }
+                ?.symbolName
+                ?.let { return localizedStringResource(Res.string.sp_ai_scope_stack_block, language, it) }
+        }
+
+        else -> Unit
+    }
+    if (hasSimpleperfSelection(state)) {
+        return localizedStringResource(Res.string.sp_ai_scope_filtered_report, language)
     }
     return localizedStringResource(Res.string.sp_ai_scope_report_summary, language)
 }

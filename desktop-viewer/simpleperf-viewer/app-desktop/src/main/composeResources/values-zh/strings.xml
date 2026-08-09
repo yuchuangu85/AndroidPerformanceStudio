@@ -28,6 +28,8 @@
     <string name="sp_ai_run_title">运行 Simpleperf AI 分析</string>
     <string name="sp_ai_scope_function">函数 %1$s</string>
     <string name="sp_ai_scope_call_node">调用节点 %1$s</string>
+    <string name="sp_ai_scope_stack_block">堆栈帧 %1$s</string>
+    <string name="sp_ai_scope_filtered_report">已选报告范围</string>
     <string name="sp_ai_scope_report_summary">报告摘要</string>
     <string name="sp_ai_run_details">范围：%1$s\n证据：%2$d 个热点，%3$d 个样本\n仅会发送确定性的源码候选项和最小代码片段。</string>
     <string name="sp_ai_performance_data_only">仅发送性能数据</string>

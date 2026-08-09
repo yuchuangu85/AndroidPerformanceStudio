@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -25,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,9 +34,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,11 +60,15 @@ import com.androidperformancestudio.ui_components.generated.resources.icon_colla
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 public enum class SettingsPage {
     GENERAL,
     LAYOUT_INSPECTOR,
     SIMPLEPERF,
+    AI,
     ABOUT,
 }
 
@@ -74,6 +82,7 @@ internal fun DesktopAppSettingsDialog(
     darkTheme: Boolean,
     language: UiLanguage,
     simpleperfLocale: Locale,
+    sourceWorkspaceRuntime: SourceWorkspaceRuntime,
     onPageSelected: (SettingsPage) -> Unit,
     onApplicationSettingsChanged: (ApplicationUiSettings) -> Unit,
     onSimpleperfSettingsChanged: (SimpleperfUiSettings) -> Unit,
@@ -169,6 +178,13 @@ internal fun DesktopAppSettingsDialog(
                                     modifier = Modifier.weight(1f),
                                 )
 
+                            SettingsPage.AI ->
+                                AiSettingsContent(
+                                    language = language,
+                                    runtime = sourceWorkspaceRuntime,
+                                    modifier = Modifier.weight(1f),
+                                )
+
                             SettingsPage.ABOUT ->
                                 AboutSettingsContent(
                                     language = language,
@@ -252,10 +268,155 @@ private fun SettingsSidebar(
             }
         }
         SettingsSidebarRow(
+            label = SettingsPage.AI.label(language),
+            selected = selectedPage == SettingsPage.AI,
+            onClick = { onPageSelected(SettingsPage.AI) },
+        )
+        SettingsSidebarRow(
             label = SettingsPage.ABOUT.label(language),
             selected = selectedPage == SettingsPage.ABOUT,
             onClick = { onPageSelected(SettingsPage.ABOUT) },
         )
+    }
+}
+
+@Composable
+private fun AiSettingsContent(
+    language: UiLanguage,
+    runtime: SourceWorkspaceRuntime,
+    modifier: Modifier = Modifier,
+) {
+    var configured by remember(runtime) { mutableStateOf(!runtime.credential(OPENAI_API_KEY).isNullOrBlank()) }
+    var apiKey by remember { mutableStateOf("") }
+    var model by remember(runtime) { mutableStateOf(runtime.aiModel()) }
+    var endpoint by remember(runtime) { mutableStateOf(runtime.aiEndpoint()) }
+    var models by remember { mutableStateOf<List<String>>(emptyList()) }
+    var modelsExpanded by remember { mutableStateOf(false) }
+    var working by remember { mutableStateOf(false) }
+    var modelsError by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    suspend fun refreshModels() {
+        working = true
+        modelsError = null
+        runCatching {
+            withContext(Dispatchers.IO) { runtime.aiModels(apiKey.trim(), endpoint.trim()) }
+        }.onSuccess { models = it }
+            .onFailure { modelsError = it.message ?: it.javaClass.simpleName }
+        working = false
+    }
+
+    LaunchedEffect(runtime) {
+        if (configured) refreshModels()
+    }
+
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(localizedStringResource(Res.string.source_ai_settings, language), style = MaterialTheme.typography.titleLarge)
+        Text(
+            localizedStringResource(
+                if (configured) Res.string.source_ai_key_configured else Res.string.source_ai_key_storage_notice,
+                language,
+            ),
+        )
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = { apiKey = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(localizedStringResource(Res.string.source_openai_api_key, language)) },
+            supportingText = {
+                if (!configured && apiKey.isBlank()) {
+                    Text(localizedStringResource(Res.string.source_ai_key_required, language))
+                }
+            },
+            isError = !configured && apiKey.isBlank(),
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            singleLine = true,
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box {
+                TextButton(
+                    enabled = models.isNotEmpty(),
+                    onClick = { modelsExpanded = true },
+                ) {
+                    Text(localizedStringResource(Res.string.source_choose_model, language, models.size))
+                }
+                DropdownMenu(
+                    expanded = modelsExpanded,
+                    onDismissRequest = { modelsExpanded = false },
+                ) {
+                    models.forEach { modelId ->
+                        DropdownMenuItem(
+                            text = { Text(modelId) },
+                            onClick = {
+                                model = modelId
+                                modelsExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
+            TextButton(
+                enabled = !working && endpoint.isNotBlank() && (configured || apiKey.isNotBlank()),
+                onClick = { scope.launch { refreshModels() } },
+            ) {
+                Text(localizedStringResource(Res.string.source_refresh_models, language))
+            }
+            if (working) {
+                CircularProgressIndicator(Modifier.size(20.dp))
+            }
+        }
+        modelsError?.let { message ->
+            Text(
+                localizedStringResource(Res.string.source_models_load_failed, language, message),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        OutlinedTextField(
+            value = model,
+            onValueChange = { model = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(localizedStringResource(Res.string.source_model, language)) },
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = endpoint,
+            onValueChange = { endpoint = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(localizedStringResource(Res.string.source_endpoint, language)) },
+            singleLine = true,
+        )
+        OutlinedButton(
+            enabled = model.isNotBlank() && endpoint.isNotBlank() && (configured || apiKey.isNotBlank()),
+            onClick = {
+                saveError = null
+                runCatching {
+                    apiKey.trim().takeIf(String::isNotBlank)?.let { runtime.saveCredential(OPENAI_API_KEY, it) }
+                    runtime.saveAiConfiguration(model.trim(), endpoint.trim())
+                }.onSuccess {
+                    configured = true
+                    apiKey = ""
+                }.onFailure { failure ->
+                    saveError = failure.message ?: failure.javaClass.simpleName
+                }
+            },
+        ) {
+            Text(localizedStringResource(Res.string.source_save, language))
+        }
+        saveError?.let { message ->
+            Text(
+                localizedStringResource(Res.string.source_operation_failed, language, message),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 
@@ -536,8 +697,11 @@ private fun SettingsPage.label(language: UiLanguage): String =
         SettingsPage.GENERAL -> localizedStringResource(Res.string.general, language)
         SettingsPage.LAYOUT_INSPECTOR -> localizedStringResource(Res.string.layout_inspector, language)
         SettingsPage.SIMPLEPERF -> localizedStringResource(Res.string.simpleperf, language)
+        SettingsPage.AI -> localizedStringResource(Res.string.source_ai_settings, language)
         SettingsPage.ABOUT -> localizedStringResource(Res.string.about, language)
     }
+
+private const val OPENAI_API_KEY = "openai:api-key"
 
 private fun CaptureSettingsSection.settingsLabel(language: UiLanguage): String =
     when (this) {

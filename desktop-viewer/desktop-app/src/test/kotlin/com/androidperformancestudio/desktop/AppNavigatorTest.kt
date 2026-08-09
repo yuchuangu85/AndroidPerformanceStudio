@@ -22,6 +22,20 @@ class AppNavigatorTest {
     }
 
     @Test
+    fun `visited feature destinations remain retained across cross feature navigation`() {
+        val navigator = AppNavigator()
+
+        navigator.open(AppDestination.FRAME_PROFILER)
+        navigator.openLayoutInspector(null)
+        navigator.open(AppDestination.FRAME_PROFILER)
+
+        assertEquals(
+            listOf(AppDestination.HOME, AppDestination.FRAME_PROFILER, AppDestination.LAYOUT_INSPECTOR),
+            navigator.retainedDestinations,
+        )
+    }
+
+    @Test
     fun `feature destinations request a maximized window but home does not`() {
         assertFalse(AppDestination.HOME.shouldMaximizeWindow())
         assertTrue(AppDestination.LAYOUT_INSPECTOR.shouldMaximizeWindow())
@@ -29,7 +43,7 @@ class AppNavigatorTest {
     }
 
     @Test
-    fun `frame correlation context is retained only for layout inspector navigation`() {
+    fun `frame correlation context is retained while another feature is open`() {
         val navigator = AppNavigator()
         val hint =
             InspectorCorrelationHint(
@@ -46,7 +60,7 @@ class AppNavigatorTest {
         assertEquals(hint, navigator.inspectorCorrelationHint)
 
         navigator.open(AppDestination.HOME)
-        assertEquals(null, navigator.inspectorCorrelationHint)
+        assertEquals(hint, navigator.inspectorCorrelationHint)
     }
 
     @Test
@@ -62,7 +76,7 @@ class AppNavigatorTest {
         assertEquals(notice, navigator.perfettoTraceNotice)
 
         navigator.open(AppDestination.HOME)
-        assertEquals(null, navigator.perfettoTraceFile)
-        assertEquals(null, navigator.perfettoTraceNotice)
+        assertEquals(trace, navigator.perfettoTraceFile)
+        assertEquals(notice, navigator.perfettoTraceNotice)
     }
 }

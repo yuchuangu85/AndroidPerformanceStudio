@@ -155,9 +155,8 @@ import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
-// Keep the implementation available while the user-facing flow is deferred.
-// Re-enable only after completing docs/requirements/ai-analysis-roadmap.md.
-internal const val AI_ANALYSIS_ENTRY_VISIBLE = false
+// Source-aware payload preflight is complete; keep the user-facing analysis entry available.
+internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
 internal val FULL_COMPOSE_INSPECTION_VISIBLE: Boolean =
     System.getProperty("agentperf.compose.full.enabled", "false").toBoolean()
@@ -1391,28 +1390,53 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     color = MaterialTheme.colorScheme.error,
                                 )
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = input.selectedNodeId == null,
-                                    enabled = state.selectedNode != null && aiAnalysisUiState !is AiAnalysisUiState.Working,
-                                    onCheckedChange = { entireReport ->
-                                        val selectedNode = if (entireReport) null else state.selectedNode
-                                        buildAiAnalysisInput(selectedNode)?.let { scopedInput ->
-                                            prepareAiAnalysis(
-                                                scopedInput.copy(includeSourceSnippets = input.includeSourceSnippets),
-                                            )
-                                        }
-                                    },
+                            if (manifest.requiresSourceUploadAuthorization) {
+                                Text(
+                                    localizedStringResource(Res.string.ai_analysis_source_upload_hint, uiLanguage),
+                                    color = MaterialTheme.colorScheme.error,
                                 )
-                                Text(localizedStringResource(Res.string.ai_analysis_entire_report, uiLanguage))
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (manifest.requiresNarrowerScope) {
+                                Text(
+                                    localizedStringResource(Res.string.ai_analysis_narrow_scope_hint, uiLanguage),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                            val controlsEnabled = aiAnalysisUiState !is AiAnalysisUiState.Working
+                            if (state.selectedNode != null) {
+                                val entireReport = input.selectedNodeId == null
+                                val changeScope: (Boolean) -> Unit = { useEntireReport ->
+                                    val selectedNode = if (useEntireReport) null else state.selectedNode
+                                    buildAiAnalysisInput(selectedNode)?.let { scopedInput ->
+                                        prepareAiAnalysis(
+                                            scopedInput.copy(includeSourceSnippets = input.includeSourceSnippets),
+                                        )
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.clickable(enabled = controlsEnabled) { changeScope(!entireReport) },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(
+                                        checked = entireReport,
+                                        enabled = controlsEnabled,
+                                        onCheckedChange = changeScope,
+                                    )
+                                    Text(localizedStringResource(Res.string.ai_analysis_entire_report, uiLanguage))
+                                }
+                            }
+                            val performanceDataOnly = manifest.performanceDataOnly
+                            val changePayload: (Boolean) -> Unit = { performanceOnly ->
+                                prepareAiAnalysis(input.copy(includeSourceSnippets = !performanceOnly))
+                            }
+                            Row(
+                                modifier = Modifier.clickable(enabled = controlsEnabled) { changePayload(!performanceDataOnly) },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Checkbox(
-                                    checked = manifest.performanceDataOnly,
-                                    enabled = aiAnalysisUiState !is AiAnalysisUiState.Working,
-                                    onCheckedChange = { performanceOnly ->
-                                        prepareAiAnalysis(input.copy(includeSourceSnippets = !performanceOnly))
-                                    },
+                                    checked = performanceDataOnly,
+                                    enabled = controlsEnabled,
+                                    onCheckedChange = changePayload,
                                 )
                                 Text(localizedStringResource(Res.string.ai_analysis_performance_data_only, uiLanguage))
                             }

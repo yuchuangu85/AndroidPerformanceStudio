@@ -1,6 +1,7 @@
 package com.androidperformancestudio.desktop
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.nio.file.Path
@@ -33,6 +34,7 @@ class AppNavigator(
 ) {
     var destination by mutableStateOf(initialDestination)
         private set
+    val retainedDestinations = mutableStateListOf(initialDestination)
     var inspectorCorrelationHint by mutableStateOf<com.androidperformancestudio.desktop.InspectorCorrelationHint?>(null)
         private set
     var perfettoTraceFile by mutableStateOf<Path?>(null)
@@ -49,39 +51,26 @@ class AppNavigator(
         private set
 
     fun open(destination: com.androidperformancestudio.desktop.AppDestination) {
-        if (destination != AppDestination.LAYOUT_INSPECTOR) inspectorCorrelationHint = null
-        if (destination != AppDestination.PERFETTO) {
-            perfettoTraceFile = null
-            perfettoTraceNotice = null
-        }
-        if (destination != AppDestination.SOURCE_WORKSPACES) sourceLocation = null
-        if (destination != AppDestination.MEMORY_PROFILER) {
-            memoryImportFile = null
-            memoryImportIsJavaHeap = false
-        }
-        if (destination != AppDestination.METHOD_RECORDING) methodRecordingTraceFile = null
-        this.destination = destination
+        activate(destination)
     }
 
     fun openSource(location: SourceLocation) {
-        inspectorCorrelationHint = null
         sourceLocation = location
-        destination = AppDestination.SOURCE_WORKSPACES
+        activate(AppDestination.SOURCE_WORKSPACES)
     }
 
     fun openLayoutInspector(correlationHint: com.androidperformancestudio.desktop.InspectorCorrelationHint?) {
         inspectorCorrelationHint = correlationHint
-        destination = AppDestination.LAYOUT_INSPECTOR
+        activate(AppDestination.LAYOUT_INSPECTOR)
     }
 
     fun openPerfettoTrace(
         path: Path,
         notice: String,
     ) {
-        inspectorCorrelationHint = null
         perfettoTraceFile = path
         perfettoTraceNotice = notice
-        destination = AppDestination.PERFETTO
+        activate(AppDestination.PERFETTO)
     }
 
     /** Opens the memory profiler and imports [file] (HPROF, or java_hprof when [javaHeap]). */
@@ -92,13 +81,18 @@ class AppNavigator(
         inspectorCorrelationHint = null
         memoryImportFile = file
         memoryImportIsJavaHeap = javaHeap
-        destination = AppDestination.MEMORY_PROFILER
+        activate(AppDestination.MEMORY_PROFILER)
     }
 
     /** Opens method recording and imports the ART [file]. */
     fun openMethodRecording(file: Path) {
         inspectorCorrelationHint = null
         methodRecordingTraceFile = file
-        destination = AppDestination.METHOD_RECORDING
+        activate(AppDestination.METHOD_RECORDING)
+    }
+
+    private fun activate(destination: AppDestination) {
+        if (destination !in retainedDestinations) retainedDestinations += destination
+        this.destination = destination
     }
 }

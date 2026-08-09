@@ -28,6 +28,8 @@
     <string name="sp_ai_run_title">Run Simpleperf AI Analysis</string>
     <string name="sp_ai_scope_function">function %1$s</string>
     <string name="sp_ai_scope_call_node">call node %1$s</string>
+    <string name="sp_ai_scope_stack_block">stack frame %1$s</string>
+    <string name="sp_ai_scope_filtered_report">selected report range</string>
     <string name="sp_ai_scope_report_summary">report summary</string>
     <string name="sp_ai_run_details">Scope: %1$s\nEvidence: %2$d hotspot(s), %3$d samples\nOnly deterministic source candidates and minimal snippets may be sent.</string>
     <string name="sp_ai_performance_data_only">Performance data only</string>

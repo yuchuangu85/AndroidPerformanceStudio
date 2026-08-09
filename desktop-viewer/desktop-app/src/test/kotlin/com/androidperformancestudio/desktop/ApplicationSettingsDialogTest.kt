@@ -51,4 +51,30 @@ class ApplicationSettingsDialogTest {
         assertTrue(unifiedDialog.contains("AboutSettingsContent("))
         assertTrue(unifiedDialog.contains("ApplicationVersion.current()"))
     }
+
+    @Test
+    fun `unified settings owns AI configuration immediately above About`() {
+        assertTrue(SettingsPage.entries.indexOf(SettingsPage.AI) < SettingsPage.entries.indexOf(SettingsPage.ABOUT))
+        assertTrue(unifiedDialog.contains("SettingsPage.AI ->"))
+        assertTrue(unifiedDialog.contains("AiSettingsContent("))
+        assertTrue(unifiedDialog.contains("!runtime.credential(OPENAI_API_KEY).isNullOrBlank()"))
+        assertTrue(unifiedDialog.contains("Res.string.source_ai_key_required"))
+        assertTrue(
+            unifiedDialog.indexOf("label = SettingsPage.AI.label(language)") <
+                unifiedDialog.indexOf("label = SettingsPage.ABOUT.label(language)"),
+        )
+
+        val sourceWorkspaces =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/desktop/SourceWorkspacesPage.kt"),
+            )
+        assertTrue(sourceWorkspaces.contains("onClick = onOpenAiSettings"))
+        assertFalse(sourceWorkspaces.contains("AiCredentialDialog"))
+
+        val mainPage =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"),
+            )
+        assertTrue(mainPage.contains("onOpenAiSettings = { openSettings(SettingsPage.AI) }"))
+    }
 }

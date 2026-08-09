@@ -40,7 +40,11 @@ internal class SourceAwareLayoutAiAnalysisClient(
         val model = runtime.aiModel()
         val endpoint = runtime.aiEndpoint()
         val performanceEvidence = input.performanceEvidence()
-        val candidates = runtime.resolver.resolve(snapshots, input.resolutionEvidence())
+        val candidates = if (input.includeSourceSnippets && input.omittedSourceEvidenceCount == 0 && !input.treeTruncated) {
+            runtime.resolver.resolve(snapshots, input.resolutionEvidence())
+        } else {
+            emptyList()
+        }
         runtime.rememberCandidates(candidates)
         val aiCandidates = if (input.includeSourceSnippets) {
             candidates.map { candidate -> candidate.toAiCandidate() }
@@ -102,6 +106,8 @@ internal class SourceAwareLayoutAiAnalysisClient(
                 payloadBytes = payloadBytes,
                 performanceDataOnly = !input.includeSourceSnippets,
                 blockedReason = blockedReason,
+                requiresSourceUploadAuthorization = unauthorized,
+                requiresNarrowerScope = blockedReason != null && !unauthorized && !unreadable,
             ),
         ) {
             execute(initialSession, request, input, candidates, model, endpoint)
@@ -229,7 +235,7 @@ internal class SourceAwareLayoutAiAnalysisClient(
 
     private fun gateway(model: String, endpoint: String): OpenAiAnalysisGateway {
         val apiKey = runtime.credential(OPENAI_CREDENTIAL_KEY)
-            ?: error("Configure an OpenAI API key in Source Workspaces before running analysis")
+            ?: error("Configure an OpenAI API key in global AI settings before running analysis")
         return OpenAiAnalysisGateway(OpenAiResponsesClient(apiKey, model, endpoint))
     }
 

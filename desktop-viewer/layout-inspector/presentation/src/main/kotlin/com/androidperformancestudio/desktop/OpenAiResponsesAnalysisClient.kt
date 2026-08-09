@@ -43,6 +43,8 @@ public data class AiPayloadManifest(
     val payloadBytes: Int,
     val performanceDataOnly: Boolean,
     val blockedReason: String? = null,
+    val requiresSourceUploadAuthorization: Boolean = false,
+    val requiresNarrowerScope: Boolean = false,
 ) {
     public val evidenceCount: Int get() = evidence.size
     public val canAnalyze: Boolean get() = blockedReason == null

@@ -249,6 +249,8 @@
     <string name="ai_analysis_model_and_bindings">模型：%1$s · 源码快照：%2$d · 构建证据：%3$d</string>
     <string name="ai_analysis_source_snapshot_item">源码快照：%1$s</string>
     <string name="ai_analysis_blocked">分析已阻止：%1$s</string>
+    <string name="ai_analysis_source_upload_hint">请前往“源码工作区”，为对应工作区开启“AI 源码上传”，或选择“仅发送性能数据”。</string>
+    <string name="ai_analysis_narrow_scope_hint">请在层级树中选择更小的节点后重试；若已选择“分析整个报告”，请先取消。</string>
     <string name="ai_analysis_performance_data_only">仅发送性能数据（不上传源码片段）</string>
     <string name="ai_analysis_entire_report">分析整个报告</string>
     <string name="analyze">开始分析</string>

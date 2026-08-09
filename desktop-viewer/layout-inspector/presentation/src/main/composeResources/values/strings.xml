@@ -249,6 +249,8 @@ Payload: %4$d bytes</string>
     <string name="ai_analysis_model_and_bindings">Model: %1$s · Source snapshots: %2$d · Build evidence: %3$d</string>
     <string name="ai_analysis_source_snapshot_item">Source snapshot: %1$s</string>
     <string name="ai_analysis_blocked">Analysis blocked: %1$s</string>
+    <string name="ai_analysis_source_upload_hint">Open Source Workspaces and enable “AI source upload” for the matching workspace, or select “Performance data only”.</string>
+    <string name="ai_analysis_narrow_scope_hint">Select a smaller node in the hierarchy and retry. If “Analyze the entire report” is selected, clear it first.</string>
     <string name="ai_analysis_performance_data_only">Performance data only (do not upload source snippets)</string>
     <string name="ai_analysis_entire_report">Analyze the entire report</string>
     <string name="analyze">Analyze</string>

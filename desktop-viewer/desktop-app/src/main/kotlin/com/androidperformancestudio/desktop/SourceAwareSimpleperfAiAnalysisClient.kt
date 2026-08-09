@@ -50,9 +50,15 @@ internal class SourceAwareSimpleperfAiAnalysisClient(
         val candidates = runtime.resolver.resolve(snapshots, resolutionEvidence)
         runtime.rememberCandidates(candidates)
         val sessionId = AnalysisSessionId.create()
+        val currentSelection = extracted.any(SimpleperfPerformanceEvidence::currentSelection)
         val scope = AnalysisScope(
-            kind = if (extracted.size == 1) AnalysisScopeKind.CURRENT_SELECTION else AnalysisScopeKind.REPORT_SUMMARY,
-            description = if (extracted.size == 1) extracted.single().symbolName else "Top ${extracted.size} Simpleperf hotspots",
+            kind = if (currentSelection) AnalysisScopeKind.CURRENT_SELECTION else AnalysisScopeKind.REPORT_SUMMARY,
+            description =
+                if (currentSelection) {
+                    extracted.singleOrNull()?.symbolName ?: "Selected Simpleperf range"
+                } else {
+                    "Top ${extracted.size} Simpleperf hotspots"
+                },
         )
         val initialSession = AnalysisSession(
             id = sessionId,
@@ -79,8 +85,7 @@ internal class SourceAwareSimpleperfAiAnalysisClient(
                             id = item.id,
                             kind = "simpleperf-hotspot",
                             summary = "${item.symbolName}: ${item.sampleCount} samples",
-                            structuredPayload =
-                                """{"symbol":${item.symbolName.jsonString()},"resource":${item.resource.jsonString()},"implementation":${item.implementation.jsonString()},"inclusiveWeight":${item.inclusiveWeight},"exclusiveWeight":${item.exclusiveWeight},"samples":${item.sampleCount},"threads":${item.threadCount}}""",
+                            structuredPayload = simpleperfEvidenceJson(item),
                         )
                     },
                     sourceCandidates = candidates.take(MAX_CANDIDATES).map { candidate ->
@@ -128,7 +133,7 @@ internal class SourceAwareSimpleperfAiAnalysisClient(
 
     private fun gateway(): OpenAiAnalysisGateway {
         val apiKey = runtime.credential("openai:api-key")
-            ?: error("Configure an OpenAI API key in Source Workspaces before running analysis")
+            ?: error("Configure an OpenAI API key in global AI settings before running analysis")
         return OpenAiAnalysisGateway(OpenAiResponsesClient(apiKey, runtime.aiModel(), runtime.aiEndpoint()))
     }
 
@@ -149,5 +154,23 @@ internal class SourceAwareSimpleperfAiAnalysisClient(
         const val PROMPT_VERSION = "simpleperf-source-v1"
         const val PAYLOAD_POLICY_VERSION = "minimal-snippets-v1"
         const val MAX_CANDIDATES = 40
+    }
+}
+
+private fun simpleperfEvidenceJson(
+    item: SimpleperfPerformanceEvidence,
+): String {
+    val threadIds = item.selectedThreadIds.joinToString(prefix = "[", postfix = "]")
+    val eventTypes = item.selectedEventTypes.joinToString(prefix = "[", postfix = "]") { it.jsonString() }
+    return buildString {
+        append("""{"symbol":${item.symbolName.jsonString()}""")
+        append(""","resource":${item.resource.jsonString()}""")
+        append(""","implementation":${item.implementation.jsonString()}""")
+        append(""","inclusiveWeight":${item.inclusiveWeight}""")
+        append(""","exclusiveWeight":${item.exclusiveWeight}""")
+        append(""","samples":${item.sampleCount},"threads":${item.threadCount}""")
+        append(""","selection":{"startNanosInclusive":${item.startNanosInclusive}""")
+        append(""","endNanosExclusive":${item.endNanosExclusive}""")
+        append(""","threadIds":$threadIds,"eventTypes":$eventTypes}}""")
     }
 }

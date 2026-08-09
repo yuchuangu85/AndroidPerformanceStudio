@@ -5,6 +5,11 @@ import kotlin.test.assertEquals
 
 class PerfettoCapabilityDetectorTest {
     @Test
+    fun `capability query works with Android Perfetto versions before long option`() {
+        assertEquals(listOf("perfetto", "--query"), PERFETTO_QUERY_ARGUMENTS)
+    }
+
+    @Test
     fun `query output yields advertised data source names`() {
         val output =
             """

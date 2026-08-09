@@ -105,6 +105,7 @@
     <string name="source_content_stale">This finding references an older source snapshot. The current local file has changed.</string>
     <string name="source_ai_key_configured">An API key is configured. Enter a new value to replace it.</string>
     <string name="source_ai_key_storage_notice">The API key will be stored in the system credential store.</string>
+    <string name="source_ai_key_required">Enter an API key before loading models.</string>
     <string name="source_openai_api_key">OpenAI API Key</string>
     <string name="source_model">Model</string>
     <string name="source_choose_model">Choose model (%1$d)</string>

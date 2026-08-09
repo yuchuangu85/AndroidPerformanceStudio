@@ -105,6 +105,7 @@
     <string name="source_content_stale">该结论引用了较旧的源码快照，当前本地文件已变更。</string>
     <string name="source_ai_key_configured">API Key 已配置；输入新值可进行替换。</string>
     <string name="source_ai_key_storage_notice">API Key 将保存到系统凭证存储中。</string>
+    <string name="source_ai_key_required">请先输入 API Key，再加载模型。</string>
     <string name="source_openai_api_key">OpenAI API 密钥</string>
     <string name="source_model">模型</string>
     <string name="source_choose_model">选择模型（%1$d）</string>

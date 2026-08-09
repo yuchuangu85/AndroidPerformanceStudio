@@ -7,6 +7,7 @@ import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
@@ -20,12 +21,16 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
@@ -126,7 +131,18 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                 color = MaterialTheme.colorScheme.background,
                 contentColor = MaterialTheme.colorScheme.onBackground,
             ) {
-                when (navigator.destination) {
+                navigator.retainedDestinations.forEach { destination ->
+                    key(destination) {
+                        val active = destination == navigator.destination
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .zIndex(if (active) 1f else 0f)
+                                    .alpha(if (active) 1f else 0f)
+                                    .then(if (active) Modifier else Modifier.clearAndSetSemantics {}),
+                        ) {
+                when (destination) {
                     AppDestination.HOME ->
                         AppHomePage(
                             language = language,
@@ -149,6 +165,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             runtime = sourceWorkspaceRuntime,
                             initialLocation = navigator.sourceLocation,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
+                            onOpenAiSettings = { openSettings(SettingsPage.AI) },
                         )
                     AppDestination.LAYOUT_INSPECTOR ->
                         LayoutInspectorMainPage(
@@ -335,6 +352,9 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                 }
+                        }
+                    }
+                }
                 if (composeSourceCandidates.isNotEmpty()) {
                     AlertDialog(
                         onDismissRequest = { composeSourceCandidates = emptyList() },
@@ -410,6 +430,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                         darkTheme = darkTheme,
                         language = language,
                         simpleperfLocale = if (language == UiLanguage.SIMPLIFIED_CHINESE) java.util.Locale.SIMPLIFIED_CHINESE else java.util.Locale.ENGLISH,
+                        sourceWorkspaceRuntime = sourceWorkspaceRuntime,
                         onPageSelected = { settingsPage = it },
                         onApplicationSettingsChanged = updateApplicationSettings,
                         onSimpleperfSettingsChanged = updateSimpleperfPreferences,

@@ -88,10 +88,15 @@ class SourceAwareLayoutAiAnalysisClientTest {
             val blocked = client.prepare(input)
 
             assertFalse(blocked.manifest.canAnalyze)
+            assertTrue(blocked.manifest.requiresSourceUploadAuthorization)
             assertEquals("layout:node", blocked.manifest.evidence.single().id)
             assertEquals("src/main/kotlin/sample/Widget.kt", blocked.manifest.sources.single().relativePath)
             assertThrows<IllegalStateException> { client.analyze(blocked) }
             assertTrue(requests.isEmpty())
+
+            val oversizedTree = client.prepare(input.copy(includeSourceSnippets = false, treeTruncated = true))
+            assertFalse(oversizedTree.manifest.canAnalyze)
+            assertTrue(oversizedTree.manifest.requiresNarrowerScope)
 
             val performanceOnly = client.prepare(input.copy(includeSourceSnippets = false))
             assertTrue(performanceOnly.manifest.canAnalyze)
