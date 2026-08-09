@@ -47,6 +47,41 @@ _Avoid_: Record（Android Studio 的界面用语，易与"录制型功能"混淆
 分析一个已经捕获好的产物文件，无需设备交互。
 _Avoid_: Open、Load（与内存态加载歧义）
 
+**Capture Artifact**:
+由 Capture 或 Import 得到的单个、不可变的性能证据单元，带有来源、时间域、能力和完整性信息。
+_Avoid_: Session（单个产物不是跨产物会话）
+
+**Provenance**:
+Capture Artifact 从实际生产者到 Capture 或 Import 的来源链；Import 只记录引入行为，不会成为该产物的生产者。
+_Avoid_: Producer（生产者只是来源链的一部分）
+
+**Capability**:
+某个证据来源能够提供的信息集合，不表示某次 Capture 或 Import 已实际获得这些信息。
+_Avoid_: Completeness（完整性描述单个产物的实际结果）
+
+**Artifact Completeness**:
+单个 Capture Artifact 相对本次请求的 Capability 实际保留的证据程度，并附带缺失原因；无法知道请求范围时为未知。
+_Avoid_: Capability（能力不代表本次产物完整）
+
+**Device Target**:
+一次 Capture 所选的 Android 设备身份，用于定位设备并关联产物来源，不承载捕获生命周期。
+_Avoid_: Device Session（设备选择不是会话）
+
+**Process Identity**:
+用于判断不同证据是否来自同一进程实例的身份，包括 Device Target、PID、进程或包名以及可获得的启动标识；缺少启动标识时只能视为弱身份。
+_Avoid_: PID（PID 会被复用，不是完整的进程身份）
+
+**Live Frame Observation**:
+设备连接期间持续显示帧时序和卡顿趋势的低延迟观察，不与有界 Frame Capture 共享同一证据能力假设。
+_Avoid_: Frame Capture（有界捕获会产生可供事后分析的 Capture Artifact）
+
+**Clock Domain**:
+时间戳所属的时钟原点和计时体系；不同 Clock Domain 的原始时间戳不可直接比较。
+
+**Clock Mapping**:
+两个 Clock Domain 在有效时段内的对应关系，带有误差界限；跨产物关联只能使用已知映射。
+_Avoid_: Timestamp normalization（该说法会隐去时钟与误差语义）
+
 **Heap Dump**:
 进程对象图的一次点状快照，是 Analyze Memory Usage 与 Find Memory Leaks 的输入。
 _Avoid_: Heap snapshot、HPROF（HPROF 是文件格式，不是概念）
@@ -57,9 +92,9 @@ _Avoid_: Heap snapshot、HPROF（HPROF 是文件格式，不是概念）
 **Leak Suspect**:
 被支配树 + 引用链分析标记为"疑似泄漏"的类或实例，带置信度，需人工复核。
 
-**Session**:
-一次 Profiler 会话的统一容器，计划承载 CPU/内存/网络等全部数据源的时间线数据。**最终阶段目标**——当前各功能产出独立产物（HPROF / perfetto trace / simpleperf / ART trace），为此不建抽象。
-_Avoid_: Capture（捕获是一次性动作，不是会话）
+**Profiler Session**:
+关联一个或多个 Capture Artifact 的跨功能容器，共享设备、进程和时间上下文，但不统一各功能的业务数据模型。
+_Avoid_: Session（与功能内会话歧义）、Capture（捕获是动作，不是容器）
 
 **Battery Snapshot**:
 Battery Profiler 在某一时点取得的电池状态与资源累计值。实验结果由起止 Battery Snapshot 的差值产生。

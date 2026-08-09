@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0007
+---
+
 # ADR-0004: 抽跨模块共享的 DeviceSession 设备层
 
 抽一个跨 profiler 共享的 **DeviceSession** 薄层，统一负责：探测设备 API level、拉取/推送文件、启动 perfetto/simpleperf/`am profile` 等捕获命令、拉回产物。捕获类功能（实时指标、native/java 分配、方法录制）都通过它连设备，而不是各模块自持 ADB 代码。
