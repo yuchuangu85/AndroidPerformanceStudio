@@ -42,6 +42,11 @@ public data class AiSourceCandidate(
     val resolutionConfidence: String,
     val reasons: List<String>,
     val sourceSnippet: String?,
+    val startLine: Int? = null,
+    val endLine: Int? = null,
+    val contentHash: String? = null,
+    val indexVersion: Long? = null,
+    val indexComplete: Boolean? = null,
 )
 
 public data class AnalysisRequest(
@@ -99,6 +104,7 @@ public data class AnalysisSession(
     val parentSessionId: AnalysisSessionId? = null,
     val summary: String? = null,
     val errorMessage: String? = null,
+    val provider: String? = null,
 )
 
 public fun interface AiAnalysisGateway {

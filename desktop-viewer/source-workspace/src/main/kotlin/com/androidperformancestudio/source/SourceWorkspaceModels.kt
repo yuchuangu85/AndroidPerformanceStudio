@@ -139,6 +139,11 @@ public enum class ResolutionConfidence {
     WEAK,
 }
 
+public enum class BuildIdentityMatch {
+    VERIFIED,
+    UNVERIFIED,
+}
+
 public data class ResolutionCandidate(
     val id: ResolutionCandidateId,
     val evidenceId: PerformanceEvidenceId,
@@ -200,7 +205,13 @@ public data class BuildEvidenceBundle(
     val nativeSymbolFiles: List<Path> = emptyList(),
 )
 
+public enum class SourceContentState {
+    CURRENT,
+    STALE,
+}
+
 public data class VerifiedSourceContent(
     val location: SourceLocation,
     val text: String,
+    val state: SourceContentState = SourceContentState.CURRENT,
 )

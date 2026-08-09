@@ -102,6 +102,7 @@
     <string name="source_open_in_ide">Open in IDE</string>
     <string name="source_open_online">Open online</string>
     <string name="source_indexed">Indexed</string>
+    <string name="source_content_stale">This finding references an older source snapshot. The current local file has changed.</string>
     <string name="source_ai_key_configured">An API key is configured. Enter a new value to replace it.</string>
     <string name="source_ai_key_storage_notice">The API key will be stored in the system credential store.</string>
     <string name="source_openai_api_key">OpenAI API Key</string>
@@ -109,6 +110,10 @@
     <string name="source_endpoint">Endpoint</string>
     <string name="source_save">Save</string>
     <string name="source_cancel">Cancel</string>
+    <string name="source_select_candidate">Select source candidate</string>
+    <string name="source_candidate_label">%1$s:%2$d · %3$s</string>
+    <string name="source_rebind_archive">Rebind archived source</string>
+    <string name="source_no_rebind_match">Bind a matching Local workspace before opening this archived source.</string>
     <string name="source_add_github_workspace">Add GitHub workspace</string>
     <string name="source_add_aosp_workspace">Add AOSP workspace</string>
     <string name="source_name">Name</string>

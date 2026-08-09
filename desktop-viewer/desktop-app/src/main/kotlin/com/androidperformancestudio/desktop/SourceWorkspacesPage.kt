@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.desktop_app.generated.resources.*
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.source.ResolutionConfidence
+import com.androidperformancestudio.source.SourceContentState
 import com.androidperformancestudio.source.SourceProviderConfig
 import com.androidperformancestudio.source.SourceLocation
 import com.androidperformancestudio.source.SourceProviderKind
@@ -80,11 +81,13 @@ internal fun SourceWorkspacesPage(
     onNavigateHome: () -> Unit,
 ) {
     val workspaces by runtime.service.workspaces.collectAsState()
+    val visibleWorkspaces = workspaces.filter { it.config.kind == SourceProviderKind.LOCAL }
     val scope = rememberCoroutineScope()
     var selectedWorkspaceId by remember { mutableStateOf(initialLocation?.workspaceId) }
     var selectedFile by remember { mutableStateOf<String?>(null) }
     var selectedLocation by remember { mutableStateOf(initialLocation) }
     var sourceText by remember { mutableStateOf<String?>(null) }
+    var sourceState by remember { mutableStateOf<SourceContentState?>(null) }
     var dialog by remember { mutableStateOf<RemoteWorkspaceDialog?>(null) }
     var showAiSettings by remember { mutableStateOf(false) }
     var pageError by remember { mutableStateOf<String?>(null) }
@@ -96,8 +99,12 @@ internal fun SourceWorkspacesPage(
             selectedFile = location.relativePath
             selectedLocation = location
             sourceText = null
-            runCatching { withContext(Dispatchers.IO) { runtime.service.read(location).text } }
-                .onSuccess { sourceText = it }
+            sourceState = null
+            runCatching { withContext(Dispatchers.IO) { runtime.service.read(location) } }
+                .onSuccess {
+                    sourceText = it.text
+                    sourceState = it.state
+                }
                 .onFailure { pageError = it.message }
         }
     }
@@ -133,16 +140,18 @@ internal fun SourceWorkspacesPage(
                     } },
                     colors
                 )
-                MacOSTextButton(
-                    localizedStringResource(Res.string.source_add_github, language),
-                    onClick = { dialog = RemoteWorkspaceDialog.GITHUB },
-                    colors
-                )
-                MacOSTextButton(
-                    localizedStringResource(Res.string.source_add_aosp, language),
-                    onClick = { dialog = RemoteWorkspaceDialog.AOSP },
-                    colors
-                )
+                if (REMOTE_SOURCE_WORKSPACES_VISIBLE) {
+                    MacOSTextButton(
+                        localizedStringResource(Res.string.source_add_github, language),
+                        onClick = { dialog = RemoteWorkspaceDialog.GITHUB },
+                        colors
+                    )
+                    MacOSTextButton(
+                        localizedStringResource(Res.string.source_add_aosp, language),
+                        onClick = { dialog = RemoteWorkspaceDialog.AOSP },
+                        colors
+                    )
+                }
                 MacOSTextButton(
                     localizedStringResource(Res.string.source_ai_settings, language),
                     onClick = { showAiSettings = true },
@@ -162,7 +171,7 @@ internal fun SourceWorkspacesPage(
                     modifier = Modifier.width(360.dp).fillMaxSize().padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (workspaces.isEmpty()) {
+                    if (visibleWorkspaces.isEmpty()) {
                         item {
                             Text(
                                 localizedStringResource(Res.string.source_empty_hint, language),
@@ -170,7 +179,7 @@ internal fun SourceWorkspacesPage(
                             )
                         }
                     }
-                    items(workspaces, key = { it.id.value }) { workspace ->
+                    items(visibleWorkspaces, key = { it.id.value }) { workspace ->
                         WorkspaceCard(
                             language = language,
                             workspace = workspace,
@@ -180,6 +189,7 @@ internal fun SourceWorkspacesPage(
                                 selectedFile = null
                                 selectedLocation = null
                                 sourceText = null
+                                sourceState = null
                             },
                             onRefresh = { scope.launch { withContext(Dispatchers.IO) { runtime.service.refresh(workspace.id) } } },
                             onToggleAiUpload = {
@@ -193,38 +203,44 @@ internal fun SourceWorkspacesPage(
                     }
                 }
                 VerticalDivider()
-                val active = workspaces.firstOrNull { it.id == selectedWorkspaceId }
+                val active = visibleWorkspaces.firstOrNull { it.id == selectedWorkspaceId }
                 if (active?.activeSnapshotId == null) {
                     Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(localizedStringResource(Res.string.source_select_indexed_workspace, language))
                     }
                 } else {
                     val activeSnapshotId = requireNotNull(active.activeSnapshotId)
+                    val browserSnapshotId = selectedLocation?.snapshotId ?: activeSnapshotId
                     SourceBrowser(
                         language = language,
-                        snapshotId = activeSnapshotId,
+                        snapshotId = browserSnapshotId,
                         runtime = runtime,
                         selectedFile = selectedFile,
                         sourceText = sourceText,
+                        sourceState = sourceState,
                         selectedLocation = selectedLocation,
                         workspace = active,
                         onOpen = { path ->
                             selectedFile = path
-                            val file = runtime.repository.files(activeSnapshotId).first { it.relativePath == path }
-                            selectedLocation = SourceLocation(active.id, activeSnapshotId, path, null, file.contentHash)
+                            val file = runtime.repository.files(browserSnapshotId).first { it.relativePath == path }
+                            selectedLocation = SourceLocation(active.id, browserSnapshotId, path, null, file.contentHash)
                             scope.launch {
                                 sourceText = null
+                                sourceState = null
                                 runCatching {
                                     withContext(Dispatchers.IO) { runtime.service.read(
                                         com.androidperformancestudio.source.SourceLocation(
                                             active.id,
-                                            activeSnapshotId,
+                                            browserSnapshotId,
                                             path,
                                             null,
                                             file.contentHash,
                                         ),
-                                    ).text }
-                                }.onSuccess { sourceText = it }.onFailure { pageError = it.message }
+                                    ) }
+                                }.onSuccess {
+                                    sourceText = it.text
+                                    sourceState = it.state
+                                }.onFailure { pageError = it.message }
                             }
                         },
                     )
@@ -236,7 +252,7 @@ internal fun SourceWorkspacesPage(
     if (showAiSettings) {
         AiCredentialDialog(
             language = language,
-            configured = runtime.credential("openai:api-key") != null || !System.getenv("OPENAI_API_KEY").isNullOrBlank(),
+            configured = runtime.credential("openai:api-key") != null,
             currentModel = runtime.aiModel(),
             currentEndpoint = runtime.aiEndpoint(),
             onDismiss = { showAiSettings = false },
@@ -265,6 +281,8 @@ internal fun SourceWorkspacesPage(
         )
     }
 }
+
+internal const val REMOTE_SOURCE_WORKSPACES_VISIBLE = false
 
 @Composable
 private fun WorkspaceCard(
@@ -322,6 +340,7 @@ private fun SourceBrowser(
     runtime: SourceWorkspaceRuntime,
     selectedFile: String?,
     sourceText: String?,
+    sourceState: SourceContentState?,
     selectedLocation: SourceLocation?,
     workspace: SourceWorkspace,
     onOpen: (String) -> Unit,
@@ -337,7 +356,7 @@ private fun SourceBrowser(
         }
         VerticalDivider()
         Column(Modifier.weight(1f).fillMaxSize().padding(12.dp)) {
-            val snapshot = workspace.activeSnapshotId?.let(runtime.repository::snapshot)
+            val snapshot = runtime.repository.snapshot(snapshotId)
             val candidate = selectedLocation?.let(runtime::candidate)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -385,6 +404,13 @@ private fun SourceBrowser(
                 Text(
                     reasons.joinToString(" · ") { it.localizedResolutionReason(language) },
                     style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            if (sourceState == SourceContentState.STALE) {
+                Text(
+                    localizedStringResource(Res.string.source_content_stale, language),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             Spacer(Modifier.height(8.dp))

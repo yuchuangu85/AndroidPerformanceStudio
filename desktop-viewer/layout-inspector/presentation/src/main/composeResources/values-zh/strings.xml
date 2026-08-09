@@ -239,8 +239,18 @@
     <string name="ai_analysis_dialog_title">运行 AI 分析</string>
     <string name="ai_analysis_scope_selected_node">选中的节点</string>
     <string name="ai_analysis_scope_report_summary">报告摘要</string>
-    <string name="ai_analysis_dialog_details">范围：%1$s\n源码证据：%2$d 个节点\n仅会发送在本地解析出的最小代码片段。</string>
+    <string name="ai_analysis_dialog_details">范围：%1$s
+证据：%2$d 项
+源码片段：%3$d 个
+请求大小：%4$d 字节</string>
+    <string name="ai_analysis_source_item">%1$s:%2$d-%3$d · %4$d 行 · %5$d 字节</string>
+    <string name="ai_analysis_source_resolution">定位置信度：%1$s · %2$s · 索引完整：%3$s</string>
+    <string name="ai_analysis_evidence_item">%1$s · %2$s · %3$s</string>
+    <string name="ai_analysis_model_and_bindings">模型：%1$s · 源码快照：%2$d · 构建证据：%3$d</string>
+    <string name="ai_analysis_source_snapshot_item">源码快照：%1$s</string>
+    <string name="ai_analysis_blocked">分析已阻止：%1$s</string>
     <string name="ai_analysis_performance_data_only">仅发送性能数据（不上传源码片段）</string>
+    <string name="ai_analysis_entire_report">分析整个报告</string>
     <string name="analyze">开始分析</string>
 
     <string name="select_source_candidate">选择源码候选项</string>

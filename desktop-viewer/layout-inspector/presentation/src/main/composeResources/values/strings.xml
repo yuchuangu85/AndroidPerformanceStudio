@@ -239,8 +239,18 @@
     <string name="ai_analysis_dialog_title">Run AI Analysis</string>
     <string name="ai_analysis_scope_selected_node">selected node</string>
     <string name="ai_analysis_scope_report_summary">report summary</string>
-    <string name="ai_analysis_dialog_details">Scope: %1$s\nSource evidence: %2$d node(s)\nOnly locally resolved minimal snippets may be sent.</string>
+    <string name="ai_analysis_dialog_details">Scope: %1$s
+Evidence: %2$d item(s)
+Source snippets: %3$d
+Payload: %4$d bytes</string>
+    <string name="ai_analysis_source_item">%1$s:%2$d-%3$d · %4$d line(s) · %5$d bytes</string>
+    <string name="ai_analysis_source_resolution">Resolution: %1$s · %2$s · Index complete: %3$s</string>
+    <string name="ai_analysis_evidence_item">%1$s · %2$s · %3$s</string>
+    <string name="ai_analysis_model_and_bindings">Model: %1$s · Source snapshots: %2$d · Build evidence: %3$d</string>
+    <string name="ai_analysis_source_snapshot_item">Source snapshot: %1$s</string>
+    <string name="ai_analysis_blocked">Analysis blocked: %1$s</string>
     <string name="ai_analysis_performance_data_only">Performance data only (do not upload source snippets)</string>
+    <string name="ai_analysis_entire_report">Analyze the entire report</string>
     <string name="analyze">Analyze</string>
 
     <string name="select_source_candidate">Select Source Candidate</string>

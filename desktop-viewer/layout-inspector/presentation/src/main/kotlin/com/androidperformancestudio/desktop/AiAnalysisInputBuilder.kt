@@ -20,6 +20,8 @@ public data class AiAnalysisInput(
     val sourceEvidence: List<LayoutSourceEvidence> = emptyList(),
     val selectedNodeId: String? = null,
     val includeSourceSnippets: Boolean = true,
+    val omittedSourceEvidenceCount: Int = 0,
+    val treeTruncated: Boolean = false,
 )
 
 internal class AiAnalysisInputBuilder(
@@ -35,33 +37,36 @@ internal class AiAnalysisInputBuilder(
         screenshotAvailable: Boolean,
         selectedNode: UiNode? = null,
     ): AiAnalysisInput {
-        val evidenceNodes = selectedNode?.let(::listOf) ?: activeRoot.flatten().take(MAX_EVIDENCE_NODES).toList()
+        val allEvidenceNodes = selectedNode?.let(::listOf) ?: activeRoot.flatten().toList()
+        val evidenceNodes = allEvidenceNodes.take(MAX_EVIDENCE_NODES)
+        val tree = selectedNode?.let { it.toSelectionDto(activeRoot.parentOf(it.id)) } ?: activeRoot.toDto(depth = 0)
+        val scopedNodeIds = tree.nodeIds()
         return AiAnalysisInput(
             json = json.encodeToString(
-            AiAnalysisInputDto(
-                packageName = snapshot.packageName,
-                capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
-                display = DisplayDto(
-                    widthPx = snapshot.display.widthPx,
-                    heightPx = snapshot.display.heightPx,
-                    density = snapshot.display.density,
+                AiAnalysisInputDto(
+                    packageName = snapshot.packageName,
+                    capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
+                    display = DisplayDto(
+                        widthPx = snapshot.display.widthPx,
+                        heightPx = snapshot.display.heightPx,
+                        density = snapshot.display.density,
+                    ),
+                    screenshotAvailable = screenshotAvailable,
+                    metrics = selectedNode?.let { tree.metrics() } ?: MetricsDto(
+                        nodeCount = analysis.metrics.nodeCount,
+                        maxDepth = analysis.metrics.maxDepth,
+                        widestLevel = analysis.metrics.widestLevel,
+                    ),
+                    ruleFindings = analysis.findings.filter { selectedNode == null || it.nodeId in scopedNodeIds }.map {
+                        RuleFindingDto(
+                            ruleId = it.ruleId,
+                            severity = it.severity.name,
+                            nodeId = it.nodeId,
+                            message = it.message,
+                        )
+                    },
+                    tree = tree,
                 ),
-                screenshotAvailable = screenshotAvailable,
-                metrics = MetricsDto(
-                    nodeCount = analysis.metrics.nodeCount,
-                    maxDepth = analysis.metrics.maxDepth,
-                    widestLevel = analysis.metrics.widestLevel,
-                ),
-                ruleFindings = analysis.findings.map {
-                    RuleFindingDto(
-                        ruleId = it.ruleId,
-                        severity = it.severity.name,
-                        nodeId = it.nodeId,
-                        message = it.message,
-                    )
-                },
-                tree = activeRoot.toDto(depth = 0),
-            ),
             ),
             sourceEvidence = evidenceNodes.map { node ->
                 LayoutSourceEvidence(
@@ -71,10 +76,20 @@ internal class AiAnalysisInputBuilder(
                 )
             },
             selectedNodeId = selectedNode?.id,
+            omittedSourceEvidenceCount = allEvidenceNodes.size - evidenceNodes.size,
+            treeTruncated = (selectedNode ?: activeRoot).exceedsTreeBudget(depth = 0),
         )
     }
 
-    private fun UiNode.toDto(depth: Int): NodeDto = NodeDto(
+    private fun UiNode.toSelectionDto(parent: UiNode?): NodeDto {
+        val selected = toDto(depth = 0)
+        return parent?.toDto(depth = 0, maxDepth = 0)?.copy(
+            children = listOf(selected),
+            truncatedChildren = (parent.children.size - 1).coerceAtLeast(0),
+        ) ?: selected
+    }
+
+    private fun UiNode.toDto(depth: Int, maxDepth: Int = MAX_DEPTH): NodeDto = NodeDto(
         id = id,
         className = className,
         bounds = bounds.toDto(),
@@ -86,13 +101,26 @@ internal class AiAnalysisInputBuilder(
             is ComposeNode -> text?.length
         },
         contentDescriptionLength = (this as? ViewNode)?.attributes?.contentDescription?.length,
-        children = if (depth >= MAX_DEPTH) {
+        children = if (depth >= maxDepth) {
             emptyList()
         } else {
-            children.take(MAX_CHILDREN_PER_NODE).map { it.toDto(depth + 1) }
+            children.take(MAX_CHILDREN_PER_NODE).map { it.toDto(depth + 1, maxDepth) }
         },
-        truncatedChildren = (children.size - MAX_CHILDREN_PER_NODE).coerceAtLeast(0),
+        truncatedChildren = if (depth >= maxDepth) {
+            children.size
+        } else {
+            (children.size - MAX_CHILDREN_PER_NODE).coerceAtLeast(0)
+        },
     )
+
+    private fun UiNode.exceedsTreeBudget(depth: Int): Boolean =
+        (depth >= MAX_DEPTH && children.isNotEmpty()) ||
+            children.size > MAX_CHILDREN_PER_NODE ||
+            children.take(MAX_CHILDREN_PER_NODE).any { it.exceedsTreeBudget(depth + 1) }
+
+    private fun UiNode.parentOf(nodeId: String): UiNode? =
+        takeIf { parent -> parent.children.any { it.id == nodeId } }
+            ?: children.firstNotNullOfOrNull { it.parentOf(nodeId) }
 
     private fun Bounds.toDto() = BoundsDto(left, top, right, bottom)
 
@@ -146,6 +174,22 @@ private data class NodeDto(
     val children: List<NodeDto> = emptyList(),
     val truncatedChildren: Int = 0,
 )
+
+private fun NodeDto.nodeIds(): Set<String> = buildSet {
+    add(id)
+    children.forEach { addAll(it.nodeIds()) }
+}
+
+private fun NodeDto.metrics(): MetricsDto {
+    val levels = generateSequence(listOf(this)) { level ->
+        level.flatMap(NodeDto::children).takeIf(List<NodeDto>::isNotEmpty)
+    }.toList()
+    return MetricsDto(
+        nodeCount = levels.sumOf(List<NodeDto>::size),
+        maxDepth = levels.size,
+        widestLevel = levels.maxOf(List<NodeDto>::size),
+    )
+}
 
 @Serializable
 private data class BoundsDto(val left: Int, val top: Int, val right: Int, val bottom: Int)

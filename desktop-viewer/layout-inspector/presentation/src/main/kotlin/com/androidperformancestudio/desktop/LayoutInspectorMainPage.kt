@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -43,6 +44,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.v2.ScrollbarAdapter
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -135,6 +137,7 @@ import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -154,7 +157,7 @@ import kotlin.time.Duration.Companion.milliseconds
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 // Keep the implementation available while the user-facing flow is deferred.
 // Re-enable only after completing docs/requirements/ai-analysis-roadmap.md.
-internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
+internal const val AI_ANALYSIS_ENTRY_VISIBLE = false
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
 internal val FULL_COMPOSE_INSPECTION_VISIBLE: Boolean =
     System.getProperty("agentperf.compose.full.enabled", "false").toBoolean()
@@ -199,7 +202,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     onOpenUnifiedSettings: (() -> Unit)? = null,
     onOpenMemoryProfiler: ((String) -> Unit)? = null,
     aiAnalysisClient: AiAnalysisClient? = null,
-    onOpenSourceCandidate: ((String) -> Unit)? = null,
+    onOpenSourceCandidate: ((String, com.androidperformancestudio.analysis.AiSourceCandidateReference?) -> Unit)? = null,
+    onCanOpenSourceCandidate: ((String) -> Boolean)? = null,
+    onCanOpenSourceCandidateDirectly: ((String) -> Boolean)? = null,
     onOpenComposeSource: ((String, Int, Int) -> Unit)? = null,
     correlationHint: InspectorCorrelationHint? = null,
 ) {
@@ -261,7 +266,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val aiAnalysisInputBuilder = remember { AiAnalysisInputBuilder() }
     val effectiveAiAnalysisClient = remember(aiAnalysisClient) { aiAnalysisClient ?: OpenAiResponsesAnalysisClient.fromEnvironment() }
     var aiAnalysisUiState by remember { mutableStateOf<AiAnalysisUiState>(AiAnalysisUiState.Idle) }
-    var pendingAiAnalysisInput by remember { mutableStateOf<AiAnalysisInput?>(null) }
+    var pendingAiAnalysis by remember { mutableStateOf<PreparedAiAnalysis?>(null) }
+    var aiAnalysisJob by remember { mutableStateOf<Job?>(null) }
     var archiveUiState by remember {
         mutableStateOf<CaptureArchiveUiState>(CaptureArchiveUiState.Idle)
     }
@@ -640,13 +646,28 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
         }
     }
-    val performAiAnalysis: (AiAnalysisInput) -> Unit = performAiAnalysis@{ input ->
-        if (aiAnalysisUiState is AiAnalysisUiState.Working) return@performAiAnalysis
+    val prepareAiAnalysis: (AiAnalysisInput) -> Unit = { input ->
         aiAnalysisUiState = AiAnalysisUiState.Working
         coroutineScope.launch {
             try {
+                pendingAiAnalysis = withContext(Dispatchers.IO) {
+                    effectiveAiAnalysisClient.prepare(input)
+                }
+                aiAnalysisUiState = AiAnalysisUiState.Idle
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                aiAnalysisUiState = AiAnalysisUiState.Failure(error.message ?: error.javaClass.simpleName)
+            }
+        }
+    }
+    val performAiAnalysis: (PreparedAiAnalysis) -> Unit = performAiAnalysis@{ prepared ->
+        if (aiAnalysisUiState is AiAnalysisUiState.Working) return@performAiAnalysis
+        aiAnalysisUiState = AiAnalysisUiState.Working
+        aiAnalysisJob = coroutineScope.launch {
+            try {
                 val report = withContext(Dispatchers.IO) {
-                    effectiveAiAnalysisClient.analyze(input)
+                    effectiveAiAnalysisClient.analyze(prepared)
                 }
                 store.loadAiAnalysis(report)
                 state = store.state
@@ -657,20 +678,34 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 aiAnalysisUiState = AiAnalysisUiState.Failure(
                     error.message ?: error.javaClass.simpleName,
                 )
+            } finally {
+                if (aiAnalysisJob == currentCoroutineContext()[Job]) aiAnalysisJob = null
             }
+        }
+    }
+    val cancelAiAnalysis: () -> Unit = {
+        aiAnalysisJob?.cancel()
+        aiAnalysisJob = null
+        aiAnalysisUiState = AiAnalysisUiState.Idle
+    }
+    val buildAiAnalysisInput: (UiNode?) -> AiAnalysisInput? = { selectedNode ->
+        val snapshot = state.snapshot
+        val activeRoot = state.activeRoot
+        if (snapshot == null || activeRoot == null) {
+            null
+        } else {
+            aiAnalysisInputBuilder.build(
+                snapshot = snapshot,
+                activeRoot = activeRoot,
+                analysis = state.analysis,
+                screenshotAvailable = state.screenshotPng?.isNotEmpty() == true,
+                selectedNode = selectedNode,
+            )
         }
     }
     val runAiAnalysis: () -> Unit = runAiAnalysis@{
         if (aiAnalysisUiState is AiAnalysisUiState.Working) return@runAiAnalysis
-        val snapshot = state.snapshot ?: return@runAiAnalysis
-        val activeRoot = state.activeRoot ?: return@runAiAnalysis
-        pendingAiAnalysisInput = aiAnalysisInputBuilder.build(
-            snapshot = snapshot,
-            activeRoot = activeRoot,
-            analysis = state.analysis,
-            screenshotAvailable = state.screenshotPng?.isNotEmpty() == true,
-            selectedNode = state.selectedNode,
-        )
+        prepareAiAnalysis(buildAiAnalysisInput(state.selectedNode) ?: return@runAiAnalysis)
     }
 
     val selectNode: (String) -> Unit = { id ->
@@ -1149,7 +1184,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 onSelectNode = selectNode,
                                 aiAnalysisUiState = aiAnalysisUiState,
                                 onRunAiAnalysis = runAiAnalysis,
+                                onCancelAiAnalysis = cancelAiAnalysis,
                                 onOpenSourceCandidate = onOpenSourceCandidate,
+                                onCanOpenSourceCandidate = onCanOpenSourceCandidate,
+                                onCanOpenSourceCandidateDirectly = onCanOpenSourceCandidateDirectly,
                                 onSelectTimelineFrame = { index ->
                                     if (archiveUiState !is CaptureArchiveUiState.Working &&
                                         store.selectTimelineFrame(index)
@@ -1265,13 +1303,14 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     )
                 }
             }
-            pendingAiAnalysisInput?.let { input ->
-                var performanceOnly by remember(input) { mutableStateOf(false) }
+            pendingAiAnalysis?.let { prepared ->
+                val input = prepared.input
+                val manifest = prepared.manifest
                 AlertDialog(
-                    onDismissRequest = { pendingAiAnalysisInput = null },
+                    onDismissRequest = { pendingAiAnalysis = null },
                     title = { Text(localizedStringResource(Res.string.ai_analysis_dialog_title, uiLanguage)) },
                     text = {
-                        Column {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
                             val analysisScope =
                                 localizedStringResource(
                                     if (input.selectedNodeId == null) {
@@ -1286,23 +1325,110 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     Res.string.ai_analysis_dialog_details,
                                     uiLanguage,
                                     analysisScope,
-                                    input.sourceEvidence.size,
+                                    manifest.evidenceCount,
+                                    manifest.sources.size,
+                                    manifest.payloadBytes,
                                 ),
                             )
+                            Text(
+                                localizedStringResource(
+                                    Res.string.ai_analysis_model_and_bindings,
+                                    uiLanguage,
+                                    manifest.model,
+                                    manifest.sourceSnapshotIds.size,
+                                    manifest.buildEvidenceBundleIds.size,
+                                ),
+                            )
+                            manifest.sourceSnapshotIds.forEach { snapshotId ->
+                                Text(
+                                    localizedStringResource(
+                                        Res.string.ai_analysis_source_snapshot_item,
+                                        uiLanguage,
+                                        snapshotId,
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            manifest.evidence.forEach { evidence ->
+                                Text(
+                                    localizedStringResource(
+                                        Res.string.ai_analysis_evidence_item,
+                                        uiLanguage,
+                                        evidence.id,
+                                        evidence.kind,
+                                        evidence.summary,
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            manifest.sources.forEach { source ->
+                                Text(
+                                    localizedStringResource(
+                                        Res.string.ai_analysis_source_item,
+                                        uiLanguage,
+                                        source.relativePath,
+                                        source.startLine ?: 1,
+                                        source.endLine ?: source.startLine ?: 1,
+                                        source.lineCount,
+                                        source.byteCount,
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Text(
+                                    localizedStringResource(
+                                        Res.string.ai_analysis_source_resolution,
+                                        uiLanguage,
+                                        source.resolutionConfidence ?: "UNKNOWN",
+                                        source.reasons.joinToString(" · "),
+                                        source.indexComplete?.toString() ?: "unknown",
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            manifest.blockedReason?.let { reason ->
+                                Text(
+                                    localizedStringResource(Res.string.ai_analysis_blocked, uiLanguage, reason),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked = performanceOnly, onCheckedChange = { performanceOnly = it })
+                                Checkbox(
+                                    checked = input.selectedNodeId == null,
+                                    enabled = state.selectedNode != null && aiAnalysisUiState !is AiAnalysisUiState.Working,
+                                    onCheckedChange = { entireReport ->
+                                        val selectedNode = if (entireReport) null else state.selectedNode
+                                        buildAiAnalysisInput(selectedNode)?.let { scopedInput ->
+                                            prepareAiAnalysis(
+                                                scopedInput.copy(includeSourceSnippets = input.includeSourceSnippets),
+                                            )
+                                        }
+                                    },
+                                )
+                                Text(localizedStringResource(Res.string.ai_analysis_entire_report, uiLanguage))
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = manifest.performanceDataOnly,
+                                    enabled = aiAnalysisUiState !is AiAnalysisUiState.Working,
+                                    onCheckedChange = { performanceOnly ->
+                                        prepareAiAnalysis(input.copy(includeSourceSnippets = !performanceOnly))
+                                    },
+                                )
                                 Text(localizedStringResource(Res.string.ai_analysis_performance_data_only, uiLanguage))
                             }
                         }
                     },
                     confirmButton = {
-                        TextButton(onClick = {
-                            pendingAiAnalysisInput = null
-                            performAiAnalysis(input.copy(includeSourceSnippets = !performanceOnly))
-                        }) { Text(localizedStringResource(Res.string.analyze, uiLanguage)) }
+                        TextButton(
+                            enabled = manifest.canAnalyze && aiAnalysisUiState !is AiAnalysisUiState.Working,
+                            onClick = {
+                                pendingAiAnalysis = null
+                                performAiAnalysis(prepared)
+                            },
+                        ) { Text(localizedStringResource(Res.string.analyze, uiLanguage)) }
                     },
                     dismissButton = {
-                        TextButton(onClick = { pendingAiAnalysisInput = null }) {
+                        TextButton(onClick = { pendingAiAnalysis = null }) {
                             Text(localizedStringResource(Res.string.cancel, uiLanguage))
                         }
                     },
@@ -2950,7 +3076,10 @@ private fun FindingsPane(
     viewDisplayOptions: ViewDisplayOptions,
     aiAnalysisUiState: AiAnalysisUiState,
     onRunAiAnalysis: () -> Unit,
-    onOpenSourceCandidate: ((String) -> Unit)?,
+    onCancelAiAnalysis: () -> Unit,
+    onOpenSourceCandidate: ((String, com.androidperformancestudio.analysis.AiSourceCandidateReference?) -> Unit)?,
+    onCanOpenSourceCandidate: ((String) -> Boolean)?,
+    onCanOpenSourceCandidateDirectly: ((String) -> Boolean)?,
     onSelectNode: (String) -> Unit,
     onSelectTimelineFrame: (Int) -> Unit,
     onCloseTimelineFrame: (Int) -> Unit,
@@ -2994,10 +3123,20 @@ private fun FindingsPane(
                     Spacer(Modifier.width(12.dp))
                 }
                 TextButton(
-                    onClick = onRunAiAnalysis,
-                    enabled = state.snapshot != null && aiAnalysisUiState !is AiAnalysisUiState.Working,
+                    onClick = if (aiAnalysisUiState is AiAnalysisUiState.Working) {
+                        onCancelAiAnalysis
+                    } else {
+                        onRunAiAnalysis
+                    },
+                    enabled = state.snapshot != null,
                 ) {
-                    Text(localizedStringResource(Res.string.run_ai_analysis, language), fontSize = 11.sp)
+                    Text(
+                        localizedStringResource(
+                            if (aiAnalysisUiState is AiAnalysisUiState.Working) Res.string.cancel else Res.string.run_ai_analysis,
+                            language,
+                        ),
+                        fontSize = 11.sp,
+                    )
                 }
                 Spacer(Modifier.width(12.dp))
             }
@@ -3022,10 +3161,24 @@ private fun FindingsPane(
                         selected = selectionState.isSelected(finding.key),
                         onDoubleClick = {
                             selectionState = selectionState.select(finding.key)
-                            when (finding.sourceCandidateIds.size) {
+                            val archived = state.aiAnalysis?.provenance?.sourceCandidates.orEmpty()
+                            val navigableCandidates = finding.sourceCandidateIds.filter { candidateId ->
+                                archived.firstOrNull { it.id == candidateId }?.resolutionConfidence?.let { it != "WEAK" }
+                                    ?: (onCanOpenSourceCandidate?.invoke(candidateId) == true)
+                            }
+                            when (navigableCandidates.size) {
                                 0 -> onSelectNode(finding.nodeId)
-                                1 -> onOpenSourceCandidate?.invoke(finding.sourceCandidateIds.single())
-                                else -> sourceCandidateChoices = finding.sourceCandidateIds
+                                1 -> navigableCandidates.single().let { candidateId ->
+                                    if (onCanOpenSourceCandidateDirectly?.invoke(candidateId) == true) {
+                                        onOpenSourceCandidate?.invoke(
+                                            candidateId,
+                                            state.aiAnalysis?.provenance?.sourceCandidates?.firstOrNull { it.id == candidateId },
+                                        )
+                                    } else {
+                                        sourceCandidateChoices = listOf(candidateId)
+                                    }
+                                }
+                                else -> sourceCandidateChoices = navigableCandidates
                             }
                         },
                     )
@@ -3043,7 +3196,10 @@ private fun FindingsPane(
                         TextButton(
                             onClick = {
                                 sourceCandidateChoices = emptyList()
-                                onOpenSourceCandidate?.invoke(candidateId)
+                                onOpenSourceCandidate?.invoke(
+                                    candidateId,
+                                    state.aiAnalysis?.provenance?.sourceCandidates?.firstOrNull { it.id == candidateId },
+                                )
                             },
                         ) {
                             Text(

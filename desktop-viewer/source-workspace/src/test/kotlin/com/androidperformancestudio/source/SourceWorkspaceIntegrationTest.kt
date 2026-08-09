@@ -40,7 +40,7 @@ class SourceWorkspaceIntegrationTest {
     }
 
     @Test
-    fun `service caches indexes persists and resolves exact Kotlin type and Android resource`() = withTempDirectory { root ->
+    fun `unverified local build caps deterministic candidates at probable and reports stale source`() = withTempDirectory { root ->
         val sourceRoot = root.resolve("project")
         sourceRoot.resolve("src/main/kotlin/sample").createDirectories()
         sourceRoot.resolve("src/main/kotlin/sample/Widget.kt").writeText(
@@ -83,11 +83,47 @@ class SourceWorkspaceIntegrationTest {
 
         assertEquals(SourceWorkspacePhase.READY, workspace.phase)
         assertTrue(service.workspaces.value.single().allowAiSourceUpload)
-        assertTrue(candidates.any { it.evidenceId.value == "type" && it.confidence == ResolutionConfidence.EXACT })
-        assertTrue(candidates.any { it.evidenceId.value == "resource" && it.confidence == ResolutionConfidence.EXACT })
+        assertTrue(candidates.any { it.evidenceId.value == "type" && it.confidence == ResolutionConfidence.PROBABLE })
+        assertTrue(candidates.any { it.evidenceId.value == "resource" && it.confidence == ResolutionConfidence.PROBABLE })
         assertEquals(2, candidates.single { it.evidenceId.value == "compose" }.location.range?.startLine)
-        val content = runBlocking { service.read(candidates.first { it.evidenceId.value == "type" }.location) }
-        assertTrue(content.text.contains("class Widget"))
+        val location = candidates.first { it.evidenceId.value == "type" }.location
+        val current = runBlocking { service.read(location) }
+        sourceRoot.resolve("src/main/kotlin/sample/Widget.kt").writeText("package sample\nclass Changed")
+        val stale = runBlocking { service.read(location) }
+        assertTrue(current.text.contains("class Widget"))
+        assertEquals(SourceContentState.CURRENT, current.state)
+        assertEquals(SourceContentState.STALE, stale.state)
+        assertTrue(stale.text.contains("class Widget"))
+    }
+
+    @Test
+    fun `verified build keeps deterministic type match exact`() = runBlocking {
+        val repository = InMemorySourceWorkspaceRepository()
+        val workspaceId = SourceWorkspaceId("workspace")
+        val snapshotId = SourceSnapshotId("snapshot")
+        repository.saveWorkspace(
+            SourceWorkspace(
+                workspaceId,
+                "sources",
+                SourceProviderConfig.Local(Path.of(".")),
+                snapshotId,
+                SourceWorkspacePhase.READY,
+                1f,
+            ),
+        )
+        repository.saveSnapshot(
+            SourceSnapshot(snapshotId, workspaceId, "revision", null, "manifest", Instant.EPOCH, 1, true),
+            listOf(SourceFile(snapshotId, "sample/Widget.kt", SourceLanguage.KOTLIN, "a".repeat(64), 10)),
+            listOf(SourceSymbol(snapshotId, "sample/Widget.kt", SourceSymbolKind.TYPE, "sample.Widget", null, 2, 2)),
+        )
+
+        val candidate = IndexedSourceResolver(repository).resolve(
+            setOf(snapshotId),
+            listOf(SourceResolutionEvidence.TypeName(PerformanceEvidenceId("type"), "sample.Widget")),
+            BuildIdentityMatch.VERIFIED,
+        ).single()
+
+        assertEquals(ResolutionConfidence.EXACT, candidate.confidence)
     }
 
     @Test
@@ -132,6 +168,7 @@ class SourceWorkspaceIntegrationTest {
                 SourceResolutionEvidence.ManagedSymbol(PerformanceEvidenceId("managed"), "sample.Widget", "render"),
                 SourceResolutionEvidence.NativeSymbol(PerformanceEvidenceId("native"), "Renderer::draw", "libui.so"),
             ),
+            BuildIdentityMatch.VERIFIED,
         )
 
         assertEquals(ResolutionConfidence.EXACT, candidates.single { it.evidenceId.value == "managed" }.confidence)

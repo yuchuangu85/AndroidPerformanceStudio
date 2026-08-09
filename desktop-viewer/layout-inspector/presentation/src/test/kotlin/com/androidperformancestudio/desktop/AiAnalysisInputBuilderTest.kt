@@ -51,4 +51,42 @@ class AiAnalysisInputBuilderTest {
         assertFalse(input.json.contains("secret password"))
         assertFalse(input.json.contains("private description"))
     }
+
+    @Test
+    fun `reports tree truncation and scopes selected-node input`() {
+        val children = (1..25).map { index ->
+            ViewNode(
+                id = "child-$index",
+                className = "Child$index",
+                bounds = Bounds(0, 0, 10, 10),
+            )
+        }
+        val root = ViewNode(
+            id = "root",
+            className = "RootLayout",
+            bounds = Bounds(0, 0, 100, 80),
+            children = children,
+        )
+        val snapshot = SampleSnapshots.dashboard.copy(root = root)
+        val report = AnalysisReport(
+            metrics = LayoutMetrics(nodeCount = 26, maxDepth = 2, widestLevel = 25),
+            findings = emptyList(),
+        )
+
+        val fullInput = AiAnalysisInputBuilder().build(snapshot, root, report, screenshotAvailable = false)
+        val selectedInput = AiAnalysisInputBuilder().build(
+            snapshot,
+            root,
+            report,
+            screenshotAvailable = false,
+            selectedNode = children.last(),
+        )
+
+        assertTrue(fullInput.treeTruncated)
+        assertFalse(selectedInput.treeTruncated)
+        assertTrue(selectedInput.json.contains("Child25"))
+        assertTrue(selectedInput.json.contains("RootLayout"))
+        assertFalse(selectedInput.json.contains("Child1\""))
+        assertTrue(selectedInput.json.contains("\"nodeCount\": 2"))
+    }
 }

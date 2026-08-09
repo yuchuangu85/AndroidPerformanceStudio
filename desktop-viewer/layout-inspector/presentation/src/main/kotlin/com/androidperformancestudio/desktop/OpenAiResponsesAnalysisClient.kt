@@ -14,13 +14,60 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-public fun interface AiAnalysisClient {
-    public suspend fun analyze(input: AiAnalysisInput): AiAnalysisReport
+public const val AI_ANALYSIS_MAX_PAYLOAD_BYTES: Int = 256 * 1024
+
+public data class AiSourcePayloadSummary(
+    val relativePath: String,
+    val startLine: Int?,
+    val endLine: Int?,
+    val lineCount: Int,
+    val byteCount: Int,
+    val resolutionConfidence: String?,
+    val reasons: List<String>,
+    val indexComplete: Boolean?,
+)
+
+public data class AiEvidencePayloadSummary(
+    val id: String,
+    val kind: String,
+    val summary: String,
+)
+
+public data class AiPayloadManifest(
+    val scope: String,
+    val model: String,
+    val sourceSnapshotIds: List<String>,
+    val buildEvidenceBundleIds: List<String>,
+    val evidence: List<AiEvidencePayloadSummary>,
+    val sources: List<AiSourcePayloadSummary>,
+    val payloadBytes: Int,
+    val performanceDataOnly: Boolean,
+    val blockedReason: String? = null,
+) {
+    public val evidenceCount: Int get() = evidence.size
+    public val canAnalyze: Boolean get() = blockedReason == null
+}
+
+public class PreparedAiAnalysis(
+    public val input: AiAnalysisInput,
+    public val manifest: AiPayloadManifest,
+    private val executeRequest: suspend () -> AiAnalysisReport,
+) {
+    internal suspend fun execute(): AiAnalysisReport {
+        check(manifest.canAnalyze) { manifest.blockedReason ?: "AI analysis payload is blocked" }
+        return executeRequest()
+    }
+}
+
+public interface AiAnalysisClient {
+    public suspend fun prepare(input: AiAnalysisInput): PreparedAiAnalysis
+
+    public suspend fun analyze(prepared: PreparedAiAnalysis): AiAnalysisReport = prepared.execute()
 }
 
 internal class OpenAiResponsesAnalysisClient(
     apiKey: String,
-    model: String,
+    private val model: String,
     endpoint: String = DEFAULT_ENDPOINT,
     transport: AiHttpTransport = JdkAiHttpTransport(),
     private val json: Json = Json { ignoreUnknownKeys = true },
@@ -34,28 +81,53 @@ internal class OpenAiResponsesAnalysisClient(
             json = json,
         )
 
-    override suspend fun analyze(input: AiAnalysisInput): AiAnalysisReport = analyzeBlocking(input)
-
-    fun analyzeBlocking(input: AiAnalysisInput): AiAnalysisReport {
-        val response =
-            responsesClient.execute(
-                StructuredAiRequest(
-                    instructions = SYSTEM_INSTRUCTIONS,
-                    input =
-                        "Analyze this Android layout snapshot JSON. " +
-                            "Return only the structured JSON report.\n${input.json}",
-                    schemaName = "agentperf_ai_analysis",
-                    schemaJson = REPORT_SCHEMA.toString(),
+    override suspend fun prepare(input: AiAnalysisInput): PreparedAiAnalysis {
+        val request = structuredRequest(input)
+        val payloadBytes = request.input.encodeToByteArray().size
+        return PreparedAiAnalysis(
+            input = input,
+            manifest = AiPayloadManifest(
+                scope = if (input.selectedNodeId == null) "Layout report summary" else "Layout node ${input.selectedNodeId}",
+                model = model,
+                sourceSnapshotIds = emptyList(),
+                buildEvidenceBundleIds = emptyList(),
+                evidence = listOf(
+                    AiEvidencePayloadSummary("layout-report", "layout-report", "Layout snapshot JSON"),
                 ),
-            )
+                sources = emptyList(),
+                payloadBytes = payloadBytes,
+                performanceDataOnly = true,
+                blockedReason = if (payloadBytes > AI_ANALYSIS_MAX_PAYLOAD_BYTES) {
+                    "AI analysis payload exceeds $AI_ANALYSIS_MAX_PAYLOAD_BYTES bytes"
+                } else {
+                    null
+                },
+            ),
+        ) {
+            execute(request)
+        }
+    }
+
+    private suspend fun execute(request: StructuredAiRequest): AiAnalysisReport {
+        val response =
+            responsesClient.execute(request)
         val decoded = json.decodeFromString<AiResponseReportDto>(response.outputText)
         return decoded.toDomain(response.model)
     }
 
+    private fun structuredRequest(input: AiAnalysisInput): StructuredAiRequest =
+        StructuredAiRequest(
+            instructions = SYSTEM_INSTRUCTIONS,
+            input =
+                "Analyze this Android layout snapshot JSON. " +
+                    "Return only the structured JSON report.\n${input.json}",
+            schemaName = "agentperf_ai_analysis",
+            schemaJson = REPORT_SCHEMA.toString(),
+        )
+
     companion object {
         const val DEFAULT_ENDPOINT = OpenAiResponsesClient.DEFAULT_ENDPOINT
         const val DEFAULT_MODEL = "gpt-5.6-luna"
-
         fun fromEnvironment(): OpenAiResponsesAnalysisClient =
             OpenAiResponsesAnalysisClient(
                 apiKey = System.getenv("OPENAI_API_KEY").orEmpty(),

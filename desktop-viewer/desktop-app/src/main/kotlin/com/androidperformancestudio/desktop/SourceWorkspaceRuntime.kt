@@ -4,6 +4,7 @@ import com.androidperformancestudio.ai.CredentialStore
 import com.androidperformancestudio.ai.InMemoryCredentialStore
 import com.androidperformancestudio.ai.MacOsKeychainCredentialStore
 import com.androidperformancestudio.ai.SqliteAnalysisSessionRepository
+import com.androidperformancestudio.analysis.AiSourceCandidateReference
 import com.androidperformancestudio.source.AospSourceProvider
 import com.androidperformancestudio.source.ContentAddressedSourceCache
 import com.androidperformancestudio.source.DefaultSourceWorkspaceService
@@ -14,15 +15,18 @@ import com.androidperformancestudio.source.LocalSourceProvider
 import com.androidperformancestudio.source.SourceCredentialProvider
 import com.androidperformancestudio.source.SourceProviderRegistry
 import com.androidperformancestudio.source.ResolutionCandidate
-import com.androidperformancestudio.source.SourceLocation
-import com.androidperformancestudio.source.SourceResolutionEvidence
-import com.androidperformancestudio.source.PerformanceEvidenceId
 import com.androidperformancestudio.source.ResolutionConfidence
+import com.androidperformancestudio.source.SourceLocation
+import com.androidperformancestudio.source.SourceProviderKind
+import com.androidperformancestudio.source.SourceResolutionEvidence
+import com.androidperformancestudio.source.SourceWorkspace
+import com.androidperformancestudio.source.SourceWorkspaceId
+import com.androidperformancestudio.source.PerformanceEvidenceId
 import com.androidperformancestudio.source.SqliteSourceWorkspaceRepository
 import java.nio.file.Path
 import java.util.prefs.Preferences
 
-internal class SourceWorkspaceRuntime private constructor(
+internal class SourceWorkspaceRuntime(
     val repository: SqliteSourceWorkspaceRepository,
     val service: DefaultSourceWorkspaceService,
     val resolver: IndexedSourceResolver,
@@ -73,8 +77,44 @@ internal class SourceWorkspaceRuntime private constructor(
 
     fun candidate(location: SourceLocation): ResolutionCandidate? = candidates.values.firstOrNull { it.location == location }
 
-    suspend fun resolveComposeSource(fileName: String, packageHash: Int, line: Int): ResolutionCandidate? {
-        val snapshotIds = repository.workspaces().mapNotNull { it.activeSnapshotId }.toSet()
+    fun rebindableLocalWorkspaces(reference: AiSourceCandidateReference): List<SourceWorkspace> =
+        repository.workspaces().filter { archivedLocation(reference, it) != null }
+
+    fun rebindArchivedSource(
+        reference: AiSourceCandidateReference,
+        workspaceId: SourceWorkspaceId,
+    ): SourceLocation? = repository.workspace(workspaceId)?.let { archivedLocation(reference, it) }
+
+    private fun archivedLocation(
+        reference: AiSourceCandidateReference,
+        workspace: SourceWorkspace,
+    ): SourceLocation? {
+        val expectedHash = reference.contentHash ?: return null
+        val expectedRepository = reference.repositoryIdentity ?: return null
+        val expectedRevision = reference.revision ?: return null
+        if (reference.providerKind != SourceProviderKind.LOCAL.name) return null
+        if (workspace.config.kind != SourceProviderKind.LOCAL || workspace.displayName != expectedRepository) return null
+        val snapshotId = workspace.activeSnapshotId ?: return null
+        if (repository.snapshot(snapshotId)?.immutableRevision != expectedRevision) return null
+        val file = repository.files(snapshotId).firstOrNull {
+            it.relativePath == reference.relativePath && it.contentHash == expectedHash
+        } ?: return null
+        return SourceLocation(
+            workspace.id,
+            snapshotId,
+            file.relativePath,
+            reference.startLine?.let { start ->
+                com.androidperformancestudio.source.SourceRange(start, endLine = reference.endLine ?: start)
+            },
+            file.contentHash,
+        )
+    }
+
+    suspend fun resolveComposeSources(fileName: String, packageHash: Int, line: Int): List<ResolutionCandidate> {
+        val snapshotIds = repository.workspaces()
+            .filter { it.config.kind == SourceProviderKind.LOCAL }
+            .mapNotNull { it.activeSnapshotId }
+            .toSet()
         val resolved = resolver.resolve(
             snapshotIds,
             listOf(
@@ -85,9 +125,10 @@ internal class SourceWorkspaceRuntime private constructor(
                     line = line,
                 ),
             ),
-        ).filter { it.confidence == ResolutionConfidence.EXACT }
-        rememberCandidates(resolved)
-        return resolved.singleOrNull()
+        )
+        val navigable = resolved.filter { it.confidence != ResolutionConfidence.WEAK }
+        rememberCandidates(navigable)
+        return navigable
     }
 
     override fun close() {

@@ -102,6 +102,7 @@
     <string name="source_open_in_ide">在 IDE 中打开</string>
     <string name="source_open_online">在线打开</string>
     <string name="source_indexed">已索引</string>
+    <string name="source_content_stale">该结论引用了较旧的源码快照，当前本地文件已变更。</string>
     <string name="source_ai_key_configured">API Key 已配置；输入新值可进行替换。</string>
     <string name="source_ai_key_storage_notice">API Key 将保存到系统凭证存储中。</string>
     <string name="source_openai_api_key">OpenAI API 密钥</string>
@@ -109,6 +110,10 @@
     <string name="source_endpoint">接口地址</string>
     <string name="source_save">保存</string>
     <string name="source_cancel">取消</string>
+    <string name="source_select_candidate">选择源码候选</string>
+    <string name="source_candidate_label">%1$s:%2$d · %3$s</string>
+    <string name="source_rebind_archive">重新绑定归档源码</string>
+    <string name="source_no_rebind_match">请先绑定匹配的本地源码工作区，再打开该归档源码。</string>
     <string name="source_add_github_workspace">添加 GitHub 源码工作区</string>
     <string name="source_add_aosp_workspace">添加 AOSP 源码工作区</string>
     <string name="source_name">名称</string>

@@ -65,6 +65,7 @@ internal class SourceAwareSimpleperfAiAnalysisClient(
             buildEvidenceBundleIds = emptyList(),
             status = AnalysisSessionStatus.RUNNING,
             createdAt = Instant.now(),
+            provider = "OpenAI Responses",
         )
         runtime.analysisSessions.saveSession(initialSession)
         return try {
@@ -91,6 +92,9 @@ internal class SourceAwareSimpleperfAiAnalysisClient(
                             reasons = candidate.reasons,
                             sourceSnippet =
                                 if (includeSourceSnippets && sourceUploadAllowed(candidate)) snippet(candidate) else null,
+                            contentHash = candidate.location.contentHash,
+                            indexVersion = candidate.indexVersion,
+                            indexComplete = candidate.indexComplete,
                         )
                     },
                     promptVersion = PROMPT_VERSION,
@@ -124,15 +128,8 @@ internal class SourceAwareSimpleperfAiAnalysisClient(
 
     private fun gateway(): OpenAiAnalysisGateway {
         val apiKey = runtime.credential("openai:api-key")
-            ?: System.getenv("OPENAI_API_KEY")
             ?: error("Configure an OpenAI API key in Source Workspaces before running analysis")
-        val model = System.getenv("AGENTPERF_AI_MODEL")?.takeIf(String::isNotBlank) ?: runtime.aiModel()
-        val endpoint = System.getenv("OPENAI_BASE_URL")
-            ?.trimEnd('/')
-            ?.takeIf(String::isNotBlank)
-            ?.let { if (it.endsWith("/v1")) "$it/responses" else "$it/v1/responses" }
-            ?: runtime.aiEndpoint()
-        return OpenAiAnalysisGateway(OpenAiResponsesClient(apiKey, model, endpoint))
+        return OpenAiAnalysisGateway(OpenAiResponsesClient(apiKey, runtime.aiModel(), runtime.aiEndpoint()))
     }
 
     private suspend fun snippet(candidate: ResolutionCandidate): String? = runCatching {

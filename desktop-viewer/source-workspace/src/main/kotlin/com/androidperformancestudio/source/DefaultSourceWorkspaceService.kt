@@ -130,7 +130,20 @@ public class DefaultSourceWorkspaceService(
 
     override suspend fun read(location: SourceLocation): VerifiedSourceContent {
         val content = cache.read(location.contentHash)
-        return VerifiedSourceContent(location, content.decodeToString())
+        val workspace = requireNotNull(repository.workspace(location.workspaceId)) {
+            "Unknown source workspace: ${location.workspaceId.value}"
+        }
+        val state = if (workspace.config is SourceProviderConfig.Local) {
+            val currentHash = runCatching {
+                providers.providerFor(SourceProviderKind.LOCAL)
+                    .readFile(workspace.config, "current", location.relativePath)
+                    .sha256()
+            }.getOrNull()
+            if (currentHash == location.contentHash) SourceContentState.CURRENT else SourceContentState.STALE
+        } else {
+            SourceContentState.CURRENT
+        }
+        return VerifiedSourceContent(location, content.decodeToString(), state)
     }
 
     private fun save(workspace: SourceWorkspace) {

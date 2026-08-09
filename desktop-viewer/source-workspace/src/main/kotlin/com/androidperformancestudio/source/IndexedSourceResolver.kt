@@ -16,6 +16,7 @@ public interface SourceResolver {
     public suspend fun resolve(
         snapshotIds: Set<SourceSnapshotId>,
         evidence: List<SourceResolutionEvidence>,
+        buildIdentityMatch: BuildIdentityMatch = BuildIdentityMatch.UNVERIFIED,
     ): List<ResolutionCandidate>
 }
 
@@ -25,10 +26,12 @@ public class IndexedSourceResolver(
     override suspend fun resolve(
         snapshotIds: Set<SourceSnapshotId>,
         evidence: List<SourceResolutionEvidence>,
+        buildIdentityMatch: BuildIdentityMatch,
     ): List<ResolutionCandidate> =
         evidence.flatMap { item ->
             snapshotIds.flatMap { snapshotId -> candidates(snapshotId, item) }
         }.distinctBy { candidate -> candidate.id }
+            .map { candidate -> candidate.applyBuildIdentityCeiling(buildIdentityMatch) }
 
     private fun candidates(
         snapshotId: SourceSnapshotId,
@@ -115,6 +118,16 @@ public class IndexedSourceResolver(
         }
     }
 }
+
+private fun ResolutionCandidate.applyBuildIdentityCeiling(match: BuildIdentityMatch): ResolutionCandidate =
+    if (match == BuildIdentityMatch.UNVERIFIED && confidence == ResolutionConfidence.EXACT) {
+        copy(
+            confidence = ResolutionConfidence.PROBABLE,
+            reasons = reasons + "Build identity not verified",
+        )
+    } else {
+        this
+    }
 
 private fun String.packagePrefixes(): Sequence<String> {
     val parts = split('.')

@@ -1,13 +1,16 @@
 package com.androidperformancestudio.ai
 
+import java.io.IOException
+import java.net.http.HttpTimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
 
 class OpenAiResponsesClientTest {
     @Test
-    fun `builds a structured request and extracts nested output text`() {
+    fun `builds a structured request and extracts nested output text`() = runBlocking {
         var capturedRequest: AiHttpRequest? = null
         val client =
             OpenAiResponsesClient(
@@ -49,7 +52,7 @@ class OpenAiResponsesClientTest {
     }
 
     @Test
-    fun `rejects unsuccessful responses`() {
+    fun `rejects unsuccessful responses`() = runBlocking {
         val client =
             OpenAiResponsesClient(
                 apiKey = "test-key",
@@ -58,7 +61,7 @@ class OpenAiResponsesClientTest {
             )
 
         val failure =
-            assertFailsWith<IllegalStateException> {
+            assertFailsWith<AiRequestException> {
                 client.execute(
                     StructuredAiRequest(
                         instructions = "Return JSON",
@@ -69,6 +72,41 @@ class OpenAiResponsesClientTest {
                 )
             }
 
-        assertEquals("AI request failed (429)", failure.message)
+        assertEquals(AiRequestFailureKind.RATE_LIMIT, failure.kind)
+        assertEquals(429, failure.statusCode)
+    }
+
+    @Test
+    fun `classifies transport timeout`() = runBlocking {
+        val client = OpenAiResponsesClient(
+            apiKey = "test-key",
+            model = "gpt-test",
+            transport = AiHttpTransport { throw HttpTimeoutException("timed out") },
+        )
+
+        val failure = assertFailsWith<AiRequestException> {
+            client.execute(
+                StructuredAiRequest("Return JSON", "snapshot", "analysis", """{"type":"object"}"""),
+            )
+        }
+
+        assertEquals(AiRequestFailureKind.TIMEOUT, failure.kind)
+    }
+
+    @Test
+    fun `classifies transport network failure`() = runBlocking {
+        val client = OpenAiResponsesClient(
+            apiKey = "test-key",
+            model = "gpt-test",
+            transport = AiHttpTransport { throw IOException("offline") },
+        )
+
+        val failure = assertFailsWith<AiRequestException> {
+            client.execute(
+                StructuredAiRequest("Return JSON", "snapshot", "analysis", """{"type":"object"}"""),
+            )
+        }
+
+        assertEquals(AiRequestFailureKind.NETWORK, failure.kind)
     }
 }

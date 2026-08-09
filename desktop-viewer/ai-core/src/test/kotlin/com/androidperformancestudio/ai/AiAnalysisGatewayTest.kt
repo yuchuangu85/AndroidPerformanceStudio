@@ -69,6 +69,37 @@ class AiAnalysisGatewayTest {
     }
 
     @Test
+    fun `rejects locally oversized finding text`() = runBlocking {
+        val gateway = gatewayReturning(
+            """
+            {"summary":"bad","findings":[{
+              "id":"finding-1","severity":"INFO","title":"${"x".repeat(600)}",
+              "explanation":"x","recommendation":"x","analysisConfidence":1,
+              "performanceEvidenceIds":["evidence-1"],"sourceCandidateIds":[]
+            }]}
+            """.trimIndent(),
+        )
+
+        val failure = assertFailsWith<IllegalArgumentException> { gateway.analyze(request()) }
+
+        assertTrue(failure.message.orEmpty().contains("title"))
+    }
+
+    @Test
+    fun `rejects out of range analysis confidence`() = runBlocking {
+        val gateway = gatewayReturning(
+            """
+            {"summary":"bad","findings":[{
+              "id":"finding-1","severity":"INFO","title":"x","explanation":"x","recommendation":"x",
+              "analysisConfidence":2,"performanceEvidenceIds":["evidence-1"],"sourceCandidateIds":[]
+            }]}
+            """.trimIndent(),
+        )
+
+        assertFailsWith<IllegalArgumentException> { gateway.analyze(request()) }
+    }
+
+    @Test
     fun `session repository versions and restores findings without credential data`() = withTempDirectory { root ->
         SqliteAnalysisSessionRepository(root.resolve("analysis.db")).use { repository ->
             val session = AnalysisSession(
@@ -84,6 +115,14 @@ class AiAnalysisGatewayTest {
                 createdAt = Instant.EPOCH,
             )
             repository.saveSession(session)
+            repository.saveRequest(
+                request().copy(
+                    sessionId = session.id,
+                    evidence = listOf(
+                        PerformanceEvidence("evidence", "layout", "safe summary", "{\"private\":\"source-body\"}"),
+                    ),
+                ),
+            )
             repository.saveResult(
                 AnalysisResult(
                     session.id,
@@ -106,8 +145,11 @@ class AiAnalysisGatewayTest {
 
             assertEquals(AnalysisSessionStatus.SUCCEEDED, repository.session(session.id)?.status)
             assertEquals(listOf("candidate"), repository.findings(session.id).single().sourceCandidateIds)
+            assertEquals("safe summary", repository.evidence(session.id).single().summary)
+            assertEquals(64, repository.evidence(session.id).single().payloadHash.length)
             val databaseBytes = root.resolve("analysis.db").toFile().readBytes().decodeToString()
             assertFalse("api-secret" in databaseBytes)
+            assertFalse("source-body" in databaseBytes)
         }
     }
 

@@ -7,10 +7,14 @@ import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -39,6 +43,9 @@ import com.androidperformancestudio.network.app.NetworkProfilerMainPage
 import com.androidperformancestudio.perfetto.app.PerfettoMainPage
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.startup.app.StartupProfilerMainPage
+import com.androidperformancestudio.analysis.AiSourceCandidateReference
+import com.androidperformancestudio.source.ResolutionCandidate
+import com.androidperformancestudio.source.ResolutionConfidence
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,6 +63,8 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
         mutableStateOf(CaptureSettingsSection.SAMPLING_TEMPLATE)
     }
     var memoryHighlightClassName by remember { mutableStateOf<String?>(null) }
+    var composeSourceCandidates by remember { mutableStateOf<List<ResolutionCandidate>>(emptyList()) }
+    var archivedSourceToRebind by remember { mutableStateOf<AiSourceCandidateReference?>(null) }
     val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
     val simpleperfPreferencesStore = remember { SimpleperfPreferencesStore.desktop() }
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
@@ -158,15 +167,30 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             aiAnalysisClient = remember(sourceWorkspaceRuntime) {
                                 SourceAwareLayoutAiAnalysisClient(sourceWorkspaceRuntime)
                             },
-                            onOpenSourceCandidate = { candidateId ->
-                                sourceWorkspaceRuntime.candidate(candidateId)?.let { candidate ->
-                                    navigator.openSource(candidate.location)
-                                }
+                            onOpenSourceCandidate = { candidateId, archived ->
+                                val current = sourceWorkspaceRuntime.candidate(candidateId)
+                                    ?.takeIf { it.confidence != ResolutionConfidence.WEAK }
+                                current?.location?.let(navigator::openSource)
+                                    ?: run {
+                                        archivedSourceToRebind = archived?.takeIf { it.resolutionConfidence != "WEAK" }
+                                    }
+                            },
+                            onCanOpenSourceCandidate = { candidateId ->
+                                sourceWorkspaceRuntime.candidate(candidateId)?.confidence
+                                    ?.let { it != ResolutionConfidence.WEAK } == true
+                            },
+                            onCanOpenSourceCandidateDirectly = { candidateId ->
+                                sourceWorkspaceRuntime.candidate(candidateId)?.confidence ==
+                                    com.androidperformancestudio.source.ResolutionConfidence.EXACT
                             },
                             onOpenComposeSource = { fileName, packageHash, line ->
                                 coroutineScope.launch {
-                                    sourceWorkspaceRuntime.resolveComposeSource(fileName, packageHash, line)
-                                        ?.let { navigator.openSource(it.location) }
+                                    val candidates = sourceWorkspaceRuntime.resolveComposeSources(fileName, packageHash, line)
+                                    if (candidates.size == 1 && candidates.single().confidence == ResolutionConfidence.EXACT) {
+                                        navigator.openSource(candidates.single().location)
+                                    } else {
+                                        composeSourceCandidates = candidates
+                                    }
                                 }
                             },
                         )
@@ -187,9 +211,7 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                                     runCatching { userDocumentationLauncher.open(language) }
                                 }
                             },
-                            aiAnalysisClient = remember(sourceWorkspaceRuntime) {
-                                SourceAwareSimpleperfAiAnalysisClient(sourceWorkspaceRuntime)
-                            },
+                            aiAnalysisClient = null,
                             onOpenSourceCandidate = { candidateId ->
                                 sourceWorkspaceRuntime.candidate(candidateId)?.let { candidate ->
                                     navigator.openSource(candidate.location)
@@ -312,6 +334,71 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
                             initialTraceFile = navigator.methodRecordingTraceFile,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
+                }
+                if (composeSourceCandidates.isNotEmpty()) {
+                    AlertDialog(
+                        onDismissRequest = { composeSourceCandidates = emptyList() },
+                        title = { Text(localizedStringResource(Res.string.source_select_candidate, language)) },
+                        text = {
+                            Column {
+                                composeSourceCandidates.forEach { candidate ->
+                                    TextButton(
+                                        onClick = {
+                                            composeSourceCandidates = emptyList()
+                                            navigator.openSource(candidate.location)
+                                        },
+                                    ) {
+                                        Text(
+                                            localizedStringResource(
+                                                Res.string.source_candidate_label,
+                                                language,
+                                                candidate.location.relativePath,
+                                                candidate.location.range?.startLine ?: 1,
+                                                candidate.confidence.name,
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {},
+                        dismissButton = {
+                            TextButton(onClick = { composeSourceCandidates = emptyList() }) {
+                                Text(localizedStringResource(Res.string.source_cancel, language))
+                            }
+                        },
+                    )
+                }
+                archivedSourceToRebind?.let { reference ->
+                    val workspaces = sourceWorkspaceRuntime.rebindableLocalWorkspaces(reference)
+                    AlertDialog(
+                        onDismissRequest = { archivedSourceToRebind = null },
+                        title = { Text(localizedStringResource(Res.string.source_rebind_archive, language)) },
+                        text = {
+                            Column {
+                                if (workspaces.isEmpty()) {
+                                    Text(localizedStringResource(Res.string.source_no_rebind_match, language))
+                                }
+                                workspaces.forEach { workspace ->
+                                    TextButton(
+                                        onClick = {
+                                            val location = sourceWorkspaceRuntime.rebindArchivedSource(reference, workspace.id)
+                                            archivedSourceToRebind = null
+                                            location?.let(navigator::openSource)
+                                        },
+                                    ) {
+                                        Text(workspace.displayName)
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {},
+                        dismissButton = {
+                            TextButton(onClick = { archivedSourceToRebind = null }) {
+                                Text(localizedStringResource(Res.string.source_cancel, language))
+                            }
+                        },
+                    )
                 }
                 if (showSettings) {
                     DesktopAppSettingsDialog(
