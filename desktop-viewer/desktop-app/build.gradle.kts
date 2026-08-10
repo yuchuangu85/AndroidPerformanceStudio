@@ -179,8 +179,11 @@ compose.desktop {
 
         nativeDistributions {
             appResourcesRootDir.set(profilerAppResources)
-            // The minimized jpackage runtime cannot infer JdkAiHttpTransport's reflective HTTP usage.
+            // The minimized jpackage runtime cannot infer reflective/com.sun HTTP usage, so list the
+            // required JDK modules explicitly: java.net.http for AI transport, jdk.httpserver for the
+            // PerfettoUiServer, java.sql for the SQLite session stores.
             modules("java.net.http")
+            modules("jdk.httpserver")
             modules("java.sql")
             targetFormats(
                 TargetFormat.Dmg,
