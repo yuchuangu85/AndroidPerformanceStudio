@@ -5,7 +5,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.nio.file.Path
+import com.androidperformancestudio.desktop_app.generated.resources.Res
+import com.androidperformancestudio.desktop_app.generated.resources.*
 import com.androidperformancestudio.source.SourceLocation
+import org.jetbrains.compose.resources.StringResource
 
 enum class AppDestination {
     HOME,
@@ -28,6 +31,25 @@ internal fun com.androidperformancestudio.desktop.AppDestination.shouldMaximizeW
         AppDestination.HOME -> false
         else -> true
     }
+
+/** Window-title string shown for each destination, derived from the single navigation source of truth. */
+internal val com.androidperformancestudio.desktop.AppDestination.titleResource: StringResource
+    get() =
+        when (this) {
+            AppDestination.HOME -> Res.string.android_performance_studio
+            AppDestination.SOURCE_WORKSPACES -> Res.string.source_workspaces
+            AppDestination.LAYOUT_INSPECTOR -> Res.string.layout_inspector
+            AppDestination.SIMPLEPERF -> Res.string.cpu_profiler
+            AppDestination.PERFETTO -> Res.string.trace_analyzer
+            AppDestination.MEMORY_PROFILER -> Res.string.memory_profiler
+            AppDestination.FRAME_PROFILER -> Res.string.frame_profiler
+            AppDestination.STARTUP_PROFILER -> Res.string.startup_profiler
+            AppDestination.BATTERY_PROFILER -> Res.string.battery_profiler
+            AppDestination.NETWORK_PROFILER -> Res.string.network_profiler
+            AppDestination.GPU_INSPECTOR -> Res.string.gpu_inspector
+            AppDestination.BENCHMARK_REGRESSION -> Res.string.benchmark_regression
+            AppDestination.METHOD_RECORDING -> Res.string.method_recording
+        }
 
 class AppNavigator(
     initialDestination: com.androidperformancestudio.desktop.AppDestination = AppDestination.HOME,

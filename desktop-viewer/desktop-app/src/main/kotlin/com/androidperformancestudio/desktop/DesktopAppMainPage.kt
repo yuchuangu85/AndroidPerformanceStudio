@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +57,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Composable
-public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest? = null) {
+public fun FrameWindowScope.DesktopAppMainPage(
+    windowTitle: MutableState<String>? = null,
+    settingsRequest: SettingsRequest? = null
+) {
     val navigator = remember { AppNavigator() }
     var showSettings by remember { mutableStateOf(false) }
     var settingsPage by remember { mutableStateOf(SettingsPage.GENERAL) }
@@ -121,6 +125,9 @@ public fun FrameWindowScope.DesktopAppMainPage(settingsRequest: SettingsRequest?
         if (navigator.destination != AppDestination.PERFETTO) {
             navigator.clearPerfettoTrace()
         }
+    }
+    LaunchedEffect(navigator.destination, language) {
+        windowTitle?.value = localizedStringResource(navigator.destination.titleResource, language)
     }
 
     ViewerTheme(

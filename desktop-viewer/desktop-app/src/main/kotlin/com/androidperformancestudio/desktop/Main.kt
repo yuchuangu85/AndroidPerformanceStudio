@@ -13,10 +13,11 @@ internal const val APP_DISPLAY_NAME = "AndroidPerfermanceStudio"
 
 fun main() = application {
     val appIcon = painterResource("icons/app-icon.png")
+    val windowTitle = remember { mutableStateOf(APP_DISPLAY_NAME) }
     Window(
         onCloseRequest = ::exitApplication,
         icon = appIcon,
-        title = APP_DISPLAY_NAME,
+        title = windowTitle.value,
     ) {
         var settingsRequest by remember { mutableStateOf<SettingsRequest?>(null) }
         var nextSettingsRequestId by remember { mutableStateOf(0L) }
@@ -31,6 +32,6 @@ fun main() = application {
             onDispose(registration::close)
         }
         window.minimumSize = java.awt.Dimension(1100, 720)
-        DesktopAppMainPage(settingsRequest = settingsRequest)
+        DesktopAppMainPage(windowTitle, settingsRequest = settingsRequest)
     }
 }
