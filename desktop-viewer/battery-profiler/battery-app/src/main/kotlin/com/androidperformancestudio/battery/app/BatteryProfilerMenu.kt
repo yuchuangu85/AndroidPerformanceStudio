@@ -4,7 +4,7 @@ package com.androidperformancestudio.battery.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.battery.battery_app.generated.resources.Res
 import com.androidperformancestudio.battery.battery_app.generated.resources.advanced
 import com.androidperformancestudio.battery.battery_app.generated.resources.clear_recent
@@ -93,7 +93,7 @@ internal fun FrameWindowScope.BatteryProfilerMenuBar(
     onClearRecent: () -> Unit,
     onResetStatistics: () -> Unit,
 ) {
-    MenuBar {
+    ActiveWindowMenuBar {
         Menu(model.fileTitle) {
             Item(
                 text = model.importLabel,

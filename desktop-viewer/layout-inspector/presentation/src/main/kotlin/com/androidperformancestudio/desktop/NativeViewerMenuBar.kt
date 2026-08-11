@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.presentation.generated.resources.Res
 import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
@@ -220,7 +220,7 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
     onImportScreenshot: () -> Unit,
     onExportArchive: () -> Unit,
 ) {
-    MenuBar {
+    ActiveWindowMenuBar {
         Menu(model.fileTitle) {
             Item(
                 text = model.importMenuText,

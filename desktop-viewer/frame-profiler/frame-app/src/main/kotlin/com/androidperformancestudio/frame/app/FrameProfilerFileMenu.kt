@@ -4,7 +4,7 @@ package com.androidperformancestudio.frame.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
 import com.androidperformancestudio.frame.frame_app.generated.resources.export
 import com.androidperformancestudio.frame.frame_app.generated.resources.export_csv
@@ -53,7 +53,7 @@ internal fun FrameWindowScope.FrameProfilerFileMenuBar(
     onExportCsv: () -> Unit,
     onExportJson: () -> Unit,
 ) {
-    MenuBar {
+    ActiveWindowMenuBar {
         Menu(model.fileTitle) {
             Item(
                 text = model.importFrameStatsLabel,

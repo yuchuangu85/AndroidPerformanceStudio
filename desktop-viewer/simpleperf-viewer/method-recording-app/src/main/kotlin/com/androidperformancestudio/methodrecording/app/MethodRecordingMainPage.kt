@@ -17,7 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.adb.AdbConfiguration
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.methodrecording.app.generated.resources.Res
@@ -124,7 +124,7 @@ fun FrameWindowScope.MethodRecordingMainPage(
         }
     }
 
-    MenuBar {
+    ActiveWindowMenuBar {
         Menu(localizedStringResource(Res.string.method_recording, language)) {
             Item(
                 text = localizedStringResource(Res.string.import_trace, language),

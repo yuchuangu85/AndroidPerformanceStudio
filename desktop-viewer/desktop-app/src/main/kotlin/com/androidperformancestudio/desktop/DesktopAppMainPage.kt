@@ -1,5 +1,6 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.localizedStringResource
@@ -144,14 +145,15 @@ public fun FrameWindowScope.DesktopAppMainPage(
                 navigator.retainedDestinations.forEach { destination ->
                     key(destination) {
                         val active = destination == navigator.destination
-                        Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .zIndex(if (active) 1f else 0f)
-                                    .alpha(if (active) 1f else 0f)
-                                    .then(if (active) Modifier else Modifier.clearAndSetSemantics {}),
-                        ) {
+                        CompositionLocalProvider(LocalWindowMenuBarActive provides active) {
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .zIndex(if (active) 1f else 0f)
+                                        .alpha(if (active) 1f else 0f)
+                                        .then(if (active) Modifier else Modifier.clearAndSetSemantics {}),
+                            ) {
                 when (destination) {
                     AppDestination.HOME ->
                         AppHomePage(
@@ -363,6 +365,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                 }
+                        }
                         }
                     }
                 }

@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
 import com.androidperformancestudio.perfetto_app.generated.resources.clear_menu
 import com.androidperformancestudio.perfetto_app.generated.resources.export
@@ -33,7 +33,7 @@ internal fun FrameWindowScope.PerfettoFileMenuBar(
     val isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true)
     val openShortcut = KeyShortcut(Key.O, ctrl = !isMacOs, meta = isMacOs)
 
-    MenuBar {
+    ActiveWindowMenuBar {
         Menu(localizedStringResource(Res.string.file, language)) {
             Item(localizedStringResource(Res.string.open_u2026, language), shortcut = openShortcut, onClick = onOpen)
             Menu(localizedStringResource(Res.string.export, language)) {

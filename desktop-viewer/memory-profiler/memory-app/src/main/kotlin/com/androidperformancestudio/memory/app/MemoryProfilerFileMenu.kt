@@ -4,7 +4,7 @@ package com.androidperformancestudio.memory.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.export
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_bitmap_comparison
@@ -115,7 +115,7 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     onExportNativeHeap: () -> Unit = {},
     onLoadSession: (MemorySessionMetadata) -> Unit = {},
 ) {
-    MenuBar {
+    ActiveWindowMenuBar {
         Menu(model.fileTitle) {
             Item(
                 text = model.importLabel,

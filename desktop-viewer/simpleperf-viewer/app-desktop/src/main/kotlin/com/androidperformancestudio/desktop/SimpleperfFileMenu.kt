@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.MenuBar
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.app_desktop.generated.resources.Res
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_external_open
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_firefox_profiler_json
@@ -146,7 +146,7 @@ internal fun FrameWindowScope.SimpleperfFileMenuBar(
     onOpenSettings: () -> Unit,
     onOpenCaptureSettings: (CaptureSettingsSection) -> Unit,
 ) {
-    MenuBar {
+    ActiveWindowMenuBar {
         Menu(model.fileTitle) {
             Item(
                 text = model.openLabel,

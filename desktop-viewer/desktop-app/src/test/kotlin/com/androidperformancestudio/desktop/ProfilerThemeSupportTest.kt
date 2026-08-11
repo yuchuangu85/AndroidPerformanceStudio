@@ -117,6 +117,29 @@ class ProfilerThemeSupportTest {
         }
     }
 
+    @Test
+    fun `only the active retained destination installs a window menu bar`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val shell =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"),
+            )
+        val sharedMenuBar =
+            Files.readString(
+                desktopViewer.resolve(
+                    "ui-components/src/main/kotlin/com/androidperformancestudio/ui/ActiveWindowMenuBar.kt",
+                ),
+            )
+
+        assertTrue(shell.contains("LocalWindowMenuBarActive provides active"))
+        assertTrue(sharedMenuBar.contains("if (LocalWindowMenuBarActive.current)"))
+        profilerWindowMenuSources().forEach { source ->
+            val content = Files.readString(source)
+            assertTrue(content.contains("ActiveWindowMenuBar {"), "$source must gate its window menu bar")
+            assertFalse(content.contains("import androidx.compose.ui.window.MenuBar"))
+        }
+    }
+
     private fun assertSharedHomeButtonStyle(source: String) {
         assertTrue(source.contains(".width(28.dp)"))
         assertTrue(source.contains(".height(ViewerDimensions.buttonHeight)"))
@@ -149,6 +172,20 @@ class ProfilerThemeSupportTest {
             "network-profiler/presentation/src/main/kotlin/com/androidperformancestudio/network/presentation/NetworkProfilerScreen.kt",
             "gpu-inspector-integration/presentation/src/main/kotlin/com/androidperformancestudio/gpu/presentation/GpuIntegrationScreen.kt",
             "benchmark-regression/presentation/src/main/kotlin/com/androidperformancestudio/benchmark/presentation/BenchmarkRegressionScreen.kt",
+        ).map(desktopViewer::resolve)
+    }
+
+    private fun profilerWindowMenuSources(): List<Path> {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        return listOf(
+            "layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/NativeViewerMenuBar.kt",
+            "simpleperf-viewer/app-desktop/src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfFileMenu.kt",
+            "simpleperf-viewer/method-recording-app/src/main/kotlin/com/androidperformancestudio/methodrecording/app/MethodRecordingMainPage.kt",
+            "perfetto-viewer/perfetto-app/src/main/kotlin/com/androidperformancestudio/perfetto/app/PerfettoFileMenu.kt",
+            "memory-profiler/memory-app/src/main/kotlin/com/androidperformancestudio/memory/app/MemoryProfilerFileMenu.kt",
+            "frame-profiler/frame-app/src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerFileMenu.kt",
+            "startup-profiler/startup-app/src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerFileMenu.kt",
+            "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerMenu.kt",
         ).map(desktopViewer::resolve)
     }
 
