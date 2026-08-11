@@ -3,6 +3,7 @@ package com.androidperformancestudio.parser
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import com.androidperformancestudio.platform.toolchain.HostCommandResult
 import com.androidperformancestudio.platform.toolchain.HostProcessRequest
@@ -10,7 +11,6 @@ import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 import kotlin.io.path.isRegularFile
 
 enum class HostSimpleperfSource {
@@ -88,6 +88,8 @@ class HostSimpleperfLocator(
             StudioResult.Success(candidate.executable.sha256())
         } catch (exception: IOException) {
             ioFailure(candidate.executable, exception)
+        } catch (exception: IllegalArgumentException) {
+            ioFailure(candidate.executable, IOException(exception.message, exception))
         }
 
     private suspend fun verifyVersion(
@@ -162,15 +164,4 @@ class HostSimpleperfLocator(
     }
 }
 
-private fun Path.sha256(): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    Files.newInputStream(this).use { input ->
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            digest.update(buffer, 0, count)
-        }
-    }
-    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
-}
+private fun Path.sha256(): String = ArtifactFileEvidence.sha256(this).value

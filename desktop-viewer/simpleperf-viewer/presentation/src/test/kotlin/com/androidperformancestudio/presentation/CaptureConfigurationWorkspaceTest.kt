@@ -11,7 +11,7 @@ class CaptureConfigurationWorkspaceTest {
     fun `device target opens capture configuration in settings dialog`() {
         val home = source("HomeScreen.kt")
         val workspace = source("DeviceTargetPage.kt")
-        val configuration = source("CaptureConfigurationWorkspace.kt")
+        val configuration = source("CaptureSettingsSection.kt")
 
         assertTrue(home.contains("captureSettingsSection"))
         assertTrue(home.contains("captureSettingsManagedExternally"))
@@ -40,7 +40,7 @@ class CaptureConfigurationWorkspaceTest {
 
     @Test
     fun `settings dialog includes capture flame graph engine and user guide sections`() {
-        val source = source("CaptureConfigurationWorkspace.kt")
+        val source = source("CaptureSettingsSection.kt")
 
         assertTrue(source.contains("fun SimpleperfSettingsContent("))
         assertTrue(source.contains("fun SimpleperfSettingsSectionContent("))
@@ -62,7 +62,7 @@ class CaptureConfigurationWorkspaceTest {
 
     @Test
     fun `capture configuration follows compact macOS styling`() {
-        val source = source("CaptureConfigurationWorkspace.kt")
+        val source = source("CaptureSettingsSection.kt")
 
         assertTrue(source.contains("CaptureSettingsDialog("))
         assertTrue(source.contains("MacOsPanel("))

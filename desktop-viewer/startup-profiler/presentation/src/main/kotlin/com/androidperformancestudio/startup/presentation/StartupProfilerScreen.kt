@@ -116,6 +116,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.wai
 import com.androidperformancestudio.startup.presentation.generated.resources.warm
 import com.androidperformancestudio.startup.presentation.generated.resources.warnings
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ProfilerMetricCard
 import com.androidperformancestudio.ui.localizedStringResource
 import java.util.Locale
 
@@ -217,19 +218,19 @@ private fun MetricCard(
     statistics: StartupStatistics,
     language: UiLanguage,
 ) {
-    Card(Modifier.width(172.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.labelLarge)
-            Text(statistics.medianMs.formatMs(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(
+    ProfilerMetricCard(
+        label = title,
+        value = statistics.medianMs.formatMs(),
+        modifier = Modifier.width(172.dp),
+        supportingText =
+            listOfNotNull(
                 localizedStringResource(Res.string.p90_n, language, statistics.p90Ms.formatMs(), statistics.count),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (statistics.p90LowResolution || statistics.p95LowResolution) {
-                Text(localizedStringResource(Res.string.low_tail_resolution, language), style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
+                localizedStringResource(Res.string.low_tail_resolution, language)
+                    .takeIf { statistics.p90LowResolution || statistics.p95LowResolution },
+            ),
+        prominent = true,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+    )
 }
 
 @Composable

@@ -836,17 +836,6 @@ internal fun MacOsPanel(
     }
 }
 
-internal enum class CaptureConfigurationLayout { HORIZONTAL, STACKED }
-
-internal fun captureConfigurationLayout(availableWidth: Dp): CaptureConfigurationLayout =
-    if (availableWidth >=
-        900.dp
-    ) {
-        CaptureConfigurationLayout.HORIZONTAL
-    } else {
-        CaptureConfigurationLayout.STACKED
-    }
-
 internal fun CaptureState.isCaptureActive(): Boolean =
     this is CaptureState.Preparing || this is CaptureState.Recording || this is CaptureState.Stopping || this is CaptureState.Pulling
 

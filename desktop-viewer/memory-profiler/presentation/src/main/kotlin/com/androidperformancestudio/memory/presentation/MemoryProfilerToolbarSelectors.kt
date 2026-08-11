@@ -71,5 +71,3 @@ private fun MemoryProfilerProcessSelector(
         selectorDescription = localizedStringResource(Res.string.process_selector, language),
     )
 }
-
-internal const val MEMORY_TOOLBAR_BUTTON_HEIGHT_DP = 22

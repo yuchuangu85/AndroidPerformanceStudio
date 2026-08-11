@@ -15,9 +15,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.adb.AdbConfiguration
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.methodrecording.app.generated.resources.Res
@@ -41,9 +41,6 @@ import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
-import java.awt.FileDialog
-import java.awt.Frame
-import java.io.File
 import java.nio.file.Path
 
 /** The CPU Method Recording workspace: capture/import an ART `.trace` and analyze it. */
@@ -135,9 +132,10 @@ fun FrameWindowScope.MethodRecordingMainPage(
     }
 
     if (showTraceFileDialog) {
-        TraceOpenFileDialog(
+        DesktopOpenFileDialog(
             parent = window,
-            language = language,
+            title = localizedStringResource(Res.string.import_trace, language),
+            acceptFileName = { it.endsWith(".trace", ignoreCase = true) },
             onCloseRequest = { selectedFile ->
                 showTraceFileDialog = false
                 if (selectedFile != null) {
@@ -146,33 +144,6 @@ fun FrameWindowScope.MethodRecordingMainPage(
             },
         )
     }
-}
-
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-@Composable
-private fun TraceOpenFileDialog(
-    parent: Frame,
-    language: UiLanguage,
-    onCloseRequest: (File?) -> Unit,
-) {
-    AwtWindow(
-        create = {
-            object : FileDialog(parent, localizedStringResource(Res.string.import_trace, language), FileDialog.LOAD) {
-                init {
-                    isMultipleMode = false
-                    filenameFilter = java.io.FilenameFilter { _, name -> name.endsWith(".trace", ignoreCase = true) }
-                }
-
-                override fun setVisible(value: Boolean) {
-                    super.setVisible(value)
-                    if (value) {
-                        onCloseRequest(files.firstOrNull())
-                    }
-                }
-            }
-        },
-        dispose = FileDialog::dispose,
-    )
 }
 
 @Suppress("ReturnCount")

@@ -1,5 +1,6 @@
 package com.androidperformancestudio.compose.inspection.host
 
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -55,16 +56,7 @@ data class ComposeAgentBundle(
     }
 }
 
-internal fun Path.sha256(): String = Files.newInputStream(this).use { input ->
-    val digest = MessageDigest.getInstance("SHA-256")
-    val buffer = ByteArray(64 * 1024)
-    while (true) {
-        val count = input.read(buffer)
-        if (count < 0) break
-        digest.update(buffer, 0, count)
-    }
-    digest.digest().toHex()
-}
+internal fun Path.sha256(): String = ArtifactFileEvidence.sha256(this).value
 
 internal fun String.sha256(): String =
     MessageDigest.getInstance("SHA-256").digest(toByteArray()).toHex()

@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.export
 
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
@@ -11,7 +12,6 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -212,18 +212,7 @@ private fun safeOutputPath(
     return output
 }
 
-private fun Path.sha256(): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    Files.newInputStream(this).use { input ->
-        val buffer = ByteArray(HASH_BUFFER_SIZE)
-        var count = input.read(buffer)
-        while (count >= 0) {
-            if (count > 0) digest.update(buffer, 0, count)
-            count = input.read(buffer)
-        }
-    }
-    return digest.digest().joinToString("") { "%02x".format(it) }
-}
+private fun Path.sha256(): String = ArtifactFileEvidence.sha256(this).value
 
 private fun java.io.InputStream.readBounded(
     maxEntryBytes: Long,

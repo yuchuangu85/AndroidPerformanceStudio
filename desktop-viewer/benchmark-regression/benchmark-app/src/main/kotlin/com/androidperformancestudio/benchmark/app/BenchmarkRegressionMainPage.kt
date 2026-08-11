@@ -32,10 +32,10 @@ import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.chooseSaveFile
 import java.io.File
 import java.nio.file.Path
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 public fun FrameWindowScope.BenchmarkRegressionMainPage(
@@ -69,17 +69,21 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
             )
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.import_current, language),
-                onClick = { chooseJson(window, language)?.let { import(it, false) } },
+                onClick = { chooseBenchmarkJson(window, language)?.let { import(it, false) } },
             )
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.import_baseline, language),
-                onClick = { chooseJson(window, language)?.let { import(it, true) } },
+                onClick = { chooseBenchmarkJson(window, language)?.let { import(it, true) } },
             )
             ProfilerCompactButton(
                 text = localizedStringResource(Res.string.export_report, language),
                 enabled = state.report != null,
                 onClick = {
-                    chooseSave(window, "benchmark-regression.json")
+                    chooseSaveFile(
+                        window,
+                        localizedStringResource(Res.string.export_report, language),
+                        "benchmark-regression.json",
+                    )
                         ?.let { exporter.writeJson(requireNotNull(state.report), it.toPath()) }
                 },
             )
@@ -103,13 +107,10 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
     }
 }
 
-private fun chooseJson(parent: java.awt.Component, language: UiLanguage): File? = JFileChooser().run {
-    dialogTitle = localizedStringResource(Res.string.import_androidx_benchmark_json, language)
-    fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.benchmark_json, language), "json")
-    if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
-}
-
-private fun chooseSave(parent: java.awt.Component, name: String): File? = JFileChooser().run {
-    selectedFile = File(name)
-    if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
-}
+private fun chooseBenchmarkJson(parent: java.awt.Component, language: UiLanguage): File? =
+    chooseOpenFile(
+        parent,
+        localizedStringResource(Res.string.import_androidx_benchmark_json, language),
+        localizedStringResource(Res.string.benchmark_json, language),
+        "json",
+    )

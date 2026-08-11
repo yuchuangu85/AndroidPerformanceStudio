@@ -225,14 +225,9 @@ private fun SettingsToggleSwitch(enabled: Boolean) {
                 .width(30.dp)
                 .height(16.dp)
                 .background(
-                    color = if (enabled) {
-                        colors.accent.copy(alpha = 0.55f)
-                    } else {
-                        colors.switchTrackOff
-                    },
+                    color = if (enabled) colors.accent.copy(alpha = 0.55f) else colors.switchTrackOff,
                     shape = RoundedCornerShape(8.dp),
-                )
-                .padding(2.dp),
+                ).padding(2.dp),
         contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
         Box(

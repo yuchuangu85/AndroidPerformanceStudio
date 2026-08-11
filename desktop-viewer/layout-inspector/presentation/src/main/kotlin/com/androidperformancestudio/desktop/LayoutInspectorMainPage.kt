@@ -116,6 +116,7 @@ import com.androidperformancestudio.application.ConnectionStatus
 import com.androidperformancestudio.application.InspectorState
 import com.androidperformancestudio.application.InspectorStore
 import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.toolchain.RecentPathStore
 import com.androidperformancestudio.adb.ConnectedDeviceSession
 import com.androidperformancestudio.adb.AdbProcessRunner
 import com.androidperformancestudio.adb.LiveDeviceClient
@@ -135,6 +136,7 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.ProfilerCompactButton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -252,7 +254,13 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var deviceListRefreshRequest by remember { mutableStateOf(0) }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
     val archiveFileChooser = remember { SwingCaptureArchiveFileChooser() }
-    val recentArchiveStore = remember { RecentCaptureArchiveStore.desktop() }
+    val recentArchiveStore =
+        remember {
+            RecentPathStore.desktop(
+                fileName = "recent-layout-inspector-archives.txt",
+                temporaryFilePrefix = "recent-layout-archives-",
+            )
+        }
     var recentArchives by remember { mutableStateOf(recentArchiveStore.load()) }
     val archiveLimitsStore = remember { CaptureArchiveLimitsStore.desktop() }
     var archiveLimits by remember { mutableStateOf(archiveLimitsStore.load()) }
@@ -1642,45 +1650,19 @@ private fun WindowSelector(
 ) {
     if (windows.size <= 1) return
 
-    val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
-    var expanded by remember { mutableStateOf(false) }
-    val title = windows.firstOrNull { it.id == selectedWindowId }?.title
-        ?: windows.first().title
-    val shape = RoundedCornerShape(4.dp)
-    Box {
-        Text(
-            text = "${localizedStringResource(Res.string.window, language)}: $title  ▾",
-            color = colors.secondaryText,
-            fontSize = 11.sp,
-            maxLines = 1,
-            modifier = Modifier
-                .widthIn(min = 140.dp, max = 240.dp)
-                .background(colors.sectionBackground, shape)
-                .border(1.dp, colors.border, shape)
-                .clickable { expanded = true }
-                .semantics {
-                    contentDescription = localizedStringResource(Res.string.select_window, language)
-                }
-                .padding(horizontal = 8.dp, vertical = 3.dp),
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.background(colors.panel),
-        ) {
-            windows.forEach { window ->
-                DropdownMenuItem(
-                    text = { Text(window.title, fontSize = 12.sp) },
-                    onClick = {
-                        expanded = false
-                        onSelectWindow(window.id)
-                    },
-                    modifier = Modifier.height(32.dp),
-                )
-            }
-        }
-    }
+    val windowLabel = localizedStringResource(Res.string.window, language)
+    DropdownSelector(
+        items = windows,
+        selectedItem = windows.firstOrNull { it.id == selectedWindowId } ?: windows.first(),
+        onItemSelected = { onSelectWindow(it.id) },
+        itemLabel = WindowChoiceModel::title,
+        selectedItemLabel = { "$windowLabel: ${it.title}" },
+        placeholder = windowLabel,
+        selectorDescription = localizedStringResource(Res.string.select_window, language),
+        modifier = Modifier.widthIn(min = 140.dp, max = 240.dp),
+        fillWidth = true,
+    )
 }
 
 @Composable
@@ -1731,14 +1713,9 @@ private fun AutoScanSwitch(
                     .width(30.dp)
                     .height(16.dp)
                     .background(
-                        color = if (enabled) {
-                            colors.accent.copy(alpha = 0.55f)
-                        } else {
-                            colors.switchTrackOff
-                        },
+                        color = if (enabled) colors.accent.copy(alpha = 0.55f) else colors.switchTrackOff,
                         shape = RoundedCornerShape(8.dp),
-                    )
-                    .padding(2.dp),
+                    ).padding(2.dp),
             contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Box(
@@ -1759,73 +1736,17 @@ private fun ManualRefreshButton(
     onClick: () -> Unit,
 ) {
     val language = LocalLayoutInspectorLanguage.current
-    HeaderTextButton(
-        label = localizedStringResource(Res.string.refresh, language),
-        contentDescription = localizedStringResource(Res.string.refresh_once, language),
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.refresh, language),
         enabled = enabled,
         onClick = onClick,
-        widthDp = ManualRefreshButtonStyle.WIDTH_DP,
+        modifier =
+            Modifier
+                .width(56.dp)
+                .semantics {
+                    contentDescription = localizedStringResource(Res.string.refresh_once, language)
+                },
     )
-}
-
-@Composable
-private fun HeaderTextButton(
-    label: String,
-    contentDescription: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    widthDp: Int,
-) {
-    val colors = LocalViewerColors.current
-    val shape = RoundedCornerShape(ManualRefreshButtonStyle.CORNER_RADIUS_DP.dp)
-    val backgroundAlpha = if (enabled) {
-        ManualRefreshButtonStyle.BACKGROUND_ALPHA
-    } else {
-        ManualRefreshButtonStyle.DISABLED_BACKGROUND_ALPHA
-    }
-    val borderColor = colors.border.copy(
-        alpha = if (enabled) {
-            ManualRefreshButtonStyle.BORDER_ALPHA
-        } else {
-            ManualRefreshButtonStyle.DISABLED_BORDER_ALPHA
-        },
-    )
-    Row(
-        modifier = Modifier
-            .width(widthDp.dp)
-            .height(ManualRefreshButtonStyle.HEIGHT_DP.dp)
-            .background(colors.accent.copy(alpha = backgroundAlpha), shape)
-            .border(1.dp, borderColor, shape)
-            .semantics { this.contentDescription = contentDescription }
-            .let { base -> if (enabled) base.clickable(onClick = onClick) else base }
-            .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            color = if (enabled) Color.White.copy(alpha = ManualRefreshButtonStyle.TEXT_ALPHA) else colors.mutedText.copy(alpha = 0.55f),
-            fontSize = 11.sp,
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
-}
-
-internal object ManualRefreshButtonStyle {
-    const val WIDTH_DP = 56
-    const val HEIGHT_DP = 22
-    const val CORNER_RADIUS_DP = 7
-    const val BACKGROUND_ALPHA = 0.9f
-    const val BORDER_ALPHA = 0.72f
-    const val TEXT_ALPHA = 1f
-    const val DISABLED_BACKGROUND_ALPHA = 0.24f
-    const val DISABLED_BORDER_ALPHA = 0.18f
-}
-
-@Composable
-private fun HeaderSeparator() {
-    Box(Modifier.width(1.dp).height(14.dp).background(LocalViewerColors.current.border))
 }
 
 private enum class PanelPosition {

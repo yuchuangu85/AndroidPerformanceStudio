@@ -1,35 +1,36 @@
-package com.androidperformancestudio.desktop
+package com.androidperformancestudio.platform.toolchain
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
-internal class RecentSimpleperfSessionStore(
+class RecentPathStore(
     private val storageFile: Path,
     private val maximumEntries: Int = DEFAULT_MAXIMUM_ENTRIES,
+    private val temporaryFilePrefix: String = DEFAULT_TEMPORARY_FILE_PREFIX,
 ) {
     init {
         require(maximumEntries > 0) { "maximumEntries must be positive" }
+        require(temporaryFilePrefix.length >= 3) { "temporaryFilePrefix must contain at least three characters" }
     }
 
     @Synchronized
     fun load(): List<Path> =
         runCatching {
             if (!Files.isRegularFile(storageFile)) return emptyList()
-            Files
-                .readAllLines(storageFile, StandardCharsets.UTF_8)
+            Files.readAllLines(storageFile, StandardCharsets.UTF_8)
                 .asSequence()
                 .filter(String::isNotBlank)
-                .mapNotNull { value -> runCatching { normalizedPath(value) }.getOrNull() }
+                .mapNotNull { value -> runCatching { Path.of(value).toAbsolutePath().normalize() }.getOrNull() }
                 .distinct()
                 .take(maximumEntries)
                 .toList()
         }.getOrDefault(emptyList())
 
     @Synchronized
-    fun record(sessionDirectory: Path): List<Path> {
-        val normalized = normalizedPath(sessionDirectory.toString())
+    fun record(path: Path): List<Path> {
+        val normalized = path.toAbsolutePath().normalize()
         val updated = (listOf(normalized) + load().filterNot { it == normalized }).take(maximumEntries)
         write(updated)
         return updated
@@ -44,13 +45,9 @@ internal class RecentSimpleperfSessionStore(
         runCatching {
             val parent = storageFile.parent ?: return
             Files.createDirectories(parent)
-            val temporary = Files.createTempFile(parent, "recent-simpleperf-", ".tmp")
+            val temporary = Files.createTempFile(parent, temporaryFilePrefix, ".tmp")
             try {
-                Files.write(
-                    temporary,
-                    entries.map(Path::toString),
-                    StandardCharsets.UTF_8,
-                )
+                Files.write(temporary, entries.map(Path::toString), StandardCharsets.UTF_8)
                 runCatching {
                     Files.move(
                         temporary,
@@ -68,15 +65,17 @@ internal class RecentSimpleperfSessionStore(
     }
 
     companion object {
-        fun desktop(): RecentSimpleperfSessionStore =
-            RecentSimpleperfSessionStore(
-                Path.of(System.getProperty("user.home"), APP_DIRECTORY, RECENT_SESSIONS_FILE),
+        fun desktop(
+            fileName: String,
+            temporaryFilePrefix: String = DEFAULT_TEMPORARY_FILE_PREFIX,
+        ): RecentPathStore =
+            RecentPathStore(
+                Path.of(System.getProperty("user.home"), APP_DIRECTORY, fileName),
+                temporaryFilePrefix = temporaryFilePrefix,
             )
     }
 }
 
-private fun normalizedPath(value: String): Path = Path.of(value).toAbsolutePath().normalize()
-
 private const val DEFAULT_MAXIMUM_ENTRIES = 10
+private const val DEFAULT_TEMPORARY_FILE_PREFIX = "recent-paths-"
 private const val APP_DIRECTORY = ".android-performance-studio"
-private const val RECENT_SESSIONS_FILE = "recent-simpleperf-sessions.txt"

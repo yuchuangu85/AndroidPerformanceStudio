@@ -1,12 +1,12 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.capture.BundledSimpleperfAsset
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import java.io.InputStream
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 
 internal fun loadBundledDeviceSimpleperfAssets(
     extractionRoot: Path = defaultBundledSimpleperfExtractionRoot(),
@@ -65,18 +65,7 @@ private fun moveIntoPlace(
     }
 }
 
-private fun sha256(path: Path): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    Files.newInputStream(path).use { input ->
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            digest.update(buffer, 0, count)
-        }
-    }
-    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
-}
+private fun sha256(path: Path): String = ArtifactFileEvidence.sha256(path).value
 
 private fun defaultBundledSimpleperfExtractionRoot(): Path =
     Path

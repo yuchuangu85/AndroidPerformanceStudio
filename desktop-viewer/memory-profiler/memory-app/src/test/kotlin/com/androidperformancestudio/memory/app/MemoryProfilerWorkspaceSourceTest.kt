@@ -15,11 +15,15 @@ class MemoryProfilerWorkspaceSourceTest {
         Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/memory/app/DesktopMemoryProfilerBackend.kt"),
         )
+    private val desktopFileDialogs =
+        Files.readString(
+            Path.of("../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/DesktopFileDialogs.kt"),
+        )
 
     @Test
     fun `import uses a composition owned native dialog and backend owns io dispatch`() {
         val requestDialog = workspace.indexOf("showHprofFileDialog = true")
-        val nativeDialog = workspace.indexOf("AwtWindow(")
+        val nativeDialog = workspace.indexOf("DesktopOpenFileDialog(")
         val launchParser = workspace.indexOf("controller.importHprof(selectedFile.toPath())")
 
         assertTrue(requestDialog >= 0)
@@ -27,12 +31,8 @@ class MemoryProfilerWorkspaceSourceTest {
         assertTrue(launchParser > requestDialog)
         assertFalse(workspace.contains("Dispatchers.IO"))
         assertFalse(workspace.contains("chooseHprofFile"))
-        assertTrue(
-            workspace.contains(
-                "FileDialog(parent, localizedStringResource(Res.string.import_hprof, language), FileDialog.LOAD)",
-            ),
-        )
-        assertTrue(workspace.contains("onCloseRequest(files.firstOrNull())"))
+        assertTrue(desktopFileDialogs.contains("AwtWindow("))
+        assertTrue(desktopFileDialogs.contains("onCloseRequest(files.firstOrNull())"))
         assertTrue(backend.contains("withContext(Dispatchers.IO)"))
     }
 

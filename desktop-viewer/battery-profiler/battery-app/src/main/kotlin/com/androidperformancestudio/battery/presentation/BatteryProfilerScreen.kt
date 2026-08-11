@@ -74,6 +74,7 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.wake
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.BatteryStatistics
 import com.androidperformancestudio.battery.model.ResourceTimer
+import com.androidperformancestudio.ui.ProfilerMetricCard
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.util.Locale
@@ -214,16 +215,14 @@ private fun MetricCard(
     unit: String,
     language: UiLanguage,
 ) {
-    Card(Modifier.width(168.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.labelLarge)
-            Text(statistics.median.format(unit), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(
-                localizedStringResource(Res.string.p90_n, language, statistics.p90.format(unit), statistics.count),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
+    ProfilerMetricCard(
+        label = title,
+        value = statistics.median.format(unit),
+        modifier = Modifier.width(168.dp),
+        supportingText = listOf(localizedStringResource(Res.string.p90_n, language, statistics.p90.format(unit), statistics.count)),
+        prominent = true,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+    )
 }
 
 @Composable

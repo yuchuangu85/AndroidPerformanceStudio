@@ -107,8 +107,6 @@ import com.androidperformancestudio.memory.presentation.generated.resources.warn
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Files
-import java.text.NumberFormat
-import java.util.Locale
 import org.jetbrains.skia.Image as SkiaImage
 
 @Composable
@@ -400,14 +398,9 @@ private fun MetricCard(
     Column(
         modifier =
             modifier
-                .background(
-                    MaterialTheme.colorScheme.surfaceContainer,
-                    RoundedCornerShape(4.dp),
-                ).border(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant,
-                    RoundedCornerShape(4.dp),
-                ).padding(8.dp),
+                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp))
+                .padding(8.dp),
     ) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, fontWeight = FontWeight.Bold)
@@ -903,15 +896,3 @@ private fun BitmapSection(
 private fun Int.withSign(): String = if (this >= 0) "+$this" else toString()
 
 private fun Long.withSign(): String = if (this >= 0) "+$this" else toString()
-
-private fun integer(value: Int): String = NumberFormat.getIntegerInstance(Locale.US).format(value)
-
-private fun formatBytes(bytes: Long): String =
-    when {
-        bytes >= BYTES_PER_MB -> "%.1f MB".format(Locale.US, bytes.toDouble() / BYTES_PER_MB)
-        bytes >= BYTES_PER_KB -> "%.1f KB".format(Locale.US, bytes.toDouble() / BYTES_PER_KB)
-        else -> "$bytes B"
-    }
-
-private const val BYTES_PER_KB = 1024.0
-private const val BYTES_PER_MB = 1024.0 * 1024.0

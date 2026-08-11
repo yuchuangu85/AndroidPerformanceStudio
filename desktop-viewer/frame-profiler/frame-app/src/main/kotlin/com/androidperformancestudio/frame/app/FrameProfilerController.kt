@@ -4,6 +4,7 @@ package com.androidperformancestudio.frame.app
 
 import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.contracts.CaptureArtifactJson
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.FrameJankAnalyzer
 import com.androidperformancestudio.frame.export.FrameCsvExporter
@@ -24,7 +25,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
@@ -557,18 +557,7 @@ private fun List<FrameSample>.offlineCapabilities() =
         appStateLabels = false,
     )
 
-private fun Path.sha256(): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    Files.newInputStream(this).use { input ->
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            digest.update(buffer, 0, read)
-        }
-    }
-    return digest.digest().joinToString("") { "%02x".format(it) }
-}
+private fun Path.sha256(): String = ArtifactFileEvidence.sha256(this).value
 
 private fun FrameSource.captureLabel(): String =
     when (this) {

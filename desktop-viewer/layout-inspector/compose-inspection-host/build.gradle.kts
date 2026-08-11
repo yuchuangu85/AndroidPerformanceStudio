@@ -18,6 +18,7 @@ java {
 dependencies {
     api(project(":compose-inspection-model"))
     implementation(project(":adb-gateway"))
+    implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
     implementation("com.google.protobuf:protobuf-java:4.35.1")
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

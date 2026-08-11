@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 public const val PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP: Int = 40
-public const val PROFILER_SECONDARY_TOOLBAR_HEIGHT_DP: Int = 28
 
 private const val DISABLED_CONTENT_ALPHA: Float = 0.38f
 
@@ -54,27 +53,6 @@ public fun ProfilerMacOsToolbar(
                     .fillMaxWidth()
                     .height(PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP.dp)
                     .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            content = content,
-        )
-    }
-}
-
-/** Shared 28dp configuration toolbar for desktop profiler workspaces. */
-@Composable
-public fun ProfilerMacOsSecondaryToolbar(
-    modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit,
-) {
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        Row(
-            modifier =
-                modifier
-                    .fillMaxWidth()
-                    .height(PROFILER_SECONDARY_TOOLBAR_HEIGHT_DP.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .padding(horizontal = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically,

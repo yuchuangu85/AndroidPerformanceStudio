@@ -55,6 +55,7 @@ import javax.swing.JFileChooser
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui_components.generated.resources.icon_collapse
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
@@ -665,31 +666,17 @@ private fun <T> SettingsChoice(
     optionLabel: (T) -> String,
     onSelected: (T) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    Box(Modifier.wrapContentWidth().padding(8.dp, 0.dp, 8.dp, 0.dp)) {
-        OutlinedButton(
-            onClick = { expanded = true },
-            modifier = Modifier.width(320.dp)
-        ) {
-            Text(localizedStringResource(Res.string.text, language, label, optionLabel(current)))
-        }
-        DropdownMenu(
-            expanded = expanded,
-            modifier = Modifier.wrapContentHeight().width(200.dp),
-            shape = RoundedCornerShape(10.dp),
-            onDismissRequest = { expanded = false }
-        ) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(optionLabel(option)) },
-                    onClick = {
-                        expanded = false
-                        onSelected(option)
-                    },
-                )
-            }
-        }
-    }
+    DropdownSelector(
+        items = options,
+        selectedItem = current,
+        onItemSelected = onSelected,
+        itemLabel = optionLabel,
+        selectedItemLabel = { localizedStringResource(Res.string.text, language, label, optionLabel(it)) },
+        placeholder = label,
+        modifier = Modifier.padding(horizontal = 8.dp).width(320.dp),
+        menuModifier = Modifier.width(200.dp),
+        fillWidth = true,
+    )
 }
 
 private fun SettingsPage.label(language: UiLanguage): String =

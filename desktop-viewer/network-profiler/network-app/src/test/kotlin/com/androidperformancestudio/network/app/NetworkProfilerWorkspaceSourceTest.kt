@@ -28,7 +28,7 @@ class NetworkProfilerWorkspaceSourceTest {
         assertButtonContains(
             "text = localizedStringResource(Res.string.import_har, language)",
             "enabled = !state.capturing",
-            "chooseHar(window, language)",
+            "chooseOpenFile(",
             "HarParser().parse(file.toPath())",
             "complete(",
         )

@@ -43,7 +43,7 @@ class UnifiedSettingsMigrationTest {
     fun `simpleperf complete settings and live capture context are embedded`() {
         val dialog = desktopSource("DesktopAppSettingsDialog.kt")
         val shell = desktopSource("DesktopAppMainPage.kt")
-        val settings = simpleperfPresentationSource("CaptureConfigurationWorkspace.kt")
+        val settings = simpleperfPresentationSource("CaptureSettingsSection.kt")
         val workspace = simpleperfDesktopSource("SimpleperfMainPage.kt")
 
         listOf(

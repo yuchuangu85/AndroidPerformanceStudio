@@ -143,7 +143,11 @@ class FlameGraphComposeUiTest {
                         onOpenContextMenu = { nodeId, _ -> contextMenuOpenedAt = nodeId },
                         modifier = Modifier.size(700.dp, 80.dp),
                     )
-                    FlameGraphDetailsPanel(details, onClose = { details = FlameGraphDetailsState.Closed })
+                    FirefoxFrameDetailsBottomBox(
+                        details,
+                        onClose = { details = FlameGraphDetailsState.Closed },
+                        style = rememberFirefoxFlameGraphStyle(),
+                    )
                 }
             }
 

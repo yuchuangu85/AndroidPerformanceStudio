@@ -80,12 +80,11 @@ import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import java.io.File
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 public fun FrameWindowScope.StartupProfilerMainPage(
@@ -108,17 +107,31 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 exportEnabled = state.analysis != null && !state.isRunning,
             ),
         onImport = {
-            chooseOpenJsonFile(window, language)?.let { file ->
+            chooseOpenFile(
+                window,
+                localizedStringResource(Res.string.import_startup_profiler_report, language),
+                "JSON (*.json)",
+                "json",
+                acceptAllFiles = false,
+            )?.let { file ->
                 scope.launch { controller.importJson(file.toPath()) }
             }
         },
         onExportCsv = {
-            chooseSaveFile(window, "startup-analysis.csv", language)?.let { file ->
+            chooseSaveFile(
+                window,
+                localizedStringResource(Res.string.export_startup_profiler_report, language),
+                "startup-analysis.csv",
+            )?.let { file ->
                 scope.launch { controller.exportCsv(file.toPath()) }
             }
         },
         onExportJson = {
-            chooseSaveFile(window, "startup-analysis.json", language)?.let { file ->
+            chooseSaveFile(
+                window,
+                localizedStringResource(Res.string.export_startup_profiler_report, language),
+                "startup-analysis.json",
+            )?.let { file ->
                 scope.launch { controller.exportJson(file.toPath()) }
             }
         },
@@ -345,25 +358,3 @@ private fun StartupProfileSource.label(language: UiLanguage): String =
         },
         language,
     )
-
-private fun chooseSaveFile(
-    parent: java.awt.Component,
-    defaultName: String,
-    language: UiLanguage,
-): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.export_startup_profiler_report, language)
-        selectedFile = File(defaultName)
-        if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
-    }
-
-private fun chooseOpenJsonFile(
-    parent: java.awt.Component,
-    language: UiLanguage,
-): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.import_startup_profiler_report, language)
-        fileFilter = FileNameExtensionFilter("JSON (*.json)", "json")
-        isAcceptAllFileFilterUsed = false
-        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
-    }

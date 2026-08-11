@@ -17,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.back_to_home
@@ -33,19 +32,16 @@ import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpBitmap
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerScreen
 import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSelectors
+import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
+import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
-import java.awt.Component
-import java.awt.FileDialog
-import java.awt.Frame
-import java.io.File
 import java.nio.file.Path
-import javax.swing.JFileChooser
 
 @Composable
 @Suppress("LongParameterList")
@@ -105,22 +101,28 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         onImportNativeHeap = { showNativeHeapFileDialog = true },
         onImportJavaHeap = { showJavaHeapFileDialog = true },
         onExportNativeHeap = {
-            chooseSaveFile(window, "native-heap.pb", language)?.let(controller::exportNativeHeap)
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "native-heap.pb")
+                ?.toPath()?.let(controller::exportNativeHeap)
         },
         onExportRawHprof = {
-            chooseSaveFile(window, "heap-raw.hprof", language)?.let(controller::exportRaw)
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "heap-raw.hprof")
+                ?.toPath()?.let(controller::exportRaw)
         },
         onExportStandardHprof = {
-            chooseSaveFile(window, "heap-standard.hprof", language)?.let(controller::exportConverted)
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "heap-standard.hprof")
+                ?.toPath()?.let(controller::exportConverted)
         },
         onExportCsv = {
-            chooseSaveFile(window, "class-histogram.csv", language)?.let(controller::exportHistogram)
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "class-histogram.csv")
+                ?.toPath()?.let(controller::exportHistogram)
         },
         onExportBitmapDump = {
-            chooseSaveFile(window, "bitmap-dump.zip", language)?.let(controller::exportBitmapSession)
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "bitmap-dump.zip")
+                ?.toPath()?.let(controller::exportBitmapSession)
         },
         onExportBitmapComparison = {
-            chooseSaveFile(window, "bitmap-comparison.md", language)?.let(controller::exportBitmapComparison)
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "bitmap-comparison.md")
+                ?.toPath()?.let(controller::exportBitmapComparison)
         },
         onLoadSession = { metadata ->
             scope.launch { controller.loadSession(metadata) }
@@ -189,9 +191,10 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     }
 
     if (showHprofFileDialog) {
-        HprofOpenFileDialog(
+        DesktopOpenFileDialog(
             parent = window,
-            language = language,
+            title = localizedStringResource(Res.string.import_hprof, language),
+            acceptFileName = { it.endsWith(".hprof", ignoreCase = true) },
             onCloseRequest = { selectedFile ->
                 showHprofFileDialog = false
                 if (selectedFile != null) {
@@ -204,9 +207,10 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     }
 
     if (showMappingFileDialog) {
-        MappingOpenFileDialog(
+        DesktopOpenFileDialog(
             parent = window,
-            language = language,
+            title = localizedStringResource(Res.string.import_mapping, language),
+            acceptFileName = { it == "mapping.txt" || it.endsWith(".txt") },
             onCloseRequest = { selectedFile ->
                 showMappingFileDialog = false
                 if (selectedFile != null) {
@@ -219,9 +223,10 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     }
 
     if (showNativeHeapFileDialog) {
-        NativeHeapOpenFileDialog(
+        DesktopOpenFileDialog(
             parent = window,
-            language = language,
+            title = localizedStringResource(Res.string.import_native_heap, language),
+            acceptFileName = { it.endsWith(".pb", ignoreCase = true) },
             onCloseRequest = { selectedFile ->
                 showNativeHeapFileDialog = false
                 if (selectedFile != null) {
@@ -234,9 +239,12 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     }
 
     if (showJavaHeapFileDialog) {
-        JavaHeapOpenFileDialog(
+        DesktopOpenFileDialog(
             parent = window,
-            language = language,
+            title = localizedStringResource(Res.string.import_java_heap, language),
+            acceptFileName = {
+                it.endsWith(".pb", ignoreCase = true) || it.endsWith(".perfetto-trace", ignoreCase = true)
+            },
             onCloseRequest = { selectedFile ->
                 showJavaHeapFileDialog = false
                 if (selectedFile != null) {
@@ -248,121 +256,3 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         )
     }
 }
-
-@Composable
-private fun MappingOpenFileDialog(
-    parent: Frame,
-    language: UiLanguage,
-    onCloseRequest: (File?) -> Unit,
-) {
-    AwtWindow(
-        create = {
-            object : FileDialog(parent, localizedStringResource(Res.string.import_mapping, language), FileDialog.LOAD) {
-                init {
-                    isMultipleMode = false
-                    filenameFilter = java.io.FilenameFilter { _, name -> name == "mapping.txt" || name.endsWith(".txt") }
-                }
-
-                override fun setVisible(value: Boolean) {
-                    super.setVisible(value)
-                    if (value) {
-                        onCloseRequest(files.firstOrNull())
-                    }
-                }
-            }
-        },
-        dispose = FileDialog::dispose,
-    )
-}
-
-@Composable
-private fun HprofOpenFileDialog(
-    parent: Frame,
-    language: UiLanguage,
-    onCloseRequest: (File?) -> Unit,
-) {
-    AwtWindow(
-        create = {
-            object : FileDialog(parent, localizedStringResource(Res.string.import_hprof, language), FileDialog.LOAD) {
-                init {
-                    isMultipleMode = false
-                    filenameFilter = java.io.FilenameFilter { _, name -> name.endsWith(".hprof", ignoreCase = true) }
-                }
-
-                override fun setVisible(value: Boolean) {
-                    super.setVisible(value)
-                    if (value) {
-                        onCloseRequest(files.firstOrNull())
-                    }
-                }
-            }
-        },
-        dispose = FileDialog::dispose,
-    )
-}
-
-@Composable
-private fun NativeHeapOpenFileDialog(
-    parent: Frame,
-    language: UiLanguage,
-    onCloseRequest: (File?) -> Unit,
-) {
-    AwtWindow(
-        create = {
-            object : FileDialog(parent, localizedStringResource(Res.string.import_native_heap, language), FileDialog.LOAD) {
-                init {
-                    isMultipleMode = false
-                    filenameFilter = java.io.FilenameFilter { _, name -> name.endsWith(".pb", ignoreCase = true) }
-                }
-
-                override fun setVisible(value: Boolean) {
-                    super.setVisible(value)
-                    if (value) {
-                        onCloseRequest(files.firstOrNull())
-                    }
-                }
-            }
-        },
-        dispose = FileDialog::dispose,
-    )
-}
-
-@Composable
-private fun JavaHeapOpenFileDialog(
-    parent: Frame,
-    language: UiLanguage,
-    onCloseRequest: (File?) -> Unit,
-) {
-    AwtWindow(
-        create = {
-            object : FileDialog(parent, localizedStringResource(Res.string.import_java_heap, language), FileDialog.LOAD) {
-                init {
-                    isMultipleMode = false
-                    filenameFilter =
-                        java.io.FilenameFilter { _, name ->
-                            name.endsWith(".pb", ignoreCase = true) || name.endsWith(".perfetto-trace", ignoreCase = true)
-                        }
-                }
-
-                override fun setVisible(value: Boolean) {
-                    super.setVisible(value)
-                    if (value) {
-                        onCloseRequest(files.firstOrNull())
-                    }
-                }
-            }
-        },
-        dispose = FileDialog::dispose,
-    )
-}
-
-private fun chooseSaveFile(
-    parent: Component,
-    defaultName: String,
-    language: UiLanguage,
-): java.nio.file.Path? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.export_memory_profiler_data, language)
-        selectedFile = File(defaultName)
-        if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile.toPath() else null
-    }

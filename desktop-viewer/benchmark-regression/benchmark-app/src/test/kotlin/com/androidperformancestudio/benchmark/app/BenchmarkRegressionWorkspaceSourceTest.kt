@@ -27,12 +27,12 @@ class BenchmarkRegressionWorkspaceSourceTest {
     fun `toolbar preserves imports exporter and trace navigation with enabled predicates`() {
         assertButtonContains(
             "text = localizedStringResource(Res.string.import_current, language)",
-            "chooseJson(window, language)",
+            "chooseBenchmarkJson(window, language)",
             "import(it, false)",
         )
         assertButtonContains(
             "text = localizedStringResource(Res.string.import_baseline, language)",
-            "chooseJson(window, language)",
+            "chooseBenchmarkJson(window, language)",
             "import(it, true)",
         )
         assertButtonContains(

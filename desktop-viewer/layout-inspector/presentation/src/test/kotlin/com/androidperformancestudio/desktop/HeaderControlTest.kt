@@ -42,8 +42,6 @@ class HeaderControlTest {
 
     @Test
     fun `manual refresh control is a labeled text button without an icon`() {
-        assertTrue(ManualRefreshButtonStyle.WIDTH_DP >= 54)
-        assertEquals(22, ManualRefreshButtonStyle.HEIGHT_DP)
         assertEquals("Refresh", localizedStringResource(Res.string.refresh, UiLanguage.ENGLISH))
         assertEquals("刷新", localizedStringResource(Res.string.refresh, UiLanguage.SIMPLIFIED_CHINESE))
 
@@ -52,8 +50,10 @@ class HeaderControlTest {
         )
         val manualRefreshButton = source
             .substringAfter("private fun ManualRefreshButton(")
-            .substringBefore("internal object ManualRefreshButtonStyle")
+            .substringBefore("private enum class PanelPosition")
 
+        assertTrue(manualRefreshButton.contains("ProfilerCompactButton("))
+        assertTrue(manualRefreshButton.contains(".width(56.dp)"))
         assertFalse(manualRefreshButton.contains("RefreshGlyph("))
         assertFalse(manualRefreshButton.contains("Canvas("))
     }
@@ -139,7 +139,8 @@ class HeaderControlTest {
         assertTrue(header.contains("if (model.windows.size > 1)"))
         assertTrue(selector.contains("Res.string.window"))
         assertTrue(selector.contains("Res.string.select_window"))
-        assertTrue(selector.contains(".border("))
+        assertTrue(selector.contains("DropdownSelector("))
+        assertTrue(selector.contains("selectorDescription"))
         assertEquals("Window", localizedStringResource(Res.string.window, UiLanguage.ENGLISH))
         assertEquals("窗口", localizedStringResource(Res.string.window, UiLanguage.SIMPLIFIED_CHINESE))
         assertEquals(

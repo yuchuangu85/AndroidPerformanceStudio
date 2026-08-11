@@ -205,7 +205,6 @@ private fun SettingsToggleRow(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-//        Switch(checked = checked, onCheckedChange = onCheckedChange)
         MacOSSwitch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

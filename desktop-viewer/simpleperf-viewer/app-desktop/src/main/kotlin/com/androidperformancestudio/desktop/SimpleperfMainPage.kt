@@ -65,6 +65,7 @@ import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.parser.HostSimpleperfLocator
 import com.androidperformancestudio.parser.SimpleperfReportConverter
+import com.androidperformancestudio.platform.toolchain.RecentPathStore
 import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.DeviceTargetActions
@@ -413,7 +414,13 @@ private fun FrameWindowScope.SimpleperfMenu(
     onOpenCaptureSettings: (CaptureSettingsSection) -> Unit,
     onOpenPreferences: ((CaptureSettingsSection) -> Unit)?,
 ) {
-    val recentSessionStore = remember { RecentSimpleperfSessionStore.desktop() }
+    val recentSessionStore =
+        remember {
+            RecentPathStore.desktop(
+                fileName = "recent-simpleperf-sessions.txt",
+                temporaryFilePrefix = "recent-simpleperf-",
+            )
+        }
     var recentSessions by remember { mutableStateOf(recentSessionStore.load()) }
     val readySession = reportState.lastReadyReport?.session?.directory
     LaunchedEffect(readySession) {

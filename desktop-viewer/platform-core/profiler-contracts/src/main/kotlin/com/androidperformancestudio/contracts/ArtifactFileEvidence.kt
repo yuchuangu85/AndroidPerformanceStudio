@@ -13,7 +13,7 @@ object ArtifactFileEvidence {
         require(Files.isRegularFile(path)) { "artifact content is not a regular file: $path" }
         val digest = MessageDigest.getInstance("SHA-256")
         Files.newInputStream(path).use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            val buffer = ByteArray(HASH_BUFFER_SIZE)
             while (true) {
                 val count = input.read(buffer)
                 if (count < 0) break
@@ -23,6 +23,8 @@ object ArtifactFileEvidence {
         return Sha256(HexFormat.of().formatHex(digest.digest()))
     }
 }
+
+private const val HASH_BUFFER_SIZE = 1024 * 1024
 
 /** Keeps device pseudonyms installation-local instead of stable across installations. */
 class DeviceIdentitySaltStore(

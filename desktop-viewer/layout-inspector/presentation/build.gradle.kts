@@ -28,6 +28,7 @@ dependencies {
     implementation(project(":compose-inspection-host"))
     implementation("com.androidperformancestudio:ai-core:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:host-toolchain:0.1.0-SNAPSHOT")
     implementation(project(":adb-gateway"))
     implementation(project(":application"))
     implementation(project(":compose-inspection-model"))

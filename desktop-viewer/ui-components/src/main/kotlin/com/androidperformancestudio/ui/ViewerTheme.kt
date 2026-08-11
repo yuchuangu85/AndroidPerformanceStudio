@@ -59,7 +59,6 @@ public data class ViewerColors(
 }
 
 public object ViewerDimensions {
-    public val toolbarHeight = 40.dp
     public val footerHeight = 29.dp
     public val buttonHeight = 28.dp
     public val selectorHeight = 30.dp

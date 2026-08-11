@@ -10,6 +10,7 @@ import com.androidperformancestudio.gpu.model.GpuCaptureContext
 import com.androidperformancestudio.gpu.model.GpuDeviceContext
 import com.androidperformancestudio.gpu.model.GraphicsApi
 import com.androidperformancestudio.gpu.model.GraphicsImplementationContext
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -28,7 +29,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
-import java.security.MessageDigest
 import java.time.Instant
 
 public data class ArtifactLocationResolution(
@@ -141,18 +141,7 @@ public class AgiArtifactIndexer(
         }
     }
 
-    private fun sha256(path: Path): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        Files.newInputStream(path).use { input ->
-            val buffer = ByteArray(1024 * 1024)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(path: Path): String = ArtifactFileEvidence.sha256(path).value
 }
 
 public class JsonAgiArtifactStore(

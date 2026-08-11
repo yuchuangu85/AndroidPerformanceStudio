@@ -77,6 +77,7 @@ import com.androidperformancestudio.frame.presentation.generated.resources.verdi
 import com.androidperformancestudio.frame.presentation.generated.resources.waiting_for_live_frame_data
 import com.androidperformancestudio.frame.presentation.generated.resources.window
 import com.androidperformancestudio.frame.presentation.generated.resources.worst
+import com.androidperformancestudio.ui.ProfilerMetricCard
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlin.math.floor
@@ -206,34 +207,20 @@ private fun SummaryCards(
 ) {
     val summary = analysis.summary
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        MetricCard(localizedStringResource(Res.string.frames, language), summary.totalFrames.toString(), Modifier.weight(1f))
-        MetricCard(
+        ProfilerMetricCard(localizedStringResource(Res.string.frames, language), summary.totalFrames.toString(), Modifier.weight(1f))
+        ProfilerMetricCard(
             localizedStringResource(Res.string.deadline_miss_rate, language),
             summary.deadlineMissRate.formatRate(),
             Modifier.weight(1f),
         )
-        MetricCard(
+        ProfilerMetricCard(
             localizedStringResource(Res.string.platform_jank_rate, language),
             summary.platformJankRate.formatRate(),
             Modifier.weight(1f),
         )
-        MetricCard(localizedStringResource(Res.string.p50, language), summary.p50DurationNs.formatMillis(), Modifier.weight(1f))
-        MetricCard(localizedStringResource(Res.string.p95, language), summary.p95DurationNs.formatMillis(), Modifier.weight(1f))
-        MetricCard(localizedStringResource(Res.string.worst, language), summary.worstDurationNs.formatMillis(), Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun MetricCard(
-    label: String,
-    value: String,
-    modifier: Modifier,
-) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(8.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        }
+        ProfilerMetricCard(localizedStringResource(Res.string.p50, language), summary.p50DurationNs.formatMillis(), Modifier.weight(1f))
+        ProfilerMetricCard(localizedStringResource(Res.string.p95, language), summary.p95DurationNs.formatMillis(), Modifier.weight(1f))
+        ProfilerMetricCard(localizedStringResource(Res.string.worst, language), summary.worstDurationNs.formatMillis(), Modifier.weight(1f))
     }
 }
 

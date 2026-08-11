@@ -105,63 +105,6 @@ import com.androidperformancestudio.memory.presentation.generated.resources.unre
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
-import java.text.NumberFormat
-import java.util.Locale
-
-/** Segmented toggle between the [MemoryProfilerViewMode.Dashboard] and [MemoryProfilerViewMode.ClassList] views. */
-@Composable
-public fun MemoryProfilerViewModeTabs(
-    state: MemoryProfilerState,
-    actions: MemoryProfilerActions,
-    language: UiLanguage,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier.padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        ViewModeTab(
-            label = localizedStringResource(Res.string.dashboard, language),
-            selected = state.viewMode == MemoryProfilerViewMode.Dashboard,
-            onClick = { actions.onChangeViewMode(MemoryProfilerViewMode.Dashboard) },
-        )
-        ViewModeTab(
-            label = localizedStringResource(Res.string.class_list, language),
-            selected = state.viewMode == MemoryProfilerViewMode.ClassList,
-            onClick = { actions.onChangeViewMode(MemoryProfilerViewMode.ClassList) },
-        )
-    }
-}
-
-@Composable
-private fun ViewModeTab(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Text(
-        text = label,
-        modifier =
-            Modifier
-                .background(
-                    if (selected) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainer
-                    },
-                    RoundedCornerShape(4.dp),
-                ).clickable(onClick = onClick)
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-        color =
-            if (selected) {
-                MaterialTheme.colorScheme.onSecondaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-        fontSize = 13.sp,
-    )
-}
 
 /**
  * Android Studio-style heap class list, rendered as a stacked layout:
@@ -774,17 +717,4 @@ private fun firstColumnLabel(
         MemoryArrangeBy.ALLOCATION_METHOD -> localizedStringResource(Res.string.allocation_method, language)
     }
 
-private fun integer(value: Int): String = NumberFormat.getIntegerInstance(Locale.US).format(value)
-
-private fun integer(value: Long): String = NumberFormat.getIntegerInstance(Locale.US).format(value)
-
-private fun formatBytes(bytes: Long): String =
-    when {
-        bytes >= BYTES_PER_MB -> "%.1f MB".format(Locale.US, bytes.toDouble() / BYTES_PER_MB)
-        bytes >= BYTES_PER_KB -> "%.1f KB".format(Locale.US, bytes.toDouble() / BYTES_PER_KB)
-        else -> "$bytes B"
-    }
-
-private const val BYTES_PER_KB = 1024.0
-private const val BYTES_PER_MB = 1024.0 * 1024.0
 private val CLASSIFIER_TABLE_WIDTH = 1_580.dp

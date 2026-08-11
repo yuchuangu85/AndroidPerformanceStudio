@@ -38,6 +38,8 @@ import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,11 +49,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -113,7 +112,13 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     text = localizedStringResource(Res.string.import_har, language),
                     enabled = !state.capturing,
                     onClick = {
-                        chooseHar(window, language)?.let { file ->
+                        chooseOpenFile(
+                            window,
+                            localizedStringResource(Res.string.import_har, language),
+                            localizedStringResource(Res.string.http_archive, language),
+                            "har",
+                            "json",
+                        )?.let { file ->
                             runCatching { HarParser().parse(file.toPath()) }
                                 .onSuccess { result ->
                                     complete(
@@ -153,7 +158,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     text = localizedStringResource(Res.string.json, language),
                     enabled = state.result != null,
                     onClick = {
-                        chooseSave(window, "network-session.json")?.let {
+                        chooseSaveFile(window, localizedStringResource(Res.string.json, language), "network-session.json")?.let {
                             exporter.writeJson(
                                 requireNotNull(state.result),
                                 requireNotNull(state.summary),
@@ -166,7 +171,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     text = localizedStringResource(Res.string.har, language),
                     enabled = state.result != null,
                     onClick = {
-                        chooseSave(window, "network-session.har")?.let {
+                        chooseSaveFile(window, localizedStringResource(Res.string.har, language), "network-session.har")?.let {
                             exporter.writePartialHar(requireNotNull(state.result), it.toPath())
                         }
                     },
@@ -175,7 +180,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     text = localizedStringResource(Res.string.csv, language),
                     enabled = state.result != null,
                     onClick = {
-                        chooseSave(window, "network-session.csv")?.let {
+                        chooseSaveFile(window, localizedStringResource(Res.string.csv, language), "network-session.csv")?.let {
                             exporter.writeCsv(requireNotNull(state.result), it.toPath())
                         }
                     },
@@ -184,7 +189,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     text = localizedStringResource(Res.string.raw_bundle, language),
                     enabled = state.result != null,
                     onClick = {
-                        chooseSave(window, "network-raw-bundle.zip")?.let {
+                        chooseSaveFile(window, localizedStringResource(Res.string.raw_bundle, language), "network-raw-bundle.zip")?.let {
                             exporter.writeRawBundle(
                                 requireNotNull(state.result),
                                 requireNotNull(state.summary),
@@ -200,15 +205,4 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
             NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
         }
     }
-}
-
-private fun chooseHar(parent: java.awt.Component, language: UiLanguage): File? = JFileChooser().run {
-    dialogTitle = localizedStringResource(Res.string.import_har, language)
-    fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.http_archive, language), "har", "json")
-    if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION)selectedFile else null
-}
-
-private fun chooseSave(parent: java.awt.Component, name: String): File? = JFileChooser().run {
-    selectedFile = File(name)
-    if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION)selectedFile else null
 }

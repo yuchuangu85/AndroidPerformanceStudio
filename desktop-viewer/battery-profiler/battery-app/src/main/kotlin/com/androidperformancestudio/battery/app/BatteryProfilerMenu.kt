@@ -4,7 +4,6 @@ package com.androidperformancestudio.battery.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.FrameWindowScope
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.battery.battery_app.generated.resources.Res
 import com.androidperformancestudio.battery.battery_app.generated.resources.advanced
 import com.androidperformancestudio.battery.battery_app.generated.resources.clear_recent
@@ -17,6 +16,7 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.impo
 import com.androidperformancestudio.battery.battery_app.generated.resources.no_recent_files
 import com.androidperformancestudio.battery.battery_app.generated.resources.open_recent
 import com.androidperformancestudio.battery.battery_app.generated.resources.reset_statistics
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path

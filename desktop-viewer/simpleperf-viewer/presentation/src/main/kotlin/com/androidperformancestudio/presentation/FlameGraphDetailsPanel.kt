@@ -167,16 +167,6 @@ internal fun FirefoxFrameDetailsBottomBox(
     }
 }
 
-@Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-internal fun FlameGraphDetailsPanel(
-    state: FlameGraphDetailsState,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FirefoxFrameDetailsBottomBox(state, onClose, rememberFirefoxFlameGraphStyle(), modifier)
-}
-
 private fun disassemblyTitle(details: FlameGraphFrameDetails.Disassembly): String =
     "Disassembly · ${details.binary.fileName?.toString() ?: details.binary} @ ${details.address.hex()}"
 

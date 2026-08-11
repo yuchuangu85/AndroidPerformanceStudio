@@ -35,7 +35,7 @@ class MemoryProfilerToolbarSelectorsTest {
 
             val device = onNodeWithContentDescription("Device selector").fetchSemanticsNode().boundsInRoot
             val process = onNodeWithContentDescription("Process selector").fetchSemanticsNode().boundsInRoot
-            assertTrue(device.height <= MEMORY_TOOLBAR_BUTTON_HEIGHT_DP + 1f)
+            assertTrue(device.height <= 23f)
             assertEquals(device.height, process.height)
 
             onNodeWithContentDescription("Device selector").performClick()

@@ -21,7 +21,6 @@ import com.androidperformancestudio.benchmark.model.EvidenceConfidence
 import com.androidperformancestudio.benchmark.model.RegressionClassification
 import com.androidperformancestudio.benchmark.model.RegressionReport
 import com.androidperformancestudio.benchmark.presentation.generated.resources.*
-import com.androidperformancestudio.benchmark.presentation.generated.resources.Res
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 

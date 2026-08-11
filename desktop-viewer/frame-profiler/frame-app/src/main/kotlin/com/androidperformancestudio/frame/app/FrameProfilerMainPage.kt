@@ -17,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.AwtWindow
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
 import com.androidperformancestudio.frame.frame_app.generated.resources.associate_perfetto_trace
@@ -44,19 +43,18 @@ import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.awt.FileDialog
-import java.awt.Frame
-import java.io.File
-import javax.swing.JFileChooser
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -90,12 +88,20 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             ),
         onImportFrameStats = { showImportDialog = true },
         onExportCsv = {
-            chooseSaveFile(window, "frame-analysis.csv", language)?.let { output ->
+            chooseSaveFile(
+                window,
+                localizedStringResource(Res.string.export_frame_profiler_report, language),
+                "frame-analysis.csv",
+            )?.let { output ->
                 scope.launch { controller.exportCsv(output.toPath()) }
             }
         },
         onExportJson = {
-            chooseSaveFile(window, "frame-analysis.json", language)?.let { output ->
+            chooseSaveFile(
+                window,
+                localizedStringResource(Res.string.export_frame_profiler_report, language),
+                "frame-analysis.json",
+            )?.let { output ->
                 scope.launch { controller.exportJson(output.toPath()) }
             }
         },
@@ -150,7 +156,14 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     text = localizedStringResource(Res.string.import_perfetto_frametimeline, language),
                     enabled = !state.isCapturing && !state.isLoading,
                     onClick = {
-                        chooseTraceFile(window, language)?.let { trace ->
+                        chooseOpenFile(
+                            window,
+                            localizedStringResource(Res.string.select_perfetto_trace, language),
+                            "Perfetto trace",
+                            "trace",
+                            "perfetto-trace",
+                            "pftrace",
+                        )?.let { trace ->
                             scope.launch { controller.importPerfettoTrace(trace.toPath()) }
                         }
                     },
@@ -159,7 +172,14 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     text = localizedStringResource(Res.string.associate_perfetto_trace, language),
                     enabled = !state.isCapturing && !state.isLoading && state.analysis != null,
                     onClick = {
-                        chooseTraceFile(window, language)?.let { trace ->
+                        chooseOpenFile(
+                            window,
+                            localizedStringResource(Res.string.select_perfetto_trace, language),
+                            "Perfetto trace",
+                            "trace",
+                            "perfetto-trace",
+                            "pftrace",
+                        )?.let { trace ->
                             scope.launch { controller.associatePerfettoTrace(trace.toPath()) }
                         }
                     },
@@ -241,9 +261,12 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     }
 
     if (showImportDialog) {
-        FrameStatsOpenFileDialog(
+        DesktopOpenFileDialog(
             parent = window,
-            language = language,
+            title = localizedStringResource(Res.string.import_gfxinfo_framestats, language),
+            acceptFileName = {
+                it.endsWith(".txt", ignoreCase = true) || it.endsWith(".framestats", ignoreCase = true)
+            },
             onCloseRequest = { selected ->
                 showImportDialog = false
                 selected?.let { file -> scope.launch { controller.importFrameStats(file.toPath()) } }
@@ -270,64 +293,6 @@ internal fun FrameOperationStatus.localizedText(language: UiLanguage): String =
             localizedStringResource(Res.string.imported_frames, language, frameCount)
         is FrameOperationStatus.Exported ->
             localizedStringResource(Res.string.exported, language, fileName)
-    }
-
-@Composable
-private fun FrameStatsOpenFileDialog(
-    parent: Frame,
-    language: UiLanguage,
-    onCloseRequest: (File?) -> Unit,
-) {
-    AwtWindow(
-        create = {
-            object : FileDialog(
-                parent,
-                localizedStringResource(Res.string.import_gfxinfo_framestats, language),
-                FileDialog.LOAD,
-            ) {
-                init {
-                    isMultipleMode = false
-                    filenameFilter =
-                        java.io.FilenameFilter { _, name ->
-                            name.endsWith(".txt", ignoreCase = true) || name.endsWith(".framestats", ignoreCase = true)
-                        }
-                }
-
-                override fun setVisible(value: Boolean) {
-                    super.setVisible(value)
-                    if (value) onCloseRequest(files.firstOrNull())
-                }
-            }
-        },
-        dispose = FileDialog::dispose,
-    )
-}
-
-private fun chooseSaveFile(
-    parent: java.awt.Component,
-    defaultName: String,
-    language: UiLanguage,
-): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.export_frame_profiler_report, language)
-        selectedFile = File(defaultName)
-        if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
-    }
-
-private fun chooseTraceFile(
-    parent: java.awt.Component,
-    language: UiLanguage,
-): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.select_perfetto_trace, language)
-        fileFilter =
-            javax.swing.filechooser.FileNameExtensionFilter(
-                "Perfetto trace",
-                "trace",
-                "perfetto-trace",
-                "pftrace",
-            )
-        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
 
 private const val POLL_INTERVAL_MILLIS = 250L

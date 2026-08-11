@@ -104,6 +104,8 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.button.HomeButton
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -111,13 +113,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.io.IOException
 import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.io.path.fileSize
 
 internal fun formatRecentSessionTimestamp(capturedAt: Instant): String = capturedAt.toString().replace("T", "-T")
@@ -206,7 +205,12 @@ fun FrameWindowScope.PerfettoMainPage(
                     ?.toString()
                     .orEmpty()
                     .ifBlank { "trace.pftrace" }
-            val saveFile = chooseSaveFile(defaultName, language) ?: return@launch
+            val saveFile =
+                chooseSaveFile(
+                    null,
+                    localizedStringResource(Res.string.export_trace, language),
+                    defaultName,
+                ) ?: return@launch
             when (val exported = exportRawTraceFile(traceFile, saveFile.toPath())) {
                 is StudioResult.Success -> diagnosticError = null
                 is StudioResult.Failure -> {
@@ -279,7 +283,14 @@ fun FrameWindowScope.PerfettoMainPage(
                 try {
                     // The modal chooser must run on the UI thread, or repeated clicks stack
                     // concurrent JFileChoosers (non-modal from a background thread) and deadlock AWT.
-                    val file = chooseTraceFile(language)
+                    val file =
+                        chooseOpenFile(
+                            null,
+                            localizedStringResource(Res.string.open_perfetto_trace, language),
+                            localizedStringResource(Res.string.perfetto_traces, language),
+                            "pftrace",
+                            "perfetto-trace",
+                        )
                     if (file != null) openTrace(file.toPath(), null)
                 } finally {
                     fileDialogOpen = false
@@ -289,7 +300,12 @@ fun FrameWindowScope.PerfettoMainPage(
         onExportSession = {
             coroutineScope.launch(Dispatchers.IO) {
                 val traceFile = activeTraceFile ?: return@launch
-                val saveFile = chooseSaveFile("perfetto-session.zip", language) ?: return@launch
+                val saveFile =
+                    chooseSaveFile(
+                        null,
+                        localizedStringResource(Res.string.export_trace, language),
+                        "perfetto-session.zip",
+                    ) ?: return@launch
                 val session =
                     sessions.firstOrNull { it.traceFile == traceFile }
                         ?: TraceSession(
@@ -860,20 +876,3 @@ private fun launchTraceInUi(
     if (started is StudioResult.Failure) return started
     return uiServer.openTrace(traceFile)
 }
-
-private fun chooseTraceFile(language: UiLanguage): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.open_perfetto_trace, language)
-        fileFilter = FileNameExtensionFilter(localizedStringResource(Res.string.perfetto_traces, language), "pftrace", "perfetto-trace")
-        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) selectedFile else null
-    }
-
-private fun chooseSaveFile(
-    defaultName: String,
-    language: UiLanguage,
-): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.export_trace, language)
-        selectedFile = File(defaultName)
-        if (showSaveDialog(null) == JFileChooser.APPROVE_OPTION) selectedFile else null
-    }

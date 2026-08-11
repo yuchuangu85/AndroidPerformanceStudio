@@ -71,6 +71,7 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.time
 import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
 import com.androidperformancestudio.battery.presentation.BatteryProfilerScreen
+import com.androidperformancestudio.platform.toolchain.RecentPathStore
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
@@ -79,14 +80,13 @@ import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
 import java.nio.file.Path
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -101,7 +101,13 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
     var experimentJob by remember { mutableStateOf<Job?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmBugreport by remember { mutableStateOf(false) }
-    val recentStore = remember { RecentBatteryAnalysisStore.desktop() }
+    val recentStore =
+        remember {
+            RecentPathStore.desktop(
+                fileName = "recent-battery-analyses.txt",
+                temporaryFilePrefix = "recent-battery-",
+            )
+        }
     var recentFiles by remember { mutableStateOf(recentStore.load()) }
 
     LaunchedEffect(controller) { controller.refreshDevices() }
@@ -133,22 +139,34 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                 resetEnabled = state.selectedDeviceSerial != null && !state.isRunning,
             ),
         onImport = {
-            chooseOpenJsonFile(window, language)?.let { file -> openAnalysis(file.toPath()) }
+            chooseOpenFile(
+                window,
+                localizedStringResource(Res.string.import_analysis, language),
+                "JSON (*.json)",
+                "json",
+                acceptAllFiles = false,
+            )?.let { file -> openAnalysis(file.toPath()) }
         },
         onExportJson = {
-            chooseSaveFile(window, "battery-analysis.json", language)?.let { file ->
-                scope.launch { controller.exportJson(file.toPath()) }
-            }
+            chooseSaveFile(
+                window,
+                localizedStringResource(Res.string.battery_energy_profiler, language),
+                "battery-analysis.json",
+            )?.let { file -> scope.launch { controller.exportJson(file.toPath()) } }
         },
         onExportCsv = {
-            chooseSaveFile(window, "battery-analysis.csv", language)?.let { file ->
-                scope.launch { controller.exportCsv(file.toPath()) }
-            }
+            chooseSaveFile(
+                window,
+                localizedStringResource(Res.string.battery_energy_profiler, language),
+                "battery-analysis.csv",
+            )?.let { file -> scope.launch { controller.exportCsv(file.toPath()) } }
         },
         onExportRawEvidence = {
-            chooseSaveFile(window, "battery-raw-evidence.zip", language)?.let { file ->
-                scope.launch { controller.exportRawBundle(file.toPath()) }
-            }
+            chooseSaveFile(
+                window,
+                localizedStringResource(Res.string.battery_energy_profiler, language),
+                "battery-raw-evidence.zip",
+            )?.let { file -> scope.launch { controller.exportRawBundle(file.toPath()) } }
         },
         onOpenRecent = openAnalysis,
         onClearRecent = {
@@ -349,7 +367,11 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             confirmButton = {
                 Button(onClick = {
                     confirmBugreport = false
-                    chooseSaveFile(window, "battery-historian-bugreport.zip", language)?.let { file ->
+                    chooseSaveFile(
+                        window,
+                        localizedStringResource(Res.string.battery_energy_profiler, language),
+                        "battery-historian-bugreport.zip",
+                    )?.let { file ->
                         scope.launch { controller.generateBugreport(file.toPath()) }
                     }
                 }) { Text(localizedStringResource(Res.string.choose_location, language)) }
@@ -369,26 +391,4 @@ private fun BatteryCaptureMode.label(language: UiLanguage): String =
         BatteryCaptureMode.TIMED -> localizedStringResource(Res.string.timed, language)
         BatteryCaptureMode.REPEATED -> localizedStringResource(Res.string.repeated, language)
         BatteryCaptureMode.ONLINE -> localizedStringResource(Res.string.low_frequency_online, language)
-    }
-
-private fun chooseSaveFile(
-    parent: java.awt.Component,
-    defaultName: String,
-    language: UiLanguage,
-): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.battery_energy_profiler, language)
-        selectedFile = File(defaultName)
-        if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
-    }
-
-private fun chooseOpenJsonFile(
-    parent: java.awt.Component,
-    language: UiLanguage,
-): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.import_analysis, language)
-        fileFilter = FileNameExtensionFilter("JSON (*.json)", "json")
-        isAcceptAllFileFilterUsed = false
-        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
