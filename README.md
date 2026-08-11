@@ -13,6 +13,24 @@ AndroidPerfermanceStudio is a Compose Desktop workstation for inspecting and cor
 - A full native-release pipeline for macOS (DMG/PKG), Windows (MSI/EXE), and Linux (DEB/RPM).
 - Cross-tool handoffs for correlation—for example, opening a trace produced by GPU or benchmark analysis in Trace Analyzer.
 
+## Screenshots
+
+### Home
+
+![Android Performance Studio home](media/AndroidPerformanceStudio01.png)
+
+### Layout Inspector
+
+![Layout Inspector](media/AndroidPerformanceStudio02.png)
+
+### CPU Profiler
+
+![CPU Profiler](media/AndroidPerformanceStudio03.png)
+
+### Trace Analyzer
+
+![Trace Analyzer](media/AndroidPerformanceStudio04.png)
+
 ## Features
 
 | Tool | What it does |

@@ -13,6 +13,24 @@ AndroidPerfermanceStudio 是一个基于 Compose Desktop 的 Android 性能分�
 - 完整的原生发布流程：macOS（DMG/PKG）、Windows（MSI/EXE）和 Linux（DEB/RPM）。
 - 支持跨工具关联，例如将 GPU 或 Benchmark 分析产出的 Trace 交给 Trace Analyzer 打开。
 
+## 界面截图
+
+### 主页
+
+![Android Performance Studio 主页](media/AndroidPerformanceStudio01.png)
+
+### 布局检查器
+
+![布局检查器](media/AndroidPerformanceStudio02.png)
+
+### CPU 分析器
+
+![CPU 分析器](media/AndroidPerformanceStudio03.png)
+
+### Trace 分析器
+
+![Trace 分析器](media/AndroidPerformanceStudio04.png)
+
 ## 功能说明
 
 | 工具 | 功能 |
