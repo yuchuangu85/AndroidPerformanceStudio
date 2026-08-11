@@ -133,6 +133,9 @@ class ProfilerThemeSupportTest {
 
         assertTrue(shell.contains("LocalWindowMenuBarActive provides active"))
         assertTrue(sharedMenuBar.contains("if (LocalWindowMenuBarActive.current)"))
+        assertTrue(sharedMenuBar.contains("startsWith(\"Windows\", ignoreCase = true)"))
+        assertTrue(sharedMenuBar.contains("window.rootPane.revalidate()"))
+        assertTrue(sharedMenuBar.contains("window.rootPane.repaint()"))
         profilerWindowMenuSources().forEach { source ->
             val content = Files.readString(source)
             assertTrue(content.contains("ActiveWindowMenuBar {"), "$source must gate its window menu bar")
