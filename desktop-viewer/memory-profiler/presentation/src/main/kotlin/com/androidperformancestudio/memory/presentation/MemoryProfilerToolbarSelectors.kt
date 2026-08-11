@@ -11,6 +11,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.sele
 import com.androidperformancestudio.memory.presentation.generated.resources.select_process
 import com.androidperformancestudio.memory.presentation.generated.resources.text
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 
@@ -22,6 +23,7 @@ public fun MemoryProfilerToolbarSelectors(
     language: UiLanguage = UiLanguage.ENGLISH,
 ) {
     MemoryProfilerDeviceSelector(state, onSelectDevice, language)
+    HeaderSpacer()
     MemoryProfilerProcessSelector(state, onSelectProcess, language)
 }
 

@@ -31,13 +31,13 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerActions
 import com.androidperformancestudio.network.presentation.NetworkProfilerScreen
 import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -100,14 +100,14 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
     }
     ViewerTheme(darkTheme = darkTheme) {
         Column(Modifier.fillMaxSize()) {
-            ProfilerMacOsToolbar {
-                HomeButton(
-                    contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                    onClick = {
-                        if (state.capturing)stop()
-                        onBack()
-                    },
-                )
+            HeaderToolbar(
+                language = language,
+                onNavigateHome = {
+                    if (state.capturing) stop()
+                    onBack()
+                },
+                onNavigateSettings = null,
+            ) {
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.import_har, language),
                     enabled = !state.capturing,
@@ -130,6 +130,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                         }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactTextField(
                     label = localizedStringResource(Res.string.device_serial, language),
                     value = state.deviceSerial,
@@ -137,6 +138,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     enabled = !state.capturing,
                     modifier = Modifier.width(180.dp),
                 )
+                HeaderSpacer()
                 ProfilerCompactTextField(
                     label = localizedStringResource(Res.string.`package`, language),
                     value = state.packageName,
@@ -144,6 +146,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     enabled = !state.capturing,
                     modifier = Modifier.width(240.dp),
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text =
                         if (state.capturing) {
@@ -154,6 +157,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                     enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(),
                     onClick = { if (state.capturing) stop() else start() },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.json, language),
                     enabled = state.result != null,
@@ -167,6 +171,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                         }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.har, language),
                     enabled = state.result != null,
@@ -176,6 +181,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                         }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.csv, language),
                     enabled = state.result != null,
@@ -185,6 +191,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
                         }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.raw_bundle, language),
                     enabled = state.result != null,

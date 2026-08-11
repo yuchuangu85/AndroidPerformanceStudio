@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
 import com.androidperformancestudio.frame.frame_app.generated.resources.associate_perfetto_trace
-import com.androidperformancestudio.frame.frame_app.generated.resources.back_to_home
 import com.androidperformancestudio.frame.frame_app.generated.resources.capture_frametimeline
 import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_with_frames
 import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_without_frames
@@ -42,14 +41,14 @@ import com.androidperformancestudio.frame.frame_app.generated.resources.stop_cap
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
-import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
+import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -109,20 +108,20 @@ public fun FrameWindowScope.FrameProfilerMainPage(
 
     ViewerTheme(darkTheme = darkTheme) {
         Column(Modifier.fillMaxSize()) {
-            ProfilerMacOsToolbar {
-                HomeButton(
-                    contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                    onClick = {
-                        if (state.isCapturing) {
-                            scope.launch {
-                                controller.stopOnlineCapture()
-                                onBack()
-                            }
-                        } else {
+            HeaderToolbar(
+                language = language,
+                onNavigateHome = {
+                    if (state.isCapturing) {
+                        scope.launch {
+                            controller.stopOnlineCapture()
                             onBack()
                         }
-                    },
-                )
+                    } else {
+                        onBack()
+                    }
+                },
+                onNavigateSettings = null,
+            ) {
                 DropdownSelector(
                     items = state.devices,
                     selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
@@ -132,6 +131,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     enabled = !state.isCapturing && !state.isLoading,
                     itemEnabled = { it.online },
                 )
+                HeaderSpacer()
                 DropdownSelector(
                     items = state.processes,
                     selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
@@ -147,11 +147,13 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                     placeholder = localizedStringResource(Res.string.process, language),
                     enabled = !state.isCapturing && !state.isLoading && state.selectedDeviceSerial != null,
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.refresh, language),
                     enabled = !state.isCapturing && !state.isLoading && !state.isRefreshingDevices,
                     onClick = { scope.launch { controller.refreshDevices() } },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.import_perfetto_frametimeline, language),
                     enabled = !state.isCapturing && !state.isLoading,
@@ -168,6 +170,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                         }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.associate_perfetto_trace, language),
                     enabled = !state.isCapturing && !state.isLoading && state.analysis != null,
@@ -184,11 +187,13 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                         }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.capture_frametimeline, language),
                     enabled = state.selectedProcessId != null && !state.isCapturing && !state.isLoading,
                     onClick = { scope.launch { controller.captureFrameTimeline() } },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
                     enabled = state.perfettoTraceFile != null,
@@ -210,6 +215,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                         }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text =
                         if (state.isCapturing) {

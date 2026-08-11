@@ -19,7 +19,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
-import com.androidperformancestudio.memory.memory_app.generated.resources.back_to_home
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_memory_profiler_data
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_java_heap
@@ -33,11 +32,11 @@ import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpHeapBu
 import com.androidperformancestudio.memory.presentation.MemoryProfilerScreen
 import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSelectors
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
@@ -102,27 +101,33 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         onImportJavaHeap = { showJavaHeapFileDialog = true },
         onExportNativeHeap = {
             chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "native-heap.pb")
-                ?.toPath()?.let(controller::exportNativeHeap)
+                ?.toPath()
+                ?.let(controller::exportNativeHeap)
         },
         onExportRawHprof = {
             chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "heap-raw.hprof")
-                ?.toPath()?.let(controller::exportRaw)
+                ?.toPath()
+                ?.let(controller::exportRaw)
         },
         onExportStandardHprof = {
             chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "heap-standard.hprof")
-                ?.toPath()?.let(controller::exportConverted)
+                ?.toPath()
+                ?.let(controller::exportConverted)
         },
         onExportCsv = {
             chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "class-histogram.csv")
-                ?.toPath()?.let(controller::exportHistogram)
+                ?.toPath()
+                ?.let(controller::exportHistogram)
         },
         onExportBitmapDump = {
             chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "bitmap-dump.zip")
-                ?.toPath()?.let(controller::exportBitmapSession)
+                ?.toPath()
+                ?.let(controller::exportBitmapSession)
         },
         onExportBitmapComparison = {
             chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "bitmap-comparison.md")
-                ?.toPath()?.let(controller::exportBitmapComparison)
+                ?.toPath()
+                ?.let(controller::exportBitmapComparison)
         },
         onLoadSession = { metadata ->
             scope.launch { controller.loadSession(metadata) }
@@ -131,17 +136,18 @@ fun FrameWindowScope.MemoryProfilerMainPage(
 
     ViewerTheme(darkTheme = darkTheme) {
         Column(Modifier.fillMaxSize()) {
-            ProfilerMacOsToolbar {
-                HomeButton(
-                    contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                    onClick = onBack,
-                )
+            HeaderToolbar(
+                language = language,
+                onNavigateHome = onBack,
+                onNavigateSettings = null,
+            ) {
                 MemoryProfilerToolbarSelectors(
                     state = state,
                     onSelectDevice = { serial -> scope.launch { controller.selectDevice(serial) } },
                     onSelectProcess = controller::selectProcess,
                     language = language,
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.refresh_devices, language),
                     onClick = { scope.launch { controller.refreshDevices() } },
@@ -152,11 +158,13 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     onDumpHeap = { scope.launch { controller.dumpHeap() } },
                     language = language,
                 )
+                HeaderSpacer()
                 MemoryProfilerDumpBitmapsButton(
                     state = state,
                     onDumpBitmaps = { scope.launch { controller.dumpBitmaps() } },
                     language = language,
                 )
+                HeaderSpacer()
                 MemoryProfilerCaptureNativeHeapButton(
                     state = state,
                     onCaptureNativeHeap = { scope.launch { controller.captureNativeHeap() } },

@@ -16,12 +16,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.FrameWindowScope
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
-import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.adb.AdbConfiguration
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.methodrecording.app.generated.resources.Res
-import com.androidperformancestudio.methodrecording.app.generated.resources.back_to_home
 import com.androidperformancestudio.methodrecording.app.generated.resources.capture
 import com.androidperformancestudio.methodrecording.app.generated.resources.device_selector
 import com.androidperformancestudio.methodrecording.app.generated.resources.import_trace
@@ -33,12 +30,14 @@ import com.androidperformancestudio.methodrecording.app.generated.resources.sele
 import com.androidperformancestudio.methodrecording.app.generated.resources.stop
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
 import java.nio.file.Path
@@ -66,11 +65,11 @@ fun FrameWindowScope.MethodRecordingMainPage(
 
     ViewerTheme(darkTheme = darkTheme) {
         Column(Modifier.fillMaxSize()) {
-            ProfilerMacOsToolbar {
-                HomeButton(
-                    contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                    onClick = onBack,
-                )
+            HeaderToolbar(
+                language = language,
+                onNavigateHome = onBack,
+                onNavigateSettings = null,
+            ) {
                 DropdownSelector(
                     items = state.devices,
                     selectedItem = state.devices.firstOrNull { it.serial == state.selectedSerial },
@@ -80,6 +79,7 @@ fun FrameWindowScope.MethodRecordingMainPage(
                     selectorDescription = localizedStringResource(Res.string.device_selector, language),
                     enabled = !state.isLoading,
                 )
+                HeaderSpacer()
                 DropdownSelector(
                     items = state.processes,
                     selectedItem = state.processes.firstOrNull { it.pid == state.selectedPid },
@@ -89,6 +89,7 @@ fun FrameWindowScope.MethodRecordingMainPage(
                     selectorDescription = localizedStringResource(Res.string.process_selector, language),
                     enabled = !state.isLoading,
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.refresh_devices, language),
                     onClick = { scope.launch { controller.refreshDevices() } },

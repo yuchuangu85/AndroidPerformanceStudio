@@ -14,7 +14,8 @@ class FrameProfilerWorkspaceSourceTest {
 
     @Test
     fun `workspace uses shared compact chrome without changing frame screen`() {
-        assertTrue(source.contains("ProfilerMacOsToolbar"))
+        assertTrue(source.contains("HeaderToolbar("))
+        assertFalse(source.contains("ProfilerMacOsToolbar"))
         assertTrue(source.contains("FrameProfilerFileMenuBar("))
         assertTrue(source.contains("DropdownSelector"))
         assertFalse(source.contains("ProfilerCompactSelector"))
@@ -29,8 +30,8 @@ class FrameProfilerWorkspaceSourceTest {
     fun `toolbar preserves capture and navigation wiring`() {
         val homeBlock =
             source.substring(
-                source.indexOf("HomeButton("),
-                source.indexOf("DropdownSelector("),
+                source.indexOf("onNavigateHome = {"),
+                source.indexOf("onNavigateSettings = null"),
             )
         assertTrue(homeBlock.contains("if (state.isCapturing)"))
         assertTrue(homeBlock.contains("controller.stopOnlineCapture()"))
@@ -64,8 +65,8 @@ class FrameProfilerWorkspaceSourceTest {
     fun `file actions are wired through the menu and removed from the toolbar`() {
         val toolbar =
             source.substring(
-                source.indexOf("ProfilerMacOsToolbar {"),
-                source.indexOf("HorizontalDivider(", source.indexOf("ProfilerMacOsToolbar {")),
+                source.indexOf("HeaderToolbar("),
+                source.indexOf("HorizontalDivider(", source.indexOf("HeaderToolbar(")),
             )
 
         assertFalse(toolbar.contains("Res.string.import_framestats"))

@@ -6,7 +6,8 @@ import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
+import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.UiLanguage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -18,7 +19,11 @@ class MemoryProfilerToolbarSelectorsTest {
         runDesktopComposeUiTest(width = 1000, height = 700) {
             val events = mutableListOf<String>()
             setContent {
-                ProfilerMacOsToolbar {
+                HeaderToolbar(
+                    language = UiLanguage.ENGLISH,
+                    onNavigateHome = null,
+                    onNavigateSettings = null,
+                ) {
                     MemoryProfilerToolbarSelectors(
                         state =
                             MemoryProfilerState(
@@ -37,6 +42,7 @@ class MemoryProfilerToolbarSelectorsTest {
             val process = onNodeWithContentDescription("Process selector").fetchSemanticsNode().boundsInRoot
             assertTrue(device.height <= 23f)
             assertEquals(device.height, process.height)
+            assertTrue(process.left > device.right)
 
             onNodeWithContentDescription("Device selector").performClick()
             onNode(hasText("Pixel 8") and isSelected()).performClick()

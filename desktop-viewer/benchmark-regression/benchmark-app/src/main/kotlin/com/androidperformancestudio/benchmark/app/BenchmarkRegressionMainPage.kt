@@ -2,12 +2,6 @@
 
 package com.androidperformancestudio.benchmark.app
 
-import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.Res
-import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.*
-
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -22,18 +16,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.benchmark.analysis.RegressionAnalyzer
+import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.*
+import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.Res
 import com.androidperformancestudio.benchmark.export.BenchmarkReportExporter
 import com.androidperformancestudio.benchmark.model.RegressionPolicy
 import com.androidperformancestudio.benchmark.parser.BenchmarkJsonParser
 import com.androidperformancestudio.benchmark.presentation.BenchmarkRegressionScreen
 import com.androidperformancestudio.benchmark.presentation.BenchmarkRegressionState
 import com.androidperformancestudio.benchmark.storage.SqliteBenchmarkStore
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.button.HomeButton
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
+import com.androidperformancestudio.ui.localizedStringResource
 import java.io.File
 import java.nio.file.Path
 
@@ -61,49 +60,52 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
     }
 
     ViewerTheme(darkTheme = darkTheme) {
-    Column(Modifier.fillMaxSize()) {
-        ProfilerMacOsToolbar {
-            HomeButton(
-                contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                onClick = onBack,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_current, language),
-                onClick = { chooseBenchmarkJson(window, language)?.let { import(it, false) } },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_baseline, language),
-                onClick = { chooseBenchmarkJson(window, language)?.let { import(it, true) } },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_report, language),
-                enabled = state.report != null,
-                onClick = {
-                    chooseSaveFile(
-                        window,
-                        localizedStringResource(Res.string.export_report, language),
-                        "benchmark-regression.json",
-                    )
-                        ?.let { exporter.writeJson(requireNotNull(state.report), it.toPath()) }
-                },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
-                enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
-                onClick = {
-                    state.current
-                        ?.cases
-                        ?.flatMap { it.traceArtifacts }
-                        ?.firstOrNull()
-                        ?.let(onOpenTrace)
-                },
-            )
-            Spacer(Modifier.weight(1f))
-            ProfilerToolbarStatus(state.message, state.error)
+        Column(Modifier.fillMaxSize()) {
+            HeaderToolbar(
+                language = language,
+                onNavigateHome = onBack,
+                onNavigateSettings = null,
+            ) {
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.import_current, language),
+                    onClick = { chooseBenchmarkJson(window, language)?.let { import(it, false) } },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.import_baseline, language),
+                    onClick = { chooseBenchmarkJson(window, language)?.let { import(it, true) } },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.export_report, language),
+                    enabled = state.report != null,
+                    onClick = {
+                        chooseSaveFile(
+                            window,
+                            localizedStringResource(Res.string.export_report, language),
+                            "benchmark-regression.json",
+                        )
+                            ?.let { exporter.writeJson(requireNotNull(state.report), it.toPath()) }
+                    },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
+                    enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
+                    onClick = {
+                        state.current
+                            ?.cases
+                            ?.flatMap { it.traceArtifacts }
+                            ?.firstOrNull()
+                            ?.let(onOpenTrace)
+                    },
+                )
+                Spacer(Modifier.weight(1f))
+                ProfilerToolbarStatus(state.message, state.error)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            BenchmarkRegressionScreen(state, language, Modifier.weight(1f))
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        BenchmarkRegressionScreen(state, language, Modifier.weight(1f))
-    }
     }
 }
 

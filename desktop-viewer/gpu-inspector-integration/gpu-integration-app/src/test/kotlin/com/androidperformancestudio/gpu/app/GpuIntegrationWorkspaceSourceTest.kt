@@ -14,9 +14,10 @@ class GpuIntegrationWorkspaceSourceTest {
 
     @Test
     fun `workspace uses shared compact chrome`() {
-        assertTrue(source.contains("ProfilerMacOsToolbar"))
+        assertTrue(source.contains("HeaderToolbar("))
+        assertFalse(source.contains("ProfilerMacOsToolbar"))
         assertTrue(source.contains("ProfilerCompactButton"))
-        assertTrue(source.contains("HomeButton("))
+        assertTrue(source.contains("onNavigateHome = onBack"))
         assertTrue(source.contains("GpuIntegrationScreen("))
         assertFalse(source.contains("import androidx.compose.material3.Button"))
     }

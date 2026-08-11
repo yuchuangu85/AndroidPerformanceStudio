@@ -14,7 +14,8 @@ class NetworkProfilerWorkspaceSourceTest {
 
     @Test
     fun `workspace uses shared compact chrome without changing network screen`() {
-        assertTrue(source.contains("ProfilerMacOsToolbar"))
+        assertTrue(source.contains("HeaderToolbar("))
+        assertFalse(source.contains("ProfilerMacOsToolbar"))
         assertTrue(source.contains("ProfilerCompactTextField"))
         assertTrue(source.contains("ProfilerToolbarStatus"))
         assertFalse(source.contains("import androidx.compose.material3.OutlinedTextField"))
@@ -65,10 +66,10 @@ class NetworkProfilerWorkspaceSourceTest {
     fun `toolbar preserves home navigation and capture field enablement`() {
         val homeBlock =
             source.substring(
-                source.indexOf("HomeButton("),
-                source.indexOf("ProfilerCompactButton("),
+                source.indexOf("onNavigateHome = {"),
+                source.indexOf("onNavigateSettings = null"),
             )
-        assertTrue(homeBlock.contains("if (state.capturing)stop()"))
+        assertTrue(homeBlock.contains("if (state.capturing) stop()"))
         assertTrue(homeBlock.contains("onBack()"))
 
         assertTextFieldContains(

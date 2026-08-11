@@ -53,7 +53,7 @@ import com.androidperformancestudio.source.SourceSnapshotId
 import com.androidperformancestudio.source.SourceWorkspace
 import com.androidperformancestudio.source.SourceWorkspacePhase
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP
+import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.MacOSTextButton
@@ -114,7 +114,7 @@ internal fun SourceWorkspacesPage(
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(HEADER_TOOL_BAR_HEIGHT),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {

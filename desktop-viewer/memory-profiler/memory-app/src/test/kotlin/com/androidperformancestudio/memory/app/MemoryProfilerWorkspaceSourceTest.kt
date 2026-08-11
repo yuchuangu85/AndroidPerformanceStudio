@@ -38,7 +38,8 @@ class MemoryProfilerWorkspaceSourceTest {
 
     @Test
     fun `workspace toolbar uses shared compact chrome`() {
-        assertTrue(workspace.contains("ProfilerMacOsToolbar"))
+        assertTrue(workspace.contains("HeaderToolbar("))
+        assertFalse(workspace.contains("ProfilerMacOsToolbar"))
         assertTrue(workspace.contains("ProfilerCompactButton"))
         assertFalse(workspace.contains("import androidx.compose.material3.OutlinedButton"))
         assertFalse(workspace.contains("import androidx.compose.material3.Button"))
@@ -49,10 +50,10 @@ class MemoryProfilerWorkspaceSourceTest {
     fun `device and process selectors share the top toolbar row with home`() {
         val toolbar =
             workspace
-                .substringAfter("ProfilerMacOsToolbar {")
+                .substringAfter("HeaderToolbar(")
                 .substringBefore("        }\n        HorizontalDivider")
 
-        val home = toolbar.indexOf("HomeButton(")
+        val home = toolbar.indexOf("onNavigateHome = onBack")
         val selectors = toolbar.indexOf("MemoryProfilerToolbarSelectors(")
         val refresh = toolbar.indexOf("ProfilerCompactButton(")
         val spacer = toolbar.indexOf("Spacer(Modifier.weight(1f))")

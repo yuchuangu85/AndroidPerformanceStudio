@@ -7,16 +7,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,7 +61,6 @@ import com.androidperformancestudio.perfetto.uiserver.PerfettoUiServer
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
 import com.androidperformancestudio.perfetto_app.generated.resources.adb
 import com.androidperformancestudio.perfetto_app.generated.resources.adb_path
-import com.androidperformancestudio.perfetto_app.generated.resources.back_to_home
 import com.androidperformancestudio.perfetto_app.generated.resources.captured_traces_will_appear_here
 import com.androidperformancestudio.perfetto_app.generated.resources.delete
 import com.androidperformancestudio.perfetto_app.generated.resources.device_connected
@@ -101,9 +101,10 @@ import com.androidperformancestudio.platform.perfetto.TraceAnalysisContext
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContexts
 import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -336,23 +337,29 @@ fun FrameWindowScope.PerfettoMainPage(
     ViewerTheme(darkTheme = darkTheme) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize()) {
-                PerfettoToolbar(
+                HeaderToolbar(
                     language = language,
                     onNavigateHome = onNavigateHome,
-                    adbPath = adbPath,
-                    onAdbPathChange = { adbPath = it },
-                    devices = devices,
-                    selectedDeviceSerial = selectedDeviceSerial,
-                    onSelectDevice = { selectedDeviceSerial = it },
-                    onRefreshDevices = {
-                        coroutineScope.launch(Dispatchers.IO) {
-                            val refreshed = discoverPerfettoDevices(adbPath)
-                            devices = refreshed
-                            selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, refreshed)
-                            capabilityRefreshKey++
-                        }
-                    },
-                )
+                    onNavigateSettings = null,
+                ) {
+                    PerfettoToolbarContent(
+                        language = language,
+                        adbPath = adbPath,
+                        onAdbPathChange = { adbPath = it },
+                        devices = devices,
+                        selectedDeviceSerial = selectedDeviceSerial,
+                        onSelectDevice = { selectedDeviceSerial = it },
+                        onRefreshDevices = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val refreshed = discoverPerfettoDevices(adbPath)
+                                devices = refreshed
+                                selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, refreshed)
+                                capabilityRefreshKey++
+                            }
+                        },
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 if (initialTraceFile != null && initialTraceNotice != null) {
                     InitialTraceNotice(
                         traceFile = initialTraceFile,
@@ -478,9 +485,8 @@ fun FrameWindowScope.PerfettoMainPage(
 
 @Composable
 @Suppress("LongParameterList", "ktlint:standard:function-naming")
-private fun PerfettoToolbar(
+private fun RowScope.PerfettoToolbarContent(
     language: UiLanguage,
-    onNavigateHome: (() -> Unit)?,
     adbPath: String,
     onAdbPathChange: (String) -> Unit,
     devices: List<PerfettoDevice>,
@@ -489,66 +495,45 @@ private fun PerfettoToolbar(
     onRefreshDevices: () -> Unit,
 ) {
     val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(40.dp)
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                .padding(horizontal = 5.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (onNavigateHome != null) {
-            HomeButton(
-                localizedStringResource(Res.string.back_to_home, language),
-                onClick = onNavigateHome,
-            )
-            Box(
-                modifier =
-                    Modifier
-                        .width(1.dp)
-                        .height(16.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant),
-            )
-        }
-        Text(
-            text = localizedStringResource(Res.string.adb_path, language),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.sp,
-        )
-        PerfettoCompactTextField(
-            value = adbPath,
-            onValueChange = onAdbPathChange,
-            modifier = Modifier.width(250.dp),
-            placeholder = localizedStringResource(Res.string.adb, language),
-        )
-        DeviceSelector(
-            devices = devices,
-            selectedDeviceSerial = selectedDeviceSerial,
-            onSelectDevice = onSelectDevice,
-            language = language,
-        )
-        PerfettoCompactButton(text = localizedStringResource(Res.string.refresh, language), onClick = onRefreshDevices)
-        Spacer(Modifier.weight(1f))
-        PerfettoStatusDot(
-            color =
-                if (selectedDevice?.online == true) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
-        )
-        Text(
-            text =
-                selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.model) }
-                    ?: localizedStringResource(Res.string.no_online_device, language),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.sp,
-            maxLines = 1,
-        )
-    }
+    Text(
+        text = localizedStringResource(Res.string.adb_path, language),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 10.sp,
+    )
+    HeaderSpacer()
+    PerfettoCompactTextField(
+        value = adbPath,
+        onValueChange = onAdbPathChange,
+        modifier = Modifier.width(250.dp),
+        placeholder = localizedStringResource(Res.string.adb, language),
+    )
+    HeaderSpacer()
+    DeviceSelector(
+        devices = devices,
+        selectedDeviceSerial = selectedDeviceSerial,
+        onSelectDevice = onSelectDevice,
+        language = language,
+    )
+    HeaderSpacer()
+    PerfettoCompactButton(text = localizedStringResource(Res.string.refresh, language), onClick = onRefreshDevices)
+    Spacer(Modifier.weight(1f))
+    PerfettoStatusDot(
+        color =
+            if (selectedDevice?.online == true) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+    )
+    HeaderSpacer()
+    Text(
+        text =
+            selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.model) }
+                ?: localizedStringResource(Res.string.no_online_device, language),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 10.sp,
+        maxLines = 1,
+    )
 }
 
 @Composable

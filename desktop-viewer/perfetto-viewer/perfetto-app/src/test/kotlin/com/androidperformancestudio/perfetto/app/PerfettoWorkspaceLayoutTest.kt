@@ -16,11 +16,11 @@ class PerfettoWorkspaceLayoutTest {
     @Test
     fun `workspace uses compact inspector chrome without a page title`() {
         assertFalse(source.contains("Text(\"Perfetto Trace Analyzer\""))
-        assertTrue(source.contains("private fun PerfettoToolbar("))
-        assertTrue(source.contains(".height(40.dp)"))
-        assertTrue(source.contains("HomeButton("))
+        assertTrue(source.contains("HeaderToolbar("))
+        assertFalse(source.contains("private fun PerfettoToolbar("))
+        assertFalse(source.contains("HomeButton("))
         assertTrue(source.contains("DropdownSelector("))
-        assertTrue(source.contains("adbPath = adbPath"))
+        assertTrue(source.contains("onNavigateHome = onNavigateHome"))
     }
 
     @Test

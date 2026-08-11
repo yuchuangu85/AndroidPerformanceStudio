@@ -24,7 +24,6 @@ import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.artifact_indexing
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.artifact_missing_or_changed
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.artifact_relocated
-import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.back_to_home
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.configure_agi
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.configured_file
 import com.androidperformancestudio.gpu.gpu_integration_app.generated.resources.import_agi_perfetto_artifact
@@ -44,12 +43,12 @@ import com.androidperformancestudio.gpu.presentation.GpuIntegrationActions
 import com.androidperformancestudio.gpu.presentation.GpuIntegrationScreen
 import com.androidperformancestudio.gpu.presentation.GpuIntegrationState
 import com.androidperformancestudio.gpu.toolchain.AgiLocator
+import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerMacOsToolbar
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -160,11 +159,11 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
 
     ViewerTheme(darkTheme = darkTheme) {
         Column(Modifier.fillMaxSize()) {
-            ProfilerMacOsToolbar {
-                HomeButton(
-                    contentDescription = localizedStringResource(Res.string.back_to_home, language),
-                    onClick = onBack,
-                )
+            HeaderToolbar(
+                language = language,
+                onNavigateHome = onBack,
+                onNavigateSettings = null,
+            ) {
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.refresh_agi, language),
                     enabled = !state.isBusy,
@@ -180,6 +179,7 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
                             )
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.configure_agi, language),
                     enabled = !state.isBusy,
@@ -197,6 +197,7 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
                         }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.launch_agi, language),
                     enabled = !state.isBusy && state.capability?.launchSupported == true,
@@ -205,6 +206,7 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
                             .onFailure { state = state.copy(error = it.message) }
                     },
                 )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.import_artifact, language),
                     enabled = !state.isBusy,

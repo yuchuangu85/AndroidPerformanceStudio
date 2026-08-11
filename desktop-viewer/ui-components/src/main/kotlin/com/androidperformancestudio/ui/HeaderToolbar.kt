@@ -3,6 +3,7 @@ package com.androidperformancestudio.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,14 +23,14 @@ import com.androidperformancestudio.ui_components.generated.resources.settings
 
 @Composable
 fun HeaderToolbar(
-    modifier: Modifier? = null,
+    modifier: Modifier = Modifier,
     language: UiLanguage,
     onNavigateHome: (() -> Unit)?,
     onNavigateSettings: (() -> Unit)?,
-    content: @Composable () -> Unit,
+    content: @Composable RowScope.() -> Unit,
 ) {
     Row(
-        modifier = modifier ?: Modifier.height(HEADER_TOOL_BAR_HEIGHT).fillMaxWidth()
+        modifier = modifier.height(HEADER_TOOL_BAR_HEIGHT).fillMaxWidth()
             .background(LocalViewerColors.current.panel)
             .padding(start = 10.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically

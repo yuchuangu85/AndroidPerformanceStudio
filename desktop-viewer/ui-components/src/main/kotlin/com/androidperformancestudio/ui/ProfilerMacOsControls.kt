@@ -8,8 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -17,11 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,30 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-public const val PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP: Int = 40
-
 private const val DISABLED_CONTENT_ALPHA: Float = 0.38f
-
-/** Shared 32dp action toolbar for desktop profiler workspaces. */
-@Composable
-public fun ProfilerMacOsToolbar(
-    modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit,
-) {
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        Row(
-            modifier =
-                modifier
-                    .fillMaxWidth()
-                    .height(PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP.dp)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            content = content,
-        )
-    }
-}
 
 /** Compact 24dp action used by profiler toolbars. */
 @Composable

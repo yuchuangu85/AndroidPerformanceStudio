@@ -17,7 +17,6 @@ class ProfilerMacOsControlsSourceTest {
 
     @Test
     fun `shared controls lock the approved compact dimensions`() {
-        assertTrue(source.contains("PROFILER_PRIMARY_TOOLBAR_HEIGHT_DP: Int = 40"))
         assertTrue(source.contains(".height(24.dp)"))
         assertTrue(source.contains("RoundedCornerShape(4.dp)"))
         assertTrue(source.contains(".border(1.dp, MaterialTheme.colorScheme.outline"))
@@ -26,7 +25,6 @@ class ProfilerMacOsControlsSourceTest {
 
     @Test
     fun `shared controls expose all workspace primitives`() {
-        assertTrue(source.contains("public fun ProfilerMacOsToolbar("))
         assertTrue(source.contains("public fun ProfilerCompactButton("))
         assertTrue(source.contains("public fun ProfilerCompactTextField("))
         assertTrue(source.contains("public fun ProfilerToolbarStatus("))

@@ -16,7 +16,8 @@ class BenchmarkRegressionWorkspaceSourceTest {
 
     @Test
     fun `workspace uses shared compact chrome without changing comparison screen`() {
-        assertTrue(source.contains("ProfilerMacOsToolbar"))
+        assertTrue(source.contains("HeaderToolbar("))
+        assertFalse(source.contains("ProfilerMacOsToolbar"))
         assertTrue(source.contains("ProfilerCompactButton"))
         assertTrue(source.contains("BenchmarkRegressionScreen("))
         assertFalse(source.contains("import androidx.compose.material3.OutlinedButton"))
@@ -51,12 +52,7 @@ class BenchmarkRegressionWorkspaceSourceTest {
 
     @Test
     fun `home action preserves direct workspace navigation`() {
-        val homeBlock =
-            source.substring(
-                source.indexOf("HomeButton("),
-                source.indexOf("ProfilerCompactButton("),
-            )
-        assertTrue(homeBlock.contains("onClick = onBack"))
+        assertTrue(source.contains("onNavigateHome = onBack"))
     }
 
     private fun assertButtonContains(

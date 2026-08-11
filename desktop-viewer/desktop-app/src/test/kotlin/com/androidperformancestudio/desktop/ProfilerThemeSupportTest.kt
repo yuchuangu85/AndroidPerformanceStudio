@@ -31,15 +31,7 @@ class ProfilerThemeSupportTest {
     fun `profiler workspaces retain the compact inspector toolbar boundary`() {
         profilerWorkspaceSources().forEach { source ->
             val content = Files.readString(source)
-            val usesLegacyToolbar = content.contains("ProfilerMacOsToolbar {")
-            val usesSharedHeader = content.contains("HeaderToolbar(")
-            assertTrue(usesLegacyToolbar || usesSharedHeader, "$source must use a shared compact profiler toolbar")
-            if (usesLegacyToolbar) {
-                assertTrue(
-                    OUTLINE_DIVIDER.containsMatchIn(content),
-                    "$source must separate the toolbar from its inspector panes",
-                )
-            }
+            assertTrue(content.contains("HeaderToolbar("), "$source must use the shared header toolbar")
         }
     }
 
@@ -105,8 +97,8 @@ class ProfilerThemeSupportTest {
         assertTrue(cpuProfiler.contains(".background(style.panel)"))
         assertTrue(cpuProfiler.contains(".border("))
         assertSharedHomeButtonStyle(sharedButton)
-        assertTrue(perfetto.contains("import com.androidperformancestudio.ui.button.HomeButton"))
-        assertTrue(perfetto.contains("HomeButton("))
+        assertTrue(perfetto.contains("import com.androidperformancestudio.ui.HeaderToolbar"))
+        assertTrue(perfetto.contains("HeaderToolbar("))
 
         profilerHomeButtonConsumers().forEach { source ->
             val content = Files.readString(source)
@@ -162,6 +154,7 @@ class ProfilerThemeSupportTest {
             "network-profiler/network-app/src/main/kotlin/com/androidperformancestudio/network/app/NetworkProfilerMainPage.kt",
             "gpu-inspector-integration/gpu-integration-app/src/main/kotlin/com/androidperformancestudio/gpu/app/GpuIntegrationMainPage.kt",
             "benchmark-regression/benchmark-app/src/main/kotlin/com/androidperformancestudio/benchmark/app/BenchmarkRegressionMainPage.kt",
+            "simpleperf-viewer/method-recording-app/src/main/kotlin/com/androidperformancestudio/methodrecording/app/MethodRecordingMainPage.kt",
         ).map(desktopViewer::resolve)
     }
 
@@ -207,9 +200,5 @@ class ProfilerThemeSupportTest {
 
     private companion object {
         val FIXED_HEX_COLOR = Regex("Color\\(0x[0-9A-Fa-f]+")
-        val OUTLINE_DIVIDER =
-            Regex(
-                """HorizontalDivider\(\s*(?:thickness = 1\.dp,\s*)?color = MaterialTheme\.colorScheme\.outline,?\s*\)""",
-            )
     }
 }
