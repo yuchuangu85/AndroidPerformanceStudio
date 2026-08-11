@@ -14,7 +14,7 @@ class UnifiedDesktopShellTest {
     fun `main opens the unified shell`() {
         val main = Files.readString(sourceRoot.resolve("Main.kt"))
         assertTrue(main.contains("SettingsRequest(SettingsPage.GENERAL, nextSettingsRequestId)"))
-        assertTrue(main.contains("DesktopAppMainPage(settingsRequest = settingsRequest)"))
+        assertTrue(main.contains("DesktopAppMainPage(windowTitle, settingsRequest = settingsRequest)"))
     }
 
     @Test
