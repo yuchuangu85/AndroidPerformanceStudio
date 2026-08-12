@@ -60,10 +60,11 @@ public fun <T> DropdownSelector(
     menuItemHeight: Dp = 32.dp,
     controlFontSize: TextUnit = 11.sp,
     menuFontSize: TextUnit = 12.sp,
+    onControlClick: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val displayText = selectedItem?.let(selectedItemLabel) ?: placeholder
-    val canExpand = enabled && (items.isNotEmpty() || onPlaceholderSelected != null)
+    val canExpand = enabled && (items.isNotEmpty() || onPlaceholderSelected != null || onControlClick != null)
     val shape = RoundedCornerShape(4.dp)
     Box(modifier = modifier) {
         Row(
@@ -75,7 +76,9 @@ public fun <T> DropdownSelector(
                     .semantics {
                         selectorDescription?.let { contentDescription = it }
                         stateDescription = displayText
-                    }.clickable(enabled = canExpand) { expanded = true }
+                    }.clickable(enabled = canExpand) {
+                        if (onControlClick == null) expanded = true else onControlClick()
+                    }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -99,7 +102,7 @@ public fun <T> DropdownSelector(
             )
         }
         DropdownMenu(
-            expanded = expanded && canExpand,
+            expanded = expanded && canExpand && onControlClick == null,
             onDismissRequest = { expanded = false },
             modifier = menuModifier.background(colors.panel),
         ) {

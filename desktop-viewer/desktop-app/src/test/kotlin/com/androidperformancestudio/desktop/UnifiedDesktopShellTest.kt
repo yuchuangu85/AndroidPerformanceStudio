@@ -174,6 +174,19 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `winscope timeline uses the shared selector style`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val timeline = source.substringAfter("private fun TimelinePanel(").substringBefore("private fun StateWorkspace(")
+
+        assertTrue(timeline.contains("DropdownSelector("))
+        assertTrue(timeline.contains("onControlClick = { expanded = !expanded }"))
+        assertFalse(timeline.contains("▾ Timeline"))
+    }
+
+    @Test
     fun `winscope device controls live in the header toolbar`() {
         val source =
             Files.readString(

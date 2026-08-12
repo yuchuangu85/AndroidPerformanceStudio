@@ -695,7 +695,17 @@ private fun TimelinePanel(
     }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 10.dp, vertical = 5.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            MacOSTextButton(if (expanded) "▾ Timeline" else "▸ Timeline", onClick = { expanded = !expanded })
+            DropdownSelector(
+                items = emptyList<Boolean>(),
+                selectedItem = expanded,
+                onItemSelected = {},
+                itemLabel = { "Timeline" },
+                placeholder = "Timeline",
+                modifier = Modifier.width(90.dp),
+                selectorDescription = "Timeline",
+                fillWidth = true,
+                onControlClick = { expanded = !expanded },
+            )
             MacOSTextButton("◀", onClick = { bounds?.let { onTimestamp(max(it.startNanos, timestamp - 1_000_000L)) } })
             MacOSTextButton(if (playing) "Ⅱ" else "▶", onClick = { playing = !playing }, primary = true, modifier = Modifier.width(32.dp))
             MacOSTextButton("▶|", onClick = { bounds?.let { onTimestamp(min(it.endNanos, timestamp + 1_000_000L)) } })
