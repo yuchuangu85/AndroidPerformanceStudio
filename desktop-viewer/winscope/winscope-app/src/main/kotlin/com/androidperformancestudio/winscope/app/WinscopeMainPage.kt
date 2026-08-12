@@ -76,6 +76,7 @@ import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
@@ -644,7 +645,7 @@ private fun ViewerWorkspace(
     Column(modifier.background(MaterialTheme.colorScheme.background)) {
         SessionBanner(session)
         TimelinePanel(timeline, timestamp, onTimestamp, annotations)
-        SecondaryTabRow(tabs.indexOf(tab).coerceAtLeast(0)) {
+        SecondaryTabRow(tabs.indexOf(tab).coerceAtLeast(0), modifier = Modifier.height(HEADER_TOOL_BAR_HEIGHT)) {
             tabs.forEach { source -> Tab(tab == source, { tab = source }, text = { Text(source.displayName, maxLines = 1) }) }
         }
         if (analyzer ==
