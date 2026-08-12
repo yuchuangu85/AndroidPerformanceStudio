@@ -30,6 +30,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -153,6 +155,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                                         .fillMaxSize()
                                         .zIndex(if (active) 1f else 0f)
                                         .alpha(if (active) 1f else 0f)
+                                        .blockPointerInputWhenInactive(active)
                                         .then(if (active) Modifier else Modifier.clearAndSetSemantics {}),
                             ) {
                 when (destination) {
@@ -483,3 +486,16 @@ public fun FrameWindowScope.DesktopAppMainPage(
         }
     }
 }
+
+private fun Modifier.blockPointerInputWhenInactive(active: Boolean): Modifier =
+    if (active) {
+        this
+    } else {
+        pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                }
+            }
+        }
+    }

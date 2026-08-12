@@ -99,6 +99,14 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `inactive retained destinations block pointer input`() {
+        val shell = Files.readString(sourceRoot.resolve("DesktopAppMainPage.kt"))
+
+        assertTrue(shell.contains(".blockPointerInputWhenInactive(active)"))
+        assertTrue(shell.contains("awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }"))
+    }
+
+    @Test
     fun `memory profiler implementation modules are available at runtime`() {
         listOf(
             "com.androidperformancestudio.memory.export.MemoryExportAdapters",
