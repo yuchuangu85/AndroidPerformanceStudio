@@ -80,6 +80,7 @@ import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.MacOSInlineTextField
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
@@ -478,17 +479,22 @@ private fun CapturePanel(
         Text(s(language, "Capture preset", "采集预设"), fontWeight = FontWeight.Medium)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             WinscopeCapturePreset.entries.forEach { preset ->
-                FilterChip(config.preset == preset, { onConfig(config.copy(preset = preset)) }, {
-                    Text(
-                        if (preset ==
-                            WinscopeCapturePreset.BALANCED
-                        ) {
-                            s(language, "Balanced", "均衡")
-                        } else {
-                            s(language, "Full detail", "完整细节")
-                        },
-                    )
-                })
+                FilterChip(
+                    config.preset == preset,
+                    { onConfig(config.copy(preset = preset)) },
+                    {
+                        Text(
+                            if (preset ==
+                                WinscopeCapturePreset.BALANCED
+                            ) {
+                                s(language, "Balanced", "均衡")
+                            } else {
+                                s(language, "Full detail", "完整细节")
+                            },
+                        )
+                    },
+                    modifier = Modifier.height(ViewerDimensions.buttonHeight),
+                )
             }
         }
         MacOSInlineTextField(
@@ -594,6 +600,7 @@ private fun CapturePanel(
                         config.protoLogLevel == level,
                         { onConfig(config.copy(protoLogLevel = level)) },
                         { Text(level.name.take(1)) },
+                        modifier = Modifier.height(ViewerDimensions.buttonHeight),
                     )
                 }
             }
@@ -709,7 +716,14 @@ private fun TimelinePanel(
             MacOSTextButton("◀", onClick = { bounds?.let { onTimestamp(max(it.startNanos, timestamp - 1_000_000L)) } })
             MacOSTextButton(if (playing) "Ⅱ" else "▶", onClick = { playing = !playing }, primary = true, modifier = Modifier.width(32.dp))
             MacOSTextButton("▶|", onClick = { bounds?.let { onTimestamp(min(it.endNanos, timestamp + 1_000_000L)) } })
-            listOf(0.25f, 0.5f, 1f, 2f, 4f).forEach { value -> FilterChip(speed == value, { speed = value }, { Text("$value×") }) }
+            listOf(0.25f, 0.5f, 1f, 2f, 4f).forEach { value ->
+                FilterChip(
+                    speed == value,
+                    { speed = value },
+                    { Text("$value×") },
+                    modifier = Modifier.height(ViewerDimensions.buttonHeight),
+                )
+            }
             MacOSInlineTextField("timestamp ns", jump, { jump = it }, modifier = Modifier.width(210.dp))
             MacOSTextButton("Go", onClick = { jump.toLongOrNull()?.let(onTimestamp) })
             MacOSTextButton("☆", onClick = { annotations += WinscopeAnnotation(timestamp, "Bookmark ${annotations.size + 1}") })
@@ -1257,7 +1271,7 @@ private fun MediaPanel(session: WinscopeSession) {
     onChecked: (Boolean) -> Unit,
 ) = FilterChip(checked, {
     onChecked(!checked)
-}, { Text(label) })
+}, { Text(label) }, modifier = Modifier.height(ViewerDimensions.buttonHeight))
 
 private fun s(
     language: UiLanguage,
