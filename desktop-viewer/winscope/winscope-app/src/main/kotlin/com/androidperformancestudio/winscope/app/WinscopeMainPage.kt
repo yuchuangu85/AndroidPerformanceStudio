@@ -34,7 +34,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Tab
@@ -79,6 +78,7 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.MacOSInlineTextField
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.chooseOpenFile
@@ -460,7 +460,7 @@ private fun CapturePanel(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(s(language, "Live capture · Android 15+", "实时采集 · Android 15+"), fontWeight = FontWeight.SemiBold)
-        OutlinedTextField(adbPath, onAdbPath, label = { Text("ADB") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        MacOSInlineTextField("ADB", adbPath, onAdbPath, modifier = Modifier.fillMaxWidth())
         capabilities?.let { caps ->
             val root =
                 when {
@@ -491,11 +491,10 @@ private fun CapturePanel(
                 })
             }
         }
-        OutlinedTextField(
+        MacOSInlineTextField(
+            s(language, "Duration (1–600 s)", "时长（1–600 秒）"),
             config.durationSeconds.toString(),
             { text -> text.toIntOrNull()?.takeIf { it in 1..600 }?.let { onConfig(config.copy(durationSeconds = it)) } },
-            label = { Text(s(language, "Duration (1–600 s)", "时长（1–600 秒）")) },
-            singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -701,7 +700,7 @@ private fun TimelinePanel(
             MacOSTextButton(if (playing) "Ⅱ" else "▶", onClick = { playing = !playing }, primary = true, modifier = Modifier.width(32.dp))
             MacOSTextButton("▶|", onClick = { bounds?.let { onTimestamp(min(it.endNanos, timestamp + 1_000_000L)) } })
             listOf(0.25f, 0.5f, 1f, 2f, 4f).forEach { value -> FilterChip(speed == value, { speed = value }, { Text("$value×") }) }
-            OutlinedTextField(jump, { jump = it }, singleLine = true, label = { Text("timestamp ns") }, modifier = Modifier.width(210.dp))
+            MacOSInlineTextField("timestamp ns", jump, { jump = it }, modifier = Modifier.width(210.dp))
             MacOSTextButton("Go", onClick = { jump.toLongOrNull()?.let(onTimestamp) })
             MacOSTextButton("☆", onClick = { annotations += WinscopeAnnotation(timestamp, "Bookmark ${annotations.size + 1}") })
         }
@@ -790,11 +789,10 @@ private fun StateWorkspace(
         }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedTextField(
+            MacOSInlineTextField(
+                "name / property",
                 search,
                 { search = it },
-                label = { Text("name / property") },
-                singleLine = true,
                 modifier = Modifier.width(240.dp),
             )
             ToggleChip("Regex", regex) { regex = it }
@@ -1021,11 +1019,10 @@ private fun PropertiesPanel(
             Text("visible: ${node.visible?.toString() ?: "unrecorded"}")
             Text("bounds: ${node.bounds ?: "unrecorded"}")
             Text("z: ${node.z}")
-            OutlinedTextField(
+            MacOSInlineTextField(
+                "Filter properties",
                 search,
                 { search = it },
-                label = { Text("Filter properties") },
-                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             LazyColumn(Modifier.fillMaxSize()) {
@@ -1112,17 +1109,11 @@ private fun SearchWorkspace(
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().padding(8.dp)) {
-        Text("Read-only Trace SQL · SELECT / WITH", fontWeight = FontWeight.SemiBold)
-        OutlinedTextField(
+        MacOSInlineTextField(
+            "Read-only Trace SQL · SELECT / WITH",
             sql,
-            {
-                sql = it
-            },
-            modifier =
-                Modifier.fillMaxWidth().height(
-                    110.dp,
-                ),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            { sql = it },
+            modifier = Modifier.fillMaxWidth(),
         )
         MacOSTextButton(
             "Run",

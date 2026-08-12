@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -27,8 +28,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -136,6 +140,44 @@ public fun ProfilerCompactTextField(
                     innerTextField()
                 }
             },
+        )
+    }
+}
+
+/** The 20dp inline input used by CPU Profiler filter toolbars. */
+@Composable
+public fun MacOSInlineTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    style: ViewerColors = LocalViewerColors.current,
+    fieldWidth: Dp? = null,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = style.secondaryText, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            singleLine = true,
+            textStyle = TextStyle(color = style.text, fontSize = 11.sp, lineHeight = 14.sp),
+            cursorBrush = SolidColor(style.accent),
+            modifier =
+                (if (fieldWidth == null) Modifier.weight(1f) else Modifier.requiredWidth(fieldWidth))
+                    .height(20.dp)
+                    .background(style.field, RoundedCornerShape(ViewerDimensions.controlRadius))
+                    .border(
+                        ViewerDimensions.hairline,
+                        style.strongBorder,
+                        RoundedCornerShape(ViewerDimensions.controlRadius),
+                    ).semantics { contentDescription = label }
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }
 }

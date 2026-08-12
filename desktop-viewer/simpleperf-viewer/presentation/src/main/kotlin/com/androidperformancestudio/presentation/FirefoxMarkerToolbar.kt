@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.MacOSInlineTextField
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
@@ -33,7 +34,7 @@ internal fun FirefoxMarkerToolbar(
             actions.onMarkerSearch(draft)
         }
     }
-    MacOsInlineTextField(
+    MacOSInlineTextField(
         label =
             localizedStringResource(
                 SimpleperfViewerRes.sp_marker_filter_markers,

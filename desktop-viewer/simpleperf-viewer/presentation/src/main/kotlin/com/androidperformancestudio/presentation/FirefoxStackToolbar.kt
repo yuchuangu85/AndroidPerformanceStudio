@@ -21,6 +21,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.ui.MacOSInlineTextField
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.localizedStringResource
@@ -69,7 +70,7 @@ internal fun FirefoxStackToolbar(
             Spacer(Modifier.width(8.dp))
         }
         Spacer(Modifier.width(8.dp))
-        MacOsInlineTextField(
+        MacOSInlineTextField(
             label = localizedStringResource(SimpleperfViewerRes.sp_calltree_filter_stacks, language),
             value = searchState.draft,
             enabled = true,

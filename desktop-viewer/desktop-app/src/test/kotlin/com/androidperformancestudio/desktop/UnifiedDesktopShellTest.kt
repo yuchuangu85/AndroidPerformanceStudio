@@ -163,6 +163,17 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `winscope uses the CPU profiler inline text field`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+
+        assertTrue(source.contains("MacOSInlineTextField("))
+        assertFalse(source.contains("OutlinedTextField("))
+    }
+
+    @Test
     fun `winscope device controls live in the header toolbar`() {
         val source =
             Files.readString(
