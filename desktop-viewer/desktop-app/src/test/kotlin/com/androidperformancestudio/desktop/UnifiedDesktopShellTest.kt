@@ -187,6 +187,19 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `winscope 3D stack uses compact sliders`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val slider = source.substringAfter("private fun StackSlider(").substringBefore("private fun LogWorkspace(")
+
+        assertTrue(slider.contains("DpSize(4.dp, 22.dp)"))
+        assertTrue(slider.contains("Modifier.height(8.dp)"))
+        assertTrue(slider.contains("modifier.height(ViewerDimensions.buttonHeight)"))
+    }
+
+    @Test
     fun `winscope device controls live in the header toolbar`() {
         val source =
             Files.readString(

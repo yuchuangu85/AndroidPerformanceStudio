@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -68,6 +70,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.model.StudioResult
@@ -960,11 +963,11 @@ private fun StackCanvas(
     Column(modifier.background(Color(0xff111319))) {
         Row(Modifier.padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Rotation ${rotation.toInt()}°", color = Color.LightGray)
-            Slider(rotation, { rotation = it }, valueRange = 0f..45f, modifier = Modifier.width(120.dp))
+            StackSlider(rotation, { rotation = it }, Modifier.width(120.dp), 0f..45f)
             Text("Spacing", color = Color.LightGray)
-            Slider(spacing, { spacing = it }, valueRange = 1f..30f, modifier = Modifier.width(100.dp))
+            StackSlider(spacing, { spacing = it }, Modifier.width(100.dp), 1f..30f)
             Text("Opacity", color = Color.LightGray)
-            Slider(opacity, { opacity = it }, modifier = Modifier.width(100.dp))
+            StackSlider(opacity, { opacity = it }, Modifier.width(100.dp))
             ToggleChip("Wireframe", wireframe) { wireframe = it }
         }
         Canvas(
@@ -1066,6 +1069,30 @@ private fun PropertiesPanel(
             }
         }
     }
+}
+
+@Composable
+private fun StackSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Slider(
+        value,
+        onValueChange,
+        modifier = modifier.height(ViewerDimensions.buttonHeight),
+        interactionSource = interactionSource,
+        thumb = {
+            SliderDefaults.Thumb(
+                interactionSource = interactionSource,
+                thumbSize = DpSize(4.dp, 22.dp),
+            )
+        },
+        track = { SliderDefaults.Track(it, modifier = Modifier.height(8.dp)) },
+        valueRange = valueRange,
+    )
 }
 
 @Composable
