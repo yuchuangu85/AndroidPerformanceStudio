@@ -698,7 +698,7 @@ private fun TimelinePanel(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             MacOSTextButton(if (expanded) "▾ Timeline" else "▸ Timeline", onClick = { expanded = !expanded })
             MacOSTextButton("◀", onClick = { bounds?.let { onTimestamp(max(it.startNanos, timestamp - 1_000_000L)) } })
-            MacOSTextButton(if (playing) "Ⅱ" else "▶", onClick = { playing = !playing }, primary = true)
+            MacOSTextButton(if (playing) "Ⅱ" else "▶", onClick = { playing = !playing }, primary = true, modifier = Modifier.width(32.dp))
             MacOSTextButton("▶|", onClick = { bounds?.let { onTimestamp(min(it.endNanos, timestamp + 1_000_000L)) } })
             listOf(0.25f, 0.5f, 1f, 2f, 4f).forEach { value -> FilterChip(speed == value, { speed = value }, { Text("$value×") }) }
             OutlinedTextField(jump, { jump = it }, singleLine = true, label = { Text("timestamp ns") }, modifier = Modifier.width(210.dp))
