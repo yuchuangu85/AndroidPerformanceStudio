@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -77,6 +78,7 @@ import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.chooseOpenFile
@@ -185,6 +187,27 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
+    fun chooseImportFile() {
+        if (fileDialogOpen) return
+        fileDialogOpen = true
+        scope.launch {
+            val chosen =
+                try {
+                    chooseOpenFile(
+                        null,
+                        s(language, "Import Winscope evidence", "导入 Winscope 证据"),
+                        "Perfetto / Winscope ZIP",
+                        "perfetto-trace",
+                        "pftrace",
+                        "zip",
+                    )
+                } finally {
+                    fileDialogOpen = false
+                }
+            chosen?.toPath()?.let(::importFile)
+        }
+    }
+
     LaunchedEffect(Unit) {
         refreshDevices()
         initialTraceFile?.let(::importFile)
@@ -209,32 +232,21 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
+    val isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true)
+    ActiveWindowMenuBar {
+        Menu(s(language, "File", "文件")) {
+            Item(
+                s(language, "Import…", "导入…"),
+                enabled = !fileDialogOpen,
+                shortcut = KeyShortcut(Key.O, ctrl = !isMacOs, meta = isMacOs),
+                onClick = ::chooseImportFile,
+            )
+        }
+    }
+
     Column(Modifier.fillMaxSize().onWinscopeKeys(timeline, timestamp, { timestamp = it })) {
         HeaderToolbar(language = language, onNavigateHome = onNavigateHome, onNavigateSettings = null) {
             Text("Winscope", fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.width(12.dp))
-            OutlinedButton(
-                onClick = {
-                    if (fileDialogOpen) return@OutlinedButton
-                    fileDialogOpen = true
-                    scope.launch {
-                        val chosen =
-                            try {
-                                chooseOpenFile(
-                                    null,
-                                    s(language, "Import Winscope evidence", "导入 Winscope 证据"),
-                                    "Perfetto / Winscope ZIP",
-                                    "perfetto-trace",
-                                    "pftrace",
-                                    "zip",
-                                )
-                            } finally {
-                                fileDialogOpen = false
-                            }
-                        chosen?.toPath()?.let(::importFile)
-                    }
-                },
-            ) { Text(s(language, "Import", "导入")) }
             activeSession?.let { session ->
                 Spacer(Modifier.width(6.dp))
                 OutlinedButton(

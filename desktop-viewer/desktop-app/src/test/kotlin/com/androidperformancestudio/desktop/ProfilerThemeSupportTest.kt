@@ -182,6 +182,7 @@ class ProfilerThemeSupportTest {
             "frame-profiler/frame-app/src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerFileMenu.kt",
             "startup-profiler/startup-app/src/main/kotlin/com/androidperformancestudio/startup/app/StartupProfilerFileMenu.kt",
             "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerMenu.kt",
+            "winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt",
         ).map(desktopViewer::resolve)
     }
 

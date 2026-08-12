@@ -121,6 +121,20 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `winscope import lives in the file menu`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
+
+        assertTrue(source.contains("ActiveWindowMenuBar {"))
+        assertTrue(source.contains("Menu(s(language, \"File\", \"文件\"))"))
+        assertTrue(source.contains("onClick = ::chooseImportFile"))
+        assertFalse(header.contains("chooseOpenFile("))
+    }
+
+    @Test
     fun `ecosystem profiler workspaces are available at runtime`() {
         listOf(
             "com.androidperformancestudio.network.app.NetworkProfilerMainPageKt",
