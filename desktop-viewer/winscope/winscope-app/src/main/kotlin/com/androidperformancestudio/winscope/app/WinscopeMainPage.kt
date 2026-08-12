@@ -29,20 +29,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -81,6 +78,7 @@ import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.winscope.analysis.WinscopeAnalyzer
@@ -249,35 +247,40 @@ fun FrameWindowScope.WinscopeMainPage(
             Text("Winscope", fontWeight = FontWeight.SemiBold)
             activeSession?.let { session ->
                 Spacer(Modifier.width(6.dp))
-                OutlinedButton(
+                MacOSTextButton(
+                    s(language, "Open in Perfetto", "在 Perfetto 中打开"),
                     onClick = { onOpenPerfetto(session.traceFile, timestamp) },
-                ) { Text(s(language, "Open in Perfetto", "在 Perfetto 中打开")) }
+                )
                 Spacer(Modifier.width(6.dp))
-                OutlinedButton(onClick = {
-                    if (fileDialogOpen) return@OutlinedButton
-                    fileDialogOpen = true
-                    scope.launch {
-                        val destination =
-                            try {
-                                chooseSaveFile(null, "Export Winscope ZIP", "winscope-${session.id.take(8)}.zip")?.toPath()
-                            } finally {
-                                fileDialogOpen = false
-                            } ?: return@launch
-                        if (session.sensitive) {
-                            pendingExport = session to destination
-                        } else {
-                            when (
-                                val result =
-                                    withContext(Dispatchers.IO) {
-                                        sessionFiles.export(session.copy(annotations = annotations.toList()), destination, false)
+                MacOSTextButton(
+                    s(language, "Export ZIP", "导出 ZIP"),
+                    onClick = {
+                        if (!fileDialogOpen) {
+                            fileDialogOpen = true
+                            scope.launch {
+                                val destination =
+                                    try {
+                                        chooseSaveFile(null, "Export Winscope ZIP", "winscope-${session.id.take(8)}.zip")?.toPath()
+                                    } finally {
+                                        fileDialogOpen = false
+                                    } ?: return@launch
+                                if (session.sensitive) {
+                                    pendingExport = session to destination
+                                } else {
+                                    when (
+                                        val result =
+                                            withContext(Dispatchers.IO) {
+                                                sessionFiles.export(session.copy(annotations = annotations.toList()), destination, false)
+                                            }
+                                    ) {
+                                        is StudioResult.Failure -> error = result.error.message
+                                        is StudioResult.Success -> error = null
                                     }
-                            ) {
-                                is StudioResult.Failure -> error = result.error.message
-                                is StudioResult.Success -> error = null
+                                }
                             }
                         }
-                    }
-                }) { Text(s(language, "Export ZIP", "导出 ZIP")) }
+                    },
+                )
             }
         }
         error?.let { ErrorBanner(it) { error = null } }
@@ -356,22 +359,28 @@ fun FrameWindowScope.WinscopeMainPage(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    pendingExport = null
-                    scope.launch {
-                        when (
-                            val result =
-                                withContext(Dispatchers.IO) {
-                                    sessionFiles.export(session.copy(annotations = annotations.toList()), destination, true)
-                                }
-                        ) {
-                            is StudioResult.Failure -> error = result.error.message
-                            is StudioResult.Success -> error = null
+                MacOSTextButton(
+                    s(language, "Export", "导出"),
+                    onClick = {
+                        pendingExport = null
+                        scope.launch {
+                            when (
+                                val result =
+                                    withContext(Dispatchers.IO) {
+                                        sessionFiles.export(session.copy(annotations = annotations.toList()), destination, true)
+                                    }
+                            ) {
+                                is StudioResult.Failure -> error = result.error.message
+                                is StudioResult.Success -> error = null
+                            }
                         }
-                    }
-                }) { Text(s(language, "Export", "导出")) }
+                    },
+                    primary = true,
+                )
             },
-            dismissButton = { TextButton(onClick = { pendingExport = null }) { Text(s(language, "Cancel", "取消")) } },
+            dismissButton = {
+                MacOSTextButton(s(language, "Cancel", "取消"), onClick = { pendingExport = null })
+            },
         )
     }
 }
@@ -410,12 +419,11 @@ private fun CapturePanel(
         OutlinedTextField(adbPath, onAdbPath, label = { Text("ADB") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Box {
-                OutlinedButton(onClick = { deviceMenu = true }, modifier = Modifier.widthIn(min = 190.dp)) {
-                    Text(
-                        devices.firstOrNull { it.first == selectedSerial }?.second ?: s(language, "Select device", "选择设备"),
-                        maxLines = 1,
-                    )
-                }
+                MacOSTextButton(
+                    devices.firstOrNull { it.first == selectedSerial }?.second ?: s(language, "Select device", "选择设备"),
+                    onClick = { deviceMenu = true },
+                    modifier = Modifier.widthIn(min = 190.dp),
+                )
                 DropdownMenu(deviceMenu, { deviceMenu = false }) {
                     devices.forEach { (serial, model) ->
                         DropdownMenuItem(text = { Text("$model · $serial") }, onClick = {
@@ -426,7 +434,7 @@ private fun CapturePanel(
                     }
                 }
             }
-            OutlinedButton(onClick = onRefresh) { Text(s(language, "Refresh", "刷新")) }
+            MacOSTextButton(s(language, "Refresh", "刷新"), onClick = onRefresh)
         }
         capabilities?.let { caps ->
             val root =
@@ -436,7 +444,7 @@ private fun CapturePanel(
                     else -> "UNAVAILABLE"
                 }
             Text("Android ${caps.device.androidSdk} · ${caps.device.buildType} · root $root", style = MaterialTheme.typography.bodySmall)
-            if (caps.device.rootAvailable) OutlinedButton(onClick = onRoot) { Text("adb root") }
+            if (caps.device.rootAvailable) MacOSTextButton("adb root", onClick = onRoot)
             caps.limitations.take(4).forEach {
                 Text("• ${it.message}", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
             }
@@ -467,19 +475,25 @@ private fun CapturePanel(
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(s(language, "Sources", "数据源"), fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            TextButton(onClick = {
-                onConfig(
-                    config.copy(
-                        requestedSources = WinscopeCaptureConfig.ALL_SOURCES,
-                        protoLogEnableAll = true,
-                        protoLogStacktraces = true,
-                        protoLogLevel = ProtoLogLevel.VERBOSE,
-                    ),
-                )
-            }) { Text(s(language, "Enable all", "全部开启")) }
-            TextButton(onClick = {
-                onConfig(WinscopeCaptureConfig(durationSeconds = config.durationSeconds, preset = config.preset))
-            }) { Text(s(language, "Default", "默认")) }
+            MacOSTextButton(
+                s(language, "Enable all", "全部开启"),
+                onClick = {
+                    onConfig(
+                        config.copy(
+                            requestedSources = WinscopeCaptureConfig.ALL_SOURCES,
+                            protoLogEnableAll = true,
+                            protoLogStacktraces = true,
+                            protoLogLevel = ProtoLogLevel.VERBOSE,
+                        ),
+                    )
+                },
+            )
+            MacOSTextButton(
+                s(language, "Default", "默认"),
+                onClick = {
+                    onConfig(WinscopeCaptureConfig(durationSeconds = config.durationSeconds, preset = config.preset))
+                },
+            )
         }
         WinscopeSource.entries.filter { it != WinscopeSource.SCREENSHOT }.forEach { source ->
             val checked = source in config.requestedSources
@@ -516,12 +530,11 @@ private fun CapturePanel(
         if (WinscopeSource.SCREEN_RECORDING in config.requestedSources && capabilities?.displays?.size.orZero() > 1) {
             var displayMenu by remember { mutableStateOf(false) }
             Box {
-                OutlinedButton({ displayMenu = true }) {
-                    Text(
-                        capabilities?.displays?.firstOrNull { it.physicalId == config.selectedDisplayId }?.name
-                            ?: s(language, "Active display", "活动显示器"),
-                    )
-                }
+                MacOSTextButton(
+                    capabilities?.displays?.firstOrNull { it.physicalId == config.selectedDisplayId }?.name
+                        ?: s(language, "Active display", "活动显示器"),
+                    onClick = { displayMenu = true },
+                )
                 DropdownMenu(displayMenu, { displayMenu = false }) {
                     DropdownMenuItem({ Text(s(language, "Active display", "活动显示器")) }, {
                         displayMenu = false
@@ -571,12 +584,17 @@ private fun CapturePanel(
         }
         if (captureState.isNotBlank()) Text(captureState, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(onClick = if (recording) onStop else onStart, enabled = capabilities?.liveCaptureSupported == true) {
-                Text(if (recording) s(language, "Stop", "停止") else s(language, "Start", "开始"))
-            }
-            OutlinedButton(onClick = onSnapshot, enabled = capabilities?.liveCaptureSupported == true && !recording) {
-                Text(s(language, "Snapshot", "快照"))
-            }
+            MacOSTextButton(
+                if (recording) s(language, "Stop", "停止") else s(language, "Start", "开始"),
+                onClick = if (recording) onStop else onStart,
+                enabled = capabilities?.liveCaptureSupported == true,
+                primary = true,
+            )
+            MacOSTextButton(
+                s(language, "Snapshot", "快照"),
+                onClick = onSnapshot,
+                enabled = capabilities?.liveCaptureSupported == true && !recording,
+            )
         }
     }
 }
@@ -666,14 +684,14 @@ private fun TimelinePanel(
     }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 10.dp, vertical = 5.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            TextButton({ expanded = !expanded }) { Text(if (expanded) "▾ Timeline" else "▸ Timeline") }
-            OutlinedButton({ bounds?.let { onTimestamp(max(it.startNanos, timestamp - 1_000_000L)) } }) { Text("◀") }
-            Button({ playing = !playing }) { Text(if (playing) "Ⅱ" else "▶") }
-            OutlinedButton({ bounds?.let { onTimestamp(min(it.endNanos, timestamp + 1_000_000L)) } }) { Text("▶|") }
+            MacOSTextButton(if (expanded) "▾ Timeline" else "▸ Timeline", onClick = { expanded = !expanded })
+            MacOSTextButton("◀", onClick = { bounds?.let { onTimestamp(max(it.startNanos, timestamp - 1_000_000L)) } })
+            MacOSTextButton(if (playing) "Ⅱ" else "▶", onClick = { playing = !playing }, primary = true)
+            MacOSTextButton("▶|", onClick = { bounds?.let { onTimestamp(min(it.endNanos, timestamp + 1_000_000L)) } })
             listOf(0.25f, 0.5f, 1f, 2f, 4f).forEach { value -> FilterChip(speed == value, { speed = value }, { Text("$value×") }) }
             OutlinedTextField(jump, { jump = it }, singleLine = true, label = { Text("timestamp ns") }, modifier = Modifier.width(210.dp))
-            OutlinedButton({ jump.toLongOrNull()?.let(onTimestamp) }) { Text("Go") }
-            OutlinedButton({ annotations += WinscopeAnnotation(timestamp, "Bookmark ${annotations.size + 1}") }) { Text("☆") }
+            MacOSTextButton("Go", onClick = { jump.toLongOrNull()?.let(onTimestamp) })
+            MacOSTextButton("☆", onClick = { annotations += WinscopeAnnotation(timestamp, "Bookmark ${annotations.size + 1}") })
         }
         if (expanded && bounds != null) {
             val fraction =
@@ -882,10 +900,14 @@ private fun RectCanvas(
                 }
             }
         }
-        OutlinedButton({
-            scale = 1f
-            pan = Offset.Zero
-        }, Modifier.align(Alignment.TopEnd).padding(8.dp)) { Text("Reset") }
+        MacOSTextButton(
+            "Reset",
+            onClick = {
+                scale = 1f
+                pan = Offset.Zero
+            },
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+        )
     }
 }
 
@@ -1043,20 +1065,23 @@ private fun LogWorkspace(
                     )
                     Text(row.columns["message"] ?: row.columns["detail"].orEmpty())
                     row.columns["location"]?.takeIf(String::isNotBlank)?.let { location ->
-                        TextButton({
-                            val line =
-                                location.substringAfterLast(':').toIntOrNull() ?: 1
-                            if (!onOpenSource(
-                                    location.substringBeforeLast(':'),
-                                    line,
-                                )
-                            ) {
-                                java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
-                                    java.awt.datatransfer.StringSelection(location),
-                                    null,
-                                )
-                            }
-                        }) { Text(location) }
+                        MacOSTextButton(
+                            location,
+                            onClick = {
+                                val line =
+                                    location.substringAfterLast(':').toIntOrNull() ?: 1
+                                if (!onOpenSource(
+                                        location.substringBeforeLast(':'),
+                                        line,
+                                    )
+                                ) {
+                                    java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                                        java.awt.datatransfer.StringSelection(location),
+                                        null,
+                                    )
+                                }
+                            },
+                        )
                     }
                 }
                 HorizontalDivider()
@@ -1087,18 +1112,22 @@ private fun SearchWorkspace(
                 ),
             textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
         )
-        Button({
-            scope.launch {
-                when (val queried = withContext(Dispatchers.IO) { analyzer.runReadOnlySql(sql) }) {
-                    is StudioResult.Success -> {
-                        result =
-                            queried.value
-                        error = null
+        MacOSTextButton(
+            "Run",
+            onClick = {
+                scope.launch {
+                    when (val queried = withContext(Dispatchers.IO) { analyzer.runReadOnlySql(sql) }) {
+                        is StudioResult.Success -> {
+                            result =
+                                queried.value
+                            error = null
+                        }
+                        is StudioResult.Failure -> error = queried.error.message
                     }
-                    is StudioResult.Failure -> error = queried.error.message
                 }
-            }
-        }) { Text("Run") }
+            },
+            primary = true,
+        )
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         result?.let { table ->
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp)) {
@@ -1145,7 +1174,7 @@ private fun MediaPanel(session: WinscopeSession) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Screen recording · ${recording.fileName}", modifier = Modifier.weight(1f))
-            OutlinedButton({ runCatching { Desktop.getDesktop().open(recording.toFile()) } }) { Text("Open") }
+            MacOSTextButton("Open", onClick = { runCatching { Desktop.getDesktop().open(recording.toFile()) } })
         }
     }
 }
@@ -1194,7 +1223,7 @@ private fun MediaPanel(session: WinscopeSession) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(message, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.weight(1f))
-        TextButton(dismiss) { Text("×") }
+        MacOSTextButton("×", onClick = dismiss)
     }
 }
 

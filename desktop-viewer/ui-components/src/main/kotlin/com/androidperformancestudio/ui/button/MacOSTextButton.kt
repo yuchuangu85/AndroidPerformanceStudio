@@ -31,12 +31,13 @@ fun MacOSTextButton(
     height: Dp = ViewerDimensions.buttonHeight,
     enabled: Boolean = true,
     primary: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val container = if (primary) style.accent else style.panel
     val content = if (primary) style.accentText else style.text
     Box(
         modifier =
-            Modifier
+            modifier
                 .height(height)
                 .clip(RoundedCornerShape(ViewerDimensions.controlRadius))
                 .background(container.copy(alpha = if (enabled) 1f else DISABLED_CONTAINER_ALPHA))

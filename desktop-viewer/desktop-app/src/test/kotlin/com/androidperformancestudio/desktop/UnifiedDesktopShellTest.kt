@@ -135,6 +135,18 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `winscope uses the shared macOS text button`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+
+        assertTrue(source.contains("import com.androidperformancestudio.ui.button.MacOSTextButton"))
+        assertTrue(source.contains("MacOSTextButton("))
+        assertFalse(Regex("\\b(Button|OutlinedButton|TextButton)\\(").containsMatchIn(source))
+    }
+
+    @Test
     fun `ecosystem profiler workspaces are available at runtime`() {
         listOf(
             "com.androidperformancestudio.network.app.NetworkProfilerMainPageKt",
