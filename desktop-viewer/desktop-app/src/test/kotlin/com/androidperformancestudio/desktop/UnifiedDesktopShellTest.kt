@@ -157,8 +157,12 @@ class UnifiedDesktopShellTest {
 
         assertTrue(header.contains("DropdownSelector("))
         assertTrue(header.contains("onClick = ::refreshDevices"))
+        assertTrue(header.contains("onClick = ::toggleCapture"))
+        assertTrue(header.contains("onClick = ::takeSnapshot"))
         assertFalse(capturePanel.contains("DropdownSelector("))
         assertFalse(capturePanel.contains("onRefresh"))
+        assertFalse(capturePanel.contains("onStart"))
+        assertFalse(capturePanel.contains("onSnapshot"))
     }
 
     @Test

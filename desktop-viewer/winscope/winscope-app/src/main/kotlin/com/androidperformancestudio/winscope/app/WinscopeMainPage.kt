@@ -91,6 +91,7 @@ import com.androidperformancestudio.winscope.model.WinscopeCapabilities
 import com.androidperformancestudio.winscope.model.WinscopeCaptureConfig
 import com.androidperformancestudio.winscope.model.WinscopeCapturePreset
 import com.androidperformancestudio.winscope.model.WinscopeNode
+import com.androidperformancestudio.winscope.model.WinscopePhase
 import com.androidperformancestudio.winscope.model.WinscopeQueryResult
 import com.androidperformancestudio.winscope.model.WinscopeSession
 import com.androidperformancestudio.winscope.model.WinscopeSource
@@ -207,6 +208,22 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
+    fun toggleCapture() {
+        if (captureState.phase == WinscopePhase.RECORDING) {
+            scope.launch { (capture.stop() as? StudioResult.Failure)?.let { error = it.error.message } }
+        } else {
+            val caps = capabilities ?: return
+            scope.launch {
+                (capture.start(Path.of(adbPath), caps, config) as? StudioResult.Failure)?.let { error = it.error.message }
+            }
+        }
+    }
+
+    fun takeSnapshot() {
+        val caps = capabilities ?: return
+        scope.launch { (capture.snapshot(Path.of(adbPath), caps) as? StudioResult.Failure)?.let { error = it.error.message } }
+    }
+
     LaunchedEffect(Unit) {
         refreshDevices()
         initialTraceFile?.let(::importFile)
@@ -261,6 +278,20 @@ fun FrameWindowScope.WinscopeMainPage(
             )
             HeaderSpacer()
             MacOSTextButton(s(language, "Refresh", "刷新"), onClick = ::refreshDevices)
+            HeaderSpacer()
+            val recording = captureState.phase == WinscopePhase.RECORDING
+            MacOSTextButton(
+                if (recording) s(language, "Stop", "停止") else s(language, "Start", "开始"),
+                onClick = ::toggleCapture,
+                enabled = capabilities?.liveCaptureSupported == true,
+                primary = true,
+            )
+            HeaderSpacer()
+            MacOSTextButton(
+                s(language, "Snapshot", "快照"),
+                onClick = ::takeSnapshot,
+                enabled = capabilities?.liveCaptureSupported == true && !recording,
+            )
             Spacer(Modifier.weight(1f))
             activeSession?.let { session ->
                 Spacer(Modifier.width(6.dp))
@@ -310,7 +341,6 @@ fun FrameWindowScope.WinscopeMainPage(
                 config = config,
                 onConfig = { config = it },
                 captureState = captureState.message,
-                recording = captureState.phase.name == "RECORDING",
                 onRoot = {
                     val serial = selectedSerial ?: return@CapturePanel
                     scope.launch {
@@ -321,23 +351,6 @@ fun FrameWindowScope.WinscopeMainPage(
                                     (detector.detect(Path.of(adbPath), serial) as? StudioResult.Success)?.value
                         }
                     }
-                },
-                onStart = {
-                    val caps = capabilities ?: return@CapturePanel
-                    scope.launch {
-                        (
-                            capture.start(
-                                Path.of(adbPath),
-                                caps,
-                                config,
-                            ) as? StudioResult.Failure
-                        )?.let { error = it.error.message }
-                    }
-                },
-                onStop = { scope.launch { (capture.stop() as? StudioResult.Failure)?.let { error = it.error.message } } },
-                onSnapshot = {
-                    val caps = capabilities ?: return@CapturePanel
-                    scope.launch { (capture.snapshot(Path.of(adbPath), caps) as? StudioResult.Failure)?.let { error = it.error.message } }
                 },
             )
             if (activeSession == null) {
@@ -407,11 +420,7 @@ private fun CapturePanel(
     config: WinscopeCaptureConfig,
     onConfig: (WinscopeCaptureConfig) -> Unit,
     captureState: String,
-    recording: Boolean,
     onRoot: () -> Unit,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onSnapshot: () -> Unit,
 ) {
     Column(
         Modifier
@@ -572,19 +581,6 @@ private fun CapturePanel(
             ) { onConfig(config.copy(protoLogStacktraces = it)) }
         }
         if (captureState.isNotBlank()) Text(captureState, style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            MacOSTextButton(
-                if (recording) s(language, "Stop", "停止") else s(language, "Start", "开始"),
-                onClick = if (recording) onStop else onStart,
-                enabled = capabilities?.liveCaptureSupported == true,
-                primary = true,
-            )
-            MacOSTextButton(
-                s(language, "Snapshot", "快照"),
-                onClick = onSnapshot,
-                enabled = capabilities?.liveCaptureSupported == true && !recording,
-            )
-        }
     }
 }
 
