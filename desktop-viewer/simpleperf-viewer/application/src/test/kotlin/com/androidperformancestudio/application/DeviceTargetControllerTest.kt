@@ -11,6 +11,9 @@ import com.androidperformancestudio.capture.SimpleperfTarget
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
@@ -74,6 +77,24 @@ class DeviceTargetControllerTest {
                     .map(ProcessOption::pid),
             )
             assertEquals(1, gateway.selectionLoads)
+        }
+
+    @Test
+    fun `refresh reloads applications for the selected device`() =
+        runBlocking {
+            val gateway = FakeDeviceTargetGateway()
+            val controller = DeviceTargetController(gateway)
+            controller.refreshDevices()
+            gateway.packages = listOf(PackageOption("com.example.new"))
+
+            controller.refreshDevices()
+
+            assertEquals(
+                listOf("com.example.new"),
+                controller.state.value.visiblePackages
+                    .map(PackageOption::packageName),
+            )
+            assertEquals(2, gateway.selectionLoads)
         }
 
     @Test
@@ -250,6 +271,25 @@ class DeviceTargetControllerTest {
         }
 
     @Test
+    fun `ignores another get data request while capture startup is in progress`() =
+        runBlocking {
+            val captureSession = BlockingCaptureSession()
+            val controller = DeviceTargetController(FakeDeviceTargetGateway(), captureSession = captureSession)
+            controller.refreshDevices()
+            controller.selectPackage("com.example.camera")
+
+            val first = async(start = CoroutineStart.UNDISPATCHED) { controller.startCapture() }
+            captureSession.started.await()
+            val duplicate = async(start = CoroutineStart.UNDISPATCHED) { controller.startCapture() }
+
+            assertEquals(1, captureSession.captureCount)
+            assertNull(duplicate.await())
+            captureSession.release.complete(Unit)
+            assertIs<CaptureState.Completed>(first.await())
+            Unit
+        }
+
+    @Test
     fun `forwards capture cancellation to the active session`() {
         val captureSession = FakeCaptureSession()
         val controller = DeviceTargetController(FakeDeviceTargetGateway(), captureSession = captureSession)
@@ -324,6 +364,8 @@ class DeviceTargetControllerTest {
         private val capabilityStatus: CapabilityStatus = CapabilityStatus.LIMITED,
     ) : DeviceTargetGateway {
         var selectionLoads: Int = 0
+        var packages: List<PackageOption> =
+            listOf(PackageOption("com.example.camera"), PackageOption("com.example.music"))
 
         override suspend fun refreshDevices(): StudioResult<List<DeviceOption>> = deviceResult
 
@@ -345,7 +387,7 @@ class DeviceTargetControllerTest {
                             eventNames = listOf("cpu-clock", "cpu-cycles"),
                             limitations = listOf("Root unavailable"),
                         ),
-                    packages = listOf(PackageOption("com.example.camera"), PackageOption("com.example.music")),
+                    packages = packages,
                     processes =
                         listOf(
                             ProcessOption(321, "com.example.camera", "u0_a1"),
@@ -392,5 +434,27 @@ class DeviceTargetControllerTest {
         override suspend fun stop() {
             stopped = true
         }
+    }
+
+    private class BlockingCaptureSession : CaptureSession {
+        private val mutableState = MutableStateFlow<CaptureState>(CaptureState.Idle)
+        override val state: StateFlow<CaptureState> = mutableState
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var captureCount = 0
+
+        override suspend fun capture(request: CaptureRequest): CaptureState {
+            captureCount += 1
+            started.complete(Unit)
+            release.await()
+            val sessionDirectory = request.sessionRoot.resolve(request.sessionId)
+            val completed = CaptureState.Completed(sessionDirectory, sessionDirectory.resolve("perf.data"))
+            mutableState.value = completed
+            return completed
+        }
+
+        override fun cancel() = Unit
+
+        override suspend fun stop() = Unit
     }
 }

@@ -12,6 +12,7 @@ import com.androidperformancestudio.model.StudioResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
 import java.nio.file.Path
 import java.util.UUID
 
@@ -168,6 +169,7 @@ class DeviceTargetController(
 ) {
     private val mutableState = MutableStateFlow(DeviceTargetState())
     private val idleCaptureState = MutableStateFlow<CaptureState>(CaptureState.Idle)
+    private val captureStartMutex = Mutex()
     val state: StateFlow<DeviceTargetState> = mutableState.asStateFlow()
     val captureState: StateFlow<CaptureState> = captureSession?.state ?: idleCaptureState.asStateFlow()
     val cancelCapture: () -> Unit = { captureSession?.cancel() }
@@ -201,7 +203,9 @@ class DeviceTargetController(
                         threads = current.threads.takeIf { retainedSerial != null }.orEmpty(),
                         isLoading = false,
                     )
-                if (retainedSerial == null && automaticSerial != null) {
+                if (retainedSerial != null) {
+                    selectDevice(retainedSerial)
+                } else if (automaticSerial != null) {
                     selectDevice(automaticSerial)
                 }
             }
@@ -315,7 +319,13 @@ class DeviceTargetController(
 
     suspend fun startCapture(): CaptureState? {
         val request = mutableState.value.createCaptureRequest(sessionIdProvider(), sessionRoot)
-        return captureSession?.let { session -> request?.let { session.capture(it) } }
+        val session = captureSession
+        if (request == null || session == null || !captureStartMutex.tryLock()) return null
+        return try {
+            session.capture(request)
+        } finally {
+            captureStartMutex.unlock()
+        }
     }
 }
 
