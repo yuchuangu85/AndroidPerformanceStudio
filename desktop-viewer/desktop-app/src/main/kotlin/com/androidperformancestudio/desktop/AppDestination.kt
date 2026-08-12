@@ -16,6 +16,7 @@ enum class AppDestination {
     LAYOUT_INSPECTOR,
     SIMPLEPERF,
     PERFETTO,
+    WINSCOPE,
     MEMORY_PROFILER,
     FRAME_PROFILER,
     STARTUP_PROFILER,
@@ -41,6 +42,7 @@ internal val com.androidperformancestudio.desktop.AppDestination.titleResource: 
             AppDestination.LAYOUT_INSPECTOR -> Res.string.layout_inspector
             AppDestination.SIMPLEPERF -> Res.string.cpu_profiler
             AppDestination.PERFETTO -> Res.string.trace_analyzer
+            AppDestination.WINSCOPE -> Res.string.winscope
             AppDestination.MEMORY_PROFILER -> Res.string.memory_profiler
             AppDestination.FRAME_PROFILER -> Res.string.frame_profiler
             AppDestination.STARTUP_PROFILER -> Res.string.startup_profiler
@@ -62,6 +64,8 @@ class AppNavigator(
     var perfettoTraceFile by mutableStateOf<Path?>(null)
         private set
     var perfettoTraceNotice by mutableStateOf<String?>(null)
+        private set
+    var perfettoTimestampNanos by mutableStateOf<Long?>(null)
         private set
     var sourceLocation by mutableStateOf<SourceLocation?>(null)
         private set
@@ -89,9 +93,11 @@ class AppNavigator(
     fun openPerfettoTrace(
         path: Path,
         notice: String,
+        timestampNanos: Long? = null,
     ) {
         perfettoTraceFile = path
         perfettoTraceNotice = notice
+        perfettoTimestampNanos = timestampNanos
         activate(AppDestination.PERFETTO)
     }
 
@@ -99,6 +105,7 @@ class AppNavigator(
     fun clearPerfettoTrace() {
         perfettoTraceFile = null
         perfettoTraceNotice = null
+        perfettoTimestampNanos = null
     }
 
     /** Opens the memory profiler and imports [file] (HPROF, or java_hprof when [javaHeap]). */

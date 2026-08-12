@@ -93,8 +93,12 @@ jobs:
             desktop-viewer/gradle/libs.versions.toml
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
+      - name: Install pinned Trace Processor
+        run: PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
       - name: Run tests
-        run: ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
+        run: |
+          ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
+          ./desktop-viewer/gradlew -p desktop-viewer/winscope check --no-daemon
 
   prepare-release:
     name: Prepare draft GitHub Release

@@ -18,6 +18,7 @@ import com.androidperformancestudio.source.SourceProviderRegistry
 import com.androidperformancestudio.source.ResolutionCandidate
 import com.androidperformancestudio.source.ResolutionConfidence
 import com.androidperformancestudio.source.SourceLocation
+import com.androidperformancestudio.source.SourceRange
 import com.androidperformancestudio.source.SourceProviderKind
 import com.androidperformancestudio.source.SourceResolutionEvidence
 import com.androidperformancestudio.source.SourceWorkspace
@@ -139,6 +140,25 @@ internal class SourceWorkspaceRuntime(
         val navigable = resolved.filter { it.confidence != ResolutionConfidence.WEAK }
         rememberCandidates(navigable)
         return navigable
+    }
+
+    fun resolveSourcePath(path: String, line: Int): SourceLocation? {
+        val normalized = path.replace('\\', '/').removePrefix("./")
+        val matches = repository.workspaces().mapNotNull { workspace ->
+            val snapshotId = workspace.activeSnapshotId ?: return@mapNotNull null
+            repository.files(snapshotId).singleOrNull { file ->
+                file.relativePath == normalized || normalized.endsWith("/${file.relativePath}")
+            }?.let { file ->
+                SourceLocation(
+                    workspace.id,
+                    snapshotId,
+                    file.relativePath,
+                    SourceRange(line.coerceAtLeast(1)),
+                    file.contentHash,
+                )
+            }
+        }
+        return matches.singleOrNull()
     }
 
     override fun close() {

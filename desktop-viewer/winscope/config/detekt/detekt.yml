@@ -1,0 +1,35 @@
+build:
+  maxIssues: 0
+
+config:
+  validation: true
+
+style:
+  MagicNumber:
+    active: false
+  ReturnCount:
+    active: false
+  WildcardImport:
+    active: false
+  MaxLineLength:
+    active: false
+  UseCheckOrError:
+    active: false
+
+complexity:
+  LongMethod:
+    active: false
+  LongParameterList:
+    active: false
+  CyclomaticComplexMethod:
+    active: false
+  TooManyFunctions:
+    active: false
+  ComplexCondition:
+    active: false
+  NestedBlockDepth:
+    active: false
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: false

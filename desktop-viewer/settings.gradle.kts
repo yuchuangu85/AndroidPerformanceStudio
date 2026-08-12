@@ -78,6 +78,11 @@ includeBuild("perfetto-viewer") {
     name = "perfetto-viewer"
 }
 
+// Native Android 15+ window-system trace capture and analysis.
+includeBuild("winscope") {
+    name = "winscope"
+}
+
 // Java/Kotlin heap capture and HPROF analysis is kept as an isolated composite build.
 includeBuild("memory-profiler") {
     name = "memory-profiler"

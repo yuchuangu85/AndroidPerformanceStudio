@@ -76,6 +76,70 @@ _Avoid_: AI 评分、相似度
 某一采集时刻的应用窗口、界面节点层级与显示空间状态，是布局分析和时间线比较所引用的不可变性能证据。
 _Avoid_: 当前界面、实时布局
 
+**Winscope 工作区（Winscope Workspace）**:
+Android Performance Studio 中用于联合检查按时间对齐的窗口管理、合成层、事务与系统交互证据的功能工作区；它不是独立应用，也不代表设备提供了所有 Winscope 数据源。
+_Avoid_: 独立 Winscope、Winscope 克隆、Layout Inspector
+
+**Winscope 部分采集（Partial Winscope Capture）**:
+至少保留一种可检查的 Winscope 核心证据、但未取得全部请求能力的采集结果；缺失能力及原因是结果的一部分，而不是整次采集失败。窗口管理与合成层核心证据均不可用时不产生部分采集。
+_Avoid_: 采集成功、降级成功、不完整错误
+
+**Winscope 核心采集（Core Winscope Capture）**:
+覆盖窗口管理、合成层、合成事务和窗口转场证据的最小可检查能力集；它用于判断部分采集是否仍有分析价值，不代表首版交付范围。
+_Avoid_: 首版 Winscope、完整 Winscope、全部数据源
+
+**Winscope 平衡采集（Balanced Winscope Capture）**:
+以帧级窗口状态和常用合成层细节为默认范围、优先控制设备开销的 Winscope 核心采集预设。
+_Avoid_: 低保真采集、最小采集、快速采集
+
+**Winscope 完整细节采集（Full-detail Winscope Capture）**:
+以事务级窗口状态和高详细度合成层信息为范围、接受更高设备内存与制品体积的 Winscope 核心采集预设；它不等同于包含所有数据源的 Winscope 完整采集。
+_Avoid_: 完整采集、全部数据源、无损采集
+
+**Winscope 完整采集（Complete Winscope Capture）**:
+首版在设备能力与用户选择允许时，请求并呈现窗口核心、EventLog、输入、输入法、ViewCapture、ProtoLog 以及可选屏幕录像证据的目标能力集；某台设备的实际结果仍可能是 Winscope 部分采集。
+_Avoid_: 必然完整、全量成功、无条件支持
+
+**Winscope 完整查看（Complete Winscope Inspection）**:
+在统一时间游标下联合提供数据源时间轴、层级树、二维边界、属性、三维场景、全局查询和屏幕录像联动的检查能力；缺少某类证据时保留会话并明确显示该视图不可用的原因。
+_Avoid_: 基础查看、核心查看、上游界面复刻
+
+**Winscope 检查会话（Winscope Inspection Session）**:
+由设备采集或本地导入产生、按共同时间轴组织的一组 Winscope 证据；证据来源不同不改变其检查语义，但能力完整性必须独立保留。
+_Avoid_: 实时会话、导入文件、Trace 文件
+
+**Winscope 状态快照（Winscope State Snapshot）**:
+在用户指定时刻取得的 WindowManager 与 SurfaceFlinger 单一状态证据以及可选屏幕截图；它没有持续 trace 的状态序列，但仍可作为只有一个时间点的 Winscope 检查会话。
+_Avoid_: 单帧 trace、布局快照、当前状态
+
+**Winscope ViewCapture 证据（Winscope ViewCapture Evidence）**:
+由已接入平台 ViewCapture 的系统窗口提供的逐帧 View 属性证据，例如 System UI 或 Launcher；它不代表任意应用的 View 或 Compose 层级，也不属于 Layout Inspector 会话。
+_Avoid_: 应用布局、Compose 树、Layout Inspector 快照
+
+**Winscope 证据包（Winscope Evidence Package）**:
+保存原始 Perfetto trace、可选同步屏幕录像及能力完整性说明的可移植检查制品；从中生成的层级、属性和三维投影视图是可重建表示，不是新的权威证据。
+_Avoid_: 解析数据库、Winscope 模型文件、可视化快照
+
+**敏感 Winscope 证据（Sensitive Winscope Evidence）**:
+包含完整输入事件、屏幕截图、屏幕录像或 ProtoLog 调用栈的原始 Winscope 证据；其导出必须由用户显式确认，且不能在不改变原始证据的情况下宣称已脱敏。
+_Avoid_: 普通 trace、自动脱敏、可安全分享
+
+**Winscope 三维堆叠视图（Winscope 3D Stack View）**:
+把某一时刻的窗口或合成层矩形按显示空间和 Z 顺序分离呈现的检查投影，用于观察遮挡与层叠关系；它不是通用三维场景或设备画面的立体重建。
+_Avoid_: 3D 模型、场景引擎、立体屏幕
+
+**Winscope 时间对齐（Winscope Time Alignment）**:
+依据 trace 中明确记录的单调时间、VSync 标识或录像时间元数据，把不同证据定位到同一检查时刻的可验证关系；缺少映射时保持证据独立，不以最近时间猜测同步。
+_Avoid_: 时间相近、自动同步、同一帧
+
+**Winscope 跨源对应（Winscope Cross-source Correspondence）**:
+由 trace 中明确记录的 Layer ID、Window Token、SurfaceControl 或转场参与者关系证明，不同 Winscope 数据源中的节点代表同一系统对象；名称、边界和时间相似不构成对应关系。
+_Avoid_: 名称匹配、位置匹配、自动关联
+
+**未记录的 Winscope 属性（Unrecorded Winscope Property）**:
+当前 trace 没有提供该属性值的证据状态；它既不等于类型默认值，也不等于空值，除非 Trace Processor 明确恢复了平台默认值。
+_Avoid_: 默认值、空属性、false/0
+
 **帧间节点对应（Cross-frame Node Correspondence）**:
 两个布局快照中的节点代表同一逻辑界面元素的可验证关系；位置路径本身不是跨帧身份，存在歧义时不建立对应。
 _Avoid_: 稳定节点 ID、按路径猜测

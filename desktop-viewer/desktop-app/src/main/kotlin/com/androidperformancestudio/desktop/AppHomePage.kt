@@ -48,6 +48,7 @@ fun AppHomePage(
     onOpenLayoutInspector: () -> Unit,
     onOpenSimpleperf: () -> Unit,
     onOpenPerfetto: () -> Unit,
+    onOpenWinscope: () -> Unit,
     onOpenMemoryProfiler: () -> Unit,
     onOpenFrameProfiler: () -> Unit,
     onOpenStartupProfiler: () -> Unit,
@@ -98,6 +99,13 @@ fun AppHomePage(
                     ),
                 actionLabel = localizedStringResource(Res.string.open, language),
                 onClick = onOpenPerfetto,
+            ),
+            HomeFeatureEntry(
+                title = localizedStringResource(Res.string.winscope, language),
+                subtitle = localizedStringResource(Res.string.window_system_trace, language),
+                description = localizedStringResource(Res.string.winscope_home_description, language),
+                actionLabel = localizedStringResource(Res.string.open, language),
+                onClick = onOpenWinscope,
             ),
             HomeFeatureEntry(
                 title = localizedStringResource(Res.string.memory_profiler, language),

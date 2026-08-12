@@ -48,6 +48,7 @@ import com.androidperformancestudio.memory.app.MemoryProfilerMainPage
 import com.androidperformancestudio.methodrecording.app.MethodRecordingMainPage
 import com.androidperformancestudio.network.app.NetworkProfilerMainPage
 import com.androidperformancestudio.perfetto.app.PerfettoMainPage
+import com.androidperformancestudio.winscope.app.WinscopeMainPage
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.startup.app.StartupProfilerMainPage
 import com.androidperformancestudio.analysis.AiSourceCandidateReference
@@ -162,6 +163,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             onOpenLayoutInspector = { navigator.open(AppDestination.LAYOUT_INSPECTOR) },
                             onOpenSimpleperf = { navigator.open(AppDestination.SIMPLEPERF) },
                             onOpenPerfetto = { navigator.open(AppDestination.PERFETTO) },
+                            onOpenWinscope = { navigator.open(AppDestination.WINSCOPE) },
                             onOpenMemoryProfiler = { navigator.open(AppDestination.MEMORY_PROFILER) },
                             onOpenFrameProfiler = { navigator.open(AppDestination.FRAME_PROFILER) },
                             onOpenStartupProfiler = { navigator.open(AppDestination.STARTUP_PROFILER) },
@@ -255,10 +257,29 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
                             initialTraceNotice = navigator.perfettoTraceNotice,
+                            initialTraceTimestampNanos = navigator.perfettoTimestampNanos,
                             onOpenUserGuide = {
                                 coroutineScope.launch(Dispatchers.IO) {
                                     runCatching { userDocumentationLauncher.open(language) }
                                 }
+                            },
+                        )
+                    AppDestination.WINSCOPE ->
+                        WinscopeMainPage(
+                            language = language,
+                            onNavigateHome = { navigator.open(AppDestination.HOME) },
+                            onOpenPerfetto = { path, timestamp ->
+                                navigator.openPerfettoTrace(
+                                    path,
+                                    localizedStringResource(Res.string.opened_from_winscope, language),
+                                    timestamp,
+                                )
+                            },
+                            onOpenSource = { path, line ->
+                                sourceWorkspaceRuntime.resolveSourcePath(path, line)?.let { location ->
+                                    navigator.openSource(location)
+                                    true
+                                } ?: false
                             },
                         )
                     AppDestination.MEMORY_PROFILER ->

@@ -60,6 +60,10 @@
     <string name="layout_inspector">Layout Inspector</string>
     <string name="cpu_profiler">CPU Profiler</string>
     <string name="trace_analyzer">Trace Analyzer</string>
+    <string name="winscope">Winscope</string>
+    <string name="window_system_trace">Window system trace</string>
+    <string name="winscope_home_description">Capture and inspect WindowManager, SurfaceFlinger, transitions, input, IME, ViewCapture, and ProtoLog evidence.</string>
+    <string name="opened_from_winscope">Opened from Winscope at the selected timestamp.</string>
     <string name="memory_profiler">Memory Profiler</string>
     <string name="frame_profiler">Frame Profiler</string>
     <string name="startup_profiler">Startup Profiler</string>

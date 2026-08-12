@@ -6,6 +6,12 @@ import kotlin.test.assertNull
 
 public class TraceQueryResultTest {
     @Test
+    public fun `ignores trace processor leading blank lines`() {
+        val result = TraceQueryResult.parse("\n\n\"name\"\n\"surfaceflinger_layer\"\n")
+        assertEquals(listOf("name"), result.columns)
+        assertEquals("surfaceflinger_layer", result.rows.single().string("name"))
+    }
+    @Test
     public fun `parses typed CSV columns including commas quotes and nulls`() {
         val result = TraceQueryResult.parse("\"id\",\"name\",\"ratio\",\"missing\"\n7,\"a, \"\"quoted\"\" name\",1.5,\"[NULL]\"\n")
         val row = result.rows.single()

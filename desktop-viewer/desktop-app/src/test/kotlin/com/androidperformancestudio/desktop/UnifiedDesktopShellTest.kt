@@ -36,6 +36,9 @@ class UnifiedDesktopShellTest {
                 .substringBefore("AppDestination.PERFETTO ->")
         val perfettoRoute =
             shell.substringAfter("AppDestination.PERFETTO ->")
+                .substringBefore("AppDestination.WINSCOPE ->")
+        val winscopeRoute =
+            shell.substringAfter("AppDestination.WINSCOPE ->")
                 .substringBefore("AppDestination.MEMORY_PROFILER ->")
 
         assertTrue(shell.contains("LayoutInspectorMainPage("))
@@ -50,6 +53,8 @@ class UnifiedDesktopShellTest {
         assertTrue(simpleperfRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("PerfettoMainPage("))
         assertTrue(perfettoRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
+        assertTrue(shell.contains("WinscopeMainPage("))
+        assertTrue(winscopeRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("MemoryProfilerMainPage("))
         assertTrue(shell.contains("onOpenUserGuide"))
         assertTrue(shell.contains("commonThemePreference = applicationSettings.theme.storageValue"))
@@ -75,6 +80,7 @@ class UnifiedDesktopShellTest {
             "Res.string.layout_inspector",
             "Res.string.cpu_profiler",
             "Res.string.trace_analyzer",
+            "Res.string.winscope",
             "Res.string.memory_profiler",
             "Res.string.heap_dump_capture_object_statistics_and_class_histogram_analysis",
             "Res.string.frame_profiler",
@@ -120,6 +126,7 @@ class UnifiedDesktopShellTest {
             "com.androidperformancestudio.network.app.NetworkProfilerMainPageKt",
             "com.androidperformancestudio.gpu.app.GpuIntegrationMainPageKt",
             "com.androidperformancestudio.benchmark.app.BenchmarkRegressionMainPageKt",
+            "com.androidperformancestudio.winscope.app.WinscopeMainPageKt",
         ).forEach { className ->
             assertDoesNotThrow(
                 { Class.forName(className) },

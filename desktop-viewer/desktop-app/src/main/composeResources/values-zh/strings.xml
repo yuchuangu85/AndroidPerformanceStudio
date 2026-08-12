@@ -60,6 +60,10 @@
     <string name="layout_inspector">Layout Inspector</string>
     <string name="cpu_profiler">CPU Profiler</string>
     <string name="trace_analyzer">Trace Analyzer</string>
+    <string name="winscope">Winscope</string>
+    <string name="window_system_trace">窗口系统轨迹</string>
+    <string name="winscope_home_description">采集并检查 WindowManager、SurfaceFlinger、转场、Input、IME、ViewCapture 与 ProtoLog 证据。</string>
+    <string name="opened_from_winscope">已从 Winscope 的选中时间点打开。</string>
     <string name="memory_profiler">Memory Profiler</string>
     <string name="frame_profiler">Frame Profiler</string>
     <string name="startup_profiler">Startup Profiler</string>

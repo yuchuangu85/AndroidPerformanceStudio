@@ -142,10 +142,24 @@ public class TraceAnalysisContext internal constructor(
         }
 
     public suspend fun <T> query(query: TraceQuery<T>): StudioResult<List<T>> {
-        if (closed.get() || server?.isAlive != true) return failure("TRACE_CONTEXT_CLOSED", "Trace analysis context is closed")
         if (query.schema.traceProcessorVersion != tool.version) {
             return failure("TRACE_SCHEMA_INCOMPATIBLE", "Query schema does not match the pinned trace processor")
         }
+        return when (val result = queryRaw(query.sql)) {
+            is StudioResult.Success ->
+                try {
+                    StudioResult.Success(query.map(result.value))
+                } catch (error: IllegalArgumentException) {
+                    failure("TRACE_QUERY_RESULT_INVALID", error.message ?: "Trace query returned invalid data")
+                }
+            is StudioResult.Failure -> result
+        }
+    }
+
+    /** Executes SQL against this artifact-scoped context when the result columns are discovered at runtime. */
+    public suspend fun queryRaw(sql: String): StudioResult<TraceQueryResult> {
+        if (closed.get() || server?.isAlive != true) return failure("TRACE_CONTEXT_CLOSED", "Trace analysis context is closed")
+        if (sql.isBlank()) return failure("TRACE_QUERY_INVALID", "Trace SQL must not be blank")
         return try {
             val result =
                 processRunner.executeText(
@@ -153,12 +167,11 @@ public class TraceAnalysisContext internal constructor(
                         executable = tool.path,
                         // Query the artifact-scoped warm context rather than launching another
                         // processor which would parse the same Capture Artifact again.
-                        arguments = listOf("query", "--remote", "127.0.0.1:$port", query.sql),
+                        arguments = listOf("query", "--remote", "127.0.0.1:$port", sql),
                     ),
                 )
             if (result.exitCode != 0) return failure("TRACE_QUERY_FAILED", "Trace query failed with exit code ${result.exitCode}")
-            val parsed = TraceQueryResult.parse(result.stdout)
-            StudioResult.Success(query.map(parsed))
+            StudioResult.Success(TraceQueryResult.parse(result.stdout))
         } catch (error: HostProcessTimeoutException) {
             failure("TRACE_QUERY_TIMEOUT", "Trace query timed out")
         } catch (error: HostProcessCancelledException) {

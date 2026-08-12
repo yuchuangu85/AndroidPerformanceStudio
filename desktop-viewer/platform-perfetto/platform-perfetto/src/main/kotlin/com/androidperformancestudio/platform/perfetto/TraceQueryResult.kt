@@ -6,7 +6,7 @@ public data class TraceQueryResult(
 ) {
     public companion object {
         public fun parse(csv: String): TraceQueryResult {
-            val values = parseCsv(csv)
+            val values = parseCsv(csv).dropWhile { row -> row.all(String::isBlank) }
             if (values.isEmpty()) return TraceQueryResult(emptyList(), emptyList())
             val columns = values.first()
             require(columns.none(String::isBlank)) { "trace query returned a blank column name" }

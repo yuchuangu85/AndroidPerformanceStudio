@@ -52,9 +52,12 @@ class TraceAnalysisContextTest {
             val first = assertIs<StudioResult.Success<TraceAnalysisContext>>(contexts.open(artifact("first", trace), trace)).value
             val second = assertIs<StudioResult.Success<TraceAnalysisContext>>(contexts.open(artifact("second", trace), trace)).value
             val rows = assertIs<StudioResult.Success<List<Pair<String?, Long?>>>>(first.query(query)).value
+            val raw = assertIs<StudioResult.Success<TraceQueryResult>>(first.queryRaw(query.sql)).value
 
             assertNotEquals(first.port, second.port)
             assertEquals(listOf("com.example.app" to 42L), rows)
+            assertEquals(listOf("process_name", "total_dur_ms"), raw.columns)
+            assertEquals("com.example.app", raw.rows.single().string("process_name"))
 
             first.close()
             second.close()
