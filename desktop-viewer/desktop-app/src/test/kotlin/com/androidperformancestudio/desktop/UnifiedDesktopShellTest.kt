@@ -135,6 +135,22 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `winscope file menu includes export and recent sessions`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val fileMenu = source.substringAfter("ActiveWindowMenuBar {").substringBefore("Column(Modifier.fillMaxSize()")
+        val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
+
+        assertTrue(fileMenu.contains("Menu(s(language, \"Export\", \"导出\"))"))
+        assertTrue(fileMenu.contains("onClick = ::exportSession"))
+        assertTrue(fileMenu.contains("Menu(s(language, \"Open Recent\", \"最近打开\"))"))
+        assertTrue(fileMenu.contains("recentSessions.forEach"))
+        assertFalse(header.contains("Export ZIP"))
+    }
+
+    @Test
     fun `winscope uses the shared macOS text button`() {
         val source =
             Files.readString(

@@ -136,6 +136,7 @@ fun FrameWindowScope.WinscopeMainPage(
     var error by remember { mutableStateOf<String?>(null) }
     var fileDialogOpen by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Pair<WinscopeSession, Path>?>(null) }
+    var recentSessions by remember { mutableStateOf<List<WinscopeSession>>(emptyList()) }
     val annotations = remember { mutableStateListOf<WinscopeAnnotation>() }
 
     fun openSession(session: WinscopeSession) {
@@ -155,6 +156,10 @@ fun FrameWindowScope.WinscopeMainPage(
                         is StudioResult.Success -> {
                             timeline = loaded.value
                             timestamp = loaded.value.bounds.startNanos
+                            recentSessions =
+                                (listOf(session) + recentSessions)
+                                    .distinctBy { it.traceFile.toAbsolutePath().normalize() }
+                                    .take(10)
                             error = null
                         }
                     }
@@ -208,6 +213,33 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
+    fun exportSession() {
+        val session = activeSession ?: return
+        if (fileDialogOpen) return
+        fileDialogOpen = true
+        scope.launch {
+            val destination =
+                try {
+                    chooseSaveFile(null, "Export Winscope ZIP", "winscope-${session.id.take(8)}.zip")?.toPath()
+                } finally {
+                    fileDialogOpen = false
+                } ?: return@launch
+            if (session.sensitive) {
+                pendingExport = session to destination
+            } else {
+                when (
+                    val result =
+                        withContext(Dispatchers.IO) {
+                            sessionFiles.export(session.copy(annotations = annotations.toList()), destination, false)
+                        }
+                ) {
+                    is StudioResult.Failure -> error = result.error.message
+                    is StudioResult.Success -> error = null
+                }
+            }
+        }
+    }
+
     fun toggleCapture() {
         if (captureState.phase == WinscopePhase.RECORDING) {
             scope.launch { (capture.stop() as? StudioResult.Failure)?.let { error = it.error.message } }
@@ -257,6 +289,30 @@ fun FrameWindowScope.WinscopeMainPage(
                 shortcut = KeyShortcut(Key.O, ctrl = !isMacOs, meta = isMacOs),
                 onClick = ::chooseImportFile,
             )
+            Menu(s(language, "Export", "导出")) {
+                Item(
+                    s(language, "Winscope package (.zip)…", "Winscope 压缩包（.zip）…"),
+                    enabled = activeSession != null && !fileDialogOpen,
+                    onClick = ::exportSession,
+                )
+            }
+            Menu(s(language, "Open Recent", "最近打开")) {
+                if (recentSessions.isEmpty()) {
+                    Item(s(language, "No recent files", "没有最近文件"), enabled = false, onClick = {})
+                } else {
+                    recentSessions.forEach { session ->
+                        Item(
+                            session.traceFile.fileName?.toString() ?: session.traceFile.toString(),
+                            onClick = { openSession(session) },
+                        )
+                    }
+                    Separator()
+                    Item(
+                        s(language, "Clear Menu", "清除菜单"),
+                        onClick = { recentSessions = emptyList() },
+                    )
+                }
+            }
         }
     }
 
@@ -298,36 +354,6 @@ fun FrameWindowScope.WinscopeMainPage(
                 MacOSTextButton(
                     s(language, "Open in Perfetto", "在 Perfetto 中打开"),
                     onClick = { onOpenPerfetto(session.traceFile, timestamp) },
-                )
-                Spacer(Modifier.width(6.dp))
-                MacOSTextButton(
-                    s(language, "Export ZIP", "导出 ZIP"),
-                    onClick = {
-                        if (!fileDialogOpen) {
-                            fileDialogOpen = true
-                            scope.launch {
-                                val destination =
-                                    try {
-                                        chooseSaveFile(null, "Export Winscope ZIP", "winscope-${session.id.take(8)}.zip")?.toPath()
-                                    } finally {
-                                        fileDialogOpen = false
-                                    } ?: return@launch
-                                if (session.sensitive) {
-                                    pendingExport = session to destination
-                                } else {
-                                    when (
-                                        val result =
-                                            withContext(Dispatchers.IO) {
-                                                sessionFiles.export(session.copy(annotations = annotations.toList()), destination, false)
-                                            }
-                                    ) {
-                                        is StudioResult.Failure -> error = result.error.message
-                                        is StudioResult.Success -> error = null
-                                    }
-                                }
-                            }
-                        }
-                    },
                 )
             }
         }
