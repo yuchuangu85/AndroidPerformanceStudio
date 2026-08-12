@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -76,6 +75,8 @@ import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.button.MacOSTextButton
@@ -245,6 +246,22 @@ fun FrameWindowScope.WinscopeMainPage(
     Column(Modifier.fillMaxSize().onWinscopeKeys(timeline, timestamp, { timestamp = it })) {
         HeaderToolbar(language = language, onNavigateHome = onNavigateHome, onNavigateSettings = null) {
             Text("Winscope", fontWeight = FontWeight.SemiBold)
+            HeaderSpacer()
+            val selectedDevice = devices.firstOrNull { it.first == selectedSerial }
+            DropdownSelector(
+                items = devices,
+                selectedItem = selectedDevice,
+                onItemSelected = { selectedSerial = it.first },
+                itemLabel = { "${it.second} · ${it.first}" },
+                selectedItemLabel = { it.second },
+                placeholder = s(language, "Select device", "选择设备"),
+                modifier = Modifier.width(190.dp),
+                selectorDescription = s(language, "Winscope device", "Winscope 设备"),
+                fillWidth = true,
+            )
+            HeaderSpacer()
+            MacOSTextButton(s(language, "Refresh", "刷新"), onClick = ::refreshDevices)
+            Spacer(Modifier.weight(1f))
             activeSession?.let { session ->
                 Spacer(Modifier.width(6.dp))
                 MacOSTextButton(
@@ -289,15 +306,11 @@ fun FrameWindowScope.WinscopeMainPage(
                 language = language,
                 adbPath = adbPath,
                 onAdbPath = { adbPath = it },
-                devices = devices,
-                selectedSerial = selectedSerial,
-                onSelectedSerial = { selectedSerial = it },
                 capabilities = capabilities,
                 config = config,
                 onConfig = { config = it },
                 captureState = captureState.message,
                 recording = captureState.phase.name == "RECORDING",
-                onRefresh = ::refreshDevices,
                 onRoot = {
                     val serial = selectedSerial ?: return@CapturePanel
                     scope.launch {
@@ -390,21 +403,16 @@ private fun CapturePanel(
     language: UiLanguage,
     adbPath: String,
     onAdbPath: (String) -> Unit,
-    devices: List<Pair<String, String>>,
-    selectedSerial: String?,
-    onSelectedSerial: (String) -> Unit,
     capabilities: WinscopeCapabilities?,
     config: WinscopeCaptureConfig,
     onConfig: (WinscopeCaptureConfig) -> Unit,
     captureState: String,
     recording: Boolean,
-    onRefresh: () -> Unit,
     onRoot: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onSnapshot: () -> Unit,
 ) {
-    var deviceMenu by remember { mutableStateOf(false) }
     Column(
         Modifier
             .width(
@@ -417,25 +425,6 @@ private fun CapturePanel(
     ) {
         Text(s(language, "Live capture · Android 15+", "实时采集 · Android 15+"), fontWeight = FontWeight.SemiBold)
         OutlinedTextField(adbPath, onAdbPath, label = { Text("ADB") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box {
-                MacOSTextButton(
-                    devices.firstOrNull { it.first == selectedSerial }?.second ?: s(language, "Select device", "选择设备"),
-                    onClick = { deviceMenu = true },
-                    modifier = Modifier.widthIn(min = 190.dp),
-                )
-                DropdownMenu(deviceMenu, { deviceMenu = false }) {
-                    devices.forEach { (serial, model) ->
-                        DropdownMenuItem(text = { Text("$model · $serial") }, onClick = {
-                            deviceMenu =
-                                false
-                            ; onSelectedSerial(serial)
-                        })
-                    }
-                }
-            }
-            MacOSTextButton(s(language, "Refresh", "刷新"), onClick = onRefresh)
-        }
         capabilities?.let { caps ->
             val root =
                 when {

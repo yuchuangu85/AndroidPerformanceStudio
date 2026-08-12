@@ -147,6 +147,21 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `winscope device controls live in the header toolbar`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
+        val capturePanel = source.substringAfter("private fun CapturePanel(").substringBefore("private fun ViewerWorkspace(")
+
+        assertTrue(header.contains("DropdownSelector("))
+        assertTrue(header.contains("onClick = ::refreshDevices"))
+        assertFalse(capturePanel.contains("DropdownSelector("))
+        assertFalse(capturePanel.contains("onRefresh"))
+    }
+
+    @Test
     fun `ecosystem profiler workspaces are available at runtime`() {
         listOf(
             "com.androidperformancestudio.network.app.NetworkProfilerMainPageKt",
