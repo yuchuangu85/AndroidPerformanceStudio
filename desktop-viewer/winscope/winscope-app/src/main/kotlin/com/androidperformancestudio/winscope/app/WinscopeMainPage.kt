@@ -179,6 +179,7 @@ fun FrameWindowScope.WinscopeMainPage(
             pendingUpstreamOpen = null
             confirmedUpstreamSessions.clear()
             withContext(Dispatchers.IO) { upstreamWinscope.invalidate() }
+            if (generation != sessionLoadGeneration) return@launch
             analyzer?.close()
             analyzer = null
             timeline = null
@@ -192,12 +193,18 @@ fun FrameWindowScope.WinscopeMainPage(
                         opened.value.close()
                         return@launch
                     }
-                    analyzer = opened.value
                     val loaded = withContext(Dispatchers.IO) { opened.value.timeline() }
-                    if (generation != sessionLoadGeneration) return@launch
+                    if (generation != sessionLoadGeneration) {
+                        opened.value.close()
+                        return@launch
+                    }
                     when (loaded) {
-                        is StudioResult.Failure -> error = loaded.error.message
+                        is StudioResult.Failure -> {
+                            opened.value.close()
+                            error = loaded.error.message
+                        }
                         is StudioResult.Success -> {
+                            analyzer = opened.value
                             timeline = loaded.value
                             timestamp = loaded.value.bounds.startNanos
                             recentSessions =
