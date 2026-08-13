@@ -227,6 +227,20 @@ index f521e8151..3da1bc678 100644
  
      let isFinalResponse = true;
  
+diff --git a/winscope/src/viewers/common/abstract_hierarchy_viewer_presenter.ts b/winscope/src/viewers/common/abstract_hierarchy_viewer_presenter.ts
+index e6cc4d554..cde4277f0 100644
+--- a/winscope/src/viewers/common/abstract_hierarchy_viewer_presenter.ts
++++ b/winscope/src/viewers/common/abstract_hierarchy_viewer_presenter.ts
+@@ -447,6 +447,9 @@ export abstract class AbstractHierarchyViewerPresenter<
+     if (selected) {
+       const {trace, tree: selectedTree} = selected;
+       const propertiesTree = await selectedTree.getAllProperties();
++      if (this.hierarchyPresenter.getSelectedTree()?.tree !== selectedTree) {
++        return;
++      }
+       if (
+         showDiff?.enabled &&
+         !this.hierarchyPresenter.getPreviousHierarchyTreeForTrace(trace)
 diff --git a/winscope/src/viewers/viewer_media_based/viewer_media_based_component.ts b/winscope/src/viewers/viewer_media_based/viewer_media_based_component.ts
 index 9a63a54e9..b15ccb0a5 100644
 --- a/winscope/src/viewers/viewer_media_based/viewer_media_based_component.ts
@@ -266,10 +280,44 @@ index b59534e37..8f0e7ed75 100644
        radii.length > 0 &&
        radii.every((r) => r.source !== PropertySource.DEFAULT)
 diff --git a/winscope/src/viewers/viewer_surface_flinger/presenter_test.ts b/winscope/src/viewers/viewer_surface_flinger/presenter_test.ts
-index 275fdb4b6..019285816 100644
+index 275fdb4b6..bcbc66a22 100644
 --- a/winscope/src/viewers/viewer_surface_flinger/presenter_test.ts
 +++ b/winscope/src/viewers/viewer_surface_flinger/presenter_test.ts
-@@ -673,7 +673,6 @@ the default for its data type.`,
+@@ -558,6 +558,33 @@ the default for its data type.`,
+         expect(uiData.curatedProperties).toBeUndefined();
+       });
+ 
++      it('keeps Proto Dump aligned with the latest hierarchy selection', async () => {
++        await presenter.onAppEvent(this.getPositionUpdate());
++        const firstNode = this.getSelectedTree();
++        const secondNode = assertDefined(
++          assertDefined(uiData.hierarchyTrees)[0].findDfs(
++            makeIdMatchFilter(
++              '630 com.google.android.apps.maps/com.google.android.maps.LimitedMapsActivity#630',
++            ),
++          ),
++        );
++        const firstProperties = await firstNode.getAllProperties();
++        const secondProperties = await secondNode.getAllProperties();
++        let resolveFirst = (_: typeof firstProperties) => {};
++        spyOn(firstNode, 'getAllProperties').and.returnValue(
++          new Promise((resolve) => (resolveFirst = resolve)),
++        );
++        spyOn(secondNode, 'getAllProperties').and.resolveTo(secondProperties);
++
++        const firstSelection = presenter.onHighlightedNodeChange(firstNode);
++        const secondSelection = presenter.onHighlightedNodeChange(secondNode);
++        await secondSelection;
++        resolveFirst(firstProperties);
++        await firstSelection;
++
++        expect(uiData.propertiesTree?.id).toBe(secondProperties.id);
++      });
++
+       it('updates zOrderRelativeOf formatter and rel-z curated properties correctly', async () => {
+         await presenter.onAppEvent(this.getPositionUpdate());
+ 
+@@ -673,7 +700,6 @@ the default for its data type.`,
          const layer2Props = getPropertiesForCuratedPanel(2n);
          Object.assign(layer2Props, {
            cornerRadius: 6,
