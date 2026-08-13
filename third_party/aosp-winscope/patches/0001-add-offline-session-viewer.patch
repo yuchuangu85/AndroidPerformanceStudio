@@ -100,6 +100,18 @@ index 0b7a15592..b044ea9dc 100644
          text-overflow: ellipsis;
        }
        .time-selector-form .time-difference {
+diff --git a/winscope/src/app/components/trace_view_component.ts b/winscope/src/app/components/trace_view_component.ts
+index dc9d9ccf0..e697e8f80 100644
+--- a/winscope/src/app/components/trace_view_component.ts
++++ b/winscope/src/app/components/trace_view_component.ts
+@@ -207,6 +207,7 @@ interface Tab {
+       }
+ 
+       .tabs-navigation-bar {
++        --mdc-secondary-navigation-tab-container-height: 36px;
+         height: 100%;
+         border-bottom: 0px;
+       }
 diff --git a/winscope/src/common/analytics.ts b/winscope/src/common/analytics.ts
 index acaac639c..634953507 100644
 --- a/winscope/src/common/analytics.ts
