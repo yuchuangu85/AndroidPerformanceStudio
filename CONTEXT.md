@@ -80,6 +80,10 @@ _Avoid_: 当前界面、实时布局
 Android Performance Studio 中用于联合检查按时间对齐的窗口管理、合成层、事务与系统交互证据的功能工作区；它不是独立应用，也不代表设备提供了所有 Winscope 数据源。
 _Avoid_: 独立 Winscope、Winscope 克隆、Layout Inspector
 
+**上游 Winscope 查看器（Upstream Winscope Viewer）**:
+随 Android Performance Studio 分发、通过应用自动管理的本机服务在系统浏览器中一键载入当前检查会话证据的 AOSP Winscope Web 查看器；它不要求用户启动独立静态服务器或 `winscope_proxy.py`。入口只有在解析确认至少存在一种 Winscope 核心证据时才可用，屏幕录像本身不满足此条件。它只查看 Android Performance Studio 已采集或导入的证据，不负责设备连接或采集。分发版本必须移除遥测并将运行所需资源本地化，不依赖第三方网络服务。它是现有 Winscope 工作区之外的可选查看路径，不替代工作区，也不嵌入桌面应用窗口。
+_Avoid_: 内置 Winscope、原生 Winscope 工作区、Winscope 替代版
+
 **Winscope 部分采集（Partial Winscope Capture）**:
 至少保留一种可检查的 Winscope 核心证据、但未取得全部请求能力的采集结果；缺失能力及原因是结果的一部分，而不是整次采集失败。窗口管理与合成层核心证据均不可用时不产生部分采集。
 _Avoid_: 采集成功、降级成功、不完整错误
@@ -121,7 +125,7 @@ _Avoid_: 应用布局、Compose 树、Layout Inspector 快照
 _Avoid_: 解析数据库、Winscope 模型文件、可视化快照
 
 **敏感 Winscope 证据（Sensitive Winscope Evidence）**:
-包含完整输入事件、屏幕截图、屏幕录像或 ProtoLog 调用栈的原始 Winscope 证据；其导出必须由用户显式确认，且不能在不改变原始证据的情况下宣称已脱敏。
+包含完整输入事件、屏幕截图、屏幕录像或 ProtoLog 调用栈的原始 Winscope 证据；其导出或首次交给系统浏览器中的上游 Winscope 查看器前必须由用户显式确认，且不能在不改变原始证据的情况下宣称已脱敏。
 _Avoid_: 普通 trace、自动脱敏、可安全分享
 
 **Winscope 三维堆叠视图（Winscope 3D Stack View）**:

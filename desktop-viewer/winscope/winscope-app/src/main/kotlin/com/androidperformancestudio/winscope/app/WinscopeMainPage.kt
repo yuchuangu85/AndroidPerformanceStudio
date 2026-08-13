@@ -14,6 +14,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,7 +62,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -75,12 +79,16 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.model.StudioResult
@@ -124,6 +132,7 @@ import java.nio.file.Path
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import org.jetbrains.skia.Image as SkiaImage
 
@@ -139,6 +148,7 @@ fun FrameWindowScope.WinscopeMainPage(
     val detector = remember { WinscopeCapabilityDetector() }
     val capture = remember { WinscopeCaptureController() }
     val sessionFiles = remember { WinscopeSessionFiles() }
+    val upstreamWinscope = remember(sessionFiles) { UpstreamWinscopeLauncher(sessionFiles = sessionFiles) }
     val captureState by capture.state.collectAsState()
     var adbPath by remember { mutableStateOf("adb") }
     var devices by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
@@ -152,9 +162,11 @@ fun FrameWindowScope.WinscopeMainPage(
     var error by remember { mutableStateOf<String?>(null) }
     var fileDialogOpen by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Pair<WinscopeSession, Path>?>(null) }
+    var pendingUpstreamOpen by remember { mutableStateOf<WinscopeSession?>(null) }
     var recentSessions by remember { mutableStateOf<List<WinscopeSession>>(emptyList()) }
     var capturePanelVisible by remember { mutableStateOf(true) }
     val annotations = remember { mutableStateListOf<WinscopeAnnotation>() }
+    val confirmedUpstreamSessions = remember { mutableStateListOf<String>() }
 
     fun selectTimestamp(value: Long) {
         timestamp = timeline?.bounds?.let { value.coerceIn(it.startNanos, it.endNanos) } ?: value
@@ -261,6 +273,20 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
+    fun openInUpstreamWinscope(session: WinscopeSession) {
+        scope.launch {
+            when (
+                val opened =
+                    withContext(Dispatchers.IO) {
+                        upstreamWinscope.open(session, annotations.toList())
+                    }
+            ) {
+                is StudioResult.Failure -> error = opened.error.message
+                is StudioResult.Success -> error = null
+            }
+        }
+    }
+
     fun toggleCapture() {
         if (captureState.phase == WinscopePhase.RECORDING) {
             scope.launch { (capture.stop() as? StudioResult.Failure)?.let { error = it.error.message } }
@@ -318,6 +344,7 @@ fun FrameWindowScope.WinscopeMainPage(
         onDispose {
             analyzer?.close()
             capture.close()
+            upstreamWinscope.close()
         }
     }
 
@@ -395,6 +422,23 @@ fun FrameWindowScope.WinscopeMainPage(
                 MacOSTextButton(
                     s(language, "Open in Perfetto", "在 Perfetto 中打开"),
                     onClick = { onOpenPerfetto(session.traceFile, timestamp) },
+                )
+                Spacer(Modifier.width(6.dp))
+                val upstreamEligible = canOpenInUpstreamWinscope(timeline)
+                MacOSTextButton(
+                    if (upstreamEligible) {
+                        s(language, "Open in Upstream Winscope", "在上游 Winscope 中打开")
+                    } else {
+                        s(language, "No Winscope core evidence", "没有 Winscope 核心证据")
+                    },
+                    onClick = {
+                        if (session.sensitive && session.id !in confirmedUpstreamSessions) {
+                            pendingUpstreamOpen = session
+                        } else {
+                            openInUpstreamWinscope(session)
+                        }
+                    },
+                    enabled = upstreamEligible,
                 )
             }
             HeaderSpacer()
@@ -479,6 +523,36 @@ fun FrameWindowScope.WinscopeMainPage(
             },
             dismissButton = {
                 MacOSTextButton(s(language, "Cancel", "取消"), onClick = { pendingExport = null })
+            },
+        )
+    }
+
+    pendingUpstreamOpen?.let { session ->
+        AlertDialog(
+            onDismissRequest = { pendingUpstreamOpen = null },
+            title = { Text(s(language, "Sensitive evidence", "敏感证据")) },
+            text = {
+                Text(
+                    s(
+                        language,
+                        "This session contains sensitive evidence. Open it through localhost in the external browser process? Browser extensions may be able to inspect the evidence.",
+                        "该会话包含敏感证据。是否通过 localhost 将其交给外部浏览器进程？浏览器扩展可能能够检查这些证据。",
+                    ),
+                )
+            },
+            confirmButton = {
+                MacOSTextButton(
+                    s(language, "Open", "打开"),
+                    onClick = {
+                        pendingUpstreamOpen = null
+                        if (session.id !in confirmedUpstreamSessions) confirmedUpstreamSessions += session.id
+                        openInUpstreamWinscope(session)
+                    },
+                    primary = true,
+                )
+            },
+            dismissButton = {
+                MacOSTextButton(s(language, "Cancel", "取消"), onClick = { pendingUpstreamOpen = null })
             },
         )
     }
@@ -770,8 +844,9 @@ private fun ViewerWorkspace(
                     else -> SearchWorkspace(analyzer, onTimestamp)
                 }
             }
+            FloatingMediaPanel(session, timestamp, timeline?.bounds?.startNanos ?: timestamp)
         }
-        MediaPanel(session, timestamp, timeline?.bounds?.startNanos ?: timestamp)
+        ScreenshotPanel(session)
         TimelinePanel(timeline, timestamp, onTimestamp, annotations)
     }
 }
@@ -1427,11 +1502,7 @@ private fun SearchWorkspace(
 }
 
 @Composable
-private fun MediaPanel(
-    session: WinscopeSession,
-    timestamp: Long,
-    timelineStartNanos: Long,
-) {
+private fun ScreenshotPanel(session: WinscopeSession) {
     val screenshot =
         remember(session.screenshotFile) {
             session.screenshotFile?.takeIf(Files::isRegularFile)?.let {
@@ -1439,7 +1510,37 @@ private fun MediaPanel(
             }
         }
     if (screenshot != null) Image(screenshot, "Captured screen", Modifier.fillMaxWidth().height(160.dp).background(Color.Black))
-    session.recordingFile?.takeIf { Files.isRegularFile(it) && Files.size(it) > 0L }?.let { recording ->
+}
+
+@Composable
+private fun FloatingMediaPanel(
+    session: WinscopeSession,
+    timestamp: Long,
+    timelineStartNanos: Long,
+) {
+    val recording = session.recordingFile?.takeIf { Files.isRegularFile(it) && Files.size(it) > 0L } ?: return
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val margin = with(density) { 12.dp.toPx() }
+        val containerSize = IntSize(constraints.maxWidth, constraints.maxHeight)
+        val minimumPanelSize = with(density) { IntSize(240.dp.roundToPx(), 160.dp.roundToPx()) }
+        var requestedPanelSize by remember(recording) {
+            mutableStateOf(with(density) { IntSize(360.dp.roundToPx(), 260.dp.roundToPx()) })
+        }
+        var position by remember(recording) { mutableStateOf<Offset?>(null) }
+        val (displayedPosition, panelSize) =
+            resizeFloatingMediaPanel(
+                position,
+                requestedPanelSize,
+                Offset.Zero,
+                containerSize,
+                minimumPanelSize,
+                margin,
+                fromLeft = false,
+                fromTop = false,
+            )
+        val currentPanelSize by rememberUpdatedState(panelSize)
+        val currentPanelPosition by rememberUpdatedState(displayedPosition)
         var source by remember(recording) { mutableStateOf<ScreenRecordingFrameSource?>(null) }
         var frame by remember(recording) { mutableStateOf<ImageBitmap?>(null) }
         var message by remember(recording) { mutableStateOf("Loading screen recording…") }
@@ -1469,20 +1570,108 @@ private fun MediaPanel(
                     }
             }
         }
-        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)) {
-            Row(Modifier.fillMaxWidth().padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Screen recording · ${recording.fileName}", modifier = Modifier.weight(1f))
-                MacOSTextButton("Open", onClick = { runCatching { Desktop.getDesktop().open(recording.toFile()) } })
-            }
-            if (frame == null) {
-                Box(Modifier.fillMaxWidth().height(180.dp).background(Color.Black), contentAlignment = Alignment.Center) {
-                    Text(message, color = Color.LightGray)
+        val shape = RoundedCornerShape(8.dp)
+        Box(
+            Modifier
+                .offset { IntOffset(displayedPosition.x.roundToInt(), displayedPosition.y.roundToInt()) }
+                .width(with(density) { panelSize.width.toDp() })
+                .height(with(density) { panelSize.height.toDp() })
+                .shadow(8.dp, shape)
+                .clip(shape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                .background(MaterialTheme.colorScheme.surfaceContainer),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(horizontal = 18.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Screen recording · ${recording.fileName}", modifier = Modifier.weight(1f), maxLines = 1)
+                    MacOSTextButton("Open", onClick = { runCatching { Desktop.getDesktop().open(recording.toFile()) } })
                 }
-            } else {
-                Image(frame!!, "Screen recording", Modifier.fillMaxWidth().height(220.dp).background(Color.Black))
+                Box(Modifier.fillMaxWidth().weight(1f).background(Color.Black), contentAlignment = Alignment.Center) {
+                    if (frame == null) {
+                        Text(message, color = Color.LightGray)
+                    } else {
+                        Image(frame!!, "Screen recording", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    }
+                }
+            }
+            listOf(
+                Triple(Alignment.TopStart, "◤", true to true),
+                Triple(Alignment.TopEnd, "◥", false to true),
+                Triple(Alignment.BottomStart, "◣", true to false),
+                Triple(Alignment.BottomEnd, "◢", false to false),
+            ).forEach { (alignment, icon, edges) ->
+                Box(
+                    modifier =
+                        Modifier
+                            .align(alignment)
+                            .size(20.dp)
+                            .semantics { contentDescription = "Drag corner to resize screen recording" }
+                            .pointerInput(recording, containerSize, minimumPanelSize, margin, edges) {
+                                detectDragGestures { change, drag ->
+                                    change.consume()
+                                    val (resizedPosition, resizedSize) =
+                                        resizeFloatingMediaPanel(
+                                            currentPanelPosition,
+                                            currentPanelSize,
+                                            drag,
+                                            containerSize,
+                                            minimumPanelSize,
+                                            margin,
+                                            fromLeft = edges.first,
+                                            fromTop = edges.second,
+                                        )
+                                    position = resizedPosition
+                                    requestedPanelSize = resizedSize
+                                }
+                            },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(icon, color = Color.LightGray)
+                }
             }
         }
     }
+}
+
+internal fun resizeFloatingMediaPanel(
+    currentPosition: Offset?,
+    currentSize: IntSize,
+    drag: Offset,
+    container: IntSize,
+    minimum: IntSize,
+    margin: Float,
+    fromLeft: Boolean,
+    fromTop: Boolean,
+): Pair<Offset, IntSize> {
+    val workspaceRight = (container.width - margin).coerceAtLeast(0f)
+    val workspaceBottom = (container.height - margin).coerceAtLeast(0f)
+    val workspaceLeft = min(margin, workspaceRight)
+    val workspaceTop = min(margin, workspaceBottom)
+    val maxWidth = (workspaceRight - workspaceLeft).roundToInt()
+    val maxHeight = (workspaceBottom - workspaceTop).roundToInt()
+    val minWidth = min(minimum.width, maxWidth)
+    val minHeight = min(minimum.height, maxHeight)
+    val size = IntSize(currentSize.width.coerceIn(minWidth, maxWidth), currentSize.height.coerceIn(minHeight, maxHeight))
+    val position =
+        currentPosition?.let {
+            Offset(
+                it.x.coerceIn(workspaceLeft, workspaceRight - size.width),
+                it.y.coerceIn(workspaceTop, workspaceBottom - size.height),
+            )
+        } ?: Offset(workspaceRight - size.width, workspaceTop)
+    val right = position.x + size.width
+    val bottom = position.y + size.height
+    val left = if (fromLeft) (position.x + drag.x).coerceIn(workspaceLeft, right - minWidth) else position.x
+    val top = if (fromTop) (position.y + drag.y).coerceIn(workspaceTop, bottom - minHeight) else position.y
+    val resizedRight = if (fromLeft) right else (right + drag.x).coerceIn(left + minWidth, workspaceRight)
+    val resizedBottom = if (fromTop) bottom else (bottom + drag.y).coerceIn(top + minHeight, workspaceBottom)
+    return Offset(left, top) to IntSize((resizedRight - left).roundToInt(), (resizedBottom - top).roundToInt())
 }
 
 internal fun screenRecordingTimestampRequests(timestamp: State<Long>) = snapshotFlow { timestamp.value }

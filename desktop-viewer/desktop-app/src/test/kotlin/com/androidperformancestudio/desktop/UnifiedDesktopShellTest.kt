@@ -226,26 +226,35 @@ class UnifiedDesktopShellTest {
             Files.readString(
                 Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
             )
-        val mediaPanel = source.substringAfter("private fun MediaPanel(").substringBefore("private fun EmptyWorkspace(")
+        val mediaPanel = source.substringAfter("private fun FloatingMediaPanel(").substringBefore("internal fun resizeFloatingMediaPanel(")
 
         assertTrue(mediaPanel.contains("val sourceToClose = source"))
         assertTrue(mediaPanel.contains("onDispose { sourceToClose?.close() }"))
     }
 
     @Test
-    fun `winscope recording stays visible above the bottom timeline on every tab`() {
+    fun `winscope recording floats above every tab and the timeline stays at the bottom`() {
         val source =
             Files.readString(
                 Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
             )
         val workspace = source.substringAfter("private fun ViewerWorkspace(").substringBefore("private fun TimelinePanel(")
         val stateWorkspace = source.substringAfter("private fun StateWorkspace(").substringBefore("private fun RectCanvas(")
-        val mediaPanel = source.substringAfter("private fun MediaPanel(").substringBefore("private fun EmptyWorkspace(")
+        val mediaPanel = source.substringAfter("private fun FloatingMediaPanel(").substringBefore("internal fun resizeFloatingMediaPanel(")
 
-        assertTrue(workspace.contains("MediaPanel(session, timestamp"))
-        assertTrue(workspace.indexOf("MediaPanel(session, timestamp") < workspace.indexOf("TimelinePanel("))
-        assertFalse(stateWorkspace.contains("MediaPanel("))
-        assertTrue(mediaPanel.contains("Image(frame!!"))
+        assertTrue(workspace.contains("FloatingMediaPanel(session, timestamp"))
+        assertTrue(workspace.indexOf("FloatingMediaPanel(session, timestamp") < workspace.indexOf("TimelinePanel("))
+        assertFalse(stateWorkspace.contains("FloatingMediaPanel("))
+        assertTrue(mediaPanel.contains("detectDragGestures"))
+        assertTrue(mediaPanel.contains(".offset { IntOffset("))
+        assertTrue(mediaPanel.contains("Alignment.TopStart"))
+        assertTrue(mediaPanel.contains("Alignment.TopEnd"))
+        assertTrue(mediaPanel.contains("Alignment.BottomStart"))
+        assertTrue(mediaPanel.contains("Alignment.BottomEnd"))
+        assertTrue(mediaPanel.contains("Drag corner to resize screen recording"))
+        assertFalse(mediaPanel.contains("moveFloatingMediaPanel"))
+        assertFalse(mediaPanel.contains("⋮⋮"))
+        assertTrue(mediaPanel.contains("frame!!"))
         assertFalse(mediaPanel.contains("SwingPanel("))
     }
 

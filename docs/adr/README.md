@@ -8,7 +8,7 @@
 - `0012`–`0015`：统一分析模型、显式触发、归档和 GitHub 范围。
 - `0016`–`0019`：全局工作区、增量索引、存储和 Native 符号化。
 - `0020`–`0021`：分析范围与结构化、可版本化的 AI 结果。
-- `0031`–`0032`：通过固定 Trace Processor SQL 解析 Winscope，并以原生 Compose 工作区交付。
+- `0031`–`0033`：通过固定 Trace Processor SQL 解析 Winscope，以原生 Compose 工作区交付，并将固定版本的上游查看器作为可选浏览器路径打包。
 
 总体方案见
 [`../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md)。

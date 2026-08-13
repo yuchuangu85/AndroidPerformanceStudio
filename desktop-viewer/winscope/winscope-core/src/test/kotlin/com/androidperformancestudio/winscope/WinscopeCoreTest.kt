@@ -161,7 +161,10 @@ class WinscopeCoreTest {
                 ).value
             assertTrue(capabilities.liveCaptureSupported, capabilities.toString())
             assertEquals(2, capabilities.displays.size)
-            val controller = WinscopeCaptureController({ adb }, storage)
+            val controller =
+                WinscopeCaptureController({ adb }, storage) {
+                    StudioResult.Success(capabilities.availableSources - WinscopeSource.SCREEN_RECORDING)
+                }
             repeat(2) {
                 assertIs<StudioResult.Success<Unit>>(
                     controller.start(Path.of("adb"), capabilities, WinscopeCaptureConfig(durationSeconds = 1)),
@@ -184,7 +187,10 @@ class WinscopeCoreTest {
                 assertIs<StudioResult.Success<com.androidperformancestudio.winscope.model.WinscopeCapabilities>>(
                     WinscopeCapabilityDetector(adbFactory = { adb }).detect(Path.of("adb"), "device-15"),
                 ).value
-            val controller = WinscopeCaptureController({ adb }, storage)
+            val controller =
+                WinscopeCaptureController({ adb }, storage) {
+                    StudioResult.Success(capabilities.availableSources - WinscopeSource.SCREEN_RECORDING)
+                }
             val config =
                 WinscopeCaptureConfig(
                     durationSeconds = 1,
@@ -195,6 +201,71 @@ class WinscopeCoreTest {
             val session = assertIs<StudioResult.Success<WinscopeSession>>(controller.stop()).value
 
             assertNull(session.recordingFile)
+            assertTrue(!session.sensitive)
+        }
+
+    @Test
+    fun `capture rejects video only results instead of claiming Winscope evidence`() =
+        runBlocking {
+            val adb = FakeAdb()
+            val storage = Files.createTempDirectory("winscope-video-only")
+            val capabilities =
+                assertIs<StudioResult.Success<com.androidperformancestudio.winscope.model.WinscopeCapabilities>>(
+                    WinscopeCapabilityDetector(adbFactory = { adb }).detect(Path.of("adb"), "device-15"),
+                ).value
+            val controller = WinscopeCaptureController({ adb }, storage) { StudioResult.Success(emptySet()) }
+            val config =
+                WinscopeCaptureConfig(
+                    durationSeconds = 1,
+                    requestedSources = WinscopeCaptureConfig().requestedSources + WinscopeSource.SCREEN_RECORDING,
+                )
+
+            assertIs<StudioResult.Success<Unit>>(controller.start(Path.of("adb"), capabilities, config))
+            val failure = assertIs<StudioResult.Failure>(controller.stop())
+
+            assertEquals("WINSCOPE_CORE_EVIDENCE_MISSING", failure.error.code)
+            assertContains(failure.error.message, "only the screen recording contains usable evidence")
+            assertContains(failure.error.message, "raw Perfetto trace")
+            assertTrue(
+                storage
+                    .toFile()
+                    .listFiles()
+                    .orEmpty()
+                    .any { it.extension == "mp4" && it.length() > 0 },
+            )
+        }
+
+    @Test
+    fun `legacy WindowManager capture fills devices without the Perfetto source`() =
+        runBlocking {
+            val adb = FakeAdb(windowManagerPerfettoAvailable = false, rootActive = true)
+            val storage = Files.createTempDirectory("winscope-legacy-window-manager")
+            val capabilities =
+                assertIs<StudioResult.Success<com.androidperformancestudio.winscope.model.WinscopeCapabilities>>(
+                    WinscopeCapabilityDetector(adbFactory = { adb }).detect(Path.of("adb"), "device-15"),
+                ).value
+            val controller = WinscopeCaptureController({ adb }, storage) { StudioResult.Success(setOf(WinscopeSource.WINDOW_MANAGER)) }
+
+            assertIs<StudioResult.Success<Unit>>(
+                controller.start(Path.of("adb"), capabilities, WinscopeCaptureConfig(durationSeconds = 1)),
+            )
+            val session = assertIs<StudioResult.Success<WinscopeSession>>(controller.stop()).value
+
+            assertContains(session.availableSources, WinscopeSource.WINDOW_MANAGER)
+            assertTrue(session.limitations.none { it.message == "WindowManager was requested but unavailable" })
+            findTraceProcessor()?.let { binary ->
+                System.setProperty("androidperformancestudio.traceProcessorPath", binary.toString())
+                val analyzer = assertIs<StudioResult.Success<WinscopeAnalyzer>>(WinscopeAnalyzer.open(session)).value
+                try {
+                    assertContains(
+                        assertIs<StudioResult.Success<Set<WinscopeSource>>>(analyzer.probeSources()).value,
+                        WinscopeSource.WINDOW_MANAGER,
+                    )
+                } finally {
+                    analyzer.close()
+                    System.clearProperty("androidperformancestudio.traceProcessorPath")
+                }
+            }
         }
 
     @Test
@@ -246,6 +317,25 @@ class WinscopeCoreTest {
             }
         }
 
+    @Test
+    fun `empty trace does not report Winscope sources`() =
+        runBlocking {
+            val binary = checkNotNull(findTraceProcessor())
+            val trace = Files.createTempFile("empty-winscope", ".perfetto-trace")
+            Files.write(trace, byteArrayOf(0x0a, 0x00))
+            System.setProperty("androidperformancestudio.traceProcessorPath", binary.toString())
+            val analyzer =
+                assertIs<StudioResult.Success<WinscopeAnalyzer>>(
+                    WinscopeAnalyzer.open(WinscopeSession("empty", trace, capturedAt = Instant.EPOCH)),
+                ).value
+            try {
+                assertEquals(emptySet(), assertIs<StudioResult.Success<Set<WinscopeSource>>>(analyzer.probeSources()).value)
+            } finally {
+                analyzer.close()
+                System.clearProperty("androidperformancestudio.traceProcessorPath")
+            }
+        }
+
     private fun findTraceProcessor(): Path? {
         val name = if (System.getProperty("os.name").contains("Windows", true)) "trace_processor_shell.exe" else "trace_processor_shell"
         var root: Path? = Path.of(System.getProperty("user.dir")).toAbsolutePath()
@@ -258,6 +348,8 @@ class WinscopeCoreTest {
 
     private class FakeAdb(
         private val emptyRecording: Boolean = false,
+        private val windowManagerPerfettoAvailable: Boolean = true,
+        private val rootActive: Boolean = false,
     ) : AdbClient {
         override suspend fun listDevices(): List<AdbDevice> = emptyList()
 
@@ -271,10 +363,13 @@ class WinscopeCoreTest {
             val command = arguments.joinToString(" ")
             val output =
                 when {
-                    command.contains("getprop ro.build.version.sdk") -> "35\nuserdebug\nPixel Fixture\n2000\n"
+                    command.contains("getprop ro.build.version.sdk") -> "35\nuserdebug\nPixel Fixture\n${if (rootActive) 0 else 2000}\n"
                     command == "perfetto --query" ->
                         "DATA SOURCES REGISTERED:\nNAME\n===\n" +
-                            WinscopeSource.entries.mapNotNull(WinscopeSource::perfettoName).joinToString("\n") { "$it 0" } +
+                            WinscopeSource.entries
+                                .filter { windowManagerPerfettoAvailable || it != WinscopeSource.WINDOW_MANAGER }
+                                .mapNotNull(WinscopeSource::perfettoName)
+                                .joinToString("\n") { "$it 0" } +
                             "\nTRACING SESSIONS:\n"
                     command == "dumpsys SurfaceFlinger --display-id" ->
                         "Display 1 (HWC display 0): displayName=\"Internal\"\n" +
@@ -282,6 +377,7 @@ class WinscopeCoreTest {
                     command.contains("--background-wait") -> "123\n"
                     command.contains("kill -0") -> "1\n"
                     command.contains("stat -c") -> "4\n"
+                    command.contains("ls -1t /data/misc/wmtrace") -> "/data/misc/wmtrace/wm_trace.winscope\n"
                     command.contains("ls -1t") -> "/data/misc/perfetto-traces/aps-winscope-old.perfetto-trace\n"
                     command.contains("screenrecord") -> "124\n"
                     else -> ""
@@ -316,7 +412,12 @@ class WinscopeCoreTest {
         ): AdbTextResult {
             Files.write(
                 localPath,
-                if (emptyRecording && remotePath.endsWith(".mp4")) byteArrayOf() else byteArrayOf(1, 2, 3, 4),
+                when {
+                    emptyRecording && remotePath.endsWith(".mp4") -> byteArrayOf()
+                    remotePath.endsWith(".winscope") -> LEGACY_WINDOW_MANAGER_FIXTURE
+                    remotePath.endsWith(".perfetto-trace") -> byteArrayOf(0x0a, 0x00)
+                    else -> byteArrayOf(1, 2, 3, 4)
+                },
             )
             return AdbTextResult(0, "", "", Duration.ZERO)
         }
@@ -358,5 +459,31 @@ class WinscopeCoreTest {
         override suspend fun executeBinary(request: HostProcessRequest): HostProcessBinaryResult = error("not used")
 
         override fun launch(request: HostProcessLaunchRequest): RunningHostProcess = error("not used")
+    }
+
+    companion object {
+        private val LEGACY_WINDOW_MANAGER_FIXTURE =
+            byteArrayOf(
+                0x09,
+                0x57,
+                0x49,
+                0x4e,
+                0x54,
+                0x52,
+                0x41,
+                0x43,
+                0x45,
+                0x12,
+                0x09,
+                0x09,
+                0x7b,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            )
     }
 }

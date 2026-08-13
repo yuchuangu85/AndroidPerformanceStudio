@@ -35,9 +35,11 @@ class WinscopeAnalyzer private constructor(
     private val context: TraceAnalysisContext,
 ) : AutoCloseable {
     suspend fun probeSources(): StudioResult<Set<WinscopeSource>> =
-        query(INCLUDE_MODULES + "\nSELECT name FROM sqlite_master WHERE type IN ('table','view')").map { result ->
-            val names = result.rows.mapNotNull { it.string("name") }.toSet()
-            SOURCE_TABLES.filterValues { candidates -> candidates.any(names::contains) }.keys
+        query(INCLUDE_MODULES + "\n" + SOURCE_COUNTS_SQL).map { result ->
+            result.rows
+                .mapNotNull { row ->
+                    row.string("source")?.let(WinscopeSource::valueOf)?.takeIf { (row.long("entries") ?: 0) > 0 }
+                }.toSet()
         }
 
     suspend fun timeline(): StudioResult<WinscopeTimeline> {
@@ -167,18 +169,22 @@ class WinscopeAnalyzer private constructor(
             INCLUDE PERFETTO MODULE android.winscope.inputmethod;
             INCLUDE PERFETTO MODULE android.winscope.viewcapture;
         """
-        private val SOURCE_TABLES =
-            mapOf(
-                WinscopeSource.WINDOW_MANAGER to setOf("android_windowmanager"),
-                WinscopeSource.SURFACE_FLINGER to setOf("surfaceflinger_layers_snapshot"),
-                WinscopeSource.TRANSACTIONS to setOf("surfaceflinger_transactions"),
-                WinscopeSource.TRANSITIONS to setOf("window_manager_shell_transitions"),
-                WinscopeSource.EVENT_LOG to setOf("android_logs", "android_log"),
-                WinscopeSource.INPUT to setOf("__intrinsic_android_input_event_dispatch"),
-                WinscopeSource.IME to setOf("android_inputmethod_service", "android_inputmethod_manager_service"),
-                WinscopeSource.VIEW_CAPTURE to setOf("android_viewcapture"),
-                WinscopeSource.PROTO_LOG to setOf("protolog"),
-            )
+        private val SOURCE_COUNTS_SQL =
+            listOf(
+                WinscopeSource.WINDOW_MANAGER to "(SELECT COUNT(*) FROM android_windowmanager)",
+                WinscopeSource.SURFACE_FLINGER to "(SELECT COUNT(*) FROM surfaceflinger_layers_snapshot)",
+                WinscopeSource.TRANSACTIONS to "(SELECT COUNT(*) FROM surfaceflinger_transactions)",
+                WinscopeSource.TRANSITIONS to "(SELECT COUNT(*) FROM window_manager_shell_transitions)",
+                WinscopeSource.EVENT_LOG to "(SELECT COUNT(*) FROM android_logs)",
+                WinscopeSource.INPUT to "(SELECT COUNT(*) FROM __intrinsic_android_input_event_dispatch)",
+                WinscopeSource.IME to
+                    "(SELECT COUNT(*) FROM android_inputmethod_service) + " +
+                    "(SELECT COUNT(*) FROM android_inputmethod_manager_service)",
+                WinscopeSource.VIEW_CAPTURE to "(SELECT COUNT(*) FROM android_viewcapture)",
+                WinscopeSource.PROTO_LOG to "(SELECT COUNT(*) FROM protolog)",
+            ).joinToString("\nUNION ALL\n") { (source, count) ->
+                "SELECT '${source.name}' AS source, $count AS entries"
+            }
 
         private fun timelineSql(source: WinscopeSource): String? =
             when (source) {

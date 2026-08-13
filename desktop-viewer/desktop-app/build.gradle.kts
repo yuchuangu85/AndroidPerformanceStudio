@@ -13,12 +13,16 @@ plugins {
 val appVersion = project.version.toString()
 val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_party/firefox-profiler/dist")
 val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/perfetto/out/ui/dist")
+val winscopeUiDist = rootProject.layout.projectDirectory.dir("../third_party/aosp-winscope/dist")
+val winscopeUiManifestFile = rootProject.layout.projectDirectory.file("../third_party/aosp-winscope/manifest.json")
 val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
 val profilerAppResources = layout.buildDirectory.dir("generated/profiler-app-resources")
 val traceProcessorManifestFile = rootProject.layout.projectDirectory.file("platform-perfetto/trace-processor-manifest.json")
 val traceProcessorManifest = JsonSlurper().parse(traceProcessorManifestFile.asFile) as Map<*, *>
+val winscopeUiManifest = JsonSlurper().parse(winscopeUiManifestFile.asFile) as Map<*, *>
+val winscopeUiAssets = checkNotNull(winscopeUiManifest["assets"]) as Map<*, *>
 val traceProcessorVersion = checkNotNull(traceProcessorManifest["version"]) as String
 val traceProcessorChecksums =
     (checkNotNull(traceProcessorManifest["artifacts"]) as Map<*, *>).mapValues { (_, artifact) ->
@@ -28,11 +32,16 @@ val prepareProfilerAppResources =
     tasks.register<Sync>("prepareProfilerAppResources") {
         inputs.file(firefoxProfilerDist.file("index.html"))
         inputs.file(perfettoUiDist.file("index.html"))
+        inputs.dir(winscopeUiDist)
+        inputs.file(winscopeUiManifestFile)
         inputs.dir(userDocumentationEnglish)
         inputs.dir(userDocumentationChinese)
         from(firefoxProfilerDist)
         from(perfettoUiDist) {
             into("perfetto-ui")
+        }
+        from(winscopeUiDist) {
+            into("winscope-ui")
         }
         from(perfettoTools) {
             into("perfetto-tools")
@@ -114,7 +123,38 @@ val verifyPackagedTraceProcessor =
         }
     }
 
-prepareProfilerAppResources.configure { dependsOn(verifyPackagedTraceProcessor) }
+val verifyPackagedWinscopeUi =
+    tasks.register("verifyPackagedWinscopeUi") {
+        val assetsDirectory = winscopeUiDist.asFile
+        val expectedAssets =
+            winscopeUiAssets.entries.associate { (key, value) ->
+                val entry = value as Map<*, *>
+                key.toString() to ((checkNotNull(entry["bytes"]) as Number).toLong() to checkNotNull(entry["sha256"]).toString())
+            }
+        inputs.dir(assetsDirectory)
+        inputs.file(winscopeUiManifestFile)
+        doLast {
+            val root = assetsDirectory
+            val actual =
+                root
+                    .walkTopDown()
+                    .filter(File::isFile)
+                    .associateBy { file -> file.relativeTo(root).invariantSeparatorsPath }
+            check(actual.keys == expectedAssets.keys) { "Packaged Winscope asset closure differs from manifest.json" }
+            actual.forEach { (relative, file) ->
+                val (expectedBytes, expectedSha256) = checkNotNull(expectedAssets[relative])
+                check(file.length() == expectedBytes) { "Packaged Winscope size mismatch: $relative" }
+                val actualSha256 = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.readBytes()))
+                check(actualSha256 == expectedSha256) { "Packaged Winscope checksum mismatch: $relative" }
+            }
+            check("winscope_proxy.py" !in actual) { "winscope_proxy.py must not be packaged" }
+        }
+    }
+
+prepareProfilerAppResources.configure {
+    dependsOn(verifyPackagedTraceProcessor)
+    dependsOn(verifyPackagedWinscopeUi)
+}
 
 require(targetArch == "x64" || targetArch == "arm64") {
     "Unsupported target.arch=$targetArch. Compose Desktop supports x64 and arm64 desktop runtimes; Windows x86 is not supported."

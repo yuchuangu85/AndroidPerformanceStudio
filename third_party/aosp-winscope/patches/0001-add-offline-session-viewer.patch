@@ -1,0 +1,184 @@
+diff --git a/winscope/src/app/components/app_component.ts b/winscope/src/app/components/app_component.ts
+index 934fcace8..cd66ed0a2 100644
+--- a/winscope/src/app/components/app_component.ts
++++ b/winscope/src/app/components/app_component.ts
+@@ -344,11 +344,6 @@ import {RequestData} from 'cross_tool/g3_proxy';
+               </h1>
+ 
+               <div class="card-grid landing-grid">
+-                <collect-traces
+-                  class="collect-traces-card homepage-card"
+-                  [storage]="appStorage"
+-                  (filesCollected)="onFilesCollected($event)"></collect-traces>
+-
+                 <upload-traces
+                   #uploadTraces
+                   class="upload-traces-card homepage-card"
+@@ -657,6 +652,37 @@ export class AppComponent implements WinscopeEventListener {
+ 
+   async ngAfterViewInit() {
+     await this.mediator.onWinscopeEvent(new AppInitialized());
++    this.mediator.setUploadTracesComponent(this.uploadTracesComponent);
++    await this.loadPackagedEvidence();
++  }
++
++  private async loadPackagedEvidence() {
++    const session = new URLSearchParams(window.location.search).get('session');
++    if (!session) return;
++    try {
++      const response = await fetch(
++        `./evidence?session=${encodeURIComponent(session)}`,
++        {
++          cache: 'no-store',
++          credentials: 'omit',
++        },
++      );
++      if (!response.ok)
++        throw new Error(`Evidence request failed (${response.status})`);
++      const filename =
++        response.headers.get('X-Winscope-Filename') ??
++        'aps-winscope-evidence.zip';
++      const file = new File([await response.blob()], filename, {
++        type: 'application/zip',
++      });
++      await this.onFilesUploaded([file]);
++      await this.onViewTracesButtonClick(true);
++    } catch (error) {
++      console.error(
++        'Unable to load Android Performance Studio evidence',
++        error,
++      );
++    }
+   }
+ 
+   ngAfterViewChecked() {
+diff --git a/winscope/src/common/analytics.ts b/winscope/src/common/analytics.ts
+index acaac639c..634953507 100644
+--- a/winscope/src/common/analytics.ts
++++ b/winscope/src/common/analytics.ts
+@@ -28,7 +28,7 @@ export function analyticsLogEvent(
+   eventName: Gtag.EventNames | (string & {}),
+   eventParams?: Gtag.ControlParams | Gtag.EventParams | Gtag.CustomParams,
+ ) {
+-  if (globalConfig.MODE === 'PROD') {
+-    gtag('event', eventName, eventParams);
+-  }
++  void globalConfig;
++  void eventName;
++  void eventParams;
+ }
+diff --git a/winscope/src/index.html b/winscope/src/index.html
+index fffe5648e..ba27af6b6 100644
+--- a/winscope/src/index.html
++++ b/winscope/src/index.html
+@@ -21,16 +21,6 @@
+     <base href="./" />
+     <meta name="viewport" content="width=device-width, initial-scale=1" />
+     <link rel="icon" type="image/x-icon" href="logo_page_tab.svg" />
+-    <!-- Google tag (gtag.js) -->
+-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-95DPZ8JGEP"></script>
+-    <script>
+-      window.dataLayer = window.dataLayer || [];
+-      function gtag() {
+-        dataLayer.push(arguments);
+-      }
+-      gtag("js", new Date());
+-      gtag("config", "G-95DPZ8JGEP");
+-    </script>
+   </head>
+   <body class="mat-app-background">
+     <app-root></app-root>
+diff --git a/winscope/src/material-theme.scss b/winscope/src/material-theme.scss
+index d015feb60..001823d09 100644
+--- a/winscope/src/material-theme.scss
++++ b/winscope/src/material-theme.scss
+@@ -17,12 +17,18 @@
+ @use 'sass:map';
+ @use '@angular/material' as mat;
+ 
+-@import 'https://fonts.googleapis.com/icon?family=Material+Icons';
+-@import '//fonts.googleapis.com/css2?family=Google+Sans';
+-@import 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0';
++@font-face {
++  font-family: 'Material Icons';
++  src: url('./fonts/MaterialIcons-Regular.ttf') format('truetype');
++}
++
++@font-face {
++  font-family: 'Material Symbols Outlined';
++  src: url('./fonts/MaterialSymbolsOutlined.ttf') format('truetype');
++}
+ 
+ $typography: mat.m2-define-typography-config(
+-  $font-family: 'Roboto, sans-serif',
++  $font-family: 'Arial, sans-serif',
+   $headline-1:
+     mat.m2-define-typography-level(
+       $font-size: 24px,
+diff --git a/winscope/src/trace_processor/perfetto/engine.ts b/winscope/src/trace_processor/perfetto/engine.ts
+index f521e8151..3da1bc678 100644
+--- a/winscope/src/trace_processor/perfetto/engine.ts
++++ b/winscope/src/trace_processor/perfetto/engine.ts
+@@ -219,22 +219,27 @@ export abstract class EngineBase implements Engine {
+     };
+ 
+     const rpc = perfetto.protos.TraceProcessorRpc.decode(rpcMsgEncoded);
++    const sequenceId = Number(rpc.seq);
+ 
+     if (rpc.fatalError !== undefined && rpc.fatalError.length > 0) {
+       this.fail(`${rpc.fatalError}`);
+     }
+ 
+     // Allow restarting sequences from zero (when reloading the browser).
+-    if (rpc.seq !== this.rxSeqId + 1 && this.rxSeqId !== 0 && rpc.seq !== 0) {
++    if (
++      sequenceId !== this.rxSeqId + 1 &&
++      this.rxSeqId !== 0 &&
++      sequenceId !== 0
++    ) {
+       // "(ERR:rpc_seq)" is intercepted by error_dialog.ts to show a more
+       // graceful and actionable error.
+       this.fail(
+         `RPC sequence id mismatch ` +
+-          `cur=${rpc.seq} last=${this.rxSeqId} (ERR:rpc_seq)`,
++          `cur=${sequenceId} last=${this.rxSeqId} (ERR:rpc_seq)`,
+       );
+     }
+ 
+-    this.rxSeqId = rpc.seq;
++    this.rxSeqId = sequenceId;
+ 
+     let isFinalResponse = true;
+ 
+diff --git a/winscope/webpack.config.prod.js b/winscope/webpack.config.prod.js
+index 89dba44fc..2ca179363 100644
+--- a/winscope/webpack.config.prod.js
++++ b/winscope/webpack.config.prod.js
+@@ -18,6 +18,8 @@ const configCommon = require('./webpack.config.common');
+ const path = require('path');
+ const HtmlWebpackPlugin = require('html-webpack-plugin');
+ const AngularWebpackPlugin = require('@ngtools/webpack').AngularWebpackPlugin;
++const LicenseWebpackPlugin =
++  require('license-webpack-plugin').LicenseWebpackPlugin;
+ 
+ const configProd = {
+   mode: 'production',
+@@ -66,7 +68,17 @@ const configProd = {
+       template: 'src/index.html',
+       inject: 'body',
+     }),
++    new LicenseWebpackPlugin({
++      perChunkOutput: false,
++      outputFilename: 'third-party-licenses.txt',
++    }),
+   ],
+ };
+ 
+-module.exports = merge(configCommon, configProd);
++const mergedConfig = merge(configCommon, configProd);
++mergedConfig.devtool = false;
++mergedConfig.module.rules = mergedConfig.module.rules.filter(
++  (rule) => rule.loader !== '@ephesoft/webpack.istanbul.loader',
++);
++
++module.exports = mergedConfig;

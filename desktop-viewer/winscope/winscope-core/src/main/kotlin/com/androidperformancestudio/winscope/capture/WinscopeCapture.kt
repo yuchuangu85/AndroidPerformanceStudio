@@ -12,6 +12,7 @@ import com.androidperformancestudio.platform.perfetto.PerfettoDataSource
 import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import com.androidperformancestudio.platform.toolchain.HostProcessRunner
 import com.androidperformancestudio.platform.toolchain.JvmHostProcessRunner
+import com.androidperformancestudio.winscope.analysis.WinscopeAnalyzer
 import com.androidperformancestudio.winscope.model.WinscopeCapabilities
 import com.androidperformancestudio.winscope.model.WinscopeCaptureConfig
 import com.androidperformancestudio.winscope.model.WinscopeCapturePreset
@@ -34,8 +35,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.minutes
@@ -171,6 +174,7 @@ class WinscopeCapabilityDetector(
 class WinscopeCaptureController(
     private val adbFactory: (Path) -> AdbClient = ::DefaultAdbClient,
     private val storageDirectory: Path = defaultCaptureDirectory(),
+    private val sourceProbe: suspend (Path) -> StudioResult<Set<WinscopeSource>> = ::probeWinscopeSources,
 ) : AutoCloseable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
@@ -232,6 +236,11 @@ class WinscopeCaptureController(
                         } else {
                             null
                         }
+                    val legacyWindowManager =
+                        WinscopeSource.WINDOW_MANAGER in config.requestedSources &&
+                            WinscopeSource.WINDOW_MANAGER !in available &&
+                            capabilities.device.rootActive &&
+                            startLegacyWindowManager(adb, capabilities.device.serial, config)
                     if (WinscopeSource.SCREEN_RECORDING in available && recordingPid == null) {
                         available -= WinscopeSource.SCREEN_RECORDING
                     }
@@ -244,6 +253,7 @@ class WinscopeCaptureController(
                             available,
                             perfettoPid,
                             recordingPid,
+                            legacyWindowManager,
                             remoteConfig,
                             remoteTrace,
                             remoteRecording,
@@ -420,6 +430,15 @@ class WinscopeCaptureController(
                         )
                     }
                 }
+                if (capture.legacyWindowManager) {
+                    runCatching {
+                        capture.adb.shell(
+                            capture.capabilities.device.serial,
+                            listOf("cmd", "window", "tracing", "stop"),
+                            30.seconds,
+                        )
+                    }
+                }
                 waitUntilStopped(capture, capture.perfettoPid, "Perfetto")
                 capture.recordingPid?.let { waitUntilStopped(capture, it, "screen recording") }
                 enforceRemoteSize(capture.adb, capture.capabilities.device.serial, capture.remoteTrace)
@@ -434,16 +453,39 @@ class WinscopeCaptureController(
                         )
                     }
                 }
-                cleanup(capture.adb, capture.capabilities.device.serial, capture.remoteConfig, capture.remoteTrace, capture.remoteRecording)
+                if (capture.legacyWindowManager) mergeLegacyWindowManager(capture)
+                cleanup(
+                    capture.adb,
+                    capture.capabilities.device.serial,
+                    capture.remoteConfig,
+                    capture.remoteTrace,
+                    capture.remoteRecording,
+                    LEGACY_WINDOW_MANAGER_FILE,
+                    LEGACY_WINDOW_MANAGER_PB_FILE,
+                )
                 val recordingFile =
                     capture.localRecording.takeIf { Files.isRegularFile(it) && Files.size(it) > 0L }
                 if (recordingFile == null) Files.deleteIfExists(capture.localRecording)
-                val availableSources =
-                    if (capture.recordingPid != null && recordingFile == null) {
-                        capture.availableSources - WinscopeSource.SCREEN_RECORDING
-                    } else {
-                        capture.availableSources
+                val traceSources =
+                    when (val probed = sourceProbe(capture.localTrace)) {
+                        is StudioResult.Success -> probed.value.intersect(capture.config.requestedSources)
+                        is StudioResult.Failure -> throw IllegalStateException(
+                            "Unable to verify captured Winscope evidence: ${probed.error.message}",
+                        )
                     }
+                val availableSources = traceSources + if (recordingFile == null) emptySet() else setOf(WinscopeSource.SCREEN_RECORDING)
+                if (WinscopeCapabilities.CORE_SOURCES.none(traceSources::contains)) {
+                    active = null
+                    val recordingMessage =
+                        recordingFile
+                            ?.let { "; only the screen recording contains usable evidence and is saved at $it" }
+                            .orEmpty()
+                    return setFailure(
+                        "WINSCOPE_CORE_EVIDENCE_MISSING",
+                        "No WindowManager or SurfaceFlinger evidence was captured$recordingMessage. " +
+                            "The raw Perfetto trace is at ${capture.localTrace}. Use an Android 15+ userdebug/eng device with adb root.",
+                    )
+                }
                 val missing = capture.config.requestedSources - availableSources
                 val limitations =
                     missing.map { WinscopeLimitation(it, "DATA_SOURCE_UNAVAILABLE", "${it.displayName} was requested but unavailable") }
@@ -458,7 +500,10 @@ class WinscopeCaptureController(
                         availableSources = availableSources,
                         limitations = limitations,
                         completeness = if (missing.isEmpty()) WinscopeCompleteness.COMPLETE else WinscopeCompleteness.PARTIAL,
-                        sensitive = capture.config.containsSensitiveEvidence,
+                        sensitive =
+                            recordingFile != null ||
+                                WinscopeSource.INPUT in traceSources ||
+                                (capture.config.protoLogStacktraces && WinscopeSource.PROTO_LOG in traceSources),
                         managedFiles = true,
                     )
                 active = null
@@ -494,6 +539,50 @@ class WinscopeCaptureController(
         }
         throw IllegalStateException("Timed out waiting for $processName to stop")
     }
+
+    private suspend fun startLegacyWindowManager(
+        adb: AdbClient,
+        serial: String,
+        config: WinscopeCaptureConfig,
+    ): Boolean =
+        runCatching {
+            cleanup(adb, serial, LEGACY_WINDOW_MANAGER_FILE, LEGACY_WINDOW_MANAGER_PB_FILE)
+            adb.shell(
+                serial,
+                listOf(
+                    "sh",
+                    "-c",
+                    "cmd window tracing ${if (config.preset == WinscopeCapturePreset.FULL_DETAIL) "transaction" else "frame"}; " +
+                        "cmd window tracing level ${if (config.preset == WinscopeCapturePreset.FULL_DETAIL) "verbose" else "debug"}; " +
+                        "cmd window tracing start",
+                ),
+                30.seconds,
+            )
+            true
+        }.getOrDefault(false)
+
+    private suspend fun mergeLegacyWindowManager(capture: ActiveCapture): Boolean =
+        runCatching {
+            val remote =
+                capture.adb
+                    .shell(
+                        capture.capabilities.device.serial,
+                        listOf("sh", "-c", "ls -1t ${LEGACY_WINDOW_MANAGER_FILES.joinToString(" ")} 2>/dev/null | head -n 1"),
+                        10.seconds,
+                    ).stdout
+                    .lineSequence()
+                    .map(String::trim)
+                    .firstOrNull { it in LEGACY_WINDOW_MANAGER_FILES }
+                    ?: return false
+            enforceRemoteSize(capture.adb, capture.capabilities.device.serial, remote)
+            val local = storageDirectory.resolve("${capture.id}-window-manager.winscope")
+            try {
+                capture.adb.pull(capture.capabilities.device.serial, remote, local, 2.minutes)
+                appendLegacyWindowManagerTrace(capture.localTrace, local) > 0
+            } finally {
+                Files.deleteIfExists(local)
+            }
+        }.getOrDefault(false)
 
     private suspend fun enforceRemoteSize(
         adb: AdbClient,
@@ -571,6 +660,7 @@ class WinscopeCaptureController(
         val availableSources: Set<WinscopeSource>,
         val perfettoPid: Long,
         val recordingPid: Long?,
+        val legacyWindowManager: Boolean,
         val remoteConfig: String,
         val remoteTrace: String,
         val remoteRecording: String,
@@ -583,6 +673,10 @@ class WinscopeCaptureController(
         private const val REMOTE_DIRECTORY = "/data/misc/perfetto-traces"
         private const val MAX_TRACE_BYTES = 1_073_741_824L
         private const val MAX_SCREENSHOT_BYTES = 64 * 1024 * 1024
+        private const val LEGACY_WINDOW_MANAGER_FILE = "/data/misc/wmtrace/wm_trace.winscope"
+        private const val LEGACY_WINDOW_MANAGER_PB_FILE = "/data/misc/wmtrace/wm_trace.pb"
+        private val LEGACY_WINDOW_MANAGER_FILES =
+            arrayOf(LEGACY_WINDOW_MANAGER_FILE, LEGACY_WINDOW_MANAGER_PB_FILE)
 
         private fun defaultCaptureDirectory(): Path =
             Path.of(System.getProperty("user.home"), ".android-performance-studio", "winscope-sessions")
@@ -594,6 +688,145 @@ class WinscopeCaptureController(
                 .mapNotNull(String::toLongOrNull)
                 .firstOrNull { it > 0 }
     }
+}
+
+private suspend fun probeWinscopeSources(trace: Path): StudioResult<Set<WinscopeSource>> {
+    val analyzer =
+        when (val opened = WinscopeAnalyzer.open(WinscopeSession("capture-verification", trace, capturedAt = Instant.EPOCH))) {
+            is StudioResult.Success -> opened.value
+            is StudioResult.Failure -> return opened
+        }
+    return try {
+        analyzer.probeSources()
+    } finally {
+        analyzer.close()
+    }
+}
+
+internal fun appendLegacyWindowManagerTrace(
+    perfettoTrace: Path,
+    legacyTrace: Path,
+): Int {
+    val legacy = Files.readAllBytes(legacyTrace)
+    require(
+        legacy.size >= LEGACY_WINDOW_MANAGER_MAGIC.size &&
+            legacy.copyOfRange(0, LEGACY_WINDOW_MANAGER_MAGIC.size).contentEquals(LEGACY_WINDOW_MANAGER_MAGIC),
+    ) {
+        "Invalid legacy WindowManager trace"
+    }
+    val packets = ByteArrayOutputStream()
+    var offset = LEGACY_WINDOW_MANAGER_MAGIC.size
+    var count = 0
+    while (offset < legacy.size) {
+        val (tag, afterTag) = readVarint(legacy, offset)
+        offset = afterTag
+        val field = (tag ushr 3).toInt()
+        val wireType = (tag and 7).toInt()
+        if (wireType == 2) {
+            val (sizeValue, afterSize) = readVarint(legacy, offset)
+            val size = sizeValue.toInt()
+            val end = afterSize + size
+            require(size >= 0 && end in afterSize..legacy.size) { "Invalid legacy WindowManager trace field" }
+            if (field == 2) {
+                val entry = legacy.copyOfRange(afterSize, end)
+                val timestamp = readFixed64Field(entry, 1)
+                val winscope = lengthDelimitedField(6, entry)
+                val packet =
+                    ByteArrayOutputStream()
+                        .apply {
+                            writeVarint(this, 8L shl 3)
+                            writeVarint(this, timestamp)
+                            write(lengthDelimitedField(112, winscope))
+                        }.toByteArray()
+                packets.write(lengthDelimitedField(1, packet))
+                count++
+            }
+            offset = end
+        } else {
+            offset = skipField(legacy, offset, wireType)
+        }
+    }
+    require(count > 0) { "Legacy WindowManager trace contains no entries" }
+    Files.write(perfettoTrace, packets.toByteArray(), StandardOpenOption.APPEND)
+    return count
+}
+
+private val LEGACY_WINDOW_MANAGER_MAGIC = byteArrayOf(0x09, 0x57, 0x49, 0x4e, 0x54, 0x52, 0x41, 0x43, 0x45)
+
+private fun lengthDelimitedField(
+    field: Int,
+    value: ByteArray,
+): ByteArray =
+    ByteArrayOutputStream()
+        .apply {
+            writeVarint(this, (field.toLong() shl 3) or 2)
+            writeVarint(this, value.size.toLong())
+            write(value)
+        }.toByteArray()
+
+private fun readFixed64Field(
+    message: ByteArray,
+    wantedField: Int,
+): Long {
+    var offset = 0
+    while (offset < message.size) {
+        val (tag, afterTag) = readVarint(message, offset)
+        offset = afterTag
+        val field = (tag ushr 3).toInt()
+        val wireType = (tag and 7).toInt()
+        if (field == wantedField && wireType == 1) {
+            require(offset + 8 <= message.size) { "Invalid fixed64 field" }
+            var value = 0L
+            repeat(8) { index -> value = value or ((message[offset + index].toLong() and 0xff) shl (index * 8)) }
+            return value
+        }
+        offset = skipField(message, offset, wireType)
+    }
+    return 0L
+}
+
+private fun skipField(
+    bytes: ByteArray,
+    offset: Int,
+    wireType: Int,
+): Int =
+    when (wireType) {
+        0 -> readVarint(bytes, offset).second
+        1 -> (offset + 8).also { require(it <= bytes.size) { "Invalid fixed64 field" } }
+        2 -> {
+            val (size, start) = readVarint(bytes, offset)
+            (start + size.toInt()).also { require(size <= Int.MAX_VALUE && it in start..bytes.size) { "Invalid length-delimited field" } }
+        }
+        5 -> (offset + 4).also { require(it <= bytes.size) { "Invalid fixed32 field" } }
+        else -> error("Unsupported protobuf wire type $wireType")
+    }
+
+private fun readVarint(
+    bytes: ByteArray,
+    start: Int,
+): Pair<Long, Int> {
+    var value = 0L
+    var shift = 0
+    var offset = start
+    while (offset < bytes.size && shift < 64) {
+        val byte = bytes[offset++].toInt() and 0xff
+        value = value or ((byte and 0x7f).toLong() shl shift)
+        if (byte and 0x80 == 0) return value to offset
+        shift += 7
+    }
+    error("Invalid protobuf varint")
+}
+
+private fun writeVarint(
+    output: ByteArrayOutputStream,
+    input: Long,
+) {
+    var value = input
+    while (value and -0x80L != 0L) {
+        output.write(((value and 0x7f) or 0x80).toInt())
+        value = value ushr 7
+    }
+    output.write(value.toInt())
 }
 
 object WinscopeConfigBuilder {
