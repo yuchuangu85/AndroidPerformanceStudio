@@ -113,6 +113,8 @@ class UpstreamWinscopeServerTest {
             val response = get(uri.resolve("/evidence?${uri.query}"))
             assertEquals(200, response.statusCode())
             assertContentEquals(byteArrayOf('P'.code.toByte(), 'K'.code.toByte()), response.body().copyOf(2))
+            launcher.invalidate()
+            assertEquals(404, get(uri.resolve("/evidence?${uri.query}")).statusCode())
         } finally {
             launcher.close()
         }

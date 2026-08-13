@@ -124,7 +124,6 @@ import com.androidperformancestudio.winscope.model.WinscopeState
 import com.androidperformancestudio.winscope.model.WinscopeTimeline
 import com.androidperformancestudio.winscope.storage.WinscopeSessionFiles
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
@@ -168,44 +167,49 @@ fun FrameWindowScope.WinscopeMainPage(
     var capturePanelVisible by remember { mutableStateOf(true) }
     val annotations = remember { mutableStateListOf<WinscopeAnnotation>() }
     val confirmedUpstreamSessions = remember { mutableStateListOf<String>() }
-    var sessionLoadJob by remember { mutableStateOf<Job?>(null) }
+    var sessionLoadGeneration by remember { mutableLongStateOf(0L) }
 
     fun selectTimestamp(value: Long) {
         timestamp = timeline?.bounds?.let { value.coerceIn(it.startNanos, it.endNanos) } ?: value
     }
 
     fun openSession(session: WinscopeSession) {
-        sessionLoadJob?.cancel()
-        sessionLoadJob =
-            scope.launch {
-                upstreamWinscope.invalidate()
-                pendingUpstreamOpen = null
-                confirmedUpstreamSessions.clear()
-                analyzer?.close()
-                analyzer = null
-                timeline = null
-                activeSession = session
-                annotations.clear()
-                annotations.addAll(session.annotations)
-                when (val opened = withContext(Dispatchers.IO) { WinscopeAnalyzer.open(session) }) {
-                    is StudioResult.Failure -> error = opened.error.message
-                    is StudioResult.Success -> {
-                        analyzer = opened.value
-                        when (val loaded = withContext(Dispatchers.IO) { opened.value.timeline() }) {
-                            is StudioResult.Failure -> error = loaded.error.message
-                            is StudioResult.Success -> {
-                                timeline = loaded.value
-                                timestamp = loaded.value.bounds.startNanos
-                                recentSessions =
-                                    (listOf(session) + recentSessions)
-                                        .distinctBy { it.traceFile.toAbsolutePath().normalize() }
-                                        .take(10)
-                                error = null
-                            }
+        val generation = ++sessionLoadGeneration
+        scope.launch {
+            upstreamWinscope.invalidate()
+            pendingUpstreamOpen = null
+            confirmedUpstreamSessions.clear()
+            analyzer?.close()
+            analyzer = null
+            timeline = null
+            activeSession = session
+            annotations.clear()
+            annotations.addAll(session.annotations)
+            when (val opened = withContext(Dispatchers.IO) { WinscopeAnalyzer.open(session) }) {
+                is StudioResult.Failure -> error = opened.error.message
+                is StudioResult.Success -> {
+                    if (generation != sessionLoadGeneration) {
+                        opened.value.close()
+                        return@launch
+                    }
+                    analyzer = opened.value
+                    val loaded = withContext(Dispatchers.IO) { opened.value.timeline() }
+                    if (generation != sessionLoadGeneration) return@launch
+                    when (loaded) {
+                        is StudioResult.Failure -> error = loaded.error.message
+                        is StudioResult.Success -> {
+                            timeline = loaded.value
+                            timestamp = loaded.value.bounds.startNanos
+                            recentSessions =
+                                (listOf(session) + recentSessions)
+                                    .distinctBy { it.traceFile.toAbsolutePath().normalize() }
+                                    .take(10)
+                            error = null
                         }
                     }
                 }
             }
+        }
     }
 
     fun refreshDevices() {
@@ -349,7 +353,7 @@ fun FrameWindowScope.WinscopeMainPage(
     LaunchedEffect(captureState.session) { captureState.session?.let(::openSession) }
     DisposableEffect(Unit) {
         onDispose {
-            sessionLoadJob?.cancel()
+            sessionLoadGeneration++
             analyzer?.close()
             capture.close()
             upstreamWinscope.close()

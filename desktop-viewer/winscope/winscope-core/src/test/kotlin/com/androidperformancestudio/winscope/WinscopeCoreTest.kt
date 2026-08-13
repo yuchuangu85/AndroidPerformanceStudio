@@ -253,6 +253,17 @@ class WinscopeCoreTest {
 
             assertContains(session.availableSources, WinscopeSource.WINDOW_MANAGER)
             assertTrue(session.limitations.none { it.message == "WindowManager was requested but unavailable" })
+            assertTrue(
+                adb.shellCommands.any {
+                    it ==
+                        listOf(
+                            "rm",
+                            "-f",
+                            "/data/misc/wmtrace/wm_trace.winscope",
+                            "/data/misc/wmtrace/wm_trace.pb",
+                        )
+                },
+            )
             findTraceProcessor()?.let { binary ->
                 System.setProperty("androidperformancestudio.traceProcessorPath", binary.toString())
                 val analyzer = assertIs<StudioResult.Success<WinscopeAnalyzer>>(WinscopeAnalyzer.open(session)).value
@@ -351,6 +362,8 @@ class WinscopeCoreTest {
         private val windowManagerPerfettoAvailable: Boolean = true,
         private val rootActive: Boolean = false,
     ) : AdbClient {
+        val shellCommands = mutableListOf<List<String>>()
+
         override suspend fun listDevices(): List<AdbDevice> = emptyList()
 
         override suspend fun shell(
@@ -360,6 +373,7 @@ class WinscopeCoreTest {
             maxOutputBytesPerStream: Int,
             isCancellationRequested: () -> Boolean,
         ): AdbTextResult {
+            shellCommands += arguments
             val command = arguments.joinToString(" ")
             val output =
                 when {
