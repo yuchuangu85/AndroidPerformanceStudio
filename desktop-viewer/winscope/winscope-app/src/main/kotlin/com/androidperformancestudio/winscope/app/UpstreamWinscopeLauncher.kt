@@ -16,6 +16,7 @@ class UpstreamWinscopeLauncher(
 ) : AutoCloseable {
     private var evidencePackage: Path? = null
 
+    @Synchronized
     fun open(
         session: WinscopeSession,
         annotations: List<WinscopeAnnotation>,
@@ -51,17 +52,29 @@ class UpstreamWinscopeLauncher(
                 opened
             }
             is StudioResult.Success -> {
-                evidencePackage?.let(Files::deleteIfExists)
+                evidencePackage?.let(::deleteBestEffort)
                 evidencePackage = generated
                 StudioResult.Success(Unit)
             }
         }
     }
 
+    @Synchronized
+    fun invalidate() {
+        server.invalidateEvidence()
+        evidencePackage?.let(::deleteBestEffort)
+        evidencePackage = null
+    }
+
+    @Synchronized
     override fun close() {
         server.close()
-        evidencePackage?.let(Files::deleteIfExists)
+        evidencePackage?.let(::deleteBestEffort)
         evidencePackage = null
+    }
+
+    private fun deleteBestEffort(path: Path) {
+        runCatching { Files.deleteIfExists(path) }
     }
 }
 

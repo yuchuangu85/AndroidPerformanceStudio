@@ -15,6 +15,7 @@ val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_part
 val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/perfetto/out/ui/dist")
 val winscopeUiDist = rootProject.layout.projectDirectory.dir("../third_party/aosp-winscope/dist")
 val winscopeUiManifestFile = rootProject.layout.projectDirectory.file("../third_party/aosp-winscope/manifest.json")
+val winscopeUiPatchFile = rootProject.layout.projectDirectory.file("../third_party/aosp-winscope/patches/0001-add-offline-session-viewer.patch")
 val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
@@ -23,6 +24,8 @@ val traceProcessorManifestFile = rootProject.layout.projectDirectory.file("platf
 val traceProcessorManifest = JsonSlurper().parse(traceProcessorManifestFile.asFile) as Map<*, *>
 val winscopeUiManifest = JsonSlurper().parse(winscopeUiManifestFile.asFile) as Map<*, *>
 val winscopeUiAssets = checkNotNull(winscopeUiManifest["assets"]) as Map<*, *>
+val winscopeUiPatchSha256 = checkNotNull(winscopeUiManifest["patchSha256"]) as String
+val winscopeUiSourceCommit = checkNotNull(winscopeUiManifest["sourceCommit"]) as String
 val traceProcessorVersion = checkNotNull(traceProcessorManifest["version"]) as String
 val traceProcessorChecksums =
     (checkNotNull(traceProcessorManifest["artifacts"]) as Map<*, *>).mapValues { (_, artifact) ->
@@ -133,7 +136,15 @@ val verifyPackagedWinscopeUi =
             }
         inputs.dir(assetsDirectory)
         inputs.file(winscopeUiManifestFile)
+        inputs.file(winscopeUiPatchFile)
+        val patchFile = winscopeUiPatchFile.asFile
+        val expectedPatchSha256 = winscopeUiPatchSha256
+        val sourceCommit = winscopeUiSourceCommit
         doLast {
+            check(sourceCommit == "f41a8085fa0166967dd5ece55dce0796fd079e93") { "Unexpected upstream Winscope source commit: $sourceCommit" }
+            val actualPatchSha256 =
+                HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(patchFile.readBytes()))
+            check(actualPatchSha256 == expectedPatchSha256) { "Upstream Winscope patch checksum mismatch" }
             val root = assetsDirectory
             val actual =
                 root
@@ -148,6 +159,9 @@ val verifyPackagedWinscopeUi =
                 check(actualSha256 == expectedSha256) { "Packaged Winscope checksum mismatch: $relative" }
             }
             check("winscope_proxy.py" !in actual) { "winscope_proxy.py must not be packaged" }
+            listOf("LICENSE-AOSP.txt", "LICENSE-MATERIAL-DESIGN-ICONS.txt", "third-party-licenses.txt").forEach { license ->
+                check(actual[license]?.length()?.let { it > 0 } == true) { "Packaged Winscope license inventory is missing: $license" }
+            }
         }
     }
 

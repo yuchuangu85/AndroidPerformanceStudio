@@ -1,8 +1,16 @@
 diff --git a/winscope/src/app/components/app_component.ts b/winscope/src/app/components/app_component.ts
-index 934fcace8..cd66ed0a2 100644
+index 934fcace8..ab98016bb 100644
 --- a/winscope/src/app/components/app_component.ts
 +++ b/winscope/src/app/components/app_component.ts
-@@ -344,11 +344,6 @@ import {RequestData} from 'cross_tool/g3_proxy';
+@@ -53,6 +53,7 @@ import {getRootUrl} from 'common/window';
+ import {CrossToolProtocol} from 'cross_tool/cross_tool_protocol';
+ import {Analytics} from 'logging/analytics';
+ import {ProgressListener} from 'messaging/progress_listener';
++import {NotificationType, UserNotification} from 'messaging/user_notification';
+ import {
+   AppFilesCollected,
+   AppFilesUploaded,
+@@ -344,11 +345,6 @@ import {RequestData} from 'cross_tool/g3_proxy';
                </h1>
  
                <div class="card-grid landing-grid">
@@ -14,7 +22,7 @@ index 934fcace8..cd66ed0a2 100644
                  <upload-traces
                    #uploadTraces
                    class="upload-traces-card homepage-card"
-@@ -657,6 +652,37 @@ export class AppComponent implements WinscopeEventListener {
+@@ -657,6 +653,41 @@ export class AppComponent implements WinscopeEventListener {
  
    async ngAfterViewInit() {
      await this.mediator.onWinscopeEvent(new AppInitialized());
@@ -48,10 +56,34 @@ index 934fcace8..cd66ed0a2 100644
 +        'Unable to load Android Performance Studio evidence',
 +        error,
 +      );
++      const message = error instanceof Error ? error.message : `${error}`;
++      UserNotifier.add(
++        new PackagedEvidenceLoadFailure(message),
++      ).notify();
 +    }
    }
  
    ngAfterViewChecked() {
+@@ -980,3 +1011,19 @@ export class AppComponent implements WinscopeEventListener {
+     this.downloadRequest(url, filename);
+   }
+ }
++
++class PackagedEvidenceLoadFailure implements UserNotification {
++  constructor(private readonly message: string) {}
++
++  getNotificationType(): NotificationType {
++    return NotificationType.ERROR;
++  }
++
++  getDescriptor(): string {
++    return 'Android Performance Studio evidence failed to load';
++  }
++
++  getMessage(): string {
++    return this.message;
++  }
++}
 diff --git a/winscope/src/common/analytics.ts b/winscope/src/common/analytics.ts
 index acaac639c..634953507 100644
 --- a/winscope/src/common/analytics.ts

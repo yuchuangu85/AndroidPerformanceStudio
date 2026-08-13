@@ -625,7 +625,10 @@ class WinscopeCaptureController(
         serial: String,
         vararg paths: String,
     ) {
-        val safe = paths.filter { it.startsWith("$REMOTE_DIRECTORY/aps-winscope-") }
+        val safe =
+            paths.filter {
+                it.startsWith("$REMOTE_DIRECTORY/aps-winscope-") || it in LEGACY_WINDOW_MANAGER_FILES
+            }
         if (safe.isNotEmpty()) runCatching { adb.shell(serial, listOf("rm", "-f") + safe, 10.seconds) }
     }
 
