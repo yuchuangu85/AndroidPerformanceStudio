@@ -137,10 +137,10 @@ index fffe5648e..ba27af6b6 100644
    <body class="mat-app-background">
      <app-root></app-root>
 diff --git a/winscope/src/material-theme.scss b/winscope/src/material-theme.scss
-index d015feb60..001823d09 100644
+index d015feb60..746e2111f 100644
 --- a/winscope/src/material-theme.scss
 +++ b/winscope/src/material-theme.scss
-@@ -17,12 +17,18 @@
+@@ -17,12 +17,28 @@
  @use 'sass:map';
  @use '@angular/material' as mat;
  
@@ -155,6 +155,16 @@ index d015feb60..001823d09 100644
 +@font-face {
 +  font-family: 'Material Symbols Outlined';
 +  src: url('./fonts/MaterialSymbolsOutlined.ttf') format('truetype');
++}
++
++.material-icons {
++  font-family: 'Material Icons';
++  font-feature-settings: 'liga';
++}
++
++.material-symbols-outlined {
++  font-family: 'Material Symbols Outlined';
++  font-feature-settings: 'liga';
 +}
  
  $typography: mat.m2-define-typography-config(
