@@ -176,9 +176,9 @@ fun FrameWindowScope.WinscopeMainPage(
     fun openSession(session: WinscopeSession) {
         val generation = ++sessionLoadGeneration
         scope.launch {
-            upstreamWinscope.invalidate()
             pendingUpstreamOpen = null
             confirmedUpstreamSessions.clear()
+            withContext(Dispatchers.IO) { upstreamWinscope.invalidate() }
             analyzer?.close()
             analyzer = null
             timeline = null
@@ -356,7 +356,7 @@ fun FrameWindowScope.WinscopeMainPage(
             sessionLoadGeneration++
             analyzer?.close()
             capture.close()
-            upstreamWinscope.close()
+            Dispatchers.IO.dispatch(kotlin.coroutines.EmptyCoroutineContext) { upstreamWinscope.close() }
         }
     }
 

@@ -15,12 +15,13 @@ class UpstreamWinscopeLauncher(
     private val assetsDirectory: Path? = UpstreamWinscopeServer.tryFindAssetsDirectory(),
 ) : AutoCloseable {
     private var evidencePackage: Path? = null
+    private var generation = 0L
 
-    @Synchronized
     fun open(
         session: WinscopeSession,
         annotations: List<WinscopeAnnotation>,
     ): StudioResult<Unit> {
+        val expectedGeneration = synchronized(this) { ++generation }
         val assets =
             assetsDirectory
                 ?: return failure("UPSTREAM_WINSCOPE_ASSETS_MISSING", "Packaged upstream Winscope assets are unavailable")
@@ -46,21 +47,28 @@ class UpstreamWinscopeLauncher(
             }
             is StudioResult.Success -> Unit
         }
-        return when (val opened = server.openEvidence(generated)) {
-            is StudioResult.Failure -> {
-                Files.deleteIfExists(generated)
-                opened
+        return synchronized(this) {
+            if (expectedGeneration != generation) {
+                deleteBestEffort(generated)
+                return@synchronized failure("UPSTREAM_WINSCOPE_OPEN_CANCELLED", "The Winscope session changed before it opened")
             }
-            is StudioResult.Success -> {
-                evidencePackage?.let(::deleteBestEffort)
-                evidencePackage = generated
-                StudioResult.Success(Unit)
+            when (val opened = server.openEvidence(generated)) {
+                is StudioResult.Failure -> {
+                    deleteBestEffort(generated)
+                    opened
+                }
+                is StudioResult.Success -> {
+                    evidencePackage?.let(::deleteBestEffort)
+                    evidencePackage = generated
+                    StudioResult.Success(Unit)
+                }
             }
         }
     }
 
     @Synchronized
     fun invalidate() {
+        generation++
         server.invalidateEvidence()
         evidencePackage?.let(::deleteBestEffort)
         evidencePackage = null
@@ -68,6 +76,7 @@ class UpstreamWinscopeLauncher(
 
     @Synchronized
     override fun close() {
+        generation++
         server.close()
         evidencePackage?.let(::deleteBestEffort)
         evidencePackage = null
