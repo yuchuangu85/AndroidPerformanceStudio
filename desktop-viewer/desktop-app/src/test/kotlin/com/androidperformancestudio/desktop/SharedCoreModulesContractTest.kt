@@ -199,7 +199,7 @@ class SharedCoreModulesContractTest {
             assertTrue(manifest.contains("\"$host\""), "Manifest missing $host")
         }
         assertTrue(manifest.contains("\"version\": \"v57.2\""))
-        assertTrue(packaging.contains("JsonSlurper().parse(traceProcessorManifestFile.asFile)"))
+        assertTrue(packaging.contains("JsonSlurper().parse(manifestFile)"))
         assertFalse(packaging.contains("c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"))
         assertFalse(resolver.contains("c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"))
         assertTrue(resolver.contains("TRACE_PROCESSOR_CHECKSUM_MISMATCH"))

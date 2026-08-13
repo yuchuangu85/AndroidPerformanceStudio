@@ -21,16 +21,6 @@ val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
 val profilerAppResources = layout.buildDirectory.dir("generated/profiler-app-resources")
 val traceProcessorManifestFile = rootProject.layout.projectDirectory.file("platform-perfetto/trace-processor-manifest.json")
-val traceProcessorManifest = JsonSlurper().parse(traceProcessorManifestFile.asFile) as Map<*, *>
-val winscopeUiManifest = JsonSlurper().parse(winscopeUiManifestFile.asFile) as Map<*, *>
-val winscopeUiAssets = checkNotNull(winscopeUiManifest["assets"]) as Map<*, *>
-val winscopeUiPatchSha256 = checkNotNull(winscopeUiManifest["patchSha256"]) as String
-val winscopeUiSourceCommit = checkNotNull(winscopeUiManifest["sourceCommit"]) as String
-val traceProcessorVersion = checkNotNull(traceProcessorManifest["version"]) as String
-val traceProcessorChecksums =
-    (checkNotNull(traceProcessorManifest["artifacts"]) as Map<*, *>).mapValues { (_, artifact) ->
-        checkNotNull((artifact as Map<*, *>)["sha256"]) as String
-    }
 val prepareProfilerAppResources =
     tasks.register<Sync>("prepareProfilerAppResources") {
         inputs.file(firefoxProfilerDist.file("index.html"))
@@ -106,22 +96,22 @@ val verifyPackagedTraceProcessor =
     tasks.register("verifyPackagedTraceProcessor") {
         val binaryName = if (targetOs == "windows") "trace_processor_shell.exe" else "trace_processor_shell"
         val binary = perfettoTools.file(binaryName)
-        // Materialize script values into locals so the action stays serializable under the
-        // configuration cache: closing over script vals captures the script object.
-        val version = traceProcessorVersion
         val hostKey = "$targetOs-$targetArch"
-        val checksums = traceProcessorChecksums
         inputs.file(binary)
         inputs.file(traceProcessorManifestFile)
+        val manifestFile = traceProcessorManifestFile.asFile
         doLast {
+            val manifest = JsonSlurper().parse(manifestFile) as Map<*, *>
+            val version = checkNotNull(manifest["version"]) as String
+            val artifacts = checkNotNull(manifest["artifacts"]) as Map<*, *>
             val file = binary.asFile
             check(file.isFile) {
                 "Pinned Trace Processor $version is missing: $file. Run scripts/install-trace-processor.sh $hostKey."
             }
             val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.readBytes()))
-            val expected = checkNotNull(checksums[hostKey]) {
+            val expected = checkNotNull((artifacts[hostKey] as? Map<*, *>)?.get("sha256")) {
                 "No pinned Trace Processor checksum for $hostKey"
-            }
+            }.toString()
             check(actual == expected) { "Pinned Trace Processor checksum mismatch for $hostKey" }
         }
     }
@@ -129,18 +119,20 @@ val verifyPackagedTraceProcessor =
 val verifyPackagedWinscopeUi =
     tasks.register("verifyPackagedWinscopeUi") {
         val assetsDirectory = winscopeUiDist.asFile
-        val expectedAssets =
-            winscopeUiAssets.entries.associate { (key, value) ->
-                val entry = value as Map<*, *>
-                key.toString() to ((checkNotNull(entry["bytes"]) as Number).toLong() to checkNotNull(entry["sha256"]).toString())
-            }
         inputs.dir(assetsDirectory)
         inputs.file(winscopeUiManifestFile)
         inputs.file(winscopeUiPatchFile)
+        val manifestFile = winscopeUiManifestFile.asFile
         val patchFile = winscopeUiPatchFile.asFile
-        val expectedPatchSha256 = winscopeUiPatchSha256
-        val sourceCommit = winscopeUiSourceCommit
         doLast {
+            val manifest = JsonSlurper().parse(manifestFile) as Map<*, *>
+            val expectedAssets =
+                (checkNotNull(manifest["assets"]) as Map<*, *>).entries.associate { (key, value) ->
+                    val entry = value as Map<*, *>
+                    key.toString() to ((checkNotNull(entry["bytes"]) as Number).toLong() to checkNotNull(entry["sha256"]).toString())
+                }
+            val expectedPatchSha256 = checkNotNull(manifest["patchSha256"]).toString()
+            val sourceCommit = checkNotNull(manifest["sourceCommit"]).toString()
             check(sourceCommit == "f41a8085fa0166967dd5ece55dce0796fd079e93") { "Unexpected upstream Winscope source commit: $sourceCommit" }
             val actualPatchSha256 =
                 HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(patchFile.readBytes()))
