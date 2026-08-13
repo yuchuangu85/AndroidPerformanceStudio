@@ -10,6 +10,7 @@ import com.androidperformancestudio.platform.perfetto.PerfettoCaptureDocument
 import com.androidperformancestudio.platform.perfetto.PerfettoConfigComposer
 import com.androidperformancestudio.platform.perfetto.PerfettoDataSource
 import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.HostProcessRunner
 import com.androidperformancestudio.platform.toolchain.JvmHostProcessRunner
 import com.androidperformancestudio.winscope.model.WinscopeCapabilities
 import com.androidperformancestudio.winscope.model.WinscopeCaptureConfig
@@ -42,7 +43,7 @@ import kotlin.time.Duration.Companion.seconds
 
 class WinscopeCapabilityDetector(
     private val adbFactory: (Path) -> AdbClient = ::DefaultAdbClient,
-    private val processRunner: JvmHostProcessRunner = JvmHostProcessRunner(),
+    private val processRunner: HostProcessRunner = JvmHostProcessRunner(),
 ) {
     suspend fun detect(
         adbPath: Path,
@@ -127,7 +128,24 @@ class WinscopeCapabilityDetector(
                     ),
                 )
             if (result.exitCode == 0 && !result.stdout.contains("cannot run as root", ignoreCase = true)) {
-                StudioResult.Success(Unit)
+                val ready =
+                    processRunner.executeText(
+                        HostProcessRequest(
+                            executable = adbPath,
+                            arguments = listOf("-s", serial, "wait-for-device"),
+                            timeout = 30.seconds,
+                        ),
+                    )
+                if (ready.exitCode == 0) {
+                    StudioResult.Success(Unit)
+                } else {
+                    failure(
+                        "ADB_ROOT_RECONNECT_FAILED",
+                        (ready.stderr + ready.stdout).trim().ifBlank {
+                            "Device did not reconnect after adb root"
+                        },
+                    )
+                }
             } else {
                 failure("ADB_ROOT_UNAVAILABLE", (result.stderr + result.stdout).trim().ifBlank { "ADB root is unavailable" })
             }
@@ -402,7 +420,8 @@ class WinscopeCaptureController(
                         )
                     }
                 }
-                waitUntilStopped(capture)
+                waitUntilStopped(capture, capture.perfettoPid, "Perfetto")
+                capture.recordingPid?.let { waitUntilStopped(capture, it, "screen recording") }
                 enforceRemoteSize(capture.adb, capture.capabilities.device.serial, capture.remoteTrace)
                 capture.adb.pull(capture.capabilities.device.serial, capture.remoteTrace, capture.localTrace, 2.minutes)
                 if (capture.recordingPid != null) {
@@ -416,18 +435,27 @@ class WinscopeCaptureController(
                     }
                 }
                 cleanup(capture.adb, capture.capabilities.device.serial, capture.remoteConfig, capture.remoteTrace, capture.remoteRecording)
-                val missing = capture.config.requestedSources - capture.availableSources
+                val recordingFile =
+                    capture.localRecording.takeIf { Files.isRegularFile(it) && Files.size(it) > 0L }
+                if (recordingFile == null) Files.deleteIfExists(capture.localRecording)
+                val availableSources =
+                    if (capture.recordingPid != null && recordingFile == null) {
+                        capture.availableSources - WinscopeSource.SCREEN_RECORDING
+                    } else {
+                        capture.availableSources
+                    }
+                val missing = capture.config.requestedSources - availableSources
                 val limitations =
                     missing.map { WinscopeLimitation(it, "DATA_SOURCE_UNAVAILABLE", "${it.displayName} was requested but unavailable") }
                 val session =
                     WinscopeSession(
                         id = capture.id,
                         traceFile = capture.localTrace,
-                        recordingFile = capture.localRecording.takeIf(Files::isRegularFile),
+                        recordingFile = recordingFile,
                         capturedAt = capture.startedAt,
                         device = capture.capabilities.device,
                         requestedSources = capture.config.requestedSources,
-                        availableSources = capture.availableSources,
+                        availableSources = availableSources,
                         limitations = limitations,
                         completeness = if (missing.isEmpty()) WinscopeCompleteness.COMPLETE else WinscopeCompleteness.PARTIAL,
                         sensitive = capture.config.containsSensitiveEvidence,
@@ -442,12 +470,16 @@ class WinscopeCaptureController(
             }
         }
 
-    private suspend fun waitUntilStopped(capture: ActiveCapture) {
+    private suspend fun waitUntilStopped(
+        capture: ActiveCapture,
+        pid: Long,
+        processName: String,
+    ) {
         repeat(40) {
             val result =
                 capture.adb.shell(
                     capture.capabilities.device.serial,
-                    listOf("sh", "-c", "kill -0 ${capture.perfettoPid} 2>/dev/null; echo $?"),
+                    listOf("sh", "-c", "kill -0 $pid 2>/dev/null; echo $?"),
                     5.seconds,
                 )
             if (result.stdout
@@ -460,7 +492,7 @@ class WinscopeCaptureController(
             }
             delay(250)
         }
-        throw IllegalStateException("Timed out waiting for Perfetto to stop")
+        throw IllegalStateException("Timed out waiting for $processName to stop")
     }
 
     private suspend fun enforceRemoteSize(

@@ -16,4 +16,6 @@ dependencies {
     implementation(compose.material3)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    implementation("org.jcodec:jcodec-javase:0.2.5")
+    testImplementation(kotlin("test"))
 }

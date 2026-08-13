@@ -208,6 +208,48 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
+    fun `winscope snapshot canvases clip drawing at their panel boundaries`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val rectCanvas = source.substringAfter("private fun RectCanvas(").substringBefore("private fun StackCanvas(")
+        val stackCanvas = source.substringAfter("private fun StackCanvas(").substringBefore("private fun PropertiesPanel(")
+
+        assertTrue(rectCanvas.contains("modifier.clipToBounds().background"))
+        assertTrue(stackCanvas.contains(".fillMaxSize()\n                .clipToBounds()"))
+    }
+
+    @Test
+    fun `winscope recording cleanup closes only the effect owned frame source`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val mediaPanel = source.substringAfter("private fun MediaPanel(").substringBefore("private fun EmptyWorkspace(")
+
+        assertTrue(mediaPanel.contains("val sourceToClose = source"))
+        assertTrue(mediaPanel.contains("onDispose { sourceToClose?.close() }"))
+    }
+
+    @Test
+    fun `winscope recording stays visible above the bottom timeline on every tab`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val workspace = source.substringAfter("private fun ViewerWorkspace(").substringBefore("private fun TimelinePanel(")
+        val stateWorkspace = source.substringAfter("private fun StateWorkspace(").substringBefore("private fun RectCanvas(")
+        val mediaPanel = source.substringAfter("private fun MediaPanel(").substringBefore("private fun EmptyWorkspace(")
+
+        assertTrue(workspace.contains("MediaPanel(session, timestamp"))
+        assertTrue(workspace.indexOf("MediaPanel(session, timestamp") < workspace.indexOf("TimelinePanel("))
+        assertFalse(stateWorkspace.contains("MediaPanel("))
+        assertTrue(mediaPanel.contains("Image(frame!!"))
+        assertFalse(mediaPanel.contains("SwingPanel("))
+    }
+
+    @Test
     fun `winscope device controls live in the header toolbar`() {
         val source =
             Files.readString(
@@ -224,6 +266,34 @@ class UnifiedDesktopShellTest {
         assertFalse(capturePanel.contains("onRefresh"))
         assertFalse(capturePanel.contains("onStart"))
         assertFalse(capturePanel.contains("onSnapshot"))
+    }
+
+    @Test
+    fun `winscope header toggles the capture options panel`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
+        val workspace = source.substringAfter("Row(Modifier.fillMaxSize())").substringBefore("pendingExport?.let")
+
+        assertTrue(source.contains("var capturePanelVisible by remember { mutableStateOf(true) }"))
+        assertTrue(header.indexOf("Open in Perfetto") < header.indexOf("LeftPanelToggleButton("))
+        assertTrue(workspace.contains("if (capturePanelVisible)"))
+        assertTrue(workspace.contains("CapturePanel("))
+    }
+
+    @Test
+    fun `winscope capture roots and refreshes capabilities before recording`() {
+        val source =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        val capture = source.substringAfter("fun toggleCapture() {").substringBefore("fun takeSnapshot() {")
+
+        assertTrue(capture.contains("caps.device.rootAvailable"))
+        assertTrue(capture.indexOf("detector.restartAsRoot") < capture.indexOf("detector.detect"))
+        assertTrue(capture.indexOf("detector.detect") < capture.indexOf("capture.start"))
     }
 
     @Test

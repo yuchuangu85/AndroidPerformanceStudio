@@ -5,6 +5,12 @@ import com.androidperformancestudio.platform.adb.AdbBinaryResult
 import com.androidperformancestudio.platform.adb.AdbClient
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbTextResult
+import com.androidperformancestudio.platform.toolchain.HostProcessBinaryResult
+import com.androidperformancestudio.platform.toolchain.HostProcessLaunchRequest
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.platform.toolchain.HostProcessRunner
+import com.androidperformancestudio.platform.toolchain.HostProcessTextResult
+import com.androidperformancestudio.platform.toolchain.RunningHostProcess
 import com.androidperformancestudio.winscope.analysis.ReadOnlyTraceSql
 import com.androidperformancestudio.winscope.analysis.WinscopeAnalyzer
 import com.androidperformancestudio.winscope.capture.WinscopeCapabilityDetector
@@ -24,6 +30,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 
@@ -126,6 +133,23 @@ class WinscopeCoreTest {
     }
 
     @Test
+    fun `adb root waits for the device before capabilities are queried again`() =
+        runBlocking {
+            val runner = RecordingHostProcessRunner()
+            val detector = WinscopeCapabilityDetector(processRunner = runner)
+
+            assertIs<StudioResult.Success<Unit>>(detector.restartAsRoot(Path.of("adb"), "device-15"))
+
+            assertEquals(
+                listOf(
+                    listOf("-s", "device-15", "root"),
+                    listOf("-s", "device-15", "wait-for-device"),
+                ),
+                runner.requests.map(HostProcessRequest::arguments),
+            )
+        }
+
+    @Test
     fun `fake adb supports repeated live capture snapshot and recovery`() =
         runBlocking {
             val adb = FakeAdb()
@@ -149,6 +173,28 @@ class WinscopeCoreTest {
             assertTrue(Files.isRegularFile(requireNotNull(snapshot.screenshotFile)))
             val recoverable = assertIs<StudioResult.Success<List<String>>>(controller.recover(Path.of("adb"), capabilities)).value
             assertEquals(listOf("/data/misc/perfetto-traces/aps-winscope-old.perfetto-trace"), recoverable)
+        }
+
+    @Test
+    fun `empty screen recording is excluded from the captured session`() =
+        runBlocking {
+            val adb = FakeAdb(emptyRecording = true)
+            val storage = Files.createTempDirectory("winscope-empty-recording")
+            val capabilities =
+                assertIs<StudioResult.Success<com.androidperformancestudio.winscope.model.WinscopeCapabilities>>(
+                    WinscopeCapabilityDetector(adbFactory = { adb }).detect(Path.of("adb"), "device-15"),
+                ).value
+            val controller = WinscopeCaptureController({ adb }, storage)
+            val config =
+                WinscopeCaptureConfig(
+                    durationSeconds = 1,
+                    requestedSources = WinscopeCaptureConfig().requestedSources + WinscopeSource.SCREEN_RECORDING,
+                )
+
+            assertIs<StudioResult.Success<Unit>>(controller.start(Path.of("adb"), capabilities, config))
+            val session = assertIs<StudioResult.Success<WinscopeSession>>(controller.stop()).value
+
+            assertNull(session.recordingFile)
         }
 
     @Test
@@ -210,7 +256,9 @@ class WinscopeCoreTest {
         return null
     }
 
-    private class FakeAdb : AdbClient {
+    private class FakeAdb(
+        private val emptyRecording: Boolean = false,
+    ) : AdbClient {
         override suspend fun listDevices(): List<AdbDevice> = emptyList()
 
         override suspend fun shell(
@@ -235,7 +283,7 @@ class WinscopeCoreTest {
                     command.contains("kill -0") -> "1\n"
                     command.contains("stat -c") -> "4\n"
                     command.contains("ls -1t") -> "/data/misc/perfetto-traces/aps-winscope-old.perfetto-trace\n"
-                    command.startsWith("screenrecord") -> "124\n"
+                    command.contains("screenrecord") -> "124\n"
                     else -> ""
                 }
             return AdbTextResult(0, output, "", Duration.ZERO)
@@ -266,7 +314,10 @@ class WinscopeCoreTest {
             maxOutputBytesPerStream: Int,
             isCancellationRequested: () -> Boolean,
         ): AdbTextResult {
-            Files.write(localPath, byteArrayOf(1, 2, 3, 4))
+            Files.write(
+                localPath,
+                if (emptyRecording && remotePath.endsWith(".mp4")) byteArrayOf() else byteArrayOf(1, 2, 3, 4),
+            )
             return AdbTextResult(0, "", "", Duration.ZERO)
         }
 
@@ -294,5 +345,18 @@ class WinscopeCoreTest {
             maxOutputBytesPerStream: Int,
             isCancellationRequested: () -> Boolean,
         ): AdbTextResult = AdbTextResult(0, "", "", Duration.ZERO)
+    }
+
+    private class RecordingHostProcessRunner : HostProcessRunner {
+        val requests = mutableListOf<HostProcessRequest>()
+
+        override suspend fun executeText(request: HostProcessRequest): HostProcessTextResult {
+            requests += request
+            return HostProcessTextResult(-1, 0, "", "", Duration.ZERO, false, false)
+        }
+
+        override suspend fun executeBinary(request: HostProcessRequest): HostProcessBinaryResult = error("not used")
+
+        override fun launch(request: HostProcessLaunchRequest): RunningHostProcess = error("not used")
     }
 }

@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -43,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,13 +53,18 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -68,8 +75,11 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
@@ -81,6 +91,7 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.MacOSInlineTextField
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -97,6 +108,7 @@ import com.androidperformancestudio.winscope.model.WinscopeCaptureConfig
 import com.androidperformancestudio.winscope.model.WinscopeCapturePreset
 import com.androidperformancestudio.winscope.model.WinscopeNode
 import com.androidperformancestudio.winscope.model.WinscopePhase
+import com.androidperformancestudio.winscope.model.WinscopeProperty
 import com.androidperformancestudio.winscope.model.WinscopeQueryResult
 import com.androidperformancestudio.winscope.model.WinscopeSession
 import com.androidperformancestudio.winscope.model.WinscopeSource
@@ -104,7 +116,6 @@ import com.androidperformancestudio.winscope.model.WinscopeState
 import com.androidperformancestudio.winscope.model.WinscopeTimeline
 import com.androidperformancestudio.winscope.storage.WinscopeSessionFiles
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
@@ -142,7 +153,12 @@ fun FrameWindowScope.WinscopeMainPage(
     var fileDialogOpen by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Pair<WinscopeSession, Path>?>(null) }
     var recentSessions by remember { mutableStateOf<List<WinscopeSession>>(emptyList()) }
+    var capturePanelVisible by remember { mutableStateOf(true) }
     val annotations = remember { mutableStateListOf<WinscopeAnnotation>() }
+
+    fun selectTimestamp(value: Long) {
+        timestamp = timeline?.bounds?.let { value.coerceIn(it.startNanos, it.endNanos) } ?: value
+    }
 
     fun openSession(session: WinscopeSession) {
         scope.launch {
@@ -249,8 +265,28 @@ fun FrameWindowScope.WinscopeMainPage(
         if (captureState.phase == WinscopePhase.RECORDING) {
             scope.launch { (capture.stop() as? StudioResult.Failure)?.let { error = it.error.message } }
         } else {
-            val caps = capabilities ?: return
+            val detectedCapabilities = capabilities ?: return
             scope.launch {
+                var caps = detectedCapabilities
+                if (caps.device.rootAvailable) {
+                    when (val rooted = withContext(Dispatchers.IO) { detector.restartAsRoot(Path.of(adbPath), caps.device.serial) }) {
+                        is StudioResult.Failure -> {
+                            error = rooted.error.message
+                            return@launch
+                        }
+                        is StudioResult.Success -> Unit
+                    }
+                    when (val refreshed = withContext(Dispatchers.IO) { detector.detect(Path.of(adbPath), caps.device.serial) }) {
+                        is StudioResult.Failure -> {
+                            error = refreshed.error.message
+                            return@launch
+                        }
+                        is StudioResult.Success -> {
+                            caps = refreshed.value
+                            capabilities = caps
+                        }
+                    }
+                }
                 (capture.start(Path.of(adbPath), caps, config) as? StudioResult.Failure)?.let { error = it.error.message }
             }
         }
@@ -321,7 +357,7 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
-    Column(Modifier.fillMaxSize().onWinscopeKeys(timeline, timestamp, { timestamp = it })) {
+    Column(Modifier.fillMaxSize().onWinscopeKeys(timeline, timestamp, ::selectTimestamp)) {
         HeaderToolbar(language = language, onNavigateHome = onNavigateHome, onNavigateSettings = null) {
             Text("Winscope", fontWeight = FontWeight.SemiBold)
             HeaderSpacer()
@@ -361,29 +397,35 @@ fun FrameWindowScope.WinscopeMainPage(
                     onClick = { onOpenPerfetto(session.traceFile, timestamp) },
                 )
             }
+            HeaderSpacer()
+            LeftPanelToggleButton(capturePanelVisible, language) {
+                capturePanelVisible = !capturePanelVisible
+            }
         }
         error?.let { ErrorBanner(it) { error = null } }
         Row(Modifier.fillMaxSize()) {
-            CapturePanel(
-                language = language,
-                adbPath = adbPath,
-                onAdbPath = { adbPath = it },
-                capabilities = capabilities,
-                config = config,
-                onConfig = { config = it },
-                captureState = captureState.message,
-                onRoot = {
-                    val serial = selectedSerial ?: return@CapturePanel
-                    scope.launch {
-                        when (val rooted = withContext(Dispatchers.IO) { detector.restartAsRoot(Path.of(adbPath), serial) }) {
-                            is StudioResult.Failure -> error = rooted.error.message
-                            is StudioResult.Success ->
-                                capabilities =
-                                    (detector.detect(Path.of(adbPath), serial) as? StudioResult.Success)?.value
+            if (capturePanelVisible) {
+                CapturePanel(
+                    language = language,
+                    adbPath = adbPath,
+                    onAdbPath = { adbPath = it },
+                    capabilities = capabilities,
+                    config = config,
+                    onConfig = { config = it },
+                    captureState = captureState.message,
+                    onRoot = {
+                        val serial = selectedSerial ?: return@CapturePanel
+                        scope.launch {
+                            when (val rooted = withContext(Dispatchers.IO) { detector.restartAsRoot(Path.of(adbPath), serial) }) {
+                                is StudioResult.Failure -> error = rooted.error.message
+                                is StudioResult.Success ->
+                                    capabilities =
+                                        (detector.detect(Path.of(adbPath), serial) as? StudioResult.Success)?.value
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
             if (activeSession == null) {
                 EmptyWorkspace(language)
             } else {
@@ -393,7 +435,7 @@ fun FrameWindowScope.WinscopeMainPage(
                     analyzer,
                     timeline,
                     timestamp,
-                    { timestamp = it },
+                    ::selectTimestamp,
                     annotations,
                     onOpenSource,
                     Modifier.weight(1f).fillMaxHeight(),
@@ -439,6 +481,52 @@ fun FrameWindowScope.WinscopeMainPage(
                 MacOSTextButton(s(language, "Cancel", "取消"), onClick = { pendingExport = null })
             },
         )
+    }
+}
+
+@Composable
+private fun LeftPanelToggleButton(
+    visible: Boolean,
+    language: UiLanguage,
+    onClick: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val iconColor = if (visible) colors.accent else colors.mutedText
+    Box(
+        Modifier
+            .width(26.dp)
+            .height(21.dp)
+            .background(
+                if (visible) colors.accent.copy(alpha = 0.18f) else Color.Transparent,
+                RoundedCornerShape(3.dp),
+            ).clickable(onClick = onClick)
+            .semantics {
+                contentDescription =
+                    if (visible) {
+                        s(language, "Hide capture options", "隐藏采集选项")
+                    } else {
+                        s(language, "Show capture options", "显示采集选项")
+                    }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(15.dp)) {
+            val inset = 1.dp.toPx()
+            val strokeWidth = 1.dp.toPx()
+            val contentLeft = inset + strokeWidth
+            val contentTop = inset + strokeWidth
+            drawRect(
+                iconColor,
+                Offset(inset, inset),
+                Size(size.width - inset * 2, size.height - inset * 2),
+                style = Stroke(width = strokeWidth),
+            )
+            drawRect(
+                iconColor.copy(alpha = 0.8f),
+                Offset(contentLeft, contentTop),
+                Size(4.dp.toPx(), size.height - contentTop * 2),
+            )
+        }
     }
 }
 
@@ -635,7 +723,9 @@ private fun ViewerWorkspace(
     var tab by remember { mutableStateOf(WinscopeSource.WINDOW_MANAGER) }
     val tabs =
         remember(session, timeline) {
-            val found = timeline?.entries?.keys.orEmpty() + session.availableSources
+            val found =
+                (timeline?.entries?.keys.orEmpty() + session.availableSources)
+                    .filterNot { it == WinscopeSource.SCREEN_RECORDING || it == WinscopeSource.SCREENSHOT }
             (
                 listOf(
                     WinscopeSource.WINDOW_MANAGER,
@@ -653,34 +743,36 @@ private fun ViewerWorkspace(
         }
     Column(modifier.background(MaterialTheme.colorScheme.background)) {
         SessionBanner(session)
-        TimelinePanel(timeline, timestamp, onTimestamp, annotations)
         SecondaryTabRow(tabs.indexOf(tab).coerceAtLeast(0), modifier = Modifier.height(HEADER_TOOL_BAR_HEIGHT)) {
             tabs.forEach { source -> Tab(tab == source, { tab = source }, text = { Text(source.displayName, maxLines = 1) }) }
         }
-        if (analyzer ==
-            null
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(s(language, "Opening trace…", "正在打开轨迹…")) }
-        } else {
-            when (tab) {
-                WinscopeSource.WINDOW_MANAGER, WinscopeSource.SURFACE_FLINGER, WinscopeSource.VIEW_CAPTURE ->
-                    StateWorkspace(
-                        analyzer,
-                        tab,
-                        timestamp,
-                        session,
-                    )
-                WinscopeSource.PROTO_LOG, WinscopeSource.IME, WinscopeSource.INPUT, WinscopeSource.EVENT_LOG ->
-                    LogWorkspace(
-                        analyzer,
-                        tab,
-                        timeline,
-                        onTimestamp,
-                        onOpenSource,
-                    )
-                else -> SearchWorkspace(analyzer, onTimestamp)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (analyzer ==
+                null
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(s(language, "Opening trace…", "正在打开轨迹…")) }
+            } else {
+                when (tab) {
+                    WinscopeSource.WINDOW_MANAGER, WinscopeSource.SURFACE_FLINGER, WinscopeSource.VIEW_CAPTURE ->
+                        StateWorkspace(
+                            analyzer,
+                            tab,
+                            timestamp,
+                        )
+                    WinscopeSource.PROTO_LOG, WinscopeSource.IME, WinscopeSource.INPUT, WinscopeSource.EVENT_LOG ->
+                        LogWorkspace(
+                            analyzer,
+                            tab,
+                            timeline,
+                            onTimestamp,
+                            onOpenSource,
+                        )
+                    else -> SearchWorkspace(analyzer, onTimestamp)
+                }
             }
         }
+        MediaPanel(session, timestamp, timeline?.bounds?.startNanos ?: timestamp)
+        TimelinePanel(timeline, timestamp, onTimestamp, annotations)
     }
 }
 
@@ -696,11 +788,17 @@ private fun TimelinePanel(
     var playing by remember { mutableStateOf(false) }
     var jump by remember(timestamp) { mutableStateOf(timestamp.toString()) }
     val bounds = timeline?.bounds
+    val currentTimestamp by rememberUpdatedState(timestamp)
+    val currentOnTimestamp by rememberUpdatedState(onTimestamp)
     LaunchedEffect(playing, speed, bounds) {
-        while (playing && bounds != null) {
-            delay(33)
-            val next = timestamp + (33_000_000L * speed).toLong()
-            onTimestamp(if (next > bounds.endNanos) bounds.startNanos else next)
+        if (playing && bounds != null) {
+            var previousFrameNanos = withFrameNanos { it }
+            while (playing) {
+                val frameNanos = withFrameNanos { it }
+                val next = currentTimestamp + ((frameNanos - previousFrameNanos) * speed).toLong()
+                previousFrameNanos = frameNanos
+                currentOnTimestamp(if (next > bounds.endNanos) bounds.startNanos else next)
+            }
         }
     }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 10.dp, vertical = 5.dp)) {
@@ -783,7 +881,6 @@ private fun StateWorkspace(
     analyzer: WinscopeAnalyzer,
     source: WinscopeSource,
     timestamp: Long,
-    session: WinscopeSession,
 ) {
     var state by remember { mutableStateOf<WinscopeState?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -858,7 +955,6 @@ private fun StateWorkspace(
                 } else {
                     RectCanvas(nodes, selected?.id, { selected = it }, Modifier.weight(1f).fillMaxWidth())
                 }
-                MediaPanel(session)
             }
             PropertiesPanel(selected, Modifier.width(330.dp).fillMaxHeight())
         }
@@ -875,7 +971,7 @@ private fun RectCanvas(
     var scale by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     Box(
-        modifier.background(Color(0xff12151b)).pointerInput(nodes) {
+        modifier.clipToBounds().background(Color(0xff12151b)).pointerInput(nodes) {
             detectTransformGestures { _, delta, zoom, _ ->
                 scale =
                     (scale * zoom).coerceIn(0.1f, 10f)
@@ -973,6 +1069,7 @@ private fun StackCanvas(
         Canvas(
             Modifier
                 .fillMaxSize()
+                .clipToBounds()
                 .pointerInput(nodes) {
                     detectTransformGestures { _, delta, zoom, _ ->
                         scale =
@@ -1035,41 +1132,157 @@ private fun PropertiesPanel(
     node: WinscopeNode?,
     modifier: Modifier,
 ) {
-    var search by remember { mutableStateOf("") }
-    Column(modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant).padding(8.dp)) {
-        Text("Properties", fontWeight = FontWeight.SemiBold)
+    var search by remember(node?.id) { mutableStateOf("") }
+    var collapsed by remember { mutableStateOf(emptySet<String>()) }
+    Column(modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Text(
+            "PROPERTIES",
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(12.dp, 8.dp),
+        )
         if (node == null) {
-            Text("Select a node", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Select a node", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp, 8.dp))
         } else {
-            Text(node.name, fontWeight = FontWeight.Medium)
-            Text("id: ${node.id}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-            Text("visible: ${node.visible?.toString() ?: "unrecorded"}")
-            Text("bounds: ${node.bounds ?: "unrecorded"}")
-            Text("z: ${node.z}")
             MacOSInlineTextField(
                 "Filter properties",
                 search,
                 { search = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(12.dp, 8.dp),
             )
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(node.properties.filter { search.isBlank() || it.path.contains(search, true) }) { property ->
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (property.changed) MaterialTheme.colorScheme.tertiaryContainer else Color.Transparent,
-                            ).padding(vertical = 4.dp),
-                    ) {
-                        Text(property.path, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                        Text(if (property.recorded) property.value ?: "null" else "unrecorded")
-                        property.previousValue?.let { Text("previous: $it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            HorizontalDivider()
+            val filtered =
+                node.properties.filter {
+                    search.isBlank() || it.path.contains(search, true) || it.value?.contains(search, true) == true
+                }
+            val tree = buildWinscopePropertyTree(filtered)
+            if (tree.isEmpty()) {
+                Text("No matching properties", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp, 8.dp))
+            } else {
+                val rows = flattenWinscopePropertyTree(tree, collapsed, search.isNotBlank())
+                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                    items(rows, key = { it.item.path }) { row ->
+                        val property = row.item.property
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (property?.changed == true) MaterialTheme.colorScheme.tertiaryContainer else Color.Transparent,
+                                ).clickable(enabled = row.item.children.isNotEmpty()) {
+                                    collapsed =
+                                        if (row.item.path in collapsed) {
+                                            collapsed - row.item.path
+                                        } else {
+                                            collapsed + row.item.path
+                                        }
+                                }.padding(start = (row.depth * 12).dp, top = 2.dp, bottom = 2.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Text(
+                                when {
+                                    row.item.children.isEmpty() -> "•"
+                                    row.item.path in collapsed && search.isBlank() -> "›"
+                                    else -> "⌄"
+                                },
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(20.dp),
+                            )
+                            Text(
+                                row.item.key + if (property == null) "" else ": ",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(end = 2.dp),
+                            )
+                            property?.let {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        if (it.recorded) it.value ?: "null" else "unrecorded",
+                                        color = propertyValueColor(it),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    it.previousValue?.let { previous ->
+                                        Text(
+                                            previous,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            textDecoration = TextDecoration.LineThrough,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+internal data class WinscopePropertyTreeItem(
+    val key: String,
+    val path: String,
+    val property: WinscopeProperty?,
+    val children: List<WinscopePropertyTreeItem>,
+)
+
+private class MutableWinscopePropertyTreeItem(
+    val key: String,
+    val path: String,
+) {
+    var property: WinscopeProperty? = null
+    val children = linkedMapOf<String, MutableWinscopePropertyTreeItem>()
+
+    fun freeze(): WinscopePropertyTreeItem =
+        WinscopePropertyTreeItem(key, path, property, children.values.map(MutableWinscopePropertyTreeItem::freeze))
+}
+
+internal fun buildWinscopePropertyTree(properties: List<WinscopeProperty>): List<WinscopePropertyTreeItem> {
+    val roots = linkedMapOf<String, MutableWinscopePropertyTreeItem>()
+    properties.forEach { property ->
+        var children = roots
+        val segments = property.path.split('.')
+        segments.forEachIndexed { index, key ->
+            val path =
+                segments
+                    .take(index + 1)
+                    .joinToString(".")
+            val item = children.getOrPut(key) { MutableWinscopePropertyTreeItem(key, path) }
+            if (index == segments.lastIndex) item.property = property
+            children = item.children
+        }
+    }
+    return roots.values.map(MutableWinscopePropertyTreeItem::freeze)
+}
+
+private data class WinscopePropertyTreeRow(
+    val item: WinscopePropertyTreeItem,
+    val depth: Int,
+)
+
+private fun flattenWinscopePropertyTree(
+    tree: List<WinscopePropertyTreeItem>,
+    collapsed: Set<String>,
+    forceExpanded: Boolean,
+): List<WinscopePropertyTreeRow> =
+    buildList {
+        fun append(
+            items: List<WinscopePropertyTreeItem>,
+            depth: Int,
+        ) {
+            items.forEach { item ->
+                add(WinscopePropertyTreeRow(item, depth))
+                if (forceExpanded || item.path !in collapsed) append(item.children, depth + 1)
+            }
+        }
+        append(tree, 0)
+    }
+
+@Composable
+private fun propertyValueColor(property: WinscopeProperty): Color =
+    when {
+        !property.recorded || property.value == null || property.value == "null" -> MaterialTheme.colorScheme.onSurfaceVariant
+        property.value == "true" -> Color(0xff4caf50)
+        property.value == "false" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurface
+    }
 
 @Composable
 private fun StackSlider(
@@ -1214,7 +1427,11 @@ private fun SearchWorkspace(
 }
 
 @Composable
-private fun MediaPanel(session: WinscopeSession) {
+private fun MediaPanel(
+    session: WinscopeSession,
+    timestamp: Long,
+    timelineStartNanos: Long,
+) {
     val screenshot =
         remember(session.screenshotFile) {
             session.screenshotFile?.takeIf(Files::isRegularFile)?.let {
@@ -1222,16 +1439,53 @@ private fun MediaPanel(session: WinscopeSession) {
             }
         }
     if (screenshot != null) Image(screenshot, "Captured screen", Modifier.fillMaxWidth().height(160.dp).background(Color.Black))
-    session.recordingFile?.takeIf(Files::isRegularFile)?.let { recording ->
-        Row(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Screen recording · ${recording.fileName}", modifier = Modifier.weight(1f))
-            MacOSTextButton("Open", onClick = { runCatching { Desktop.getDesktop().open(recording.toFile()) } })
+    session.recordingFile?.takeIf { Files.isRegularFile(it) && Files.size(it) > 0L }?.let { recording ->
+        var source by remember(recording) { mutableStateOf<ScreenRecordingFrameSource?>(null) }
+        var frame by remember(recording) { mutableStateOf<ImageBitmap?>(null) }
+        var message by remember(recording) { mutableStateOf("Loading screen recording…") }
+        val currentTimestamp = rememberUpdatedState(timestamp)
+        LaunchedEffect(recording) {
+            runCatching { withContext(Dispatchers.IO) { ScreenRecordingFrameSource(recording) } }
+                .onSuccess {
+                    source = it
+                    message = "No frame at the current trace timestamp"
+                }.onFailure { message = it.message ?: "Unable to open screen recording" }
+        }
+        DisposableEffect(source) {
+            val sourceToClose = source
+            onDispose { sourceToClose?.close() }
+        }
+        LaunchedEffect(source, timelineStartNanos) {
+            val current = source ?: return@LaunchedEffect
+            screenRecordingTimestampRequests(currentTimestamp).collectScreenRecordingRequests { requestedTimestamp ->
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        current.frameAt(requestedTimestamp, timelineStartNanos)?.toComposeImageBitmap()
+                    }
+                }.onSuccess { frame = it }
+                    .onFailure {
+                        frame = null
+                        message = it.message ?: "Unable to decode screen recording"
+                    }
+            }
+        }
+        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)) {
+            Row(Modifier.fillMaxWidth().padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Screen recording · ${recording.fileName}", modifier = Modifier.weight(1f))
+                MacOSTextButton("Open", onClick = { runCatching { Desktop.getDesktop().open(recording.toFile()) } })
+            }
+            if (frame == null) {
+                Box(Modifier.fillMaxWidth().height(180.dp).background(Color.Black), contentAlignment = Alignment.Center) {
+                    Text(message, color = Color.LightGray)
+                }
+            } else {
+                Image(frame!!, "Screen recording", Modifier.fillMaxWidth().height(220.dp).background(Color.Black))
+            }
         }
     }
 }
+
+internal fun screenRecordingTimestampRequests(timestamp: State<Long>) = snapshotFlow { timestamp.value }
 
 @Composable private fun EmptyWorkspace(language: UiLanguage) =
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
