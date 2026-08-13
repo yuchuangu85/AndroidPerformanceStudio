@@ -30,7 +30,7 @@ def main() -> int:
     actual = {
         path.relative_to(DIST).as_posix(): path
         for path in DIST.rglob("*")
-        if path.is_file()
+        if path.is_file() and path.name != ".DS_Store"
     }
     if set(actual) != set(expected):
         print(f"Asset closure differs: missing={sorted(set(expected) - set(actual))}, extra={sorted(set(actual) - set(expected))}")

@@ -23,6 +23,7 @@ val profilerAppResources = layout.buildDirectory.dir("generated/profiler-app-res
 val traceProcessorManifestFile = rootProject.layout.projectDirectory.file("platform-perfetto/trace-processor-manifest.json")
 val prepareProfilerAppResources =
     tasks.register<Sync>("prepareProfilerAppResources") {
+        exclude("**/.DS_Store")
         inputs.file(firefoxProfilerDist.file("index.html"))
         inputs.file(perfettoUiDist.file("index.html"))
         inputs.dir(winscopeUiDist)
@@ -141,7 +142,7 @@ val verifyPackagedWinscopeUi =
             val actual =
                 root
                     .walkTopDown()
-                    .filter(File::isFile)
+                    .filter { file -> file.isFile && file.name != ".DS_Store" }
                     .associateBy { file -> file.relativeTo(root).invariantSeparatorsPath }
             check(actual.keys == expectedAssets.keys) { "Packaged Winscope asset closure differs from manifest.json" }
             actual.forEach { (relative, file) ->
