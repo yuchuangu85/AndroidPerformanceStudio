@@ -84,6 +84,22 @@ index 934fcace8..ab98016bb 100644
 +    return this.message;
 +  }
 +}
+diff --git a/winscope/src/app/components/timeline/timeline_component.ts b/winscope/src/app/components/timeline/timeline_component.ts
+index 0b7a15592..b044ea9dc 100644
+--- a/winscope/src/app/components/timeline/timeline_component.ts
++++ b/winscope/src/app/components/timeline/timeline_component.ts
+@@ -413,9 +413,10 @@ import {globalConfig} from 'common/global_config';
+       .time-selector-form mat-form-field {
+         display: flex;
+         width: 100%;
+-        font-size: 12px;
++        font-size: 8px;
+       }
+       .time-selector-form input {
++        font-size: 8px;
+         text-overflow: ellipsis;
+       }
+       .time-selector-form .time-difference {
 diff --git a/winscope/src/common/analytics.ts b/winscope/src/common/analytics.ts
 index acaac639c..634953507 100644
 --- a/winscope/src/common/analytics.ts
