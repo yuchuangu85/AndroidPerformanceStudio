@@ -186,13 +186,14 @@ fun FrameWindowScope.WinscopeMainPage(
             activeSession = session
             annotations.clear()
             annotations.addAll(session.annotations)
-            when (val opened = withContext(Dispatchers.IO) { WinscopeAnalyzer.open(session) }) {
+            val opened = withContext(Dispatchers.IO) { WinscopeAnalyzer.open(session) }
+            if (generation != sessionLoadGeneration) {
+                (opened as? StudioResult.Success)?.value?.close()
+                return@launch
+            }
+            when (opened) {
                 is StudioResult.Failure -> error = opened.error.message
                 is StudioResult.Success -> {
-                    if (generation != sessionLoadGeneration) {
-                        opened.value.close()
-                        return@launch
-                    }
                     val loaded = withContext(Dispatchers.IO) { opened.value.timeline() }
                     if (generation != sessionLoadGeneration) {
                         opened.value.close()
