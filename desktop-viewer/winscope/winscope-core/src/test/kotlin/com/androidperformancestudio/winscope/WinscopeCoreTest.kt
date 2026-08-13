@@ -25,6 +25,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -115,6 +116,36 @@ class WinscopeCoreTest {
         assertTrue(Files.notExists(trace))
         assertTrue(Files.notExists(recording))
         assertTrue(Files.isRegularFile(unrelated))
+    }
+
+    @Test
+    fun `original export preserves upstream Winscope archive layout and raw bytes`() {
+        val root = Files.createTempDirectory("winscope-original-export-test")
+        val service = WinscopeSessionFiles(root)
+        val trace = root.resolve("capture")
+        val recording = root.resolve("recording.mp4")
+        val destination = root.resolve("capture.winscope.zip")
+        val traceBytes = byteArrayOf(10, 3, 5, 7)
+        val recordingBytes = byteArrayOf(11, 13, 17)
+        Files.write(trace, traceBytes)
+        Files.write(recording, recordingBytes)
+        val session = WinscopeSession("original", trace, recordingFile = recording, capturedAt = Instant.EPOCH, sensitive = true)
+
+        assertIs<StudioResult.Failure>(service.exportOriginal(session, destination, false))
+        assertIs<StudioResult.Success<Path>>(service.exportOriginal(session, destination, true))
+
+        ZipFile(destination.toFile()).use { zip ->
+            val entries =
+                zip
+                    .entries()
+                    .asSequence()
+                    .map { it.name }
+                    .toSet()
+            assertEquals(setOf("capture.perfetto-trace", "recording.mp4"), entries)
+            assertEquals(traceBytes.toList(), zip.getInputStream(zip.getEntry("capture.perfetto-trace")).readBytes().toList())
+            assertEquals(recordingBytes.toList(), zip.getInputStream(zip.getEntry("recording.mp4")).readBytes().toList())
+            assertNull(zip.getEntry("manifest.json"))
+        }
     }
 
     @Test

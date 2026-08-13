@@ -43,6 +43,19 @@ class WinscopeSessionFiles(
         session: WinscopeSession,
         destination: Path,
         sensitiveEvidenceConfirmed: Boolean,
+    ): StudioResult<Path> = exportArchive(session, destination, sensitiveEvidenceConfirmed, includeManifest = true)
+
+    fun exportOriginal(
+        session: WinscopeSession,
+        destination: Path,
+        sensitiveEvidenceConfirmed: Boolean,
+    ): StudioResult<Path> = exportArchive(session, destination, sensitiveEvidenceConfirmed, includeManifest = false)
+
+    private fun exportArchive(
+        session: WinscopeSession,
+        destination: Path,
+        sensitiveEvidenceConfirmed: Boolean,
+        includeManifest: Boolean,
     ): StudioResult<Path> =
         try {
             if (session.sensitive && !sensitiveEvidenceConfirmed) {
@@ -50,10 +63,17 @@ class WinscopeSessionFiles(
             }
             destination.parent?.let(Files::createDirectories)
             ZipOutputStream(BufferedOutputStream(Files.newOutputStream(destination))).use { zip ->
-                zip.writeFile("trace/${session.traceFile.name}", session.traceFile)
-                session.recordingFile?.takeIf(Files::isRegularFile)?.let { zip.writeFile("media/${it.name}", it) }
-                session.screenshotFile?.takeIf(Files::isRegularFile)?.let { zip.writeFile("media/${it.name}", it) }
-                zip.writeText("manifest.json", MANIFEST_JSON.encodeToString(Manifest.from(session)))
+                if (includeManifest) {
+                    zip.writeFile("trace/${session.traceFile.name}", session.traceFile)
+                    session.recordingFile?.takeIf(Files::isRegularFile)?.let { zip.writeFile("media/${it.name}", it) }
+                    session.screenshotFile?.takeIf(Files::isRegularFile)?.let { zip.writeFile("media/${it.name}", it) }
+                    zip.writeText("manifest.json", MANIFEST_JSON.encodeToString(Manifest.from(session)))
+                } else {
+                    val traceName = session.traceFile.name + if (session.traceFile.extension.isEmpty()) ".perfetto-trace" else ""
+                    zip.writeFile(traceName, session.traceFile)
+                    (session.recordingFile?.takeIf(Files::isRegularFile) ?: session.screenshotFile?.takeIf(Files::isRegularFile))
+                        ?.let { zip.writeFile(it.name, it) }
+                }
             }
             StudioResult.Success(destination)
         } catch (error: Exception) {

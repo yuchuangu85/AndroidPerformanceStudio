@@ -161,7 +161,7 @@ fun FrameWindowScope.WinscopeMainPage(
     var timestamp by remember { mutableLongStateOf(0L) }
     var error by remember { mutableStateOf<String?>(null) }
     var fileDialogOpen by remember { mutableStateOf(false) }
-    var pendingExport by remember { mutableStateOf<Pair<WinscopeSession, Path>?>(null) }
+    var pendingExport by remember { mutableStateOf<Triple<WinscopeSession, Path, Boolean>?>(null) }
     var pendingUpstreamOpen by remember { mutableStateOf<WinscopeSession?>(null) }
     var recentSessions by remember { mutableStateOf<List<WinscopeSession>>(emptyList()) }
     var capturePanelVisible by remember { mutableStateOf(true) }
@@ -265,24 +265,32 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
-    fun exportSession() {
+    fun exportSession(original: Boolean) {
         val session = activeSession ?: return
         if (fileDialogOpen) return
         fileDialogOpen = true
         scope.launch {
             val destination =
                 try {
-                    chooseSaveFile(null, "Export Winscope ZIP", "winscope-${session.id.take(8)}.zip")?.toPath()
+                    chooseSaveFile(
+                        null,
+                        if (original) "Export Original Winscope Archive" else "Export Winscope ZIP",
+                        "winscope-${session.id.take(8)}${if (original) ".winscope" else ""}.zip",
+                    )?.toPath()
                 } finally {
                     fileDialogOpen = false
                 } ?: return@launch
             if (session.sensitive) {
-                pendingExport = session to destination
+                pendingExport = Triple(session, destination, original)
             } else {
                 when (
                     val result =
                         withContext(Dispatchers.IO) {
-                            sessionFiles.export(session.copy(annotations = annotations.toList()), destination, false)
+                            if (original) {
+                                sessionFiles.exportOriginal(session, destination, false)
+                            } else {
+                                sessionFiles.export(session.copy(annotations = annotations.toList()), destination, false)
+                            }
                         }
                 ) {
                     is StudioResult.Failure -> error = result.error.message
@@ -379,9 +387,14 @@ fun FrameWindowScope.WinscopeMainPage(
             )
             Menu(s(language, "Export", "导出")) {
                 Item(
-                    s(language, "Winscope package (.zip)…", "Winscope 压缩包（.zip）…"),
+                    s(language, "APS evidence package (.zip)…", "APS 证据包（.zip）…"),
                     enabled = activeSession != null && !fileDialogOpen,
-                    onClick = ::exportSession,
+                    onClick = { exportSession(false) },
+                )
+                Item(
+                    s(language, "Original Winscope archive (.winscope.zip)…", "原始 Winscope 归档（.winscope.zip）…"),
+                    enabled = activeSession != null && !fileDialogOpen,
+                    onClick = { exportSession(true) },
                 )
             }
             Menu(s(language, "Open Recent", "最近打开")) {
@@ -508,7 +521,7 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
-    pendingExport?.let { (session, destination) ->
+    pendingExport?.let { (session, destination, original) ->
         AlertDialog(
             onDismissRequest = { pendingExport = null },
             title = { Text(s(language, "Sensitive evidence", "敏感证据")) },
@@ -516,8 +529,8 @@ fun FrameWindowScope.WinscopeMainPage(
                 Text(
                     s(
                         language,
-                        "This package contains Input, screen media, or ProtoLog stack evidence. Export the raw evidence?",
-                        "该压缩包包含 Input、屏幕媒体或 ProtoLog 堆栈证据。是否导出原始证据？",
+                        "This export contains Input, screen media, or ProtoLog stack evidence. Export the raw evidence?",
+                        "该导出内容包含 Input、屏幕媒体或 ProtoLog 堆栈证据。是否导出原始证据？",
                     ),
                 )
             },
@@ -530,7 +543,11 @@ fun FrameWindowScope.WinscopeMainPage(
                             when (
                                 val result =
                                     withContext(Dispatchers.IO) {
-                                        sessionFiles.export(session.copy(annotations = annotations.toList()), destination, true)
+                                        if (original) {
+                                            sessionFiles.exportOriginal(session, destination, true)
+                                        } else {
+                                            sessionFiles.export(session.copy(annotations = annotations.toList()), destination, true)
+                                        }
                                     }
                             ) {
                                 is StudioResult.Failure -> error = result.error.message

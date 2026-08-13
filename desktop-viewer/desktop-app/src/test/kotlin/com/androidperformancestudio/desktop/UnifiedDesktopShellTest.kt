@@ -152,7 +152,9 @@ class UnifiedDesktopShellTest {
         val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
 
         assertTrue(fileMenu.contains("Menu(s(language, \"Export\", \"导出\"))"))
-        assertTrue(fileMenu.contains("onClick = ::exportSession"))
+        assertTrue(fileMenu.contains("onClick = { exportSession(false) }"))
+        assertTrue(fileMenu.contains("Original Winscope archive (.winscope.zip)…"))
+        assertTrue(fileMenu.contains("onClick = { exportSession(true) }"))
         assertTrue(fileMenu.contains("Menu(s(language, \"Open Recent\", \"最近打开\"))"))
         assertTrue(fileMenu.contains("recentSessions.forEach"))
         assertFalse(header.contains("Export ZIP"))
