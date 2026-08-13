@@ -251,6 +251,32 @@ index 9a63a54e9..b15ccb0a5 100644
      `,
    ],
  })
+diff --git a/winscope/src/viewers/viewer_surface_flinger/presenter.ts b/winscope/src/viewers/viewer_surface_flinger/presenter.ts
+index b59534e37..8f0e7ed75 100644
+--- a/winscope/src/viewers/viewer_surface_flinger/presenter.ts
++++ b/winscope/src/viewers/viewer_surface_flinger/presenter.ts
+@@ -534,8 +534,7 @@ the default for its data type.`,
+     cornerRadiusLabel: string,
+   ): string {
+     let [tl, tr, bl, br] = ['0', '0', '0', '0'];
+-    const radiiNode = assertDefined(tree.getChildByName(cornerRadiiLabel));
+-    const radii = radiiNode.getAllChildren();
++    const radii = tree.getChildByName(cornerRadiiLabel)?.getAllChildren() ?? [];
+     if (
+       radii.length > 0 &&
+       radii.every((r) => r.source !== PropertySource.DEFAULT)
+diff --git a/winscope/src/viewers/viewer_surface_flinger/presenter_test.ts b/winscope/src/viewers/viewer_surface_flinger/presenter_test.ts
+index 275fdb4b6..019285816 100644
+--- a/winscope/src/viewers/viewer_surface_flinger/presenter_test.ts
++++ b/winscope/src/viewers/viewer_surface_flinger/presenter_test.ts
+@@ -673,7 +673,6 @@ the default for its data type.`,
+         const layer2Props = getPropertiesForCuratedPanel(2n);
+         Object.assign(layer2Props, {
+           cornerRadius: 6,
+-          cornerRadii: {tl: 0, tr: 0, bl: 0, br: 0},
+           requestedCornerRadii: {bl: 3},
+         });
+ 
 diff --git a/winscope/webpack.config.prod.js b/winscope/webpack.config.prod.js
 index 89dba44fc..2ca179363 100644
 --- a/winscope/webpack.config.prod.js
