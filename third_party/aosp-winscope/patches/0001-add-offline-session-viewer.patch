@@ -369,3 +369,19 @@ index 89dba44fc..2ca179363 100644
 +);
 +
 +module.exports = mergedConfig;
+diff --git a/winscope/src/viewers/components/hierarchy_component.ts b/winscope/src/viewers/components/hierarchy_component.ts
+index 56e69c4c6..4aee89382 100644
+--- a/winscope/src/viewers/components/hierarchy_component.ts
++++ b/winscope/src/viewers/components/hierarchy_component.ts
+@@ -165,6 +165,11 @@ import {viewerCardInnerStyle} from './styles/viewer_card.styles';
+         padding: 0px 12px;
+       }
+ 
++      .trees {
++        min-width: 100%;
++        width: max-content;
++      }
++
+       .pinned-items {
+         width: 100%;
+         box-sizing: border-box;
