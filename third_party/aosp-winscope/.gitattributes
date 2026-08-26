@@ -1,3 +1,0 @@
-dist/** -diff -whitespace
-patches/*.patch -whitespace
-vendor/**/*.ttf binary

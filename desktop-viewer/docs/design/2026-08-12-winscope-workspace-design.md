@@ -17,13 +17,15 @@ The workspace does not embed AOSP Winscope, JCEF, or WebView and does not parse 
 
 ## Module shape
 
-`desktop-viewer/winscope` is an isolated composite build with three modules:
+`desktop-viewer/winscope` is an isolated composite build with three modules.
+The optional browser viewer is a separate AOSP-WinScope Git submodule at
+`third_party/aosp-winscope`:
 
 ```text
 winscope/
 ├── winscope-core/       capture, import, storage, SQL projections, domain models
 ├── winscope-app/        Compose workspace, timeline, viewers, menus
-└── test-fixtures/       sanitized Android 15+ trace and fixture documentation
+└── winscope-test-fixtures/  sanitized Android 15+ trace and fixture documentation
 ```
 
 The core reuses `platform-core` for ADB, process execution, errors, and capture artifacts, and `platform-perfetto` for trace configuration and the artifact-scoped Trace Processor context. The app reuses `ui-components` and is published to the desktop application as `com.androidperformancestudio.winscope:winscope-app`.
@@ -141,7 +143,7 @@ Global search accepts one read-only `SELECT` or `WITH` PerfettoSQL statement. Mu
 ## Verification
 
 - Unit tests: capture config, source capabilities, partial completeness, SQL validation, archive safety/precedence, time/identity mapping, hierarchy filtering/diff, 2D/3D projection, timeline/playback, and storage deletion boundaries.
-- Trace Processor integration: sanitized Android 15+ trace in `winscope/test-fixtures/src/main/resources/winscope/` covering all non-sensitive sources.
+- Trace Processor integration: sanitized Android 15+ trace in `winscope/winscope-test-fixtures/src/main/resources/winscope/` covering all non-sensitive sources.
 - Sensitive paths: generated Input/media metadata and temporary ZIPs only; no real sensitive fixture is committed.
 - UI contract tests: dynamic tabs, missing-source explanations, accessibility semantics, localization, and desktop navigation.
 - Performance: generated 500 MB fixture opens without loading all evidence into JVM memory and long operations remain cancellable.

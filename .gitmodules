@@ -6,3 +6,7 @@
 	path = third_party/perfetto
 	url = https://github.com/google/perfetto
 	shallow = true
+[submodule "third_party/aosp-winscope"]
+	path = third_party/aosp-winscope
+	url = https://github.com/yuchuangu85/AOSP-WinScope
+	shallow = true

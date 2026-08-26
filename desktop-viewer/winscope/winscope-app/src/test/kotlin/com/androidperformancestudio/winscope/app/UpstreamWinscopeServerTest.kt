@@ -94,6 +94,23 @@ class UpstreamWinscopeServerTest {
     }
 
     @Test
+    fun `finds viewer assets in the third party AOSP WinScope submodule output`() {
+        val repository = Files.createTempDirectory("winscope-submodule-repository")
+        val viewer = Files.createDirectories(repository.resolve("third_party/aosp-winscope/dist/prod"))
+        Files.writeString(viewer.resolve("index.html"), "Winscope")
+
+        val found =
+            UpstreamWinscopeServer.tryFindAssetsDirectory(
+                repoRoot = repository.resolve("desktop-viewer/desktop-app"),
+                configuredPath = null,
+                environmentPath = null,
+                applicationResourcesPath = null,
+            )
+
+        assertEquals(viewer, found)
+    }
+
+    @Test
     fun `launcher exports the current session before opening the browser`() {
         val assets = Files.createTempDirectory("upstream-winscope-assets")
         Files.writeString(assets.resolve("index.html"), "Winscope")

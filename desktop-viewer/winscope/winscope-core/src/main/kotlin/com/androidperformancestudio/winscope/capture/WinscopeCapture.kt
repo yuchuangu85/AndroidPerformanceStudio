@@ -213,7 +213,7 @@ class WinscopeCaptureController(
                 val configFile = Files.createTempFile("winscope-$id", ".pbtxt")
                 try {
                     Files.writeString(configFile, WinscopeConfigBuilder.build(config.copy(requestedSources = available)))
-                    val remoteConfig = "$REMOTE_DIRECTORY/aps-winscope-$id.pbtxt"
+                    val remoteConfig = "$REMOTE_CONFIG_DIRECTORY/aps-winscope-$id.pbtxt"
                     adb.push(capabilities.device.serial, configFile, remoteConfig, 30.seconds)
                     val started =
                         adb.shell(
@@ -304,7 +304,7 @@ class WinscopeCaptureController(
             val remoteTrace = "$REMOTE_DIRECTORY/aps-winscope-dump-$id.perfetto-trace"
             val localTrace = storageDirectory.resolve("dump-$id.perfetto-trace")
             val screenshot = storageDirectory.resolve("dump-$id.png")
-            val remoteConfig = "$REMOTE_DIRECTORY/aps-winscope-dump-$id.pbtxt"
+            val remoteConfig = "$REMOTE_CONFIG_DIRECTORY/aps-winscope-dump-$id.pbtxt"
             _state.value = WinscopeRuntimeState(WinscopePhase.PREPARING, message = "Taking Winscope snapshot")
             try {
                 val configFile = Files.createTempFile("winscope-dump", ".pbtxt")
@@ -627,7 +627,9 @@ class WinscopeCaptureController(
     ) {
         val safe =
             paths.filter {
-                it.startsWith("$REMOTE_DIRECTORY/aps-winscope-") || it in LEGACY_WINDOW_MANAGER_FILES
+                it.startsWith("$REMOTE_DIRECTORY/aps-winscope-") ||
+                    it.startsWith("$REMOTE_CONFIG_DIRECTORY/aps-winscope-") ||
+                    it in LEGACY_WINDOW_MANAGER_FILES
             }
         if (safe.isNotEmpty()) runCatching { adb.shell(serial, listOf("rm", "-f") + safe, 10.seconds) }
     }
@@ -674,6 +676,7 @@ class WinscopeCaptureController(
 
     companion object {
         private const val REMOTE_DIRECTORY = "/data/misc/perfetto-traces"
+        private const val REMOTE_CONFIG_DIRECTORY = "/data/local/tmp"
         private const val MAX_TRACE_BYTES = 1_073_741_824L
         private const val MAX_SCREENSHOT_BYTES = 64 * 1024 * 1024
         private const val LEGACY_WINDOW_MANAGER_FILE = "/data/misc/wmtrace/wm_trace.winscope"

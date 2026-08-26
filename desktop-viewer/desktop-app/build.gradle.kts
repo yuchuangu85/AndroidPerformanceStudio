@@ -13,9 +13,15 @@ plugins {
 val appVersion = project.version.toString()
 val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_party/firefox-profiler/dist")
 val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/perfetto/out/ui/dist")
-val winscopeUiDist = rootProject.layout.projectDirectory.dir("../third_party/aosp-winscope/dist")
-val winscopeUiManifestFile = rootProject.layout.projectDirectory.file("../third_party/aosp-winscope/manifest.json")
-val winscopeUiPatchFile = rootProject.layout.projectDirectory.file("../third_party/aosp-winscope/patches/0001-add-offline-session-viewer.patch")
+val winscopeSource = rootProject.layout.projectDirectory.dir("../third_party/aosp-winscope")
+val winscopeUiDist = winscopeSource.dir("dist/prod")
+val winscopeBuildState = winscopeSource.file(".deps/state/standalone-build.json")
+val winscopeDependenciesScript = winscopeSource.file("scripts/dependencies.py")
+val winscopePnpmStore = winscopeSource.dir(".deps/perfetto/pnpm-store")
+val winscopePython =
+    providers.gradleProperty("winscope.python").orElse(
+        if (System.getProperty("os.name").lowercase().contains("win")) "python" else "python3",
+    )
 val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
@@ -27,7 +33,6 @@ val prepareProfilerAppResources =
         inputs.file(firefoxProfilerDist.file("index.html"))
         inputs.file(perfettoUiDist.file("index.html"))
         inputs.dir(winscopeUiDist)
-        inputs.file(winscopeUiManifestFile)
         inputs.dir(userDocumentationEnglish)
         inputs.dir(userDocumentationChinese)
         from(firefoxProfilerDist)
@@ -52,6 +57,25 @@ val prepareProfilerAppResources =
 tasks
     .matching { task -> task.name == "prepareAppResources" }
     .configureEach { dependsOn(prepareProfilerAppResources) }
+
+if (!System.getProperty("os.name").lowercase().contains("win")) {
+    tasks
+        .matching { task -> task.name == "createDistributable" || task.name == "createReleaseDistributable" }
+        .configureEach {
+            doLast {
+                val packagedBinaries =
+                    outputs.files.asFileTree
+                        .matching { include("**/resources/perfetto-tools/trace_processor_shell") }
+                        .files
+                check(packagedBinaries.isNotEmpty()) { "Packaged Trace Processor is missing from the distributable" }
+                packagedBinaries.forEach { binary ->
+                    check(binary.canExecute() || binary.setExecutable(true, false)) {
+                        "Unable to make the packaged Trace Processor executable: $binary"
+                    }
+                }
+            }
+        }
+}
 
 fun macOsPackageVersion(version: String): String {
     val numericComponents = version.split(".")
@@ -118,45 +142,65 @@ val verifyPackagedTraceProcessor =
     }
 
 val verifyPackagedWinscopeUi =
-    tasks.register("verifyPackagedWinscopeUi") {
-        val assetsDirectory = winscopeUiDist.asFile
-        inputs.dir(assetsDirectory)
-        inputs.file(winscopeUiManifestFile)
-        inputs.file(winscopeUiPatchFile)
-        val manifestFile = winscopeUiManifestFile.asFile
-        val patchFile = winscopeUiPatchFile.asFile
-        doLast {
-            val manifest = JsonSlurper().parse(manifestFile) as Map<*, *>
-            val expectedAssets =
-                (checkNotNull(manifest["assets"]) as Map<*, *>).entries.associate { (key, value) ->
-                    val entry = value as Map<*, *>
-                    key.toString() to ((checkNotNull(entry["bytes"]) as Number).toLong() to checkNotNull(entry["sha256"]).toString())
-                }
-            val expectedPatchSha256 = checkNotNull(manifest["patchSha256"]).toString()
-            val sourceCommit = checkNotNull(manifest["sourceCommit"]).toString()
-            check(sourceCommit == "f41a8085fa0166967dd5ece55dce0796fd079e93") { "Unexpected upstream Winscope source commit: $sourceCommit" }
-            val actualPatchSha256 =
-                HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(patchFile.readBytes()))
-            check(actualPatchSha256 == expectedPatchSha256) { "Upstream Winscope patch checksum mismatch" }
-            val root = assetsDirectory
-            val actual =
-                root
-                    .walkTopDown()
-                    .filter { file -> file.isFile && file.name != ".DS_Store" }
-                    .associateBy { file -> file.relativeTo(root).invariantSeparatorsPath }
-            check(actual.keys == expectedAssets.keys) { "Packaged Winscope asset closure differs from manifest.json" }
-            actual.forEach { (relative, file) ->
-                val (expectedBytes, expectedSha256) = checkNotNull(expectedAssets[relative])
-                check(file.length() == expectedBytes) { "Packaged Winscope size mismatch: $relative" }
-                val actualSha256 = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.readBytes()))
-                check(actualSha256 == expectedSha256) { "Packaged Winscope checksum mismatch: $relative" }
-            }
-            check("winscope_proxy.py" !in actual) { "winscope_proxy.py must not be packaged" }
-            listOf("LICENSE-AOSP.txt", "LICENSE-MATERIAL-DESIGN-ICONS.txt", "third-party-licenses.txt").forEach { license ->
-                check(actual[license]?.length()?.let { it > 0 } == true) { "Packaged Winscope license inventory is missing: $license" }
+    tasks.register<Exec>("verifyPackagedWinscopeUi") {
+        val packageFile = winscopeSource.file("package.json")
+        val buildScript = winscopeSource.file("scripts/build.py")
+        inputs.file(packageFile)
+        inputs.file(buildScript)
+        inputs.file(winscopeBuildState)
+        inputs.dir(winscopeUiDist)
+        workingDir(winscopeSource)
+        commandLine(winscopePython.get(), buildScript.asFile.absolutePath, "verify", "--json")
+        doFirst {
+            check(packageFile.asFile.isFile) {
+                "AOSP-WinScope submodule is not initialized. Run: git submodule update --init --recursive -- third_party/aosp-winscope"
             }
         }
     }
+
+val prepareWinscopeDependencies =
+    tasks.register<Exec>("prepareWinscopeDependencies") {
+        val packageFile = winscopeSource.file("package.json").asFile
+        val pnpmStoreDirectory = winscopePnpmStore.asFile
+        inputs.file(winscopeDependenciesScript)
+        inputs.file(winscopeSource.file("build/dependencies.lock.json"))
+        inputs.file(winscopeSource.file("package-lock.json"))
+        workingDir(winscopeSource)
+        commandLine(winscopePython.get(), winscopeDependenciesScript.asFile.absolutePath, "prepare", "--json")
+        onlyIf {
+            !pnpmStoreDirectory.isDirectory
+        }
+        doFirst {
+            check(packageFile.isFile) {
+                "AOSP-WinScope submodule is not initialized. Run: git submodule update --init --recursive -- third_party/aosp-winscope"
+            }
+        }
+    }
+
+val prepareWinscopeUi =
+    tasks.register<Exec>("prepareWinscopeUi") {
+        val packageFile = winscopeSource.file("package.json")
+        val buildScript = winscopeSource.file("scripts/build.py")
+        inputs.files(
+            fileTree(winscopeSource) {
+                exclude(".git", ".git/**", ".angular/**", ".deps/**", "deps_build/**", "dist/**", "node_modules/**")
+            },
+        )
+        outputs.dir(winscopeUiDist)
+        outputs.file(winscopeBuildState)
+        dependsOn(prepareWinscopeDependencies)
+        workingDir(winscopeSource)
+        commandLine(winscopePython.get(), buildScript.asFile.absolutePath, "production", "--json")
+        doFirst {
+            check(packageFile.asFile.isFile) {
+                "AOSP-WinScope submodule is not initialized. Run: git submodule update --init --recursive -- third_party/aosp-winscope"
+            }
+        }
+    }
+
+verifyPackagedWinscopeUi.configure {
+    dependsOn(prepareWinscopeUi)
+}
 
 prepareProfilerAppResources.configure {
     dependsOn(verifyPackagedTraceProcessor)

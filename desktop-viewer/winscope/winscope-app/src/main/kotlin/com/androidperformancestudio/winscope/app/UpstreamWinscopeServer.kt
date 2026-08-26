@@ -168,7 +168,7 @@ class UpstreamWinscopeServer(
             ).filterNotNull().firstOrNull(::isAssetsDirectory)?.let { return it }
             return generateSequence(repoRoot.normalize()) { it.parent }
                 .take(6)
-                .map { it.resolve("third_party/aosp-winscope/dist") }
+                .map { it.resolve("third_party/aosp-winscope/dist/prod") }
                 .firstOrNull(::isAssetsDirectory)
         }
 

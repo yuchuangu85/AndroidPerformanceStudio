@@ -54,8 +54,10 @@ AndroidPerfermanceStudio 是一个基于 Compose Desktop 的 Android 性能分�
 - JDK 21
 - Git
 - Android SDK Platform Tools / `adb`（设备采集功能需要）
-- 构建内置 Firefox Profiler 静态资源时需要 Node.js 24 和 Yarn Classic 1.x
-- 准备内置 Perfetto 资源和 trace processor 时需要 `curl`、`unzip` 与 Python 3
+- AOSP-WinScope 需要 Node.js 24.19.0 与 npm 11.17.0；构建内置 Firefox Profiler 静态资源需要 Yarn Classic 1.x
+- AOSP-WinScope 与内置 Perfetto 准备脚本需要 Python 3.11–3.13
+- AOSP-WinScope production 构建需要 Go 1.26.6
+- 准备内置 Perfetto 资源和 trace processor 需要 `curl` 与 `unzip`
 
 ### 克隆并准备内置分析器资源
 
@@ -67,6 +69,10 @@ npm install --global yarn@1
 ./scripts/firefox-profiler.sh all
 ./scripts/build-perfetto-ui.sh download
 PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
+./desktop-viewer/gradlew -p desktop-viewer \
+  :desktop-app:prepareWinscopeUi \
+  :desktop-app:verifyPackagedWinscopeUi \
+  --no-daemon
 ```
 
 如果克隆时没有拉取子模块，请先执行：
@@ -135,10 +141,12 @@ desktop-viewer/          Compose Desktop 应用和功能模块
   network-profiler/      网络采集与 HAR 分析
   gpu-inspector-integration/  AGI 发现与产物集成
   benchmark-regression/  AndroidX Benchmark 对比与报告
+  winscope/               原生 Winscope 采集、分析与 Compose 工作区
   ui-components/         共享的公共 Compose 控件
   ai-core/               共享的 AI Provider 与结构化响应基础设施
   source-workspace/      Local/GitHub/AOSP 源码快照、缓存、索引与定位
-third_party/             固定版本的 Firefox Profiler 和 Perfetto 子模块
+third_party/             固定版本的 Firefox Profiler、Perfetto 与 AOSP-WinScope 子模块
+  aosp-winscope/         AOSP-WinScope 浏览器源码与生成的 dist/prod
 scripts/                 内置分析器和 trace processor 的准备脚本
 docs/                    架构、需求与设计记录
 ```

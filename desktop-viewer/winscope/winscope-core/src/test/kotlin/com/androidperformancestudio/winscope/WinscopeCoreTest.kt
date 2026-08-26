@@ -205,6 +205,14 @@ class WinscopeCoreTest {
             }
             val snapshot = assertIs<StudioResult.Success<WinscopeSession>>(controller.snapshot(Path.of("adb"), capabilities)).value
             assertTrue(Files.isRegularFile(requireNotNull(snapshot.screenshotFile)))
+            assertEquals(3, adb.pushedPaths.size)
+            assertTrue(adb.pushedPaths.all { it.startsWith("/data/local/tmp/aps-winscope-") && it.endsWith(".pbtxt") })
+            assertTrue(
+                adb.shellCommands.any {
+                    it.joinToString(" ").contains("cat /data/local/tmp/aps-winscope-") &&
+                        it.joinToString(" ").contains("-o /data/misc/perfetto-traces/aps-winscope-")
+                },
+            )
             val recoverable = assertIs<StudioResult.Success<List<String>>>(controller.recover(Path.of("adb"), capabilities)).value
             assertEquals(listOf("/data/misc/perfetto-traces/aps-winscope-old.perfetto-trace"), recoverable)
         }
@@ -394,6 +402,7 @@ class WinscopeCoreTest {
         private val rootActive: Boolean = false,
     ) : AdbClient {
         val shellCommands = mutableListOf<List<String>>()
+        val pushedPaths = mutableListOf<String>()
 
         override suspend fun listDevices(): List<AdbDevice> = emptyList()
 
@@ -445,7 +454,10 @@ class WinscopeCoreTest {
             timeout: Duration,
             maxOutputBytesPerStream: Int,
             isCancellationRequested: () -> Boolean,
-        ): AdbTextResult = AdbTextResult(0, "", "", Duration.ZERO)
+        ): AdbTextResult {
+            pushedPaths += remotePath
+            return AdbTextResult(0, "", "", Duration.ZERO)
+        }
 
         override suspend fun pull(
             serial: String,
