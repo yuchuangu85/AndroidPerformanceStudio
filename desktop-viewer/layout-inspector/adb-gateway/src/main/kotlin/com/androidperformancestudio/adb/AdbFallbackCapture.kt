@@ -3,6 +3,7 @@ package com.androidperformancestudio.adb
 import com.androidperformancestudio.protocol.AgentCapabilities
 import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.CaptureFrame
+import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.DisplayInfo
 import com.androidperformancestudio.protocol.LayoutSnapshot
 import com.androidperformancestudio.protocol.ProtocolCodec
@@ -115,7 +116,7 @@ internal class AdbFallbackCapture(
         val root = UiAutomatorHierarchyParser.parse(
             output = output,
             expectedPackageName = packageName,
-        )
+        ).promoteComposeSemantics()
         return CapturedHierarchy(
             windows = listOf(
                 WindowSnapshot(
@@ -164,7 +165,7 @@ internal object UiAutomatorHierarchyParser {
     fun parse(
         output: String,
         expectedPackageName: String? = null,
-    ): UiNode {
+    ): ViewNode {
         val xml = output.substringBeforeLast("</hierarchy>", missingDelimiterValue = "")
             .takeIf { it.isNotBlank() }
             ?.plus("</hierarchy>")
@@ -211,19 +212,23 @@ internal object UiAutomatorHierarchyParser {
     private fun Element.toViewNode(path: String): ViewNode {
         val resourceName = getAttribute("resource-id").ifBlank { null }
         val visibleToUser = booleanAttribute("visible-to-user")
+        val className = getAttribute("class").ifBlank { "android.view.View" }
         val children = childNodes.asElementSequence()
             .filter { it.tagName == "node" }
             .mapIndexed { index, child -> child.toViewNode("$path/$index") }
             .toList()
+        val bounds = parseBounds(getAttribute("bounds"))
+        val visible = visibleToUser ?: true
+        val text = getAttribute("text").ifBlank { null }
         return ViewNode(
             id = path,
-            className = getAttribute("class").ifBlank { "android.view.View" },
-            bounds = parseBounds(getAttribute("bounds")),
-            visible = visibleToUser ?: true,
+            className = className,
+            bounds = bounds,
+            visible = visible,
             alpha = 1f,
             children = children,
             resourceName = resourceName,
-            text = getAttribute("text").ifBlank { null },
+            text = text,
             attributes = ViewAttributes(
                 visibility = visibleToUser?.let {
                     if (it) "VISIBLE_TO_USER" else "NOT_VISIBLE_TO_USER"
@@ -236,6 +241,13 @@ internal object UiAutomatorHierarchyParser {
                 focused = booleanAttribute("focused"),
                 selected = booleanAttribute("selected"),
                 contentDescription = getAttribute("content-desc").ifBlank { null },
+                rawProperties = buildMap {
+                    listOf(
+                        "checkable", "checked", "scrollable", "password", "hint",
+                    ).forEach { name ->
+                        getAttribute(name).takeIf(String::isNotBlank)?.let { put(name, it) }
+                    }
+                },
             ),
         )
     }
@@ -259,6 +271,66 @@ internal object UiAutomatorHierarchyParser {
     private fun NodeList.asElementSequence(): Sequence<Element> =
         (0 until length).asSequence().mapNotNull { item(it) as? Element }
 }
+
+private fun UiNode.promoteComposeSemantics(insideComposeHost: Boolean = false): UiNode {
+    val isComposeHost = className.endsWith(".ComposeView") ||
+        className.endsWith(".AndroidComposeView")
+    val promotedChildren = children.map { child ->
+        child.promoteComposeSemantics(insideComposeHost || isComposeHost)
+    }
+    if (!insideComposeHost || this !is ViewNode) {
+        return when (this) {
+            is ViewNode -> copy(children = promotedChildren)
+            is ComposeNode -> copy(children = promotedChildren)
+        }
+    }
+    val semanticClass = semanticClass(className)
+    return ComposeNode(
+        id = id,
+        className = semanticClass.label,
+        bounds = bounds,
+        visible = visible,
+        alpha = alpha,
+        children = promotedChildren,
+        semanticsRole = semanticClass.role,
+        text = text,
+        semanticProperties = buildMap {
+            put("AccessibilityClassName", className)
+            resourceName?.let { put("ResourceId", it) }
+            attributes.contentDescription?.let { put("ContentDescription", it) }
+            attributes.enabled?.let { put("Enabled", it.toString()) }
+            attributes.clickable?.let { put("Clickable", it.toString()) }
+            attributes.longClickable?.let { put("LongClickable", it.toString()) }
+            attributes.focusable?.let { put("Focusable", it.toString()) }
+            attributes.focused?.let { put("Focused", it.toString()) }
+            attributes.selected?.let { put("Selected", it.toString()) }
+            attributes.rawProperties.forEach { (name, value) ->
+                put(name.replaceFirstChar(Char::uppercase), value)
+            }
+        },
+    )
+}
+
+private fun semanticClass(accessibilityClassName: String): SemanticClass = when {
+    accessibilityClassName.endsWith(".Button") ||
+        accessibilityClassName.endsWith(".ImageButton") -> SemanticClass("Button", "Button")
+    accessibilityClassName.endsWith(".CheckBox") -> SemanticClass("Checkbox", "Checkbox")
+    accessibilityClassName.endsWith(".RadioButton") -> SemanticClass("RadioButton", "RadioButton")
+    accessibilityClassName.endsWith(".Switch") ||
+        accessibilityClassName.endsWith(".ToggleButton") -> SemanticClass("Switch", "Switch")
+    accessibilityClassName.endsWith(".EditText") -> SemanticClass("TextField", "TextField")
+    accessibilityClassName.endsWith(".TextView") -> SemanticClass("Text", null)
+    accessibilityClassName.endsWith(".ImageView") -> SemanticClass("Image", "Image")
+    accessibilityClassName.endsWith(".ScrollView") -> SemanticClass("ScrollContainer", null)
+    accessibilityClassName.endsWith(".SeekBar") -> SemanticClass("Slider", "Slider")
+    accessibilityClassName.endsWith(".ProgressBar") -> SemanticClass("ProgressIndicator", null)
+    else -> SemanticClass("SemanticsNode", null)
+}
+
+private data class SemanticClass(
+    val label: String,
+    val role: String?,
+)
 
 internal object PngDimensions {
     fun read(png: ByteArray): Pair<Int, Int> {

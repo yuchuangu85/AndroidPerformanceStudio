@@ -160,20 +160,32 @@ internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 // Source-aware payload preflight is complete; keep the user-facing analysis entry available.
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
-internal val FULL_COMPOSE_INSPECTION_VISIBLE: Boolean =
-    System.getProperty("agentperf.compose.full.enabled", "false").toBoolean()
+// Full Compose inspection exposes layout-only nodes such as Box, Row, and Column. It is prepared
+// automatically for the foreground app when the verified AOSP agent bundle is available.
+internal const val DEFAULT_HIDE_SYSTEM_COMPOSABLES: Boolean = false
+
+internal fun automaticComposePreflightKey(
+    serial: String?,
+    mode: CaptureTargetMode,
+    fullComposeEnabled: Boolean,
+    hasAuthorization: Boolean,
+): String? =
+    serial?.takeIf {
+        mode == CaptureTargetMode.FOREGROUND_APP && !fullComposeEnabled && !hasAuthorization
+    }?.let { "$it:${mode.name}" }
+
+internal data class ComposeFallbackRecovery(
+    val autoScanEnabled: Boolean = true,
+    val fullComposeEnabled: Boolean = false,
+    val recompositionActive: Boolean = false,
+)
+
+internal fun composeFallbackRecovery(): ComposeFallbackRecovery = ComposeFallbackRecovery()
 
 private data class AuthorizedComposeTarget(
     val prepared: PreparedComposeInspection,
     val authorization: ComposeInspectionAuthorization,
 )
-
-private sealed interface ComposeAuthorizationUiState {
-    data object Idle : ComposeAuthorizationUiState
-    data object Preparing : ComposeAuthorizationUiState
-    data class Review(val prepared: PreparedComposeInspection) : ComposeAuthorizationUiState
-    data class Failure(val message: String) : ComposeAuthorizationUiState
-}
 
 internal enum class CaptureTargetMode {
     FOREGROUND_APP,
@@ -227,13 +239,12 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         ComposeInjectionManager(composeProcessRunner, composeArtifactResolver)
     }
     var fullComposeEnabled by remember { mutableStateOf(false) }
-    var hideSystemComposables by remember { mutableStateOf(true) }
+    var hideSystemComposables by remember { mutableStateOf(DEFAULT_HIDE_SYSTEM_COMPOSABLES) }
     var composeAuthorization by remember { mutableStateOf<AuthorizedComposeTarget?>(null) }
-    var composeAuthorizationUiState by remember {
-        mutableStateOf<ComposeAuthorizationUiState>(ComposeAuthorizationUiState.Idle)
-    }
     var composeSession by remember { mutableStateOf<ComposeLiveSession?>(null) }
     var recompositionActive by remember { mutableStateOf(false) }
+    var automaticComposePreflightAttempt by remember { mutableStateOf<String?>(null) }
+    var automaticComposePreflightInProgress by remember { mutableStateOf(false) }
     val recompositionHeatTracker = remember { RecompositionHeatTracker() }
     var recompositionHeat by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
     LaunchedEffect(state.composeInspection?.frame?.frameId) {
@@ -293,7 +304,53 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         selectedDeviceSerial = sanitizeSelectedDeviceSerial(selectedDeviceSerial, devices)
     }
 
-    LaunchedEffect(autoScanEnabled, captureTargetMode, fullComposeEnabled, composeAuthorization) {
+    val prepareFullComposeForForeground: () -> Unit = prepare@{
+        val serial = selectedDeviceSerial ?: availableDevices.singleOrNull()?.serial ?: return@prepare
+        val key = automaticComposePreflightKey(
+            serial = serial,
+            mode = captureTargetMode,
+            fullComposeEnabled = fullComposeEnabled,
+            hasAuthorization = composeAuthorization != null,
+        ) ?: return@prepare
+        if (automaticComposePreflightAttempt == key || automaticComposePreflightInProgress) return@prepare
+        automaticComposePreflightAttempt = key
+        automaticComposePreflightInProgress = true
+        coroutineScope.launch {
+            val prepared = runCatching {
+                withContext(Dispatchers.IO) {
+                    val packageName = deviceClient.foregroundPackageName(serial)
+                    val bundleRoot = Path.of(
+                        System.getProperty("agentperf.compose.agent.bundle", "compose-agent-bundle"),
+                    ).toAbsolutePath()
+                    composeInjectionManager.preflight(serial, packageName, bundleRoot)
+                }
+            }
+            automaticComposePreflightInProgress = false
+            prepared.fold(
+                onSuccess = { target ->
+                    composeAuthorization = AuthorizedComposeTarget(
+                        target,
+                        ComposeInspectionAuthorization.authorize(target.preflight),
+                    )
+                    fullComposeEnabled = true
+                },
+                onFailure = {
+                    // Complete Compose requires the verified AOSP runtime bundle. Native View and
+                    // compatible Semantics capture must remain available when that bundle is absent.
+                    val recovery = composeFallbackRecovery()
+                    fullComposeEnabled = recovery.fullComposeEnabled
+                    composeAuthorization = null
+                    recompositionActive = recovery.recompositionActive
+                },
+            )
+        }
+    }
+
+    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, fullComposeEnabled, composeAuthorization) {
+        prepareFullComposeForForeground()
+    }
+
+    LaunchedEffect(autoScanEnabled, selectedDeviceSerial, captureTargetMode, fullComposeEnabled, composeAuthorization) {
         if (!autoScanEnabled) {
             if (store.state.connectionStatus != ConnectionStatus.ARCHIVE &&
                 store.state.connectionStatus != ConnectionStatus.ERROR
@@ -383,14 +440,21 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                store.connectionFailed(error.message ?: error.javaClass.simpleName)
-                state = store.state
                 if (fullComposeEnabled) {
+                    val failedSession = fullSession
+                    fullSession = null
+                    composeSession = null
+                    withContext(NonCancellable + Dispatchers.IO) { failedSession?.close() }
+                    val recovery = composeFallbackRecovery()
                     composeAuthorization = null
-                    fullComposeEnabled = false
-                    recompositionActive = false
-                    autoScanEnabled = false
+                    fullComposeEnabled = recovery.fullComposeEnabled
+                    recompositionActive = recovery.recompositionActive
+                    autoScanEnabled = recovery.autoScanEnabled
+                    store.fallbackToCompatibleInspection()
+                    state = store.state
                 } else {
+                    store.connectionFailed(error.message ?: error.javaClass.simpleName)
+                    state = store.state
                     delay(RECONNECT_INTERVAL_MILLIS.milliseconds)
                 }
             } finally {
@@ -786,43 +850,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         viewDisplayOptions = updatedOptions
         viewDisplayOptionsStore.save(updatedOptions)
     }
-    val toggleFullComposeInspection: () -> Unit = {
-        if (fullComposeEnabled) {
-            fullComposeEnabled = false
-            composeAuthorization = null
-            recompositionActive = false
-        } else if (composeAuthorizationUiState !is ComposeAuthorizationUiState.Preparing) {
-            composeAuthorizationUiState = ComposeAuthorizationUiState.Preparing
-            coroutineScope.launch {
-                val result = try {
-                    val serial = selectedDeviceSerial
-                        ?: availableDevices.singleOrNull()?.serial
-                        ?: error("Select exactly one authorized device")
-                    val prepared = withContext(Dispatchers.IO) {
-                        val packageName = deviceClient.foregroundPackageName(serial)
-                        val bundleRoot = Path.of(
-                            System.getProperty("agentperf.compose.agent.bundle", "compose-agent-bundle"),
-                        ).toAbsolutePath()
-                        composeInjectionManager.preflight(
-                            serial,
-                            packageName,
-                            bundleRoot,
-                            explicitLocalArtifact = System.getProperty("agentperf.compose.inspector.path")
-                                ?.takeIf(String::isNotBlank)?.let(Path::of),
-                        )
-                    }
-                    ComposeAuthorizationUiState.Review(prepared)
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    ComposeAuthorizationUiState.Failure(error.message ?: error.javaClass.simpleName)
-                }
-                if (composeAuthorizationUiState is ComposeAuthorizationUiState.Preparing) {
-                    composeAuthorizationUiState = result
-                }
-            }
-        }
-    }
+
 
     NativeViewerMenuBar(
         model = NativeViewerMenuModel(
@@ -895,6 +923,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         selectedSerial = selectedDeviceSerial,
                         onSelectDevice = { serial ->
                             manualRefreshSession.invalidate()
+                            composeAuthorization = null
+                            fullComposeEnabled = false
+                            recompositionActive = false
+                            automaticComposePreflightAttempt = null
                             selectedDeviceSerial = serial
                             deviceListRefreshRequest += 1
                         },
@@ -905,22 +937,14 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         onSelectMode = { mode ->
                             if (captureTargetMode != mode) {
                                 manualRefreshSession.invalidate()
+                                composeAuthorization = null
+                                fullComposeEnabled = false
+                                recompositionActive = false
+                                automaticComposePreflightAttempt = null
                                 captureTargetMode = mode
                             }
                         },
                     )
-                    if (FULL_COMPOSE_INSPECTION_VISIBLE) {
-                        HeaderSpacer()
-                        TextButton(onClick = toggleFullComposeInspection) {
-                            Text(
-                                localizedStringResource(
-                                    if (fullComposeEnabled) Res.string.full_compose_on else Res.string.full_compose_off,
-                                    language,
-                                ),
-                                fontSize = 11.sp,
-                            )
-                        }
-                    }
                     if (model.windows.size > 1) {
                         HeaderSpacer()
                         WindowSelector(
@@ -1465,66 +1489,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         }
                     },
                 )
-            }
-            when (val composeState = composeAuthorizationUiState) {
-                ComposeAuthorizationUiState.Idle -> Unit
-                ComposeAuthorizationUiState.Preparing -> ExportResultDialog(
-                    title = localizedStringResource(Res.string.compose_preflight_title, uiLanguage),
-                    message = localizedStringResource(Res.string.compose_preflight_running, uiLanguage),
-                    dismissLabel = localizedStringResource(Res.string.cancel, uiLanguage),
-                    onDismiss = { composeAuthorizationUiState = ComposeAuthorizationUiState.Idle },
-                )
-                is ComposeAuthorizationUiState.Failure -> ExportResultDialog(
-                    title = localizedStringResource(Res.string.compose_preflight_failed, uiLanguage),
-                    message = composeState.message,
-                    dismissLabel = localizedStringResource(Res.string.dismiss, uiLanguage),
-                    onDismiss = { composeAuthorizationUiState = ComposeAuthorizationUiState.Idle },
-                )
-                is ComposeAuthorizationUiState.Review -> {
-                    val preflight = composeState.prepared.preflight
-                    AlertDialog(
-                        onDismissRequest = { composeAuthorizationUiState = ComposeAuthorizationUiState.Idle },
-                        title = { Text(localizedStringResource(Res.string.compose_authorize_title, uiLanguage)) },
-                        text = {
-                            Text(
-                                localizedStringResource(
-                                    Res.string.compose_authorize_message,
-                                    uiLanguage,
-                                    preflight.packageName,
-                                    preflight.pid,
-                                    preflight.apiLevel,
-                                    preflight.abi,
-                                    preflight.composeVersion ?: "—",
-                                    preflight.inspectorSource ?: "—",
-                                    localizedStringResource(
-                                        if (preflight.inspectorDownloadRequired) Res.string.download_required
-                                        else Res.string.download_not_required,
-                                        uiLanguage,
-                                    ),
-                                    preflight.bundleFingerprint.take(12),
-                                    preflight.performanceNotice,
-                                ),
-                            )
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                composeAuthorization = AuthorizedComposeTarget(
-                                    composeState.prepared,
-                                    ComposeInspectionAuthorization.authorize(preflight),
-                                )
-                                composeAuthorizationUiState = ComposeAuthorizationUiState.Idle
-                                captureTargetMode = CaptureTargetMode.FOREGROUND_APP
-                                fullComposeEnabled = true
-                                autoScanEnabled = true
-                            }) { Text(localizedStringResource(Res.string.authorize_attach, uiLanguage)) }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = {
-                                composeAuthorizationUiState = ComposeAuthorizationUiState.Idle
-                            }) { Text(localizedStringResource(Res.string.cancel, uiLanguage)) }
-                        },
-                    )
-                }
             }
             if (pendingComposeExportConsent) {
                 var fullFidelity by remember { mutableStateOf(false) }

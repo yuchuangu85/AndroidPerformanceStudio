@@ -2,6 +2,7 @@ package com.androidperformancestudio.adb
 
 import com.androidperformancestudio.protocol.CaptureFrame
 import com.androidperformancestudio.protocol.CaptureFrameCodec
+import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.ProtocolCodec
 import java.net.ServerSocket
 import java.util.concurrent.Executors
@@ -376,9 +377,15 @@ class LiveDeviceClientTest {
                         bounds="[0,0][1080,2400]">
                         <node class="androidx.compose.ui.platform.ComposeView" package="com.codemx.anrdemo"
                           bounds="[0,0][1080,2400]">
-                          <node text="性能测试" class="android.widget.TextView" package="com.codemx.anrdemo"
+                          <node text="性能测试" resource-id="com.codemx.anrdemo:id/title"
+                            content-desc="性能测试标题" class="android.widget.TextView" package="com.codemx.anrdemo"
                             bounds="[48,156][384,268]" />
-                          <node text="开始" class="android.widget.Button" package="com.codemx.anrdemo"
+                          <node text="开始" resource-id="com.codemx.anrdemo:id/start"
+                            content-desc="开始测试" class="android.widget.Button" package="com.codemx.anrdemo"
+                            enabled="true" clickable="true" long-clickable="false"
+                            focusable="true" focused="false" selected="true"
+                            checkable="false" checked="false" scrollable="false"
+                            password="false" hint="执行测试"
                             bounds="[48,300][384,420]" />
                         </node>
                       </node>
@@ -405,9 +412,32 @@ class LiveDeviceClientTest {
         assertEquals("android.widget.FrameLayout", snapshot.root.className)
         val composeView = snapshot.root.children.single()
         assertEquals("androidx.compose.ui.platform.ComposeView", composeView.className)
+        assertTrue(composeView.children.all { it is ComposeNode })
+        assertEquals(listOf("Text", "Button"), composeView.children.map { it.className })
         assertEquals(
             listOf("android.widget.TextView", "android.widget.Button"),
-            composeView.children.map { it.className },
+            composeView.children.map { (it as ComposeNode).semanticProperties["AccessibilityClassName"] },
+        )
+        assertEquals(listOf("性能测试", "开始"), composeView.children.map { (it as ComposeNode).text })
+        assertEquals("Button", (composeView.children[1] as ComposeNode).semanticsRole)
+        assertEquals(
+            mapOf(
+                "AccessibilityClassName" to "android.widget.Button",
+                "ResourceId" to "com.codemx.anrdemo:id/start",
+                "ContentDescription" to "开始测试",
+                "Enabled" to "true",
+                "Clickable" to "true",
+                "LongClickable" to "false",
+                "Focusable" to "true",
+                "Focused" to "false",
+                "Selected" to "true",
+                "Checkable" to "false",
+                "Checked" to "false",
+                "Scrollable" to "false",
+                "Password" to "false",
+                "Hint" to "执行测试",
+            ),
+            (composeView.children[1] as ComposeNode).semanticProperties,
         )
         assertTrue(snapshot.capabilities.composeSemantics)
     }

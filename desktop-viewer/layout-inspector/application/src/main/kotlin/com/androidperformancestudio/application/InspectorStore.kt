@@ -331,6 +331,15 @@ class InspectorStore(
         )
     }
 
+    fun fallbackToCompatibleInspection() {
+        state = state.copy(
+            connectionStatus = ConnectionStatus.DISCONNECTED,
+            connectionError = null,
+            composeInspection = null,
+            composeInspectionWarning = null,
+        )
+    }
+
     fun selectNode(nodeId: String): Boolean {
         val candidate = state.copy(selectedNodeId = nodeId)
         if (candidate.selectedNode == null) return false

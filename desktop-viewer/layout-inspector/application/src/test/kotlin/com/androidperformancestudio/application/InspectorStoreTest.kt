@@ -115,6 +115,41 @@ class InspectorStoreTest {
     }
 
     @Test
+    fun `full Compose failure clears rich details before compatible capture resumes`() {
+        val snapshot = SampleSnapshots.dashboard
+        val inspection = ComposeInspectionDocument(
+            packageName = snapshot.packageName,
+            capturedAtEpochMillis = snapshot.capturedAtEpochMillis,
+            frame = ComposeInspectionFrame(
+                frameId = "frame",
+                generation = 1,
+                mode = ComposeInspectionMode.FULL,
+                capabilities = emptyList(),
+                roots = emptyList(),
+            ),
+        )
+        val store = InspectorStore().apply {
+            loadCapture(snapshot, byteArrayOf(1), inspection)
+            connectionFailed("private diagnostic")
+        }
+
+        store.fallbackToCompatibleInspection()
+
+        assertSame(snapshot, store.state.snapshot)
+        assertNull(store.state.composeInspection)
+        assertNull(store.state.composeInspectionWarning)
+        assertNull(store.state.connectionError)
+        assertEquals(ConnectionStatus.DISCONNECTED, store.state.connectionStatus)
+
+        val compatibleSnapshot = snapshot.copy(capturedAtEpochMillis = snapshot.capturedAtEpochMillis + 1)
+        store.loadCapture(compatibleSnapshot, byteArrayOf(2))
+
+        assertEquals(compatibleSnapshot, store.state.snapshot)
+        assertNull(store.state.composeInspection)
+        assertEquals(ConnectionStatus.CONNECTED, store.state.connectionStatus)
+    }
+
+    @Test
     fun `manual screenshot import fills a layout-only capture and preserves selection`() {
         val store = InspectorStore().apply {
             loadCapture(SampleSnapshots.dashboard, byteArrayOf())

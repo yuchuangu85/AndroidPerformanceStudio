@@ -41,6 +41,38 @@ class ComposeInspectionModelTest {
     }
 
     @Test
+    fun `full Compose projection preserves native children that are not hosted by Compose`() {
+        val retainedChild = ViewNode("view:7", "android.widget.Button", Bounds(0, 0, 10, 10))
+        val composeHost = ViewNode(
+            "view:42",
+            "androidx.compose.ui.platform.AndroidComposeView",
+            Bounds(0, 0, 100, 100),
+            children = listOf(retainedChild),
+        )
+        val snapshot = LayoutSnapshot(
+            protocolVersion = PROTOCOL_VERSION_1_1,
+            packageName = "sample",
+            capturedAtEpochMillis = 10,
+            display = DisplayInfo(100, 100, 1f),
+            capabilities = AgentCapabilities(viewHierarchy = true),
+            root = composeHost,
+        )
+        val frame = sampleDocument().frame.copy(
+            roots = listOf(
+                ComposableRoot(
+                    viewId = 42,
+                    nodes = listOf(ComposableNode(2, 2, "Box", Bounds(0, 0, 100, 100))),
+                ),
+            ),
+        )
+
+        val mergedRoot = ComposeInspectionProjection.mergeInto(snapshot, frame).root
+
+        assertEquals(listOf("compose-inspection:2", "view:7"), mergedRoot.children.map { it.id })
+        assertEquals(retainedChild, mergedRoot.children.last())
+    }
+
+    @Test
     fun `hybrid projection moves hosted Android view under its composable`() {
         val hosted = ViewNode("view:99", "android.widget.TextView", Bounds(0, 0, 10, 10))
         val root = ViewNode("view:42", "androidx.compose.ui.platform.AndroidComposeView", Bounds(0, 0, 100, 100), children = listOf(hosted))
