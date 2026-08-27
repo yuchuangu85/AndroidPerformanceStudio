@@ -63,9 +63,9 @@
     <string name="winscope">Winscope</string>
     <string name="winscope_settings">Winscope Settings</string>
     <string name="winscope_engine">Winscope engine</string>
-    <string name="winscope_engine_new">New engine</string>
+    <string name="winscope_engine_new">New engine (In development)</string>
     <string name="winscope_engine_native">Winscope native engine</string>
-    <string name="winscope_engine_description">Choose the integrated Android Performance Studio workspace or the packaged upstream Winscope viewer. Capture and ADB remain owned by Android Performance Studio.</string>
+    <string name="winscope_engine_description">Choose the integrated Android Performance Studio workspace (in development) or the packaged upstream Winscope viewer. Capture and ADB remain owned by Android Performance Studio.</string>
     <string name="window_system_trace">Window system trace</string>
     <string name="winscope_home_description">Capture and inspect WindowManager, SurfaceFlinger, transitions, input, IME, ViewCapture, and ProtoLog evidence.</string>
     <string name="memory_profiler">Memory Profiler</string>

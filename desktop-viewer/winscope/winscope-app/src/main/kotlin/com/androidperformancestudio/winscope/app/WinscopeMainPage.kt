@@ -38,10 +38,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -94,7 +92,6 @@ import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.DropdownSelector
-import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalViewerColors
@@ -434,9 +431,26 @@ fun FrameWindowScope.WinscopeMainPage(
         }
     }
 
-    Column(Modifier.fillMaxSize().onWinscopeKeys(timeline, timestamp, ::selectTimestamp)) {
-        HeaderToolbar(language = language, onNavigateHome = onNavigateHome, onNavigateSettings = null) {
+    val viewerColors = LocalViewerColors.current
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(viewerColors.canvasBackground)
+            .onWinscopeKeys(timeline, timestamp, ::selectTimestamp),
+    ) {
+        HeaderToolbar(
+            modifier = Modifier.border(ViewerDimensions.hairline, viewerColors.border),
+            language = language,
+            onNavigateHome = onNavigateHome,
+            onNavigateSettings = null,
+        ) {
             Text("Winscope", fontWeight = FontWeight.SemiBold)
+            HeaderSpacer()
+            Text(
+                s(language, "Capture", "采集"),
+                color = viewerColors.mutedText,
+                style = MaterialTheme.typography.labelSmall,
+            )
             HeaderSpacer()
             val selectedDevice = devices.firstOrNull { it.first == selectedSerial }
             DropdownSelector(
@@ -468,7 +482,13 @@ fun FrameWindowScope.WinscopeMainPage(
             )
             Spacer(Modifier.weight(1f))
             activeSession?.let { session ->
-                Spacer(Modifier.width(6.dp))
+                Text(
+                    session.traceFile.fileName?.toString().orEmpty(),
+                    color = viewerColors.mutedText,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                )
+                HeaderSpacer()
                 val upstreamEligible = canOpenInUpstreamWinscope(timeline)
                 MacOSTextButton(
                     if (upstreamEligible) {
@@ -496,7 +516,15 @@ fun FrameWindowScope.WinscopeMainPage(
             }
         }
         error?.let { ErrorBanner(it) { error = null } }
-        Row(Modifier.fillMaxSize()) {
+        if (engine == WinscopeEnginePreference.NEW) {
+            NewEngineDevelopmentBanner(language)
+        }
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             if (capturePanelVisible) {
                 CapturePanel(
                     language = language,
@@ -519,34 +547,43 @@ fun FrameWindowScope.WinscopeMainPage(
                     },
                 )
             }
-            if (activeSession == null) {
-                EmptyWorkspace(language)
-            } else if (engine == WinscopeEnginePreference.NATIVE) {
-                NativeWinscopeHandoff(
-                    language = language,
-                    session = activeSession!!,
-                    eligible = canOpenInUpstreamWinscope(timeline),
-                    onOpen = {
-                        if (activeSession!!.sensitive && activeSession!!.id !in confirmedUpstreamSessions) {
-                            pendingUpstreamOpen = activeSession
-                        } else {
-                            openInUpstreamWinscope(activeSession!!)
-                        }
-                    },
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
-            } else {
-                ViewerWorkspace(
-                    language,
-                    activeSession!!,
-                    analyzer,
-                    timeline,
-                    timestamp,
-                    ::selectTimestamp,
-                    annotations,
-                    onOpenSource,
-                    Modifier.weight(1f).fillMaxHeight(),
-                )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(viewerColors.panel)
+                    .border(ViewerDimensions.hairline, viewerColors.border, RoundedCornerShape(10.dp)),
+            ) {
+                if (activeSession == null) {
+                    EmptyWorkspace(language)
+                } else if (engine == WinscopeEnginePreference.NATIVE) {
+                    NativeWinscopeHandoff(
+                        language = language,
+                        session = activeSession!!,
+                        eligible = canOpenInUpstreamWinscope(timeline),
+                        onOpen = {
+                            if (activeSession!!.sensitive && activeSession!!.id !in confirmedUpstreamSessions) {
+                                pendingUpstreamOpen = activeSession
+                            } else {
+                                openInUpstreamWinscope(activeSession!!)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    ViewerWorkspace(
+                        language,
+                        activeSession!!,
+                        analyzer,
+                        timeline,
+                        timestamp,
+                        ::selectTimestamp,
+                        annotations,
+                        onOpenSource,
+                        Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
     }
@@ -682,17 +719,25 @@ private fun CapturePanel(
     captureState: String,
     onRoot: () -> Unit,
 ) {
+    val colors = LocalViewerColors.current
     Column(
         Modifier
-            .width(
-                320.dp,
-            ).fillMaxHeight()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .width(300.dp)
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.panel)
+            .border(ViewerDimensions.hairline, colors.border, RoundedCornerShape(10.dp))
             .verticalScroll(rememberScrollState())
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        Text(s(language, "Live capture · Android 15+", "实时采集 · Android 15+"), fontWeight = FontWeight.SemiBold)
+        Text(
+            s(language, "Capture", "采集"),
+            color = colors.accent,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(s(language, "Live capture · Android 15+", "实时采集 · Android 15+"), style = MaterialTheme.typography.titleSmall)
         MacOSInlineTextField("ADB", adbPath, onAdbPath, modifier = Modifier.fillMaxWidth())
         capabilities?.let { caps ->
             val root =
@@ -707,9 +752,12 @@ private fun CapturePanel(
                 Text("• ${it.message}", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
             }
         }
-        HorizontalDivider()
+        HorizontalDivider(color = colors.border)
         Text(s(language, "Capture preset", "采集预设"), fontWeight = FontWeight.Medium)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             WinscopeCapturePreset.entries.forEach { preset ->
                 FilterChip(
                     config.preset == preset,
@@ -826,7 +874,10 @@ private fun CapturePanel(
         }
         if (WinscopeSource.PROTO_LOG in config.requestedSources) {
             Text("ProtoLog ${config.protoLogLevel}+")
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
                 ProtoLogLevel.entries.forEach { level ->
                     FilterChip(
                         config.protoLogLevel == level,
@@ -846,6 +897,35 @@ private fun CapturePanel(
             ) { onConfig(config.copy(protoLogStacktraces = it)) }
         }
         if (captureState.isNotBlank()) Text(captureState, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun WinscopeTab(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    Box(
+        Modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(ViewerDimensions.controlRadius))
+            .background(if (selected) colors.panel else Color.Transparent)
+            .border(
+                ViewerDimensions.hairline,
+                if (selected) colors.border else Color.Transparent,
+                RoundedCornerShape(ViewerDimensions.controlRadius),
+            ).clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (selected) colors.primaryText else colors.mutedText,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
     }
 }
 
@@ -882,36 +962,63 @@ private fun ViewerWorkspace(
                     found
             ).distinct()
         }
-    Column(modifier.background(MaterialTheme.colorScheme.background)) {
-        SessionBanner(session)
-        SecondaryTabRow(tabs.indexOf(tab).coerceAtLeast(0), modifier = Modifier.height(HEADER_TOOL_BAR_HEIGHT)) {
-            tabs.forEach { source -> Tab(tab == source, { tab = source }, text = { Text(source.displayName, maxLines = 1) }) }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (analyzer ==
-                null
+    val colors = LocalViewerColors.current
+    Column(
+        modifier.background(colors.canvasBackground).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.panel)
+                .border(ViewerDimensions.hairline, colors.border, RoundedCornerShape(8.dp)),
+        ) {
+            SessionBanner(session)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .background(colors.sectionBackground)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(s(language, "Opening trace…", "正在打开轨迹…")) }
-            } else {
-                when (tab) {
-                    WinscopeSource.WINDOW_MANAGER, WinscopeSource.SURFACE_FLINGER, WinscopeSource.VIEW_CAPTURE ->
-                        StateWorkspace(
-                            analyzer,
-                            tab,
-                            timestamp,
-                        )
-                    WinscopeSource.PROTO_LOG, WinscopeSource.IME, WinscopeSource.INPUT, WinscopeSource.EVENT_LOG ->
-                        LogWorkspace(
-                            analyzer,
-                            tab,
-                            timeline,
-                            onTimestamp,
-                            onOpenSource,
-                        )
-                    else -> SearchWorkspace(analyzer, onTimestamp)
+                tabs.forEach { source ->
+                    WinscopeTab(
+                        label = source.displayName,
+                        selected = tab == source,
+                        onClick = { tab = source },
+                    )
                 }
             }
-            FloatingMediaPanel(session, timestamp, timeline?.bounds?.startNanos ?: timestamp)
+            HorizontalDivider(color = colors.border)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (analyzer == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(s(language, "Opening trace…", "正在打开轨迹…")) }
+                } else {
+                    when (tab) {
+                        WinscopeSource.WINDOW_MANAGER, WinscopeSource.SURFACE_FLINGER, WinscopeSource.VIEW_CAPTURE ->
+                            StateWorkspace(
+                                analyzer,
+                                tab,
+                                timestamp,
+                            )
+                        WinscopeSource.PROTO_LOG, WinscopeSource.IME, WinscopeSource.INPUT, WinscopeSource.EVENT_LOG ->
+                            LogWorkspace(
+                                analyzer,
+                                tab,
+                                timeline,
+                                onTimestamp,
+                                onOpenSource,
+                            )
+                        else -> SearchWorkspace(analyzer, onTimestamp)
+                    }
+                }
+                FloatingMediaPanel(session, timestamp, timeline?.bounds?.startNanos ?: timestamp)
+            }
         }
         ScreenshotPanel(session)
         TimelinePanel(timeline, timestamp, onTimestamp, annotations)
@@ -970,6 +1077,7 @@ private fun TimelinePanel(
     val bounds = timeline?.bounds
     val currentTimestamp by rememberUpdatedState(timestamp)
     val currentOnTimestamp by rememberUpdatedState(onTimestamp)
+    val colors = LocalViewerColors.current
     LaunchedEffect(playing, speed, bounds) {
         if (playing && bounds != null) {
             var previousFrameNanos = withFrameNanos { it }
@@ -981,39 +1089,55 @@ private fun TimelinePanel(
             }
         }
     }
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 10.dp, vertical = 5.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.panel)
+            .border(ViewerDimensions.hairline, colors.border, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            DropdownSelector(
-                items = emptyList<Boolean>(),
-                selectedItem = expanded,
-                onItemSelected = {},
-                itemLabel = { "Timeline" },
-                placeholder = "Timeline",
-                modifier = Modifier.width(90.dp),
-                selectorDescription = "Timeline",
-                fillWidth = true,
-                onControlClick = { expanded = !expanded },
+            Text(
+                "Timeline",
+                color = colors.primaryText,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.weight(1f),
             )
-            MacOSTextButton("◀", onClick = { bounds?.let { onTimestamp(max(it.startNanos, timestamp - 1_000_000L)) } })
-            MacOSTextButton(if (playing) "Ⅱ" else "▶", onClick = { playing = !playing }, primary = true, modifier = Modifier.width(32.dp))
-            MacOSTextButton("▶|", onClick = { bounds?.let { onTimestamp(min(it.endNanos, timestamp + 1_000_000L)) } })
-            listOf(0.25f, 0.5f, 1f, 2f, 4f).forEach { value ->
-                FilterChip(
-                    speed == value,
-                    { speed = value },
-                    { Text("$value×") },
-                    modifier = Modifier.height(ViewerDimensions.buttonHeight),
-                )
-            }
-            MacOSInlineTextField("timestamp ns", jump, { jump = it }, modifier = Modifier.width(210.dp))
-            MacOSTextButton("Go", onClick = { jump.toLongOrNull()?.let(onTimestamp) })
+            MacOSTextButton(
+                if (expanded) "⌃" else "⌄",
+                onClick = { expanded = !expanded },
+                modifier = Modifier.width(32.dp),
+            )
             MacOSTextButton("☆", onClick = { annotations += WinscopeAnnotation(timestamp, "Bookmark ${annotations.size + 1}") })
         }
         if (expanded && bounds != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                MacOSTextButton("◀", onClick = { onTimestamp(max(bounds.startNanos, timestamp - 1_000_000L)) })
+                MacOSTextButton(
+                    if (playing) "Ⅱ" else "▶",
+                    onClick = { playing = !playing },
+                    primary = true,
+                    modifier = Modifier.width(32.dp),
+                )
+                MacOSTextButton("▶|", onClick = { onTimestamp(min(bounds.endNanos, timestamp + 1_000_000L)) })
+                Spacer(Modifier.weight(1f))
+                listOf(0.25f, 0.5f, 1f, 2f, 4f).forEach { value ->
+                    FilterChip(
+                        speed == value,
+                        { speed = value },
+                        { Text("$value×") },
+                        modifier = Modifier.height(ViewerDimensions.buttonHeight),
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                MacOSInlineTextField("timestamp ns", jump, { jump = it }, modifier = Modifier.weight(1f))
+                MacOSTextButton("Go", onClick = { jump.toLongOrNull()?.let(onTimestamp) })
+            }
             val fraction =
-                if (bounds.endNanos ==
-                    bounds.startNanos
-                ) {
+                if (bounds.endNanos == bounds.startNanos) {
                     0f
                 } else {
                     ((timestamp - bounds.startNanos).toDouble() / (bounds.endNanos - bounds.startNanos)).toFloat().coerceIn(0f, 1f)
@@ -1043,10 +1167,7 @@ private fun TimelinePanel(
                     val x =
                         (
                             (mark.timestampNanos - bounds.startNanos).toDouble() /
-                                max(
-                                    1,
-                                    bounds.endNanos - bounds.startNanos,
-                                ) * size.width
+                                max(1, bounds.endNanos - bounds.startNanos) * size.width
                         ).toFloat()
                     drawLine(Color(0xffffb74d), Offset(x, 0f), Offset(x, size.height), 2f)
                 }
@@ -1892,6 +2013,35 @@ internal fun screenRecordingTimestampRequests(timestamp: State<Long>) = snapshot
         Text("${session.traceFile.fileName} · ${session.completeness}", modifier = Modifier.weight(1f))
         if (session.sensitive) Text("Sensitive evidence", color = MaterialTheme.colorScheme.error)
         session.limitations.take(1).forEach { Text(" · ${it.message}") }
+    }
+}
+
+@Composable
+private fun NewEngineDevelopmentBanner(language: UiLanguage) {
+    val colors = LocalViewerColors.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.warning.copy(alpha = 0.12f))
+            .border(ViewerDimensions.hairline, colors.warning.copy(alpha = 0.45f))
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            s(language, "New engine · In development", "新引擎 · 开发中"),
+            color = colors.warning,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            s(
+                language,
+                "Some features may be incomplete. Use the native engine for the full Winscope workflow.",
+                "部分功能可能尚未完成。完整 Winscope 流程请使用原生引擎。",
+            ),
+            color = colors.mutedText,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
