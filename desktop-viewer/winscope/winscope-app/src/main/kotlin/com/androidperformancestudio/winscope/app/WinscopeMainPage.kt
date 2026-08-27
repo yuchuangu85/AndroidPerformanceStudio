@@ -137,6 +137,7 @@ import org.jetbrains.skia.Image as SkiaImage
 @Composable
 fun FrameWindowScope.WinscopeMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
+    engine: WinscopeEnginePreference = WinscopeEnginePreference.NATIVE,
     onNavigateHome: (() -> Unit)? = null,
     initialTraceFile: Path? = null,
     onOpenSource: (String, Int) -> Boolean = { _, _ -> false },
@@ -166,6 +167,7 @@ fun FrameWindowScope.WinscopeMainPage(
     val annotations = remember { mutableStateListOf<WinscopeAnnotation>() }
     val confirmedUpstreamSessions = remember { mutableStateListOf<String>() }
     var sessionLoadGeneration by remember { mutableLongStateOf(0L) }
+    var nativeLaunchRequestedSessionId by remember(engine) { mutableStateOf<String?>(null) }
 
     fun selectTimestamp(value: Long) {
         timestamp = timeline?.bounds?.let { value.coerceIn(it.startNanos, it.endNanos) } ?: value
@@ -371,6 +373,17 @@ fun FrameWindowScope.WinscopeMainPage(
             }
     }
     LaunchedEffect(captureState.session) { captureState.session?.let(::openSession) }
+    LaunchedEffect(activeSession?.id, timeline, engine) {
+        val session = activeSession ?: return@LaunchedEffect
+        if (engine != WinscopeEnginePreference.NATIVE || !canOpenInUpstreamWinscope(timeline)) return@LaunchedEffect
+        if (nativeLaunchRequestedSessionId == session.id) return@LaunchedEffect
+        nativeLaunchRequestedSessionId = session.id
+        if (session.sensitive && session.id !in confirmedUpstreamSessions) {
+            pendingUpstreamOpen = session
+        } else {
+            openInUpstreamWinscope(session)
+        }
+    }
     DisposableEffect(Unit) {
         onDispose {
             sessionLoadGeneration++
@@ -459,7 +472,11 @@ fun FrameWindowScope.WinscopeMainPage(
                 val upstreamEligible = canOpenInUpstreamWinscope(timeline)
                 MacOSTextButton(
                     if (upstreamEligible) {
-                        s(language, "Open in Upstream Winscope", "在上游 Winscope 中打开")
+                        if (engine == WinscopeEnginePreference.NATIVE) {
+                            s(language, "Open in Winscope native engine", "在 Winscope 原生引擎中打开")
+                        } else {
+                            s(language, "Open in Upstream Winscope", "在上游 Winscope 中打开")
+                        }
                     } else {
                         s(language, "No Winscope core evidence", "没有 Winscope 核心证据")
                     },
@@ -504,6 +521,20 @@ fun FrameWindowScope.WinscopeMainPage(
             }
             if (activeSession == null) {
                 EmptyWorkspace(language)
+            } else if (engine == WinscopeEnginePreference.NATIVE) {
+                NativeWinscopeHandoff(
+                    language = language,
+                    session = activeSession!!,
+                    eligible = canOpenInUpstreamWinscope(timeline),
+                    onOpen = {
+                        if (activeSession!!.sensitive && activeSession!!.id !in confirmedUpstreamSessions) {
+                            pendingUpstreamOpen = activeSession
+                        } else {
+                            openInUpstreamWinscope(activeSession!!)
+                        }
+                    },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
             } else {
                 ViewerWorkspace(
                     language,
@@ -884,6 +915,44 @@ private fun ViewerWorkspace(
         }
         ScreenshotPanel(session)
         TimelinePanel(timeline, timestamp, onTimestamp, annotations)
+    }
+}
+
+@Composable
+private fun NativeWinscopeHandoff(
+    language: UiLanguage,
+    session: WinscopeSession,
+    eligible: Boolean,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(s(language, "Winscope native engine", "Winscope 原生引擎"), style = MaterialTheme.typography.titleLarge)
+            Text(
+                if (eligible) {
+                    s(
+                        language,
+                        "The captured session was opened in the packaged upstream Winscope viewer.",
+                        "已在打包的上游 Winscope 查看器中打开当前采集会话。",
+                    )
+                } else {
+                    s(
+                        language,
+                        "This session has no WindowManager or SurfaceFlinger evidence for the native viewer.",
+                        "当前会话没有可供原生查看器使用的 WindowManager 或 SurfaceFlinger 证据。",
+                    )
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            MacOSTextButton(
+                s(language, "Open native Winscope", "打开 Winscope 原生引擎"),
+                onClick = onOpen,
+                enabled = eligible,
+                primary = true,
+            )
+            Text(session.traceFile.fileName.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

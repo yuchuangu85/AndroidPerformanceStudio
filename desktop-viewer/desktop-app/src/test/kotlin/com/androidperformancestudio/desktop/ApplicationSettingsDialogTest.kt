@@ -20,6 +20,15 @@ class ApplicationSettingsDialogTest {
     }
 
     @Test
+    fun `unified settings exposes a selectable Winscope engine page`() {
+        assertTrue(SettingsPage.entries.contains(SettingsPage.WINSCOPE))
+        assertTrue(unifiedDialog.contains("SettingsPage.WINSCOPE ->"))
+        assertTrue(unifiedDialog.contains("WinscopeSettingsContent("))
+        assertTrue(unifiedDialog.contains("WinscopeEnginePreference.entries"))
+        assertTrue(unifiedDialog.contains("winscopeEngineLabel"))
+    }
+
+    @Test
     fun `unified settings owns AI configuration immediately above About`() {
         assertTrue(SettingsPage.entries.indexOf(SettingsPage.AI) < SettingsPage.entries.indexOf(SettingsPage.ABOUT))
         assertTrue(unifiedDialog.contains("SettingsPage.AI ->"))

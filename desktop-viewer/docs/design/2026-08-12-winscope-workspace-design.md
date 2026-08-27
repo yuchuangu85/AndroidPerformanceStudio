@@ -136,9 +136,13 @@ Transactions, transitions, Input, IME, and ProtoLog use paged tables with timest
 
 Global search accepts one read-only `SELECT` or `WITH` PerfettoSQL statement. Mutating, attaching, and multi-statement input is rejected before execution. A `ts` result column creates a timeline overlay. Recent and saved queries remain local.
 
+### Engine selection
+
+The unified settings page persists a Winscope engine preference under `winscope.engine`. The default engine is Winscope native engine, which selects the packaged upstream AOSP viewer. The New engine remains available as the integrated Compose workspace. Winscope native engine selects the packaged upstream AOSP viewer in the system browser; Android Performance Studio continues to own ADB, capture, evidence export, and sensitive-evidence confirmation.
+
 ### Existing-tool links
 
-The WinScope workspace does not provide a direct handoff to the Perfetto workspace. Trace inspection remains within WinScope or can be opened through the upstream WinScope viewer when core evidence is available.
+The WinScope workspace does not provide a direct handoff to the Perfetto workspace. Trace inspection remains within the selected Winscope engine; the upstream viewer is used only when the session contains WindowManager or SurfaceFlinger core evidence.
 
 ## Verification
 

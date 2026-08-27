@@ -51,6 +51,7 @@ import com.androidperformancestudio.methodrecording.app.MethodRecordingMainPage
 import com.androidperformancestudio.network.app.NetworkProfilerMainPage
 import com.androidperformancestudio.perfetto.app.PerfettoMainPage
 import com.androidperformancestudio.winscope.app.WinscopeMainPage
+import com.androidperformancestudio.winscope.app.WinscopeEnginePreference
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.startup.app.StartupProfilerMainPage
 import com.androidperformancestudio.analysis.AiSourceCandidateReference
@@ -79,18 +80,25 @@ public fun FrameWindowScope.DesktopAppMainPage(
     var composeSourceCandidates by remember { mutableStateOf<List<ResolutionCandidate>>(emptyList()) }
     var archivedSourceToRebind by remember { mutableStateOf<AiSourceCandidateReference?>(null) }
     val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
+    val winscopePreferencesStore = remember { WinscopePreferencesStore.desktop() }
     val simpleperfPreferencesStore = remember { SimpleperfPreferencesStore.desktop() }
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
     val userDocumentationLauncher = remember { UserDocumentationLauncher() }
     val sourceWorkspaceRuntime = remember { SourceWorkspaceRuntime.desktop() }
     val coroutineScope = rememberCoroutineScope()
     var applicationSettings by remember { mutableStateOf(applicationSettingsStore.load()) }
+    var winscopePreferences by remember { mutableStateOf(winscopePreferencesStore.load()) }
     var simpleperfPreferences by remember { mutableStateOf(simpleperfPreferencesStore.load()) }
     var settingsPersistenceErrorPage by remember { mutableStateOf<SettingsPage?>(null) }
     val updateApplicationSettings: (ApplicationUiSettings) -> Unit = { updated ->
         applicationSettings = updated
         settingsPersistenceErrorPage =
             if (applicationSettingsStore.save(updated)) null else SettingsPage.GENERAL
+    }
+    val updateWinscopePreferences: (WinscopeUiSettings) -> Unit = { updated ->
+        winscopePreferences = updated
+        settingsPersistenceErrorPage =
+            if (winscopePreferencesStore.save(updated)) null else SettingsPage.WINSCOPE
     }
     val updateSimpleperfPreferences: (SimpleperfUiSettings) -> Unit = { updated ->
         simpleperfPreferences = updated
@@ -270,6 +278,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                     AppDestination.WINSCOPE ->
                         WinscopeMainPage(
                             language = language,
+                            engine = winscopePreferences.engine,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             onOpenSource = { path, line ->
                                 sourceWorkspaceRuntime.resolveSourcePath(path, line)?.let { location ->
@@ -455,6 +464,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                     DesktopAppSettingsDialog(
                         selectedPage = settingsPage,
                         applicationSettings = applicationSettings,
+                        winscopeSettings = winscopePreferences,
                         simpleperfSettings = simpleperfSettings,
                         simpleperfCaptureSettingsContext = simpleperfCaptureSettingsContext,
                         simpleperfInitialSection = simpleperfSettingsSection,
@@ -464,6 +474,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                         sourceWorkspaceRuntime = sourceWorkspaceRuntime,
                         onPageSelected = { settingsPage = it },
                         onApplicationSettingsChanged = updateApplicationSettings,
+                        onWinscopeSettingsChanged = updateWinscopePreferences,
                         onSimpleperfSettingsChanged = updateSimpleperfPreferences,
                         onLayoutInspectorSettingsChanged = { layoutInspectorSettingsRevision += 1 },
                         onOpenUserGuide = {

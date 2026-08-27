@@ -161,6 +161,7 @@ layout.canvasBorder.*
 
 simpleperf.tooltipMode
 simpleperf.engine
+winscope.engine
 ```
 
 统一设置采用桌面应用常见的“修改即生效、修改即保存”语义：

@@ -44,6 +44,7 @@ class UnifiedDesktopShellTest {
         assertTrue(shell.contains("LayoutInspectorMainPage("))
         assertTrue(shell.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("ApplicationUiSettingsStore.desktop()"))
+        assertTrue(shell.contains("WinscopePreferencesStore.desktop()"))
         assertTrue(shell.contains("DesktopAppSettingsDialog("))
         assertTrue(shell.contains("LaunchedEffect(settingsRequest?.requestId)"))
         assertTrue(shell.contains("openSettings(SettingsPage.LAYOUT_INSPECTOR)"))
@@ -54,6 +55,7 @@ class UnifiedDesktopShellTest {
         assertTrue(shell.contains("PerfettoMainPage("))
         assertTrue(perfettoRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("WinscopeMainPage("))
+        assertTrue(winscopeRoute.contains("engine = winscopePreferences.engine"))
         assertTrue(winscopeRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertFalse(winscopeRoute.contains("onOpenPerfetto"))
         assertTrue(shell.contains("MemoryProfilerMainPage("))
@@ -82,6 +84,8 @@ class UnifiedDesktopShellTest {
         assertFalse(winscopePage.contains("onOpenPerfetto"))
         assertFalse(winscopePage.contains("Open in Perfetto"))
         assertFalse(winscopePage.contains("在 Perfetto 中打开"))
+        assertTrue(winscopePage.contains("WinscopeEnginePreference.NATIVE"))
+        assertTrue(winscopePage.contains("NativeWinscopeHandoff("))
 
         assertFalse(home.contains("AppSettingsControls"))
         listOf(
@@ -262,7 +266,7 @@ class UnifiedDesktopShellTest {
         assertTrue(mediaPanel.contains("Alignment.BottomStart"))
         assertTrue(mediaPanel.contains("Alignment.BottomEnd"))
         assertTrue(mediaPanel.contains("Drag corner to resize screen recording"))
-        assertFalse(mediaPanel.contains("moveFloatingMediaPanel"))
+        assertTrue(mediaPanel.contains("moveFloatingMediaPanel"))
         assertFalse(mediaPanel.contains("⋮⋮"))
         assertTrue(mediaPanel.contains("frame!!"))
         assertFalse(mediaPanel.contains("SwingPanel("))

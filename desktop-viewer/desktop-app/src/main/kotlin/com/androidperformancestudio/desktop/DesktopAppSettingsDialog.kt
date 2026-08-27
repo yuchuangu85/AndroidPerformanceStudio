@@ -1,6 +1,7 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.winscope.app.WinscopeEnginePreference
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 import com.androidperformancestudio.desktop_app.generated.resources.Res
@@ -68,6 +69,7 @@ import kotlinx.coroutines.withContext
 public enum class SettingsPage {
     GENERAL,
     LAYOUT_INSPECTOR,
+    WINSCOPE,
     SIMPLEPERF,
     AI,
     ABOUT,
@@ -77,6 +79,7 @@ public enum class SettingsPage {
 internal fun DesktopAppSettingsDialog(
     selectedPage: SettingsPage,
     applicationSettings: ApplicationUiSettings,
+    winscopeSettings: WinscopeUiSettings,
     simpleperfSettings: SimpleperfUiSettings,
     simpleperfCaptureSettingsContext: SimpleperfCaptureSettingsContext?,
     simpleperfInitialSection: CaptureSettingsSection,
@@ -86,6 +89,7 @@ internal fun DesktopAppSettingsDialog(
     sourceWorkspaceRuntime: SourceWorkspaceRuntime,
     onPageSelected: (SettingsPage) -> Unit,
     onApplicationSettingsChanged: (ApplicationUiSettings) -> Unit,
+    onWinscopeSettingsChanged: (WinscopeUiSettings) -> Unit,
     onSimpleperfSettingsChanged: (SimpleperfUiSettings) -> Unit,
     onLayoutInspectorSettingsChanged: () -> Unit,
     onOpenUserGuide: () -> Unit,
@@ -166,6 +170,14 @@ internal fun DesktopAppSettingsDialog(
                                     modifier = Modifier.weight(1f),
                                 )
 
+                            SettingsPage.WINSCOPE ->
+                                WinscopeSettingsContent(
+                                    settings = winscopeSettings,
+                                    language = language,
+                                    onSettingsChanged = onWinscopeSettingsChanged,
+                                    modifier = Modifier.weight(1f),
+                                )
+
                             SettingsPage.SIMPLEPERF ->
                                 CompleteSimpleperfSettingsContent(
                                     settings = simpleperfSettings,
@@ -230,7 +242,7 @@ private fun SettingsSidebar(
                 .padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        listOf(SettingsPage.GENERAL, SettingsPage.LAYOUT_INSPECTOR).forEach { page ->
+        listOf(SettingsPage.GENERAL, SettingsPage.LAYOUT_INSPECTOR, SettingsPage.WINSCOPE).forEach { page ->
             SettingsSidebarRow(
                 label = page.label(language),
                 selected = page == selectedPage,
@@ -473,6 +485,43 @@ private fun SettingsSidebarRow(
 }
 
 @Composable
+private fun WinscopeSettingsContent(
+    settings: WinscopeUiSettings,
+    language: UiLanguage,
+    onSettingsChanged: (WinscopeUiSettings) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(localizedStringResource(Res.string.winscope_settings, language), style = MaterialTheme.typography.titleMedium)
+        Text(
+            localizedStringResource(Res.string.winscope_engine_description, language),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        SettingsChoice(
+            language = language,
+            label = localizedStringResource(Res.string.winscope_engine, language),
+            current = settings.engine,
+            options = WinscopeEnginePreference.entries,
+            optionLabel = { winscopeEngineLabel(it, language) },
+            onSelected = { onSettingsChanged(settings.copy(engine = it)) },
+        )
+    }
+}
+
+private fun winscopeEngineLabel(
+    engine: WinscopeEnginePreference,
+    language: UiLanguage,
+): String =
+    when (engine) {
+        WinscopeEnginePreference.NEW -> localizedStringResource(Res.string.winscope_engine_new, language)
+        WinscopeEnginePreference.NATIVE -> localizedStringResource(Res.string.winscope_engine_native, language)
+    }
+
+@Composable
 private fun GeneralSettingsContent(
     settings: ApplicationUiSettings,
     language: UiLanguage,
@@ -683,6 +732,7 @@ private fun SettingsPage.label(language: UiLanguage): String =
     when (this) {
         SettingsPage.GENERAL -> localizedStringResource(Res.string.general, language)
         SettingsPage.LAYOUT_INSPECTOR -> localizedStringResource(Res.string.layout_inspector, language)
+        SettingsPage.WINSCOPE -> localizedStringResource(Res.string.winscope, language)
         SettingsPage.SIMPLEPERF -> localizedStringResource(Res.string.simpleperf, language)
         SettingsPage.AI -> localizedStringResource(Res.string.source_ai_settings, language)
         SettingsPage.ABOUT -> localizedStringResource(Res.string.about, language)
