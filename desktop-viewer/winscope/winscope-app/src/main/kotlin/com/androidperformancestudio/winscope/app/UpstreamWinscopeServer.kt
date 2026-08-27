@@ -54,6 +54,7 @@ class UpstreamWinscopeServer(
                 server =
                     HttpServer.create(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 0).apply {
                         createContext("/evidence", ::serveEvidence)
+                        createContext(UPSTREAM_WINSCOPE_LOADER_PATH, ::serveLoader)
                         createContext("/", ::serveAsset)
                         this.executor = this@UpstreamWinscopeServer.executor
                         start()
@@ -135,6 +136,18 @@ class UpstreamWinscopeServer(
         }
     }
 
+    private fun serveLoader(exchange: HttpExchange) {
+        exchange.use {
+            if (!exchange.isGet()) return@use exchange.emptyResponse(405)
+            val body = UPSTREAM_WINSCOPE_LOADER_SCRIPT.toByteArray(Charsets.UTF_8)
+            exchange.secureHeaders()
+            exchange.responseHeaders.set("Cache-Control", "no-store")
+            exchange.responseHeaders.set("Content-Type", "application/javascript; charset=UTF-8")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { output -> output.write(body) }
+        }
+    }
+
     private fun serveAsset(exchange: HttpExchange) {
         exchange.use {
             if (!exchange.isGet()) return@use exchange.emptyResponse(405)
@@ -149,9 +162,27 @@ class UpstreamWinscopeServer(
             exchange.secureHeaders()
             exchange.responseHeaders.set("Cache-Control", "no-store")
             exchange.responseHeaders.set("Content-Type", contentType(real))
-            exchange.sendResponseHeaders(200, Files.size(real))
-            exchange.responseBody.use { output -> Files.copy(real, output) }
+            val body =
+                if (relative == "index.html") {
+                    renderIndex(real)
+                } else {
+                    Files.readAllBytes(real)
+                }
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { output -> output.write(body) }
         }
+    }
+
+    private fun renderIndex(path: Path): ByteArray {
+        val source = Files.readString(path)
+        if (UPSTREAM_WINSCOPE_LOADER_MARKER in source) return source.toByteArray(Charsets.UTF_8)
+        val patched =
+            if ("</body>" in source) {
+                source.replace("</body>", "$UPSTREAM_WINSCOPE_LOADER_MARKER</body>")
+            } else {
+                source + UPSTREAM_WINSCOPE_LOADER_MARKER
+            }
+        return patched.toByteArray(Charsets.UTF_8)
     }
 
     companion object {
@@ -186,6 +217,61 @@ class UpstreamWinscopeServer(
         val token: String,
     )
 }
+
+private const val UPSTREAM_WINSCOPE_LOADER_PATH = "/aps-upstream-loader.js"
+private const val UPSTREAM_WINSCOPE_LOADER_MARKER =
+    "<script src=\"/aps-upstream-loader.js\" defer></script>"
+private val UPSTREAM_WINSCOPE_LOADER_SCRIPT =
+    """
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('session');
+      if (!token || window.__apsWinscopeEvidenceState) return;
+      window.__apsWinscopeEvidenceState = 'loading';
+
+      const evidenceUrl = new URL('/evidence', window.location.origin);
+      evidenceUrl.searchParams.set('session', token);
+
+      const waitForFileInput = () => new Promise((resolve, reject) => {
+        const deadline = Date.now() + 15000;
+        const poll = () => {
+          const input = document.getElementById('fileDropRef');
+          if (input) {
+            resolve(input);
+            return;
+          }
+          if (Date.now() >= deadline) {
+            reject(new Error('Upstream Winscope file input did not initialize'));
+            return;
+          }
+          window.setTimeout(poll, 50);
+        };
+        poll();
+      });
+
+      fetch(evidenceUrl, {cache: 'no-store', credentials: 'same-origin'})
+        .then((response) => {
+          if (!response.ok) throw new Error('Evidence request failed: ' + response.status);
+          return response.arrayBuffer().then((bytes) => ({bytes, response}));
+        })
+        .then(({bytes, response}) => {
+          const name = response.headers.get('X-Winscope-Filename') || 'aps-winscope-evidence.zip';
+          return waitForFileInput().then((input) => ({input, file: new File([bytes], name, {type: 'application/zip'})}));
+        })
+        .then(({input, file}) => {
+          if (typeof DataTransfer === 'undefined') throw new Error('DataTransfer is unavailable');
+          const transfer = new DataTransfer();
+          transfer.items.add(file);
+          input.files = transfer.files;
+          input.dispatchEvent(new Event('change', {bubbles: true}));
+          window.__apsWinscopeEvidenceState = 'loaded';
+        })
+        .catch((error) => {
+          window.__apsWinscopeEvidenceState = 'failed';
+          console.error('Unable to load the Android Performance Studio Winscope evidence package', error);
+        });
+    })();
+    """.trimIndent()
 
 private fun HttpExchange.isGet(): Boolean = requestMethod == "GET"
 

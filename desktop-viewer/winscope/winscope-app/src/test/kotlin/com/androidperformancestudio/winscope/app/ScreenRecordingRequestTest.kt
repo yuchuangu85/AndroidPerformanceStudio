@@ -17,6 +17,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ScreenRecordingRequestTest {
     @Test
@@ -74,6 +75,39 @@ class ScreenRecordingRequestTest {
                 fromLeft = true,
                 fromTop = true,
             ),
+        )
+    }
+
+    @Test
+    fun `floating recording can move from its title bar without leaving the workspace`() {
+        val container = IntSize(1_000, 700)
+        val panelSize = IntSize(360, 239)
+
+        assertEquals(
+            Offset(400f, 120f),
+            moveFloatingMediaPanel(Offset(300f, 200f), panelSize, Offset(100f, -80f), container, 12f),
+        )
+        assertEquals(
+            Offset(12f, 12f),
+            moveFloatingMediaPanel(Offset(300f, 200f), panelSize, Offset(-2_000f, -2_000f), container, 12f),
+        )
+        assertEquals(
+            Offset(628f, 449f),
+            moveFloatingMediaPanel(null, panelSize, Offset(2_000f, 2_000f), container, 12f),
+        )
+    }
+
+    @Test
+    fun `floating recording panel fits its decoded video aspect ratio`() {
+        val container = IntSize(1_000, 700)
+
+        val landscape = floatingMediaPanelSizeForVideo(IntSize(1_920, 1_080), 360, 36, container, 12f)
+        assertEquals(IntSize(360, 239), landscape)
+        assertTrue((landscape.width.toFloat() / (landscape.height - 36)) in 1.76f..1.79f)
+
+        assertEquals(
+            IntSize(360, 676),
+            floatingMediaPanelSizeForVideo(IntSize(1_080, 1_920), 360, 36, container, 12f),
         )
     }
 

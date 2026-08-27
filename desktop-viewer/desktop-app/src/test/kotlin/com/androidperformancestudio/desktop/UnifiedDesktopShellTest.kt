@@ -55,6 +55,7 @@ class UnifiedDesktopShellTest {
         assertTrue(perfettoRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("WinscopeMainPage("))
         assertTrue(winscopeRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
+        assertFalse(winscopeRoute.contains("onOpenPerfetto"))
         assertTrue(shell.contains("MemoryProfilerMainPage("))
         assertTrue(shell.contains("onOpenUserGuide"))
         assertTrue(shell.contains("commonThemePreference = applicationSettings.theme.storageValue"))
@@ -74,6 +75,13 @@ class UnifiedDesktopShellTest {
         assertTrue(shell.contains("GpuIntegrationMainPage("))
         assertTrue(shell.contains("BenchmarkRegressionMainPage("))
         assertTrue(shell.contains("navigator.openPerfettoTrace"))
+        val winscopePage =
+            Files.readString(
+                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
+            )
+        assertFalse(winscopePage.contains("onOpenPerfetto"))
+        assertFalse(winscopePage.contains("Open in Perfetto"))
+        assertFalse(winscopePage.contains("在 Perfetto 中打开"))
 
         assertFalse(home.contains("AppSettingsControls"))
         listOf(

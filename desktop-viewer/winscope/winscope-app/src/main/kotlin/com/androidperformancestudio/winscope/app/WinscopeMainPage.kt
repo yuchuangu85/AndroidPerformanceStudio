@@ -92,8 +92,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
@@ -141,16 +139,16 @@ fun FrameWindowScope.WinscopeMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     onNavigateHome: (() -> Unit)? = null,
     initialTraceFile: Path? = null,
-    onOpenPerfetto: (Path, Long) -> Unit = { _, _ -> },
     onOpenSource: (String, Int) -> Boolean = { _, _ -> false },
 ) {
     val scope = rememberCoroutineScope()
     val detector = remember { WinscopeCapabilityDetector() }
     val capture = remember { WinscopeCaptureController() }
+    val deviceDiscovery = remember { WinscopeDeviceDiscovery() }
     val sessionFiles = remember { WinscopeSessionFiles() }
     val upstreamWinscope = remember(sessionFiles) { UpstreamWinscopeLauncher(sessionFiles = sessionFiles) }
     val captureState by capture.state.collectAsState()
-    var adbPath by remember { mutableStateOf("adb") }
+    var adbPath by remember { mutableStateOf("") }
     var devices by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedSerial by remember { mutableStateOf<String?>(null) }
     var capabilities by remember { mutableStateOf<WinscopeCapabilities?>(null) }
@@ -222,16 +220,22 @@ fun FrameWindowScope.WinscopeMainPage(
 
     fun refreshDevices() {
         scope.launch {
-            devices =
-                withContext(Dispatchers.IO) {
-                    runCatching {
-                        DefaultAdbClient(Path.of(adbPath))
-                            .listDevices()
-                            .filter { it.state == AdbDeviceState.ONLINE }
-                            .map { it.serial to (it.model?.replace('_', ' ') ?: it.serial) }
-                    }.getOrDefault(emptyList())
+            when (val discovered = withContext(Dispatchers.IO) { deviceDiscovery.discover(adbPath) }) {
+                is StudioResult.Failure -> {
+                    devices = emptyList()
+                    selectedSerial = null
+                    capabilities = null
+                    error = discovered.error.message
                 }
-            selectedSerial = selectedSerial?.takeIf { selected -> devices.any { it.first == selected } } ?: devices.singleOrNull()?.first
+                is StudioResult.Success -> {
+                    adbPath = discovered.value.adbExecutable.toString()
+                    devices = discovered.value.devices.map { it.serial to it.label }
+                    selectedSerial =
+                        selectedSerial?.takeIf { selected -> devices.any { it.first == selected } }
+                            ?: devices.singleOrNull()?.first
+                    error = null
+                }
+            }
         }
     }
 
@@ -354,7 +358,7 @@ fun FrameWindowScope.WinscopeMainPage(
         refreshDevices()
         initialTraceFile?.let(::importFile)
     }
-    LaunchedEffect(selectedSerial, devices) {
+    LaunchedEffect(selectedSerial, devices, adbPath) {
         capabilities = null
         val serial = selectedSerial ?: return@LaunchedEffect
         capabilities =
@@ -451,11 +455,6 @@ fun FrameWindowScope.WinscopeMainPage(
             )
             Spacer(Modifier.weight(1f))
             activeSession?.let { session ->
-                Spacer(Modifier.width(6.dp))
-                MacOSTextButton(
-                    s(language, "Open in Perfetto", "在 Perfetto 中打开"),
-                    onClick = { onOpenPerfetto(session.traceFile, timestamp) },
-                )
                 Spacer(Modifier.width(6.dp))
                 val upstreamEligible = canOpenInUpstreamWinscope(timeline)
                 MacOSTextButton(
@@ -1560,7 +1559,18 @@ private fun FloatingMediaPanel(
         val density = LocalDensity.current
         val margin = with(density) { 12.dp.toPx() }
         val containerSize = IntSize(constraints.maxWidth, constraints.maxHeight)
-        val minimumPanelSize = with(density) { IntSize(240.dp.roundToPx(), 160.dp.roundToPx()) }
+        val titleBarHeight = with(density) { 36.dp.roundToPx() }
+        var videoSize by remember(recording) { mutableStateOf<IntSize?>(null) }
+        val minimumPanelSize =
+            videoSize?.let {
+                floatingMediaPanelSizeForVideo(
+                    videoSize = it,
+                    preferredWidth = with(density) { 240.dp.roundToPx() },
+                    titleBarHeight = titleBarHeight,
+                    container = containerSize,
+                    margin = margin,
+                )
+            } ?: with(density) { IntSize(240.dp.roundToPx(), 160.dp.roundToPx()) }
         var requestedPanelSize by remember(recording) {
             mutableStateOf(with(density) { IntSize(360.dp.roundToPx(), 260.dp.roundToPx()) })
         }
@@ -1607,6 +1617,20 @@ private fun FloatingMediaPanel(
                     }
             }
         }
+        LaunchedEffect(frame?.width, frame?.height, containerSize, titleBarHeight) {
+            val decodedVideoSize = frame?.let { IntSize(it.width, it.height) } ?: return@LaunchedEffect
+            if (decodedVideoSize != videoSize) {
+                videoSize = decodedVideoSize
+                requestedPanelSize =
+                    floatingMediaPanelSizeForVideo(
+                        videoSize = decodedVideoSize,
+                        preferredWidth = with(density) { 360.dp.roundToPx() },
+                        titleBarHeight = titleBarHeight,
+                        container = containerSize,
+                        margin = margin,
+                    )
+            }
+        }
         val shape = RoundedCornerShape(8.dp)
         Box(
             Modifier
@@ -1622,8 +1646,23 @@ private fun FloatingMediaPanel(
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .height(with(density) { titleBarHeight.toDp() })
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .padding(horizontal = 18.dp, vertical = 6.dp),
+                        .padding(horizontal = 18.dp, vertical = 6.dp)
+                        .semantics { contentDescription = "Drag to move screen recording" }
+                        .pointerInput(recording, containerSize, margin) {
+                            detectDragGestures { change, drag ->
+                                change.consume()
+                                position =
+                                    moveFloatingMediaPanel(
+                                        currentPosition = currentPanelPosition,
+                                        panelSize = currentPanelSize,
+                                        drag = drag,
+                                        container = containerSize,
+                                        margin = margin,
+                                    )
+                            }
+                        },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Screen recording · ${recording.fileName}", modifier = Modifier.weight(1f), maxLines = 1)
@@ -1674,6 +1713,45 @@ private fun FloatingMediaPanel(
             }
         }
     }
+}
+
+internal fun floatingMediaPanelSizeForVideo(
+    videoSize: IntSize,
+    preferredWidth: Int,
+    titleBarHeight: Int,
+    container: IntSize,
+    margin: Float,
+): IntSize {
+    require(videoSize.width > 0 && videoSize.height > 0) { "Video dimensions must be positive" }
+    val workspaceWidth = (container.width - margin * 2).toInt().coerceAtLeast(1)
+    val workspaceHeight = (container.height - margin * 2).toInt().coerceAtLeast(1)
+    val maximumVideoHeight = (workspaceHeight - titleBarHeight).coerceAtLeast(1)
+    val videoAspectRatio = videoSize.width.toFloat() / videoSize.height
+    val widthLimitedByHeight = (maximumVideoHeight * videoAspectRatio).toInt().coerceAtLeast(1)
+    val videoWidth = min(preferredWidth, min(workspaceWidth, widthLimitedByHeight)).coerceAtLeast(1)
+    val videoHeight = (videoWidth / videoAspectRatio).roundToInt().coerceAtLeast(1)
+    return IntSize(videoWidth, titleBarHeight + videoHeight)
+}
+
+internal fun moveFloatingMediaPanel(
+    currentPosition: Offset?,
+    panelSize: IntSize,
+    drag: Offset,
+    container: IntSize,
+    margin: Float,
+): Offset {
+    val workspaceRight = (container.width - margin).coerceAtLeast(0f)
+    val workspaceBottom = (container.height - margin).coerceAtLeast(0f)
+    val workspaceLeft = min(margin, workspaceRight)
+    val workspaceTop = min(margin, workspaceBottom)
+    val panelWidth = panelSize.width.coerceAtMost((workspaceRight - workspaceLeft).toInt()).coerceAtLeast(0)
+    val panelHeight = panelSize.height.coerceAtMost((workspaceBottom - workspaceTop).toInt()).coerceAtLeast(0)
+    val position =
+        currentPosition ?: Offset(workspaceRight - panelWidth, workspaceTop)
+    return Offset(
+        (position.x + drag.x).coerceIn(workspaceLeft, workspaceRight - panelWidth),
+        (position.y + drag.y).coerceIn(workspaceTop, workspaceBottom - panelHeight),
+    )
 }
 
 internal fun resizeFloatingMediaPanel(

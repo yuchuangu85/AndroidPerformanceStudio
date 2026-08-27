@@ -204,7 +204,7 @@ class WinscopeCaptureController(
             }
             val id = UUID.randomUUID().toString()
             val remoteTrace = "$REMOTE_DIRECTORY/aps-winscope-$id.perfetto-trace"
-            val remoteRecording = "$REMOTE_DIRECTORY/aps-winscope-$id.mp4"
+            val remoteRecording = "$REMOTE_CONFIG_DIRECTORY/aps-winscope-$id.mp4"
             val localTrace = storageDirectory.resolve("$id.perfetto-trace")
             val localRecording = storageDirectory.resolve("$id.mp4")
             val adb = adbFactory(adbPath)

@@ -138,7 +138,7 @@ Global search accepts one read-only `SELECT` or `WITH` PerfettoSQL statement. Mu
 
 ### Existing-tool links
 
-“Open in Perfetto” sends the same raw trace and current timestamp to the existing Perfetto workspace once. The workspaces do not maintain live bidirectional state.
+The WinScope workspace does not provide a direct handoff to the Perfetto workspace. Trace inspection remains within WinScope or can be opened through the upstream WinScope viewer when core evidence is available.
 
 ## Verification
 

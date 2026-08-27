@@ -239,6 +239,17 @@ class WinscopeCoreTest {
             assertIs<StudioResult.Success<Unit>>(controller.start(Path.of("adb"), capabilities, config))
             val session = assertIs<StudioResult.Success<WinscopeSession>>(controller.stop()).value
 
+            val screenRecordCommand =
+                adb.shellCommands
+                    .map { it.joinToString(" ") }
+                    .first { it.contains("screenrecord") }
+            assertContains(screenRecordCommand, "/data/local/tmp/aps-winscope-")
+            assertTrue(!screenRecordCommand.contains("/data/misc/perfetto-traces"))
+            assertTrue(
+                adb.shellCommands.any {
+                    it.joinToString(" ").contains("-o /data/misc/perfetto-traces/aps-winscope-")
+                },
+            )
             assertNull(session.recordingFile)
             assertTrue(!session.sensitive)
         }

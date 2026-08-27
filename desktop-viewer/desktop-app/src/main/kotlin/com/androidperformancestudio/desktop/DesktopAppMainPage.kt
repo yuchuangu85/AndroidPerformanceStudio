@@ -271,13 +271,6 @@ public fun FrameWindowScope.DesktopAppMainPage(
                         WinscopeMainPage(
                             language = language,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
-                            onOpenPerfetto = { path, timestamp ->
-                                navigator.openPerfettoTrace(
-                                    path,
-                                    localizedStringResource(Res.string.opened_from_winscope, language),
-                                    timestamp,
-                                )
-                            },
                             onOpenSource = { path, line ->
                                 sourceWorkspaceRuntime.resolveSourcePath(path, line)?.let { location ->
                                     navigator.openSource(location)

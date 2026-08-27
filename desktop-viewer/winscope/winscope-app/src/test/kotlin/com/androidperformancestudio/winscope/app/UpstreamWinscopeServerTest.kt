@@ -20,7 +20,7 @@ class UpstreamWinscopeServerTest {
     @Test
     fun `serves declared assets and tokenized evidence without caching`() {
         val assets = Files.createTempDirectory("upstream-winscope-assets")
-        Files.writeString(assets.resolve("index.html"), "<h1>Winscope</h1>")
+        Files.writeString(assets.resolve("index.html"), "<html><body><h1>Winscope</h1></body></html>")
         Files.createDirectories(assets.resolve("js"))
         Files.writeString(assets.resolve("js/app.js"), "window.winscope = true")
         val evidence = Files.createTempFile("winscope-evidence", ".zip")
@@ -36,6 +36,12 @@ class UpstreamWinscopeServerTest {
             val index = get(url)
             assertEquals(200, index.statusCode())
             assertTrue(index.body().decodeToString().contains("Winscope"))
+            assertTrue(index.body().decodeToString().contains("/aps-upstream-loader.js"))
+
+            val loader = get(url.resolve("/aps-upstream-loader.js"))
+            assertEquals(200, loader.statusCode())
+            assertTrue(loader.body().decodeToString().contains("DataTransfer"))
+            assertTrue(loader.body().decodeToString().contains("/evidence"))
 
             val asset = get(url.resolve("/js/app.js"))
             assertEquals(200, asset.statusCode())
