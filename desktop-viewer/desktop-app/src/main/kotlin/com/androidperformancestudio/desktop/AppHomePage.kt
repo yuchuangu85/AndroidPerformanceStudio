@@ -61,13 +61,6 @@ fun AppHomePage(
     val entries =
         listOf(
             HomeFeatureEntry(
-                title = localizedStringResource(Res.string.source_workspaces, language),
-                subtitle = localizedStringResource(Res.string.source_home_subtitle, language),
-                description = localizedStringResource(Res.string.source_home_description, language),
-                actionLabel = localizedStringResource(Res.string.open, language),
-                onClick = onOpenSourceWorkspaces,
-            ),
-            HomeFeatureEntry(
                 title = localizedStringResource(Res.string.layout_inspector, language),
                 subtitle = localizedStringResource(Res.string.layout_inspection, language),
                 description =
@@ -161,6 +154,13 @@ fun AppHomePage(
                     ),
                 actionLabel = localizedStringResource(Res.string.open_af210e3f, language),
                 onClick = onOpenNetworkProfiler,
+            ),
+            HomeFeatureEntry(
+                title = localizedStringResource(Res.string.source_workspaces, language),
+                subtitle = localizedStringResource(Res.string.source_home_subtitle, language),
+                description = localizedStringResource(Res.string.source_home_description, language),
+                actionLabel = localizedStringResource(Res.string.open, language),
+                onClick = onOpenSourceWorkspaces,
             ),
         )
 

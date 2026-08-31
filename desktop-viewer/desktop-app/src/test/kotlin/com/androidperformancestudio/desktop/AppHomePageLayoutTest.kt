@@ -18,4 +18,13 @@ class AppHomePageLayoutTest {
         assertTrue(source.contains("height(HOME_CARD_HEIGHT_DP.dp)"))
         assertTrue(source.contains("fontSize = HOME_ITEM_TITLE_FONT_SIZE_SP.sp"))
     }
+
+    @Test
+    fun `source workspace is the last home entry`() {
+        val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
+        val entries = source.substringAfter("val entries =").substringBefore("val colors =")
+
+        val lastEntry = entries.substring(entries.lastIndexOf("HomeFeatureEntry("))
+        assertTrue(lastEntry.contains("onClick = onOpenSourceWorkspaces"))
+    }
 }
