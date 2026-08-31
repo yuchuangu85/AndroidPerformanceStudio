@@ -117,12 +117,12 @@ public fun MemoryProfilerScreen(
     modifier: Modifier = Modifier,
 ) {
     val presentedState = MemoryProfilerPresenter.present(state)
-    Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface),
+                    .background(MaterialTheme.colorScheme.background),
         ) {
             Column(
                 modifier = Modifier.padding(top = 8.dp),

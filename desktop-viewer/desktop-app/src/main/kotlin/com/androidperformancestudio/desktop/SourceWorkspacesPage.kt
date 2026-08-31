@@ -111,7 +111,7 @@ internal fun SourceWorkspacesPage(
         }
     }
 
-    Surface(Modifier.fillMaxSize()) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(HEADER_TOOL_BAR_HEIGHT),

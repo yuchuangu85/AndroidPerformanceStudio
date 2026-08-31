@@ -36,14 +36,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ui.LocalViewerColors
 
-internal val HOME_BACKGROUND_LIGHT = Color(0xFFECECEC)
-internal val HOME_BACKGROUND_DARK = Color(0xFF1E1E1E)
 internal const val HOME_CARD_HEIGHT_DP = 184
 internal const val HOME_ITEM_TITLE_FONT_SIZE_SP = 17
 internal const val HOME_CARD_CORNER_RADIUS_DP = 14
@@ -181,8 +178,7 @@ fun AppHomePage(
         )
 
     val colors = LocalViewerColors.current
-    val backgroundColor = if (colors.isDark) HOME_BACKGROUND_DARK else HOME_BACKGROUND_LIGHT
-    Surface(modifier = Modifier.fillMaxSize(), color = backgroundColor) {
+    Surface(modifier = Modifier.fillMaxSize(), color = colors.canvasBackground) {
         Column(
             modifier =
                 Modifier

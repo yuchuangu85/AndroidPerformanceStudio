@@ -1,6 +1,6 @@
 package com.androidperformancestudio.desktop
 
-import androidx.compose.ui.graphics.Color
+import com.androidperformancestudio.ui.viewerColors
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -12,8 +12,9 @@ class AppHomePageLayoutTest {
     fun `home cards use a compact adaptive macOS grid`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
 
-        assertEquals(Color(0xFFECECEC), HOME_BACKGROUND_LIGHT)
-        assertEquals(Color(0xFF1E1E1E), HOME_BACKGROUND_DARK)
+        assertTrue(source.contains("color = colors.canvasBackground"))
+        assertEquals(viewerColors(darkTheme = false).canvasBackground, viewerColors(darkTheme = false).workspace)
+        assertEquals(viewerColors(darkTheme = true).canvasBackground, viewerColors(darkTheme = true).workspace)
         assertEquals(4, homeGridColumnCount(HOME_MAX_CONTENT_WIDTH_DP))
         assertEquals(3, homeGridColumnCount(900))
         assertEquals(2, homeGridColumnCount(600))

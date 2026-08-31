@@ -71,7 +71,7 @@ internal object ViewerPalettes {
         ViewerColors(
             isDark = false,
             panel = Color.White,
-            canvasBackground = Color(0xFFF5F5F7),
+            canvasBackground = Color(0xFFECECEC),
             border = Color(0xFFD1D1D6),
             accent = Color(0xFF0A84FF),
             primaryText = Color(0xFF1D1D1F),
@@ -108,7 +108,7 @@ internal object ViewerPalettes {
         ViewerColors(
             isDark = true,
             panel = Color(0xFF2C2C2E),
-            canvasBackground = Color(0xFF1E1E20),
+            canvasBackground = Color(0xFF1E1E1E),
             border = Color(0xFF48484A),
             accent = Color(0xFF0A84FF),
             primaryText = Color(0xFFF5F5F7),

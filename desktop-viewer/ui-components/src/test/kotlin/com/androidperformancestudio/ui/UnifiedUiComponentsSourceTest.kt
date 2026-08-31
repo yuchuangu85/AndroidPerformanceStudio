@@ -28,10 +28,10 @@ class UnifiedUiComponentsSourceTest {
         val light = viewerColors(darkTheme = false)
         val dark = viewerColors(darkTheme = true)
 
-        assertEquals(Color(0xFFF5F5F7), light.workspace)
+        assertEquals(Color(0xFFECECEC), light.workspace)
         assertEquals(Color(0xFFFAFAFB), light.toolbar)
         assertEquals(Color(0xFFB8B8BD), light.strongBorder)
-        assertEquals(Color(0xFF1E1E20), dark.workspace)
+        assertEquals(Color(0xFF1E1E1E), dark.workspace)
         assertEquals(Color(0xFF29292B), dark.toolbar)
         assertEquals(Color(0xFF636366), dark.strongBorder)
     }
