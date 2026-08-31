@@ -146,7 +146,7 @@ class UnifiedDesktopShellTest {
             Files.readString(
                 Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
             )
-        val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
+        val header = source.substringAfter("HeaderToolbar(").substringBefore("error?.let")
 
         assertTrue(source.contains("ActiveWindowMenuBar {"))
         assertTrue(source.contains("Menu(s(language, \"File\", \"文件\"))"))
@@ -196,15 +196,15 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
-    fun `winscope timeline uses the shared selector style`() {
+    fun `winscope timeline uses compact macOS controls`() {
         val source =
             Files.readString(
                 Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
             )
         val timeline = source.substringAfter("private fun TimelinePanel(").substringBefore("private fun StateWorkspace(")
 
-        assertTrue(timeline.contains("DropdownSelector("))
-        assertTrue(timeline.contains("onControlClick = { expanded = !expanded }"))
+        assertTrue(timeline.contains("MacOSTextButton("))
+        assertTrue(timeline.contains("onClick = { expanded = !expanded }"))
         assertFalse(timeline.contains("▾ Timeline"))
     }
 
@@ -297,11 +297,11 @@ class UnifiedDesktopShellTest {
             Files.readString(
                 Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
             )
-        val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
-        val workspace = source.substringAfter("Row(Modifier.fillMaxSize())").substringBefore("pendingExport?.let")
+        val header = source.substringAfter("HeaderToolbar(").substringBefore("error?.let")
+        val workspace = source.substringAfter("error?.let").substringBefore("pendingExport?.let")
 
         assertTrue(source.contains("var capturePanelVisible by remember { mutableStateOf(true) }"))
-        assertTrue(header.indexOf("Open in Perfetto") < header.indexOf("LeftPanelToggleButton("))
+        assertTrue(header.indexOf("activeSession?.let") < header.indexOf("LeftPanelToggleButton("))
         assertTrue(workspace.contains("if (capturePanelVisible)"))
         assertTrue(workspace.contains("CapturePanel("))
     }

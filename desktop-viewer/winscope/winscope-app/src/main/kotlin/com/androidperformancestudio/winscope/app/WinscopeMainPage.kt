@@ -483,7 +483,9 @@ fun FrameWindowScope.WinscopeMainPage(
             Spacer(Modifier.weight(1f))
             activeSession?.let { session ->
                 Text(
-                    session.traceFile.fileName?.toString().orEmpty(),
+                    session.traceFile.fileName
+                        ?.toString()
+                        .orEmpty(),
                     color = viewerColors.mutedText,
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,

@@ -33,7 +33,7 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("prepare-release:"))
         assertTrue(workflow.contains("--draft"))
         assertTrue(workflow.contains("uses: actions/setup-node@v6"))
-        assertTrue(workflow.contains("node-version: \"24\""))
+        assertTrue(workflow.contains("node-version: \"24.19.0\""))
         assertTrue(workflow.contains("npm install --global yarn@1"))
         assertTrue(workflow.contains("./scripts/firefox-profiler.sh all"))
         assertTrue(workflow.contains("./scripts/build-perfetto-ui.sh download"))
