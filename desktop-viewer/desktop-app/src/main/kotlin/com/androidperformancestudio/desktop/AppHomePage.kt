@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +20,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,15 +35,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.ProfilerCompactButton
 
-internal const val HOME_GRID_COLUMN_COUNT = 4
-internal const val HOME_CARD_HEIGHT_DP = 172
-internal const val HOME_ITEM_TITLE_FONT_SIZE_SP = 18
+internal val HOME_BACKGROUND_LIGHT = Color(0xFFECECEC)
+internal val HOME_BACKGROUND_DARK = Color(0xFF1E1E1E)
+internal const val HOME_CARD_HEIGHT_DP = 184
+internal const val HOME_ITEM_TITLE_FONT_SIZE_SP = 17
+internal const val HOME_CARD_CORNER_RADIUS_DP = 14
+internal const val HOME_MAX_CONTENT_WIDTH_DP = 1180
+
+internal fun homeGridColumnCount(availableWidthDp: Int): Int =
+    when {
+        availableWidthDp >= 1040 -> 4
+        availableWidthDp >= 760 -> 3
+        availableWidthDp >= 500 -> 2
+        else -> 1
+    }
 
 @Composable
 fun AppHomePage(
@@ -165,46 +181,59 @@ fun AppHomePage(
         )
 
     val colors = LocalViewerColors.current
-    Surface(modifier = Modifier.fillMaxSize(), color = colors.canvasBackground) {
+    val backgroundColor = if (colors.isDark) HOME_BACKGROUND_DARK else HOME_BACKGROUND_LIGHT
+    Surface(modifier = Modifier.fillMaxSize(), color = backgroundColor) {
         Column(
             modifier =
                 Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 32.dp, vertical = 24.dp),
+                    .padding(horizontal = 32.dp, vertical = 30.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = localizedStringResource(Res.string.android_performance_studio, language),
-                color = colors.primaryText,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = localizedStringResource(Res.string.choose_a_performance_analysis_tool, language),
-                color = colors.secondaryText,
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(18.dp))
+            Column(
+                modifier =
+                    Modifier
+                        .widthIn(max = HOME_MAX_CONTENT_WIDTH_DP.dp)
+                        .fillMaxWidth(),
+                horizontalAlignment = Alignment.Start,
+            ) {
+                Text(
+                    text = localizedStringResource(Res.string.android_performance_studio, language),
+                    color = colors.primaryText,
+                    fontSize = 30.sp,
+                    lineHeight = 36.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = localizedStringResource(Res.string.choose_a_performance_analysis_tool, language),
+                    color = colors.secondaryText,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp,
+                )
+                Spacer(Modifier.height(24.dp))
 
-            entries.chunked(HOME_GRID_COLUMN_COUNT).forEachIndexed { rowIndex, rowEntries ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 1200.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    rowEntries.forEach { entry ->
-                        FeatureEntryCard(
-                            entry = entry,
-                            modifier = Modifier.weight(1f),
-                        )
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val columnCount = homeGridColumnCount(maxWidth.value.toInt())
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        entries.chunked(columnCount).forEach { rowEntries ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                rowEntries.forEach { entry ->
+                                    FeatureEntryCard(
+                                        entry = entry,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                repeat(columnCount - rowEntries.size) {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
                     }
-                    repeat(HOME_GRID_COLUMN_COUNT - rowEntries.size) {
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-                if (rowIndex < entries.lastIndex / HOME_GRID_COLUMN_COUNT) {
-                    Spacer(Modifier.height(12.dp))
                 }
             }
         }
@@ -226,19 +255,30 @@ private fun FeatureEntryCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalViewerColors.current
-    val shape = RoundedCornerShape(8.dp)
+    val shape = RoundedCornerShape(HOME_CARD_CORNER_RADIUS_DP.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     val enabled = entry.enabled
-    val containerColor = if (enabled && hovered) colors.sectionBackground else colors.panel
+    val containerColor = if (enabled && hovered) colors.selectedRow else colors.panel
+    val borderColor =
+        if (enabled && hovered) {
+            colors.accent.copy(alpha = 0.42f)
+        } else {
+            colors.border.copy(alpha = 0.72f)
+        }
     Column(
         modifier =
             modifier
                 .height(HOME_CARD_HEIGHT_DP.dp)
+                .shadow(
+                    elevation = if (enabled && hovered) 7.dp else 2.dp,
+                    shape = shape,
+                    clip = false,
+                )
                 .clip(shape)
                 .alpha(if (enabled) 1f else 0.55f)
                 .background(containerColor)
-                .border(1.dp, colors.border, shape)
+                .border(1.dp, borderColor, shape)
                 .then(
                     if (enabled) {
                         Modifier.clickable(
@@ -250,22 +290,45 @@ private fun FeatureEntryCard(
                         Modifier
                     }
                 )
-                .padding(16.dp),
+                .padding(18.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = entry.title,
-                color = colors.primaryText,
-                fontSize = HOME_ITEM_TITLE_FONT_SIZE_SP.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = entry.subtitle,
-                color = colors.accent,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier =
+                        Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(colors.accent.copy(alpha = if (colors.isDark) 0.24f else 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = entry.title.take(1),
+                        color = colors.accent,
+                        fontSize = 15.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(
+                        text = entry.title,
+                        color = colors.primaryText,
+                        fontSize = HOME_ITEM_TITLE_FONT_SIZE_SP.sp,
+                        lineHeight = 21.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = entry.subtitle,
+                        color = colors.secondaryText,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
             Text(
                 text = entry.description,
                 color = colors.secondaryText,
@@ -273,11 +336,25 @@ private fun FeatureEntryCard(
                 lineHeight = 16.sp,
             )
         }
-        ProfilerCompactButton(
-            text = entry.actionLabel,
-            onClick = entry.onClick,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            enabled = enabled,
-        )
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = entry.actionLabel,
+                color = colors.accent,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "›",
+                color = colors.accent,
+                fontSize = 20.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
     }
 }
