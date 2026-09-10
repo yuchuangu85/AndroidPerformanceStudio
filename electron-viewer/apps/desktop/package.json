@@ -15,6 +15,10 @@
   },
   "dependencies": {
     "@aps/contracts": "workspace:*",
+    "@aps/platform-adb": "workspace:*",
+    "@aps/platform-host": "workspace:*",
+    "@aps/platform-perfetto": "workspace:*",
+    "@aps/settings": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
