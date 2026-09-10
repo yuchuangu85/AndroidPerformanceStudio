@@ -16,6 +16,9 @@ const api: ApsApi = {
   openTraceInAnalyzer: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.traceOpen, id),
   openPublicPerfettoUi: () => ipcRenderer.invoke(IPC_CHANNELS.traceOpenPublicUi),
   revealTrace: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.traceReveal, id),
+  captureLayout: (serial: string) => ipcRenderer.invoke(IPC_CHANNELS.layoutCapture, serial),
+  listLayoutCaptures: () => ipcRenderer.invoke(IPC_CHANNELS.layoutList),
+  loadLayoutCapture: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.layoutLoad, id),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

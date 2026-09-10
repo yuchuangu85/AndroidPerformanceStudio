@@ -61,6 +61,18 @@ export const SHELL_STRINGS = {
   'trace.complete': { en: 'Capture complete', zh: '采集完成' },
   'trace.failed': { en: 'Capture failed', zh: '采集失败' },
   'trace.loading': { en: 'Loading trace analyzer…', zh: '正在加载 Trace 分析器…' },
+  'layout.capture': { en: 'Capture layout', zh: '采集布局' },
+  'layout.capturing': { en: 'Capturing…', zh: '采集中…' },
+  'layout.captureAction': { en: 'Capture', zh: '开始采集' },
+  'layout.captures': { en: 'Layout captures', zh: '布局采集结果' },
+  'layout.none': { en: 'No layout captures yet.', zh: '还没有布局采集结果。' },
+  'layout.hierarchy': { en: 'Hierarchy', zh: '层级结构' },
+  'layout.properties': { en: 'Properties', zh: '属性' },
+  'layout.preview': { en: 'Preview', zh: '预览' },
+  'layout.loading': { en: 'Loading layout captures…', zh: '正在加载布局采集…' },
+  'layout.complete': { en: 'Capture complete', zh: '采集完成' },
+  'layout.failed': { en: 'Capture failed', zh: '采集失败' },
+  'layout.noSelection': { en: 'Select a node in the hierarchy.', zh: '请在层级结构中选择一个节点。' },
 } as const;
 
 export type ShellStringKey = keyof typeof SHELL_STRINGS;

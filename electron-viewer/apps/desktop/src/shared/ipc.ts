@@ -1,3 +1,4 @@
+import type { LayoutSnapshot } from '@aps/layout-inspector';
 import type { AppDestination } from './destinations.js';
 import type { ApplicationUiSettings } from './settings-contract.js';
 
@@ -87,6 +88,24 @@ export interface TraceRevealOutcome {
   readonly error?: string;
 }
 
+export interface LayoutCaptureSummary {
+  readonly id: string;
+  readonly packageName: string;
+  readonly capturedAtEpochMillis: number;
+  readonly nodeCount: number;
+}
+
+export interface LayoutCaptureOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly error?: string;
+}
+
+export interface LayoutCaptureDetail {
+  readonly snapshot: LayoutSnapshot;
+  readonly screenshotBase64?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -99,6 +118,9 @@ export interface ApsApi {
   openTraceInAnalyzer(id: string): Promise<TraceOpenOutcome>;
   openPublicPerfettoUi(): Promise<void>;
   revealTrace(id: string): Promise<TraceRevealOutcome>;
+  captureLayout(serial: string): Promise<LayoutCaptureOutcome>;
+  listLayoutCaptures(): Promise<readonly LayoutCaptureSummary[]>;
+  loadLayoutCapture(id: string): Promise<LayoutCaptureDetail | undefined>;
 }
 
 export const IPC_CHANNELS = {
@@ -111,4 +133,7 @@ export const IPC_CHANNELS = {
   traceOpen: 'trace:openInAnalyzer',
   traceOpenPublicUi: 'trace:openPublicUi',
   traceReveal: 'trace:reveal',
+  layoutCapture: 'layout:capture',
+  layoutList: 'layout:list',
+  layoutLoad: 'layout:load',
 } as const;

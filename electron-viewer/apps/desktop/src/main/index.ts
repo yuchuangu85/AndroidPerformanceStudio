@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { sha256File } from '@aps/contracts/node';
+import { walkNode, type LayoutSnapshot } from '@aps/layout-inspector';
 import { AdbClient } from '@aps/platform-adb';
 import { findPerfettoUiAssetsDirectory, type PerfettoUiAssetProbe } from '@aps/platform-perfetto';
 import { JsonSettingsStore } from '@aps/settings';
@@ -27,6 +28,8 @@ import {
   registerPerfettoSchemes,
 } from './perfetto-protocol.js';
 import { loadApplicationSettings } from './settings-service.js';
+import { captureLayoutSnapshot } from './layout-capture-service.js';
+import { LayoutCaptureStore } from './layout-capture-store.js';
 import { capturePerfettoTrace } from './trace-capture-service.js';
 import { TraceStore } from './trace-store.js';
 import { resolveTraceProcessorStatus } from './trace-service.js';
@@ -55,6 +58,22 @@ function userDataDirectory(): string {
 function traceStore(): TraceStore {
   return new TraceStore(join(userDataDirectory(), 'traces'));
 }
+
+function countSnapshotNodes(snapshot: LayoutSnapshot): number {
+  let count = 0;
+  walkNode(snapshot.root, () => {
+    count += 1;
+  });
+  return count;
+}
+
+function layoutStore(): LayoutCaptureStore {
+  return new LayoutCaptureStore(join(userDataDirectory(), 'layout-captures'), {
+    countNodes: countSnapshotNodes,
+  });
+}
+
+const MAX_INLINE_SCREENSHOT_BYTES = 16 * 1024 * 1024;
 
 function assetProbe(): PerfettoUiAssetProbe {
   const isDirectory = (path: string): boolean => {
@@ -229,6 +248,36 @@ function registerHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.traceOpen, (_event, id: string) => openTraceInAnalyzer(id));
   ipcMain.handle(IPC_CHANNELS.traceOpenPublicUi, async () => {
     await shell.openExternal('https://ui.perfetto.dev');
+  });
+  ipcMain.handle(IPC_CHANNELS.layoutCapture, async (_event, serial: string) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const result = await captureLayoutSnapshot(
+      {
+        adb: {
+          shell: (args, options) => client.shell(serial, args, options),
+          execOut: async (args, options) => (await client.execOut(serial, args, options)).stdout,
+        },
+        now: () => Date.now(),
+      },
+      serial,
+    );
+    if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+    const record = await layoutStore().add(result.value.snapshot, result.value.screenshotPng);
+    return { ok: true, id: record.id };
+  });
+  ipcMain.handle(IPC_CHANNELS.layoutList, () => layoutStore().list());
+  ipcMain.handle(IPC_CHANNELS.layoutLoad, async (_event, id: string) => {
+    const store = layoutStore();
+    const snapshot = await store.loadSnapshot(id);
+    if (snapshot === undefined) return undefined;
+    const png = await store.loadScreenshot(id);
+    return {
+      snapshot,
+      ...(png !== undefined && png.length <= MAX_INLINE_SCREENSHOT_BYTES
+        ? { screenshotBase64: png.toString('base64') }
+        : {}),
+    };
   });
   ipcMain.handle(IPC_CHANNELS.traceReveal, async (_event, id: string) => {
     const record = (await traceStore().list()).find((entry) => entry.id === id);

@@ -14,6 +14,7 @@ import type {
   ApplicationThemePreference,
 } from '../../shared/settings-contract';
 import { resolvedTheme } from '../../shared/theme';
+import { LayoutInspectorPanel } from './LayoutInspectorPanel';
 import { TraceAnalyzerPanel } from './TraceAnalyzerPanel';
 
 const THEME_OPTIONS: readonly ApplicationThemePreference[] = ['system', 'light', 'dark'];
@@ -157,6 +158,8 @@ export function App(): JSX.Element {
             <h2 className="content__title">{translate(DESTINATION_TITLE_KEYS[current], language)}</h2>
             {current === 'PERFETTO' ? (
               <TraceAnalyzerPanel language={language} devices={snapshot.devices} />
+            ) : current === 'LAYOUT_INSPECTOR' ? (
+              <LayoutInspectorPanel language={language} devices={snapshot.devices} />
             ) : (
               <p className="content__muted">
                 {retained.length} destinations retained · not migrated yet

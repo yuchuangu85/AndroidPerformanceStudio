@@ -130,6 +130,9 @@ importers:
       '@aps/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@aps/layout-inspector':
+        specifier: workspace:*
+        version: link:../../packages/layout-inspector
       '@aps/platform-adb':
         specifier: workspace:*
         version: link:../../packages/platform-adb
@@ -210,7 +213,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.0
-        version: 5.0.0
+        version: 5.0.0(@types/node@22.20.1)(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0))
 
   packages/platform-adb:
     dependencies:
@@ -281,7 +284,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.0
-        version: 5.0.0
+        version: 5.0.0(@types/node@22.20.1)(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0))
 
 packages:
 
