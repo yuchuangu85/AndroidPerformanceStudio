@@ -1,0 +1,25 @@
+{
+  "version": "v57.2",
+  "artifacts": {
+    "macos-x64": {
+      "url": "https://commondatastorage.googleapis.com/perfetto-luci-artifacts/v57.2/mac-amd64/trace_processor_shell",
+      "sha256": "c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"
+    },
+    "macos-arm64": {
+      "url": "https://commondatastorage.googleapis.com/perfetto-luci-artifacts/v57.2/mac-arm64/trace_processor_shell",
+      "sha256": "98a41b80e9f60da0373d64aff6455681f8c26b7c391ae5736324a5b11e3dacc2"
+    },
+    "linux-x64": {
+      "url": "https://commondatastorage.googleapis.com/perfetto-luci-artifacts/v57.2/linux-amd64/trace_processor_shell",
+      "sha256": "55ba613fc6d4f71df81eee2dbfc293020063655c241b3e314bff75345b802684"
+    },
+    "linux-arm64": {
+      "url": "https://commondatastorage.googleapis.com/perfetto-luci-artifacts/v57.2/linux-arm64/trace_processor_shell",
+      "sha256": "1dcc1d9aaff2eb92e8bc58f1957e4e445600294bd61dbc09345c1018c5ff0868"
+    },
+    "windows-x64": {
+      "url": "https://commondatastorage.googleapis.com/perfetto-luci-artifacts/v57.2/windows-amd64/trace_processor_shell.exe",
+      "sha256": "100334b6091596fbc97f872556849a5747bf47a7f7190c485ba8cea8d2409c7b"
+    }
+  }
+}
