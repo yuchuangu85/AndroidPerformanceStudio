@@ -212,30 +212,6 @@ class SharedCoreModulesContractTest {
     }
 
     @Test
-    fun `Winscope viewer is built from the pinned submodule`() {
-        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
-        val repository = desktopViewer.parent
-        val gitmodules = Files.readString(repository.resolve(".gitmodules"))
-        val settings = Files.readString(desktopViewer.resolve("settings.gradle.kts"))
-        val packaging = Files.readString(desktopViewer.resolve("desktop-app/build.gradle.kts"))
-        val releaseWorkflow = Files.readString(repository.resolve(".github/workflows/release.yml"))
-
-        assertTrue(gitmodules.contains("path = third_party/aosp-winscope"))
-        assertTrue(gitmodules.contains("url = https://github.com/yuchuangu85/AOSP-WinScope"))
-        assertTrue(settings.contains("includeBuild(\"winscope\")"))
-        assertFalse(settings.contains("includeBuild(\"winscope-integration\")"))
-        assertTrue(packaging.contains("projectDirectory.dir(\"../third_party/aosp-winscope\")"))
-        assertTrue(packaging.contains("winscopeSource.dir(\"dist/prod\")"))
-        assertTrue(packaging.contains("tasks.register<Exec>(\"prepareWinscopeUi\")"))
-        assertTrue(packaging.contains("scripts/build.py"))
-        assertTrue(packaging.contains("\"production\", \"--json\""))
-        assertTrue(packaging.contains("\"verify\", \"--json\""))
-        assertTrue(Files.isRegularFile(repository.resolve("third_party/aosp-winscope/package.json")))
-        assertTrue(releaseWorkflow.contains("submodules: recursive"))
-        assertTrue(releaseWorkflow.contains("desktop-viewer/winscope check"))
-    }
-
-    @Test
     fun `features do not reverse-depend on the Simpleperf composite`() {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         val offenders =

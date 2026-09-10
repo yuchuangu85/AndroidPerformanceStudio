@@ -1,5 +1,7 @@
 # Winscope Workspace Design
 
+Status: Removed (2026-09-10) by [ADR 0035](../../../docs/adr/0035-remove-the-winscope-workspace-and-upstream-viewer.md). Retained as the historical design record; the workspace, its module, and its page entries no longer exist.
+
 ## Outcome
 
 Add a first-class Winscope workspace to Android Performance Studio. It captures or imports Android 15+ Winscope Perfetto evidence, maps it through the pinned Trace Processor `v57.2`, and presents native Compose viewers for WindowManager, SurfaceFlinger, transactions, transitions, input, IME, ProtoLog, ViewCapture, EventLog CUJs, screenshots, and screen recordings.

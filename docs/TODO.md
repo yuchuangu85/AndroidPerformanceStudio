@@ -6,7 +6,6 @@
 
 ## 已形成设计、待实施
 
-- [ ] [将 AOSP Winscope 改为源码驱动的增量构建](../desktop-viewer/docs/design/2026-08-14-aosp-winscope-source-build-design.md) — 固定上游源码版本，以源码为事实来源，由 Gradle 增量构建并校验发布资源。
 - [ ] [开发 Android Studio 插件](records/feature-status.md#规划未完成能力) — 当前目录仍是规划占位，没有可构建插件。
 - [ ] [开发 Web UI 与 App 内 HTTP Server](records/feature-status.md#规划未完成能力) — 当前目录仍是规划占位，没有可运行 Web 前端或服务端。
 - [ ] [支持多设备选择](../desktop-viewer/README.md#current-scope) — 当前实时路径只面向一台已授权设备。

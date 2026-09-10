@@ -1,6 +1,6 @@
 # AOSP-WinScope submodule integration design
 
-Status: Implemented (2026-08-26)
+Status: Removed (2026-09-10) by [ADR 0035](../../../docs/adr/0035-remove-the-winscope-workspace-and-upstream-viewer.md); this document is kept as the historical design record.
 
 Related decisions:
 

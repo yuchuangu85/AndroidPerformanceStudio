@@ -1,6 +1,6 @@
 # Package upstream Winscope as an optional browser viewer
 
-Status: Superseded by [ADR 0034](0034-use-aosp-winscope-as-the-upstream-viewer-submodule.md) (2026-08-26)
+Status: Superseded by [ADR 0035](0035-remove-the-winscope-workspace-and-upstream-viewer.md) (Winscope removed, 2026-09-10); previously superseded by [ADR 0034](0034-use-aosp-winscope-as-the-upstream-viewer-submodule.md) (2026-08-26)
 
 ## Context
 

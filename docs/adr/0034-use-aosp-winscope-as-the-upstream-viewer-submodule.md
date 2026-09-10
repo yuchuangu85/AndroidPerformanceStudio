@@ -1,6 +1,6 @@
 # Use AOSP-WinScope as the upstream viewer submodule
 
-Status: Accepted (2026-08-26)
+Status: Superseded by [ADR 0035](0035-remove-the-winscope-workspace-and-upstream-viewer.md) (Winscope removed, 2026-09-10)
 
 Supersedes: [ADR 0033](0033-package-upstream-winscope-as-an-optional-browser-viewer.md)
 for upstream viewer source and build ownership. ADR 0033's optional-viewer

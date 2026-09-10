@@ -13,15 +13,6 @@ plugins {
 val appVersion = project.version.toString()
 val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_party/firefox-profiler/dist")
 val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/perfetto/out/ui/dist")
-val winscopeSource = rootProject.layout.projectDirectory.dir("../third_party/aosp-winscope")
-val winscopeUiDist = winscopeSource.dir("dist/prod")
-val winscopeBuildState = winscopeSource.file(".deps/state/standalone-build.json")
-val winscopeDependenciesScript = winscopeSource.file("scripts/dependencies.py")
-val winscopePnpmStore = winscopeSource.dir(".deps/perfetto/pnpm-store")
-val winscopePython =
-    providers.gradleProperty("winscope.python").orElse(
-        if (System.getProperty("os.name").lowercase().contains("win")) "python" else "python3",
-    )
 val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
@@ -32,15 +23,11 @@ val prepareProfilerAppResources =
         exclude("**/.DS_Store")
         inputs.file(firefoxProfilerDist.file("index.html"))
         inputs.file(perfettoUiDist.file("index.html"))
-        inputs.dir(winscopeUiDist)
         inputs.dir(userDocumentationEnglish)
         inputs.dir(userDocumentationChinese)
         from(firefoxProfilerDist)
         from(perfettoUiDist) {
             into("perfetto-ui")
-        }
-        from(winscopeUiDist) {
-            into("winscope-ui")
         }
         from(perfettoTools) {
             into("perfetto-tools")
@@ -141,70 +128,8 @@ val verifyPackagedTraceProcessor =
         }
     }
 
-val verifyPackagedWinscopeUi =
-    tasks.register<Exec>("verifyPackagedWinscopeUi") {
-        val packageFile = winscopeSource.file("package.json")
-        val buildScript = winscopeSource.file("scripts/build.py")
-        inputs.file(packageFile)
-        inputs.file(buildScript)
-        inputs.file(winscopeBuildState)
-        inputs.dir(winscopeUiDist)
-        workingDir(winscopeSource)
-        commandLine(winscopePython.get(), buildScript.asFile.absolutePath, "verify", "--json")
-        doFirst {
-            check(packageFile.asFile.isFile) {
-                "AOSP-WinScope submodule is not initialized. Run: git submodule update --init --recursive -- third_party/aosp-winscope"
-            }
-        }
-    }
-
-val prepareWinscopeDependencies =
-    tasks.register<Exec>("prepareWinscopeDependencies") {
-        val packageFile = winscopeSource.file("package.json").asFile
-        val pnpmStoreDirectory = winscopePnpmStore.asFile
-        inputs.file(winscopeDependenciesScript)
-        inputs.file(winscopeSource.file("build/dependencies.lock.json"))
-        inputs.file(winscopeSource.file("package-lock.json"))
-        workingDir(winscopeSource)
-        commandLine(winscopePython.get(), winscopeDependenciesScript.asFile.absolutePath, "prepare", "--json")
-        onlyIf {
-            !pnpmStoreDirectory.isDirectory
-        }
-        doFirst {
-            check(packageFile.isFile) {
-                "AOSP-WinScope submodule is not initialized. Run: git submodule update --init --recursive -- third_party/aosp-winscope"
-            }
-        }
-    }
-
-val prepareWinscopeUi =
-    tasks.register<Exec>("prepareWinscopeUi") {
-        val packageFile = winscopeSource.file("package.json")
-        val buildScript = winscopeSource.file("scripts/build.py")
-        inputs.files(
-            fileTree(winscopeSource) {
-                exclude(".git", ".git/**", ".angular/**", ".deps/**", "deps_build/**", "dist/**", "node_modules/**")
-            },
-        )
-        outputs.dir(winscopeUiDist)
-        outputs.file(winscopeBuildState)
-        dependsOn(prepareWinscopeDependencies)
-        workingDir(winscopeSource)
-        commandLine(winscopePython.get(), buildScript.asFile.absolutePath, "production", "--json")
-        doFirst {
-            check(packageFile.asFile.isFile) {
-                "AOSP-WinScope submodule is not initialized. Run: git submodule update --init --recursive -- third_party/aosp-winscope"
-            }
-        }
-    }
-
-verifyPackagedWinscopeUi.configure {
-    dependsOn(prepareWinscopeUi)
-}
-
 prepareProfilerAppResources.configure {
     dependsOn(verifyPackagedTraceProcessor)
-    dependsOn(verifyPackagedWinscopeUi)
 }
 
 require(targetArch == "x64" || targetArch == "arm64") {
@@ -223,7 +148,6 @@ dependencies {
     implementation("com.androidperformancestudio:app-desktop:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:method-recording-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:perfetto-app:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio.winscope:winscope-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.memory:memory-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.frame:frame-app:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio.startup:startup-app:0.1.0-SNAPSHOT")

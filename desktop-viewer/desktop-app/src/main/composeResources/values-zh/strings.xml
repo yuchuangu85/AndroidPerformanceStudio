@@ -60,14 +60,6 @@
     <string name="layout_inspector">Layout Inspector</string>
     <string name="cpu_profiler">CPU Profiler</string>
     <string name="trace_analyzer">Trace Analyzer</string>
-    <string name="winscope">Winscope</string>
-    <string name="winscope_settings">Winscope 设置</string>
-    <string name="winscope_engine">Winscope 引擎</string>
-    <string name="winscope_engine_new">新引擎（开发中）</string>
-    <string name="winscope_engine_native">Winscope 原生引擎</string>
-    <string name="winscope_engine_description">选择 Android Performance Studio 内置工作区（开发中），或选择打包的上游 Winscope 查看器。采集和 ADB 仍由 Android Performance Studio 负责。</string>
-    <string name="window_system_trace">窗口系统轨迹</string>
-    <string name="winscope_home_description">采集并检查 WindowManager、SurfaceFlinger、转场、Input、IME、ViewCapture 与 ProtoLog 证据。</string>
     <string name="memory_profiler">Memory Profiler</string>
     <string name="frame_profiler">Frame Profiler</string>
     <string name="startup_profiler">Startup Profiler</string>

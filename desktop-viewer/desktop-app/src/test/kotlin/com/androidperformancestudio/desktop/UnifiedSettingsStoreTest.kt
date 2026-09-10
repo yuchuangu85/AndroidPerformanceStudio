@@ -6,7 +6,6 @@ import com.androidperformancestudio.presentation.SimpleperfEngine
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
-import com.androidperformancestudio.winscope.app.WinscopeEnginePreference
 import org.junit.jupiter.api.Test
 
 class UnifiedSettingsStoreTest {
@@ -45,19 +44,6 @@ class UnifiedSettingsStoreTest {
         assertEquals("FIREFOX_PROFILER_LOCAL", values["simpleperf.engine"])
         assertEquals(settings.flameTooltipMode, store.load().flameTooltipMode)
         assertEquals(settings.simpleperfEngine, store.load().simpleperfEngine)
-    }
-
-    @Test
-    fun `winscope engine preference persists in its own namespace`() {
-        val values = mutableMapOf<String, String>()
-        val store = WinscopePreferencesStore(values::get, values::set)
-        val settings = WinscopeUiSettings(WinscopeEnginePreference.NATIVE)
-
-        assertTrue(store.save(settings))
-
-        assertEquals("native", values["winscope.engine"])
-        assertEquals(settings, store.load())
-        assertEquals(WinscopeEnginePreference.NATIVE, WinscopePreferencesStore({ null }, values::set).load().engine)
     }
 
     @Test

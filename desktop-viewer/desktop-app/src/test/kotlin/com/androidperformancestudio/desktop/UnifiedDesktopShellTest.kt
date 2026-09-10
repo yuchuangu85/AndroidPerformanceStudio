@@ -36,15 +36,11 @@ class UnifiedDesktopShellTest {
                 .substringBefore("AppDestination.PERFETTO ->")
         val perfettoRoute =
             shell.substringAfter("AppDestination.PERFETTO ->")
-                .substringBefore("AppDestination.WINSCOPE ->")
-        val winscopeRoute =
-            shell.substringAfter("AppDestination.WINSCOPE ->")
                 .substringBefore("AppDestination.MEMORY_PROFILER ->")
 
         assertTrue(shell.contains("LayoutInspectorMainPage("))
         assertTrue(shell.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("ApplicationUiSettingsStore.desktop()"))
-        assertTrue(shell.contains("WinscopePreferencesStore.desktop()"))
         assertTrue(shell.contains("DesktopAppSettingsDialog("))
         assertTrue(shell.contains("LaunchedEffect(settingsRequest?.requestId)"))
         assertTrue(shell.contains("openSettings(SettingsPage.LAYOUT_INSPECTOR)"))
@@ -54,10 +50,6 @@ class UnifiedDesktopShellTest {
         assertTrue(simpleperfRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("PerfettoMainPage("))
         assertTrue(perfettoRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
-        assertTrue(shell.contains("WinscopeMainPage("))
-        assertTrue(winscopeRoute.contains("engine = winscopePreferences.engine"))
-        assertTrue(winscopeRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
-        assertFalse(winscopeRoute.contains("onOpenPerfetto"))
         assertTrue(shell.contains("MemoryProfilerMainPage("))
         assertTrue(shell.contains("onOpenUserGuide"))
         assertTrue(shell.contains("commonThemePreference = applicationSettings.theme.storageValue"))
@@ -77,22 +69,12 @@ class UnifiedDesktopShellTest {
         assertTrue(shell.contains("GpuIntegrationMainPage("))
         assertTrue(shell.contains("BenchmarkRegressionMainPage("))
         assertTrue(shell.contains("navigator.openPerfettoTrace"))
-        val winscopePage =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        assertFalse(winscopePage.contains("onOpenPerfetto"))
-        assertFalse(winscopePage.contains("Open in Perfetto"))
-        assertFalse(winscopePage.contains("在 Perfetto 中打开"))
-        assertTrue(winscopePage.contains("WinscopeEnginePreference.NATIVE"))
-        assertTrue(winscopePage.contains("NativeWinscopeHandoff("))
 
         assertFalse(home.contains("AppSettingsControls"))
         listOf(
             "Res.string.layout_inspector",
             "Res.string.cpu_profiler",
             "Res.string.trace_analyzer",
-            "Res.string.winscope",
             "Res.string.memory_profiler",
             "Res.string.heap_dump_capture_object_statistics_and_class_histogram_analysis",
             "Res.string.frame_profiler",
@@ -141,191 +123,11 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
-    fun `winscope import lives in the file menu`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val header = source.substringAfter("HeaderToolbar(").substringBefore("error?.let")
-
-        assertTrue(source.contains("ActiveWindowMenuBar {"))
-        assertTrue(source.contains("Menu(s(language, \"File\", \"文件\"))"))
-        assertTrue(source.contains("onClick = ::chooseImportFile"))
-        assertFalse(header.contains("chooseOpenFile("))
-    }
-
-    @Test
-    fun `winscope file menu includes export and recent sessions`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val fileMenu = source.substringAfter("ActiveWindowMenuBar {").substringBefore("Column(Modifier.fillMaxSize()")
-        val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
-
-        assertTrue(fileMenu.contains("Menu(s(language, \"Export\", \"导出\"))"))
-        assertTrue(fileMenu.contains("onClick = { exportSession(false) }"))
-        assertTrue(fileMenu.contains("Original Winscope archive (.winscope.zip)…"))
-        assertTrue(fileMenu.contains("onClick = { exportSession(true) }"))
-        assertTrue(fileMenu.contains("Menu(s(language, \"Open Recent\", \"最近打开\"))"))
-        assertTrue(fileMenu.contains("recentSessions.forEach"))
-        assertFalse(header.contains("Export ZIP"))
-    }
-
-    @Test
-    fun `winscope uses the shared macOS text button`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-
-        assertTrue(source.contains("import com.androidperformancestudio.ui.button.MacOSTextButton"))
-        assertTrue(source.contains("MacOSTextButton("))
-        assertFalse(Regex("\\b(Button|OutlinedButton|TextButton)\\(").containsMatchIn(source))
-    }
-
-    @Test
-    fun `winscope uses the CPU profiler inline text field`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-
-        assertTrue(source.contains("MacOSInlineTextField("))
-        assertFalse(source.contains("OutlinedTextField("))
-    }
-
-    @Test
-    fun `winscope timeline uses compact macOS controls`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val timeline = source.substringAfter("private fun TimelinePanel(").substringBefore("private fun StateWorkspace(")
-
-        assertTrue(timeline.contains("MacOSTextButton("))
-        assertTrue(timeline.contains("onClick = { expanded = !expanded }"))
-        assertFalse(timeline.contains("▾ Timeline"))
-    }
-
-    @Test
-    fun `winscope 3D stack uses compact sliders`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val slider = source.substringAfter("private fun StackSlider(").substringBefore("private fun LogWorkspace(")
-
-        assertTrue(slider.contains("DpSize(4.dp, 22.dp)"))
-        assertTrue(slider.contains("Modifier.height(8.dp)"))
-        assertTrue(slider.contains("modifier.height(ViewerDimensions.buttonHeight)"))
-    }
-
-    @Test
-    fun `winscope snapshot canvases clip drawing at their panel boundaries`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val rectCanvas = source.substringAfter("private fun RectCanvas(").substringBefore("private fun StackCanvas(")
-        val stackCanvas = source.substringAfter("private fun StackCanvas(").substringBefore("private fun PropertiesPanel(")
-
-        assertTrue(rectCanvas.contains("modifier.clipToBounds().background"))
-        assertTrue(stackCanvas.contains(".fillMaxSize()\n                .clipToBounds()"))
-    }
-
-    @Test
-    fun `winscope recording cleanup closes only the effect owned frame source`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val mediaPanel = source.substringAfter("private fun FloatingMediaPanel(").substringBefore("internal fun resizeFloatingMediaPanel(")
-
-        assertTrue(mediaPanel.contains("val sourceToClose = source"))
-        assertTrue(mediaPanel.contains("onDispose { sourceToClose?.close() }"))
-    }
-
-    @Test
-    fun `winscope recording floats above every tab and the timeline stays at the bottom`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val workspace = source.substringAfter("private fun ViewerWorkspace(").substringBefore("private fun TimelinePanel(")
-        val stateWorkspace = source.substringAfter("private fun StateWorkspace(").substringBefore("private fun RectCanvas(")
-        val mediaPanel = source.substringAfter("private fun FloatingMediaPanel(").substringBefore("internal fun resizeFloatingMediaPanel(")
-
-        assertTrue(workspace.contains("FloatingMediaPanel(session, timestamp"))
-        assertTrue(workspace.indexOf("FloatingMediaPanel(session, timestamp") < workspace.indexOf("TimelinePanel("))
-        assertFalse(stateWorkspace.contains("FloatingMediaPanel("))
-        assertTrue(mediaPanel.contains("detectDragGestures"))
-        assertTrue(mediaPanel.contains(".offset { IntOffset("))
-        assertTrue(mediaPanel.contains("Alignment.TopStart"))
-        assertTrue(mediaPanel.contains("Alignment.TopEnd"))
-        assertTrue(mediaPanel.contains("Alignment.BottomStart"))
-        assertTrue(mediaPanel.contains("Alignment.BottomEnd"))
-        assertTrue(mediaPanel.contains("Drag corner to resize screen recording"))
-        assertTrue(mediaPanel.contains("moveFloatingMediaPanel"))
-        assertFalse(mediaPanel.contains("⋮⋮"))
-        assertTrue(mediaPanel.contains("frame!!"))
-        assertFalse(mediaPanel.contains("SwingPanel("))
-    }
-
-    @Test
-    fun `winscope device controls live in the header toolbar`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val header = source.substringAfter("HeaderToolbar(language = language").substringBefore("error?.let")
-        val capturePanel = source.substringAfter("private fun CapturePanel(").substringBefore("private fun ViewerWorkspace(")
-
-        assertTrue(header.contains("DropdownSelector("))
-        assertTrue(header.contains("onClick = ::refreshDevices"))
-        assertTrue(header.contains("onClick = ::toggleCapture"))
-        assertTrue(header.contains("onClick = ::takeSnapshot"))
-        assertFalse(capturePanel.contains("DropdownSelector("))
-        assertFalse(capturePanel.contains("onRefresh"))
-        assertFalse(capturePanel.contains("onStart"))
-        assertFalse(capturePanel.contains("onSnapshot"))
-    }
-
-    @Test
-    fun `winscope header toggles the capture options panel`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val header = source.substringAfter("HeaderToolbar(").substringBefore("error?.let")
-        val workspace = source.substringAfter("error?.let").substringBefore("pendingExport?.let")
-
-        assertTrue(source.contains("var capturePanelVisible by remember { mutableStateOf(true) }"))
-        assertTrue(header.indexOf("activeSession?.let") < header.indexOf("LeftPanelToggleButton("))
-        assertTrue(workspace.contains("if (capturePanelVisible)"))
-        assertTrue(workspace.contains("CapturePanel("))
-    }
-
-    @Test
-    fun `winscope capture roots and refreshes capabilities before recording`() {
-        val source =
-            Files.readString(
-                Path.of("../winscope/winscope-app/src/main/kotlin/com/androidperformancestudio/winscope/app/WinscopeMainPage.kt"),
-            )
-        val capture = source.substringAfter("fun toggleCapture() {").substringBefore("fun takeSnapshot() {")
-
-        assertTrue(capture.contains("caps.device.rootAvailable"))
-        assertTrue(capture.indexOf("detector.restartAsRoot") < capture.indexOf("detector.detect"))
-        assertTrue(capture.indexOf("detector.detect") < capture.indexOf("capture.start"))
-    }
-
-    @Test
     fun `ecosystem profiler workspaces are available at runtime`() {
         listOf(
             "com.androidperformancestudio.network.app.NetworkProfilerMainPageKt",
             "com.androidperformancestudio.gpu.app.GpuIntegrationMainPageKt",
             "com.androidperformancestudio.benchmark.app.BenchmarkRegressionMainPageKt",
-            "com.androidperformancestudio.winscope.app.WinscopeMainPageKt",
         ).forEach { className ->
             assertDoesNotThrow(
                 { Class.forName(className) },

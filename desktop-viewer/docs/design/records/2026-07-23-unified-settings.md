@@ -161,8 +161,9 @@ layout.canvasBorder.*
 
 simpleperf.tooltipMode
 simpleperf.engine
-winscope.engine
 ```
+
+> 注：`winscope.engine` 已随 Winscope 功能移出产品而删除（见 ADR 0035，2026-09-10）。
 
 统一设置采用桌面应用常见的“修改即生效、修改即保存”语义：
 

@@ -54,9 +54,8 @@ AndroidPerfermanceStudio is a Compose Desktop workstation for inspecting and cor
 - JDK 21
 - Git
 - Android SDK Platform Tools / `adb` for device capture workflows
-- Node.js 24.19.0 and npm 11.17.0 for AOSP-WinScope; Yarn Classic 1.x for the bundled Firefox Profiler assets
-- Python 3.11–3.13 for AOSP-WinScope and bundled Perfetto preparation scripts
-- Go 1.26.6 for the AOSP-WinScope production build
+- Node.js and Yarn Classic 1.x for the bundled Firefox Profiler assets
+- Python 3.11–3.13 for the bundled Perfetto preparation scripts
 - `curl` and `unzip` for the bundled Perfetto assets and trace processor
 
 ### Clone and prepare bundled profiler assets
@@ -69,10 +68,6 @@ npm install --global yarn@1
 ./scripts/firefox-profiler.sh all
 ./scripts/build-perfetto-ui.sh download
 PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
-./desktop-viewer/gradlew -p desktop-viewer \
-  :desktop-app:prepareWinscopeUi \
-  :desktop-app:verifyPackagedWinscopeUi \
-  --no-daemon
 ```
 
 If the repository was cloned without submodules, initialize them before running the scripts:
@@ -141,12 +136,10 @@ desktop-viewer/          Compose Desktop application and feature modules
   network-profiler/      Network capture and HAR analysis
   gpu-inspector-integration/  AGI discovery and artifact integration
   benchmark-regression/  AndroidX Benchmark comparison and reporting
-  winscope/               Native Winscope capture, analysis, and Compose workspace
   ui-components/         Shared public Compose controls
   ai-core/               Shared provider-neutral AI infrastructure
   source-workspace/      Local/GitHub/AOSP source snapshots, cache, indexes, and resolution
-third_party/             Pinned Firefox Profiler, Perfetto, and AOSP-WinScope submodules
-  aosp-winscope/         AOSP-WinScope browser source and generated dist/prod
+third_party/             Pinned Firefox Profiler and Perfetto submodules
 scripts/                 Bundled profiler and trace-processor preparation scripts
 docs/                    Architecture, requirements, and design records
 ```

@@ -8,10 +8,11 @@
 - `0012`–`0015`：统一分析模型、显式触发、归档和 GitHub 范围。
 - `0016`–`0019`：全局工作区、增量索引、存储和 Native 符号化。
 - `0020`–`0021`：分析范围与结构化、可版本化的 AI 结果。
-- `0031`–`0034`：通过固定 Trace Processor SQL 解析 Winscope，以 `desktop-viewer/winscope` 原生 Compose 工作区交付，并通过 `third_party/aosp-winscope` 固定提交的 submodule 提供可选浏览器路径。
+- `0031`–`0034`：Winscope 的原生 Compose 工作区与可选浏览器查看器路径（已被 `0035` 取代）。
+- `0035`：移除 Winscope 工作区与上游查看器 submodule：删除 `third_party/aosp-winscope`、`desktop-viewer/winscope` 复合构建、浏览器查看器打包与页面入口。
 
 总体方案见
 [`../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md)。
 
-Winscope 方案见
+Winscope 方案（已按 ADR `0035` 移除）见
 [`../../desktop-viewer/docs/design/2026-08-12-winscope-workspace-design.md`](../../desktop-viewer/docs/design/2026-08-12-winscope-workspace-design.md)。
