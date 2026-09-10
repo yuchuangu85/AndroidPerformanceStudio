@@ -1,8 +1,8 @@
 import { statSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { sha256File } from '@aps/contracts/node';
 import { walkNode, type LayoutSnapshot } from '@aps/layout-inspector';
 import { AdbClient } from '@aps/platform-adb';
@@ -37,6 +37,8 @@ import { captureLayoutSnapshot } from './layout-capture-service.js';
 import { LayoutCaptureStore } from './layout-capture-store.js';
 import { runBatteryExperiment } from './battery-capture-service.js';
 import { BatterySessionStore } from './battery-session-store.js';
+import { importHarFile } from './network-import-service.js';
+import { NetworkSessionStore } from './network-session-store.js';
 import { runStartupExperiment } from './startup-capture-service.js';
 import { StartupSessionStore } from './startup-session-store.js';
 import { capturePerfettoTrace } from './trace-capture-service.js';
@@ -92,6 +94,10 @@ function startupStore(): StartupSessionStore {
 
 function batteryStore(): BatterySessionStore {
   return new BatterySessionStore(join(userDataDirectory(), 'battery-sessions'));
+}
+
+function networkStore(): NetworkSessionStore {
+  return new NetworkSessionStore(join(userDataDirectory(), 'network-sessions'));
 }
 
 const MAX_INLINE_SCREENSHOT_BYTES = 16 * 1024 * 1024;
@@ -340,6 +346,34 @@ function registerHandlers(): void {
     const summary = await batteryStore().add(result.value);
     return { ok: true, id: summary.id };
   });
+  ipcMain.handle(IPC_CHANNELS.networkImport, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Import HAR',
+      properties: ['openFile'],
+      filters: [{ name: 'HTTP Archive', extensions: ['har', 'json'] }],
+    });
+    const filePath = selection.filePaths[0];
+    if (selection.canceled || filePath === undefined) return { ok: false, cancelled: true };
+    const imported = await importHarFile(
+      {
+        readFileText: (path) => readFile(path, 'utf8'),
+        fileSize: async (path) => (await stat(path)).size,
+        isRegularFile: (path) => {
+          try {
+            return statSync(path).isFile();
+          } catch {
+            return false;
+          }
+        },
+      },
+      filePath,
+    );
+    if (!imported.ok) return { ok: false, error: imported.error.code + ': ' + imported.error.message };
+    const summary = await networkStore().add(imported.value);
+    return { ok: true, id: summary.id };
+  });
+  ipcMain.handle(IPC_CHANNELS.networkList, () => networkStore().list());
+  ipcMain.handle(IPC_CHANNELS.networkLoad, (_event, id: string) => networkStore().load(id));
   ipcMain.handle(IPC_CHANNELS.batteryList, () => batteryStore().list());
   ipcMain.handle(IPC_CHANNELS.batteryLoad, (_event, id: string) => batteryStore().load(id));
   ipcMain.handle(IPC_CHANNELS.startupList, () => startupStore().list());

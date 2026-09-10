@@ -31,6 +31,9 @@ const api: ApsApi = {
   captureBattery: (input: BatteryCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.batteryCapture, input),
   listBatterySessions: () => ipcRenderer.invoke(IPC_CHANNELS.batteryList),
   loadBatterySession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.batteryLoad, id),
+  importNetworkHar: () => ipcRenderer.invoke(IPC_CHANNELS.networkImport),
+  listNetworkSessions: () => ipcRenderer.invoke(IPC_CHANNELS.networkList),
+  loadNetworkSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.networkLoad, id),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

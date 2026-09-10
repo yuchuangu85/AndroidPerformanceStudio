@@ -1,6 +1,7 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
 import type { FrameSession } from '@aps/frame-profiler';
 import type { LayoutSnapshot } from '@aps/layout-inspector';
+import type { NetworkCaptureResult } from '@aps/network-profiler';
 import type { StartupSession, StartupType } from '@aps/startup-profiler';
 import type { AppDestination } from './destinations.js';
 import type { ApplicationUiSettings } from './settings-contract.js';
@@ -185,6 +186,24 @@ export interface BatteryCaptureOutcome {
   readonly error?: string;
 }
 
+export interface NetworkSessionSummary {
+  readonly id: string;
+  readonly callCount: number;
+  readonly failedCallCount: number;
+  readonly incompleteCallCount: number;
+  readonly status: string;
+  readonly startedAtEpochMillis: number;
+  readonly producer?: string;
+  readonly sourceFormatVersion?: string;
+}
+
+export interface NetworkImportOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly cancelled?: boolean;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -209,6 +228,9 @@ export interface ApsApi {
   captureBattery(input: BatteryCaptureInput): Promise<BatteryCaptureOutcome>;
   listBatterySessions(): Promise<readonly BatterySessionSummary[]>;
   loadBatterySession(id: string): Promise<BatteryExperimentResult | undefined>;
+  importNetworkHar(): Promise<NetworkImportOutcome>;
+  listNetworkSessions(): Promise<readonly NetworkSessionSummary[]>;
+  loadNetworkSession(id: string): Promise<NetworkCaptureResult | undefined>;
 }
 
 export const IPC_CHANNELS = {
@@ -233,4 +255,7 @@ export const IPC_CHANNELS = {
   batteryCapture: 'battery:capture',
   batteryList: 'battery:list',
   batteryLoad: 'battery:load',
+  networkImport: 'network:import',
+  networkList: 'network:list',
+  networkLoad: 'network:load',
 } as const;

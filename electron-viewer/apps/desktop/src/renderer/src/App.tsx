@@ -17,6 +17,7 @@ import { resolvedTheme } from '../../shared/theme';
 import { BatteryProfilerPanel } from './BatteryProfilerPanel';
 import { FrameProfilerPanel } from './FrameProfilerPanel';
 import { LayoutInspectorPanel } from './LayoutInspectorPanel';
+import { NetworkProfilerPanel } from './NetworkProfilerPanel';
 import { StartupProfilerPanel } from './StartupProfilerPanel';
 import { TraceAnalyzerPanel } from './TraceAnalyzerPanel';
 
@@ -169,6 +170,8 @@ export function App(): JSX.Element {
               <StartupProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'BATTERY_PROFILER' ? (
               <BatteryProfilerPanel language={language} devices={snapshot.devices} />
+            ) : current === 'NETWORK_PROFILER' ? (
+              <NetworkProfilerPanel language={language} devices={snapshot.devices} />
             ) : (
               <p className="content__muted">
                 {retained.length} destinations retained · not migrated yet

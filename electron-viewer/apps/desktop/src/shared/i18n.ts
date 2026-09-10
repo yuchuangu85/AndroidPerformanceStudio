@@ -149,6 +149,28 @@ export const SHELL_STRINGS = {
   'battery.complete': { en: 'Experiment complete', zh: '实验完成' },
   'battery.failed': { en: 'Experiment failed', zh: '实验失败' },
   'battery.loading': { en: 'Loading battery sessions…', zh: '正在加载电量会话…' },
+  'network.import': { en: 'Import HAR', zh: '导入 HAR' },
+  'network.sessions': { en: 'Network captures', zh: '网络采集' },
+  'network.none': { en: 'No network captures yet.', zh: '还没有网络采集。' },
+  'network.calls': { en: 'Requests', zh: '请求' },
+  'network.method': { en: 'Method', zh: '方法' },
+  'network.url': { en: 'URL (redacted)', zh: 'URL（已脱敏）' },
+  'network.status': { en: 'Status', zh: '状态' },
+  'network.duration': { en: 'Duration', zh: '耗时' },
+  'network.outcome': { en: 'Outcome', zh: '结果' },
+  'network.phases': { en: 'Phase breakdown', zh: '阶段分解' },
+  'network.selectCall': { en: 'Select a request to see its phases.', zh: '选择一条请求查看阶段分解。' },
+  'network.redacted': {
+    en: 'Paths, query values, and credential headers are redacted before storage.',
+    zh: '路径、查询值与凭据类头部在入库前已脱敏。',
+  },
+  'network.confidence': {
+    en: 'Dashed phases are inferred from HAR timings; solid phases are directly measured.',
+    zh: '虚线阶段由 HAR 时间推断，实线阶段为直接测量。',
+  },
+  'network.complete': { en: 'Import complete', zh: '导入完成' },
+  'network.failed': { en: 'Import failed', zh: '导入失败' },
+  'network.loading': { en: 'Loading network captures…', zh: '正在加载网络采集…' },
 } as const;
 
 export type ShellStringKey = keyof typeof SHELL_STRINGS;

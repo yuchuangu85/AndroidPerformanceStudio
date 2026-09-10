@@ -402,6 +402,45 @@ body {
   opacity: 0.55;
 }
 
+.runs__selected {
+  background: var(--surface-strong);
+}
+
+.runs__url {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs tbody tr {
+  cursor: pointer;
+}
+
+.phase-bar {
+  display: flex;
+  height: 18px;
+  margin-bottom: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-strong);
+}
+
+.phase-bar__segment {
+  border-right: 1px solid var(--surface);
+  background: var(--accent);
+}
+
+.phase-bar__segment--inferred {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--accent),
+    var(--accent) 4px,
+    var(--surface-strong) 4px,
+    var(--surface-strong) 8px
+  );
+}
+
 .shell--loading {
   display: flex;
   align-items: center;

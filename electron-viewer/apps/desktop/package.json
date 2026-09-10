@@ -24,7 +24,8 @@
     "@aps/layout-inspector": "workspace:*",
     "@aps/frame-profiler": "workspace:*",
     "@aps/startup-profiler": "workspace:*",
-    "@aps/battery-profiler": "workspace:*"
+    "@aps/battery-profiler": "workspace:*",
+    "@aps/network-profiler": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
