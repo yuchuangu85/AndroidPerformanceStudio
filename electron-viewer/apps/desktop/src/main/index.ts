@@ -1,9 +1,11 @@
 import { statSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
+import { delimiter } from 'node:path';
 
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { fail, ok, type StudioResult } from '@aps/contracts';
 import { sha256File } from '@aps/contracts/node';
 import { walkNode, type LayoutSnapshot } from '@aps/layout-inspector';
 import { AdbClient } from '@aps/platform-adb';
@@ -15,6 +17,8 @@ import {
   type FrameCaptureInput,
   type MigrationStatus,
   type BatteryCaptureInput,
+  type CpuCaptureRequest,
+  type CpuSnapshotRequest,
   type MemoryCaptureInput,
   type BenchmarkCompareInput,
   type ShellSnapshot,
@@ -50,6 +54,24 @@ import { importHarFile } from './network-import-service.js';
 import { NetworkSessionStore } from './network-session-store.js';
 import { runStartupExperiment } from './startup-capture-service.js';
 import { StartupSessionStore } from './startup-session-store.js';
+import {
+  buildFlameGraphPayload,
+  createCpuProfileSession,
+  directionOf,
+  reportSampleArguments,
+  transformFromRequest,
+  type CallStackTable,
+  type CpuProfileSessionRecord,
+} from '@aps/simpleperf-profiler';
+import {
+  defaultConversionDependencies,
+  defaultHostSimpleperfLocatorDependencies,
+  locateHostSimpleperf,
+  runReportSample,
+} from '@aps/simpleperf-profiler/node';
+import { captureCpuProfile } from './cpu-capture-service.js';
+import { CpuProfileStore } from './cpu-profile-store.js';
+import { parseCpuProfileReport } from './cpu-profile-parser.js';
 import { captureHeapDump } from './memory-capture-service.js';
 import { MemorySessionStore } from './memory-session-store.js';
 import { capturePerfettoTrace } from './trace-capture-service.js';
@@ -117,6 +139,25 @@ function benchmarkStore(): BenchmarkStore {
 
 function gpuStore(): GpuArtifactStore {
   return new GpuArtifactStore(join(userDataDirectory(), 'gpu-artifacts'));
+}
+
+function cpuStore(): CpuProfileStore {
+  return new CpuProfileStore(join(userDataDirectory(), 'cpu-profiles'));
+}
+
+/** Parsed tables are cached per session so a re-query never reparses a report. */
+async function cpuTableFor(record: CpuProfileSessionRecord): Promise<StudioResult<CallStackTable>> {
+  const store = cpuStore();
+  const cached = store.cachedTable(record.id);
+  if (cached !== undefined) return ok(cached);
+  const report = await store.readReport(record);
+  if (report === undefined) {
+    return fail('IO', 'CPU_REPORT_MISSING', 'The stored report for this session is gone');
+  }
+  const parsed = parseCpuProfileReport(report);
+  if (!parsed.ok) return parsed;
+  store.cacheTable(record.id, parsed.value.table);
+  return ok(parsed.value.table);
 }
 
 function memoryStore(): MemorySessionStore {
@@ -558,6 +599,107 @@ function registerHandlers(): void {
     }
     const message = await shell.openPath(location.path);
     return message.length === 0 ? { ok: true } : { ok: false, error: message };
+  });
+  ipcMain.handle(IPC_CHANNELS.cpuCapture, async (_event, input: CpuCaptureRequest) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'aps-cpu-'));
+    try {
+      const result = await captureCpuProfile(
+        {
+          adb: {
+            shell: (args, options) => client.shell(input.serial, args, options),
+            pull: async (remote, local, options) => {
+              await client.pull(input.serial, remote, local, options);
+            },
+          },
+          locateHostSimpleperf: async () => {
+            const configured = process.env['APS_SIMPLEPERF'];
+            const located = await locateHostSimpleperf(
+              defaultHostSimpleperfLocatorDependencies({
+                ...(configured !== undefined && configured.length > 0 ? { configuredExecutable: configured } : {}),
+                pathDirectories: (process.env['PATH'] ?? '')
+                  .split(delimiter)
+                  .filter((entry) => entry.length > 0),
+              }),
+            );
+            return located.ok ? ok({ executable: located.value.executable }) : located;
+          },
+          convert: (conversion) =>
+            runReportSample(defaultConversionDependencies(), {
+              simpleperf: conversion.executable,
+              args: reportSampleArguments(conversion),
+              protobufTrace: conversion.protobufTrace,
+            }),
+          temporaryPath: (name) => join(temporaryDirectory, name),
+          sizeOf: async (path) => (await stat(path)).size,
+          readFile: async (path) => new Uint8Array(await readFile(path)),
+          removeFile: async (path) => {
+            await rm(path, { force: true });
+          },
+          now: () => Date.now(),
+          newId: () => String(Date.now()),
+        },
+        input,
+      );
+      if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+      const parsed = parseCpuProfileReport(result.value.report);
+      if (!parsed.ok) return { ok: false, error: parsed.error.code + ': ' + parsed.error.message };
+      const session = createCpuProfileSession(
+        {
+          id: result.value.id,
+          capturedAtEpochMillis: result.value.capturedAtEpochMillis,
+          serial: input.serial,
+          parameters: result.value.parameters,
+          profile: result.value.profile,
+          protobufTrace: '',
+          perfDataBytes: result.value.perfDataBytes,
+          ...(result.value.simpleperfVersion !== undefined
+            ? { simpleperfVersion: result.value.simpleperfVersion }
+            : {}),
+          devicePath: result.value.parameters.outputPath,
+        },
+        {
+          reportFile: result.value.id + '/report.pb',
+          table: parsed.value.table,
+          ...(input.packageName !== undefined ? { packageName: input.packageName } : {}),
+        },
+      );
+      await cpuStore().save(session.record, result.value.report, session.table);
+      return { ok: true, id: session.record.id };
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.cpuList, () => cpuStore().list());
+  ipcMain.handle(IPC_CHANNELS.cpuRemove, (_event, id: string) => cpuStore().remove(id));
+  ipcMain.handle(IPC_CHANNELS.cpuSnapshot, async (_event, input: CpuSnapshotRequest) => {
+    const record = await cpuStore().readRecord(input.id);
+    if (record === undefined) return { ok: false, error: 'Session not found' };
+    const table = await cpuTableFor(record);
+    if (!table.ok) return { ok: false, error: table.error.code + ': ' + table.error.message };
+    try {
+      const transforms = input.transforms.map(transformFromRequest);
+      const graph = buildFlameGraphPayload(
+        table.value,
+        {
+          searchText: input.searchText,
+          implementation: input.implementation,
+          direction: directionOf(input.direction),
+          transforms,
+        },
+        {
+          ...(input.threadKey !== undefined && input.threadKey.length > 0 ? { threadKey: input.threadKey } : {}),
+          selectedThreadHasNoSamples:
+            input.threadKey !== undefined &&
+            input.threadKey.length > 0 &&
+            !table.value.stacks.some((stack) => stack.threadKey === input.threadKey),
+        },
+      );
+      return { ok: true, graph };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'snapshot failed' };
+    }
   });
   ipcMain.handle(IPC_CHANNELS.memoryCapture, async (_event, input: MemoryCaptureInput) => {
     const client = adbClientFor();

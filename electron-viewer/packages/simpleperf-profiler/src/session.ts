@@ -131,7 +131,10 @@ export function createCpuProfileSession(
 
 export interface CpuProfileFlameNode {
   readonly index: number;
+  /** Stable call-node id; identifies this exact position in the tree. */
   readonly id: string;
+  /** Function id of the node's frame; used to build transform paths. */
+  readonly functionId: string;
   readonly parent: number;
   readonly depth: number;
   readonly symbolName: string;
@@ -200,6 +203,7 @@ export function buildFlameGraphPayload(
     nodes.push({
       index,
       id: (snapshot.callNodes.ids[index] as bigint).toString(),
+      functionId: frame.functionId.toString(),
       parent: snapshot.callNodes.parentIndexes[index] as number,
       depth: snapshot.callNodes.depths[index] as number,
       symbolName: frame.symbolName,
@@ -294,4 +298,38 @@ export function topFunctions(
 
 export function directionOf(value: string): CallStackDirection {
   return value === 'INVERTED' ? 'INVERTED' : 'FORWARD';
+}
+
+/**
+ * Renderer-facing transform request. Function ids travel as strings so the IPC
+ * payload stays JSON-safe, and the main process maps them back to bigints.
+ */
+export type CpuTransformRequest =
+  | { readonly kind: 'FOCUS_CALL_NODE'; readonly path: readonly string[] }
+  | { readonly kind: 'FOCUS_FUNCTION'; readonly functionId: string }
+  | { readonly kind: 'DROP_FUNCTION'; readonly functionId: string }
+  | { readonly kind: 'COLLAPSE_RECURSION'; readonly functionId: string }
+  | { readonly kind: 'COLLAPSE_RESOURCE'; readonly resource: string };
+
+export function transformFromRequest(request: CpuTransformRequest): CallStackTransform {
+  switch (request.kind) {
+    case 'FOCUS_CALL_NODE':
+      return { kind: 'FOCUS_CALL_NODE', path: request.path.map(toFunctionId) };
+    case 'FOCUS_FUNCTION':
+      return { kind: 'FOCUS_FUNCTION', function: toFunctionId(request.functionId) };
+    case 'DROP_FUNCTION':
+      return { kind: 'DROP_FUNCTION', function: toFunctionId(request.functionId) };
+    case 'COLLAPSE_RECURSION':
+      return { kind: 'COLLAPSE_RECURSION', function: toFunctionId(request.functionId) };
+    case 'COLLAPSE_RESOURCE':
+      return { kind: 'COLLAPSE_RESOURCE', resource: request.resource };
+  }
+}
+
+function toFunctionId(value: string): bigint {
+  try {
+    return BigInt(value);
+  } catch {
+    throw new Error('Invalid function id: ' + value);
+  }
 }

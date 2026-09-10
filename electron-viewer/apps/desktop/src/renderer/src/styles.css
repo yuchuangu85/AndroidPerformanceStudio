@@ -402,6 +402,21 @@ body {
   opacity: 0.55;
 }
 
+.flame {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-strong);
+}
+
+.flame rect {
+  cursor: pointer;
+}
+
+.flame text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .runs__selected {
   background: var(--surface-strong);
 }

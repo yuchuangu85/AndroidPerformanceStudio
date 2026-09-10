@@ -163,6 +163,9 @@ importers:
       '@aps/settings':
         specifier: workspace:*
         version: link:../../packages/settings
+      '@aps/simpleperf-profiler':
+        specifier: workspace:*
+        version: link:../../packages/simpleperf-profiler
       '@aps/startup-profiler':
         specifier: workspace:*
         version: link:../../packages/startup-profiler

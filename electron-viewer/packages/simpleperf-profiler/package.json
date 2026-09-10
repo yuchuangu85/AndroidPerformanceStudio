@@ -12,6 +12,10 @@
     "./node": {
       "types": "./src/node.ts",
       "default": "./src/node.ts"
+    },
+    "./testing": {
+      "types": "./src/report-builder.ts",
+      "default": "./src/report-builder.ts"
     }
   },
   "scripts": {

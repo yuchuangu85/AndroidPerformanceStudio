@@ -1,6 +1,14 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
 import type { AgiCapability, ArtifactLocationStatus, ArtifactOpenRoute, GpuArtifactKind } from '@aps/gpu-inspector';
 import type { MemorySession } from '@aps/memory-profiler';
+import type {
+  CallGraphMode,
+  CpuProfileFlameGraph,
+  CpuProfileSessionRecord,
+  CpuTransformRequest,
+  EventScope,
+  ImplementationFilter,
+} from '@aps/simpleperf-profiler';
 import type { RegressionReport } from '@aps/benchmark-regression';
 import type { FrameSession } from '@aps/frame-profiler';
 import type { LayoutSnapshot } from '@aps/layout-inspector';
@@ -290,6 +298,32 @@ export interface MemoryCaptureOutcome {
   readonly error?: string;
 }
 
+export interface CpuCaptureRequest {
+  readonly serial: string;
+  readonly packageName?: string;
+  readonly target: 'APP' | 'SYSTEM_WIDE';
+  readonly event: string;
+  readonly frequencyHertz: number;
+  readonly durationSeconds: number;
+  readonly callGraph: CallGraphMode;
+  readonly scope: EventScope;
+}
+
+export interface CpuSnapshotRequest {
+  readonly id: string;
+  readonly threadKey?: string;
+  readonly searchText: string;
+  readonly implementation: ImplementationFilter;
+  readonly direction: 'FORWARD' | 'INVERTED';
+  readonly transforms: readonly CpuTransformRequest[];
+}
+
+export interface CpuSnapshotOutcome {
+  readonly ok: boolean;
+  readonly graph?: CpuProfileFlameGraph;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -328,6 +362,10 @@ export interface ApsApi {
   revealGpuArtifact(id: string): Promise<GpuOutcome>;
   relocateGpuArtifact(id: string): Promise<GpuOutcome>;
   importTraceFromPath(path: string): Promise<GpuOutcome>;
+  captureCpuProfile(input: CpuCaptureRequest): Promise<MemoryCaptureOutcome>;
+  listCpuProfiles(): Promise<readonly CpuProfileSessionRecord[]>;
+  cpuSnapshot(input: CpuSnapshotRequest): Promise<CpuSnapshotOutcome>;
+  removeCpuProfile(id: string): Promise<boolean>;
   captureMemory(input: MemoryCaptureInput): Promise<MemoryCaptureOutcome>;
   listMemorySessions(): Promise<readonly MemorySessionSummary[]>;
   loadMemorySession(id: string): Promise<MemorySession | undefined>;
@@ -369,6 +407,10 @@ export const IPC_CHANNELS = {
   gpuReveal: 'gpu:reveal',
   gpuRelocate: 'gpu:relocate',
   traceImportFromPath: 'trace:importFromPath',
+  cpuCapture: 'cpu:capture',
+  cpuList: 'cpu:list',
+  cpuSnapshot: 'cpu:snapshot',
+  cpuRemove: 'cpu:remove',
   memoryCapture: 'memory:capture',
   memoryList: 'memory:list',
   memoryLoad: 'memory:load',

@@ -250,9 +250,21 @@ export async function convertPerfDataToProtobuf(
       error instanceof Error ? error.message : undefined,
     );
   }
+  return runReportSample(dependencies, {
+    simpleperf: input.simpleperf,
+    args: reportSampleArguments(input),
+    protobufTrace: input.protobufTrace,
+  });
+}
+
+/** Runs an already-built report-sample invocation and validates its output. */
+export async function runReportSample(
+  dependencies: SimpleperfConversionDependencies,
+  input: { readonly simpleperf: string; readonly args: readonly string[]; readonly protobufTrace: string },
+): Promise<StudioResult<void>> {
   const result = await dependencies.run({
     executable: input.simpleperf,
-    args: reportSampleArguments(input),
+    args: input.args,
     timeoutMs: CONVERSION_TIMEOUT_MS,
   });
   if (result.timedOut) {

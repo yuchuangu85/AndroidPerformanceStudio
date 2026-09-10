@@ -15,6 +15,7 @@ import type {
 } from '../../shared/settings-contract';
 import { resolvedTheme } from '../../shared/theme';
 import { BatteryProfilerPanel } from './BatteryProfilerPanel';
+import { CpuProfilerPanel } from './CpuProfilerPanel';
 import { BenchmarkRegressionPanel } from './BenchmarkRegressionPanel';
 import { FrameProfilerPanel } from './FrameProfilerPanel';
 import { GpuInspectorPanel } from './GpuInspectorPanel';
@@ -177,6 +178,8 @@ export function App(): JSX.Element {
               <NetworkProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'BENCHMARK_REGRESSION' ? (
               <BenchmarkRegressionPanel language={language} devices={snapshot.devices} />
+            ) : current === 'SIMPLEPERF' ? (
+              <CpuProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'MEMORY_PROFILER' ? (
               <MemoryProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'GPU_INSPECTOR' ? (

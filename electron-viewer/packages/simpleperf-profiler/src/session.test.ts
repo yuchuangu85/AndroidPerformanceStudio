@@ -9,6 +9,7 @@ import {
   metadataRecord,
   samplingParametersRecord,
   topFunctions,
+  transformFromRequest,
   type CpuProfileSession,
 } from './session.js';
 import { samplingParameters } from './toolchain.js';
@@ -135,6 +136,24 @@ describe('cpu profile session record', () => {
     );
     expect(directionOf('INVERTED')).toBe('INVERTED');
     expect(directionOf('anything else')).toBe('FORWARD');
+  });
+
+  it('maps renderer transform requests back to analysis transforms', () => {
+    expect(transformFromRequest({ kind: 'FOCUS_CALL_NODE', path: ['1', '2'] })).toEqual({
+      kind: 'FOCUS_CALL_NODE',
+      path: [1n, 2n],
+    });
+    expect(transformFromRequest({ kind: 'DROP_FUNCTION', functionId: '7' })).toEqual({
+      kind: 'DROP_FUNCTION',
+      function: 7n,
+    });
+    expect(transformFromRequest({ kind: 'COLLAPSE_RESOURCE', resource: '/lib.so' })).toEqual({
+      kind: 'COLLAPSE_RESOURCE',
+      resource: '/lib.so',
+    });
+    expect(() => transformFromRequest({ kind: 'FOCUS_FUNCTION', functionId: 'not-a-number' })).toThrow(
+      /Invalid function id/,
+    );
   });
 });
 
