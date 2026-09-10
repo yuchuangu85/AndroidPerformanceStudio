@@ -14,6 +14,7 @@ import {
   type FrameCaptureInput,
   type MigrationStatus,
   type ShellSnapshot,
+  type StartupCaptureInput,
   type TraceAnalyzerSnapshot,
   type TraceCaptureInput,
   type TraceCaptureOutcome,
@@ -33,6 +34,8 @@ import { captureFrameSession } from './frame-capture-service.js';
 import { FrameSessionStore } from './frame-session-store.js';
 import { captureLayoutSnapshot } from './layout-capture-service.js';
 import { LayoutCaptureStore } from './layout-capture-store.js';
+import { runStartupExperiment } from './startup-capture-service.js';
+import { StartupSessionStore } from './startup-session-store.js';
 import { capturePerfettoTrace } from './trace-capture-service.js';
 import { TraceStore } from './trace-store.js';
 import { resolveTraceProcessorStatus } from './trace-service.js';
@@ -78,6 +81,10 @@ function layoutStore(): LayoutCaptureStore {
 
 function frameStore(): FrameSessionStore {
   return new FrameSessionStore(join(userDataDirectory(), 'frame-sessions'));
+}
+
+function startupStore(): StartupSessionStore {
+  return new StartupSessionStore(join(userDataDirectory(), 'startup-sessions'));
 }
 
 const MAX_INLINE_SCREENSHOT_BYTES = 16 * 1024 * 1024;
@@ -271,6 +278,35 @@ function registerHandlers(): void {
     const summary = await frameStore().add(result.value);
     return { ok: true, id: summary.id };
   });
+  ipcMain.handle(IPC_CHANNELS.startupCapture, async (_event, input: StartupCaptureInput) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const result = await runStartupExperiment(
+      {
+        adb: { shell: (args, options) => client.shell(input.serial, args, options) },
+        now: () => Date.now(),
+        newId: () => String(Date.now()),
+      },
+      {
+        serial: input.serial,
+        packageName: input.packageName,
+        ...(input.componentName !== undefined && input.componentName.length > 0
+          ? { componentName: input.componentName }
+          : {}),
+        config: {
+          requestedType: input.requestedType,
+          warmupRuns: input.warmupRuns,
+          measuredRuns: input.measuredRuns,
+          timeoutSeconds: input.timeoutSeconds,
+        },
+      },
+    );
+    if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+    const summary = await startupStore().add(result.value);
+    return { ok: true, id: summary.id };
+  });
+  ipcMain.handle(IPC_CHANNELS.startupList, () => startupStore().list());
+  ipcMain.handle(IPC_CHANNELS.startupLoad, (_event, id: string) => startupStore().load(id));
   ipcMain.handle(IPC_CHANNELS.frameList, () => frameStore().list());
   ipcMain.handle(IPC_CHANNELS.frameLoad, (_event, id: string) => frameStore().load(id));
   ipcMain.handle(IPC_CHANNELS.layoutCapture, async (_event, serial: string) => {

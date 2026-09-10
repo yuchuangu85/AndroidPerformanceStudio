@@ -16,6 +16,7 @@ import type {
 import { resolvedTheme } from '../../shared/theme';
 import { FrameProfilerPanel } from './FrameProfilerPanel';
 import { LayoutInspectorPanel } from './LayoutInspectorPanel';
+import { StartupProfilerPanel } from './StartupProfilerPanel';
 import { TraceAnalyzerPanel } from './TraceAnalyzerPanel';
 
 const THEME_OPTIONS: readonly ApplicationThemePreference[] = ['system', 'light', 'dark'];
@@ -163,6 +164,8 @@ export function App(): JSX.Element {
               <LayoutInspectorPanel language={language} devices={snapshot.devices} />
             ) : current === 'FRAME_PROFILER' ? (
               <FrameProfilerPanel language={language} devices={snapshot.devices} />
+            ) : current === 'STARTUP_PROFILER' ? (
+              <StartupProfilerPanel language={language} devices={snapshot.devices} />
             ) : (
               <p className="content__muted">
                 {retained.length} destinations retained · not migrated yet

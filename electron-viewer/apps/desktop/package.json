@@ -22,7 +22,8 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "@aps/layout-inspector": "workspace:*",
-    "@aps/frame-profiler": "workspace:*"
+    "@aps/frame-profiler": "workspace:*",
+    "@aps/startup-profiler": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

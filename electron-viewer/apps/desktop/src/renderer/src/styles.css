@@ -375,6 +375,33 @@ body {
   border-radius: 1px;
 }
 
+.runs {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.runs th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.runs td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.runs__warmup {
+  opacity: 0.55;
+}
+
 .shell--loading {
   display: flex;
   align-items: center;

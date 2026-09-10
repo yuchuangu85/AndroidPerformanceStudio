@@ -1,5 +1,6 @@
 import type { FrameSession } from '@aps/frame-profiler';
 import type { LayoutSnapshot } from '@aps/layout-inspector';
+import type { StartupSession, StartupType } from '@aps/startup-profiler';
 import type { AppDestination } from './destinations.js';
 import type { ApplicationUiSettings } from './settings-contract.js';
 
@@ -128,6 +129,32 @@ export interface FrameCaptureOutcome {
   readonly error?: string;
 }
 
+export interface StartupSessionSummary {
+  readonly id: string;
+  readonly packageName: string;
+  readonly capturedAtEpochMillis: number;
+  readonly measuredRuns: number;
+  readonly medianTotalTimeMs?: number;
+  readonly p90TotalTimeMs?: number;
+  readonly p90LowResolution: boolean;
+}
+
+export interface StartupCaptureInput {
+  readonly serial: string;
+  readonly packageName: string;
+  readonly componentName?: string;
+  readonly requestedType: StartupType;
+  readonly warmupRuns: number;
+  readonly measuredRuns: number;
+  readonly timeoutSeconds: number;
+}
+
+export interface StartupCaptureOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -146,6 +173,9 @@ export interface ApsApi {
   captureFrame(input: FrameCaptureInput): Promise<FrameCaptureOutcome>;
   listFrameSessions(): Promise<readonly FrameSessionSummary[]>;
   loadFrameSession(id: string): Promise<FrameSession | undefined>;
+  captureStartup(input: StartupCaptureInput): Promise<StartupCaptureOutcome>;
+  listStartupSessions(): Promise<readonly StartupSessionSummary[]>;
+  loadStartupSession(id: string): Promise<StartupSession | undefined>;
 }
 
 export const IPC_CHANNELS = {
@@ -164,4 +194,7 @@ export const IPC_CHANNELS = {
   frameCapture: 'frame:capture',
   frameList: 'frame:list',
   frameLoad: 'frame:load',
+  startupCapture: 'startup:capture',
+  startupList: 'startup:list',
+  startupLoad: 'startup:load',
 } as const;

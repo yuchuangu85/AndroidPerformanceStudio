@@ -49,6 +49,8 @@ export interface StartupRun {
   readonly id: string;
   readonly sessionId: string;
   readonly iteration: number;
+  /** False for warmup runs, which prime the mode but never enter statistics. */
+  readonly measured: boolean;
   readonly requestedType: StartupType;
   readonly observedType: StartupType;
   readonly platform: PlatformLaunchMetrics;

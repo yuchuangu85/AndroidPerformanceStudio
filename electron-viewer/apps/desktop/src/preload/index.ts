@@ -4,6 +4,7 @@ import {
   type ApsApi,
   type ApplicationUiSettingsPatch,
   type FrameCaptureInput,
+  type StartupCaptureInput,
   type TraceCaptureInput,
 } from '../shared/ipc.js';
 
@@ -23,6 +24,9 @@ const api: ApsApi = {
   captureFrame: (input: FrameCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.frameCapture, input),
   listFrameSessions: () => ipcRenderer.invoke(IPC_CHANNELS.frameList),
   loadFrameSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.frameLoad, id),
+  captureStartup: (input: StartupCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.startupCapture, input),
+  listStartupSessions: () => ipcRenderer.invoke(IPC_CHANNELS.startupList),
+  loadStartupSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.startupLoad, id),
 };
 
 contextBridge.exposeInMainWorld('aps', api);
