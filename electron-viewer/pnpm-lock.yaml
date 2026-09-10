@@ -139,6 +139,9 @@ importers:
       '@aps/frame-profiler':
         specifier: workspace:*
         version: link:../../packages/frame-profiler
+      '@aps/gpu-inspector':
+        specifier: workspace:*
+        version: link:../../packages/gpu-inspector
       '@aps/layout-inspector':
         specifier: workspace:*
         version: link:../../packages/layout-inspector

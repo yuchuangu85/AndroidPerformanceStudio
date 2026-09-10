@@ -7,8 +7,11 @@ export interface AgiProcessResult {
   readonly timedOut: boolean;
 }
 
+/** Structural platform token so this module stays renderer-safe (no node types). */
+export type AgiHostPlatform = string;
+
 export interface AgiLocatorDependencies {
-  readonly platform: NodeJS.Platform;
+  readonly platform: AgiHostPlatform;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly userHome: string;
   readonly isExecutableFile: (path: string) => boolean;
@@ -19,7 +22,7 @@ export interface AgiLocatorDependencies {
 const AUTOMATION_ARGUMENTS = ['--device', '--package', '--activity', '--capture'];
 const ARTIFACT_OPEN_EXECUTABLES = new Set(['agi', 'gapic']);
 
-function executableNames(platform: NodeJS.Platform): string[] {
+function executableNames(platform: AgiHostPlatform): string[] {
   return platform === 'win32' ? ['agi.exe', 'gapic.exe'] : ['agi', 'gapic'];
 }
 

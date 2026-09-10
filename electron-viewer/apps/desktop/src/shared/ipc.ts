@@ -1,4 +1,5 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
+import type { AgiCapability, ArtifactLocationStatus, ArtifactOpenRoute, GpuArtifactKind } from '@aps/gpu-inspector';
 import type { RegressionReport } from '@aps/benchmark-regression';
 import type { FrameSession } from '@aps/frame-profiler';
 import type { LayoutSnapshot } from '@aps/layout-inspector';
@@ -237,6 +238,34 @@ export interface BenchmarkCompareOutcome {
   readonly error?: string;
 }
 
+export interface GpuArtifactSummary {
+  readonly id: string;
+  readonly kind: GpuArtifactKind;
+  readonly path: string;
+  readonly sizeBytes: number;
+  readonly sha256: string;
+  readonly openRoute: ArtifactOpenRoute;
+  readonly locationStatus: ArtifactLocationStatus;
+  readonly locationCount: number;
+  readonly importedAtEpochMillis: number;
+  readonly warningCount: number;
+  readonly agiVersion?: string;
+}
+
+export interface GpuArtifactLocationReport {
+  readonly id: string;
+  readonly status: ArtifactLocationStatus;
+  readonly path?: string;
+}
+
+export interface GpuOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly cancelled?: boolean;
+  readonly error?: string;
+  readonly note?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -267,6 +296,14 @@ export interface ApsApi {
   importBenchmarkRun(): Promise<BenchmarkImportOutcome>;
   listBenchmarkRuns(): Promise<readonly BenchmarkRunSummary[]>;
   compareBenchmarkRuns(input: BenchmarkCompareInput): Promise<BenchmarkCompareOutcome>;
+  getAgiStatus(): Promise<AgiCapability>;
+  launchAgi(): Promise<GpuOutcome>;
+  importGpuArtifact(): Promise<GpuOutcome>;
+  listGpuArtifacts(): Promise<readonly GpuArtifactSummary[]>;
+  openGpuArtifact(id: string): Promise<GpuOutcome>;
+  revealGpuArtifact(id: string): Promise<GpuOutcome>;
+  relocateGpuArtifact(id: string): Promise<GpuOutcome>;
+  importTraceFromPath(path: string): Promise<GpuOutcome>;
 }
 
 export const IPC_CHANNELS = {
@@ -297,4 +334,12 @@ export const IPC_CHANNELS = {
   benchmarkImport: 'benchmark:import',
   benchmarkList: 'benchmark:list',
   benchmarkCompare: 'benchmark:compare',
+  gpuStatus: 'gpu:status',
+  gpuLaunch: 'gpu:launch',
+  gpuImport: 'gpu:import',
+  gpuList: 'gpu:list',
+  gpuOpen: 'gpu:open',
+  gpuReveal: 'gpu:reveal',
+  gpuRelocate: 'gpu:relocate',
+  traceImportFromPath: 'trace:importFromPath',
 } as const;

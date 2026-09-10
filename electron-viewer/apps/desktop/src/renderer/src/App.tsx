@@ -17,6 +17,7 @@ import { resolvedTheme } from '../../shared/theme';
 import { BatteryProfilerPanel } from './BatteryProfilerPanel';
 import { BenchmarkRegressionPanel } from './BenchmarkRegressionPanel';
 import { FrameProfilerPanel } from './FrameProfilerPanel';
+import { GpuInspectorPanel } from './GpuInspectorPanel';
 import { LayoutInspectorPanel } from './LayoutInspectorPanel';
 import { NetworkProfilerPanel } from './NetworkProfilerPanel';
 import { StartupProfilerPanel } from './StartupProfilerPanel';
@@ -175,6 +176,8 @@ export function App(): JSX.Element {
               <NetworkProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'BENCHMARK_REGRESSION' ? (
               <BenchmarkRegressionPanel language={language} devices={snapshot.devices} />
+            ) : current === 'GPU_INSPECTOR' ? (
+              <GpuInspectorPanel language={language} devices={snapshot.devices} />
             ) : (
               <p className="content__muted">
                 {retained.length} destinations retained · not migrated yet

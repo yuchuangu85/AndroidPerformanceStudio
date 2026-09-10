@@ -38,6 +38,14 @@ const api: ApsApi = {
   importBenchmarkRun: () => ipcRenderer.invoke(IPC_CHANNELS.benchmarkImport),
   listBenchmarkRuns: () => ipcRenderer.invoke(IPC_CHANNELS.benchmarkList),
   compareBenchmarkRuns: (input: BenchmarkCompareInput) => ipcRenderer.invoke(IPC_CHANNELS.benchmarkCompare, input),
+  getAgiStatus: () => ipcRenderer.invoke(IPC_CHANNELS.gpuStatus),
+  launchAgi: () => ipcRenderer.invoke(IPC_CHANNELS.gpuLaunch),
+  importGpuArtifact: () => ipcRenderer.invoke(IPC_CHANNELS.gpuImport),
+  listGpuArtifacts: () => ipcRenderer.invoke(IPC_CHANNELS.gpuList),
+  openGpuArtifact: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.gpuOpen, id),
+  revealGpuArtifact: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.gpuReveal, id),
+  relocateGpuArtifact: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.gpuRelocate, id),
+  importTraceFromPath: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.traceImportFromPath, path),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

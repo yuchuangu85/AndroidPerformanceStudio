@@ -1,6 +1,7 @@
 import { statSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
+
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { sha256File } from '@aps/contracts/node';
@@ -39,6 +40,9 @@ import { LayoutCaptureStore } from './layout-capture-store.js';
 import { runBatteryExperiment } from './battery-capture-service.js';
 import { BatterySessionStore } from './battery-session-store.js';
 import { compareBenchmarkRuns, DEFAULT_REGRESSION_POLICY } from '@aps/benchmark-regression';
+import { launchHostProcess, runHostProcessText } from '@aps/platform-host';
+import { locateAgi, safeLaunchArguments, type AgiCapability, type AgiLocatorDependencies } from '@aps/gpu-inspector';
+import { GpuArtifactStore } from './gpu-artifact-store.js';
 import { importBenchmarkJson } from './benchmark-import-service.js';
 import { BenchmarkStore } from './benchmark-store.js';
 import { importHarFile } from './network-import-service.js';
@@ -106,6 +110,51 @@ function networkStore(): NetworkSessionStore {
 
 function benchmarkStore(): BenchmarkStore {
   return new BenchmarkStore(join(userDataDirectory(), 'benchmark-runs'));
+}
+
+function gpuStore(): GpuArtifactStore {
+  return new GpuArtifactStore(join(userDataDirectory(), 'gpu-artifacts'));
+}
+
+async function agiCapability(): Promise<AgiCapability> {
+  const dependencies: AgiLocatorDependencies = {
+    platform: process.platform,
+    env: process.env,
+    userHome: homedir(),
+    isExecutableFile: (path) => {
+      try {
+        const stats = statSync(path);
+        return stats.isFile() && (process.platform === 'win32' || (stats.mode & 0o111) !== 0);
+      } catch {
+        return false;
+      }
+    },
+    join,
+    run: async (executable, args) => {
+      try {
+        const result = await runHostProcessText({ executable, args: [...args], timeoutMs: 3_000 });
+        return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr, timedOut: false };
+      } catch (error) {
+        const timedOut = error instanceof Error && error.name === 'HostProcessTimeoutError';
+        return { exitCode: -1, stdout: '', stderr: '', timedOut };
+      }
+    },
+  };
+  return await locateAgi(dependencies, process.env['APS_AGI_PATH']);
+}
+
+async function importTraceFromPath(path: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+  try {
+    const digest = await sha256File(path);
+    const record = await traceStore().addTrace(path, {
+      sha256: digest,
+      capturedAtEpochMillis: Date.now(),
+      durationMillis: 0,
+    });
+    return { ok: true, id: record.id };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'trace import failed' };
+  }
 }
 
 const MAX_INLINE_SCREENSHOT_BYTES = 16 * 1024 * 1024;
@@ -424,6 +473,84 @@ function registerHandlers(): void {
       ...(input.absoluteThreshold !== undefined ? { absoluteThreshold: input.absoluteThreshold } : {}),
     };
     return { ok: true, report: compareBenchmarkRuns(baseline, current, policy) };
+  });
+  ipcMain.handle(IPC_CHANNELS.traceImportFromPath, (_event, path: string) => importTraceFromPath(path));
+  ipcMain.handle(IPC_CHANNELS.gpuStatus, () => agiCapability());
+  ipcMain.handle(IPC_CHANNELS.gpuLaunch, async () => {
+    const capability = await agiCapability();
+    if (capability.executable === undefined || !capability.launchSupported) {
+      return { ok: false, error: 'Android GPU Inspector is not available' };
+    }
+    launchHostProcess({ executable: capability.executable, args: safeLaunchArguments(capability, []) });
+    return { ok: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.gpuImport, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Import GPU artifact',
+      properties: ['openFile'],
+      filters: [{ name: 'GPU artifacts', extensions: ['pftrace', 'perfetto-trace', 'gfxtrace', 'agi', 'trace', 'png', 'jpg', 'jpeg', 'html', 'pdf'] }],
+    });
+    const filePath = selection.filePaths[0];
+    if (selection.canceled || filePath === undefined) return { ok: false, cancelled: true };
+    try {
+      const capability = await agiCapability();
+      const artifact = await gpuStore().importArtifact({
+        path: filePath,
+        id: String(Date.now()),
+        now: () => Date.now(),
+        ...(capability.version !== undefined ? { agiVersion: capability.version } : {}),
+      });
+      return { ok: true, id: artifact.id };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'artifact import failed' };
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.gpuList, () => gpuStore().summarize());
+  ipcMain.handle(IPC_CHANNELS.gpuReveal, async (_event, id: string) => {
+    const artifact = (await gpuStore().list()).find((entry) => entry.id === id);
+    if (artifact === undefined) return { ok: false, error: 'Artifact not found' };
+    shell.showItemInFolder(artifact.path);
+    return { ok: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.gpuRelocate, async (_event, id: string) => {
+    const selection = await dialog.showOpenDialog({ title: 'Locate GPU artifact', properties: ['openFile'] });
+    const filePath = selection.filePaths[0];
+    if (selection.canceled || filePath === undefined) return { ok: false, cancelled: true };
+    try {
+      const relocated = await gpuStore().relocate(id, filePath);
+      if (relocated === undefined) return { ok: false, error: 'Artifact not found' };
+      return { ok: true, id: relocated.id };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'relocation failed' };
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.gpuOpen, async (_event, id: string) => {
+    const store = gpuStore();
+    const artifact = (await store.list()).find((entry) => entry.id === id);
+    if (artifact === undefined) return { ok: false, error: 'Artifact not found' };
+    const location = await store.resolveLocation(id);
+    if (location?.status !== 'AVAILABLE' || location.path === undefined) {
+      return { ok: false, error: 'Artifact content is no longer available at any known location' };
+    }
+    if (artifact.openRoute === 'PERFETTO') {
+      // Hand the trace to Trace Analyzer instead of duplicating a viewer.
+      const imported = await importTraceFromPath(location.path);
+      if (!imported.ok || imported.id === undefined) {
+        return { ok: false, error: imported.error ?? 'trace handoff failed' };
+      }
+      const opened = await openTraceInAnalyzer(imported.id);
+      return opened.ok ? { ok: true, note: 'Opened in Trace Analyzer' } : { ok: false, error: opened.error };
+    }
+    if (artifact.openRoute === 'AGI') {
+      const capability = await agiCapability();
+      if (!capability.artifactOpenSupported || capability.executable === undefined) {
+        return { ok: false, error: 'Opening this artifact with AGI was not verified' };
+      }
+      launchHostProcess({ executable: capability.executable, args: [location.path] });
+      return { ok: true };
+    }
+    const message = await shell.openPath(location.path);
+    return message.length === 0 ? { ok: true } : { ok: false, error: message };
   });
   ipcMain.handle(IPC_CHANNELS.networkList, () => networkStore().list());
   ipcMain.handle(IPC_CHANNELS.networkLoad, (_event, id: string) => networkStore().load(id));
