@@ -5,3 +5,5 @@ export * from './query-result.js';
 export * from './tool-resolver.js';
 export * from './perfetto-config.js';
 export * from './analysis-context.js';
+export * from './ui-assets.js';
+export * from './capture.js';

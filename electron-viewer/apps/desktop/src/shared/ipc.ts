@@ -45,6 +45,43 @@ export interface ShellSnapshot {
   readonly migration: MigrationStatus;
 }
 
+export interface TraceRecordSummary {
+  readonly id: string;
+  readonly path: string;
+  readonly sha256: string;
+  readonly capturedAtEpochMillis: number;
+  readonly durationMillis: number;
+  readonly deviceSerial?: string;
+}
+
+export interface PerfettoUiStatus {
+  readonly available: boolean;
+  readonly directory?: string;
+}
+
+export interface TraceAnalyzerSnapshot {
+  readonly traces: readonly TraceRecordSummary[];
+  readonly ui: PerfettoUiStatus;
+}
+
+export interface TraceCaptureInput {
+  readonly serial: string;
+  readonly durationMillis: number;
+  readonly bufferSizeKb: number;
+  readonly dataSource: string;
+}
+
+export interface TraceCaptureOutcome {
+  readonly ok: boolean;
+  readonly record?: TraceRecordSummary;
+  readonly error?: string;
+}
+
+export interface TraceOpenOutcome {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -52,6 +89,9 @@ export interface ApsApi {
   updateSettings(patch: ApplicationUiSettingsPatch): Promise<ShellSnapshot>;
   refreshDevices(): Promise<ShellSnapshot>;
   openDestination(destination: AppDestination): Promise<void>;
+  getTraceAnalyzer(): Promise<TraceAnalyzerSnapshot>;
+  captureTrace(input: TraceCaptureInput): Promise<TraceCaptureOutcome>;
+  openTraceInAnalyzer(id: string): Promise<TraceOpenOutcome>;
 }
 
 export const IPC_CHANNELS = {
@@ -59,4 +99,7 @@ export const IPC_CHANNELS = {
   updateSettings: 'shell:updateSettings',
   refreshDevices: 'shell:refreshDevices',
   openDestination: 'shell:openDestination',
+  traceAnalyzer: 'trace:getAnalyzer',
+  traceCapture: 'trace:capture',
+  traceOpen: 'trace:openInAnalyzer',
 } as const;
