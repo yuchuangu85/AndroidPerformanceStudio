@@ -157,8 +157,11 @@ describe('parseHprof', () => {
     expect(result.classes.get(0x100n)).toMatchObject({
       nameId: 1n,
       instanceFieldBytes: 8,
-      instanceFieldCount: 2,
     });
+    expect(result.classes.get(0x100n)?.instanceFields).toEqual([
+      { nameId: 2n, type: 2 },
+      { nameId: 3n, type: 10 },
+    ]);
     expect(result.instances).toHaveLength(2);
     expect(result.instances[0]).toMatchObject({ objectId: 0x200n, classObjectId: 0x100n, fieldBytes: 8 });
     expect(result.arrays).toHaveLength(2);
