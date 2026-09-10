@@ -1,21 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import type { NormalizedSample, ProfileExecutionType } from '../model.js';
+// Exercises the analysis layer through the simpleperf bridge: the pure units
+// live in @aps/profile-analysis, and building real tables needs the models here.
 import {
   CallStackTable,
   DEFAULT_CALL_STACK_QUERY,
+  applyTransforms,
+  buildFlameGraphSnapshot,
+  deriveStableId,
+  filterCallStacks,
   parseFlameSearchTerms,
+  primaryHashStep,
+  projectCallTree,
+  projectCallTreeResult,
+  projectFlameGraphRows,
+  rowNormalizedWidthAt,
+  secondaryHashStep,
+  stableStringHash,
   weightedCallStack,
   type CallStackFrame,
   type FrameImplementation,
   type WeightedCallStack,
-} from './contracts.js';
+} from '@aps/profile-analysis';
 import { implementationOf, samplesToCallStackTable, defaultThreadKey } from './table.js';
-import { projectCallTree, projectCallTreeResult } from './call-tree.js';
-import { projectFlameGraphRows, rowNormalizedWidthAt } from './rows.js';
-import { filterCallStacks } from './filter.js';
-import { applyTransforms } from './transformer.js';
-import { buildFlameGraphSnapshot } from './flame-graph.js';
-import { deriveStableId, primaryHashStep, secondaryHashStep, stableStringHash } from './stable-id.js';
 
 /** Real symbol tables give one name one id and one address. */
 const symbolRegistry = new Map<string, number>();

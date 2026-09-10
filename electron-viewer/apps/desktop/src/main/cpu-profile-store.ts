@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { CallStackTable } from '@aps/simpleperf-profiler';
+import type { CallStackTable } from '@aps/profile-analysis';
 import type { CpuProfileSessionRecord } from '@aps/simpleperf-profiler';
 
 const RECORD_FILE = 'session.json';

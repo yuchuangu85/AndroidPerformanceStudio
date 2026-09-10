@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NormalizedSample, ProfileExecutionType } from './model.js';
 import { samplesToCallStackTable } from './analysis/table.js';
-import { DEFAULT_CALL_STACK_QUERY } from './analysis/contracts.js';
+import { DEFAULT_CALL_STACK_QUERY } from '@aps/profile-analysis';
 import {
   buildFlameGraphPayload,
   createCpuProfileSession,

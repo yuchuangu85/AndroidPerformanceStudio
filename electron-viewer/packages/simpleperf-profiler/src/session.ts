@@ -15,8 +15,8 @@ import type {
   FlameGraphEmptyReason,
   FlameGraphStageCounts,
   FrameImplementation,
-} from './analysis/contracts.js';
-import { buildFlameGraphSnapshot } from './analysis/flame-graph.js';
+} from '@aps/profile-analysis';
+import { buildFlameGraphSnapshot } from '@aps/profile-analysis';
 import type { SimpleperfCaptureResult } from './capture.js';
 import type { SamplingParameters } from './toolchain.js';
 

@@ -60,9 +60,9 @@ import {
   directionOf,
   reportSampleArguments,
   transformFromRequest,
-  type CallStackTable,
   type CpuProfileSessionRecord,
 } from '@aps/simpleperf-profiler';
+import type { CallStackTable } from '@aps/profile-analysis';
 import {
   defaultConversionDependencies,
   defaultHostSimpleperfLocatorDependencies,

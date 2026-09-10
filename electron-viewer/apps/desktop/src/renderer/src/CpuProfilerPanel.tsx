@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
+import type { FrameImplementation, ImplementationFilter } from '@aps/profile-analysis';
 import type {
   CallGraphMode,
   CpuProfileFlameGraph,
@@ -6,8 +7,6 @@ import type {
   CpuProfileSessionRecord,
   CpuTransformRequest,
   EventScope,
-  FrameImplementation,
-  ImplementationFilter,
 } from '@aps/simpleperf-profiler';
 import type { DeviceSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';

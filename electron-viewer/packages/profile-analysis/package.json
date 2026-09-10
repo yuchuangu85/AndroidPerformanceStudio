@@ -1,5 +1,5 @@
 {
-  "name": "@aps/simpleperf-profiler",
+  "name": "@aps/profile-analysis",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,24 +8,11 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
-    },
-    "./node": {
-      "types": "./src/node.ts",
-      "default": "./src/node.ts"
-    },
-    "./testing": {
-      "types": "./src/report-builder.ts",
-      "default": "./src/report-builder.ts"
     }
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@aps/contracts": "workspace:*",
-    "@aps/profile-analysis": "workspace:*",
-    "@aps/platform-host": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

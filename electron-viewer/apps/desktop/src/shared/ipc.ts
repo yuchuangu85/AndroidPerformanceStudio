@@ -1,13 +1,13 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
 import type { AgiCapability, ArtifactLocationStatus, ArtifactOpenRoute, GpuArtifactKind } from '@aps/gpu-inspector';
 import type { MemorySession } from '@aps/memory-profiler';
+import type { ImplementationFilter } from '@aps/profile-analysis';
 import type {
   CallGraphMode,
   CpuProfileFlameGraph,
   CpuProfileSessionRecord,
   CpuTransformRequest,
   EventScope,
-  ImplementationFilter,
 } from '@aps/simpleperf-profiler';
 import type { RegressionReport } from '@aps/benchmark-regression';
 import type { FrameSession } from '@aps/frame-profiler';

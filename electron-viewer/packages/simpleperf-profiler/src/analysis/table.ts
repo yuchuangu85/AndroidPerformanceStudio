@@ -12,7 +12,7 @@ import {
   type CallStackFrame,
   type FrameImplementation,
   type WeightedCallStack,
-} from './contracts.js';
+} from '@aps/profile-analysis';
 
 export interface CallStackTableOptions {
   /** Overrides the per-sample weight; defaults to the sample event count. */

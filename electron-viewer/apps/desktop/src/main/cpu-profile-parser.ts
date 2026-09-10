@@ -1,5 +1,6 @@
 import { fail, ok, type StudioResult } from '@aps/contracts';
-import { normalizeSimpleperfReport, samplesToCallStackTable, type CallStackTable } from '@aps/simpleperf-profiler';
+import type { CallStackTable } from '@aps/profile-analysis';
+import { normalizeSimpleperfReport, samplesToCallStackTable } from '@aps/simpleperf-profiler';
 
 export interface ParsedCpuProfile {
   readonly table: CallStackTable;
