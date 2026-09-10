@@ -5,6 +5,8 @@
 - 日期：2026-09-10
 - 分支：`feature/electron-rewrite`
 - 关联：`DESIGN.md`、`CONTEXT.md`、`docs/requirements/layout-complexity-inspector-three-solutions-plan.md`
+- 跟踪 issue：[#21 PRD: Rewrite the desktop app on Electron without a JVM](https://github.com/yuchuangu85/AndroidPerformanceStudio/issues/21)
+- ADR：`docs/adr/0036-rewrite-the-desktop-app-on-electron-without-jvm.md`
 
 ## 1. 目标
 

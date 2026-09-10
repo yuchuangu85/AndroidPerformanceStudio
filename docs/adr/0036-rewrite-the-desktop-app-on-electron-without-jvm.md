@@ -50,7 +50,9 @@ Rewrite the desktop application on Electron with no JVM in the target product.
   the rewrite. `release.yml` is left untouched, `electron-updater` is not
   wired up, and signing/notarization is deferred until a later release phase.
 
-See `docs/design/2026-09-10-electron-rewrite-plan.md` for the full plan.
+See `docs/design/2026-09-10-electron-rewrite-plan.md` for the full plan, and
+[issue #21](https://github.com/yuchuangu85/AndroidPerformanceStudio/issues/21)
+for the tracked PRD and acceptance criteria.
 
 ## Consequences
 
