@@ -1,0 +1,60 @@
+{
+  "contractVersion": 1,
+  "id": "perfetto-trace-1700000000000",
+  "kind": "perfetto-trace",
+  "location": "/captures/perfetto-1700000000000.pftrace",
+  "sha256": "9f2c8e1d4b7a6f3058c1e2d3a4b5c6d7e8f90123456789abcdef0123456789ab",
+  "format": {
+    "name": "perfetto",
+    "version": "v57.2"
+  },
+  "provenance": {
+    "producer": {
+      "producerType": "known",
+      "name": "perfetto",
+      "version": "v57.2"
+    },
+    "acquisition": {
+      "kind": "CAPTURE",
+      "application": "Android Performance Studio",
+      "applicationVersion": "0.4.6",
+      "performedAtEpochMillis": 1700000000000
+    },
+    "processors": []
+  },
+  "capturedAt": {
+    "clockDomain": "BOOTTIME",
+    "timestampNanos": 123456789
+  },
+  "clockDomains": [
+    "BOOTTIME",
+    "REALTIME"
+  ],
+  "clockMappings": [
+    {
+      "source": "REALTIME",
+      "target": "BOOTTIME",
+      "sourceReferenceNanos": 1700000000000000000,
+      "targetReferenceNanos": 123000000,
+      "errorBoundNanos": 1000
+    }
+  ],
+  "availableCapabilities": [
+    "perfetto.trace",
+    "perfetto.sched",
+    "perfetto.binder"
+  ],
+  "completeness": "COMPLETE",
+  "requestedCapabilities": [
+    "perfetto.trace",
+    "perfetto.sched"
+  ],
+  "limitations": [],
+  "warnings": [],
+  "privacy": {
+    "containsSensitiveIdentity": false,
+    "redactions": [
+      "DEVICE_SERIAL"
+    ]
+  }
+}

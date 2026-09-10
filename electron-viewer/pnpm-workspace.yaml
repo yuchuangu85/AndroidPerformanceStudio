@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm 12 approvals for packages that must run an install script.
+allowBuilds:
+  electron: true
+  esbuild: true
+  electron-winstaller: true
+  '@electron/rebuild': true

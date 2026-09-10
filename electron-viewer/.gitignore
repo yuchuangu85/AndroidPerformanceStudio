@@ -1,0 +1,17 @@
+node_modules/
+out/
+dist/
+release/
+coverage/
+
+# Sandbox-local package manager and download caches (never committed).
+.tooling/
+.corepack/
+.pnpm-store/
+.npm-cache/
+.electron-cache/
+.electron-builder-cache/
+.cache/
+.home/
+*.tsbuildinfo
+.DS_Store

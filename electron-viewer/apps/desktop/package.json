@@ -1,0 +1,35 @@
+{
+  "name": "@aps/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
+    "typecheck:node": "tsc -p tsconfig.node.json",
+    "typecheck:web": "tsc -p tsconfig.web.json",
+    "test": "vitest run",
+    "package:dir": "electron-vite build && electron-builder --dir",
+    "package": "electron-vite build && electron-builder"
+  },
+  "dependencies": {
+    "@aps/contracts": "workspace:*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
+  },
+  "description": "Android Performance Studio desktop workstation",
+  "author": "yuchuangu85"
+}
