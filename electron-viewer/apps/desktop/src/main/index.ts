@@ -15,6 +15,7 @@ import {
   type FrameCaptureInput,
   type MigrationStatus,
   type BatteryCaptureInput,
+  type MemoryCaptureInput,
   type BenchmarkCompareInput,
   type ShellSnapshot,
   type StartupCaptureInput,
@@ -49,6 +50,8 @@ import { importHarFile } from './network-import-service.js';
 import { NetworkSessionStore } from './network-session-store.js';
 import { runStartupExperiment } from './startup-capture-service.js';
 import { StartupSessionStore } from './startup-session-store.js';
+import { captureHeapDump } from './memory-capture-service.js';
+import { MemorySessionStore } from './memory-session-store.js';
 import { capturePerfettoTrace } from './trace-capture-service.js';
 import { TraceStore } from './trace-store.js';
 import { resolveTraceProcessorStatus } from './trace-service.js';
@@ -114,6 +117,10 @@ function benchmarkStore(): BenchmarkStore {
 
 function gpuStore(): GpuArtifactStore {
   return new GpuArtifactStore(join(userDataDirectory(), 'gpu-artifacts'));
+}
+
+function memoryStore(): MemorySessionStore {
+  return new MemorySessionStore(join(userDataDirectory(), 'memory-sessions'));
 }
 
 async function agiCapability(): Promise<AgiCapability> {
@@ -552,6 +559,39 @@ function registerHandlers(): void {
     const message = await shell.openPath(location.path);
     return message.length === 0 ? { ok: true } : { ok: false, error: message };
   });
+  ipcMain.handle(IPC_CHANNELS.memoryCapture, async (_event, input: MemoryCaptureInput) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'aps-heap-'));
+    try {
+      const result = await captureHeapDump(
+        {
+          adb: {
+            shell: (args, options) => client.shell(input.serial, args, options),
+            pull: async (remote, local, options) => {
+              await client.pull(input.serial, remote, local, options);
+            },
+          },
+          sizeOf: async (path) => (await stat(path)).size,
+          readFile: async (path) => new Uint8Array(await readFile(path)),
+          removeFile: async (path) => {
+            await rm(path, { force: true });
+          },
+          temporaryPath: (name) => join(temporaryDirectory, name),
+          now: () => Date.now(),
+          newId: () => String(Date.now()),
+        },
+        { serial: input.serial, packageName: input.packageName },
+      );
+      if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+      const summary = await memoryStore().add(result.value);
+      return { ok: true, id: summary.id };
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.memoryList, () => memoryStore().list());
+  ipcMain.handle(IPC_CHANNELS.memoryLoad, (_event, id: string) => memoryStore().load(id));
   ipcMain.handle(IPC_CHANNELS.networkList, () => networkStore().list());
   ipcMain.handle(IPC_CHANNELS.networkLoad, (_event, id: string) => networkStore().load(id));
   ipcMain.handle(IPC_CHANNELS.batteryList, () => batteryStore().list());

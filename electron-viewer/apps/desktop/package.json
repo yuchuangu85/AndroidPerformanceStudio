@@ -27,7 +27,8 @@
     "@aps/battery-profiler": "workspace:*",
     "@aps/network-profiler": "workspace:*",
     "@aps/benchmark-regression": "workspace:*",
-    "@aps/gpu-inspector": "workspace:*"
+    "@aps/gpu-inspector": "workspace:*",
+    "@aps/memory-profiler": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

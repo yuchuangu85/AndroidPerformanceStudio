@@ -6,6 +6,7 @@ import {
   type BatteryCaptureInput,
   type BenchmarkCompareInput,
   type FrameCaptureInput,
+  type MemoryCaptureInput,
   type StartupCaptureInput,
   type TraceCaptureInput,
 } from '../shared/ipc.js';
@@ -46,6 +47,9 @@ const api: ApsApi = {
   revealGpuArtifact: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.gpuReveal, id),
   relocateGpuArtifact: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.gpuRelocate, id),
   importTraceFromPath: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.traceImportFromPath, path),
+  captureMemory: (input: MemoryCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.memoryCapture, input),
+  listMemorySessions: () => ipcRenderer.invoke(IPC_CHANNELS.memoryList),
+  loadMemorySession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.memoryLoad, id),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

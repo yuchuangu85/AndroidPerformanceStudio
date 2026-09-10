@@ -1,5 +1,6 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
 import type { AgiCapability, ArtifactLocationStatus, ArtifactOpenRoute, GpuArtifactKind } from '@aps/gpu-inspector';
+import type { MemorySession } from '@aps/memory-profiler';
 import type { RegressionReport } from '@aps/benchmark-regression';
 import type { FrameSession } from '@aps/frame-profiler';
 import type { LayoutSnapshot } from '@aps/layout-inspector';
@@ -266,6 +267,29 @@ export interface GpuOutcome {
   readonly note?: string;
 }
 
+export interface MemorySessionSummary {
+  readonly id: string;
+  readonly capturedAtEpochMillis: number;
+  readonly instanceCount: number;
+  readonly classCount: number;
+  readonly shallowBytes: number;
+  readonly suspectCount: number;
+  readonly warningCount: number;
+  readonly packageName?: string;
+  readonly deviceSerial?: string;
+}
+
+export interface MemoryCaptureInput {
+  readonly serial: string;
+  readonly packageName: string;
+}
+
+export interface MemoryCaptureOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -304,6 +328,9 @@ export interface ApsApi {
   revealGpuArtifact(id: string): Promise<GpuOutcome>;
   relocateGpuArtifact(id: string): Promise<GpuOutcome>;
   importTraceFromPath(path: string): Promise<GpuOutcome>;
+  captureMemory(input: MemoryCaptureInput): Promise<MemoryCaptureOutcome>;
+  listMemorySessions(): Promise<readonly MemorySessionSummary[]>;
+  loadMemorySession(id: string): Promise<MemorySession | undefined>;
 }
 
 export const IPC_CHANNELS = {
@@ -342,4 +369,7 @@ export const IPC_CHANNELS = {
   gpuReveal: 'gpu:reveal',
   gpuRelocate: 'gpu:relocate',
   traceImportFromPath: 'trace:importFromPath',
+  memoryCapture: 'memory:capture',
+  memoryList: 'memory:list',
+  memoryLoad: 'memory:load',
 } as const;

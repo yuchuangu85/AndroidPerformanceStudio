@@ -206,7 +206,7 @@ class Cursor {
   utf8UntilNull(): string {
     let end = this.offset;
     while (end < this.bytes.length && this.bytes[end] !== 0) end += 1;
-    const value = Buffer.from(this.bytes.subarray(this.offset, end)).toString('utf8');
+    const value = utf8Of(this.bytes.subarray(this.offset, end));
     this.offset = end + 1;
     return value;
   }
@@ -217,11 +217,16 @@ class Cursor {
 }
 
 const MAGIC = 'JAVA PROFILE 1.0.';
+const UTF8_DECODER = new TextDecoder('utf-8');
+
+function utf8Of(bytes: Uint8Array): string {
+  return UTF8_DECODER.decode(bytes);
+}
 
 export function parseHprofHeader(bytes: Uint8Array): HprofHeader {
   const magicEnd = bytes.indexOf(0);
   if (magicEnd < 0) throw new Error('HPROF header is not null terminated');
-  const magic = Buffer.from(bytes.subarray(0, magicEnd)).toString('utf8');
+  const magic = utf8Of(bytes.subarray(0, magicEnd));
   if (!magic.startsWith(MAGIC)) throw new Error('Not an HPROF Java profile: ' + magic);
   const version = magic.slice('JAVA PROFILE '.length);
   const cursor = new Cursor(bytes, 4, magicEnd + 1);

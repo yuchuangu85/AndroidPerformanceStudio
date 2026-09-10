@@ -19,6 +19,7 @@ import { BenchmarkRegressionPanel } from './BenchmarkRegressionPanel';
 import { FrameProfilerPanel } from './FrameProfilerPanel';
 import { GpuInspectorPanel } from './GpuInspectorPanel';
 import { LayoutInspectorPanel } from './LayoutInspectorPanel';
+import { MemoryProfilerPanel } from './MemoryProfilerPanel';
 import { NetworkProfilerPanel } from './NetworkProfilerPanel';
 import { StartupProfilerPanel } from './StartupProfilerPanel';
 import { TraceAnalyzerPanel } from './TraceAnalyzerPanel';
@@ -176,6 +177,8 @@ export function App(): JSX.Element {
               <NetworkProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'BENCHMARK_REGRESSION' ? (
               <BenchmarkRegressionPanel language={language} devices={snapshot.devices} />
+            ) : current === 'MEMORY_PROFILER' ? (
+              <MemoryProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'GPU_INSPECTOR' ? (
               <GpuInspectorPanel language={language} devices={snapshot.devices} />
             ) : (
