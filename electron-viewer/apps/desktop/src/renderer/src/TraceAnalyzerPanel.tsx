@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import type { DeviceSummary, TraceAnalyzerSnapshot } from '../../shared/ipc';
-import type { UiLanguage } from '../../shared/i18n';
+import { translate, type UiLanguage } from '../../shared/i18n';
 
 export interface TraceAnalyzerPanelProps {
   readonly language: UiLanguage;
@@ -10,7 +10,7 @@ export interface TraceAnalyzerPanelProps {
 const DEFAULT_DURATION_MS = 5000;
 const DEFAULT_BUFFER_KB = 8192;
 
-export function TraceAnalyzerPanel({ devices }: TraceAnalyzerPanelProps): JSX.Element {
+export function TraceAnalyzerPanel({ language, devices }: TraceAnalyzerPanelProps): JSX.Element {
   const [snapshot, setSnapshot] = useState<TraceAnalyzerSnapshot | null>(null);
   const [serial, setSerial] = useState('');
   const [durationMillis, setDurationMillis] = useState(DEFAULT_DURATION_MS);
@@ -38,38 +38,50 @@ export function TraceAnalyzerPanel({ devices }: TraceAnalyzerPanelProps): JSX.El
     window.aps
       .captureTrace({ serial, durationMillis, bufferSizeKb, dataSource: 'linux.ftrace' })
       .then((outcome) => {
-        setMessage(outcome.ok ? 'Capture complete' : String(outcome.error ?? 'Capture failed'));
+        setMessage(
+          outcome.ok
+            ? translate('trace.complete', language)
+            : translate('trace.failed', language) + ': ' + String(outcome.error ?? ''),
+        );
         refresh();
       })
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setBusy(false));
-  }, [bufferSizeKb, durationMillis, refresh, serial]);
+  }, [bufferSizeKb, durationMillis, language, refresh, serial]);
 
-  const open = useCallback((id: string) => {
-    window.aps.openTraceInAnalyzer(id).then((outcome) => {
-      if (!outcome.ok) setMessage(String(outcome.error ?? 'Could not open the trace'));
-    });
-  }, []);
+  const open = useCallback(
+    (id: string) => {
+      window.aps.openTraceInAnalyzer(id).then((outcome) => {
+        if (!outcome.ok) setMessage(String(outcome.error ?? translate('trace.failed', language)));
+      });
+    },
+    [language],
+  );
 
   if (snapshot === null) {
-    return <p className="content__muted">Loading trace analyzer…</p>;
+    return <p className="content__muted">{translate('trace.loading', language)}</p>;
   }
 
   return (
     <>
       <p className="content__muted">
         {snapshot.ui.available
-          ? 'Bundled Perfetto UI: ' + String(snapshot.ui.directory)
-          : 'Perfetto UI assets are not bundled; capture still works.'}
+          ? translate('trace.uiBundled', language) + ': ' + String(snapshot.ui.directory)
+          : translate('trace.uiMissing', language)}
       </p>
+      {!snapshot.ui.available ? (
+        <button type="button" className="button" onClick={() => void window.aps.openPublicPerfettoUi()}>
+          {translate('trace.openPublicUi', language)}
+        </button>
+      ) : null}
 
       <section className="card">
-        <h3 className="card__title">Capture system trace</h3>
+        <h3 className="card__title">{translate('trace.capture', language)}</h3>
         <div className="form">
           <label className="field">
-            <span>Device</span>
+            <span>{translate('trace.device', language)}</span>
             <select value={serial} onChange={(event) => setSerial(event.target.value)}>
-              {devices.length === 0 ? <option value="">No device</option> : null}
+              {devices.length === 0 ? <option value="">{translate('trace.noDevice', language)}</option> : null}
               {devices.map((device) => (
                 <option key={device.serial} value={device.serial}>
                   {device.serial}
@@ -78,7 +90,7 @@ export function TraceAnalyzerPanel({ devices }: TraceAnalyzerPanelProps): JSX.El
             </select>
           </label>
           <label className="field">
-            <span>Duration (ms)</span>
+            <span>{translate('trace.duration', language)}</span>
             <input
               type="number"
               min={100}
@@ -87,7 +99,7 @@ export function TraceAnalyzerPanel({ devices }: TraceAnalyzerPanelProps): JSX.El
             />
           </label>
           <label className="field">
-            <span>Buffer (KB)</span>
+            <span>{translate('trace.buffer', language)}</span>
             <input
               type="number"
               min={1024}
@@ -97,21 +109,28 @@ export function TraceAnalyzerPanel({ devices }: TraceAnalyzerPanelProps): JSX.El
           </label>
         </div>
         <button type="button" className="button" disabled={busy || serial.length === 0} onClick={capture}>
-          {busy ? 'Capturing…' : 'Capture'}
+          {busy ? translate('trace.capturing', language) : translate('trace.captureAction', language)}
         </button>
       </section>
 
       <section className="card">
-        <h3 className="card__title">Captured traces</h3>
+        <h3 className="card__title">{translate('trace.captured', language)}</h3>
         {snapshot.traces.length === 0 ? (
-          <p className="card__muted">No traces captured yet.</p>
+          <p className="card__muted">{translate('trace.none', language)}</p>
         ) : (
           <ul className="list">
             {snapshot.traces.map((record) => (
               <li key={record.id}>
                 <code>{record.id}</code> · {record.durationMillis} ms
                 <button type="button" className="button button--inline" onClick={() => open(record.id)}>
-                  Open
+                  {translate('trace.open', language)}
+                </button>
+                <button
+                  type="button"
+                  className="button button--inline"
+                  onClick={() => void window.aps.revealTrace(record.id)}
+                >
+                  {translate('trace.reveal', language)}
                 </button>
               </li>
             ))}

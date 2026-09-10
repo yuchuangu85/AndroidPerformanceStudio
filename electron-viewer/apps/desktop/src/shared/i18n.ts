@@ -41,6 +41,26 @@ export const SHELL_STRINGS = {
   'destination.methodRecording': { en: 'Method Recording', zh: '方法录制' },
   'status.available': { en: 'Available', zh: '可用' },
   'status.unavailable': { en: 'Unavailable', zh: '不可用' },
+  'trace.capture': { en: 'Capture system trace', zh: '采集系统 Trace' },
+  'trace.device': { en: 'Device', zh: '设备' },
+  'trace.noDevice': { en: 'No device', zh: '无设备' },
+  'trace.duration': { en: 'Duration (ms)', zh: '时长（毫秒）' },
+  'trace.buffer': { en: 'Buffer (KB)', zh: '缓冲区（KB）' },
+  'trace.captureAction': { en: 'Capture', zh: '开始采集' },
+  'trace.capturing': { en: 'Capturing…', zh: '采集中…' },
+  'trace.captured': { en: 'Captured traces', zh: '已采集的 Trace' },
+  'trace.none': { en: 'No traces captured yet.', zh: '还没有采集结果。' },
+  'trace.open': { en: 'Open', zh: '打开' },
+  'trace.reveal': { en: 'Show file', zh: '定位文件' },
+  'trace.uiBundled': { en: 'Bundled Perfetto UI', zh: '内置 Perfetto UI' },
+  'trace.uiMissing': {
+    en: 'Perfetto UI assets are not bundled. Capture still works; use the public UI or show the file.',
+    zh: '未内置 Perfetto UI 资源。采集仍可用，可打开公共 UI 或定位文件。',
+  },
+  'trace.openPublicUi': { en: 'Open ui.perfetto.dev', zh: '打开 ui.perfetto.dev' },
+  'trace.complete': { en: 'Capture complete', zh: '采集完成' },
+  'trace.failed': { en: 'Capture failed', zh: '采集失败' },
+  'trace.loading': { en: 'Loading trace analyzer…', zh: '正在加载 Trace 分析器…' },
 } as const;
 
 export type ShellStringKey = keyof typeof SHELL_STRINGS;

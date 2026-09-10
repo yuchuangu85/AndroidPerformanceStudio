@@ -227,6 +227,15 @@ function registerHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.traceAnalyzer, () => buildTraceAnalyzerSnapshot());
   ipcMain.handle(IPC_CHANNELS.traceCapture, (_event, input: TraceCaptureInput) => runCapture(input));
   ipcMain.handle(IPC_CHANNELS.traceOpen, (_event, id: string) => openTraceInAnalyzer(id));
+  ipcMain.handle(IPC_CHANNELS.traceOpenPublicUi, async () => {
+    await shell.openExternal('https://ui.perfetto.dev');
+  });
+  ipcMain.handle(IPC_CHANNELS.traceReveal, async (_event, id: string) => {
+    const record = (await traceStore().list()).find((entry) => entry.id === id);
+    if (record === undefined) return { ok: false, error: 'Trace not found' };
+    shell.showItemInFolder(record.path);
+    return { ok: true };
+  });
 }
 
 function createWindow(): void {

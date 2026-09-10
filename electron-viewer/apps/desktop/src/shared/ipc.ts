@@ -82,6 +82,11 @@ export interface TraceOpenOutcome {
   readonly error?: string;
 }
 
+export interface TraceRevealOutcome {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -92,6 +97,8 @@ export interface ApsApi {
   getTraceAnalyzer(): Promise<TraceAnalyzerSnapshot>;
   captureTrace(input: TraceCaptureInput): Promise<TraceCaptureOutcome>;
   openTraceInAnalyzer(id: string): Promise<TraceOpenOutcome>;
+  openPublicPerfettoUi(): Promise<void>;
+  revealTrace(id: string): Promise<TraceRevealOutcome>;
 }
 
 export const IPC_CHANNELS = {
@@ -102,4 +109,6 @@ export const IPC_CHANNELS = {
   traceAnalyzer: 'trace:getAnalyzer',
   traceCapture: 'trace:capture',
   traceOpen: 'trace:openInAnalyzer',
+  traceOpenPublicUi: 'trace:openPublicUi',
+  traceReveal: 'trace:reveal',
 } as const;
