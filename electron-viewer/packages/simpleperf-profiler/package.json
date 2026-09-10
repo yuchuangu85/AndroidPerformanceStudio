@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./node": {
+      "types": "./src/node.ts",
+      "default": "./src/node.ts"
     }
   },
   "scripts": {
@@ -15,7 +19,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aps/contracts": "workspace:*"
+    "@aps/contracts": "workspace:*",
+    "@aps/platform-host": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

@@ -376,6 +376,9 @@ importers:
       '@aps/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@aps/platform-host':
+        specifier: workspace:*
+        version: link:../platform-host
     devDependencies:
       '@types/node':
         specifier: ^22.20.2
