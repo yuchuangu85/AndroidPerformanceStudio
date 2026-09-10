@@ -10,8 +10,8 @@ files:
   - package.json
 
 # Phase 0 smoke builds only: no signing, no notarization, no publish.
-# Reuse the Electron already installed by pnpm instead of downloading it again.
-electronDist: node_modules/electron/dist
+# electron-builder downloads its own Electron; do not point electronDist at a
+# pnpm-installed dist, which is absent on clean CI checkouts.
 npmRebuild: false
 publish: null
 

@@ -10,8 +10,8 @@
     "typecheck:node": "tsc -p tsconfig.node.json",
     "typecheck:web": "tsc -p tsconfig.web.json",
     "test": "vitest run",
-    "package:dir": "electron-vite build && electron-builder --dir",
-    "package": "electron-vite build && electron-builder"
+    "package:dir": "electron-vite build && electron-builder --dir --publish never",
+    "package": "electron-vite build && electron-builder --publish never"
   },
   "dependencies": {
     "@aps/contracts": "workspace:*",
