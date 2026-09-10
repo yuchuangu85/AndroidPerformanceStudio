@@ -3,6 +3,7 @@ import {
   IPC_CHANNELS,
   type ApsApi,
   type ApplicationUiSettingsPatch,
+  type BatteryCaptureInput,
   type FrameCaptureInput,
   type StartupCaptureInput,
   type TraceCaptureInput,
@@ -27,6 +28,9 @@ const api: ApsApi = {
   captureStartup: (input: StartupCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.startupCapture, input),
   listStartupSessions: () => ipcRenderer.invoke(IPC_CHANNELS.startupList),
   loadStartupSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.startupLoad, id),
+  captureBattery: (input: BatteryCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.batteryCapture, input),
+  listBatterySessions: () => ipcRenderer.invoke(IPC_CHANNELS.batteryList),
+  loadBatterySession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.batteryLoad, id),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

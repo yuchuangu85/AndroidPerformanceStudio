@@ -14,6 +14,7 @@ import type {
   ApplicationThemePreference,
 } from '../../shared/settings-contract';
 import { resolvedTheme } from '../../shared/theme';
+import { BatteryProfilerPanel } from './BatteryProfilerPanel';
 import { FrameProfilerPanel } from './FrameProfilerPanel';
 import { LayoutInspectorPanel } from './LayoutInspectorPanel';
 import { StartupProfilerPanel } from './StartupProfilerPanel';
@@ -166,6 +167,8 @@ export function App(): JSX.Element {
               <FrameProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'STARTUP_PROFILER' ? (
               <StartupProfilerPanel language={language} devices={snapshot.devices} />
+            ) : current === 'BATTERY_PROFILER' ? (
+              <BatteryProfilerPanel language={language} devices={snapshot.devices} />
             ) : (
               <p className="content__muted">
                 {retained.length} destinations retained · not migrated yet

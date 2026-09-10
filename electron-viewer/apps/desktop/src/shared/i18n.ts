@@ -122,6 +122,33 @@ export const SHELL_STRINGS = {
   'startup.complete': { en: 'Experiment complete', zh: '实验完成' },
   'startup.failed': { en: 'Experiment failed', zh: '实验失败' },
   'startup.loading': { en: 'Loading startup sessions…', zh: '正在加载启动会话…' },
+  'battery.capture': { en: 'Battery experiment', zh: '电量实验' },
+  'battery.uid': { en: 'UID', zh: 'UID' },
+  'battery.mode': { en: 'Mode', zh: '模式' },
+  'battery.duration': { en: 'Duration (s)', zh: '时长（秒）' },
+  'battery.polling': { en: 'Polling (s)', zh: '轮询间隔（秒）' },
+  'battery.runs': { en: 'Runs', zh: '轮次' },
+  'battery.cooldown': { en: 'Cooldown (s)', zh: '冷却（秒）' },
+  'battery.sessions': { en: 'Battery sessions', zh: '电量会话' },
+  'battery.none': { en: 'No battery sessions yet.', zh: '还没有电量会话。' },
+  'battery.wakelock': { en: 'Wakelock', zh: 'Wakelock' },
+  'battery.alarm': { en: 'Wakeup alarms', zh: '唤醒闹钟' },
+  'battery.job': { en: 'Jobs', zh: 'Job' },
+  'battery.sensor': { en: 'Sensors', zh: '传感器' },
+  'battery.network': { en: 'Network', zh: '网络' },
+  'battery.energy': { en: 'Energy (modeled)', zh: '能量（模型估算）' },
+  'battery.modeled': {
+    en: 'Energy values come from the system power model and are estimates, not measurements.',
+    zh: '能量数值来自系统功耗模型，属估算而非实测。',
+  },
+  'battery.readonly': {
+    en: 'Read-only experiment: statistics are never reset and device state is not changed.',
+    zh: '只读实验：不会重置统计，也不修改设备状态。',
+  },
+  'battery.warnings': { en: 'Data quality warnings', zh: '数据质量告警' },
+  'battery.complete': { en: 'Experiment complete', zh: '实验完成' },
+  'battery.failed': { en: 'Experiment failed', zh: '实验失败' },
+  'battery.loading': { en: 'Loading battery sessions…', zh: '正在加载电量会话…' },
 } as const;
 
 export type ShellStringKey = keyof typeof SHELL_STRINGS;

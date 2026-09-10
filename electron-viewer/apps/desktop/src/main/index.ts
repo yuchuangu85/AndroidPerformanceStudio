@@ -13,6 +13,7 @@ import {
   IPC_CHANNELS,
   type FrameCaptureInput,
   type MigrationStatus,
+  type BatteryCaptureInput,
   type ShellSnapshot,
   type StartupCaptureInput,
   type TraceAnalyzerSnapshot,
@@ -34,6 +35,8 @@ import { captureFrameSession } from './frame-capture-service.js';
 import { FrameSessionStore } from './frame-session-store.js';
 import { captureLayoutSnapshot } from './layout-capture-service.js';
 import { LayoutCaptureStore } from './layout-capture-store.js';
+import { runBatteryExperiment } from './battery-capture-service.js';
+import { BatterySessionStore } from './battery-session-store.js';
 import { runStartupExperiment } from './startup-capture-service.js';
 import { StartupSessionStore } from './startup-session-store.js';
 import { capturePerfettoTrace } from './trace-capture-service.js';
@@ -85,6 +88,10 @@ function frameStore(): FrameSessionStore {
 
 function startupStore(): StartupSessionStore {
   return new StartupSessionStore(join(userDataDirectory(), 'startup-sessions'));
+}
+
+function batteryStore(): BatterySessionStore {
+  return new BatterySessionStore(join(userDataDirectory(), 'battery-sessions'));
 }
 
 const MAX_INLINE_SCREENSHOT_BYTES = 16 * 1024 * 1024;
@@ -305,6 +312,36 @@ function registerHandlers(): void {
     const summary = await startupStore().add(result.value);
     return { ok: true, id: summary.id };
   });
+  ipcMain.handle(IPC_CHANNELS.batteryCapture, async (_event, input: BatteryCaptureInput) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const result = await runBatteryExperiment(
+      {
+        adb: { shell: (args, options) => client.shell(input.serial, args, options) },
+        now: () => Date.now(),
+        newId: () => String(Date.now()),
+        sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+      },
+      {
+        serial: input.serial,
+        packageName: input.packageName,
+        uid: input.uid,
+        config: {
+          mode: input.mode,
+          durationSeconds: input.durationSeconds,
+          pollingIntervalSeconds: input.pollingIntervalSeconds,
+          measuredRuns: input.measuredRuns,
+          launchApp: false,
+          cooldownSeconds: input.cooldownSeconds,
+        },
+      },
+    );
+    if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+    const summary = await batteryStore().add(result.value);
+    return { ok: true, id: summary.id };
+  });
+  ipcMain.handle(IPC_CHANNELS.batteryList, () => batteryStore().list());
+  ipcMain.handle(IPC_CHANNELS.batteryLoad, (_event, id: string) => batteryStore().load(id));
   ipcMain.handle(IPC_CHANNELS.startupList, () => startupStore().list());
   ipcMain.handle(IPC_CHANNELS.startupLoad, (_event, id: string) => startupStore().load(id));
   ipcMain.handle(IPC_CHANNELS.frameList, () => frameStore().list());

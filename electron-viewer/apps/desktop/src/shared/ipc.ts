@@ -1,3 +1,4 @@
+import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
 import type { FrameSession } from '@aps/frame-profiler';
 import type { LayoutSnapshot } from '@aps/layout-inspector';
 import type { StartupSession, StartupType } from '@aps/startup-profiler';
@@ -155,6 +156,35 @@ export interface StartupCaptureOutcome {
   readonly error?: string;
 }
 
+export interface BatterySessionSummary {
+  readonly id: string;
+  readonly packageName: string;
+  readonly uid: number;
+  readonly capturedAtEpochMillis: number;
+  readonly runCount: number;
+  readonly warningCount: number;
+  readonly wakelockMedianMs?: number;
+  readonly networkMedianBytes?: number;
+  readonly energyMedianMah?: number;
+}
+
+export interface BatteryCaptureInput {
+  readonly serial: string;
+  readonly packageName: string;
+  readonly uid: number;
+  readonly mode: BatteryCaptureMode;
+  readonly durationSeconds: number;
+  readonly pollingIntervalSeconds: number;
+  readonly measuredRuns: number;
+  readonly cooldownSeconds: number;
+}
+
+export interface BatteryCaptureOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -176,6 +206,9 @@ export interface ApsApi {
   captureStartup(input: StartupCaptureInput): Promise<StartupCaptureOutcome>;
   listStartupSessions(): Promise<readonly StartupSessionSummary[]>;
   loadStartupSession(id: string): Promise<StartupSession | undefined>;
+  captureBattery(input: BatteryCaptureInput): Promise<BatteryCaptureOutcome>;
+  listBatterySessions(): Promise<readonly BatterySessionSummary[]>;
+  loadBatterySession(id: string): Promise<BatteryExperimentResult | undefined>;
 }
 
 export const IPC_CHANNELS = {
@@ -197,4 +230,7 @@ export const IPC_CHANNELS = {
   startupCapture: 'startup:capture',
   startupList: 'startup:list',
   startupLoad: 'startup:load',
+  batteryCapture: 'battery:capture',
+  batteryList: 'battery:list',
+  batteryLoad: 'battery:load',
 } as const;
