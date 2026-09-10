@@ -15,6 +15,7 @@ import type {
 } from '../../shared/settings-contract';
 import { resolvedTheme } from '../../shared/theme';
 import { BatteryProfilerPanel } from './BatteryProfilerPanel';
+import { BenchmarkRegressionPanel } from './BenchmarkRegressionPanel';
 import { FrameProfilerPanel } from './FrameProfilerPanel';
 import { LayoutInspectorPanel } from './LayoutInspectorPanel';
 import { NetworkProfilerPanel } from './NetworkProfilerPanel';
@@ -172,6 +173,8 @@ export function App(): JSX.Element {
               <BatteryProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'NETWORK_PROFILER' ? (
               <NetworkProfilerPanel language={language} devices={snapshot.devices} />
+            ) : current === 'BENCHMARK_REGRESSION' ? (
+              <BenchmarkRegressionPanel language={language} devices={snapshot.devices} />
             ) : (
               <p className="content__muted">
                 {retained.length} destinations retained · not migrated yet

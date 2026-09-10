@@ -14,6 +14,7 @@ import {
   type FrameCaptureInput,
   type MigrationStatus,
   type BatteryCaptureInput,
+  type BenchmarkCompareInput,
   type ShellSnapshot,
   type StartupCaptureInput,
   type TraceAnalyzerSnapshot,
@@ -37,6 +38,9 @@ import { captureLayoutSnapshot } from './layout-capture-service.js';
 import { LayoutCaptureStore } from './layout-capture-store.js';
 import { runBatteryExperiment } from './battery-capture-service.js';
 import { BatterySessionStore } from './battery-session-store.js';
+import { compareBenchmarkRuns, DEFAULT_REGRESSION_POLICY } from '@aps/benchmark-regression';
+import { importBenchmarkJson } from './benchmark-import-service.js';
+import { BenchmarkStore } from './benchmark-store.js';
 import { importHarFile } from './network-import-service.js';
 import { NetworkSessionStore } from './network-session-store.js';
 import { runStartupExperiment } from './startup-capture-service.js';
@@ -98,6 +102,10 @@ function batteryStore(): BatterySessionStore {
 
 function networkStore(): NetworkSessionStore {
   return new NetworkSessionStore(join(userDataDirectory(), 'network-sessions'));
+}
+
+function benchmarkStore(): BenchmarkStore {
+  return new BenchmarkStore(join(userDataDirectory(), 'benchmark-runs'));
 }
 
 const MAX_INLINE_SCREENSHOT_BYTES = 16 * 1024 * 1024;
@@ -371,6 +379,51 @@ function registerHandlers(): void {
     if (!imported.ok) return { ok: false, error: imported.error.code + ': ' + imported.error.message };
     const summary = await networkStore().add(imported.value);
     return { ok: true, id: summary.id };
+  });
+  ipcMain.handle(IPC_CHANNELS.benchmarkImport, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Import benchmark JSON',
+      properties: ['openFile'],
+      filters: [{ name: 'Benchmark JSON', extensions: ['json'] }],
+    });
+    const filePath = selection.filePaths[0];
+    if (selection.canceled || filePath === undefined) return { ok: false, cancelled: true };
+    const imported = await importBenchmarkJson(
+      {
+        readFileText: (path) => readFile(path, 'utf8'),
+        fileSize: async (path) => (await stat(path)).size,
+        isRegularFile: (path) => {
+          try {
+            return statSync(path).isFile();
+          } catch {
+            return false;
+          }
+        },
+        newId: () => String(Date.now()),
+        now: () => Date.now(),
+      },
+      filePath,
+    );
+    if (!imported.ok) return { ok: false, error: imported.error.code + ': ' + imported.error.message };
+    const summary = await benchmarkStore().add(imported.value);
+    return { ok: true, id: summary.id };
+  });
+  ipcMain.handle(IPC_CHANNELS.benchmarkList, () => benchmarkStore().list());
+  ipcMain.handle(IPC_CHANNELS.benchmarkCompare, async (_event, input: BenchmarkCompareInput) => {
+    const store = benchmarkStore();
+    const baseline = await store.load(input.baselineId);
+    const current = await store.load(input.currentId);
+    if (baseline === undefined || current === undefined) {
+      return { ok: false, error: 'Select both a baseline and a current run' };
+    }
+    const policy = {
+      ...DEFAULT_REGRESSION_POLICY,
+      ...(input.relativeThresholdPercent !== undefined
+        ? { relativeThresholdPercent: input.relativeThresholdPercent }
+        : {}),
+      ...(input.absoluteThreshold !== undefined ? { absoluteThreshold: input.absoluteThreshold } : {}),
+    };
+    return { ok: true, report: compareBenchmarkRuns(baseline, current, policy) };
   });
   ipcMain.handle(IPC_CHANNELS.networkList, () => networkStore().list());
   ipcMain.handle(IPC_CHANNELS.networkLoad, (_event, id: string) => networkStore().load(id));

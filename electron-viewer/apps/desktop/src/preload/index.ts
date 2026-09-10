@@ -4,6 +4,7 @@ import {
   type ApsApi,
   type ApplicationUiSettingsPatch,
   type BatteryCaptureInput,
+  type BenchmarkCompareInput,
   type FrameCaptureInput,
   type StartupCaptureInput,
   type TraceCaptureInput,
@@ -34,6 +35,9 @@ const api: ApsApi = {
   importNetworkHar: () => ipcRenderer.invoke(IPC_CHANNELS.networkImport),
   listNetworkSessions: () => ipcRenderer.invoke(IPC_CHANNELS.networkList),
   loadNetworkSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.networkLoad, id),
+  importBenchmarkRun: () => ipcRenderer.invoke(IPC_CHANNELS.benchmarkImport),
+  listBenchmarkRuns: () => ipcRenderer.invoke(IPC_CHANNELS.benchmarkList),
+  compareBenchmarkRuns: (input: BenchmarkCompareInput) => ipcRenderer.invoke(IPC_CHANNELS.benchmarkCompare, input),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

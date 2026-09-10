@@ -171,6 +171,31 @@ export const SHELL_STRINGS = {
   'network.complete': { en: 'Import complete', zh: '导入完成' },
   'network.failed': { en: 'Import failed', zh: '导入失败' },
   'network.loading': { en: 'Loading network captures…', zh: '正在加载网络采集…' },
+  'benchmark.import': { en: 'Import benchmark JSON', zh: '导入 Benchmark JSON' },
+  'benchmark.runs': { en: 'Benchmark runs', zh: '基准运行' },
+  'benchmark.none': { en: 'No benchmark runs yet.', zh: '还没有基准运行。' },
+  'benchmark.baseline': { en: 'Baseline', zh: '基线' },
+  'benchmark.current': { en: 'Current', zh: '当前' },
+  'benchmark.relativeThreshold': { en: 'Relative threshold (%)', zh: '相对阈值（%）' },
+  'benchmark.absoluteThreshold': { en: 'Absolute threshold', zh: '绝对阈值' },
+  'benchmark.compare': { en: 'Compare', zh: '对比' },
+  'benchmark.compareAction': { en: 'Run comparison', zh: '开始对比' },
+  'benchmark.compatibility': { en: 'Compatibility issues', zh: '可比性问题' },
+  'benchmark.compatible': {
+    en: 'Run environments are compatible for comparison.',
+    zh: '两次运行的环境可比较。',
+  },
+  'benchmark.regressions': { en: 'Regressions', zh: '回归' },
+  'benchmark.case': { en: 'Case', zh: '用例' },
+  'benchmark.metric': { en: 'Metric', zh: '指标' },
+  'benchmark.delta': { en: 'Delta', zh: '变化' },
+  'benchmark.classification': { en: 'Classification', zh: '判定' },
+  'benchmark.complete': { en: 'Import complete', zh: '导入完成' },
+  'benchmark.failed': { en: 'Import failed', zh: '导入失败' },
+  'benchmark.gateNote': {
+    en: 'Regressions require a configured threshold and at least three samples per side.',
+    zh: '判定回归需要配置阈值，且两侧各至少 3 个样本。',
+  },
 } as const;
 
 export type ShellStringKey = keyof typeof SHELL_STRINGS;

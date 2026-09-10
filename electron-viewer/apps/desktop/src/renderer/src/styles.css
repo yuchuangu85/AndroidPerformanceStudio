@@ -441,6 +441,25 @@ body {
   );
 }
 
+.verdict--regressed {
+  color: #ff8f8f;
+  font-weight: 600;
+}
+
+.verdict--improved {
+  color: #7fd6a2;
+  font-weight: 600;
+}
+
+.verdict--incompatible {
+  color: #e0a23c;
+  font-weight: 600;
+}
+
+.verdict--inconclusive {
+  color: var(--muted);
+}
+
 .shell--loading {
   display: flex;
   align-items: center;

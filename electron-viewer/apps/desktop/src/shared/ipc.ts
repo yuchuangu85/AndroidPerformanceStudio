@@ -1,4 +1,5 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
+import type { RegressionReport } from '@aps/benchmark-regression';
 import type { FrameSession } from '@aps/frame-profiler';
 import type { LayoutSnapshot } from '@aps/layout-inspector';
 import type { NetworkCaptureResult } from '@aps/network-profiler';
@@ -204,6 +205,38 @@ export interface NetworkImportOutcome {
   readonly error?: string;
 }
 
+export interface BenchmarkRunSummary {
+  readonly id: string;
+  readonly sourceFile: string;
+  readonly caseCount: number;
+  readonly importedAtEpochMillis: number;
+  readonly warningCount: number;
+  readonly deviceModel?: string;
+  readonly apiLevel?: number;
+  readonly abi?: string;
+  readonly variant?: string;
+}
+
+export interface BenchmarkImportOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly cancelled?: boolean;
+  readonly error?: string;
+}
+
+export interface BenchmarkCompareInput {
+  readonly baselineId: string;
+  readonly currentId: string;
+  readonly relativeThresholdPercent?: number;
+  readonly absoluteThreshold?: number;
+}
+
+export interface BenchmarkCompareOutcome {
+  readonly ok: boolean;
+  readonly report?: RegressionReport;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -231,6 +264,9 @@ export interface ApsApi {
   importNetworkHar(): Promise<NetworkImportOutcome>;
   listNetworkSessions(): Promise<readonly NetworkSessionSummary[]>;
   loadNetworkSession(id: string): Promise<NetworkCaptureResult | undefined>;
+  importBenchmarkRun(): Promise<BenchmarkImportOutcome>;
+  listBenchmarkRuns(): Promise<readonly BenchmarkRunSummary[]>;
+  compareBenchmarkRuns(input: BenchmarkCompareInput): Promise<BenchmarkCompareOutcome>;
 }
 
 export const IPC_CHANNELS = {
@@ -258,4 +294,7 @@ export const IPC_CHANNELS = {
   networkImport: 'network:import',
   networkList: 'network:list',
   networkLoad: 'network:load',
+  benchmarkImport: 'benchmark:import',
+  benchmarkList: 'benchmark:list',
+  benchmarkCompare: 'benchmark:compare',
 } as const;
