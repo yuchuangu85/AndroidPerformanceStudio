@@ -11,6 +11,7 @@ import { JsonSettingsStore } from '@aps/settings';
 import { buildAppInfo } from '../shared/app-info.js';
 import {
   IPC_CHANNELS,
+  type FrameCaptureInput,
   type MigrationStatus,
   type ShellSnapshot,
   type TraceAnalyzerSnapshot,
@@ -28,6 +29,8 @@ import {
   registerPerfettoSchemes,
 } from './perfetto-protocol.js';
 import { loadApplicationSettings } from './settings-service.js';
+import { captureFrameSession } from './frame-capture-service.js';
+import { FrameSessionStore } from './frame-session-store.js';
 import { captureLayoutSnapshot } from './layout-capture-service.js';
 import { LayoutCaptureStore } from './layout-capture-store.js';
 import { capturePerfettoTrace } from './trace-capture-service.js';
@@ -71,6 +74,10 @@ function layoutStore(): LayoutCaptureStore {
   return new LayoutCaptureStore(join(userDataDirectory(), 'layout-captures'), {
     countNodes: countSnapshotNodes,
   });
+}
+
+function frameStore(): FrameSessionStore {
+  return new FrameSessionStore(join(userDataDirectory(), 'frame-sessions'));
 }
 
 const MAX_INLINE_SCREENSHOT_BYTES = 16 * 1024 * 1024;
@@ -249,6 +256,23 @@ function registerHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.traceOpenPublicUi, async () => {
     await shell.openExternal('https://ui.perfetto.dev');
   });
+  ipcMain.handle(IPC_CHANNELS.frameCapture, async (_event, input: FrameCaptureInput) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const result = await captureFrameSession(
+      {
+        adb: { shell: (args, options) => client.shell(input.serial, args, options) },
+        now: () => Date.now(),
+        newSessionId: () => String(Date.now()),
+      },
+      { serial: input.serial, packageName: input.packageName },
+    );
+    if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+    const summary = await frameStore().add(result.value);
+    return { ok: true, id: summary.id };
+  });
+  ipcMain.handle(IPC_CHANNELS.frameList, () => frameStore().list());
+  ipcMain.handle(IPC_CHANNELS.frameLoad, (_event, id: string) => frameStore().load(id));
   ipcMain.handle(IPC_CHANNELS.layoutCapture, async (_event, serial: string) => {
     const client = adbClientFor();
     if (client === undefined) return { ok: false, error: 'ADB is not available' };

@@ -1,3 +1,4 @@
+import type { FrameSession } from '@aps/frame-profiler';
 import type { LayoutSnapshot } from '@aps/layout-inspector';
 import type { AppDestination } from './destinations.js';
 import type { ApplicationUiSettings } from './settings-contract.js';
@@ -106,6 +107,27 @@ export interface LayoutCaptureDetail {
   readonly screenshotBase64?: string;
 }
 
+export interface FrameSessionSummary {
+  readonly id: string;
+  readonly packageName: string;
+  readonly capturedAtEpochMillis: number;
+  readonly frameCount: number;
+  readonly deadlineMissRate?: number;
+  readonly platformJankRate?: number;
+  readonly worstDurationNs?: number;
+}
+
+export interface FrameCaptureInput {
+  readonly serial: string;
+  readonly packageName: string;
+}
+
+export interface FrameCaptureOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -121,6 +143,9 @@ export interface ApsApi {
   captureLayout(serial: string): Promise<LayoutCaptureOutcome>;
   listLayoutCaptures(): Promise<readonly LayoutCaptureSummary[]>;
   loadLayoutCapture(id: string): Promise<LayoutCaptureDetail | undefined>;
+  captureFrame(input: FrameCaptureInput): Promise<FrameCaptureOutcome>;
+  listFrameSessions(): Promise<readonly FrameSessionSummary[]>;
+  loadFrameSession(id: string): Promise<FrameSession | undefined>;
 }
 
 export const IPC_CHANNELS = {
@@ -136,4 +161,7 @@ export const IPC_CHANNELS = {
   layoutCapture: 'layout:capture',
   layoutList: 'layout:list',
   layoutLoad: 'layout:load',
+  frameCapture: 'frame:capture',
+  frameList: 'frame:list',
+  frameLoad: 'frame:load',
 } as const;

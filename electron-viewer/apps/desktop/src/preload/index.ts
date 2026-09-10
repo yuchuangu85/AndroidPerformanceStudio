@@ -3,6 +3,7 @@ import {
   IPC_CHANNELS,
   type ApsApi,
   type ApplicationUiSettingsPatch,
+  type FrameCaptureInput,
   type TraceCaptureInput,
 } from '../shared/ipc.js';
 
@@ -19,6 +20,9 @@ const api: ApsApi = {
   captureLayout: (serial: string) => ipcRenderer.invoke(IPC_CHANNELS.layoutCapture, serial),
   listLayoutCaptures: () => ipcRenderer.invoke(IPC_CHANNELS.layoutList),
   loadLayoutCapture: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.layoutLoad, id),
+  captureFrame: (input: FrameCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.frameCapture, input),
+  listFrameSessions: () => ipcRenderer.invoke(IPC_CHANNELS.frameList),
+  loadFrameSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.frameLoad, id),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

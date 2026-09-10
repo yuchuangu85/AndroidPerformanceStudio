@@ -332,6 +332,49 @@ body {
   pointer-events: none;
 }
 
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.metric__label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metric__value {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 160px;
+  overflow: hidden;
+}
+
+.timeline__bar {
+  flex: 1 1 0;
+  min-width: 1px;
+  border-radius: 1px;
+}
+
 .shell--loading {
   display: flex;
   align-items: center;

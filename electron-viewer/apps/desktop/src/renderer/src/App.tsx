@@ -14,6 +14,7 @@ import type {
   ApplicationThemePreference,
 } from '../../shared/settings-contract';
 import { resolvedTheme } from '../../shared/theme';
+import { FrameProfilerPanel } from './FrameProfilerPanel';
 import { LayoutInspectorPanel } from './LayoutInspectorPanel';
 import { TraceAnalyzerPanel } from './TraceAnalyzerPanel';
 
@@ -160,6 +161,8 @@ export function App(): JSX.Element {
               <TraceAnalyzerPanel language={language} devices={snapshot.devices} />
             ) : current === 'LAYOUT_INSPECTOR' ? (
               <LayoutInspectorPanel language={language} devices={snapshot.devices} />
+            ) : current === 'FRAME_PROFILER' ? (
+              <FrameProfilerPanel language={language} devices={snapshot.devices} />
             ) : (
               <p className="content__muted">
                 {retained.length} destinations retained · not migrated yet
