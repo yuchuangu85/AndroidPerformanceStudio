@@ -73,6 +73,13 @@ export const SHELL_STRINGS = {
   'layout.complete': { en: 'Capture complete', zh: '采集完成' },
   'layout.failed': { en: 'Capture failed', zh: '采集失败' },
   'layout.noSelection': { en: 'Select a node in the hierarchy.', zh: '请在层级结构中选择一个节点。' },
+  'layout.hide': { en: 'Hide', zh: '隐藏' },
+  'layout.show': { en: 'Show', zh: '显示' },
+  'layout.hidden': { en: 'Hidden', zh: '已隐藏' },
+  'layout.clearHidden': { en: 'Clear', zh: '清除' },
+  'layout.hitOrder': { en: 'Hit order', zh: '命中排序' },
+  'layout.orderZ': { en: 'Z-order', zh: 'Z 序' },
+  'layout.orderSmallest': { en: 'Smallest area', zh: '小面积优先' },
 } as const;
 
 export type ShellStringKey = keyof typeof SHELL_STRINGS;

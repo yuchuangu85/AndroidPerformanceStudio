@@ -237,25 +237,70 @@ body {
 }
 
 .tree {
-  max-height: 60vh;
   overflow: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
 
+.tree__spacer {
+  position: relative;
+}
+
 .tree__row {
-  display: block;
-  width: 100%;
-  padding: 3px 6px;
-  border: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding-right: 6px;
   border-radius: 4px;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
   white-space: nowrap;
+  overflow: hidden;
+}
+
+.tree__row:hover {
+  background: var(--surface-strong);
+}
+
+.tree__row--hidden {
+  opacity: 0.45;
+}
+
+.tree__twisty {
+  width: 12px;
+  flex: 0 0 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tree__label {
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+
+.tree__action {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tree__action:hover {
+  color: var(--accent);
+}
+
+.hidden-summary {
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.preview__image {
+  cursor: crosshair;
 }
 
 .tree__row:hover {

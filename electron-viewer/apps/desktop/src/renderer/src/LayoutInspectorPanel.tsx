@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
-import { walkNode, type LayoutSnapshot, type UiNode } from '@aps/layout-inspector';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import {
+  clearHiddenLayers,
+  computeHiddenSubtree,
+  cycleHitCandidate,
+  flattenVisibleTree,
+  hitTestCandidates,
+  hideLayer,
+  showLayer,
+  type HitTestOrder,
+  type LayoutSnapshot,
+  type TreeRow,
+  type UiNode,
+} from '@aps/layout-inspector';
 import type { DeviceSummary, LayoutCaptureDetail, LayoutCaptureSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
 
@@ -8,19 +20,20 @@ export interface LayoutInspectorPanelProps {
   readonly devices: readonly DeviceSummary[];
 }
 
-const MAX_TREE_ROWS = 2000;
+const ROW_HEIGHT = 22;
+const VIEWPORT_HEIGHT = 440;
+const OVERSCAN = 12;
+const DEFAULT_EXPANDED_DEPTH = 2;
 
-interface TreeRow {
-  readonly node: UiNode;
-  readonly depth: number;
-}
-
-function flattenTree(root: UiNode): TreeRow[] {
-  const rows: TreeRow[] = [];
-  walkNode(root, (node, depth) => {
-    if (rows.length < MAX_TREE_ROWS) rows.push({ node, depth });
-  });
-  return rows;
+function defaultExpanded(root: UiNode): Set<string> {
+  const expanded = new Set<string>();
+  const visit = (node: UiNode, depth: number): void => {
+    if (depth >= DEFAULT_EXPANDED_DEPTH) return;
+    expanded.add(node.id);
+    for (const child of node.children) visit(child, depth + 1);
+  };
+  visit(root, 0);
+  return expanded;
 }
 
 function labelOf(node: UiNode): string {
@@ -40,8 +53,13 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   const [selectedId, setSelectedId] = useState('');
   const [detail, setDetail] = useState<LayoutCaptureDetail | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState('');
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  const [hitOrder, setHitOrder] = useState<HitTestOrder>('z-order');
+  const [scrollTop, setScrollTop] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const lastClick = useRef<string>('');
 
   const refresh = useCallback(() => {
     window.aps.listLayoutCaptures().then((records) => {
@@ -67,7 +85,12 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
       .loadLayoutCapture(selectedId)
       .then((loaded) => {
         setDetail(loaded ?? null);
-        setSelectedNodeId(loaded?.snapshot.root.id ?? '');
+        if (loaded === undefined) return;
+        // Hidden layers and expansion are per-snapshot; a new capture starts clean.
+        setExpanded(defaultExpanded(loaded.snapshot.root));
+        setHidden(clearHiddenLayers());
+        setSelectedNodeId(loaded.snapshot.root.id);
+        setScrollTop(0);
       })
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)));
   }, [selectedId]);
@@ -91,10 +114,48 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   }, [language, refresh, serial]);
 
   const snapshot: LayoutSnapshot | null = detail?.snapshot ?? null;
-  const rows = useMemo(() => (snapshot === null ? [] : flattenTree(snapshot.root)), [snapshot]);
+  const hiddenSubtree = useMemo(
+    () => (snapshot === null ? new Set<string>() : computeHiddenSubtree(hidden, snapshot.root)),
+    [hidden, snapshot],
+  );
+  const rows: TreeRow[] = useMemo(
+    () => (snapshot === null ? [] : flattenVisibleTree(snapshot.root, { expanded, hiddenSubtree })),
+    [expanded, hiddenSubtree, snapshot],
+  );
+
+  const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const end = Math.min(rows.length, Math.ceil((scrollTop + VIEWPORT_HEIGHT) / ROW_HEIGHT) + OVERSCAN);
+  const windowRows = rows.slice(start, end);
+
   const selected = useMemo(
     () => rows.find((row) => row.node.id === selectedNodeId)?.node ?? snapshot?.root ?? null,
     [rows, selectedNodeId, snapshot],
+  );
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const onCanvasClick = useCallback(
+    (event: React.MouseEvent<HTMLImageElement>) => {
+      if (snapshot === null) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const x = ((event.clientX - rect.left) / rect.width) * snapshot.display.widthPx;
+      const y = ((event.clientY - rect.top) / rect.height) * snapshot.display.heightPx;
+      const candidates = hitTestCandidates(snapshot.root, { x, y, hiddenSubtree, order: hitOrder });
+      if (candidates.length === 0) return;
+      const key = Math.round(x) + ':' + Math.round(y);
+      const next = key === lastClick.current ? cycleHitCandidate(candidates, selectedNodeId) : candidates[0];
+      lastClick.current = key;
+      if (next !== undefined) setSelectedNodeId(next.id);
+    },
+    [hiddenSubtree, hitOrder, selectedNodeId, snapshot],
   );
 
   return (
@@ -124,10 +185,29 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
               ))}
             </select>
           </label>
+          <label className="field">
+            <span>{translate('layout.hitOrder', language)}</span>
+            <select value={hitOrder} onChange={(event) => setHitOrder(event.target.value as HitTestOrder)}>
+              <option value="z-order">{translate('layout.orderZ', language)}</option>
+              <option value="smallest-area">{translate('layout.orderSmallest', language)}</option>
+            </select>
+          </label>
         </div>
         <button type="button" className="button" disabled={busy || serial.length === 0} onClick={capture}>
           {busy ? translate('layout.capturing', language) : translate('layout.captureAction', language)}
         </button>
+        {hidden.size > 0 ? (
+          <span className="hidden-summary">
+            {translate('layout.hidden', language)} {hidden.size} ·{' '}
+            <button
+              type="button"
+              className="button button--inline"
+              onClick={() => setHidden(clearHiddenLayers())}
+            >
+              {translate('layout.clearHidden', language)}
+            </button>
+          </span>
+        ) : null}
       </section>
 
       {snapshot === null ? (
@@ -136,19 +216,44 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
         <div className="layout">
           <section className="card layout__pane">
             <h3 className="card__title">{translate('layout.hierarchy', language)}</h3>
-            <div className="tree">
-              {rows.map((row) => (
-                <button
-                  key={row.node.id}
-                  type="button"
-                  className={row.node.id === selectedNodeId ? 'tree__row tree__row--active' : 'tree__row'}
-                  style={{ paddingLeft: 6 + row.depth * 12 }}
-                  onClick={() => setSelectedNodeId(row.node.id)}
-                  title={row.node.className}
-                >
-                  {labelOf(row.node)}
-                </button>
-              ))}
+            <div
+              className="tree"
+              style={{ height: VIEWPORT_HEIGHT }}
+              onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+            >
+              <div className="tree__spacer" style={{ height: rows.length * ROW_HEIGHT }}>
+                {windowRows.map((row, index) => (
+                  <div
+                    key={row.node.id}
+                    className={
+                      row.node.id === selectedNodeId
+                        ? 'tree__row tree__row--active'
+                        : row.hidden || row.hiddenByAncestor
+                          ? 'tree__row tree__row--hidden'
+                          : 'tree__row'
+                    }
+                    style={{ top: (start + index) * ROW_HEIGHT, paddingLeft: 4 + row.depth * 12 }}
+                  >
+                    <span
+                      className="tree__twisty"
+                      role="presentation"
+                      onClick={() => row.hasChildren && toggleExpanded(row.node.id)}
+                    >
+                      {row.hasChildren ? (row.expanded ? '▾' : '▸') : '·'}
+                    </span>
+                    <span className="tree__label" role="presentation" onClick={() => setSelectedNodeId(row.node.id)}>
+                      {labelOf(row.node)}
+                    </span>
+                    <span
+                      className="tree__action"
+                      role="presentation"
+                      onClick={() => setHidden((current) => (current.has(row.node.id) ? showLayer(current, row.node.id) : hideLayer(current, row.node.id)))}
+                    >
+                      {hidden.has(row.node.id) ? translate('layout.show', language) : translate('layout.hide', language)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
 
@@ -157,7 +262,12 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
             <div className="preview">
               {detail?.screenshotBase64 !== undefined ? (
                 <>
-                  <img className="preview__image" alt="device screenshot" src={'data:image/png;base64,' + detail.screenshotBase64} />
+                  <img
+                    className="preview__image"
+                    alt="device screenshot"
+                    src={'data:image/png;base64,' + detail.screenshotBase64}
+                    onClick={onCanvasClick}
+                  />
                   {selected !== null && snapshot.display.widthPx > 0 ? (
                     <div
                       className="preview__overlay"

@@ -3,3 +3,6 @@ export * from './model.js';
 export * from './snapshot.js';
 export * from './codec.js';
 export * from './uiautomator.js';
+export * from './hidden-layers.js';
+export * from './hit-test.js';
+export * from './tree.js';
