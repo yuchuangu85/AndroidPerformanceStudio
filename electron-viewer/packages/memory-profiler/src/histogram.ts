@@ -1,9 +1,20 @@
+import { MEMORY_HEAP_NAMES, normalizeHeapName } from './hprof.js';
 import type { HprofParseResult, Identifier } from './hprof.js';
+import { remapClassName, type ProguardMapping } from './proguard.js';
 
 export interface ClassHistogramEntry {
   readonly className: string;
   readonly instanceCount: number;
   readonly shallowBytes: number;
+  /** Pre-obfuscation name when a mapping was applied; undefined otherwise. */
+  readonly obfuscatedClassName?: string;
+}
+
+export interface ClassHistogramOptions {
+  /** A heap label from MEMORY_HEAP_NAMES; undefined counts every heap. */
+  readonly heap?: string;
+  /** Applied when the dump came from a release build. */
+  readonly mapping?: ProguardMapping;
 }
 
 export interface MemorySummary {
@@ -67,13 +78,39 @@ export function groupInstancesByClass(instances: HprofParseResult['instances']):
 
 const MAX_SAFE_IDENTIFIER = BigInt(Number.MAX_SAFE_INTEGER);
 
-/** Per-class instance counts and shallow sizes, largest first. */
-export function classHistogram(result: HprofParseResult): ClassHistogramEntry[] {
-  const entries = groupInstancesByClass(result.instances).map((totals) => ({
-    className: classNameOf(result, totals.classObjectId),
-    instanceCount: totals.instanceCount,
-    shallowBytes: totals.shallowBytes,
-  }));
+/**
+ * Per-class instance counts and shallow sizes, largest first. A heap filter
+ * and a mapping are both optional; with a mapping the entry keeps the
+ * obfuscated name so the UI can show both.
+ */
+export function classHistogram(
+  result: HprofParseResult,
+  options: ClassHistogramOptions = {},
+): ClassHistogramEntry[] {
+  const wantedHeap = options.heap === undefined ? undefined : normalizeHeapName(options.heap);
+  const instances =
+    wantedHeap === undefined
+      ? result.instances
+      : result.instances.filter(
+          (instance) =>
+            (result.heapByObjectId.get(instance.objectId) ?? MEMORY_HEAP_NAMES.DEFAULT) === wantedHeap,
+        );
+  const entries = groupInstancesByClass(instances).map((totals) => {
+    const raw = classNameOf(result, totals.classObjectId);
+    if (options.mapping === undefined) {
+      return {
+        className: raw,
+        instanceCount: totals.instanceCount,
+        shallowBytes: totals.shallowBytes,
+      };
+    }
+    return {
+      className: remapClassName(raw, options.mapping),
+      obfuscatedClassName: raw,
+      instanceCount: totals.instanceCount,
+      shallowBytes: totals.shallowBytes,
+    };
+  });
   return entries.sort((left, right) => right.shallowBytes - left.shallowBytes);
 }
 
