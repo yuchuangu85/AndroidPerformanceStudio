@@ -88,6 +88,21 @@ jobs:
           APS_PERF_OUT: perf/hierarchy-10k.json
       - name: Build for the frame-rate gate
         run: pnpm --filter @aps/desktop build
+      # Chromium aborts unless its SUID helper is root-owned and setuid, and the
+      # pnpm store does not preserve either. Fixing it here keeps the gate running
+      # with the sandbox on instead of adding --no-sandbox to the measurement.
+      - name: Fix the Chromium sandbox helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$(find node_modules/.pnpm -path '*electron/dist/chrome-sandbox' -print -quit)"
+          if [ -z "$helper" ]; then
+            echo "::error::the Electron sandbox helper was not found"
+            exit 1
+          fi
+          sudo chown root:root "$helper"
+          sudo chmod 4755 "$helper"
+          ls -l "$helper"
       # xvfb-run provides the display Electron needs; the harness exits 2 with
       # a clear message when it cannot open a window instead of hanging.
       - name: Frame-rate gate (scroll and hit test)
