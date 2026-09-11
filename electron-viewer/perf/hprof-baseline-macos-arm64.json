@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-09-11T10:03:52.702Z",
+  "runtime": {
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "parseThroughputInstancesPerSecond": 2928258,
+  "cases": [
+    {
+      "shape": "chain",
+      "heap": {
+        "dumpBytes": 8027504,
+        "classes": 100,
+        "instances": 200000,
+        "objectArrays": 1000,
+        "primitiveArrays": 2000,
+        "roots": 100,
+        "unreachableObjects": 2000,
+        "graphNodes": 205000
+      },
+      "measurements": [
+        {
+          "stage": "parseHprof",
+          "milliseconds": 68.3
+        },
+        {
+          "stage": "classHistogram",
+          "milliseconds": 4.2
+        },
+        {
+          "stage": "summarizeMemory",
+          "milliseconds": 1
+        },
+        {
+          "stage": "buildObjectGraph",
+          "milliseconds": 50.2
+        },
+        {
+          "stage": "reachableFromRoots",
+          "milliseconds": 68.6
+        },
+        {
+          "stage": "computeDominators",
+          "milliseconds": 503.8
+        },
+        {
+          "stage": "findLeakSuspects",
+          "milliseconds": 533.4
+        },
+        {
+          "stage": "createMemorySession",
+          "milliseconds": 637.5
+        }
+      ]
+    },
+    {
+      "shape": "cyclic",
+      "heap": {
+        "dumpBytes": 8027504,
+        "classes": 100,
+        "instances": 200000,
+        "objectArrays": 1000,
+        "primitiveArrays": 2000,
+        "roots": 100,
+        "unreachableObjects": 2000,
+        "graphNodes": 205000
+      },
+      "measurements": [
+        {
+          "stage": "parseHprof",
+          "milliseconds": 59.9
+        },
+        {
+          "stage": "classHistogram",
+          "milliseconds": 4.6
+        },
+        {
+          "stage": "summarizeMemory",
+          "milliseconds": 0.9
+        },
+        {
+          "stage": "buildObjectGraph",
+          "milliseconds": 39
+        },
+        {
+          "stage": "reachableFromRoots",
+          "milliseconds": 61.2
+        },
+        {
+          "stage": "computeDominators",
+          "milliseconds": 3923.3
+        },
+        {
+          "stage": "findLeakSuspects",
+          "milliseconds": 3922.1
+        },
+        {
+          "stage": "createMemorySession",
+          "milliseconds": 4511.9
+        }
+      ]
+    }
+  ]
+}
