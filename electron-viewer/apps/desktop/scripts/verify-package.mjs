@@ -9,7 +9,7 @@
  * Usage: node scripts/verify-package.mjs <unpacked-directory>
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,9 +19,23 @@ if (unpacked === undefined || !existsSync(unpacked)) {
   process.exit(1);
 }
 
-const resources = unpacked.endsWith('.app')
-  ? join(unpacked, 'Contents', 'Resources')
-  : join(unpacked, 'resources');
+/**
+ * The resources directory, whichever layout the platform produced: an explicit
+ * .app bundle, the macOS output directory that contains one, or the Windows and
+ * Linux unpacked directory.
+ */
+function resourcesOf(directory) {
+  if (directory.endsWith('.app')) return join(directory, 'Contents', 'Resources');
+  try {
+    const bundle = readdirSync(directory).find((entry) => entry.endsWith('.app'));
+    if (bundle !== undefined) return join(directory, bundle, 'Contents', 'Resources');
+  } catch {
+    // Not a directory, or unreadable: fall through to the flat layout.
+  }
+  return join(directory, 'resources');
+}
+
+const resources = resourcesOf(unpacked);
 
 const failures = [];
 

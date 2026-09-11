@@ -49,5 +49,6 @@
     "vitest": "^5.0.0"
   },
   "description": "Android Performance Studio desktop workstation",
-  "author": "yuchuangu85"
+  "author": "yuchuangu85",
+  "homepage": "https://github.com/yuchuangu85/AndroidPerformanceStudio"
 }
