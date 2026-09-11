@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildObjectGraph } from './graph.js';
 import { classHistogram, groupInstancesByClass, summarizeMemory } from './histogram.js';
@@ -19,7 +20,15 @@ import { createMemorySession } from './session.js';
  */
 const ENABLED = process.env['APS_PERF'] === '1';
 const OUTPUT = process.env['APS_PERF_OUT'];
-const JVM_BASELINE = process.env['APS_JVM_BASELINE'];
+const GOLDEN_DIRECTORY = process.env['APS_PERF_OUT'] === undefined ? undefined : process.env['APS_GOLDEN_DIR'];
+
+/** The JVM baseline the CI job writes next to the HPROF corpus. */
+function jvmBaselinePath(): string | undefined {
+  const explicit = process.env['APS_JVM_BASELINE'];
+  if (explicit !== undefined && explicit.length > 0) return explicit;
+  if (GOLDEN_DIRECTORY === undefined || GOLDEN_DIRECTORY.length === 0) return undefined;
+  return join(GOLDEN_DIRECTORY, 'hprof', 'benchmark.json');
+}
 
 /**
  * D2 gate: the TypeScript parse and class aggregation must stay within 1.5x of
@@ -416,8 +425,7 @@ describe.runIf(ENABLED)('HPROF performance baseline', () => {
     if (OUTPUT !== undefined && OUTPUT.length > 0) {
       writeFileSync(OUTPUT, JSON.stringify(report, null, 2));
     }
-    if (JVM_BASELINE !== undefined && JVM_BASELINE.length > 0) {
-      compareWithJvm(report, JVM_BASELINE);
-    }
+    const baseline = jvmBaselinePath();
+    if (baseline !== undefined) compareWithJvm(report, baseline);
   }, 900_000);
 });

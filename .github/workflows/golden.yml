@@ -72,16 +72,18 @@ jobs:
           pnpm --filter @aps/memory-profiler test src/golden-corpus.test.ts
           pnpm --filter @aps/simpleperf-profiler test src/golden-corpus.test.ts
           pnpm --filter @aps/art-trace test src/golden-corpus.test.ts
-      # D2: both implementations measure the same synthetic heap in the same job,
-      # so the gate compares them on one machine rather than across machines.
-      - name: Compare the TypeScript pipeline against the JVM baseline
+      # D2: each benchmark measures the same synthetic input as its Kotlin
+      # counterpart in the same job, so the gates compare implementations on one
+      # machine rather than across machines.
+      - name: Compare the TypeScript pipelines against the JVM baselines
         working-directory: electron-viewer
         env:
           APS_PERF: '1'
           APS_PERF_OUT: ${{ github.workspace }}/golden-out/typescript-baseline.json
-          APS_JVM_BASELINE: ${{ github.workspace }}/golden-out/benchmark.json
-        run: pnpm --filter @aps/memory-profiler test src/perf.test.ts
-
+          APS_GOLDEN_DIR: ${{ github.workspace }}/golden-out
+        run: |
+          pnpm --filter @aps/memory-profiler test src/perf.test.ts
+          pnpm --filter @aps/simpleperf-profiler test src/perf.test.ts
       - name: Upload corpus and baselines
         if: always()
         uses: actions/upload-artifact@v4

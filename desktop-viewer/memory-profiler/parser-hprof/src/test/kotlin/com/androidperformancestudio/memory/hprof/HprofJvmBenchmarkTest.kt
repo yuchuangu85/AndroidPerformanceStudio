@@ -27,8 +27,9 @@ import kotlin.test.assertEquals
 class HprofJvmBenchmarkTest {
     private val parser = HprofParser()
 
+    // Next to the HPROF corpus, so the workflow needs one output directory.
     private val outputDirectory: File =
-        File(System.getenv("APS_GOLDEN_OUT") ?: "build/golden").apply { mkdirs() }
+        File(System.getenv("APS_GOLDEN_OUT") ?: "build/golden", "hprof").apply { mkdirs() }
 
     @Test
     fun `records the JVM baseline for the same synthetic heap`() {
