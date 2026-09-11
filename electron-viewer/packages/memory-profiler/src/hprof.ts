@@ -93,6 +93,21 @@ export interface HprofClassRecord {
   readonly instanceFieldBytes: number;
   readonly instanceFields: readonly HprofFieldDescriptor[];
   readonly staticFieldCount: number;
+  /** Static object fields that hold something; the Context heuristic reads these. */
+  readonly staticReferences: readonly HprofFieldReference[];
+}
+
+/** One object-reference field, kept with the field it came from. */
+export interface HprofFieldReference {
+  /** Field name id; resolve through HprofParseResult.strings. */
+  readonly nameId: Identifier;
+  readonly targetObjectId: Identifier;
+}
+
+/** One primitive field value, kept with the field it came from. */
+export interface HprofPrimitiveValue {
+  readonly nameId: Identifier;
+  readonly value: bigint;
 }
 
 export interface HprofInstanceRecord {
@@ -106,6 +121,14 @@ export interface HprofInstanceRecord {
    */
   readonly shallowBytes: number;
   readonly references: readonly Identifier[];
+  /**
+   * The same references with their field names. Deep analysis reasons about
+   * fields ("mDestroyed", "mFragmentManager", "mWidth"), which the flat id list
+   * cannot answer. Field names stay as ids because a class layout can arrive
+   * before or after the strings it refers to.
+   */
+  readonly fieldReferences: readonly HprofFieldReference[];
+  readonly primitiveValues: readonly HprofPrimitiveValue[];
 }
 
 export interface HprofArrayRecord {
@@ -115,6 +138,8 @@ export interface HprofArrayRecord {
   readonly length: number;
   readonly shallowBytes: number;
   readonly references: readonly Identifier[];
+  /** Real array class name when the source has one (Perfetto does). */
+  readonly className?: string;
 }
 
 export interface HprofParseResult {
@@ -156,23 +181,70 @@ function readIdentifierAt(bytes: Uint8Array, offset: number, identifierSize: 4 |
  * Resolves an instance's object-reference fields from its raw payload. Field
  * order in INSTANCE_DUMP follows the CLASS_DUMP order.
  */
-export function collectInstanceReferences(
+export interface CollectedInstanceFields {
+  readonly references: readonly Identifier[];
+  readonly fieldReferences: readonly HprofFieldReference[];
+  readonly primitiveValues: readonly HprofPrimitiveValue[];
+}
+
+/** Walks an instance payload once and keeps references, names, and primitives. */
+export function collectInstanceFields(
   payload: Uint8Array,
   fields: readonly HprofFieldDescriptor[],
   identifierSize: 4 | 8,
-): Identifier[] {
+): CollectedInstanceFields {
   const references: Identifier[] = [];
+  const fieldReferences: HprofFieldReference[] = [];
+  const primitiveValues: HprofPrimitiveValue[] = [];
   let offset = 0;
   for (const field of fields) {
     const size = field.type === OBJECT_TYPE ? identifierSize : primitiveSize(field.type);
     if (offset + size > payload.length) break;
     if (field.type === OBJECT_TYPE) {
       const id = readIdentifierAt(payload, offset, identifierSize);
-      if (id !== 0n) references.push(id);
+      if (id !== 0n) {
+        references.push(id);
+        fieldReferences.push({ nameId: field.nameId, targetObjectId: id });
+      }
+    } else if (size > 0) {
+      primitiveValues.push({ nameId: field.nameId, value: readPrimitiveAt(payload, offset, field.type) });
     }
     offset += size;
   }
-  return references;
+  return { references, fieldReferences, primitiveValues };
+}
+
+export function collectInstanceReferences(
+  payload: Uint8Array,
+  fields: readonly HprofFieldDescriptor[],
+  identifierSize: 4 | 8,
+): readonly Identifier[] {
+  return collectInstanceFields(payload, fields, identifierSize).references;
+}
+
+/** Big-endian primitive field read, matching the dump's field order. */
+export function readPrimitiveAt(payload: Uint8Array, offset: number, type: number): bigint {
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  switch (type) {
+    case 4:
+      return view.getUint8(offset) === 0 ? 0n : 1n;
+    case 5:
+      return BigInt(view.getUint16(offset, false));
+    case 6:
+      return BigInt(Math.trunc(view.getFloat32(offset, false)));
+    case 7:
+      return BigInt(Math.trunc(view.getFloat64(offset, false)));
+    case 8:
+      return BigInt(view.getInt8(offset));
+    case 9:
+      return BigInt(view.getInt16(offset, false));
+    case 10:
+      return BigInt(view.getInt32(offset, false));
+    case 11:
+      return view.getBigInt64(offset, false);
+    default:
+      return 0n;
+  }
 }
 
 class Cursor {
@@ -336,10 +408,16 @@ function readClassDump(cursor: Cursor, identifierSize: 4 | 8): Omit<HprofClassRe
     cursor.skip(type === OBJECT_TYPE ? identifierSize : primitiveSize(type));
   }
   const staticFieldCount = cursor.u2();
+  const staticReferences: HprofFieldReference[] = [];
   for (let index = 0; index < staticFieldCount; index += 1) {
-    cursor.skip(identifierSize);
+    const nameId = cursor.id();
     const type = cursor.u1();
-    cursor.skip(type === OBJECT_TYPE ? identifierSize : primitiveSize(type));
+    if (type === OBJECT_TYPE) {
+      const targetObjectId = cursor.id();
+      if (targetObjectId !== 0n) staticReferences.push({ nameId, targetObjectId });
+    } else {
+      cursor.skip(primitiveSize(type));
+    }
   }
   const instanceFieldCount = cursor.u2();
   const instanceFields: HprofFieldDescriptor[] = [];
@@ -357,6 +435,7 @@ function readClassDump(cursor: Cursor, identifierSize: 4 | 8): Omit<HprofClassRe
     instanceFieldBytes,
     instanceFields,
     staticFieldCount,
+    staticReferences,
   };
 }
 
@@ -409,14 +488,25 @@ function readHeapSegment(
         const index = instances.length;
         if (layout === undefined) {
           deferred.push({ index, classObjectId, payload });
-          instances.push({ objectId, classObjectId, fieldBytes, shallowBytes, references: [] });
-        } else {
           instances.push({
             objectId,
             classObjectId,
             fieldBytes,
             shallowBytes,
-            references: collectInstanceReferences(payload, layout, identifierSize),
+            references: [],
+            fieldReferences: [],
+            primitiveValues: [],
+          });
+        } else {
+          const collected = collectInstanceFields(payload, layout, identifierSize);
+          instances.push({
+            objectId,
+            classObjectId,
+            fieldBytes,
+            shallowBytes,
+            references: collected.references,
+            fieldReferences: collected.fieldReferences,
+            primitiveValues: collected.primitiveValues,
           });
         }
         break;
@@ -510,6 +600,7 @@ export function parseHprof(bytes: Uint8Array): HprofParseResult {
         instanceFieldBytes: existing?.instanceFieldBytes ?? 0,
         instanceFields: existing?.instanceFields ?? [],
         staticFieldCount: existing?.staticFieldCount ?? 0,
+        staticReferences: existing?.staticReferences ?? [],
       });
     } else if (tag === HPROF_TAGS.heapDump || tag === HPROF_TAGS.heapDumpSegment) {
       readHeapSegment(
@@ -534,10 +625,13 @@ export function parseHprof(bytes: Uint8Array): HprofParseResult {
     const layout = classes.get(entry.classObjectId)?.instanceFields;
     const current = instances[entry.index];
     if (layout === undefined || current === undefined) continue;
+    const collected = collectInstanceFields(entry.payload, layout, header.identifierSize);
     instances[entry.index] = {
       ...current,
       shallowBytes: classes.get(entry.classObjectId)?.instanceFieldBytes ?? current.shallowBytes,
-      references: collectInstanceReferences(entry.payload, layout, header.identifierSize),
+      references: collected.references,
+      fieldReferences: collected.fieldReferences,
+      primitiveValues: collected.primitiveValues,
     };
   }
   if (deferred.length > 0) {

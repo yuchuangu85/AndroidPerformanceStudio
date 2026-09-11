@@ -60,7 +60,8 @@ export function buildObjectGraph(result: HprofParseResult): ObjectGraph {
     nodes.set(array.objectId, {
       objectId: array.objectId,
       kind: 'object-array',
-      className: array.kind === 'object' ? '<object array>' : '<primitive array>',
+      className:
+        array.className ?? (array.kind === 'object' ? '<object array>' : '<primitive array>'),
       shallowBytes: array.shallowBytes,
       references: array.references,
       isRoot: rootIds.has(array.objectId),

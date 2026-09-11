@@ -8,11 +8,19 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./node": {
+      "types": "./src/node.ts",
+      "default": "./src/node.ts"
     }
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@aps/contracts": "workspace:*",
+    "@aps/platform-perfetto": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

@@ -372,6 +372,13 @@ importers:
         version: 5.0.0(@types/node@22.20.1)(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0))
 
   packages/memory-profiler:
+    dependencies:
+      '@aps/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@aps/platform-perfetto':
+        specifier: workspace:*
+        version: link:../platform-perfetto
     devDependencies:
       '@types/node':
         specifier: ^22.20.2
