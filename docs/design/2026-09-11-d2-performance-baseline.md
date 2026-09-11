@@ -95,7 +95,7 @@ APS_PERF=1 APS_PERF_OUT=perf/hprof-baseline-$(uname -m).json \\
 
 - CI runner 的绝对值在轮次间有波动（同一份代码的 `parseHprof` 见过 218–315 ms），
   所以看的是同一次运行内的比值，不是跨运行的绝对值。
-- 目前只有 HPROF 有 JVM 对照；SIMPLEPERF 与 ART trace 的基准尚未建立。
+- HPROF 的闸门见上；SIMPLEPERF 与 ART trace 的对照见本文末节。
 
 ## 会话分析复用（2026-09-11 追加）
 
@@ -173,6 +173,93 @@ dominator 和一次可达性，再加上 `computeDominators` 内部自己的一�
 | cyclic | `classSumAggregation` | 95.4 ms | 90.2 ms | **1.06×** |
 
 解析与 JVM 持平，聚合在 6–14% 以内，全部远低于 1.5× 闸门。
+
+## SIMPLEPERF 与 ART trace 闸门（2026-09-11 追加）
+
+首轮 SIMPLEPERF 闸门报出 **read 2.23×**（206.5 vs 92.6 ms）与 **readAndNormalize 2.84×**
+（346.4 vs 121.9 ms）。查下去是三个独立问题，而不是「TypeScript 就是慢」一个原因。
+
+### 1. 闸门在比较两种不同的工作量
+
+`SimpleperfJvmBenchmarkTest` 的 `readAndNormalize` 只是把每条记录喂给
+`SimpleperfProfileNormalizer` 并数样本数，**从不物化 profile**；TypeScript 侧调的是
+`normalizeSimpleperfReport`，会构造 100000 个 `NormalizedSample` 和 120 万个
+`ProfileFrame`。同一个阶段名，两边差一个数量级的工作量，比值没有意义。
+
+现在受闸门的阶段改用与 JVM 逐行对应的流式循环（同一个 `SimpleperfProfileNormalizer`，
+丢弃返回值只数样本）。完整 pipeline 作为**不受闸门**的信息项单列：
+`normalizeProfile`、`buildCallStackTable`。
+
+### 2. 生成器是二次复杂度，而且测试从没跑到过测量阶段
+
+合成报告生成器为每个字段单独建 `Uint8Array` 再拷进父消息，并且**从不重置 record 消息**：
+每次 emit 都把此前所有记录又拷一遍。生成这份 15 MB 报告本身要 150 s（测试总共 152 s），
+CI 上 649 s——那次作业看起来「卡死」，实际是生成器在拷贝几百 GB。
+
+改成复用一块缓冲区、每条记录 emit 后重置之后，同一份字节生成 < 1 s，本地测试
+**152 s → 1.1 s**（字节数不变，仍是 15 052 649，测试里加了断言钉住）。
+
+### 3. 解码器确实比 protobuf-java 慢，做了三处分配优化
+
+| 问题 | 改法 |
+| --- | --- |
+| 每个子消息分配一个 subarray + 一个游标（每个样本 13 组） | `ProtoCursor` 改为带 limit 的原地进入/退出（`enterDelimited`/`leaveDelimited`） |
+| 每个 varint 字节分配一个 BigInt | ≤ 5 字节的 varint 用 number 累加，只物化一个 BigInt；更长的走原来的 BigInt 路径 |
+| 样本对象按 `unwindingResult` 是否存在切换形状 | 固定形状，字段为 `undefined` |
+| 每条记录分配一次 payload subarray | `decodeRecord(bytes, offset, end)` 直接在流上解码 |
+
+同一份输入、本机：`read` **87.7 → 32.8 ms**，`normalizeProfile`（完整 pipeline）
+**133.3 → 98.4 ms**。
+
+「行为等价」的本地证据：新增 `proto.test.ts`，用保留的通用字段读取器
+（`readFields`）作为参考实现，对 300 条随机记录（覆盖全部记录类型、varint 边界值、
+未知字段、空 callchain、unwind error）+ 100 条带前后缀的原地解码逐字段比对。
+golden corpus 需要 Kotlin 侧产物，本地跑不了，这个差分测试是本地能做的最强证据。
+
+### 4. ART trace 基准从未真正运行过
+
+CI 步骤是两条命令顺序执行，第一条失败就中断，所以 ART 那档从来没有输出——
+而它一旦真的运行就**立刻失败**：
+
+- entry block 头部声明 1600 条记录，循环却按 `methodIds.length`（4）只写了 4 条；
+- 版本 5 的每条记录还要多一个 CPU time 字段，生成器没写。
+
+两个缺陷都在**测试自己的生成器**里（Kotlin 那份是对的），所以 ART 侧的产品代码
+一直没有问题——有问题的是「从未跑过却看起来存在」的基准。修好后本地：63.6 万字节、
+102 400 个事件，`parse` 11.7 ms、`parseAndProject` 53.3 ms。
+
+CI 步骤改为**两个包都跑、都报结果**，一次失败不再掩盖另一次；同时三个基准测试在
+`APS_GOLDEN_DIR` 已设置但基线读不到时**直接报错**，而不是静默跳过闸门
+（此前 `catch { return; }` 会让一条改名的路径悄悄关掉闸门）。
+
+### 5. 修好之后的 CI 结果（2026-09-11，同一 job 内）
+
+| 阶段 | TypeScript | JVM | 比值 | 闸门 |
+| --- | ---: | ---: | ---: | --- |
+| HPROF chain `parseHprof` | 228.2 ms | 265.3 ms | **0.86×** | 通过 |
+| HPROF chain `classSumAggregation` | 115.8 ms | 101.7 ms | **1.14×** | 通过 |
+| HPROF cyclic `parseHprof` | 250.5 ms | 246.3 ms | **1.02×** | 通过 |
+| HPROF cyclic `classSumAggregation` | 136.9 ms | 108.1 ms | **1.27×** | 通过 |
+| simpleperf `read` | 79.9 ms | 76.9 ms | **1.04×** | 通过 |
+| simpleperf `readAndNormalize` | 134.5 ms | 109.2 ms | **1.23×** | 通过 |
+| ART `parse` | 38.3 ms | 7.6 ms | **5.04×** | 不设阈值（见下） |
+| ART `parseAndProject` | 125.7 ms | 86.0 ms | **1.46×** | 通过 |
+
+同一轮里两侧的 golden corpus 比对也全部通过，说明解码器重写没有改变解析结果。
+
+### 6. ART `parse` 是唯一明显落后的阶段
+
+这一阶段几乎全是 64 位整数运算：每条记录三个 bigint 累加（102400 条记录），
+而 JVM 用原生 long。把逐字节 BigInt 的 LEB128 读取改成数值快路径后，本地 `parse`
+**11.7 → 7.2 ms**（−38%，`parseAndProject` 53.3 → 44.3 ms），CI 上仍约为 JVM 的 3×。
+
+试过并放弃的改法：累加器用 number、只在构造事件时转 BigInt——反而更慢
+（本地 12.7 vs 8.0 ms），因为 `Number(bigint)`/`BigInt(number)` 的转换比直接做 bigint
+加法更贵。也就是说剩下的差距不是「多分配了几个对象」，而是 JS 没有 64 位原生整数。
+
+因此 ART 的闸门放在**应用真正跑的 pipeline**（`parseAndProject`，含 parse，1.46×），
+`parse` 仍然每轮打印比值但不断言：PRD 没有给 ART 设阈值，我不为它发明一个数字。
+若以后方法剖析的解析成为瓶颈，按 D2 的规则它是 Rust/WASM 的候选模块。
 
 ## 下一步
 

@@ -77,7 +77,33 @@ export class ArtTraceBinaryReader {
     return low | (high << 32n);
   }
 
+  /**
+   * Fast path: four bytes fit a 32 bit accumulator and a fifth still fits a
+   * double exactly, so the values an entry block actually contains materialise
+   * one BigInt instead of one per byte. A 1600 record block reads three LEB128
+   * values per record, and the BigInt churn was most of the parse.
+   */
   readUleb128(): bigint {
+    const start = this.offset;
+    let result = 0;
+    for (let shift = 0; shift < 28; shift += 7) {
+      this.require(1);
+      const byte = this.bytes[this.offset] as number;
+      this.offset += 1;
+      result |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) return BigInt(result >>> 0);
+    }
+    this.require(1);
+    const byte = this.bytes[this.offset] as number;
+    if ((byte & 0x80) === 0) {
+      this.offset += 1;
+      return BigInt(result >>> 0) + (BigInt(byte & 0x7f) << 28n);
+    }
+    this.offset = start;
+    return this.wideUleb128();
+  }
+
+  private wideUleb128(): bigint {
     let result = 0n;
     let shift = 0n;
     for (;;) {
@@ -85,14 +111,32 @@ export class ArtTraceBinaryReader {
       const byte = this.bytes[this.offset] as number;
       this.offset += 1;
       result |= BigInt(byte & 0x7f) << shift;
-      if ((byte & 0x80) === 0) break;
+      if ((byte & 0x80) === 0) return result;
       shift += 7n;
       if (shift >= 70n) throw new ArtTraceFormatError('uleb128 overflow');
     }
-    return result;
   }
 
   readSleb128(): bigint {
+    const start = this.offset;
+    let result = 0;
+    for (let shift = 0; shift < 28; shift += 7) {
+      this.require(1);
+      const byte = this.bytes[this.offset] as number;
+      this.offset += 1;
+      result |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) {
+        if ((byte & 0x40) === 0) return BigInt(result >>> 0);
+        // A set sign bit means the value continues negative to the left, and
+        // the sign extension still fits an int32 at every step of this loop.
+        return BigInt((result | (-1 << (shift + 7))) | 0);
+      }
+    }
+    this.offset = start;
+    return this.wideSleb128();
+  }
+
+  private wideSleb128(): bigint {
     let result = 0n;
     let shift = 0n;
     for (;;) {
