@@ -9,6 +9,7 @@ import {
   type CpuSnapshotRequest,
   type MethodCaptureRequest,
   type MethodSnapshotRequest,
+  type SourceResolveRequest,
   type FrameCaptureInput,
   type MemoryCaptureInput,
   type StartupCaptureInput,
@@ -51,6 +52,15 @@ const api: ApsApi = {
   revealGpuArtifact: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.gpuReveal, id),
   relocateGpuArtifact: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.gpuRelocate, id),
   importTraceFromPath: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.traceImportFromPath, path),
+  listSourceWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.sourceList),
+  addSourceWorkspace: () => ipcRenderer.invoke(IPC_CHANNELS.sourceAdd),
+  removeSourceWorkspace: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.sourceRemove, id),
+  reindexSourceWorkspace: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.sourceReindex, id),
+  searchSourceSymbols: (input: { workspaceId: string; query: string; limit: number }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.sourceSearch, input),
+  resolveSourceEvidence: (input: SourceResolveRequest) => ipcRenderer.invoke(IPC_CHANNELS.sourceResolve, input),
+  readSourceFile: (input: { workspaceId: string; relativePath: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.sourceRead, input),
   captureMethodRecording: (input: MethodCaptureRequest) => ipcRenderer.invoke(IPC_CHANNELS.methodCapture, input),
   listMethodSessions: () => ipcRenderer.invoke(IPC_CHANNELS.methodList),
   methodSnapshot: (input: MethodSnapshotRequest) => ipcRenderer.invoke(IPC_CHANNELS.methodSnapshot, input),

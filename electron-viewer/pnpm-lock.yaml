@@ -172,6 +172,9 @@ importers:
       '@aps/simpleperf-profiler':
         specifier: workspace:*
         version: link:../../packages/simpleperf-profiler
+      '@aps/source-workspace':
+        specifier: workspace:*
+        version: link:../../packages/source-workspace
       '@aps/startup-profiler':
         specifier: workspace:*
         version: link:../../packages/startup-profiler
@@ -422,6 +425,18 @@ importers:
       '@aps/profile-analysis':
         specifier: workspace:*
         version: link:../profile-analysis
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.2
+        version: 22.20.2
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0))
+
+  packages/source-workspace:
     devDependencies:
       '@types/node':
         specifier: ^22.20.2

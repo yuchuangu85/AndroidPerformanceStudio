@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter } from 'node:path';
+import { basename, delimiter } from 'node:path';
 
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
@@ -23,6 +23,8 @@ import {
   type MethodCaptureRequest,
   type MethodSessionRecord,
   type MethodSnapshotRequest,
+  type SourceResolveRequest,
+  type SourceWorkspaceRecord,
   type BenchmarkCompareInput,
   type ShellSnapshot,
   type StartupCaptureInput,
@@ -79,6 +81,14 @@ import {
   type ArtTraceAnalysis,
 } from '@aps/art-trace';
 import { captureMethodRecording } from './method-capture-service.js';
+import {
+  DEFAULT_SOURCE_INDEX_DEPENDENCIES,
+  indexLocalWorkspace,
+  readIndexedSource,
+  resolveInIndex,
+  type SourceIndex,
+} from './source-workspace-service.js';
+import { SourceWorkspaceStore } from './source-workspace-store.js';
 import { MethodSessionStore, type StoredMethodSession } from './method-session-store.js';
 import {
   defaultConversionDependencies,
@@ -156,6 +166,55 @@ function benchmarkStore(): BenchmarkStore {
 
 function gpuStore(): GpuArtifactStore {
   return new GpuArtifactStore(join(userDataDirectory(), 'gpu-artifacts'));
+}
+
+function sourceStore(): SourceWorkspaceStore {
+  return new SourceWorkspaceStore(join(userDataDirectory(), 'source-workspaces'));
+}
+
+/** The git commit of a local tree, or a content digest when it is unversioned. */
+async function sourceRevisionOf(root: string): Promise<string> {
+  try {
+    const result = await runHostProcessText({
+      executable: 'git',
+      args: ['-C', root, 'rev-parse', 'HEAD'],
+      timeoutMs: 10_000,
+    });
+    const revision = result.stdout.trim();
+    if (result.exitCode === 0 && revision.length > 0) {
+      const status = await runHostProcessText({
+        executable: 'git',
+        args: ['-C', root, 'status', '--porcelain'],
+        timeoutMs: 10_000,
+      });
+      return status.stdout.trim().length === 0 ? revision : revision + '-dirty';
+    }
+  } catch {
+    // A missing git or a non-repository root falls through to unversioned.
+  }
+  return 'unversioned';
+}
+
+async function indexSourceWorkspace(record: SourceWorkspaceRecord): Promise<StudioResult<SourceIndex>> {
+  const indexed = await indexLocalWorkspace(record.id, record.root, {
+    ...DEFAULT_SOURCE_INDEX_DEPENDENCIES,
+    revisionOf: sourceRevisionOf,
+  });
+  if (!indexed.ok) return indexed;
+  const store = sourceStore();
+  await store.save(
+    {
+      ...record,
+      phase: indexed.value.snapshot.indexComplete ? 'READY' : 'PARTIAL',
+      revision: indexed.value.snapshot.immutableRevision,
+      manifestHash: indexed.value.snapshot.manifestHash,
+      fileCount: indexed.value.files.length,
+      symbolCount: indexed.value.symbols.length,
+      indexedAtEpochMillis: indexed.value.snapshot.createdAtEpochMillis,
+    },
+    indexed.value,
+  );
+  return ok(indexed.value);
 }
 
 function methodStore(): MethodSessionStore {
@@ -639,6 +698,108 @@ function registerHandlers(): void {
     const message = await shell.openPath(location.path);
     return message.length === 0 ? { ok: true } : { ok: false, error: message };
   });
+  ipcMain.handle(IPC_CHANNELS.sourceList, () => sourceStore().list());
+  ipcMain.handle(IPC_CHANNELS.sourceAdd, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Add a source workspace',
+      properties: ['openDirectory'],
+    });
+    const root = selection.filePaths[0];
+    if (selection.canceled || root === undefined) return { ok: false, cancelled: true };
+    const id = String(Date.now());
+    const record: SourceWorkspaceRecord = {
+      id,
+      displayName: basename(root),
+      root,
+      phase: 'READY',
+      fileCount: 0,
+      symbolCount: 0,
+    };
+    const indexed = await indexSourceWorkspace(record);
+    if (!indexed.ok) return { ok: false, error: indexed.error.code + ': ' + indexed.error.message };
+    return { ok: true, id };
+  });
+  ipcMain.handle(IPC_CHANNELS.sourceRemove, async (_event, id: string) => await sourceStore().remove(id));
+  ipcMain.handle(IPC_CHANNELS.sourceReindex, async (_event, id: string) => {
+    const record = await sourceStore().readRecord(id);
+    if (record === undefined) return { ok: false, error: 'Workspace not found' };
+    const indexed = await indexSourceWorkspace(record);
+    if (!indexed.ok) return { ok: false, error: indexed.error.code + ': ' + indexed.error.message };
+    return { ok: true, id };
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.sourceSearch,
+    async (_event, input: { workspaceId: string; query: string; limit: number }) => {
+      const index = sourceStore().cachedIndex(input.workspaceId);
+      if (index === undefined) return [];
+      const query = input.query.trim().toLowerCase();
+      if (query.length === 0) return [];
+      return index.symbols
+        .filter((symbol) => symbol.qualifiedName.toLowerCase().includes(query))
+        .slice(0, Math.max(input.limit, 1))
+        .map((symbol) => ({
+          kind: symbol.kind,
+          qualifiedName: symbol.qualifiedName,
+          relativePath: symbol.relativePath,
+          ...(symbol.signature !== undefined ? { signature: symbol.signature } : {}),
+          startLine: symbol.startLine,
+        }));
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.sourceResolve, async (_event, input: SourceResolveRequest) => {
+    const store = sourceStore();
+    const record = await store.readRecord(input.workspaceId);
+    if (record === undefined) return { ok: false, error: 'Workspace not found' };
+    let index = store.cachedIndex(input.workspaceId);
+    if (index === undefined) {
+      // The index is rebuilt from disk on demand rather than persisted whole.
+      const indexed = await indexSourceWorkspace(record);
+      if (!indexed.ok) return { ok: false, error: indexed.error.code + ': ' + indexed.error.message };
+      index = indexed.value;
+    }
+    try {
+      const candidates = resolveInIndex(index, input.evidence, input.buildIdentityMatch);
+      return {
+        ok: true,
+        candidates: candidates.map((candidate) => ({
+          id: candidate.id,
+          evidenceId: candidate.evidenceId,
+          relativePath: candidate.location.relativePath,
+          ...(candidate.location.range !== undefined ? { startLine: candidate.location.range.startLine } : {}),
+          confidence: candidate.confidence,
+          reasons: candidate.reasons,
+          indexComplete: candidate.indexComplete,
+        })),
+      };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'resolution failed' };
+    }
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.sourceRead,
+    async (_event, input: { workspaceId: string; relativePath: string }) => {
+      const store = sourceStore();
+      const record = await store.readRecord(input.workspaceId);
+      if (record === undefined) return { ok: false, error: 'Workspace not found' };
+      let index = store.cachedIndex(input.workspaceId);
+      if (index === undefined) {
+        const indexed = await indexSourceWorkspace(record);
+        if (!indexed.ok) return { ok: false, error: indexed.error.code + ': ' + indexed.error.message };
+        index = indexed.value;
+      }
+      const file = index.files.find((entry) => entry.relativePath === input.relativePath);
+      if (file === undefined) return { ok: false, error: 'File is not part of the index' };
+      const content = readIndexedSource(record.root, file);
+      if (!content.ok) return { ok: false, error: content.error.code + ': ' + content.error.message };
+      return {
+        ok: true,
+        relativePath: content.value.relativePath,
+        text: content.value.text,
+        language: file.language,
+        state: content.value.state,
+      };
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.methodCapture, async (_event, input: MethodCaptureRequest) => {
     const client = adbClientFor();
     if (client === undefined) return { ok: false, error: 'ADB is not available' };

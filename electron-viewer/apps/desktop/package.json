@@ -31,7 +31,8 @@
     "@aps/memory-profiler": "workspace:*",
     "@aps/simpleperf-profiler": "workspace:*",
     "@aps/profile-analysis": "workspace:*",
-    "@aps/art-trace": "workspace:*"
+    "@aps/art-trace": "workspace:*",
+    "@aps/source-workspace": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

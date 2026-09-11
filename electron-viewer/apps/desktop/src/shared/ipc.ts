@@ -3,6 +3,13 @@ import type { AgiCapability, ArtifactLocationStatus, ArtifactOpenRoute, GpuArtif
 import type { MemorySession } from '@aps/memory-profiler';
 import type { FlameGraphPayload, ImplementationFilter } from '@aps/profile-analysis';
 import type {
+  BuildIdentityMatch,
+  ResolutionConfidence,
+  SourceLanguage,
+  SourceResolutionEvidence,
+  SourceSymbolKind,
+} from '@aps/source-workspace';
+import type {
   CallGraphMode,
   CpuProfileFlameGraph,
   CpuProfileSessionRecord,
@@ -376,6 +383,58 @@ export interface MethodSnapshotOutcome {
   readonly error?: string;
 }
 
+export interface SourceWorkspaceRecord {
+  readonly id: string;
+  readonly displayName: string;
+  readonly root: string;
+  readonly phase: 'READY' | 'PARTIAL' | 'FAILED';
+  readonly message?: string;
+  readonly revision?: string;
+  readonly manifestHash?: string;
+  readonly fileCount: number;
+  readonly symbolCount: number;
+  readonly indexedAtEpochMillis?: number;
+}
+
+export interface SourceCandidateSummary {
+  readonly id: string;
+  readonly evidenceId: string;
+  readonly relativePath: string;
+  readonly startLine?: number;
+  readonly confidence: ResolutionConfidence;
+  readonly reasons: readonly string[];
+  readonly indexComplete: boolean;
+}
+
+export interface SourceSymbolSummary {
+  readonly kind: SourceSymbolKind;
+  readonly qualifiedName: string;
+  readonly relativePath: string;
+  readonly signature?: string;
+  readonly startLine: number;
+}
+
+export interface SourceResolveRequest {
+  readonly workspaceId: string;
+  readonly evidence: readonly SourceResolutionEvidence[];
+  readonly buildIdentityMatch: BuildIdentityMatch;
+}
+
+export interface SourceResolveOutcome {
+  readonly ok: boolean;
+  readonly candidates?: readonly SourceCandidateSummary[];
+  readonly error?: string;
+}
+
+export interface SourceReadOutcome {
+  readonly ok: boolean;
+  readonly relativePath?: string;
+  readonly text?: string;
+  readonly language?: SourceLanguage;
+  readonly state?: 'CURRENT' | 'STALE';
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -414,6 +473,13 @@ export interface ApsApi {
   revealGpuArtifact(id: string): Promise<GpuOutcome>;
   relocateGpuArtifact(id: string): Promise<GpuOutcome>;
   importTraceFromPath(path: string): Promise<GpuOutcome>;
+  listSourceWorkspaces(): Promise<readonly SourceWorkspaceRecord[]>;
+  addSourceWorkspace(): Promise<MemoryCaptureOutcome>;
+  removeSourceWorkspace(id: string): Promise<boolean>;
+  reindexSourceWorkspace(id: string): Promise<MemoryCaptureOutcome>;
+  searchSourceSymbols(input: { readonly workspaceId: string; readonly query: string; readonly limit: number }): Promise<readonly SourceSymbolSummary[]>;
+  resolveSourceEvidence(input: SourceResolveRequest): Promise<SourceResolveOutcome>;
+  readSourceFile(input: { readonly workspaceId: string; readonly relativePath: string }): Promise<SourceReadOutcome>;
   captureMethodRecording(input: MethodCaptureRequest): Promise<MemoryCaptureOutcome>;
   listMethodSessions(): Promise<readonly MethodSessionRecord[]>;
   methodSnapshot(input: MethodSnapshotRequest): Promise<MethodSnapshotOutcome>;
@@ -463,6 +529,13 @@ export const IPC_CHANNELS = {
   gpuReveal: 'gpu:reveal',
   gpuRelocate: 'gpu:relocate',
   traceImportFromPath: 'trace:importFromPath',
+  sourceList: 'source:list',
+  sourceAdd: 'source:add',
+  sourceRemove: 'source:remove',
+  sourceReindex: 'source:reindex',
+  sourceSearch: 'source:search',
+  sourceResolve: 'source:resolve',
+  sourceRead: 'source:read',
   methodCapture: 'method:capture',
   methodList: 'method:list',
   methodSnapshot: 'method:snapshot',

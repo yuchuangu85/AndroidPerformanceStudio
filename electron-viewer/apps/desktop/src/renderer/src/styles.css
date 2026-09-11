@@ -402,6 +402,29 @@ body {
   opacity: 0.55;
 }
 
+.source-view {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-strong);
+}
+
+.source-view pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.source-view__line {
+  display: block;
+}
+
+.source-view__line--target {
+  background: rgba(74, 127, 181, 0.28);
+}
+
 .flame {
   overflow-x: auto;
   border: 1px solid var(--border);
