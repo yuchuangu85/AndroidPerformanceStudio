@@ -414,6 +414,21 @@ export interface SourceSymbolSummary {
   readonly startLine: number;
 }
 
+export interface SourceBackendWorkspace {
+  readonly id: string;
+  readonly displayName: string;
+  readonly providerKind: 'LOCAL' | 'GITHUB' | 'AOSP';
+  readonly phase: string;
+  readonly progress: number;
+  readonly message?: string;
+  readonly revision?: string;
+  readonly manifestHash?: string;
+  readonly fileCount: number;
+  readonly symbolCount: number;
+  readonly indexedAtEpochMillis?: number;
+  readonly allowAiSourceUpload: boolean;
+}
+
 export interface SourceResolveRequest {
   readonly workspaceId: string;
   readonly evidence: readonly SourceResolutionEvidence[];
@@ -480,6 +495,9 @@ export interface ApsApi {
   searchSourceSymbols(input: { readonly workspaceId: string; readonly query: string; readonly limit: number }): Promise<readonly SourceSymbolSummary[]>;
   resolveSourceEvidence(input: SourceResolveRequest): Promise<SourceResolveOutcome>;
   readSourceFile(input: { readonly workspaceId: string; readonly relativePath: string }): Promise<SourceReadOutcome>;
+  /** Workspaces held by the @aps/source-workspace backend (the shared DB). */
+  listBackendSourceWorkspaces(): Promise<readonly SourceBackendWorkspace[]>;
+  setBackendSourceAiUpload(input: { readonly workspaceId: string; readonly allowed: boolean }): Promise<boolean>;
   captureMethodRecording(input: MethodCaptureRequest): Promise<MemoryCaptureOutcome>;
   listMethodSessions(): Promise<readonly MethodSessionRecord[]>;
   methodSnapshot(input: MethodSnapshotRequest): Promise<MethodSnapshotOutcome>;
@@ -587,6 +605,8 @@ export const IPC_CHANNELS = {
   sourceSearch: 'source:search',
   sourceResolve: 'source:resolve',
   sourceRead: 'source:read',
+  sourceBackendList: 'source:backendList',
+  sourceBackendAiUpload: 'source:backendAiUpload',
   methodCapture: 'method:capture',
   methodList: 'method:list',
   methodSnapshot: 'method:snapshot',

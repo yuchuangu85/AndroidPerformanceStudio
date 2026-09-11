@@ -62,6 +62,9 @@ const api: ApsApi = {
   resolveSourceEvidence: (input: SourceResolveRequest) => ipcRenderer.invoke(IPC_CHANNELS.sourceResolve, input),
   readSourceFile: (input: { workspaceId: string; relativePath: string }) =>
     ipcRenderer.invoke(IPC_CHANNELS.sourceRead, input),
+  listBackendSourceWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.sourceBackendList),
+  setBackendSourceAiUpload: (input: { workspaceId: string; allowed: boolean }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.sourceBackendAiUpload, input),
   captureMethodRecording: (input: MethodCaptureRequest) => ipcRenderer.invoke(IPC_CHANNELS.methodCapture, input),
   listMethodSessions: () => ipcRenderer.invoke(IPC_CHANNELS.methodList),
   methodSnapshot: (input: MethodSnapshotRequest) => ipcRenderer.invoke(IPC_CHANNELS.methodSnapshot, input),

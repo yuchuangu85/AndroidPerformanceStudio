@@ -94,6 +94,7 @@ import {
 import { SourceWorkspaceStore } from './source-workspace-store.js';
 import { SafeStorageCredentialStore, SqliteAnalysisSessionRepository, fetchAiTransport, isPersistentBackend } from '@aps/ai-core/node';
 import { AiAnalysisService, aiCredentialFilePath, aiSessionsDatabasePath, ensureAiDirectory, layoutPerformanceEvidence } from './ai-service.js';
+import { listSourceWorkspaces, sourceBackend } from './source-backend.js';
 import { safeStorage } from 'electron';
 import { MethodSessionStore, type StoredMethodSession } from './method-session-store.js';
 import {
@@ -1143,6 +1144,11 @@ function registerHandlers(): void {
   });
   ipcMain.handle(IPC_CHANNELS.memoryList, () => memoryStore().list());
   ipcMain.handle(IPC_CHANNELS.memoryLoad, (_event, id: string) => memoryStore().load(id));
+  ipcMain.handle(IPC_CHANNELS.sourceBackendList, () => listSourceWorkspaces());
+  ipcMain.handle(IPC_CHANNELS.sourceBackendAiUpload, (_event, input: { workspaceId: string; allowed: boolean }) => {
+    sourceBackend().setAiUploadAllowed(input.workspaceId, input.allowed);
+    return true;
+  });
   ipcMain.handle(IPC_CHANNELS.aiSettings, () => aiService().status());
   ipcMain.handle(IPC_CHANNELS.aiSaveCredential, (_event, value: string) => aiService().saveCredential(value));
   ipcMain.handle(IPC_CHANNELS.aiClearCredential, () => aiService().clearCredential());
