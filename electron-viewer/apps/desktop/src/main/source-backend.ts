@@ -12,6 +12,7 @@
  * meant to resolve its candidates through resolveForWorkspace below.
  */
 import { homedir } from 'node:os';
+import type { SourceWorkspaceRecord } from '../shared/ipc.js';
 import { join } from 'node:path';
 import {
   AospSourceProvider,
@@ -22,6 +23,9 @@ import {
   resolveEvidence,
   type BuildIdentityMatch,
   type ResolutionCandidate,
+  type SourceContentState,
+  type SourceLanguage,
+  type SourceLocation,
   type SourceResolutionEvidence,
   type SourceWorkspace,
   type SourceWorkspaceRepository,
@@ -198,4 +202,79 @@ export async function migrateLegacyWorkspaces(
     }
   }
   return { migrated, skipped, failed };
+}
+
+/**
+ * The backend view in the shape the source IPC already returns, so the handler
+ * switch is a one line change per channel and the panel keeps working. The
+ * legacy three state phase is derived: only a finished or failed index is
+ * reported as such, anything in flight reads as partial.
+ */
+export function toSourceWorkspaceRecords(target: SourceBackend = sourceBackend()): SourceWorkspaceRecord[] {
+  return listSourceWorkspaces(target).map((workspace) => ({
+    id: workspace.id,
+    displayName: workspace.displayName,
+    root: workspace.providerKind === 'LOCAL' ? localRootOf(workspace.id, target) : '',
+    phase: workspace.phase === 'READY' ? 'READY' : workspace.phase === 'FAILED' ? 'FAILED' : 'PARTIAL',
+    ...(workspace.message !== undefined ? { message: workspace.message } : {}),
+    ...(workspace.revision !== undefined ? { revision: workspace.revision } : {}),
+    ...(workspace.manifestHash !== undefined ? { manifestHash: workspace.manifestHash } : {}),
+    ...(workspace.indexedAtEpochMillis !== undefined
+      ? { indexedAtEpochMillis: workspace.indexedAtEpochMillis }
+      : {}),
+    fileCount: workspace.fileCount,
+    symbolCount: workspace.symbolCount,
+  }));
+}
+
+function localRootOf(workspaceId: string, target: SourceBackend): string {
+  const workspace = target.repository.workspace(workspaceId);
+  return workspace !== undefined && workspace.config.kind === 'LOCAL' ? workspace.config.root : '';
+}
+
+/** Symbol search over the indexed snapshot, newest state first. */
+export function searchBackendSymbols(
+  workspaceId: string,
+  query: string,
+  limit: number,
+  target: SourceBackend = sourceBackend(),
+): readonly { kind: string; qualifiedName: string; relativePath: string; signature?: string; startLine: number }[] {
+  const snapshotId = target.snapshotIdOf(workspaceId);
+  if (snapshotId === undefined) return [];
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length === 0) return [];
+  return target.repository
+    .symbols(snapshotId)
+    .filter((symbol) => symbol.qualifiedName.toLowerCase().includes(normalized))
+    .slice(0, Math.max(limit, 1))
+    .map((symbol) => ({
+      kind: symbol.kind,
+      qualifiedName: symbol.qualifiedName,
+      relativePath: symbol.relativePath,
+      ...(symbol.signature !== undefined ? { signature: symbol.signature } : {}),
+      startLine: symbol.startLine,
+    }));
+}
+
+/**
+ * Reads verified content through the service, which reports CURRENT or STALE for
+ * a local tree. Undefined when the workspace, its snapshot, or the file is gone.
+ */
+export async function readBackendSource(
+  workspaceId: string,
+  relativePath: string,
+  target: SourceBackend = sourceBackend(),
+): Promise<{ readonly text: string; readonly language: SourceLanguage; readonly state: SourceContentState } | undefined> {
+  const snapshotId = target.snapshotIdOf(workspaceId);
+  if (snapshotId === undefined) return undefined;
+  const file = target.repository.files(snapshotId).find((entry) => entry.relativePath === relativePath);
+  if (file === undefined) return undefined;
+  const location: SourceLocation = {
+    workspaceId,
+    snapshotId,
+    relativePath,
+    contentHash: file.contentHash,
+  };
+  const content = await target.service.read(location);
+  return { text: content.text, language: file.language, state: content.state };
 }
