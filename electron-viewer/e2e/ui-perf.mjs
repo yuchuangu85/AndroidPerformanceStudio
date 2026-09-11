@@ -403,6 +403,9 @@ async function main() {
     child.kill('SIGTERM');
     rmSync(userData, { recursive: true, force: true });
   }
+  // The debugging socket keeps handles alive, so a harness that only sets
+  // exitCode would hang until the watchdog turned a pass into a timeout.
+  process.exit(process.exitCode ?? 0);
 }
 
 await main();
