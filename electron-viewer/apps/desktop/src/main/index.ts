@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname } from 'node:path';
 
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron';
 import { fail, ok, type StudioResult } from '@aps/contracts';
 import { sha256File } from '@aps/contracts/node';
 import { walkNode, type LayoutSnapshot } from '@aps/layout-inspector';
@@ -1382,14 +1382,28 @@ function registerHandlers(): void {
 }
 
 function createWindow(): void {
+  // macOS gets the system window chrome: the traffic lights sit inside the
+  // shell's own sidebar header, and the window supplies the vibrancy material
+  // behind it, which only shows when the page and the base colour stay
+  // transparent. Other platforms keep a normal frame and the shell's own
+  // window colour.
+  const mac = process.platform === 'darwin';
   window = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1100,
     minHeight: 720,
     show: false,
-    backgroundColor: '#111318',
+    backgroundColor: mac ? '#00000000' : nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#ececec',
     title: 'Android Performance Studio',
+    ...(mac
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 16, y: 18 },
+          vibrancy: 'sidebar' as const,
+          visualEffectState: 'followWindow' as const,
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,

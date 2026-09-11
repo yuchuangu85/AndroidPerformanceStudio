@@ -8,6 +8,7 @@ export const UI_LANGUAGES: readonly UiLanguage[] = ['en', 'zh'];
 export const SHELL_STRINGS = {
   'app.name': { en: 'Android Performance Studio', zh: 'Android Performance Studio' },
   'shell.home': { en: 'Home', zh: '首页' },
+  'shell.navigation': { en: 'Navigation', zh: '导航' },
   'shell.settings': { en: 'Settings', zh: '设置' },
   'shell.language': { en: 'Language', zh: '语言' },
   'shell.theme': { en: 'Theme', zh: '主题' },

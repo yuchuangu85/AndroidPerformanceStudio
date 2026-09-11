@@ -7,6 +7,10 @@
   本文档记录的产品设计不随实现栈变化；迁移状态见
   [`docs/records/electron-feature-parity.md`](docs/records/electron-feature-parity.md)，
   实施方案见 [`docs/design/2026-09-10-electron-rewrite-plan.md`](docs/design/2026-09-10-electron-rewrite-plan.md)。
+- 桌面端视觉语言：采用 macOS 系统视觉语言（AppKit 语义色、系统字体、原生窗口 chrome 与
+  AppKit 控件尺寸），见
+  [`docs/adr/0037-adopt-the-macos-system-visual-language.md`](docs/adr/0037-adopt-the-macos-system-visual-language.md)；
+  token 与组件样式集中在 `electron-viewer/apps/desktop/src/renderer/src/styles.css`。
 - Primary product surfaces:
   - 参考实现（已冻结，不再发布）：`desktop-viewer/desktop-app`
   - 重写目标：`electron-viewer/apps/desktop`

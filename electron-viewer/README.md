@@ -4,6 +4,8 @@ Electron rewrite of the Android Performance Studio desktop workstation.
 
 - Plan: `../docs/design/2026-09-10-electron-rewrite-plan.md`
 - Decision: `../docs/adr/0036-rewrite-the-desktop-app-on-electron-without-jvm.md`
+- Visual language: `../docs/adr/0037-adopt-the-macos-system-visual-language.md`
+  (tokens and component styles: `apps/desktop/src/renderer/src/styles.css`)
 - Tracking issue: [#21](https://github.com/yuchuangu85/AndroidPerformanceStudio/issues/21)
 - Migration state: `../docs/records/electron-feature-parity.md`
 
