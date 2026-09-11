@@ -93,24 +93,41 @@ jobs:
         working-directory: electron-viewer/apps/desktop
         shell: bash
         run: ./node_modules/.bin/electron-builder --${{ runner.os == 'Linux' && 'linux' || runner.os == 'macOS' && 'mac' || 'win' }} ${{ matrix.targets }} --publish never
-      # The file names are the contract release.yml asserts for the Kotlin
-      # pipeline; printing them here makes a mismatch visible in the log instead
-      # of only inside a downloaded artifact.
-      - name: List the produced installers
+      # release.yml asserts these names for the Kotlin pipeline, so the Electron
+      # packages have to match them for the two to be interchangeable. The deb and
+      # rpm targets render ${arch} with the distribution names (amd64, x86_64,
+      # aarch64), which is what the normalisation below corrects; the assertion
+      # afterwards is what stops the mismatch coming back.
+      - name: Normalise and check the installer names
         working-directory: electron-viewer/apps/desktop
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
+          for file in release/*.deb release/*.rpm; do
+            base="$(basename "$file")"
+            renamed="$(printf '%s' "$base" | sed -e 's/-linux-amd64\./-linux-x64./' -e 's/-linux-x86_64\./-linux-x64./' -e 's/-linux-aarch64\./-linux-arm64./')"
+            if [ "$renamed" != "$base" ]; then
+              mv "$file" "release/$renamed"
+            fi
+          done
           files=(release/*.dmg release/*.pkg release/*.exe release/*.msi release/*.deb release/*.rpm)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::no installer was produced"
             exit 1
           fi
+          status=0
           for file in "${files[@]}"; do
+            base="$(basename "$file")"
+            if ! printf '%s' "$base" | grep -qE '^AndroidPerfermanceStudio-[0-9.]+-(macos|windows|linux)-(x64|arm64)\.(dmg|pkg|exe|msi|deb|rpm)$'; then
+              echo "::error::$base does not follow the naming contract"
+              status=1
+              continue
+            fi
             size="$(stat -c %s "$file" 2>/dev/null || stat -f %z "$file")"
-            printf '%s  %s bytes\n' "$(basename "$file")" "$size"
+            printf '%s  %s bytes\n' "$base" "$size"
           done
+          exit $status
       - name: Verify the packaged runtime assets
         working-directory: electron-viewer/apps/desktop
         shell: bash
