@@ -190,6 +190,30 @@ interface Measurement {
   readonly milliseconds: number;
 }
 
+/** Warmup rounds before a measured stage, matching the JVM benchmark. */
+const WARMUP_ROUNDS = 2;
+const MEASURED_ROUNDS = 3;
+
+/**
+ * Measures a gated stage as the median of several rounds. A single sample is
+ * decided by whatever GC or CPU contention happened during it, which is how a
+ * 1.3x stage once reported 2.0x. The JVM benchmark reports a median too, so both
+ * sides are summarised the same way.
+ */
+function measureMedian(stage: string, run: () => void, results: Measurement[]): void {
+  for (let round = 0; round < WARMUP_ROUNDS; round += 1) run();
+  const runs: number[] = [];
+  for (let round = 0; round < MEASURED_ROUNDS; round += 1) {
+    const start = performance.now();
+    run();
+    runs.push(performance.now() - start);
+  }
+  const sorted = [...runs].sort((left, right) => left - right);
+  results.push({
+    stage,
+    milliseconds: Math.round((sorted[Math.floor(sorted.length / 2)] as number) * 10) / 10,
+  });
+}
 function measure(stage: string, run: () => void, results: Measurement[]): void {
   const start = performance.now();
   run();
@@ -202,7 +226,7 @@ describe.runIf(ENABLED)('SIMPLEPERF performance baseline', () => {
     const results: Measurement[] = [];
 
     let records = 0;
-    measure('read', () => {
+    measureMedian('read', () => {
       records = 0;
       const read = readSimpleperfReport(bytes, { onRecord: () => { records += 1; } });
       if (!read.ok) throw new Error(read.error.message);
@@ -210,7 +234,7 @@ describe.runIf(ENABLED)('SIMPLEPERF performance baseline', () => {
     expect(records).toBe(1 + FILE_COUNT + THREAD_COUNT + SAMPLE_COUNT);
 
     let samples = 0;
-    measure('readAndNormalize', () => {
+    measureMedian('readAndNormalize', () => {
       const normalized = normalizeSimpleperfReport(bytes);
       if (!normalized.ok) throw new Error(normalized.error.message);
       samples = normalized.value.samples.length;

@@ -297,6 +297,30 @@ interface Measurement {
   readonly milliseconds: number;
 }
 
+/** Warmup rounds before a measured stage, matching the JVM benchmark. */
+const WARMUP_ROUNDS = 2;
+const MEASURED_ROUNDS = 3;
+
+/**
+ * Measures a gated stage as the median of several rounds. A single sample is
+ * decided by whatever GC or CPU contention happened during it, which is how a
+ * 1.3x stage once reported 2.0x. The JVM benchmark reports a median too, so both
+ * sides are summarised the same way.
+ */
+function measureMedian(stage: string, run: () => void, results: Measurement[]): void {
+  for (let round = 0; round < WARMUP_ROUNDS; round += 1) run();
+  const runs: number[] = [];
+  for (let round = 0; round < MEASURED_ROUNDS; round += 1) {
+    const start = performance.now();
+    run();
+    runs.push(performance.now() - start);
+  }
+  const sorted = [...runs].sort((left, right) => left - right);
+  results.push({
+    stage,
+    milliseconds: Math.round((sorted[Math.floor(sorted.length / 2)] as number) * 10) / 10,
+  });
+}
 function measure(stage: string, run: () => void, results: Measurement[]): number {
   const start = performance.now();
   run();
@@ -339,7 +363,7 @@ function measureShape(shape: string, wrapChains: boolean): ShapeCase {
   // Warm up once so the numbers reflect steady state, not first-call work.
   parseHprof(heap.bytes);
   let parsed = parseHprof(heap.bytes);
-  measure('parseHprof', () => {
+  measureMedian('parseHprof', () => {
     parsed = parseHprof(heap.bytes);
   }, results);
 
@@ -354,7 +378,7 @@ function measureShape(shape: string, wrapChains: boolean): ShapeCase {
   // Repeated so the stage is long enough to compare: a single pass is a few
   // milliseconds and would be decided by JIT and GC noise. The JVM benchmark
   // repeats it the same number of times.
-  measure('classSumAggregation', () => {
+  measureMedian('classSumAggregation', () => {
     for (let round = 0; round < AGGREGATION_ITERATIONS; round += 1) {
       sink = groupInstancesByClass(parsed.instances).length;
     }
