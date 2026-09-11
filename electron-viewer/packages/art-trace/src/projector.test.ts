@@ -1,125 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseArtTrace } from './parser.js';
+import { classicTrace, streamingTrace, TRACE_MAGIC, TraceWriter } from './trace-builder.js';
 import { toCallStackTable, topMethods, threadKeyOf, buildArtTraceFlameGraph } from './projector.js';
 import { DEFAULT_CALL_STACK_QUERY } from '@aps/profile-analysis';
 import type { ArtTraceAnalysis } from './model.js';
-
-const TRACE_MAGIC = 0x574f4c53;
-
-class Writer {
-  private readonly chunks: number[] = [];
-  u8(value: number): this {
-    this.chunks.push(value & 0xff);
-    return this;
-  }
-  u16(value: number): this {
-    this.chunks.push(value & 0xff, (value >> 8) & 0xff);
-    return this;
-  }
-  u24(value: number): this {
-    this.chunks.push(value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff);
-    return this;
-  }
-  u32(value: number): this {
-    this.chunks.push(value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >>> 24) & 0xff);
-    return this;
-  }
-  u64(value: bigint): this {
-    const low = Number(BigInt.asUintN(32, value));
-    const high = Number(BigInt.asUintN(32, value >> 32n));
-    return this.u32(low).u32(high);
-  }
-  uleb(value: bigint): this {
-    let remaining = value;
-    for (;;) {
-      const byte = Number(remaining & 0x7fn);
-      remaining >>= 7n;
-      if (remaining === 0n) {
-        this.chunks.push(byte);
-        break;
-      }
-      this.chunks.push(byte | 0x80);
-    }
-    return this;
-  }
-  sleb(value: bigint): this {
-    let remaining = value;
-    for (;;) {
-      const byte = Number(remaining & 0x7fn);
-      remaining >>= 7n;
-      const signBit = (byte & 0x40) !== 0;
-      if ((remaining === 0n && !signBit) || (remaining === -1n && signBit)) {
-        this.chunks.push(byte);
-        break;
-      }
-      this.chunks.push(byte | 0x80);
-    }
-    return this;
-  }
-  text(value: string): this {
-    for (const byte of new TextEncoder().encode(value)) this.chunks.push(byte);
-    return this;
-  }
-  raw(value: Uint8Array): this {
-    for (const byte of value) this.chunks.push(byte);
-    return this;
-  }
-  bytes(): Uint8Array {
-    return Uint8Array.from(this.chunks);
-  }
-}
-
-function streamingTrace(options: { version?: number } = {}): Uint8Array {
-  const version = options.version ?? 5;
-  const dualClock = version === 5;
-  // magic(4) + version(2) + start time(8) + padding(18) = the 32 byte header.
-  const header = new Writer().u32(TRACE_MAGIC).u16(version).u64(1_000_000n).u32(0).u32(0).u32(0).u32(0).u16(0);
-  const threadInfo = new Writer().u8(0).u32(7).u16(4).text('main').bytes();
-  const methodInfo = (id: bigint, info: string): Uint8Array => {
-    const name = new TextEncoder().encode(info);
-    return new Writer().u8(1).u64(id).u16(name.length).raw(name).bytes();
-  };
-  // Method words are (method index << 2) | action: 4 is "enter method 1" and
-  // 5 is "exit method 1", so the second record is a delta of one.
-  const entryBlock = new Writer()
-    .u8(2)
-    .u32(7)
-    .u24(2)
-    // Two records: 2 bytes each single clock, 3 bytes each dual clock.
-    .u32(dualClock ? 6 : 4)
-    .sleb(4n)
-    .uleb(100n);
-  if (dualClock) entryBlock.uleb(10n);
-  entryBlock.sleb(1n).uleb(50n);
-  if (dualClock) entryBlock.uleb(20n);
-  const summary = new Writer().u8(3).u16(0).bytes();
-  return new Uint8Array(
-    Buffer.concat([
-      Buffer.from(header.bytes()),
-      Buffer.from(threadInfo),
-      Buffer.from(methodInfo(1n, 'Lcom/example/Foo\tbar\t()V\tFoo.java')),
-      Buffer.from(methodInfo(2n, 'Lcom/example/Baz\tqux\t()V\tBaz.java')),
-      Buffer.from(entryBlock.bytes()),
-      Buffer.from(summary),
-    ]),
-  );
-}
-
-function classicTrace(): Uint8Array {
-  // magic(4) + version(2) + data offset(2) + start time(8) + padding(16) = 32 bytes.
-  const header = new Writer().u32(TRACE_MAGIC).u16(2).u16(32).u64(1234n).u32(0).u32(0).u32(0).u32(0);
-  const text = '*threads\n7\tmain\n*methods\n4\tLcom/example/Foo\tbar\t()V\tFoo.java\n*end\n';
-  const record = (threadId: number, methodValue: number, cpuMicros: number): Uint8Array =>
-    new Writer().u16(threadId).u32(methodValue).u32(cpuMicros).bytes();
-  return new Uint8Array(
-    Buffer.concat([
-      Buffer.from(header.bytes()),
-      Buffer.from(new TextEncoder().encode(text)),
-      Buffer.from(record(7, 1 << 2, 100)),
-      Buffer.from(record(7, (1 << 2) | 1, 300)),
-    ]),
-  );
-}
 
 function analysisOf(bytes: Uint8Array): ArtTraceAnalysis {
   const result = parseArtTrace(bytes);
@@ -175,11 +59,13 @@ describe('parseArtTrace', () => {
     expect(badMagic.ok).toBe(false);
     if (!badMagic.ok) expect(badMagic.error.code).toBe('ART_TRACE_MAGIC_INVALID');
 
-    const v1 = parseArtTrace(new Writer().u32(TRACE_MAGIC).u16(1).u32(0).u32(0).u32(0).u32(0).u32(0).bytes());
+    const v1 = parseArtTrace(
+      new TraceWriter().u32(TRACE_MAGIC).u16(1).u32(0).u32(0).u32(0).u32(0).u32(0).bytes(),
+    );
     expect(v1.ok).toBe(false);
     if (!v1.ok) expect(v1.error.code).toBe('ART_TRACE_VERSION_UNSUPPORTED');
 
-    const v9 = parseArtTrace(new Writer().u32(TRACE_MAGIC).u16(9).bytes());
+    const v9 = parseArtTrace(new TraceWriter().u32(TRACE_MAGIC).u16(9).bytes());
     expect(v9.ok).toBe(false);
     if (!v9.ok) expect(v9.error.code).toBe('ART_TRACE_VERSION_UNSUPPORTED');
   });

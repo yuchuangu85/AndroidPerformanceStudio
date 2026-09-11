@@ -20,6 +20,9 @@ import {
   type CpuCaptureRequest,
   type CpuSnapshotRequest,
   type MemoryCaptureInput,
+  type MethodCaptureRequest,
+  type MethodSessionRecord,
+  type MethodSnapshotRequest,
   type BenchmarkCompareInput,
   type ShellSnapshot,
   type StartupCaptureInput,
@@ -62,7 +65,21 @@ import {
   transformFromRequest,
   type CpuProfileSessionRecord,
 } from '@aps/simpleperf-profiler';
-import type { CallStackTable } from '@aps/profile-analysis';
+import {
+  buildFlameGraphPayload as buildFlameGraphPayloadOf,
+  directionOf as directionOfQuery,
+  type CallStackTable,
+  type FlameGraphPayload,
+} from '@aps/profile-analysis';
+import {
+  parseArtTrace,
+  threadKeyOf,
+  topMethods,
+  toCallStackTable,
+  type ArtTraceAnalysis,
+} from '@aps/art-trace';
+import { captureMethodRecording } from './method-capture-service.js';
+import { MethodSessionStore, type StoredMethodSession } from './method-session-store.js';
 import {
   defaultConversionDependencies,
   defaultHostSimpleperfLocatorDependencies,
@@ -139,6 +156,28 @@ function benchmarkStore(): BenchmarkStore {
 
 function gpuStore(): GpuArtifactStore {
   return new GpuArtifactStore(join(userDataDirectory(), 'gpu-artifacts'));
+}
+
+function methodStore(): MethodSessionStore {
+  return new MethodSessionStore(join(userDataDirectory(), 'method-sessions'));
+}
+
+/** Rebuilds a method session from its retained trace when it is not cached. */
+async function methodSessionFor(record: MethodSessionRecord): Promise<StoredMethodSession | undefined> {
+  const store = methodStore();
+  const cached = store.cached(record.id);
+  if (cached !== undefined) return cached;
+  const trace = await store.readTrace(record.id);
+  if (trace === undefined) return undefined;
+  const parsed = parseArtTrace(trace);
+  if (!parsed.ok) return undefined;
+  const session: StoredMethodSession = {
+    record,
+    table: toCallStackTable(parsed.value),
+    analysis: parsed.value,
+  };
+  store.cache(session);
+  return session;
 }
 
 function cpuStore(): CpuProfileStore {
@@ -599,6 +638,98 @@ function registerHandlers(): void {
     }
     const message = await shell.openPath(location.path);
     return message.length === 0 ? { ok: true } : { ok: false, error: message };
+  });
+  ipcMain.handle(IPC_CHANNELS.methodCapture, async (_event, input: MethodCaptureRequest) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'aps-method-'));
+    try {
+      const result = await captureMethodRecording(
+        {
+          adb: {
+            shell: (args, options) => client.shell(input.serial, args, options),
+            pull: async (remote, local, options) => {
+              await client.pull(input.serial, remote, local, options);
+            },
+          },
+          temporaryPath: (name) => join(temporaryDirectory, name),
+          sizeOf: async (path) => (await stat(path)).size,
+          readFile: async (path) => new Uint8Array(await readFile(path)),
+          removeFile: async (path) => {
+            await rm(path, { force: true });
+          },
+          sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+          now: () => Date.now(),
+          newId: () => String(Date.now()),
+        },
+        input,
+      );
+      if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+      const store = methodStore();
+      const record: MethodSessionRecord = {
+        id: result.value.id,
+        capturedAtEpochMillis: result.value.capturedAtEpochMillis,
+        serial: input.serial,
+        packageName: result.value.packageName,
+        pid: result.value.pid,
+        durationSeconds: result.value.durationSeconds,
+        deviceSdkApiLevel: result.value.deviceSdkApiLevel,
+        traceVersion: result.value.analysis.header.version,
+        traceBytes: result.value.trace.length,
+        eventCount: result.value.analysis.events.length,
+        methodCount: result.value.analysis.methods.size,
+        threadCount: result.value.analysis.threads.size,
+        threadKeys: [...result.value.analysis.threads.keys()].map((threadId) =>
+          threadKeyOf(result.value.analysis, threadId),
+        ),
+        warnings: [
+          ...result.value.analysis.warnings,
+          ...result.value.warnings.map((warning) => warning.code + ': ' + warning.message),
+        ],
+      };
+      await store.save(record, result.value.trace, {
+        record,
+        table: result.value.table,
+        analysis: result.value.analysis,
+      });
+      return { ok: true, id: record.id };
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.methodList, () => methodStore().list());
+  ipcMain.handle(IPC_CHANNELS.methodRemove, (_event, id: string) => methodStore().remove(id));
+  ipcMain.handle(IPC_CHANNELS.methodSnapshot, async (_event, input: MethodSnapshotRequest) => {
+    const record = await methodStore().readRecord(input.id);
+    if (record === undefined) return { ok: false, error: 'Session not found' };
+    const session = await methodSessionFor(record);
+    if (session === undefined) return { ok: false, error: 'The stored trace for this session is gone' };
+    try {
+      const graph: FlameGraphPayload = buildFlameGraphPayloadOf(
+        session.table,
+        {
+          searchText: input.searchText,
+          implementation: 'ALL',
+          direction: directionOfQuery(input.direction),
+          transforms: input.transforms.map(transformFromRequest),
+        },
+        {
+          ...(input.threadKey !== undefined && input.threadKey.length > 0 ? { threadKey: input.threadKey } : {}),
+          selectedThreadHasNoSamples:
+            input.threadKey !== undefined &&
+            input.threadKey.length > 0 &&
+            !session.table.stacks.some((stack) => stack.threadKey === input.threadKey),
+        },
+      );
+      const rows = topMethods(session.table, session.analysis as ArtTraceAnalysis, {
+        search: input.searchText,
+        limit: 200,
+        sort: input.rankBy,
+      });
+      return { ok: true, graph, methods: rows };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'snapshot failed' };
+    }
   });
   ipcMain.handle(IPC_CHANNELS.cpuCapture, async (_event, input: CpuCaptureRequest) => {
     const client = adbClientFor();

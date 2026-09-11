@@ -127,6 +127,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@aps/art-trace':
+        specifier: workspace:*
+        version: link:../../packages/art-trace
       '@aps/battery-profiler':
         specifier: workspace:*
         version: link:../../packages/battery-profiler

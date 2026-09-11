@@ -10,6 +10,7 @@ import type {
 } from '@aps/simpleperf-profiler';
 import type { DeviceSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
+import { FlameGraph, flamePathTo, nodesByIndex } from './FlameGraph';
 
 export interface CpuProfilerPanelProps {
   readonly language: UiLanguage;
@@ -20,17 +21,6 @@ const CALL_GRAPHS: readonly CallGraphMode[] = ['DWARF', 'FRAME_POINTER', 'NONE']
 const SCOPES: readonly EventScope[] = ['BOTH', 'USER', 'KERNEL'];
 const IMPLEMENTATIONS: readonly ImplementationFilter[] = ['ALL', 'SCRIPT', 'NATIVE'];
 const EVENTS: readonly string[] = ['cpu-clock', 'cpu-cycles', 'task-clock'];
-
-const GRAPH_WIDTH = 1000;
-const ROW_HEIGHT = 18;
-const MIN_LABEL_WIDTH = 26;
-
-const IMPLEMENTATION_FILL: Record<FrameImplementation, string> = {
-  NATIVE: '#4a7fb5',
-  MANAGED: '#4f9d69',
-  KERNEL: '#b5793a',
-  UNKNOWN: '#6b6f76',
-};
 
 function formatWeight(value: string): string {
   try {
@@ -87,16 +77,6 @@ function topNodes(
   return [...grouped.values()]
     .sort((left, right) => (left.value === right.value ? 0 : left.value > right.value ? -1 : 1))
     .slice(0, limit);
-}
-
-function pathToNode(node: CpuProfileFlameNode, byIndex: ReadonlyMap<number, CpuProfileFlameNode>): string[] {
-  const path: string[] = [];
-  let current: CpuProfileFlameNode | undefined = node;
-  while (current !== undefined) {
-    path.unshift(current.functionId);
-    current = current.parent >= 0 ? byIndex.get(current.parent) : undefined;
-  }
-  return path;
 }
 
 export function CpuProfilerPanel({ language, devices }: CpuProfilerPanelProps): JSX.Element {
@@ -206,22 +186,13 @@ export function CpuProfilerPanel({ language, devices }: CpuProfilerPanelProps): 
     () => sessions.find((record) => record.id === selectedId),
     [selectedId, sessions],
   );
-  const nodeByIndex = useMemo(() => {
-    const map = new Map<number, CpuProfileFlameNode>();
-    graph?.nodes.forEach((node) => map.set(node.index, node));
-    return map;
-  }, [graph]);
+  const nodeByIndex = useMemo(() => (graph === null ? new Map() : nodesByIndex(graph)), [graph]);
   const ranked = useMemo(() => (graph === null ? [] : topNodes(graph.nodes, rankBy)), [graph, rankBy]);
-  const rowsTopDown = useMemo(
-    () => (graph === null ? [] : graph.startsAtBottom ? [...graph.rows].reverse() : [...graph.rows]),
-    [graph],
-  );
-
   const focus = useCallback(
     (node: CpuProfileFlameNode) => {
       setTransforms((current) => [
         ...current,
-        { kind: 'FOCUS_CALL_NODE', path: pathToNode(node, nodeByIndex) },
+        { kind: 'FOCUS_CALL_NODE', path: flamePathTo(node, nodeByIndex) },
       ]);
     },
     [nodeByIndex],
@@ -433,63 +404,7 @@ export function CpuProfilerPanel({ language, devices }: CpuProfilerPanelProps): 
                 {translate('cpu.empty', language)}: {graph.emptyReason ?? 'UNKNOWN'}
               </p>
             ) : (
-              <div className="flame">
-                <svg
-                  viewBox={'0 0 ' + String(GRAPH_WIDTH) + ' ' + String(rowsTopDown.length * ROW_HEIGHT)}
-                  width="100%"
-                  role="img"
-                  aria-label={translate('cpu.flameGraph', language)}
-                >
-                  {rowsTopDown.map((row, rowPosition) =>
-                    row.map((nodeIndex) => {
-                      const node = nodeByIndex.get(nodeIndex);
-                      if (node === undefined) return null;
-                      const x = node.start * GRAPH_WIDTH;
-                      const width = Math.max((node.end - node.start) * GRAPH_WIDTH, 0.5);
-                      return (
-                        <g key={String(nodeIndex)}>
-                          <rect
-                            x={x}
-                            y={rowPosition * ROW_HEIGHT}
-                            width={width}
-                            height={ROW_HEIGHT - 1}
-                            fill={IMPLEMENTATION_FILL[node.implementation]}
-                            opacity={node.selfWeight === '0' ? 0.75 : 1}
-                            onClick={() => focus(node)}
-                          >
-                            <title>
-                              {node.symbolName +
-                                '\n' +
-                                node.resource +
-                                '\n' +
-                                translate('cpu.inclusive', language) +
-                                ': ' +
-                                formatWeight(node.inclusiveWeight) +
-                                '\n' +
-                                translate('cpu.self', language) +
-                                ': ' +
-                                formatWeight(node.selfWeight)}
-                            </title>
-                          </rect>
-                          {width >= MIN_LABEL_WIDTH ? (
-                            <text
-                              x={x + 4}
-                              y={rowPosition * ROW_HEIGHT + ROW_HEIGHT - 6}
-                              fontSize={11}
-                              fill="#ffffff"
-                              pointerEvents="none"
-                            >
-                              {node.symbolName.length > Math.floor(width / 6)
-                                ? node.symbolName.slice(0, Math.max(Math.floor(width / 6) - 1, 1)) + '…'
-                                : node.symbolName}
-                            </text>
-                          ) : null}
-                        </g>
-                      );
-                    }),
-                  )}
-                </svg>
-              </div>
+              <FlameGraph graph={graph} language={language} onFocus={focus} />
             )}
           </section>
 

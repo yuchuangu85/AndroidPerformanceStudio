@@ -1,7 +1,7 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
 import type { AgiCapability, ArtifactLocationStatus, ArtifactOpenRoute, GpuArtifactKind } from '@aps/gpu-inspector';
 import type { MemorySession } from '@aps/memory-profiler';
-import type { ImplementationFilter } from '@aps/profile-analysis';
+import type { FlameGraphPayload, ImplementationFilter } from '@aps/profile-analysis';
 import type {
   CallGraphMode,
   CpuProfileFlameGraph,
@@ -324,6 +324,58 @@ export interface CpuSnapshotOutcome {
   readonly error?: string;
 }
 
+export interface MethodCaptureRequest {
+  readonly serial: string;
+  readonly packageName: string;
+  readonly pid: number;
+  readonly durationSeconds: number;
+}
+
+export interface MethodSessionRecord {
+  readonly id: string;
+  readonly capturedAtEpochMillis: number;
+  readonly serial: string;
+  readonly packageName: string;
+  readonly pid: number;
+  readonly durationSeconds: number;
+  readonly deviceSdkApiLevel: number;
+  readonly traceVersion: number;
+  readonly traceBytes: number;
+  readonly eventCount: number;
+  readonly methodCount: number;
+  readonly threadCount: number;
+  readonly threadKeys: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export type MethodRankBy = 'SELF_MICROS' | 'TOTAL_MICROS' | 'CALL_COUNT' | 'SYMBOL';
+
+export interface MethodSnapshotRequest {
+  readonly id: string;
+  readonly threadKey?: string;
+  readonly searchText: string;
+  readonly direction: 'FORWARD' | 'INVERTED';
+  readonly transforms: readonly CpuTransformRequest[];
+  readonly rankBy: MethodRankBy;
+}
+
+export interface MethodTopRow {
+  readonly functionId: string;
+  readonly symbolName: string;
+  readonly resource: string;
+  readonly selfMicros: number;
+  readonly totalMicros: number;
+  readonly callCount: number;
+  readonly threadCount: number;
+}
+
+export interface MethodSnapshotOutcome {
+  readonly ok: boolean;
+  readonly graph?: FlameGraphPayload;
+  readonly methods?: readonly MethodTopRow[];
+  readonly error?: string;
+}
+
 export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
 
 export interface ApsApi {
@@ -362,6 +414,10 @@ export interface ApsApi {
   revealGpuArtifact(id: string): Promise<GpuOutcome>;
   relocateGpuArtifact(id: string): Promise<GpuOutcome>;
   importTraceFromPath(path: string): Promise<GpuOutcome>;
+  captureMethodRecording(input: MethodCaptureRequest): Promise<MemoryCaptureOutcome>;
+  listMethodSessions(): Promise<readonly MethodSessionRecord[]>;
+  methodSnapshot(input: MethodSnapshotRequest): Promise<MethodSnapshotOutcome>;
+  removeMethodSession(id: string): Promise<boolean>;
   captureCpuProfile(input: CpuCaptureRequest): Promise<MemoryCaptureOutcome>;
   listCpuProfiles(): Promise<readonly CpuProfileSessionRecord[]>;
   cpuSnapshot(input: CpuSnapshotRequest): Promise<CpuSnapshotOutcome>;
@@ -407,6 +463,10 @@ export const IPC_CHANNELS = {
   gpuReveal: 'gpu:reveal',
   gpuRelocate: 'gpu:relocate',
   traceImportFromPath: 'trace:importFromPath',
+  methodCapture: 'method:capture',
+  methodList: 'method:list',
+  methodSnapshot: 'method:snapshot',
+  methodRemove: 'method:remove',
   cpuCapture: 'cpu:capture',
   cpuList: 'cpu:list',
   cpuSnapshot: 'cpu:snapshot',
