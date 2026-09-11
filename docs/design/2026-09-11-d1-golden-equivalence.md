@@ -37,65 +37,49 @@ TS 测试会：
    估算，数组头也按 `2 × idSize` 算。现在实例与数组的大小都与 Kotlin 一致，
    `histogramIsEstimated()` 也随之改为 `false`（保留大小仍是估算，并在 UI 上标注）。
 
-## Kotlin ↔ TypeScript 测试映射（人工转录的测试向量）
+## 三个解析器的生成语料（CI 自动运行）
 
-除磁盘夹具外，Kotlin 的单元测试用代码构造输入。这些向量的断言已逐条移植到 TS 测试中：
+| 解析器 | Kotlin 导出器 | TS 消费端 | 用例数 |
+| --- | --- | --- | ---: |
+| HPROF | `HprofGoldenExportTest` | `packages/memory-profiler/src/golden-corpus.test.ts` | 4 |
+| SIMPLEPERF | `SimpleperfGoldenExportTest` | `packages/simpleperf-profiler/src/golden-corpus.test.ts` | 3 |
+| ART trace | `ArtTraceGoldenExportTest` | `packages/art-trace/src/golden-corpus.test.ts` | 3 |
 
-| Kotlin 测试 | TS 测试 | 覆盖内容 |
-| --- | --- | --- |
-| `HprofParserTest` | `packages/memory-profiler/src/hprof.test.ts` | 头部、标签、ID 宽度、类/实例/数组、截断、乱序记录、字段与根 |
-| `HprofParserTest`（golden） | `packages/memory-profiler/src/golden.test.ts` | 磁盘夹具的字节级对照 |
-| `SimpleperfRecordReaderTest` / `SimpleperfReportConverterTest` | `packages/simpleperf-profiler/src/reader.test.ts` | 容器分帧、版本、大小上限、错误码 |
-| `SimpleperfProfileNormalizerTest` | `packages/simpleperf-profiler/src/normalizer.test.ts` | 文件/符号/线程/事件解析、执行类型、展开错误 |
-| `CallStackContractsTest` / `CallStackTransformerTest` | `packages/profile-analysis/src/pipeline.test.ts` | 变换、过滤、调用树、行布局 |
-| `CallTreeProjectorTest` / `FlameGraphRowProjectorTest` | `packages/simpleperf-profiler/src/analysis/analysis.test.ts` | 权重累积、兄弟排序、行几何 |
-| `ArtTraceParserTest` / `ArtTraceAnalysisProjectionTest` | `packages/art-trace/src/projector.test.ts` | 两种 trace 格式、区间重采样、热点方法 |
-| `MethodTraceCaptureSessionTest` | `packages/art-trace/src/capture.test.ts` | 采集阶段、错误码、清理 |
-| `SourceWorkspaceIntegrationTest` | `packages/source-workspace/src/source-workspace.test.ts` | 索引、证据解析、置信度降级、内容寻址缓存 |
+各解析器覆盖的内容：
 
-人工转录的**弱点**很明确：如果 Kotlin 侧改了行为而没人同步 TS 测试，对照不会失败。
-这正是下一节要补的。
+- **HPROF**：基础记录、8 字节标识、Android 扩展（`HEAP_DUMP_INFO` 堆名切换）、
+  objectId 为 0 的根。
+- **SIMPLEPERF**：用生成的 protobuf 类构造记录并按其真实帧格式写出；摘要覆盖记录/样本数、
+  丢失样本、事件总数、事件类型、包名、off-CPU 标志、线程名、每条样本的帧符号；
+  `dual-clock` 用例带 `trace_offcpu`，`lost-and-unknown` 覆盖缺失文件记录与
+  `symbol_id = -1`。
+- **ART trace**：流式 v4/v5（双时钟与单时钟）与经典 v2；摘要覆盖时钟源、时间线边界、
+  各动作事件数、方法显示名、线程名。
 
-## 已完成：由 Kotlin 生成的 golden 语料（CI 自动对照）
+每个导出器写自己的子目录（`hprof` / `simpleperf` / `art-trace`），TS 消费端只读自己的子目录。
 
-`desktop-viewer/memory-profiler/parser-hprof` 的测试现在同时是导出器：
-`HprofGoldenExportTest` 用现有的 `HprofFixtureBuilder` 构造 5 个用例，把字节写成
-`<case>.hprof`，并把**它自己解析出来的结论**写成 `<case>.json`：
+### 一个只有检查产物才会发现的坑
 
-| 用例 | 覆盖 |
-| --- | --- |
-| `basic` | 字符串、类、实例引用、基本类型数组 |
-| `eight-byte-ids` | 8 字节标识、long 字段、对象数组 |
-| `android-extensions` | `HEAP_DUMP_INFO` 堆名切换、Android 扩展根、no-data 数组 |
-| `null-root` | objectId 为 0 的根（参考实现会丢弃） |
+第一次三语料 CI 是**绿的**，但下载 artifact 后发现：HPROF 与 SIMPLEPERF 各有一个叫
+`basic` 的用例，写在同一个目录里互相覆盖，HPROF 的 `basic.json` 被替换掉了——
+消费端因此只检查了 3 个用例而不是 4 个，而作业照样通过。
 
-TypeScript 侧 `packages/memory-profiler/src/golden-corpus.test.ts` 解析同一份字节，
-逐字段比对：format、id 宽度、类名集合、实例数、实例与数组的浅层大小、堆名集合、
-根数量、告警数量。没有语料时该套件跳过，本地开发不受影响。
+两处修复：
 
-CI 作业 `.github/workflows/golden.yml` 在同一个 job 里先跑 Kotlin 导出器，再跑
-TypeScript 对照，并把语料与两侧基线作为 artifact 上传。**当前状态：绿**，
-5/5 用例通过。
+1. 每个导出器使用自己的子目录（也因此不会再和别的解析器撞名）；
+2. 消费端在 `APS_GOLDEN_DIR` 已设置但目录为空时**失败**而不是跳过——「少检查了东西」
+   不再可能伪装成绿色。
 
-### D1 抓到的真实缺陷（累计 5 个）
-
-前 3 个由磁盘夹具发现（见上一节）。语料对照又发现 2 个：
-
-4. **objectId 为 0 的 GC 根**：Kotlin 用 `if (objectId != 0L)` 丢弃，TypeScript 之前把它
-   计入了根集合。现在两侧一致，`null-root` 用例持续盯住这个行为。
-5. **`HEAP_DUMP_INFO (0xFE)` 完全没有处理**：TypeScript 把它当成未知子标签，
-   于是**停止解析整个 heap segment**，该用例的类与实例全部丢失。现在会切换当前堆并按
-   Kotlin 的 `normalizeHeapName` 归一化（App/Image/Zygote/Default），结果新增
-   `heapByObjectId`，语料也比对堆名集合。
-
-这两个都属于同一类问题：自造夹具里永远不会出现的记录。
+两条路径都在本地验证过：空目录失败、有语料通过。
 
 ## 结论
 
-- 磁盘夹具对照：**已完成**，抓到 3 个缺陷。
-- 生成语料对照：**已完成并在 CI 中自动运行**，又抓到 2 个缺陷，5/5 用例通过。
-- 人工转录的测试映射（上一节）仍然保留，作为生成语料之外的行为对照。
+- 磁盘夹具对照：**已完成**。
+- 生成语料对照：**三个已迁移的解析器全部覆盖，在 CI 中自动运行**（HPROF 4 + SIMPLEPERF 3 +
+  ART trace 3 = 10 个用例），累计抓到 5 个真实缺陷。
+- 人工转录的测试映射（见下节）保留作为行为对照，但不再是唯一证据。
 
-D1 现在可以视为达成：每个已迁移的 HPROF 行为都有由 Kotlin 侧产出的期望值驱动、
-在 CI 中自动运行的对照证据。SIMPLEPERF 与 ART trace 的同类导出器尚未建立，
-它们的对照目前仍依赖人工转录的测试向量。
+D1 可以视为达成：每个已迁移的解析器都有由 Kotlin 侧产出的期望值驱动、在 CI 中自动运行的
+对照证据，并且「语料缺失」会以失败暴露而不是静默跳过。剩余未迁移的解析器（如 Gecko/Firefox
+profile、Perfetto protobuf）在迁移时应按同样模式补上导出器。
+
