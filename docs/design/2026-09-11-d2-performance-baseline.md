@@ -234,16 +234,18 @@ CI 步骤改为**两个包都跑、都报结果**，一次失败不再掩盖另�
 
 ### 5. 修好之后的 CI 结果（2026-09-11，同一 job 内）
 
-| 阶段 | TypeScript | JVM | 比值 | 闸门 |
+| 阶段 | TypeScript | JVM | 比值 | 闸门 1.5× |
 | --- | ---: | ---: | ---: | --- |
-| HPROF chain `parseHprof` | 228.2 ms | 265.3 ms | **0.86×** | 通过 |
-| HPROF chain `classSumAggregation` | 115.8 ms | 101.7 ms | **1.14×** | 通过 |
-| HPROF cyclic `parseHprof` | 250.5 ms | 246.3 ms | **1.02×** | 通过 |
-| HPROF cyclic `classSumAggregation` | 136.9 ms | 108.1 ms | **1.27×** | 通过 |
-| simpleperf `read` | 79.9 ms | 76.9 ms | **1.04×** | 通过 |
-| simpleperf `readAndNormalize` | 134.5 ms | 109.2 ms | **1.23×** | 通过 |
-| ART `parse` | 38.3 ms | 7.6 ms | **5.04×** | 不设阈值（见下） |
-| ART `parseAndProject` | 125.7 ms | 86.0 ms | **1.46×** | 通过 |
+| HPROF chain `parseHprof` | 147.2 ms | 174.7 ms | **0.84×** | 通过 |
+| HPROF chain `classSumAggregation` | 67.4 ms | 56.4 ms | **1.20×** | 通过 |
+| HPROF cyclic `parseHprof` | 161.0 ms | 173.5 ms | **0.93×** | 通过 |
+| HPROF cyclic `classSumAggregation` | 65.0 ms | 58.0 ms | **1.12×** | 通过 |
+| simpleperf `read` | 77.7 ms | 91.3 ms | **0.85×** | 通过 |
+| simpleperf `readAndNormalize` | 132.6 ms | 120.9 ms | **1.10×** | 通过 |
+| ART `parse` | 31.2 ms | 13.0 ms | **2.40×** | 只报告，不断言（见下） |
+| ART `parseAndProject` | 56.1 ms | 53.7 ms | **1.04×** | 通过 |
+
+（最后一轮全绿：`b5c84b92`，`Electron` 与 `Cross-implementation golden checks` 两个工作流都通过。）
 
 同一轮里两侧的 golden corpus 比对也全部通过，说明解码器重写没有改变解析结果。
 
