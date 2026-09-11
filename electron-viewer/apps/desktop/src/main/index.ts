@@ -94,7 +94,7 @@ import {
 import { SourceWorkspaceStore } from './source-workspace-store.js';
 import { SafeStorageCredentialStore, SqliteAnalysisSessionRepository, fetchAiTransport, isPersistentBackend } from '@aps/ai-core/node';
 import { AiAnalysisService, aiCredentialFilePath, aiSessionsDatabasePath, ensureAiDirectory, layoutPerformanceEvidence } from './ai-service.js';
-import { listSourceWorkspaces, sourceBackend } from './source-backend.js';
+import { listSourceWorkspaces, migrateLegacyWorkspaces, sourceBackend } from './source-backend.js';
 import { safeStorage } from 'electron';
 import { MethodSessionStore, type StoredMethodSession } from './method-session-store.js';
 import {
@@ -1264,6 +1264,13 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Import the workspaces the app created before the shared database existed.
+  // Fire and forget: a failed migration must not stop the app from starting,
+  // and the panel shows the shared database with whatever made it across.
+  void sourceStore()
+    .list()
+    .then((legacy) => migrateLegacyWorkspaces(legacy))
+    .catch(() => undefined);
   registerHandlers();
   installPerfettoProtocolHandlers({
     uiDirectory: perfettoUiDirectory(),

@@ -143,3 +143,59 @@ export function listSourceWorkspaces(target: SourceBackend = sourceBackend()): S
     };
   });
 }
+
+/**
+ * Imports the workspaces the app created before the shared database existed.
+ *
+ * A workspace is matched by its local root, so running this twice is harmless,
+ * and a refresh re-resolves the revision and re-indexes into the content
+ * addressed cache. Only local workspaces can be migrated: the legacy store only
+ * ever held a root, and a remote workspace needs an owner and repository that
+ * were never recorded.
+ */
+export interface LegacySourceWorkspace {
+  readonly id: string;
+  readonly displayName: string;
+  readonly root: string;
+  readonly phase: string;
+}
+
+export interface SourceMigrationResult {
+  readonly migrated: number;
+  readonly skipped: number;
+  readonly failed: number;
+}
+
+export async function migrateLegacyWorkspaces(
+  legacy: readonly LegacySourceWorkspace[],
+  target: SourceBackend = sourceBackend(),
+): Promise<SourceMigrationResult> {
+  let migrated = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const record of legacy) {
+    if (record.root.trim().length === 0) {
+      skipped += 1;
+      continue;
+    }
+    const existing = target
+      .repository
+      .workspaces()
+      .find((workspace) => workspace.config.kind === 'LOCAL' && workspace.config.root === record.root);
+    if (existing !== undefined && existing.activeSnapshotId !== undefined) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      if (existing === undefined) {
+        await target.service.add(record.displayName, { kind: 'LOCAL', root: record.root });
+      } else {
+        await target.service.refresh(existing.id);
+      }
+      migrated += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { migrated, skipped, failed };
+}
