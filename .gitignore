@@ -51,3 +51,8 @@ google-services.json
 
 # pnpm store used by the Electron rewrite workspace
 .pnpm-store/
+
+# electron-builder build resources. The Gradle rule above would otherwise hide
+# the icons and the ICO generator that the Electron packages need.
+!electron-viewer/apps/desktop/build/
+!electron-viewer/apps/desktop/build/**

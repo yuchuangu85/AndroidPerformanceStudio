@@ -1,0 +1,110 @@
+name: Electron packages
+
+# Phase 3 smoke matrix: every installer format the Kotlin pipeline produces is
+# built here, on the same runner families, and verified to carry its runtime
+# assets. Nothing is signed, notarized, published, or uploaded to a release:
+# D5 keeps release.yml untouched until the rewrite passes its gates.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "electron-viewer/apps/desktop/electron-builder.yml"
+      - "electron-viewer/apps/desktop/package.json"
+      - "electron-viewer/apps/desktop/scripts/**"
+      - ".github/workflows/electron-package.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electron-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x64 MSI and EXE
+            runner: windows-latest
+            targets: nsis,msi
+            unpacked: release/win-unpacked
+          - label: macOS arm64 DMG and PKG
+            runner: macos-15
+            targets: dmg,pkg
+            unpacked: release/mac-arm64
+          - label: macOS x64 DMG and PKG
+            runner: macos-15-intel
+            targets: dmg,pkg
+            unpacked: release/mac-x64
+          - label: Linux x64 DEB and RPM
+            runner: ubuntu-latest
+            targets: deb,rpm
+            unpacked: release/linux-unpacked
+          - label: Linux arm64 DEB and RPM
+            runner: ubuntu-24.04-arm
+            targets: deb,rpm
+            unpacked: release/linux-arm64-unpacked
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.19.0"
+      # The packaged app carries both assets, so they have to exist before the
+      # build rather than being fetched at runtime.
+      - name: Build the bundled Perfetto UI
+        shell: bash
+        run: |
+          npm install --global yarn@1
+          ./scripts/build-perfetto-ui.sh download
+      - name: Install the pinned Trace Processor
+        shell: bash
+        run: PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
+      - name: Install dependencies
+        working-directory: electron-viewer
+        run: pnpm install --frozen-lockfile
+      - name: Set the package version
+        working-directory: electron-viewer/apps/desktop
+        shell: bash
+        run: node scripts/set-version.mjs 0.0.0
+      - name: Build the renderer and main process
+        working-directory: electron-viewer
+        run: pnpm --filter @aps/desktop build
+      # Linux packaging needs fakeroot and rpm; the other runners ship them.
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot rpm
+      - name: Package
+        working-directory: electron-viewer/apps/desktop
+        shell: bash
+        run: ./node_modules/.bin/electron-builder --${{ runner.os == 'Linux' && 'linux' || runner.os == 'macOS' && 'mac' || 'win' }} ${{ matrix.targets }} --publish never
+      - name: Verify the packaged runtime assets
+        working-directory: electron-viewer/apps/desktop
+        shell: bash
+        run: node scripts/verify-package.mjs "${{ matrix.unpacked }}"
+      - name: Upload the installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-packages-${{ strategy.job-index }}
+          path: |
+            electron-viewer/apps/desktop/release/*.dmg
+            electron-viewer/apps/desktop/release/*.pkg
+            electron-viewer/apps/desktop/release/*.exe
+            electron-viewer/apps/desktop/release/*.msi
+            electron-viewer/apps/desktop/release/*.deb
+            electron-viewer/apps/desktop/release/*.rpm
+          if-no-files-found: error

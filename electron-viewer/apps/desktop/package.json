@@ -10,6 +10,7 @@
     "typecheck:node": "tsc -p tsconfig.node.json",
     "typecheck:web": "tsc -p tsconfig.web.json",
     "test": "vitest run",
+    "version:set": "node scripts/set-version.mjs",
     "package:dir": "electron-vite build && electron-builder --dir --publish never",
     "package": "electron-vite build && electron-builder --publish never"
   },

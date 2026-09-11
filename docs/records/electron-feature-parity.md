@@ -1,0 +1,85 @@
+# Electron 功能对齐矩阵
+
+更新时间：2026-09-11
+分支：`feature/electron-rewrite`
+
+本表回答一个问题：**换栈之后，Kotlin / Compose 桌面应用具备的能力，Electron 侧还有哪些没有对齐。**
+
+状态说明：
+
+- ✅ 已迁移：Electron 侧有实现，且证据列指向可核验的对照（golden 用例、测试文件或人工对照日期）。
+- 📝 部分迁移：主体可用，但矩阵缺口列列出的部分尚未对齐。
+- ⏳ 未开始：Electron 侧没有实现。
+
+维护规则：
+
+1. 新增能力时补一行，而不是改写状态词。
+2. 「证据」列必须可核验：golden 用例名、测试文件名，或「人工对照 + 日期」。写「已完成」不算证据。
+3. 能自动化的断言直接固化进测试，矩阵引用测试名，不靠人记得更新。
+
+## 外壳与平台基座
+
+| 能力 | Kotlin 位置 | Electron 落点 | 状态 | 证据 | 缺口 |
+| --- | --- | --- | --- | --- | --- |
+| 导航：14 目的地、9 张首页卡、已访问页面保活 | `AppDestination` / `AppNavigator` | `apps/desktop/src/shared/destinations.ts` | ✅ | `destinations.test.ts` 断言 14/9/保活 | – |
+| 设置迁移（`java.util.prefs` 三平台底层） | `desktop-app` 设置层 | `packages/settings` | ✅ | `legacy-prefs-source.test.ts`、`legacy-macos-plist.ts` / `legacy-windows-registry.ts` / `legacy-linux-xml.ts` | 未用 Kotlin 真实写出的 plist / 注册表 / XML 做端到端对照 |
+| 主题（明暗、跟随系统） | Compose 主题 | `shared/theme.ts` + `App.tsx` | ✅ | `theme.test.ts` | – |
+| 国际化 en/zh | 47 个 `strings.xml`、2,936 条 | `shared/i18n.ts` + 各面板自带词条 | 📝 | `i18n.test.ts` | 不是从 `strings.xml` 抽取，而是按需重写；未做全量文案覆盖核对 |
+| ADB 发现优先级、参数向量不过 shell、输入校验 | `platform-core/adb-core` | `packages/platform-adb` | ✅ | `adb-locator.test.ts`、`adb-input-validator.test.ts` | 未在真实设备上执行 |
+| Perfetto 固定 v57.2 + SHA-256，不允许 PATH 回退 | `platform-perfetto` | `packages/platform-perfetto` | ✅ | `tool-resolver.test.ts`、`trace-processor-manifest.json` | – |
+| 应用数据目录 `~/.android-performance-studio/` | 各 feature 直接构造路径 | `source-backend.ts`、`ai-service.ts` 用该目录 | 📝 | `source-workspaces.db`、`analysis-sessions.db` 已共用 | 其余 feature 的会话存在 Electron `userData`，与 Kotlin 分叉 |
+| 凭据存储 | macOS Keychain，其余平台仅内存 | `packages/ai-core/src/safe-storage-credentials.ts` | ✅ | `safe-storage-credentials.test.ts`、`isPersistentBackend` 保留「无系统密钥即不落盘」 | – |
+| 进程模型与安全 | – | `main/index.ts` 窗口配置 | ✅ | `contextIsolation: true`、`sandbox: true`、`nodeIntegration: false` | `utilityProcess`/`worker_threads` 下沉未做；IPC 参数未加 schema 校验 |
+
+## Profiler 与分析器
+
+| 能力 | Kotlin 位置 | Electron 落点 | 状态 | 证据 | 缺口 |
+| --- | --- | --- | --- | --- | --- |
+| Layout Inspector：协议 v1、隐藏层级、命中测试、虚拟化树 | `layout-inspector` (23,652 行) | `packages/layout-inspector` + `LayoutInspectorPanel` | 📝 | `codec.test.ts`、`interaction.test.ts`、`uiautomator.test.ts`、`hidden-layers` | 无 canvas：没有缩放/平移/全量 bounds 叠加；Compose 检查侧只落了 model 与脱敏 |
+| Trace Analyzer（内置 Perfetto UI） | `perfetto-viewer` | `TraceAnalyzerPanel` + `aps-perfetto://` | ✅ | `trace-capture-service.test.ts`、`trace-store.test.ts` | 依赖打包资源，见「打包」行 |
+| CPU Profiler（simpleperf） | `simpleperf-viewer` (46,238 行) | `packages/simpleperf-profiler` + `profile-analysis` | ✅ | golden corpus 3 例 + `perf.test.ts` 比值闸门 | 未接真实设备；百万 sample 口径未单独验证 |
+| Method Recording（ART trace） | `parser-art-trace` | `packages/art-trace` | ✅ | golden corpus 3 例 + `perf.test.ts` | `parse` 单段约为 JVM 的 2.4×，只报告不断言 |
+| Memory Profiler：HPROF、直方图、支配树、泄漏 | `memory-profiler` (15,590 行) | `packages/memory-profiler` | ✅ | golden 磁盘夹具 + corpus 4 例 + JVM 比值闸门 | – |
+| Memory 深度分析：Activity/Fragment/static/Handler 启发式、Bitmap 实例、Activity 泄漏报表、Heap diff | `MemoryDeepAnalysis.kt`、`HeapDiffAnalyzer.kt` | `packages/memory-profiler/src/deep-analysis.ts` | 📝 | 模块已移植，含字段名引用链 | 无 Kotlin golden 对照；实例浏览只对本次运行的会话有效 |
+| Bitmap dump（API 35 `am dumpheap -b png`） | `BitmapDumpParser.kt` 等 831 行 | `bitmap-dump.ts` + `bitmap-model.ts` | 📝 | 流式分块提取，PNG 不进内存 | 无 Kotlin golden 对照；未在 API 35 设备上跑过 |
+| Native heap（heapprofd） | `NativeHeapTraceParser.kt` 等 830 行 | `native-heap-trace.ts` + `native-heap-adapter.ts` | 📝 | processor 优先、wire 兜底，结果记录来源与原因 | 无 Kotlin golden 对照；未接真实设备 |
+| Java heap trace（Perfetto `java_hprof`） | `JavaHeapTraceParser.kt` 等 887 行 | `java-heap-trace.ts` + `heap-graph-bridge.ts` + `java-heap-adapter.ts` | 📝 | 分块组装、id delta、描述符类名 | 无 Kotlin golden 对照 |
+| Frame Profiler | `frame-profiler` | `packages/frame-profiler` + 面板 | ✅ | `gfxinfo.test.ts`、`analysis.test.ts`、`session.test.ts` | 未接真实设备 |
+| Startup Profiler | `startup-profiler` | `packages/startup-profiler` + 面板 | ✅ | `parsers.test.ts`、`experiment.test.ts`、`session.test.ts` | 未接真实设备 |
+| Battery Profiler | `battery-profiler` | `packages/battery-profiler` + 面板 | ✅ | `parser.test.ts`、`analysis.test.ts`、`conditions.test.ts` | 未接真实设备 |
+| Network Profiler（默认拒绝的脱敏） | `network-profiler` | `packages/network-profiler` + 面板 | ✅ | `redactor.test.ts`、`har.test.ts` | 未接真实设备 |
+| Benchmark Regression | `benchmark-regression` | `packages/benchmark-regression` + 面板 | ✅ | `parser.test.ts`、`analyzer.test.ts` | – |
+| GPU Inspector（外部 AGI） | `gpu-inspector-integration` | `packages/gpu-inspector` + 面板 | ✅ | `toolchain.test.ts`、`artifact-index.test.ts` | 未在装有 AGI 的机器上跑过 |
+| Source Workspace：Local / GitHub / AOSP、索引、解析、内容寻址缓存 | `source-workspace` | `packages/source-workspace` + `main/source-backend.ts` | ✅ | `source-workspace.test.ts`；handlers 全部走共享库 | 未对真实 Android 源码树的规模验证 |
+| AI 分析：OpenAI 传输、会话仓库、证据绑定、源码感知 | `ai-core` + `SourceAwareLayoutAiAnalysisClient.kt` | `packages/ai-core` + `main/ai-service.ts` | 📝 | `gateway.test.ts`、`openai-client.test.ts`、`session-repository.test.ts` | 无 IPC schema 校验；未用 Kotlin 真实写出的 `analysis-sessions.db` 对照 |
+
+## 打包、发布与兼容
+
+| 能力 | Kotlin 位置 | Electron 落点 | 状态 | 证据 | 缺口 |
+| --- | --- | --- | --- | --- | --- |
+| 六格式安装包（DMG/PKG/MSI/EXE/DEB/RPM × 5 组合 = 10 资产） | `release.yml` + jpackage | `electron-builder.yml` + `.github/workflows/electron-package.yml` | 📝 | `release.yml:419-430` 的命名契约已写入 `artifactName`；五组合矩阵已配置 | 本环境无图形/沙箱受限，未真实产出安装包；未签名未公证（D5 有意为之） |
+| 运行时资产随包（Perfetto UI、trace_processor、图标） | `desktop-app/build.gradle.kts` 资源段 | `extraResources` + `build/icon.*` | 📝 | 源路径已存在；`scripts/verify-package.mjs` 断言包内资产与 SHA-256 | 未在打包产物上执行过（见上一行） |
+| 版本注入与产物命名 | `-PappVersion` | `scripts/set-version.mjs` + `artifactName` | ✅ | 命名契约与 Kotlin 一致 | – |
+| capture archive 导入/导出 | `CaptureArchiveCodec` | – | ⏳ | – | 未迁移 |
+| 多窗口协议 | `capture` 多 window | `layout-inspector` 模型带 `windows` | 📝 | `codec` 覆盖 windows | 面板未提供窗口选择器 |
+| 文档随包分发 | `docs-user` / `docs-user-zh` | – | ⏳ | – | 未打包，应用内也没有打开入口 |
+
+## 已知的有意偏离
+
+| 偏离 | 原因 | 记录位置 |
+| --- | --- | --- |
+| 不托管 Firefox Profiler UI | Electron 的 CPU Profiler 用自研 SVG 火焰图；`gecko.ts` 保留导入/导出能力 | `packages/simpleperf-profiler/src/gecko.ts` |
+| HPROF 原始 dump 不在会话中保留 | 可复现且可达 GB 级；代价是实例浏览只对本次运行的会话有效 | `main/memory-heap-cache.ts` |
+| ART trace 投影保留线程表里没有的线程事件 | 避免静默丢数据 | `packages/art-trace` 注释 |
+| ProGuard 映射不重写 heap dump 的字符串表 | 惰性解析类名，重写字符串表会连带改动只是"看起来像类名"的常量 | `packages/memory-profiler/src/proguard.ts` |
+
+## 与 issue #21 完成定义（DoD）的对照
+
+| DoD 条目 | 状态 | 说明 |
+| --- | --- | --- |
+| D1–D5 验收项全部满足 | 📝 | D2 解析器闸门已达标；D4 的 `utilityProcess` 与 IPC schema 未做 |
+| 9 项 Profiler + Layout Inspector + Trace Analyzer + AI/Source 能力对齐并通过 golden / 人工对照 | 📝 | 全部有实现；golden 只覆盖 HPROF / SIMPLEPERF / ART trace 三条解析链路 |
+| 性能门槛全部达标 | 📝 | 解析器与 10k 层级已达标；UI 帧率待图形环境，缩放无实现对象 |
+| 六格式本地/CI 冒烟通过 | 📝 | 矩阵已配置；本环境未能产出 |
+| 既有设置 / SQLite / 归档可读 | 📝 | 设置与 source/ai 两个库共用；其余 feature 的会话路径分叉；归档未迁移 |
+| 文档更新，旧 Compose 路径归档 | ⏳ | 见 Phase 4 |

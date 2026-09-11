@@ -9,26 +9,51 @@ files:
   - out/**
   - package.json
 
-# Phase 0 smoke builds only: no signing, no notarization, no publish.
-# electron-builder downloads its own Electron; do not point electronDist at a
-# pnpm-installed dist, which is absent on clean CI checkouts.
+# Smoke builds only: no signing, no notarization, no publish. The six formats
+# exist so the packaging path is exercised, not so anything is released.
 npmRebuild: false
 publish: null
 
+# The resource names the application looks for at runtime. Both paths are
+# checked in main: <resources>/perfetto-ui and <resources>/perfetto-tools.
+# Without them a package starts and then has no Trace Processor and no bundled
+# Perfetto UI, which the --dir smoke build never catches because a checkout
+# still has the repository copies.
 mac:
   target:
     - dmg
     - pkg
   category: public.app-category.developer-tools
+  icon: build/icon.icns
   identity: null
+  artifactName: ${productName}-${version}-macos-${arch}.${ext}
+  extraResources:
+    - from: ../../../third_party/perfetto/out/ui/dist
+      to: perfetto-ui
+    - from: ../../../build/perfetto-tools/trace_processor_shell
+      to: perfetto-tools/trace_processor_shell
 
 win:
   target:
     - nsis
     - msi
+  icon: build/icon.ico
+  artifactName: ${productName}-${version}-windows-${arch}.${ext}
+  extraResources:
+    - from: ../../../third_party/perfetto/out/ui/dist
+      to: perfetto-ui
+    - from: ../../../build/perfetto-tools/trace_processor_shell
+      to: perfetto-tools/trace_processor_shell.exe
 
 linux:
   target:
     - deb
     - rpm
   category: Development
+  icon: build/icon.png
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+  extraResources:
+    - from: ../../../third_party/perfetto/out/ui/dist
+      to: perfetto-ui
+    - from: ../../../build/perfetto-tools/trace_processor_shell
+      to: perfetto-tools/trace_processor_shell
