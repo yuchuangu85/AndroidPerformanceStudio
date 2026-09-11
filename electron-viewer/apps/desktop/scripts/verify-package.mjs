@@ -24,22 +24,33 @@ if (!existsSync(unpacked)) {
 }
 
 /**
- * The resources directory, whichever layout the platform produced: an explicit
- * .app bundle, the macOS output directory that contains one, or the Windows and
- * Linux unpacked directory.
+ * A directory and its descendants down to `depth`.
+ *
+ * The macOS bundle sits two levels below the output directory
+ * (release/mac-arm64/App.app), while the Windows and Linux resources sit one
+ * level below (release/linux-unpacked/resources), so one level of lookahead is
+ * not enough — which is exactly how the macOS jobs failed while the other three
+ * passed.
  */
-function resourcesOf(directory) {
-  // The caller may name the unpacked directory itself or the directory that holds
-  // it: electron-builder uses mac/, mac-arm64/, win-unpacked/ or linux-unpacked/
-  // depending on host and target, and a hard-coded path silently missed one.
-  const candidates = [directory];
+function directoriesUnder(directory, depth) {
+  const found = [directory];
+  if (depth <= 0) return found;
+  let entries = [];
   try {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (entry.isDirectory()) candidates.push(join(directory, entry.name));
-    }
+    entries = readdirSync(directory, { withFileTypes: true });
   } catch {
-    // Not a directory, or unreadable: the candidates below still get tried.
+    return found;
   }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    found.push(...directoriesUnder(join(directory, entry.name), depth - 1));
+  }
+  return found;
+}
+
+/** The resources directory, whichever layout the platform produced. */
+function resourcesOf(directory) {
+  const candidates = directoriesUnder(directory, 2);
   for (const candidate of candidates) {
     if (candidate.endsWith('.app')) return join(candidate, 'Contents', 'Resources');
   }
