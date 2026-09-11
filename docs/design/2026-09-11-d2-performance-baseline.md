@@ -122,11 +122,62 @@ dominator 和一次可达性，再加上 `computeDominators` 内部自己的一�
 占会话时间的绝大部分。真正的优化空间在 dominator 定点本身（长环会放大迭代次数），
 而不是在调用方重复计算。
 
+## Dominator 算法替换：CHK → Semi-NCA（2026-09-11 追加）
+
+会话时间几乎全在 `computeDominators`，所以直接对它下手。
+
+### 先测量，再动手（测量纠正了两个假设）
+
+给真实堆加上计数器后：
+
+| 形状 | 轮数 | intersect 次数 | **intersect 步数** | 耗时 |
+| --- | ---: | ---: | ---: | ---: |
+| chain | 2 | 398,600 | 801,000 | ~520 ms |
+| cyclic | 4 | 686,000 | **66,636,500** | ~3,900 ms |
+
+- 假设一「环让定点多跑很多轮」——**错**，只多 2 轮（4 vs 2）。
+- 假设二「用一个工作列表（worklist）能解决」——**也错**，成本不在轮数或交点次数
+  （只差 1.7×），而在**每次 intersect 沿 dominator 树走的步数**（平均 2 步 vs 97 步，差 83×）。
+  工作列表版本对此毫无帮助。
+
+这是迭代式 Cooper-Harvey-Kennedy 的固有弱点：`intersect` 的代价与 dominator 树的形状
+相关，长环会让它退化。
+
+### 替换为 Semi-NCA
+
+`computeDominators` 改为 Semi-NCA（Georgiadis & Tarjan；LLVM 用的同一套）：
+深度优先编号 → 并查集（带路径压缩）求半支配者 → 一趟 NCA 求直接支配者，
+复杂度 O(E log V)，与图形状无关。旧实现保留为**仅供测试**的
+`computeDominatorsReference`，属性测试在 40 个随机图 + 链/环/菱形上与它逐项比对
+（直接支配者与保留大小完全一致）。
+
+### 同一轮内的 A/B
+
+| 形状 | Semi-NCA | 旧 CHK | 加速 |
+| --- | ---: | ---: | ---: |
+| chain | 608.7 ms | 1606.2 ms | **2.6×** |
+| cyclic | 458.0 ms | 8088.7 ms | **17.7×** |
+
+关键不只是快：**环状不再是慢的那种形状**（此前慢 8×，现在两者同量级），
+支配者分析变成形状无关。
+
+### 闸门的最新结果
+
+同一次 CI 运行（两个工作流都绿）：
+
+| 形状 | 阶段 | TypeScript | JVM | 比值 |
+| --- | --- | ---: | ---: | ---: |
+| chain | `parseHprof` | 214.4 ms | 213.9 ms | **1.00×** |
+| chain | `classSumAggregation` | 96.5 ms | 84.8 ms | **1.14×** |
+| cyclic | `parseHprof` | 192.3 ms | 192.1 ms | **1.00×** |
+| cyclic | `classSumAggregation` | 95.4 ms | 90.2 ms | **1.06×** |
+
+解析与 JVM 持平，聚合在 6–14% 以内，全部远低于 1.5× 闸门。
+
 ## 下一步
 
-- **优化 dominator 定点**：这是唯一还有量级空间的地方。先记录迭代次数（长环会显著放大），
-  再考虑用工作列表（worklist）替代「每轮重扫全部节点」，或改为按需分析——只对用户展开的
-  子树或前 N 个可疑对象计算保留大小。
-- 为 SIMPLEPERF 与 ART trace 补上同样的 JVM 对照与 golden 导出器（D1 目前只覆盖 HPROF）。
+- 为 SIMPLEPERF 与 ART trace 补上同样的 JVM 对照与 golden 导出器（D1/D2 目前只覆盖 HPROF）。
 - 把带闸门的基准从「每次 push」改成定时任务或仅在相关路径变化时运行，避免拖慢日常 PR
-  （当前 golden 作业约 3 分钟，其中 Gradle 构建占大头）。
+  （当前 golden 作业约 3 分钟，Gradle 构建占大头）。
+- 泄漏排名里的 `referenceChainTo` 对每个可疑对象各做一次 BFS；当前形状下只占几十毫秒，
+  但堆更大时可以用一次多源 BFS 换掉。
