@@ -13,6 +13,7 @@ export const DESTINATIONS = [
   'GPU_INSPECTOR',
   'BENCHMARK_REGRESSION',
   'METHOD_RECORDING',
+  'AI_ANALYSIS',
 ] as const;
 
 export type AppDestination = (typeof DESTINATIONS)[number];
@@ -45,6 +46,7 @@ export const DESTINATION_TITLE_KEYS = {
   GPU_INSPECTOR: 'destination.gpuInspector',
   BENCHMARK_REGRESSION: 'destination.benchmarkRegression',
   METHOD_RECORDING: 'destination.methodRecording',
+  AI_ANALYSIS: 'destination.aiAnalysis',
 } as const satisfies Record<AppDestination, string>;
 
 export function shouldMaximizeWindow(destination: AppDestination): boolean {

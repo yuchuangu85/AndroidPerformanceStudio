@@ -8,6 +8,7 @@ import {
   type CpuCaptureRequest,
   type CpuSnapshotRequest,
   type MethodCaptureRequest,
+  type AiAnalyzeRequest,
   type MethodSnapshotRequest,
   type SourceResolveRequest,
   type FrameCaptureInput,
@@ -73,6 +74,13 @@ const api: ApsApi = {
   captureMemory: (input: MemoryCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.memoryCapture, input),
   listMemorySessions: () => ipcRenderer.invoke(IPC_CHANNELS.memoryList),
   loadMemorySession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.memoryLoad, id),
+  getAiSettings: () => ipcRenderer.invoke(IPC_CHANNELS.aiSettings),
+  saveAiCredential: (value: string) => ipcRenderer.invoke(IPC_CHANNELS.aiSaveCredential, value),
+  clearAiCredential: () => ipcRenderer.invoke(IPC_CHANNELS.aiClearCredential),
+  listAiModels: () => ipcRenderer.invoke(IPC_CHANNELS.aiModels),
+  analyzeLayoutWithAi: (input: AiAnalyzeRequest) => ipcRenderer.invoke(IPC_CHANNELS.aiAnalyze, input),
+  listAiSessions: () => ipcRenderer.invoke(IPC_CHANNELS.aiSessions),
+  loadAiFindings: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.aiFindings, sessionId),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

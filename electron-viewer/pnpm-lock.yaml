@@ -127,6 +127,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@aps/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
       '@aps/art-trace':
         specifier: workspace:*
         version: link:../../packages/art-trace

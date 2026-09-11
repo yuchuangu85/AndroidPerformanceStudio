@@ -44,6 +44,8 @@ export interface AnalysisSessionRepository {
   saveRequest(request: AnalysisRequest): void;
   saveResult(result: AnalysisResult): void;
   session(id: AnalysisSessionId): AnalysisSession | undefined;
+  /** Newest first; the Kotlin repository has no equivalent, the UI needs it. */
+  listSessions(limit: number): AnalysisSession[];
   findings(id: AnalysisSessionId): AnalysisFinding[];
   evidence(id: AnalysisSessionId): AnalysisEvidenceSummary[];
   candidates(id: AnalysisSessionId): AnalysisCandidateSummary[];
@@ -176,6 +178,18 @@ export class SqliteAnalysisSessionRepository implements AnalysisSessionRepositor
       errorMessage: errorMessage ?? null,
       provider: nullableString(record['provider']) ?? null,
     };
+  }
+
+  listSessions(limit: number): AnalysisSession[] {
+    const rows = this.database
+      .prepare('SELECT id FROM analysis_session ORDER BY created_at DESC LIMIT ?')
+      .all(limit) as Record<string, unknown>[];
+    const sessions: AnalysisSession[] = [];
+    for (const row of rows) {
+      const session = this.session(requiredString(row, 'id'));
+      if (session !== undefined) sessions.push(session);
+    }
+    return sessions;
   }
 
   findings(id: AnalysisSessionId): AnalysisFinding[] {

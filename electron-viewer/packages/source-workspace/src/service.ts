@@ -15,7 +15,15 @@ import type { SourceFile, SourceLocation, SourceSnapshot, SourceSymbol, SourceWo
 import type { SourceProviderRegistry } from './providers.js';
 import type { SourceWorkspaceRepository } from './repository.js';
 import type { VerifiedSourceContent } from './model.js';
-import type { ContentAddressedSourceCache } from './node.js';
+/**
+ * The content addressed cache as the service needs it. Declared structurally
+ * so this module never imports the node entry: a type-only import still drags
+ * node builtins into the renderer type check.
+ */
+export interface SourceContentCache {
+  put(content: Uint8Array): string;
+  read(hash: string): Uint8Array;
+}
 
 export interface SourceWorkspaceService {
   workspaces(): readonly SourceWorkspace[];
@@ -31,7 +39,7 @@ export interface SourceWorkspaceService {
 export interface DefaultSourceWorkspaceServiceDependencies {
   readonly providers: SourceProviderRegistry;
   readonly repository: SourceWorkspaceRepository;
-  readonly cache: ContentAddressedSourceCache;
+  readonly cache: SourceContentCache;
   readonly sha256: (value: string) => string;
   readonly sha256Bytes: (value: Uint8Array) => string;
   /** Injected so a test can pin the ids and the clock. */
@@ -44,7 +52,7 @@ const PROGRESS_UPDATE_INTERVAL = 100;
 export class DefaultSourceWorkspaceService implements SourceWorkspaceService {
   private readonly providers: SourceProviderRegistry;
   private readonly repository: SourceWorkspaceRepository;
-  private readonly cache: ContentAddressedSourceCache;
+  private readonly cache: SourceContentCache;
   private readonly sha256: (value: string) => string;
   private readonly sha256Bytes: (value: Uint8Array) => string;
   private readonly newId: () => string;

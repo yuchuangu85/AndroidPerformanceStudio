@@ -28,6 +28,7 @@ export const SHELL_STRINGS = {
   'shell.migration.fresh': { en: 'Fresh settings', zh: '全新设置' },
   'shell.phase': { en: 'Electron rewrite in progress', zh: 'Electron 重写进行中' },
   'destination.sourceWorkspaces': { en: 'Source Workspaces', zh: '源码工作区' },
+  'destination.aiAnalysis': { en: 'AI Analysis', zh: 'AI 分析' },
   'destination.layoutInspector': { en: 'Layout Inspector', zh: '布局检查器' },
   'destination.cpuProfiler': { en: 'CPU Profiler', zh: 'CPU 分析器' },
   'destination.traceAnalyzer': { en: 'Trace Analyzer', zh: 'Trace 分析器' },

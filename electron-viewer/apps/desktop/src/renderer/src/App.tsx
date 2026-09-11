@@ -14,6 +14,7 @@ import type {
   ApplicationThemePreference,
 } from '../../shared/settings-contract';
 import { resolvedTheme } from '../../shared/theme';
+import { AiAnalysisPanel } from './AiAnalysisPanel';
 import { BatteryProfilerPanel } from './BatteryProfilerPanel';
 import { CpuProfilerPanel } from './CpuProfilerPanel';
 import { BenchmarkRegressionPanel } from './BenchmarkRegressionPanel';
@@ -188,6 +189,8 @@ export function App(): JSX.Element {
               <CpuProfilerPanel language={language} devices={snapshot.devices} />
             ) : current === 'MEMORY_PROFILER' ? (
               <MemoryProfilerPanel language={language} devices={snapshot.devices} />
+            ) : current === 'AI_ANALYSIS' ? (
+              <AiAnalysisPanel language={language} />
             ) : current === 'GPU_INSPECTOR' ? (
               <GpuInspectorPanel language={language} devices={snapshot.devices} />
             ) : (

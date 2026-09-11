@@ -492,6 +492,56 @@ export interface ApsApi {
   captureMemory(input: MemoryCaptureInput): Promise<MemoryCaptureOutcome>;
   listMemorySessions(): Promise<readonly MemorySessionSummary[]>;
   loadMemorySession(id: string): Promise<MemorySession | undefined>;
+  getAiSettings(): Promise<AiSettingsSnapshot>;
+  saveAiCredential(value: string): Promise<AiSettingsSnapshot>;
+  clearAiCredential(): Promise<AiSettingsSnapshot>;
+  listAiModels(): Promise<readonly string[]>;
+  analyzeLayoutWithAi(input: AiAnalyzeRequest): Promise<AiAnalyzeOutcome>;
+  listAiSessions(): Promise<readonly AiSessionSummary[]>;
+  loadAiFindings(sessionId: string): Promise<readonly AnalysisFinding[]>;
+}
+
+export interface AiSettingsSnapshot {
+  readonly configured: boolean;
+  readonly persistent: boolean;
+  readonly model: string;
+}
+
+export interface AiAnalyzeRequest {
+  readonly captureId: string;
+  readonly selectedNodeId?: string;
+  readonly model?: string;
+}
+
+export interface AiAnalyzeOutcome {
+  readonly ok: boolean;
+  readonly sessionId: string;
+  readonly model?: string;
+  readonly summary?: string;
+  readonly findings?: readonly AnalysisFinding[];
+  readonly error?: string;
+}
+
+export interface AnalysisFinding {
+  readonly id: string;
+  readonly severity: 'INFO' | 'WARNING' | 'ERROR';
+  readonly title: string;
+  readonly explanation: string;
+  readonly recommendation: string;
+  readonly analysisConfidence: number;
+  readonly performanceEvidenceIds: readonly string[];
+  readonly sourceCandidateIds: readonly string[];
+}
+
+export interface AiSessionSummary {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly status: string;
+  readonly model: string | null;
+  readonly provider: string | null;
+  readonly scope: string;
+  readonly summary: string | null;
+  readonly errorMessage: string | null;
 }
 
 export const IPC_CHANNELS = {
@@ -549,4 +599,11 @@ export const IPC_CHANNELS = {
   memoryCapture: 'memory:capture',
   memoryList: 'memory:list',
   memoryLoad: 'memory:load',
+  aiSettings: 'ai:settings',
+  aiSaveCredential: 'ai:saveCredential',
+  aiClearCredential: 'ai:clearCredential',
+  aiModels: 'ai:models',
+  aiAnalyze: 'ai:analyze',
+  aiSessions: 'ai:sessions',
+  aiFindings: 'ai:findings',
 } as const;

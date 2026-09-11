@@ -1,0 +1,214 @@
+import { useCallback, useEffect, useState, type JSX } from 'react';
+import type { UiLanguage } from '../../shared/i18n';
+import type {
+  AiAnalyzeOutcome,
+  AiSessionSummary,
+  AiSettingsSnapshot,
+  AnalysisFinding,
+  LayoutCaptureSummary,
+} from '../../shared/ipc';
+
+const STRINGS = {
+  key: { en: 'OpenAI API key', zh: 'OpenAI API key' },
+  save: { en: 'Save', zh: '保存' },
+  clear: { en: 'Remove', zh: '移除' },
+  models: { en: 'Load models', zh: '加载模型' },
+  model: { en: 'Model', zh: '模型' },
+  capture: { en: 'Layout capture', zh: '布局抓取' },
+  analyze: { en: 'Analyze', zh: '开始分析' },
+  none: { en: 'No layout capture yet', zh: '还没有布局抓取' },
+  configured: { en: 'Key stored', zh: '密钥已保存' },
+  memoryOnly: { en: 'memory only (no OS key)', zh: '仅内存（无系统密钥）' },
+  notConfigured: { en: 'No API key configured', zh: '尚未配置 API key' },
+  findings: { en: 'Findings', zh: '发现' },
+  history: { en: 'Sessions', zh: '会话' },
+  empty: { en: 'No findings yet', zh: '还没有结果' },
+} as const;
+
+type StringKey = keyof typeof STRINGS;
+
+function t(key: StringKey, language: UiLanguage): string {
+  return STRINGS[key][language];
+}
+
+const SEVERITY_CLASS: Record<AnalysisFinding['severity'], string> = {
+  INFO: 'card__muted',
+  WARNING: 'card__muted',
+  ERROR: 'card__error',
+};
+
+export function AiAnalysisPanel({ language }: { readonly language: UiLanguage }): JSX.Element {
+  const [settings, setSettings] = useState<AiSettingsSnapshot | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [models, setModels] = useState<readonly string[]>([]);
+  const [model, setModel] = useState('');
+  const [captures, setCaptures] = useState<readonly LayoutCaptureSummary[]>([]);
+  const [captureId, setCaptureId] = useState('');
+  const [outcome, setOutcome] = useState<AiAnalyzeOutcome | null>(null);
+  const [sessions, setSessions] = useState<readonly AiSessionSummary[]>([]);
+  const [findings, setFindings] = useState<readonly AnalysisFinding[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    void window.aps.getAiSettings().then((snapshot) => {
+      setSettings(snapshot);
+      setModel((current) => (current.length > 0 ? current : snapshot.model));
+    });
+    void window.aps.listAiSessions().then(setSessions);
+    void window.aps.listLayoutCaptures().then((listed) => {
+      setCaptures(listed);
+      setCaptureId((current) => (current.length > 0 ? current : (listed[0]?.id ?? '')));
+    });
+  }, []);
+
+  useEffect(reload, [reload]);
+
+  const run = (body: () => Promise<void>): void => {
+    setBusy(true);
+    setError(null);
+    body()
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="card">
+      <h3 className="card__title">{t('key', language)}</h3>
+      <p className="card__muted">
+        {settings === null
+          ? ''
+          : settings.configured
+            ? t('configured', language) + (settings.persistent ? '' : ' · ' + t('memoryOnly', language))
+            : t('notConfigured', language)}
+      </p>
+      <label className="field">
+        <span>{t('key', language)}</span>
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          placeholder="sk-..."
+        />
+      </label>
+      <button
+        type="button"
+        className="button"
+        disabled={busy || apiKey.trim().length === 0}
+        onClick={() =>
+          run(async () => {
+            setSettings(await window.aps.saveAiCredential(apiKey));
+            setApiKey('');
+          })
+        }
+      >
+        {t('save', language)}
+      </button>
+      <button
+        type="button"
+        className="button"
+        disabled={busy}
+        onClick={() => run(async () => setSettings(await window.aps.clearAiCredential()))}
+      >
+        {t('clear', language)}
+      </button>
+
+      <h3 className="card__title">{t('model', language)}</h3>
+      <button
+        type="button"
+        className="button"
+        disabled={busy}
+        onClick={() => run(async () => setModels(await window.aps.listAiModels()))}
+      >
+        {t('models', language)}
+      </button>
+      <label className="field">
+        <span>{t('model', language)}</span>
+        <input value={model} onChange={(event) => setModel(event.target.value)} />
+      </label>
+      {models.length > 0 ? (
+        <ul className="list">
+          {models.map((id) => (
+            <li key={id}>
+              <button type="button" className="button" onClick={() => setModel(id)}>
+                {id}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <h3 className="card__title">{t('capture', language)}</h3>
+      {captures.length === 0 ? (
+        <p className="card__muted">{t('none', language)}</p>
+      ) : (
+        <label className="field">
+          <span>{t('capture', language)}</span>
+          <select value={captureId} onChange={(event) => setCaptureId(event.target.value)}>
+            {captures.map((capture) => (
+              <option key={capture.id} value={capture.id}>
+                {capture.id}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <button
+        type="button"
+        className="button"
+        disabled={busy || captureId.length === 0}
+        onClick={() =>
+          run(async () => {
+            const result = await window.aps.analyzeLayoutWithAi({
+              captureId,
+              ...(model.trim().length > 0 ? { model: model.trim() } : {}),
+            });
+            setOutcome(result);
+            setFindings(result.findings ?? []);
+            setSessions(await window.aps.listAiSessions());
+          })
+        }
+      >
+        {t('analyze', language)}
+      </button>
+
+      {outcome !== null && !outcome.ok ? <p className="card__error">{outcome.error}</p> : null}
+      {outcome !== null && outcome.ok ? <p className="card__muted">{outcome.summary}</p> : null}
+
+      <h3 className="card__title">{t('findings', language)}</h3>
+      {findings.length === 0 ? (
+        <p className="card__muted">{t('empty', language)}</p>
+      ) : (
+        <ul className="list">
+          {findings.map((finding) => (
+            <li key={finding.id}>
+              <strong>{finding.title}</strong>{
+              ' ' + finding.severity + ' · ' + finding.analysisConfidence.toFixed(2)
+              }
+              <p className={SEVERITY_CLASS[finding.severity]}>{finding.explanation}</p>
+              <p className="card__muted">{finding.recommendation}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h3 className="card__title">{t('history', language)}</h3>
+      <ul className="list">
+        {sessions.map((session) => (
+          <li key={session.id}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => void window.aps.loadAiFindings(session.id).then(setFindings)}
+            >
+              {session.createdAt + ' · ' + session.status + (session.model === null ? '' : ' · ' + session.model)}
+            </button>
+            {session.errorMessage !== null ? <span className="card__error"> {session.errorMessage}</span> : null}
+          </li>
+        ))}
+      </ul>
+
+      {error !== null ? <p className="card__error">{error}</p> : null}
+    </section>
+  );
+}

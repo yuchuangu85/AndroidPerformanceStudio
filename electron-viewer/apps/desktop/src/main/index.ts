@@ -92,6 +92,9 @@ import {
   type SourceIndex,
 } from './source-workspace-service.js';
 import { SourceWorkspaceStore } from './source-workspace-store.js';
+import { SafeStorageCredentialStore, SqliteAnalysisSessionRepository, fetchAiTransport, isPersistentBackend } from '@aps/ai-core/node';
+import { AiAnalysisService, aiCredentialFilePath, aiSessionsDatabasePath, ensureAiDirectory, layoutPerformanceEvidence } from './ai-service.js';
+import { safeStorage } from 'electron';
 import { MethodSessionStore, type StoredMethodSession } from './method-session-store.js';
 import {
   defaultConversionDependencies,
@@ -281,6 +284,26 @@ async function cpuTableFor(record: CpuProfileSessionRecord): Promise<StudioResul
   if (!parsed.ok) return parsed;
   store.cacheTable(record.id, parsed.value.table);
   return ok(parsed.value.table);
+}
+
+/** One instance per process: the sessions database connection is pooled. */
+let aiServiceInstance: AiAnalysisService | undefined;
+
+function aiService(): AiAnalysisService {
+  if (aiServiceInstance !== undefined) return aiServiceInstance;
+  ensureAiDirectory();
+  const credentials = new SafeStorageCredentialStore({
+    safeStorage,
+    filePath: aiCredentialFilePath(),
+  });
+  aiServiceInstance = new AiAnalysisService({
+    credentials,
+    persistent: isPersistentBackend(safeStorage),
+    repository: new SqliteAnalysisSessionRepository(aiSessionsDatabasePath()),
+    transport: fetchAiTransport(),
+    now: () => Date.now(),
+  });
+  return aiServiceInstance;
 }
 
 function memoryStore(): MemorySessionStore {
@@ -1120,6 +1143,40 @@ function registerHandlers(): void {
   });
   ipcMain.handle(IPC_CHANNELS.memoryList, () => memoryStore().list());
   ipcMain.handle(IPC_CHANNELS.memoryLoad, (_event, id: string) => memoryStore().load(id));
+  ipcMain.handle(IPC_CHANNELS.aiSettings, () => aiService().status());
+  ipcMain.handle(IPC_CHANNELS.aiSaveCredential, (_event, value: string) => aiService().saveCredential(value));
+  ipcMain.handle(IPC_CHANNELS.aiClearCredential, () => aiService().clearCredential());
+  ipcMain.handle(IPC_CHANNELS.aiModels, () => aiService().models());
+  ipcMain.handle(IPC_CHANNELS.aiSessions, () =>
+    aiService()
+      .sessions()
+      .map((session) => ({
+        id: session.id,
+        createdAt: session.createdAt,
+        status: session.status,
+        model: session.model,
+        provider: session.provider ?? null,
+        scope: session.scope.description,
+        summary: session.summary ?? null,
+        errorMessage: session.errorMessage ?? null,
+      })),
+  );
+  ipcMain.handle(IPC_CHANNELS.aiFindings, (_event, sessionId: string) => aiService().findings(sessionId));
+  ipcMain.handle(IPC_CHANNELS.aiAnalyze, async (_event, input: { captureId: string; selectedNodeId?: string; model?: string }) => {
+    const snapshot = await layoutStore().loadSnapshot(input.captureId);
+    if (snapshot === undefined) return { ok: false, sessionId: '', error: 'Layout capture not found: ' + input.captureId };
+    const evidence = layoutPerformanceEvidence({
+      captureId: input.captureId,
+      ...(input.selectedNodeId !== undefined ? { selectedNodeId: input.selectedNodeId } : {}),
+      highlights: [],
+      payload: snapshot,
+    });
+    return aiService().analyze({
+      evidence: [evidence],
+      scopeDescription: input.selectedNodeId === undefined ? 'Layout report summary' : 'Layout node ' + input.selectedNodeId,
+      ...(input.model !== undefined ? { model: input.model } : {}),
+    });
+  });
   ipcMain.handle(IPC_CHANNELS.networkList, () => networkStore().list());
   ipcMain.handle(IPC_CHANNELS.networkLoad, (_event, id: string) => networkStore().load(id));
   ipcMain.handle(IPC_CHANNELS.batteryList, () => batteryStore().list());

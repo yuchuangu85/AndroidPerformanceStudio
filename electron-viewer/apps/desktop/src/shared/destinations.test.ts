@@ -9,8 +9,8 @@ import {
 } from './destinations.js';
 
 describe('navigation model', () => {
-  it('defines 13 destinations with a title key each', () => {
-    expect(DESTINATIONS).toHaveLength(13);
+  it('defines 14 destinations with a title key each', () => {
+    expect(DESTINATIONS).toHaveLength(14);
     for (const destination of DESTINATIONS) {
       expect(DESTINATION_TITLE_KEYS[destination]).toBeTruthy();
     }
