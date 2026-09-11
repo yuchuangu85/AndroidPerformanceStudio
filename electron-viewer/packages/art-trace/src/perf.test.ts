@@ -138,6 +138,7 @@ describe.runIf(ENABLED)('ART trace performance baseline', () => {
       if (!parsed.ok) throw new Error(parsed.error.message);
       stacks = toCallStackTable(parsed.value).stacks.length;
     }, results);
+    expect(stacks).toBeGreaterThan(0);
 
     const report = {
       generatedAt: new Date().toISOString(),
