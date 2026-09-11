@@ -31,23 +31,24 @@ jobs:
         include:
           - label: Windows x64 MSI and EXE
             runner: windows-latest
-            targets: nsis,msi
+            # Space separated: the CLI takes an array, not a comma list.
+            targets: nsis msi
             unpacked: release/win-unpacked
           - label: macOS arm64 DMG and PKG
             runner: macos-15
-            targets: dmg,pkg
+            targets: dmg pkg
             unpacked: release/mac-arm64
           - label: macOS x64 DMG and PKG
             runner: macos-15-intel
-            targets: dmg,pkg
+            targets: dmg pkg
             unpacked: release/mac-x64
           - label: Linux x64 DEB and RPM
             runner: ubuntu-latest
-            targets: deb,rpm
+            targets: deb rpm
             unpacked: release/linux-unpacked
           - label: Linux arm64 DEB and RPM
             runner: ubuntu-24.04-arm
-            targets: deb,rpm
+            targets: deb rpm
             unpacked: release/linux-arm64-unpacked
     steps:
       - name: Check out repository
