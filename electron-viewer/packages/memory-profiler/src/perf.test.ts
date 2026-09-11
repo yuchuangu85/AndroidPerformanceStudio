@@ -33,12 +33,16 @@ function jvmBaselinePath(): string | undefined {
 /**
  * D2 gate: the TypeScript parse and class aggregation must stay within 1.5x of
  * the JVM implementation on this machine, measured back to back in one CI job.
+ *
+ * Both stages are shape-independent: the two synthetic shapes share an identical
+ * instance graph and differ only in where the reference chains end, which neither
+ * parsing nor grouping looks at. Comparing them per shape adds noise rather than
+ * signal — the JVM baseline for identical parse work has been seen to differ by
+ * 44% between the two shapes on one runner. These stages are compared on the total
+ * across shapes, and the per-shape split is printed so the numbers stay readable.
  */
 const GATE_RATIO = 1.5;
-const GATED_STAGES: readonly (readonly [string, string])[] = [
-  ['parseHprof', 'parseHprof'],
-  ['classSumAggregation', 'classSumAggregation'],
-];
+const GATED_STAGES: readonly string[] = ['parseHprof', 'classSumAggregation'];
 
 interface JvmBenchmark {
   readonly cases: readonly {
@@ -57,39 +61,49 @@ function compareWithJvm(report: { readonly cases: readonly ShapeCase[] }, baseli
     throw new Error('JVM baseline unreadable at ' + baselinePath, { cause: error });
   }
   const failures: string[] = [];
-  console.log('stage comparison (TypeScript / JVM):');
-  for (const shapeCase of report.cases) {
-    const jvmCase = jvm.cases.find((entry) => entry.shape === shapeCase.shape);
-    if (jvmCase === undefined) {
-      failures.push('JVM baseline is missing the ' + shapeCase.shape + ' shape');
-      continue;
-    }
-    for (const [tsStage, jvmStage] of GATED_STAGES) {
-      const ts = shapeCase.measurements.find((entry) => entry.stage === tsStage)?.milliseconds;
-      const jvmValue = jvmCase.measurements.find((entry) => entry.stage === jvmStage)?.milliseconds;
+  console.log('stage comparison (TypeScript / JVM, total across shapes):');
+  const missingShape = report.cases.some(
+    (shapeCase) => jvm.cases.find((entry) => entry.shape === shapeCase.shape) === undefined,
+  );
+  if (missingShape) failures.push('JVM baseline is missing one of the shapes');
+
+  for (const stage of GATED_STAGES) {
+    let tsTotal = 0;
+    let jvmTotal = 0;
+    let measured = true;
+    const split: string[] = [];
+    for (const shapeCase of report.cases) {
+      const jvmCase = jvm.cases.find((entry) => entry.shape === shapeCase.shape);
+      const ts = shapeCase.measurements.find((entry) => entry.stage === stage)?.milliseconds;
+      const jvmValue = jvmCase?.measurements.find((entry) => entry.stage === stage)?.milliseconds;
       if (ts === undefined || jvmValue === undefined) {
-        failures.push(shapeCase.shape + '/' + tsStage + ': measurement missing');
+        failures.push(stage + ': measurement missing for ' + shapeCase.shape);
+        measured = false;
         continue;
       }
-      const ratio = ts / jvmValue;
-      console.log(
-        '  ' +
-          shapeCase.shape +
-          ' ' +
-          tsStage +
-          ': ' +
-          ts.toFixed(1) +
-          ' ms vs JVM ' +
-          jvmValue.toFixed(1) +
-          ' ms = ' +
-          ratio.toFixed(2) +
-          'x',
+      tsTotal += ts;
+      jvmTotal += jvmValue;
+      split.push(shapeCase.shape + ' ' + ts.toFixed(1) + ' ms vs JVM ' + jvmValue.toFixed(1) + ' ms');
+    }
+    if (!measured) continue;
+    const ratio = tsTotal / jvmTotal;
+    console.log(
+      '  ' +
+        stage +
+        ': ' +
+        tsTotal.toFixed(1) +
+        ' ms vs JVM ' +
+        jvmTotal.toFixed(1) +
+        ' ms = ' +
+        ratio.toFixed(2) +
+        'x  (' +
+        split.join('; ') +
+        ')',
+    );
+    if (ratio > GATE_RATIO) {
+      failures.push(
+        stage + ' is ' + ratio.toFixed(2) + 'x the JVM time (gate ' + GATE_RATIO + 'x)',
       );
-      if (ratio > GATE_RATIO) {
-        failures.push(
-          shapeCase.shape + '/' + tsStage + ' is ' + ratio.toFixed(2) + 'x the JVM time (gate ' + GATE_RATIO + 'x)',
-        );
-      }
     }
   }
   expect(failures).toEqual([]);
