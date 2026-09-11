@@ -209,46 +209,71 @@ function callMethod(socket, id, method, params) {
   });
 }
 
-/** The probe runs inside the renderer and returns frame statistics per action. */
+/**
+ * The probe runs inside the renderer. It waits for the shell to render, opens the
+ * layout destination, and measures frame times while scrolling and hit testing.
+ * A failure returns what the page actually contained, because "the tree is not on
+ * screen" is not a diagnosable report on its own.
+ */
 function probeSource(seconds) {
   return [
     '(async () => {',
     '  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));',
-    '  const destination = [...document.querySelectorAll(\'button, a\')].find((element) =>',
-    '    /layout/i.test(element.textContent || \'\') || (element.textContent || \'\').includes(\'布局\'));',
-    '  if (destination) destination.click();',
-    '  await sleep(600);',
-    '  const tree = document.querySelector(\'.tree\');',
-    '  if (!tree) return { ok: false, reason: \'the tree view is not on screen\' };',
-    '  const sample = async (action) => {',
-    '    const stamps = [];',
-    '    let running = true;',
-    '    const frame = (time) => { stamps.push(time); if (running) requestAnimationFrame(frame); };',
-    '    requestAnimationFrame(frame);',
-    '    const started = performance.now();',
-    '    while (performance.now() - started < ' + String(seconds) + ' * 1000) { action(); await sleep(16); }',
-    '    running = false;',
-    '    const deltas = [];',
-    '    for (let index = 1; index < stamps.length; index += 1) deltas.push(stamps[index] - stamps[index - 1]);',
-    '    if (deltas.length === 0) return { frames: 0, fps: 0, p95FrameMs: 0, longFrames: 0 };',
-    '    deltas.sort((a, b) => a - b);',
-    '    const median = deltas[Math.floor(deltas.length / 2)];',
-    '    const p95 = deltas[Math.min(deltas.length - 1, Math.floor(deltas.length * 0.95))];',
-    '    return { frames: deltas.length, fps: Math.round(1000 / median), p95FrameMs: Math.round(p95 * 100) / 100, longFrames: deltas.filter((delta) => delta > 20).length };',
+    '  const waitFor = async (read, timeoutMs, what) => {',
+    '    const deadline = Date.now() + timeoutMs;',
+    '    while (Date.now() < deadline) {',
+    '      const value = read();',
+    '      if (value) return value;',
+    '      await sleep(100);',
+    '    }',
+    '    throw new Error(\'timed out waiting for \' + what);',
     '  };',
-    '  const scroll = await sample(() => { tree.scrollTop = (tree.scrollTop + 220) % Math.max(1, tree.scrollHeight - tree.clientHeight); });',
-    '  const image = document.querySelector(\'.preview img\');',
-    '  const hit = await sample(() => {',
-    '    if (!image) return;',
-    '    const rect = image.getBoundingClientRect();',
-    '    image.dispatchEvent(new MouseEvent(\'click\', { bubbles: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }));',
+    '  const describe = () => ({',
+    '    buttons: [...document.querySelectorAll(\'button\')].map((element) => (element.textContent || \'\').trim()).slice(0, 24),',
+    '    body: (document.body ? document.body.innerText : \'\').slice(0, 400),',
     '  });',
-    '  return { ok: true, scroll, hit, zoom: null, rows: document.querySelectorAll(\'.tree__row\').length };',
+    '  try {',
+    '    await waitFor(() => document.readyState === \'complete\', 30000, \'the document\');',
+    '    const destination = await waitFor(',
+    '      () => [...document.querySelectorAll(\'button\')].find((element) => {',
+    '        const text = (element.textContent || \'\').trim();',
+    '        return /layout inspector/i.test(text) || text.indexOf(\'布局\') === 0;',
+    '      }),',
+    '      30000,',
+    '      \'the layout destination card\',',
+    '    );',
+    '    destination.click();',
+    '    const tree = await waitFor(() => document.querySelector(\'.tree\'), 20000, \'the tree view\');',
+    '    const sample = async (action) => {',
+    '      const stamps = [];',
+    '      let running = true;',
+    '      const frame = (time) => { stamps.push(time); if (running) requestAnimationFrame(frame); };',
+    '      requestAnimationFrame(frame);',
+    '      const started = performance.now();',
+    '      while (performance.now() - started < ' + String(seconds) + ' * 1000) { action(); await sleep(16); }',
+    '      running = false;',
+    '      const deltas = [];',
+    '      for (let index = 1; index < stamps.length; index += 1) deltas.push(stamps[index] - stamps[index - 1]);',
+    '      if (deltas.length === 0) return { frames: 0, fps: 0, p95FrameMs: 0, longFrames: 0 };',
+    '      deltas.sort((a, b) => a - b);',
+    '      const median = deltas[Math.floor(deltas.length / 2)];',
+    '      const p95 = deltas[Math.min(deltas.length - 1, Math.floor(deltas.length * 0.95))];',
+    '      return { frames: deltas.length, fps: Math.round(1000 / median), p95FrameMs: Math.round(p95 * 100) / 100, longFrames: deltas.filter((delta) => delta > 20).length };',
+    '    };',
+    '    const scroll = await sample(() => { tree.scrollTop = (tree.scrollTop + 220) % Math.max(1, tree.scrollHeight - tree.clientHeight); });',
+    '    const image = document.querySelector(\'.preview img\');',
+    '    const hit = await sample(() => {',
+    '      if (!image) return;',
+    '      const rect = image.getBoundingClientRect();',
+    '      image.dispatchEvent(new MouseEvent(\'click\', { bubbles: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }));',
+    '    });',
+    '    return { ok: true, scroll, hit, zoom: null, rows: document.querySelectorAll(\'.tree__row\').length, hasPreview: image !== null };',
+    '  } catch (error) {',
+    '    return { ok: false, reason: String((error && error.message) || error), ...describe() };',
+    '  }',
     '})()',
   ].join('\n');
 }
-
-/** A GUI-less environment would otherwise wait forever on a window that never opens. */
 const WATCHDOG_MS = 120_000;
 const watchdog = setTimeout(() => {
   console.error('the UI gate timed out; a display (or xvfb) is required to run it');
@@ -295,7 +320,13 @@ async function main() {
       zoomCovered: false,
       osSandbox: sandbox.state,
       ok: value?.ok === true,
-      ...(value?.ok === true ? {} : { reason: value?.reason ?? 'the probe did not run' }),
+      ...(value?.ok === true
+        ? {}
+        : {
+            reason: value?.reason ?? 'the probe did not run',
+            buttons: value?.buttons ?? [],
+            body: value?.body ?? '',
+          }),
     };
     mkdirSync(dirname(OUT), { recursive: true });
     writeFileSync(OUT, JSON.stringify(report, null, 2));
