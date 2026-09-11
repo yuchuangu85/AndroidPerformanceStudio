@@ -46,14 +46,29 @@ function loadCorpus(): readonly { readonly digest: GoldenDigest; readonly bytes:
   } catch {
     return [];
   }
-  return entries
-    .filter((entry) => entry.endsWith('.json'))
-    .sort()
-    .map((entry) => {
-      const digest = JSON.parse(readFileSync(join(GOLDEN_DIRECTORY as string, entry), 'utf8')) as GoldenDigest;
-      const bytes = new Uint8Array(readFileSync(join(GOLDEN_DIRECTORY as string, digest.inputFile)));
-      return { digest, bytes };
-    });
+  const corpus: { digest: GoldenDigest; bytes: Uint8Array }[] = [];
+  for (const entry of entries.filter((name) => name.endsWith('.json')).sort()) {
+    const parsed: unknown = JSON.parse(readFileSync(join(GOLDEN_DIRECTORY as string, entry), 'utf8'));
+    // The directory also holds the JVM benchmark, so only well-formed HPROF
+    // digests are treated as corpus cases.
+    if (!isDigest(parsed)) continue;
+    const bytes = new Uint8Array(readFileSync(join(GOLDEN_DIRECTORY as string, parsed.inputFile)));
+    corpus.push({ digest: parsed, bytes });
+  }
+  return corpus;
+}
+
+function isDigest(value: unknown): value is GoldenDigest {
+  if (value === null || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  const expectations = record['expectations'];
+  return (
+    record['parser'] === 'HPROF' &&
+    typeof record['case'] === 'string' &&
+    typeof record['inputFile'] === 'string' &&
+    expectations !== null &&
+    typeof expectations === 'object'
+  );
 }
 
 const corpus = loadCorpus();
