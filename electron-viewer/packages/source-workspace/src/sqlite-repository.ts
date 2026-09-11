@@ -184,6 +184,20 @@ export class SqliteSourceWorkspaceRepository implements SourceWorkspaceRepositor
     });
   }
 
+  fileCount(snapshotId: string): number {
+    const row = this.database
+      .prepare('SELECT COUNT(*) AS count FROM source_file WHERE snapshot_id = ?')
+      .get(snapshotId) as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
+  symbolCount(snapshotId: string): number {
+    const row = this.database
+      .prepare('SELECT COUNT(*) AS count FROM source_symbol WHERE snapshot_id = ?')
+      .get(snapshotId) as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
   saveCandidates(candidates: readonly ResolutionCandidate[]): void {
     const statement = this.database.prepare(
       'INSERT OR REPLACE INTO resolution_candidate(' +

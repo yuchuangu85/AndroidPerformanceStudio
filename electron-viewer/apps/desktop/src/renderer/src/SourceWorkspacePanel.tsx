@@ -204,6 +204,22 @@ export function SourceWorkspacePanel({ language }: SourceWorkspacePanelProps): J
             <button type="button" className="button" disabled={busy} onClick={reindex}>
               {translate('source.reindex', language)}
             </button>
+            <label className="field">
+              <input
+                type="checkbox"
+                checked={workspace?.allowAiSourceUpload ?? false}
+                onChange={(event) => {
+                  const allowed = event.target.checked;
+                  void window.aps
+                    .setSourceAiUpload({ workspaceId: selectedId, allowed })
+                    .then(() => refresh())
+                    .catch((reason: unknown) =>
+                      setMessage(reason instanceof Error ? reason.message : String(reason)),
+                    );
+                }}
+              />
+              <span>{translate('source.allowAiUpload', language)}</span>
+            </label>
             <button
               type="button"
               className="button"
@@ -227,7 +243,7 @@ export function SourceWorkspacePanel({ language }: SourceWorkspacePanelProps): J
         </div>
         {workspace !== undefined ? (
           <p className="card__muted">
-            <code>{workspace.root}</code> · {workspace.phase}
+            <code>{workspace.root}</code> · {workspace.providerKind} · {workspace.phase}
             {workspace.revision !== undefined ? ' · ' + workspace.revision : ''}
             {workspace.indexedAtEpochMillis !== undefined
               ? ' · ' + new Date(workspace.indexedAtEpochMillis).toLocaleString()

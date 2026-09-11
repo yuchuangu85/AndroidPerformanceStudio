@@ -1,5 +1,5 @@
 import { statSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter } from 'node:path';
 
@@ -9,6 +9,7 @@ import { fail, ok, type StudioResult } from '@aps/contracts';
 import { sha256File } from '@aps/contracts/node';
 import { walkNode, type LayoutSnapshot } from '@aps/layout-inspector';
 import { AdbClient } from '@aps/platform-adb';
+import type { SourceResolutionEvidence } from '@aps/source-workspace';
 import { findPerfettoUiAssetsDirectory, type PerfettoUiAssetProbe } from '@aps/platform-perfetto';
 import { JsonSettingsStore } from '@aps/settings';
 import { buildAppInfo } from '../shared/app-info.js';
@@ -23,8 +24,8 @@ import {
   type MethodCaptureRequest,
   type MethodSessionRecord,
   type MethodSnapshotRequest,
+  type AiAnalyzeRequest,
   type SourceResolveRequest,
-  type SourceWorkspaceRecord,
   type BenchmarkCompareInput,
   type ShellSnapshot,
   type StartupCaptureInput,
@@ -85,16 +86,15 @@ import {
 } from '@aps/art-trace';
 import { captureMethodRecording } from './method-capture-service.js';
 import {
-  DEFAULT_SOURCE_INDEX_DEPENDENCIES,
-  indexLocalWorkspace,
-  readIndexedSource,
-  resolveInIndex,
-  type SourceIndex,
-} from './source-workspace-service.js';
-import { SourceWorkspaceStore } from './source-workspace-store.js';
+  migrateLegacyWorkspaces,
+  readBackendSource,
+  searchBackendSymbols,
+  sourceBackend,
+  toSourceWorkspaceRecords,
+  type LegacySourceWorkspace,
+} from './source-backend.js';
 import { SafeStorageCredentialStore, SqliteAnalysisSessionRepository, fetchAiTransport, isPersistentBackend } from '@aps/ai-core/node';
 import { AiAnalysisService, aiCredentialFilePath, aiSessionsDatabasePath, ensureAiDirectory, layoutPerformanceEvidence } from './ai-service.js';
-import { listSourceWorkspaces, migrateLegacyWorkspaces, sourceBackend } from './source-backend.js';
 import { safeStorage } from 'electron';
 import { MethodSessionStore, type StoredMethodSession } from './method-session-store.js';
 import {
@@ -179,53 +179,75 @@ function gpuStore(): GpuArtifactStore {
   return new GpuArtifactStore(join(userDataDirectory(), 'gpu-artifacts'));
 }
 
-function sourceStore(): SourceWorkspaceStore {
-  return new SourceWorkspaceStore(join(userDataDirectory(), 'source-workspaces'));
-}
-
-/** The git commit of a local tree, or a content digest when it is unversioned. */
-async function sourceRevisionOf(root: string): Promise<string> {
-  try {
-    const result = await runHostProcessText({
-      executable: 'git',
-      args: ['-C', root, 'rev-parse', 'HEAD'],
-      timeoutMs: 10_000,
+/**
+ * The symbols a layout finding can cite. The selected node is the subject when
+ * there is one, otherwise the root class stands in for the screen.
+ */
+function sourceEvidenceFor(
+  snapshot: LayoutSnapshot,
+  selectedNodeId: string | undefined,
+): SourceResolutionEvidence[] {
+  let subject = snapshot.root;
+  if (selectedNodeId !== undefined) {
+    walkNode(snapshot.root, (node) => {
+      if (node.id === selectedNodeId) subject = node;
     });
-    const revision = result.stdout.trim();
-    if (result.exitCode === 0 && revision.length > 0) {
-      const status = await runHostProcessText({
-        executable: 'git',
-        args: ['-C', root, 'status', '--porcelain'],
-        timeoutMs: 10_000,
-      });
-      return status.stdout.trim().length === 0 ? revision : revision + '-dirty';
-    }
-  } catch {
-    // A missing git or a non-repository root falls through to unversioned.
   }
-  return 'unversioned';
+  const evidence: SourceResolutionEvidence[] = [];
+  if (subject.className.length > 0) {
+    evidence.push({ kind: 'TYPE_NAME', id: 'layout:' + subject.id, qualifiedName: subject.className });
+  }
+  const resourceName = subject.type === 'view' ? subject.resourceName : undefined;
+  const separator = resourceName?.indexOf('/') ?? -1;
+  if (resourceName !== undefined && separator > 0 && separator < resourceName.length - 1) {
+    evidence.push({
+      kind: 'ANDROID_RESOURCE',
+      id: 'layout-resource:' + subject.id,
+      resourceType: resourceName.slice(0, separator),
+      resourceName: resourceName.slice(separator + 1),
+    });
+  }
+  return evidence;
 }
 
-async function indexSourceWorkspace(record: SourceWorkspaceRecord): Promise<StudioResult<SourceIndex>> {
-  const indexed = await indexLocalWorkspace(record.id, record.root, {
-    ...DEFAULT_SOURCE_INDEX_DEPENDENCIES,
-    revisionOf: sourceRevisionOf,
-  });
-  if (!indexed.ok) return indexed;
-  const store = sourceStore();
-  await store.save(
-    {
-      ...record,
-      phase: indexed.value.snapshot.indexComplete ? 'READY' : 'PARTIAL',
-      revision: indexed.value.snapshot.immutableRevision,
-      manifestHash: indexed.value.snapshot.manifestHash,
-      fileCount: indexed.value.files.length,
-      symbolCount: indexed.value.symbols.length,
-      indexedAtEpochMillis: indexed.value.snapshot.createdAtEpochMillis,
-    },
-    indexed.value,
-  );
-  return ok(indexed.value);
+/** A backend failure as the strings the source panels show. */
+function describeSourceError(error: unknown): string {
+  return error instanceof Error ? error.message : 'Source workspace operation failed';
+}
+
+/**
+ * Imports the JSON store the app used before the shared database existed.
+ *
+ * The files stay on disk after a successful import: it is idempotent per root,
+ * so re-running costs a directory read and keeps a failure recoverable.
+ */
+async function migrateLegacySourceWorkspaces(): Promise<void> {
+  try {
+    const directory = join(userDataDirectory(), 'source-workspaces');
+    const entries = await readdir(directory, { withFileTypes: true });
+    const legacy: LegacySourceWorkspace[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        const parsed: unknown = JSON.parse(await readFile(join(directory, entry.name, 'workspace.json'), 'utf8'));
+        if (parsed === null || typeof parsed !== 'object') continue;
+        const record = parsed as { id?: unknown; displayName?: unknown; root?: unknown; phase?: unknown };
+        if (typeof record.root !== 'string') continue;
+        legacy.push({
+          id: typeof record.id === 'string' ? record.id : entry.name,
+          displayName: typeof record.displayName === 'string' ? record.displayName : entry.name,
+          root: record.root,
+          phase: typeof record.phase === 'string' ? record.phase : 'READY',
+        });
+      } catch {
+        // A half-written record is skipped; the rest of the list still migrates.
+      }
+    }
+    if (legacy.length === 0) return;
+    await migrateLegacyWorkspaces(legacy);
+  } catch {
+    // No legacy directory is the normal case for a fresh install.
+  }
 }
 
 function methodStore(): MethodSessionStore {
@@ -747,7 +769,9 @@ function registerHandlers(): void {
     const message = await shell.openPath(location.path);
     return message.length === 0 ? { ok: true } : { ok: false, error: message };
   });
-  ipcMain.handle(IPC_CHANNELS.sourceList, () => sourceStore().list());
+  // The shared database is the only source of truth for workspaces; the older
+  // JSON store was migrated into it at startup.
+  ipcMain.handle(IPC_CHANNELS.sourceList, () => toSourceWorkspaceRecords());
   ipcMain.handle(IPC_CHANNELS.sourceAdd, async () => {
     const selection = await dialog.showOpenDialog({
       title: 'Add a source workspace',
@@ -755,59 +779,51 @@ function registerHandlers(): void {
     });
     const root = selection.filePaths[0];
     if (selection.canceled || root === undefined) return { ok: false, cancelled: true };
-    const id = String(Date.now());
-    const record: SourceWorkspaceRecord = {
-      id,
-      displayName: basename(root),
-      root,
-      phase: 'READY',
-      fileCount: 0,
-      symbolCount: 0,
-    };
-    const indexed = await indexSourceWorkspace(record);
-    if (!indexed.ok) return { ok: false, error: indexed.error.code + ': ' + indexed.error.message };
-    return { ok: true, id };
+    try {
+      const workspace = await sourceBackend().service.add(basename(root), { kind: 'LOCAL', root });
+      // Registering always succeeds; indexing can still fail, and the panel
+      // shows the reason instead of claiming the workspace is ready.
+      if (workspace.phase === 'FAILED') {
+        return { ok: false, id: workspace.id, error: workspace.message ?? 'Source indexing failed' };
+      }
+      return { ok: true, id: workspace.id };
+    } catch (error) {
+      return { ok: false, error: describeSourceError(error) };
+    }
   });
-  ipcMain.handle(IPC_CHANNELS.sourceRemove, async (_event, id: string) => await sourceStore().remove(id));
+  ipcMain.handle(IPC_CHANNELS.sourceRemove, (_event, id: string) => {
+    try {
+      sourceBackend().service.remove(id);
+      return true;
+    } catch {
+      return false;
+    }
+  });
   ipcMain.handle(IPC_CHANNELS.sourceReindex, async (_event, id: string) => {
-    const record = await sourceStore().readRecord(id);
-    if (record === undefined) return { ok: false, error: 'Workspace not found' };
-    const indexed = await indexSourceWorkspace(record);
-    if (!indexed.ok) return { ok: false, error: indexed.error.code + ': ' + indexed.error.message };
-    return { ok: true, id };
+    try {
+      const workspace = await sourceBackend().service.refresh(id);
+      if (workspace.phase === 'FAILED') {
+        return { ok: false, id, error: workspace.message ?? 'Source indexing failed' };
+      }
+      return { ok: true, id };
+    } catch (error) {
+      return { ok: false, error: describeSourceError(error) };
+    }
   });
   ipcMain.handle(
     IPC_CHANNELS.sourceSearch,
-    async (_event, input: { workspaceId: string; query: string; limit: number }) => {
-      const index = sourceStore().cachedIndex(input.workspaceId);
-      if (index === undefined) return [];
-      const query = input.query.trim().toLowerCase();
-      if (query.length === 0) return [];
-      return index.symbols
-        .filter((symbol) => symbol.qualifiedName.toLowerCase().includes(query))
-        .slice(0, Math.max(input.limit, 1))
-        .map((symbol) => ({
-          kind: symbol.kind,
-          qualifiedName: symbol.qualifiedName,
-          relativePath: symbol.relativePath,
-          ...(symbol.signature !== undefined ? { signature: symbol.signature } : {}),
-          startLine: symbol.startLine,
-        }));
-    },
+    (_event, input: { workspaceId: string; query: string; limit: number }) =>
+      searchBackendSymbols(input.workspaceId, input.query, input.limit),
   );
   ipcMain.handle(IPC_CHANNELS.sourceResolve, async (_event, input: SourceResolveRequest) => {
-    const store = sourceStore();
-    const record = await store.readRecord(input.workspaceId);
-    if (record === undefined) return { ok: false, error: 'Workspace not found' };
-    let index = store.cachedIndex(input.workspaceId);
-    if (index === undefined) {
-      // The index is rebuilt from disk on demand rather than persisted whole.
-      const indexed = await indexSourceWorkspace(record);
-      if (!indexed.ok) return { ok: false, error: indexed.error.code + ': ' + indexed.error.message };
-      index = indexed.value;
+    const backend = sourceBackend();
+    // An empty candidate list and an unindexed workspace mean different things to
+    // the user, so the second one is an error rather than "no candidates".
+    if (backend.snapshotIdOf(input.workspaceId) === undefined) {
+      return { ok: false, error: 'SOURCE_WORKSPACE_NOT_READY: this workspace has no indexed snapshot yet' };
     }
     try {
-      const candidates = resolveInIndex(index, input.evidence, input.buildIdentityMatch);
+      const candidates = backend.resolveForWorkspace(input.workspaceId, input.evidence, input.buildIdentityMatch);
       return {
         ok: true,
         candidates: candidates.map((candidate) => ({
@@ -821,32 +837,29 @@ function registerHandlers(): void {
         })),
       };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : 'resolution failed' };
+      return { ok: false, error: describeSourceError(error) };
     }
   });
   ipcMain.handle(
     IPC_CHANNELS.sourceRead,
     async (_event, input: { workspaceId: string; relativePath: string }) => {
-      const store = sourceStore();
-      const record = await store.readRecord(input.workspaceId);
-      if (record === undefined) return { ok: false, error: 'Workspace not found' };
-      let index = store.cachedIndex(input.workspaceId);
-      if (index === undefined) {
-        const indexed = await indexSourceWorkspace(record);
-        if (!indexed.ok) return { ok: false, error: indexed.error.code + ': ' + indexed.error.message };
-        index = indexed.value;
+      const backend = sourceBackend();
+      if (backend.snapshotIdOf(input.workspaceId) === undefined) {
+        return { ok: false, error: 'SOURCE_WORKSPACE_NOT_READY: this workspace has no indexed snapshot yet' };
       }
-      const file = index.files.find((entry) => entry.relativePath === input.relativePath);
-      if (file === undefined) return { ok: false, error: 'File is not part of the index' };
-      const content = readIndexedSource(record.root, file);
-      if (!content.ok) return { ok: false, error: content.error.code + ': ' + content.error.message };
-      return {
-        ok: true,
-        relativePath: content.value.relativePath,
-        text: content.value.text,
-        language: file.language,
-        state: content.value.state,
-      };
+      try {
+        const content = await readBackendSource(input.workspaceId, input.relativePath);
+        if (content === undefined) return { ok: false, error: 'File is not part of the index' };
+        return {
+          ok: true,
+          relativePath: input.relativePath,
+          text: content.text,
+          language: content.language,
+          state: content.state,
+        };
+      } catch (error) {
+        return { ok: false, error: describeSourceError(error) };
+      }
     },
   );
   ipcMain.handle(IPC_CHANNELS.methodCapture, async (_event, input: MethodCaptureRequest) => {
@@ -1144,10 +1157,13 @@ function registerHandlers(): void {
   });
   ipcMain.handle(IPC_CHANNELS.memoryList, () => memoryStore().list());
   ipcMain.handle(IPC_CHANNELS.memoryLoad, (_event, id: string) => memoryStore().load(id));
-  ipcMain.handle(IPC_CHANNELS.sourceBackendList, () => listSourceWorkspaces());
-  ipcMain.handle(IPC_CHANNELS.sourceBackendAiUpload, (_event, input: { workspaceId: string; allowed: boolean }) => {
-    sourceBackend().setAiUploadAllowed(input.workspaceId, input.allowed);
-    return true;
+  ipcMain.handle(IPC_CHANNELS.sourceSetAiUpload, (_event, input: { workspaceId: string; allowed: boolean }) => {
+    try {
+      sourceBackend().setAiUploadAllowed(input.workspaceId, input.allowed);
+      return true;
+    } catch {
+      return false;
+    }
   });
   ipcMain.handle(IPC_CHANNELS.aiSettings, () => aiService().status());
   ipcMain.handle(IPC_CHANNELS.aiSaveCredential, (_event, value: string) => aiService().saveCredential(value));
@@ -1168,7 +1184,7 @@ function registerHandlers(): void {
       })),
   );
   ipcMain.handle(IPC_CHANNELS.aiFindings, (_event, sessionId: string) => aiService().findings(sessionId));
-  ipcMain.handle(IPC_CHANNELS.aiAnalyze, async (_event, input: { captureId: string; selectedNodeId?: string; model?: string }) => {
+  ipcMain.handle(IPC_CHANNELS.aiAnalyze, async (_event, input: AiAnalyzeRequest) => {
     const snapshot = await layoutStore().loadSnapshot(input.captureId);
     if (snapshot === undefined) return { ok: false, sessionId: '', error: 'Layout capture not found: ' + input.captureId };
     const evidence = layoutPerformanceEvidence({
@@ -1181,6 +1197,15 @@ function registerHandlers(): void {
       evidence: [evidence],
       scopeDescription: input.selectedNodeId === undefined ? 'Layout report summary' : 'Layout node ' + input.selectedNodeId,
       ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(input.workspaceId !== undefined && input.workspaceId.length > 0
+        ? {
+            source: {
+              workspaceId: input.workspaceId,
+              buildIdentityMatch: input.buildIdentityMatch ?? 'UNVERIFIED',
+              evidence: sourceEvidenceFor(snapshot, input.selectedNodeId),
+            },
+          }
+        : {}),
     });
   });
   ipcMain.handle(IPC_CHANNELS.networkList, () => networkStore().list());
@@ -1263,14 +1288,11 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Import the workspaces the app created before the shared database existed.
-  // Fire and forget: a failed migration must not stop the app from starting,
-  // and the panel shows the shared database with whatever made it across.
-  void sourceStore()
-    .list()
-    .then((legacy) => migrateLegacyWorkspaces(legacy))
-    .catch(() => undefined);
+  // It runs before the window so the source page never shows an empty list and
+  // then fills in; a failed migration still must not stop the app from starting.
+  await migrateLegacySourceWorkspaces();
   registerHandlers();
   installPerfettoProtocolHandlers({
     uiDirectory: perfettoUiDirectory(),

@@ -21,6 +21,7 @@ import {
   SourceProviderRegistry,
   fetchSourceHttpTransport,
   resolveEvidence,
+  type SourceHttpTransport,
   type BuildIdentityMatch,
   type ResolutionCandidate,
   type SourceContentState,
@@ -61,13 +62,32 @@ export interface SourceBackend {
   close(): void;
 }
 
+export interface SourceBackendOptions {
+  readonly databasePath: string;
+  readonly cacheDirectory: string;
+  /** Injected in tests; the app uses the real fetch transport. */
+  readonly transport?: SourceHttpTransport;
+  readonly now?: () => number;
+  readonly newId?: () => string;
+}
+
 let backend: SourceBackend | undefined;
 
 export function sourceBackend(): SourceBackend {
   if (backend !== undefined) return backend;
-  const repository = new SqliteSourceWorkspaceRepository(sourceWorkspacesDatabasePath());
-  const cache = new ContentAddressedSourceCache(sourceCacheDirectory());
-  const transport = fetchSourceHttpTransport();
+  backend = createSourceBackend({
+    databasePath: sourceWorkspacesDatabasePath(),
+    cacheDirectory: sourceCacheDirectory(),
+  });
+  return backend;
+}
+
+/** Builds a backend against explicit paths so a test never touches the real ones. */
+export function createSourceBackend(options: SourceBackendOptions): SourceBackend {
+  const repository = new SqliteSourceWorkspaceRepository(options.databasePath);
+  const cache = new ContentAddressedSourceCache(options.cacheDirectory);
+  const transport = options.transport ?? fetchSourceHttpTransport();
+  const now = options.now ?? (() => Date.now());
   const service = new DefaultSourceWorkspaceService({
     providers: new SourceProviderRegistry([
       new LocalSourceProvider(),
@@ -78,10 +98,10 @@ export function sourceBackend(): SourceBackend {
     cache,
     sha256: sha256Text,
     sha256Bytes,
-    newId: () => globalThis.crypto.randomUUID(),
-    now: () => Date.now(),
+    newId: options.newId ?? (() => globalThis.crypto.randomUUID()),
+    now,
   });
-  backend = {
+  const built: SourceBackend = {
     service,
     repository,
     snapshotIdOf(workspaceId) {
@@ -101,10 +121,9 @@ export function sourceBackend(): SourceBackend {
     },
     close() {
       repository.close();
-      backend = undefined;
     },
   };
-  return backend;
+  return built;
 }
 
 /** Workspaces as the shell lists them, with their snapshot counts. */
@@ -141,8 +160,8 @@ export function listSourceWorkspaces(target: SourceBackend = sourceBackend()): S
             indexedAtEpochMillis: snapshot.createdAtEpochMillis,
           }
         : {}),
-      fileCount: snapshotId === undefined ? 0 : target.repository.files(snapshotId).length,
-      symbolCount: snapshotId === undefined ? 0 : target.repository.symbols(snapshotId).length,
+      fileCount: snapshotId === undefined ? 0 : target.repository.fileCount(snapshotId),
+      symbolCount: snapshotId === undefined ? 0 : target.repository.symbolCount(snapshotId),
       allowAiSourceUpload: workspace.allowAiSourceUpload,
     };
   });
@@ -215,6 +234,8 @@ export function toSourceWorkspaceRecords(target: SourceBackend = sourceBackend()
     id: workspace.id,
     displayName: workspace.displayName,
     root: workspace.providerKind === 'LOCAL' ? localRootOf(workspace.id, target) : '',
+    providerKind: workspace.providerKind,
+    allowAiSourceUpload: workspace.allowAiSourceUpload,
     phase: workspace.phase === 'READY' ? 'READY' : workspace.phase === 'FAILED' ? 'FAILED' : 'PARTIAL',
     ...(workspace.message !== undefined ? { message: workspace.message } : {}),
     ...(workspace.revision !== undefined ? { revision: workspace.revision } : {}),

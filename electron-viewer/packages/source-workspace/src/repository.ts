@@ -23,6 +23,12 @@ export interface SourceWorkspaceRepository extends SourceIndexView {
   saveSnapshot(snapshot: SourceSnapshot, files: readonly SourceFile[], symbols: readonly SourceSymbol[]): void;
   saveCandidates(candidates: readonly ResolutionCandidate[]): void;
   candidate(id: ResolutionCandidateId): ResolutionCandidate | undefined;
+  /**
+   * Counts without materialising the rows. Listing workspaces asks for these on
+   * every call, and a real Android tree holds six figures of symbols.
+   */
+  fileCount(snapshotId: SourceSnapshotId): number;
+  symbolCount(snapshotId: SourceSnapshotId): number;
 }
 
 export class InMemorySourceWorkspaceRepository implements SourceWorkspaceRepository {
@@ -83,5 +89,13 @@ export class InMemorySourceWorkspaceRepository implements SourceWorkspaceReposit
 
   candidate(id: ResolutionCandidateId): ResolutionCandidate | undefined {
     return this.candidateValues.get(id);
+  }
+
+  fileCount(snapshotId: SourceSnapshotId): number {
+    return (this.filesBySnapshot.get(snapshotId) ?? []).length;
+  }
+
+  symbolCount(snapshotId: SourceSnapshotId): number {
+    return (this.symbolsBySnapshot.get(snapshotId) ?? []).length;
   }
 }

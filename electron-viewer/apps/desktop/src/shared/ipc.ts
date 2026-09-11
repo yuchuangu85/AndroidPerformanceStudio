@@ -386,8 +386,12 @@ export interface MethodSnapshotOutcome {
 export interface SourceWorkspaceRecord {
   readonly id: string;
   readonly displayName: string;
+  /** Only a local workspace has one; a remote workspace resolves through its provider. */
   readonly root: string;
+  readonly providerKind: 'LOCAL' | 'GITHUB' | 'AOSP';
   readonly phase: 'READY' | 'PARTIAL' | 'FAILED';
+  /** Off by default; analysis without it cites no file or line. */
+  readonly allowAiSourceUpload: boolean;
   readonly message?: string;
   readonly revision?: string;
   readonly manifestHash?: string;
@@ -412,21 +416,6 @@ export interface SourceSymbolSummary {
   readonly relativePath: string;
   readonly signature?: string;
   readonly startLine: number;
-}
-
-export interface SourceBackendWorkspace {
-  readonly id: string;
-  readonly displayName: string;
-  readonly providerKind: 'LOCAL' | 'GITHUB' | 'AOSP';
-  readonly phase: string;
-  readonly progress: number;
-  readonly message?: string;
-  readonly revision?: string;
-  readonly manifestHash?: string;
-  readonly fileCount: number;
-  readonly symbolCount: number;
-  readonly indexedAtEpochMillis?: number;
-  readonly allowAiSourceUpload: boolean;
 }
 
 export interface SourceResolveRequest {
@@ -495,9 +484,7 @@ export interface ApsApi {
   searchSourceSymbols(input: { readonly workspaceId: string; readonly query: string; readonly limit: number }): Promise<readonly SourceSymbolSummary[]>;
   resolveSourceEvidence(input: SourceResolveRequest): Promise<SourceResolveOutcome>;
   readSourceFile(input: { readonly workspaceId: string; readonly relativePath: string }): Promise<SourceReadOutcome>;
-  /** Workspaces held by the @aps/source-workspace backend (the shared DB). */
-  listBackendSourceWorkspaces(): Promise<readonly SourceBackendWorkspace[]>;
-  setBackendSourceAiUpload(input: { readonly workspaceId: string; readonly allowed: boolean }): Promise<boolean>;
+  setSourceAiUpload(input: { readonly workspaceId: string; readonly allowed: boolean }): Promise<boolean>;
   captureMethodRecording(input: MethodCaptureRequest): Promise<MemoryCaptureOutcome>;
   listMethodSessions(): Promise<readonly MethodSessionRecord[]>;
   methodSnapshot(input: MethodSnapshotRequest): Promise<MethodSnapshotOutcome>;
@@ -529,6 +516,9 @@ export interface AiAnalyzeRequest {
   readonly captureId: string;
   readonly selectedNodeId?: string;
   readonly model?: string;
+  /** Resolves the evidence to a file and a line; omitted means no source context. */
+  readonly workspaceId?: string;
+  readonly buildIdentityMatch?: BuildIdentityMatch;
 }
 
 export interface AiAnalyzeOutcome {
@@ -605,8 +595,7 @@ export const IPC_CHANNELS = {
   sourceSearch: 'source:search',
   sourceResolve: 'source:resolve',
   sourceRead: 'source:read',
-  sourceBackendList: 'source:backendList',
-  sourceBackendAiUpload: 'source:backendAiUpload',
+  sourceSetAiUpload: 'source:setAiUpload',
   methodCapture: 'method:capture',
   methodList: 'method:list',
   methodSnapshot: 'method:snapshot',

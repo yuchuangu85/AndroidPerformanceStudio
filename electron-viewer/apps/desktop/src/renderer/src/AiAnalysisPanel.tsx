@@ -6,6 +6,7 @@ import type {
   AiSettingsSnapshot,
   AnalysisFinding,
   LayoutCaptureSummary,
+  SourceWorkspaceRecord,
 } from '../../shared/ipc';
 
 const STRINGS = {
@@ -23,6 +24,12 @@ const STRINGS = {
   findings: { en: 'Findings', zh: '发现' },
   history: { en: 'Sessions', zh: '会话' },
   empty: { en: 'No findings yet', zh: '还没有结果' },
+  workspace: { en: 'Source workspace', zh: '源码工作区' },
+  noWorkspace: { en: 'No source context', zh: '不使用源码上下文' },
+  workspaceHint: {
+    en: 'Findings cite a file and a line only when a workspace is selected and allows AI source upload.',
+    zh: '只有在选中工作区且该工作区允许上传源码时，结论才会引用文件与行号。',
+  },
 } as const;
 
 type StringKey = keyof typeof STRINGS;
@@ -44,6 +51,8 @@ export function AiAnalysisPanel({ language }: { readonly language: UiLanguage })
   const [model, setModel] = useState('');
   const [captures, setCaptures] = useState<readonly LayoutCaptureSummary[]>([]);
   const [captureId, setCaptureId] = useState('');
+  const [workspaces, setWorkspaces] = useState<readonly SourceWorkspaceRecord[]>([]);
+  const [workspaceId, setWorkspaceId] = useState('');
   const [outcome, setOutcome] = useState<AiAnalyzeOutcome | null>(null);
   const [sessions, setSessions] = useState<readonly AiSessionSummary[]>([]);
   const [findings, setFindings] = useState<readonly AnalysisFinding[]>([]);
@@ -56,6 +65,7 @@ export function AiAnalysisPanel({ language }: { readonly language: UiLanguage })
       setModel((current) => (current.length > 0 ? current : snapshot.model));
     });
     void window.aps.listAiSessions().then(setSessions);
+    void window.aps.listSourceWorkspaces().then(setWorkspaces);
     void window.aps.listLayoutCaptures().then((listed) => {
       setCaptures(listed);
       setCaptureId((current) => (current.length > 0 ? current : (listed[0]?.id ?? '')));
@@ -153,6 +163,18 @@ export function AiAnalysisPanel({ language }: { readonly language: UiLanguage })
           </select>
         </label>
       )}
+      <label className="field">
+        <span>{t('workspace', language)}</span>
+        <select value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)}>
+          <option value="">{t('noWorkspace', language)}</option>
+          {workspaces.map((workspace) => (
+            <option key={workspace.id} value={workspace.id}>
+              {workspace.displayName}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="card__muted">{t('workspaceHint', language)}</p>
       <button
         type="button"
         className="button"
@@ -162,6 +184,7 @@ export function AiAnalysisPanel({ language }: { readonly language: UiLanguage })
             const result = await window.aps.analyzeLayoutWithAi({
               captureId,
               ...(model.trim().length > 0 ? { model: model.trim() } : {}),
+              ...(workspaceId.length > 0 ? { workspaceId } : {}),
             });
             setOutcome(result);
             setFindings(result.findings ?? []);

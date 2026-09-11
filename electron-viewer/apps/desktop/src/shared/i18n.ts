@@ -222,6 +222,7 @@ export const SHELL_STRINGS = {
   'source.failed': { en: 'Indexing failed', zh: '索引失败' },
   'source.reindex': { en: 'Reindex', zh: '重建索引' },
   'source.remove': { en: 'Remove', zh: '移除' },
+  'source.allowAiUpload': { en: 'Allow AI source upload', zh: '允许上传源码给 AI' },
   'source.search': { en: 'Symbol search', zh: '符号搜索' },
   'source.searchAction': { en: 'Search', zh: '搜索' },
   'source.searchHint': { en: 'Search the index for a type, method, or resource.', zh: '在索引中搜索类型、方法或资源。' },
