@@ -30,6 +30,7 @@ function result(): HprofParseResult {
     ],
     arrays: [],
     roots: [0x200n],
+    heapByObjectId: new Map([[0x200n, 'App']]),
     warnings: ['a parser warning'],
   };
 }

@@ -33,6 +33,7 @@ interface GoldenDigest {
     readonly instanceCount: number;
     readonly instanceShallowSizes: readonly number[];
     readonly arrayShallowSizes: readonly number[];
+    readonly heapNames: readonly string[];
     readonly rootCount: number;
     readonly warningCount: number;
   };
@@ -97,6 +98,7 @@ describe.skipIf(corpus.length === 0)('Kotlin golden corpus', () => {
       expect(sorted(result.arrays.map((array) => array.shallowBytes))).toEqual(
         sorted(digest.expectations.arrayShallowSizes),
       );
+      expect([...new Set(result.heapByObjectId.values())].sort()).toEqual([...digest.expectations.heapNames].sort());
       expect(result.roots.length).toBe(digest.expectations.rootCount);
       expect(result.warnings.length).toBe(digest.expectations.warningCount);
 

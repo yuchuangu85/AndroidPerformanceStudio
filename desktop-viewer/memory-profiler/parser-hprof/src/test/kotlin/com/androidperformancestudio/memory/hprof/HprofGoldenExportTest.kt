@@ -143,6 +143,7 @@ class HprofGoldenExportTest {
         builder.append(longArray(heap.instances.map { it.shallowSize }.sorted())).append(",\n")
         val arraySizes = (heap.objectArrays.map { it.shallowSize } + heap.primitiveArrays.map { it.shallowSize }).sorted()
         builder.append("    \"arrayShallowSizes\": ").append(longArray(arraySizes)).append(",\n")
+        builder.append("    \"heapNames\": ").append(stringArray(heap.heapByObjectId.values.distinct().sorted())).append(",\n")
         builder.append("    \"rootCount\": ").append(heap.gcRoots.size).append(",\n")
         builder.append("    \"warningCount\": ").append(heap.warnings.size).append("\n")
         builder.append("  }\n")

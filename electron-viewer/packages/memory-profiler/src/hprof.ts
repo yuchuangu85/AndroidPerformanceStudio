@@ -125,7 +125,26 @@ export interface HprofParseResult {
   readonly arrays: readonly HprofArrayRecord[];
   /** GC roots seen in the heap dump. */
   readonly roots: readonly Identifier[];
+  /** Normalized heap name per object, from HEAP_DUMP_INFO records. */
+  readonly heapByObjectId: ReadonlyMap<Identifier, string>;
   readonly warnings: readonly string[];
+}
+
+/** Heap labels matching MemoryHeapNames in the Kotlin model. */
+export const MEMORY_HEAP_NAMES = {
+  APP: 'App',
+  IMAGE: 'Image',
+  ZYGOTE: 'Zygote',
+  DEFAULT: 'Default',
+} as const;
+
+/** Port of normalizeHeapName: the raw name only has to identify the heap. */
+export function normalizeHeapName(raw: string | undefined): string {
+  const lower = (raw ?? '').toLowerCase();
+  if (lower.includes('image')) return MEMORY_HEAP_NAMES.IMAGE;
+  if (lower.includes('zygote')) return MEMORY_HEAP_NAMES.ZYGOTE;
+  if (lower.includes('app')) return MEMORY_HEAP_NAMES.APP;
+  return MEMORY_HEAP_NAMES.DEFAULT;
 }
 
 function readIdentifierAt(bytes: Uint8Array, offset: number, identifierSize: 4 | 8): Identifier {
@@ -269,10 +288,6 @@ function readRoot(cursor: Cursor, subTag: number, identifierSize: 4 | 8): Identi
     case HEAP_SUBTAGS.rootThreadBlock:
       cursor.skip(4);
       break;
-    case HEAP_SUBTAGS.heapDumpInfo:
-      // HEAP_DUMP_INFO is [u4 heap type, id object id]; the id is the payload.
-      cursor.skip(0);
-      break;
     default:
       break;
   }
@@ -355,10 +370,21 @@ function readHeapSegment(
   deferred: DeferredInstance[],
   warnings: string[],
   end: number,
+  heapByObjectId: Map<Identifier, string>,
+  strings: ReadonlyMap<Identifier, string>,
 ): void {
+  // HEAP_DUMP_INFO switches the heap every following object belongs to; objects
+  // seen before the first one belong to the default heap.
+  let currentHeap: string = MEMORY_HEAP_NAMES.DEFAULT;
   while (cursor.position < end) {
     const subTag = cursor.u1();
     switch (subTag) {
+      case HEAP_SUBTAGS.heapDumpInfo: {
+        // [u4 heap serial, id of the heap-name string].
+        cursor.u4();
+        currentHeap = normalizeHeapName(strings.get(cursor.id()));
+        break;
+      }
       case HEAP_SUBTAGS.classDump: {
         const record = readClassDump(cursor, identifierSize);
         // LOAD_CLASS carries the name; CLASS_DUMP carries the field layout.
@@ -379,6 +405,7 @@ function readHeapSegment(
         const classRecord = classes.get(classObjectId);
         const layout = classRecord?.instanceFields;
         const shallowBytes = classRecord?.instanceFieldBytes ?? Math.max(fieldBytes, 0);
+        heapByObjectId.set(objectId, currentHeap);
         const index = instances.length;
         if (layout === undefined) {
           deferred.push({ index, classObjectId, payload });
@@ -399,6 +426,7 @@ function readHeapSegment(
         cursor.u4();
         const length = cursor.u4();
         cursor.id();
+        heapByObjectId.set(objectId, currentHeap);
         const references: Identifier[] = [];
         for (let index = 0; index < length; index += 1) {
           const element = cursor.id();
@@ -419,6 +447,7 @@ function readHeapSegment(
         cursor.u4();
         const length = cursor.u4();
         const elementType = cursor.u1();
+        heapByObjectId.set(objectId, currentHeap);
         const elementSize = primitiveSize(elementType);
         if (subTag === HEAP_SUBTAGS.primitiveArrayDump) cursor.skip(length * elementSize);
         arrays.push({
@@ -455,6 +484,7 @@ export function parseHprof(bytes: Uint8Array): HprofParseResult {
   const roots = new Set<Identifier>();
   const deferred: DeferredInstance[] = [];
   const warnings: string[] = [];
+  const heapByObjectId = new Map<Identifier, string>();
   const cursor = new Cursor(bytes, header.identifierSize, header.headerBytes);
 
   while (cursor.remaining >= 9) {
@@ -492,6 +522,8 @@ export function parseHprof(bytes: Uint8Array): HprofParseResult {
         deferred,
         warnings,
         bodyEnd,
+        heapByObjectId,
+        strings,
       );
     }
     cursor.skip(Math.max(0, bodyEnd - cursor.position));
@@ -512,5 +544,5 @@ export function parseHprof(bytes: Uint8Array): HprofParseResult {
     warnings.push(deferred.length + ' instance(s) were resolved after their class layout.');
   }
   if (strings.size === 0) warnings.push('No class or field names were found in the dump.');
-  return { header, strings, classes, instances, arrays, roots: [...roots], warnings };
+  return { header, strings, classes, instances, arrays, roots: [...roots], heapByObjectId, warnings };
 }
