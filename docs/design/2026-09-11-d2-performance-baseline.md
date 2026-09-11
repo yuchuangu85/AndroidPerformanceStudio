@@ -247,17 +247,26 @@ CI 步骤改为**两个包都跑、都报结果**，一次失败不再掩盖另�
 
 同一轮里两侧的 golden corpus 比对也全部通过，说明解码器重写没有改变解析结果。
 
-### 6. ART `parse` 是唯一明显落后的阶段
+### 6. ART 闸门第二次报错，指向的是产品代码里的真问题
+
+生成器修好后 ART `parseAndProject` 仍报 **1.67×**。查下去不是 BigInt，而是
+`toCallStackTable` 对**每个线程**都扫一遍全部事件
+（`analysis.events.filter(e => e.threadId === threadId)`）：64 线程 × 102400 事件
+= 650 万次谓词调用，全部发生在真正投影之前。改成一次分组后，本地 `parseAndProject`
+**44.3 → 18.7 ms**（−58%），20 个投影测试全过——分组保持每个线程内的事件顺序，
+所以输出逐字节不变。这不是基准的账，是方法剖析界面每次打开都要付的钱。
+
+### 7. ART `parse` 仍然慢，但它是被报告而不是被断言的阶段
 
 这一阶段几乎全是 64 位整数运算：每条记录三个 bigint 累加（102400 条记录），
 而 JVM 用原生 long。把逐字节 BigInt 的 LEB128 读取改成数值快路径后，本地 `parse`
-**11.7 → 7.2 ms**（−38%，`parseAndProject` 53.3 → 44.3 ms），CI 上仍约为 JVM 的 3×。
+**11.7 → 7.2 ms**（−38%），CI 上仍约为 JVM 的 2–3×。
 
 试过并放弃的改法：累加器用 number、只在构造事件时转 BigInt——反而更慢
 （本地 12.7 vs 8.0 ms），因为 `Number(bigint)`/`BigInt(number)` 的转换比直接做 bigint
 加法更贵。也就是说剩下的差距不是「多分配了几个对象」，而是 JS 没有 64 位原生整数。
 
-因此 ART 的闸门放在**应用真正跑的 pipeline**（`parseAndProject`，含 parse，1.46×），
+因此 ART 的闸门放在**应用真正跑的 pipeline**（`parseAndProject`，含 parse），
 `parse` 仍然每轮打印比值但不断言：PRD 没有给 ART 设阈值，我不为它发明一个数字。
 若以后方法剖析的解析成为瓶颈，按 D2 的规则它是 Rust/WASM 的候选模块。
 

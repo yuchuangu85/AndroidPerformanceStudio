@@ -22,7 +22,13 @@ import {
   type FlameGraphSnapshot,
   type WeightedCallStack,
 } from '@aps/profile-analysis';
-import { methodDisplayName, type ArtMethod, type ArtTraceAction, type ArtTraceAnalysis } from './model.js';
+import {
+  methodDisplayName,
+  type ArtMethod,
+  type ArtTraceAction,
+  type ArtTraceAnalysis,
+  type ArtTraceEvent,
+} from './model.js';
 
 export function toCallStackTable(analysis: ArtTraceAnalysis): CallStackTable {
   const framesById = new Map<bigint, CallStackFrame>();
@@ -47,9 +53,18 @@ export function toCallStackTable(analysis: ArtTraceAnalysis): CallStackTable {
 
   const stacks: WeightedCallStack[] = [];
   let sampleId = 0n;
-  threadIds(analysis).forEach((threadId) => {
-    const threadEvents = analysis.events.filter((event) => event.threadId === threadId);
-    if (threadEvents.length === 0) return;
+  // Grouped once: filtering every event per thread is threads x events, which
+  // on a 64 thread trace is 6.5M predicate calls before any projection runs.
+  // The order inside a bucket is the trace order, so the replay is unchanged.
+  const eventsByThread = new Map<number, ArtTraceEvent[]>();
+  analysis.events.forEach((event) => {
+    const bucket = eventsByThread.get(event.threadId);
+    if (bucket === undefined) eventsByThread.set(event.threadId, [event]);
+    else bucket.push(event);
+  });
+  threadIds(analysis, eventsByThread).forEach((threadId) => {
+    const threadEvents = eventsByThread.get(threadId);
+    if (threadEvents === undefined || threadEvents.length === 0) return;
     const threadKey = threadKeyOf(analysis, threadId);
     const stack: bigint[] = [];
     let cursor = (threadEvents[0] as { timeNanos: bigint }).timeNanos;
@@ -68,14 +83,12 @@ export function toCallStackTable(analysis: ArtTraceAnalysis): CallStackTable {
   return new CallStackTable(framesById, stacks);
 }
 
-function threadIds(analysis: ArtTraceAnalysis): number[] {
+function threadIds(analysis: ArtTraceAnalysis, eventsByThread: ReadonlyMap<number, ArtTraceEvent[]>): number[] {
   const ids: number[] = [...analysis.threads.keys()];
   const known = new Set(ids);
-  const orphans = new Set<number>();
-  analysis.events.forEach((event) => {
-    if (!known.has(event.threadId)) orphans.add(event.threadId);
-  });
-  return [...ids, ...[...orphans].sort((left, right) => left - right)];
+  const orphans = [...eventsByThread.keys()].filter((threadId) => !known.has(threadId));
+  orphans.sort((left, right) => left - right);
+  return [...ids, ...orphans];
 }
 
 export function threadKeyOf(analysis: ArtTraceAnalysis, threadId: number): string {
