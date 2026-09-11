@@ -55,6 +55,100 @@ export class ProtoCursor {
     return this.offset >= this.bytes.length;
   }
 
+  /**
+   * Fast, allocation-free tag read: returns (fieldNumber << 3) | wireType.
+   *
+   * The generic next() path allocates a BigInt per key and an object per field,
+   * which dominated the reader's cost: a 12 frame sample has roughly fifty
+   * fields, so that is thousands of allocations per sample. Decoders that switch
+   * on the tag use this instead.
+   */
+  tag(): number {
+    let result = 0;
+    let shift = 0;
+    for (;;) {
+      if (this.offset >= this.bytes.length) {
+        throw new ProtoDecodeError('Truncated tag', this.offset);
+      }
+      const byte = this.bytes[this.offset] as number;
+      this.offset += 1;
+      result |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) return result;
+      shift += 7;
+      if (shift > 28) throw new ProtoDecodeError('Tag exceeds five bytes', this.offset);
+    }
+  }
+
+  /** Varint that must fit an unsigned 32 bit value; avoids a BigInt. */
+  uint32(): number {
+    let result = 0;
+    let shift = 0;
+    for (;;) {
+      if (this.offset >= this.bytes.length) {
+        throw new ProtoDecodeError('Truncated varint', this.offset);
+      }
+      const byte = this.bytes[this.offset] as number;
+      this.offset += 1;
+      if (shift === 28) {
+        // The fifth byte may only contribute its low four bits.
+        result |= (byte & 0x0f) << shift;
+        if ((byte & 0x80) !== 0) {
+          // Consume the remaining sign extension bytes of a 64 bit value.
+          while ((this.bytes[this.offset - 1] as number) & 0x80) {
+            if (this.offset >= this.bytes.length) {
+              throw new ProtoDecodeError('Truncated varint', this.offset);
+            }
+            this.offset += 1;
+          }
+        }
+        return result >>> 0;
+      }
+      result |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) return result >>> 0;
+      shift += 7;
+    }
+  }
+
+  /** Signed 32 bit view of a varint, for proto2 int32 fields. */
+  int32(): number {
+    const value = this.uint32();
+    return value > 0x7fffffff ? value - 0x1_0000_0000 : value;
+  }
+
+  /** Skips a field of the given wire type. */
+  skip(wireType: number): void {
+    switch (wireType) {
+      case WIRE_TYPES.VARINT:
+        this.varint();
+        return;
+      case WIRE_TYPES.FIXED64:
+        this.require(8);
+        this.offset += 8;
+        return;
+      case WIRE_TYPES.FIXED32:
+        this.require(4);
+        this.offset += 4;
+        return;
+      case WIRE_TYPES.LENGTH_DELIMITED: {
+        const length = this.uint32();
+        this.require(length);
+        this.offset += length;
+        return;
+      }
+      default:
+        throw new ProtoDecodeError('Unsupported protobuf wire type ' + String(wireType), this.offset);
+    }
+  }
+
+  /** Length delimited payload as a view, without copying. */
+  view(): Uint8Array {
+    const length = this.uint32();
+    this.require(length);
+    const slice = this.bytes.subarray(this.offset, this.offset + length);
+    this.offset += length;
+    return slice;
+  }
+
   /** Reads the next field, or undefined at the end of the message. */
   next(): ProtoField | undefined {
     if (this.atEnd()) return undefined;

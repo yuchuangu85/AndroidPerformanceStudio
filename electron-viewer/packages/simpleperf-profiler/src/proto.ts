@@ -98,21 +98,27 @@ export function executionTypeName(value: number): (typeof EXECUTION_TYPE_NAMES)[
 }
 
 export function decodeRecord(bytes: Uint8Array): ProtoRecord {
-  for (const field of readFields(bytes)) {
-    switch (field.fieldNumber) {
+  // Hot path: a report has one record per sample, so this loop avoids the
+  // allocation-heavy generic field reader.
+  const cursor = new ProtoCursor(bytes);
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    const field = tag >> 3;
+    switch (field) {
       case 1:
-        return { kind: 'SAMPLE', sample: decodeSample(bytesOf(field)) };
+        return { kind: 'SAMPLE', sample: decodeSample(cursor.view()) };
       case 2:
-        return { kind: 'LOST', lost: decodeLost(bytesOf(field)) };
+        return { kind: 'LOST', lost: decodeLost(cursor.view()) };
       case 3:
-        return { kind: 'FILE', file: decodeFile(bytesOf(field)) };
+        return { kind: 'FILE', file: decodeFile(cursor.view()) };
       case 4:
-        return { kind: 'THREAD', thread: decodeThread(bytesOf(field)) };
+        return { kind: 'THREAD', thread: decodeThread(cursor.view()) };
       case 5:
-        return { kind: 'META_INFO', metaInfo: decodeMetaInfo(bytesOf(field)) };
+        return { kind: 'META_INFO', metaInfo: decodeMetaInfo(cursor.view()) };
       case 6:
-        return { kind: 'CONTEXT_SWITCH', contextSwitch: decodeContextSwitch(bytesOf(field)) };
+        return { kind: 'CONTEXT_SWITCH', contextSwitch: decodeContextSwitch(cursor.view()) };
       default:
+        cursor.skip(tag & 7);
         break;
     }
   }
@@ -120,40 +126,43 @@ export function decodeRecord(bytes: Uint8Array): ProtoRecord {
 }
 
 function decodeSample(bytes: Uint8Array): ProtoSample {
+  const cursor = new ProtoCursor(bytes);
   let time = 0n;
   let threadId = 0;
   let eventCount = 0n;
   let eventTypeId = 0;
-  const callchain: ProtoCallChainEntry[] = [];
+  let callchain: ProtoCallChainEntry[] | undefined;
   let unwindingResult: ProtoSample['unwindingResult'];
-  for (const field of readFields(bytes)) {
-    switch (field.fieldNumber) {
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    switch (tag >> 3) {
       case 1:
-        time = varintOf(field);
+        time = cursor.varint();
         break;
       case 2:
-        threadId = int32Of(varintOf(field));
+        threadId = cursor.int32();
         break;
       case 3:
-        callchain.push(decodeCallChainEntry(bytesOf(field)));
+        (callchain ??= []).push(decodeCallChainEntry(cursor.view()));
         break;
       case 4:
-        eventCount = varintOf(field);
+        eventCount = cursor.varint();
         break;
       case 5:
-        eventTypeId = uint32Of(varintOf(field));
+        eventTypeId = cursor.uint32();
         break;
       case 6:
-        unwindingResult = decodeUnwindingResult(bytesOf(field));
+        unwindingResult = decodeUnwindingResult(cursor.view());
         break;
       default:
+        cursor.skip(tag & 7);
         break;
     }
   }
   return {
     time,
     threadId,
-    callchain,
+    callchain: callchain ?? [],
     eventCount,
     eventTypeId,
     ...(unwindingResult !== undefined ? { unwindingResult } : {}),
@@ -161,25 +170,28 @@ function decodeSample(bytes: Uint8Array): ProtoSample {
 }
 
 function decodeCallChainEntry(bytes: Uint8Array): ProtoCallChainEntry {
+  const cursor = new ProtoCursor(bytes);
   let vaddrInFile = 0n;
   let fileId = 0;
   let symbolId = -1;
   let executionType = 0;
-  for (const field of readFields(bytes)) {
-    switch (field.fieldNumber) {
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    switch (tag >> 3) {
       case 1:
-        vaddrInFile = varintOf(field);
+        vaddrInFile = cursor.varint();
         break;
       case 2:
-        fileId = uint32Of(varintOf(field));
+        fileId = cursor.uint32();
         break;
       case 3:
-        symbolId = int32Of(varintOf(field));
+        symbolId = cursor.int32();
         break;
       case 4:
-        executionType = int32Of(varintOf(field));
+        executionType = cursor.int32();
         break;
       default:
+        cursor.skip(tag & 7);
         break;
     }
   }
