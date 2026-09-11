@@ -279,3 +279,65 @@ CI 步骤改为**两个包都跑、都报结果**，一次失败不再掩盖另�
   （当前 golden 作业约 3 分钟，Gradle 构建占大头）。
 - 泄漏排名里的 `referenceChainTo` 对每个可疑对象各做一次 BFS；当前形状下只占几十毫秒，
   但堆更大时可以用一次多源 BFS 换掉。
+
+## 层级门槛：10,000 节点加载（2026-09-11 追加）
+
+PRD 给的是绝对阈值（10,000 节点 ≤ 3s、交互 ≥ 55fps），而不是与 JVM 的比值：
+`desktop-viewer/layout-inspector/` 里从来没有层级基准，plan §6 说的"沿用现有基线"
+对这条并不成立。所以这里先建立度量能力，再谈数字。
+
+### 怎么跑
+
+```bash
+cd electron-viewer
+pnpm perf:hierarchy                 # APS_PERF=1，写入 APS_PERF_OUT 指定的 JSON
+pnpm perf:ui                        # 需要图形环境；CI 上要 xvfb-run
+```
+
+夹具是确定性生成的（`packages/layout-inspector/src/fixtures/synthetic-tree.ts`），形状按真实
+Android 层级构造：深度约 24、扇出 5、容器与叶子混合、约 10% 不可见、bounds 逐层内缩。
+**不是链表**——链表会让 flatten 与 hit test 都退化成平凡操作，门槛就失去意义。
+
+### 结果（Node v24.19.0，darwin arm64）
+
+| 阶段 | 毫秒 | 说明 |
+| --- | ---: | --- |
+| 读取 | 2.31 | 从磁盘读 JSON 文本 |
+| 解码 | **55.67** | `JSON.parse` + zod 递归校验，占整体的 92% |
+| 建行（全展开） | 1.79 | 10,000 行 `TreeRow` |
+| 命中测试 | 0.53 | 全树遍历 + 排序 |
+| **合计** | **60.30** | 预算 3,000ms，余量约 50× |
+
+夹具自检：遍历到的节点数必须等于 10,000，10,000 行也必须全部产出。语料被改小会让
+「少检查了东西」表现为失败，而不是静默通过（沿用 D1 的教训）。
+
+### 结论
+
+1. **层级门槛不是风险点**：60ms 对 3s 预算，TS 侧不需要为此做任何优化，也没有触发
+   Rust 兜底的理由。
+2. **zod 校验是解码阶段的主体**（55.67ms 里的绝大部分）。它离预算还有 50 倍余量，所以
+   现在不做取舍；如果快照规模换一个数量级，第一个要看的就是它。
+3. 这个数字**只覆盖"加载"**。渲染、滚动、命中与缩放的帧率是另一条线，见下。
+
+### UI 帧率：度量已就位，本环境无法执行
+
+`e2e/ui-perf.mjs` 直接驱动**打包后的应用**：用独立 `--user-data-dir` 起 Electron，把合成
+快照种进 layout store，再通过 Electron 自带的 DevTools 协议在渲染进程里跑探针
+（`requestAnimationFrame` 时间戳 → p50/p95 fps、长帧计数）。不引入 Playwright，
+因为 Electron 与 CDP 都已经在依赖里。
+
+**本轮未能取得数字**：当前沙箱没有可用的图形环境，`electron --version` 本身就会挂起，
+因此 `perf:ui` 在这里超时退出（脚本带 120s 看门狗并返回退出码 2）。它需要在有显示器的
+机器或 CI（`xvfb-run`）上运行。
+
+### 缩放为什么记为"未覆盖"
+
+PRD 的交互门槛是「滚动 / 命中 / 缩放 ≥ 55fps」，但当前 `LayoutInspectorPanel` 里**没有
+canvas**：截图是一张 `<img>`，选中状态是一个绝对定位的 overlay div，点击走
+`hitTestCandidates`。Kotlin 侧有完整的 `CanvasGeometry` / `CanvasWindowSource` /
+`ViewBoundsOverlay` / `CanvasBorderColors`。也就是说缩放不是"没测"，而是**没有实现对象**。
+
+因此 harness 的产物里 `zoomCovered: false`，且不会把滚动与命中两项当作三项通过。
+补 canvas 是 layout-inspector 自身的功能缺口，不属于度量工作；在它落地之前，这条门禁
+只能算部分覆盖。
+

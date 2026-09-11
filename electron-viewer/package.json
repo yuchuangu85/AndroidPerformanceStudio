@@ -11,6 +11,8 @@
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
     "lint": "eslint .",
+    "perf:hierarchy": "APS_PERF=1 vitest run --root packages/layout-inspector src/fixtures/perf.test.ts",
+    "perf:ui": "node e2e/ui-perf.mjs",
     "package:smoke": "pnpm --filter @aps/desktop package:dir"
   },
   "devDependencies": {

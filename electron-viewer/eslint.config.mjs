@@ -20,14 +20,18 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // Plain Node scripts (corpus helpers) are not TypeScript, so the Node
-    // globals they rely on have to be declared here.
-    files: ['**/scripts/**/*.mjs'],
+    // Plain Node scripts (corpus helpers, the UI perf harness) are not
+    // TypeScript, so the globals they rely on have to be declared here.
+    files: ['**/scripts/**/*.mjs', 'e2e/**/*.mjs'],
     languageOptions: {
       globals: {
         Buffer: 'readonly',
+        WebSocket: 'readonly',
+        clearTimeout: 'readonly',
         console: 'readonly',
+        fetch: 'readonly',
         process: 'readonly',
+        setTimeout: 'readonly',
       },
     },
   },
