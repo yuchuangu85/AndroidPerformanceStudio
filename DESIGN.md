@@ -2,8 +2,14 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-07-08
+- Last refreshed: 2026-09-11
+- 实现栈：桌面端正在从 Compose Desktop 重写为 Electron（目标产物不含 JVM）。
+  本文档记录的产品设计不随实现栈变化；迁移状态见
+  [`docs/records/electron-feature-parity.md`](docs/records/electron-feature-parity.md)，
+  实施方案见 [`docs/design/2026-09-10-electron-rewrite-plan.md`](docs/design/2026-09-10-electron-rewrite-plan.md)。
 - Primary product surfaces:
+  - 参考实现（已冻结，不再发布）：`desktop-viewer/desktop-app`
+  - 重写目标：`electron-viewer/apps/desktop`
   - Compose Desktop 主入口与打包：`desktop-viewer/desktop-app`
   - Layout Inspector 功能 UI：`desktop-viewer/layout-inspector/presentation`
   - 三栏检查器：左侧层级结构、中央截图画布、右侧属性、底部问题列表

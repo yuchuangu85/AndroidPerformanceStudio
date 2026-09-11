@@ -22,7 +22,7 @@ export default tseslint.config(
   {
     // Plain Node scripts (corpus helpers, the UI perf harness) are not
     // TypeScript, so the globals they rely on have to be declared here.
-    files: ['**/scripts/**/*.mjs', 'e2e/**/*.mjs'],
+    files: ['**/scripts/**/*.mjs', 'e2e/**/*.mjs', 'apps/desktop/build/*.mjs'],
     languageOptions: {
       globals: {
         Buffer: 'readonly',

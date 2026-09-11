@@ -46,5 +46,56 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+      # The package carries the Perfetto UI and the pinned Trace Processor, so
+      # the smoke build needs them to exist before electron-builder runs.
+      - name: Build the bundled Perfetto UI
+        working-directory: .
+        run: |
+          npm install --global yarn@1
+          ./scripts/build-perfetto-ui.sh download
+      - name: Install the pinned Trace Processor
+        working-directory: .
+        run: PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
       - name: Package smoke (directory only, no publish)
         run: pnpm --filter @aps/desktop package:dir
+      - name: Verify the packaged runtime assets
+        working-directory: electron-viewer/apps/desktop
+        run: node scripts/verify-package.mjs release/linux-unpacked
+
+  ui-perf:
+    name: Hierarchy and frame-rate gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: electron-viewer
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.19.0'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # The node-side gate is a plain measurement and needs no display.
+      - name: Hierarchy load gate (10,000 nodes)
+        run: pnpm perf:hierarchy
+        env:
+          APS_PERF_OUT: perf/hierarchy-10k.json
+      - name: Build for the frame-rate gate
+        run: pnpm --filter @aps/desktop build
+      # xvfb-run provides the display Electron needs; the harness exits 2 with
+      # a clear message when it cannot open a window instead of hanging.
+      - name: Frame-rate gate (scroll and hit test)
+        run: xvfb-run -a node e2e/ui-perf.mjs --out perf/ui-tree-linux.json
+      - name: Upload the gate reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-perf
+          path: electron-viewer/perf/*.json
+          if-no-files-found: warn

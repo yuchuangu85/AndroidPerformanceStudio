@@ -1,5 +1,12 @@
 # AndroidPerfermanceStudio
 
+> **Archived as the reference implementation (oracle).** The desktop application is being
+> rewritten on Electron under [`../electron-viewer/`](../electron-viewer/); see
+> [`../docs/adr/0036-rewrite-the-desktop-app-on-electron-without-jvm.md`](../docs/adr/0036-rewrite-the-desktop-app-on-electron-without-jvm.md).
+> This Compose application keeps building and is used to generate the golden fixtures the
+> TypeScript implementation is checked against, but it receives no releases during the
+> rewrite. Migration state: [`../docs/records/electron-feature-parity.md`](../docs/records/electron-feature-parity.md).
+
 AndroidPerfermanceStudio contains one root desktop application shell and two deliberately isolated
 feature implementations:
 

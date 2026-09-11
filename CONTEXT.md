@@ -2,6 +2,10 @@
 
 Android Performance Studio 将性能采集结果、分析结论与产生问题的 Android 源码关联起来，帮助用户从性能现象定位到可检查和修改的代码位置。
 
+> 实现栈说明：桌面端正在从 Kotlin / Compose Multiplatform 重写为 Electron（目标产物不含 JVM）。
+> 本文档描述的是领域语言与产品约束，不随实现栈变化；具体的迁移状态见
+> [`docs/records/electron-feature-parity.md`](docs/records/electron-feature-parity.md)。
+
 ## Language
 
 **源码工作区（Source Workspace）**:

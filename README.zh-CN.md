@@ -6,6 +6,18 @@ AndroidPerfermanceStudio 是一个基于 Compose Desktop 的 Android 性能分�
 
 > 为保持兼容性，产品名称和包名沿用既有的 `AndroidPerfermanceStudio` 拼写。
 
+## 重写进行中：Electron
+
+桌面工作台正在重写为 Electron（Node.js + Chromium + React），目标产物**不含 JVM**，以便同一套 Web 前端同时服务桌面端与规划中的 Web UI。Kotlin / Compose 应用被冻结为参考实现（oracle）：保持可构建，用于生成 golden 夹具，但重写期间不再发布。
+
+- 实施方案：[`docs/design/2026-09-10-electron-rewrite-plan.md`](docs/design/2026-09-10-electron-rewrite-plan.md)
+- 决策记录：[`docs/adr/0036-rewrite-the-desktop-app-on-electron-without-jvm.md`](docs/adr/0036-rewrite-the-desktop-app-on-electron-without-jvm.md)
+- 对齐与未对齐清单：[`docs/records/electron-feature-parity.md`](docs/records/electron-feature-parity.md)
+- 数据兼容性与回退路径：[`docs/design/2026-09-11-electron-data-compatibility.md`](docs/design/2026-09-11-electron-data-compatibility.md)
+- 工作目录：[`electron-viewer/`](electron-viewer/)
+
+以下章节描述的是 Compose 应用；在重写通过门禁之前，它仍是正式发布的产品。
+
 ## 特性概览
 
 - 一个统一的桌面应用外壳，支持英文、简体中文、浅色、深色和跟随系统设置。

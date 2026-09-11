@@ -6,6 +6,18 @@ AndroidPerfermanceStudio is a Compose Desktop workstation for inspecting and cor
 
 > The product name and package names intentionally retain the existing `AndroidPerfermanceStudio` spelling for compatibility.
 
+## Rewrite in progress: Electron
+
+The desktop workstation is being rewritten on Electron (Node.js + Chromium + React) with **no JVM in the target product**, so one web frontend can serve both the desktop and the planned Web UI. The Kotlin / Compose application is frozen as the reference implementation (oracle): it keeps building and is used to generate golden fixtures, but it receives no releases during the rewrite.
+
+- Plan: [`docs/design/2026-09-10-electron-rewrite-plan.md`](docs/design/2026-09-10-electron-rewrite-plan.md)
+- Decision: [`docs/adr/0036-rewrite-the-desktop-app-on-electron-without-jvm.md`](docs/adr/0036-rewrite-the-desktop-app-on-electron-without-jvm.md)
+- What is aligned and what is not: [`docs/records/electron-feature-parity.md`](docs/records/electron-feature-parity.md)
+- Data compatibility and the rollback path: [`docs/design/2026-09-11-electron-data-compatibility.md`](docs/design/2026-09-11-electron-data-compatibility.md)
+- Working tree: [`electron-viewer/`](electron-viewer/)
+
+The sections below describe the Compose application, which remains the released product until the rewrite passes its gates.
+
 ## Highlights
 
 - One desktop shell with English, Simplified Chinese, light, dark, and system settings.

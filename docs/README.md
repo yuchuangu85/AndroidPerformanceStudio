@@ -16,6 +16,10 @@
 - [`../DESIGN.md`](../DESIGN.md) — 仓库级设计入口。
 - [`../CONTEXT.md`](../CONTEXT.md) — AI 分析与源码定位领域语言。
 - [`design/layoutinspectorv2-pro-comparison.md`](design/layoutinspectorv2-pro-comparison.md) — Layout Inspector 方案比较和设计依据。
+- [`design/2026-09-10-electron-rewrite-plan.md`](design/2026-09-10-electron-rewrite-plan.md) — Electron 重写的目标、范围、分阶段计划与风险。
+- [`design/2026-09-11-electron-data-compatibility.md`](design/2026-09-11-electron-data-compatibility.md) — 重写期间的数据兼容性决策与回退检查清单。
+- [`design/2026-09-11-d1-golden-equivalence.md`](design/2026-09-11-d1-golden-equivalence.md) — 跨语言等价验收的做法与已抓到的缺陷。
+- [`design/2026-09-11-d2-performance-baseline.md`](design/2026-09-11-d2-performance-baseline.md) — 性能基线与闸门（解析器、层级、UI）。
 - [`../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md) — AI 分析、源码工作区与可信源码定位总体设计。
 - [`../desktop-viewer/docs/design/`](../desktop-viewer/docs/design/) — Desktop Viewer、Layout Inspector 和架构变更设计。
 - [`../desktop-viewer/simpleperf-viewer/docs/design/`](../desktop-viewer/simpleperf-viewer/docs/design/) — Simpleperf 产品、技术栈和 UI 设计。
@@ -28,7 +32,8 @@
 
 ### 提交、验证与发布记录
 
-- [`records/feature-status.md`](records/feature-status.md) — 功能与关键提交对应关系。
+- [`records/feature-status.md`](records/feature-status.md) — 功能与关键提交对应关系（Compose 应用）。
+- [`records/electron-feature-parity.md`](records/electron-feature-parity.md) — Electron 重写的功能对齐矩阵与有意偏离。
 - [`../desktop-viewer/simpleperf-viewer/docs/records/`](../desktop-viewer/simpleperf-viewer/docs/records/) — 性能验证、发布门禁和 release 记录。
 
 ## 必要例外
