@@ -39,8 +39,9 @@ class Writer {
     return this.u4(value);
   }
 
+  /** HPROF strings are length-delimited, not NUL terminated. */
   utf8z(value: string): this {
-    this.chunks.push(Buffer.from(value, 'utf8'), Buffer.from([0]));
+    this.chunks.push(Buffer.from(value, 'utf8'));
     return this;
   }
 
@@ -153,7 +154,9 @@ describe('object graph', () => {
     const graph = buildObjectGraph(parseHprof(sampleHprof()));
     const { retainedBytes } = computeDominators(graph);
     const shallow = graph.nodes.get(0x200n)?.shallowBytes ?? 0;
-    expect(shallow).toBe(ID_SIZE + 8);
+    // The fixture's class declares a four-byte instance size (one id), and no
+    // header estimate is added on top.
+    expect(shallow).toBe(ID_SIZE);
     expect(retainedBytes.get(0x400n)).toBe(shallow);
     expect(retainedBytes.get(0x300n)).toBe(shallow * 2);
     expect(retainedBytes.get(0x200n)).toBe(shallow * 3);

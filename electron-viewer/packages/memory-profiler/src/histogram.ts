@@ -1,4 +1,4 @@
-import { objectHeaderBytes, type HprofParseResult } from './hprof.js';
+import type { HprofParseResult } from './hprof.js';
 
 export interface ClassHistogramEntry {
   readonly className: string;
@@ -23,12 +23,12 @@ function classNameOf(result: HprofParseResult, classObjectId: bigint): string {
 
 /** Per-class instance counts and shallow sizes, largest first. */
 export function classHistogram(result: HprofParseResult): ClassHistogramEntry[] {
-  const headerBytes = objectHeaderBytes(result.header.identifierSize);
   const byClass = new Map<bigint, { instanceCount: number; shallowBytes: number }>();
   for (const instance of result.instances) {
     const entry = byClass.get(instance.classObjectId) ?? { instanceCount: 0, shallowBytes: 0 };
     entry.instanceCount += 1;
-    entry.shallowBytes += instance.fieldBytes + headerBytes;
+    // The dump already reports the runtime's instance size; nothing is added.
+    entry.shallowBytes += instance.shallowBytes;
     byClass.set(instance.classObjectId, entry);
   }
   const entries: ClassHistogramEntry[] = [];
@@ -48,8 +48,7 @@ export function arrayShallowBytes(result: HprofParseResult): number {
 }
 
 export function summarizeMemory(result: HprofParseResult): MemorySummary {
-  const headerBytes = objectHeaderBytes(result.header.identifierSize);
-  const instanceBytes = result.instances.reduce((total, instance) => total + instance.fieldBytes + headerBytes, 0);
+  const instanceBytes = result.instances.reduce((total, instance) => total + instance.shallowBytes, 0);
   return {
     version: result.header.version,
     identifierSize: result.header.identifierSize,
@@ -61,9 +60,10 @@ export function summarizeMemory(result: HprofParseResult): MemorySummary {
 }
 
 /**
- * Shallow sizes include an estimated object header, so they are labelled as
- * estimates rather than exact retained memory.
+ * Shallow sizes come from the dump (declared instance sizes and ART's array
+ * header), so they are exact for the objects present. Retained sizes are the
+ * estimates, and they are labelled as such where they are shown.
  */
 export function histogramIsEstimated(): boolean {
-  return true;
+  return false;
 }

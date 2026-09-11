@@ -37,8 +37,9 @@ class Writer {
     return ID_SIZE === 4 ? this.u4(value) : this.u8(value);
   }
 
+  /** HPROF strings are length-delimited, exactly like the Kotlin fixture builder. */
   utf8z(value: string): this {
-    this.chunks.push(Buffer.from(value, 'utf8'), Buffer.from([0]));
+    this.chunks.push(Buffer.from(value, 'utf8'));
     return this;
   }
 
@@ -166,9 +167,10 @@ describe('parseHprof', () => {
     expect(result.instances[0]).toMatchObject({ objectId: 0x200n, classObjectId: 0x100n, fieldBytes: 8 });
     expect(result.arrays).toHaveLength(2);
     expect(result.arrays[0]).toMatchObject({ objectId: 0x300n, kind: 'primitive', elementType: 10, length: 4 });
-    expect(result.arrays[0]?.shallowBytes).toBe(4 * 4 + 8);
+    // Arrays carry ART's 16-byte header, matching HprofParser.
+    expect(result.arrays[0]?.shallowBytes).toBe(16 + 4 * 4);
     expect(result.arrays[1]).toMatchObject({ objectId: 0x400n, kind: 'object', length: 2 });
-    expect(result.arrays[1]?.shallowBytes).toBe(2 * 4 + 8);
+    expect(result.arrays[1]?.shallowBytes).toBe(16 + 2 * 4);
     expect(result.warnings).toEqual([]);
   });
 
@@ -189,13 +191,15 @@ describe('parseHprof', () => {
 });
 
 describe('memory summaries', () => {
-  it('computes a histogram with estimated object headers', () => {
+  it('sizes instances by the class-declared instance size, like the JVM parser', () => {
     const result = parseHprof(sampleHprof());
     const histogram = classHistogram(result);
+    // Each instance reports the class's 8-byte instance size, with no estimate
+    // layered on top.
     expect(histogram).toEqual([
-      { className: 'com.example.Foo', instanceCount: 2, shallowBytes: 2 * (8 + 8) },
+      { className: 'com.example.Foo', instanceCount: 2, shallowBytes: 2 * 8 },
     ]);
-    expect(arrayShallowBytes(result)).toBe(24 + 16);
+    expect(arrayShallowBytes(result)).toBe(32 + 24);
 
     const summary = summarizeMemory(result);
     expect(summary).toMatchObject({
@@ -204,7 +208,7 @@ describe('memory summaries', () => {
       classCount: 1,
       instanceCount: 2,
       arrayCount: 2,
-      shallowBytes: 32 + 24 + 16,
+      shallowBytes: 16 + 32 + 24,
     });
   });
 

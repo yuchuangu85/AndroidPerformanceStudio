@@ -45,8 +45,9 @@ class Writer {
   id(value: number): this {
     return this.u4(value);
   }
+  /** HPROF strings are length-delimited, not NUL terminated. */
   utf8z(value: string): this {
-    this.chunks.push(Buffer.from(value, 'utf8'), Buffer.from([0]));
+    this.chunks.push(Buffer.from(value, 'utf8'));
     return this;
   }
   raw(value: Buffer): this {

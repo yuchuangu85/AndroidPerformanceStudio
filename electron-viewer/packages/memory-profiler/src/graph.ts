@@ -1,5 +1,5 @@
 import type { HprofParseResult, Identifier } from './hprof.js';
-import { objectHeaderBytes, primitiveSize } from './hprof.js';
+import { primitiveSize } from './hprof.js';
 
 export interface GraphNode {
   readonly objectId: Identifier;
@@ -22,7 +22,6 @@ export interface ObjectGraph {
 export function buildObjectGraph(result: HprofParseResult): ObjectGraph {
   const warnings: string[] = [];
   const nodes = new Map<Identifier, GraphNode>();
-  const headerBytes = objectHeaderBytes(result.header.identifierSize);
 
   const classNameOf = (classObjectId: Identifier): string => {
     const record = result.classes.get(classObjectId);
@@ -51,7 +50,7 @@ export function buildObjectGraph(result: HprofParseResult): ObjectGraph {
       objectId: instance.objectId,
       kind: 'instance',
       className: classNameOf(instance.classObjectId),
-      shallowBytes: instance.fieldBytes + headerBytes,
+      shallowBytes: instance.shallowBytes,
       references: instance.references,
       isRoot: rootIds.has(instance.objectId),
     });

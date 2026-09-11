@@ -25,8 +25,8 @@ function result(): HprofParseResult {
       ],
     ]),
     instances: [
-      { objectId: 0x200n, classObjectId: 0x100n, fieldBytes: 4, references: [0x300n] },
-      { objectId: 0x300n, classObjectId: 0x100n, fieldBytes: 4, references: [] },
+      { objectId: 0x200n, classObjectId: 0x100n, fieldBytes: 4, shallowBytes: 4, references: [0x300n] },
+      { objectId: 0x300n, classObjectId: 0x100n, fieldBytes: 4, shallowBytes: 4, references: [] },
     ],
     arrays: [],
     roots: [0x200n],
@@ -48,14 +48,16 @@ describe('createMemorySession', () => {
     expect(session.histogram[0]).toEqual({
       className: 'com.example.Node',
       instanceCount: 2,
-      shallowBytes: 2 * (4 + 8),
+      // Two instances at the class-declared four-byte instance size.
+      shallowBytes: 2 * 4,
     });
     // 0x300 is reachable and not a root, so it is the only suspect.
     expect(session.suspects).toHaveLength(1);
     expect(session.suspects[0]).toMatchObject({
       className: 'com.example.Node',
       objectId: '0x300',
-      retainedBytes: 12,
+      // Retained size is the shallow size the dump reports, without estimates.
+      retainedBytes: 4,
     });
     expect(session.suspects[0]?.referenceChain).toEqual(['0x200', '0x300']);
   });

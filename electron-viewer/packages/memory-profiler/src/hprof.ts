@@ -69,7 +69,14 @@ export function primitiveSize(elementType: number): number {
   return PRIMITIVE_SIZES[elementType] ?? 0;
 }
 
-/** Object header estimate: two identifiers, as used by the Android runtime. */
+/**
+ * Array header size reported by ART for array objects. Instances do not need an
+ * estimate: their shallow size is the class's declared instance size, which is
+ * what the runtime already accounted for.
+ */
+export const ARRAY_HEADER_BYTES = 16;
+
+/** Kept for callers that need a nominal object header; not added to sizes. */
 export function objectHeaderBytes(identifierSize: 4 | 8): number {
   return identifierSize * 2;
 }
@@ -91,7 +98,13 @@ export interface HprofClassRecord {
 export interface HprofInstanceRecord {
   readonly objectId: Identifier;
   readonly classObjectId: Identifier;
+  /** Bytes of field data present in the dump. */
   readonly fieldBytes: number;
+  /**
+   * Shallow size as the runtime reported it: the class's declared instance size,
+   * or the dumped field bytes when the class layout never arrived.
+   */
+  readonly shallowBytes: number;
   readonly references: readonly Identifier[];
 }
 
@@ -291,11 +304,7 @@ interface DeferredInstance {
   readonly payload: Uint8Array;
 }
 
-function readClassDump(
-  cursor: Cursor,
-  identifierSize: 4 | 8,
-  warnings: string[],
-): Omit<HprofClassRecord, 'nameId'> {
+function readClassDump(cursor: Cursor, identifierSize: 4 | 8): Omit<HprofClassRecord, 'nameId'> {
   const objectId = cursor.id();
   cursor.u4(); // stack trace serial
   const superClassId = cursor.id();
@@ -324,9 +333,9 @@ function readClassDump(
     const type = cursor.u1();
     instanceFields.push({ nameId, type });
   }
-  if (instanceFieldCount === 0) {
-    warnings.push('Class dump without instance fields was read; sizes remain valid.');
-  }
+  // A class dump may legitimately declare no instance fields (all state in
+  // superclasses or statics); the reference implementation stays silent, and the
+  // instance size below is still authoritative.
   return {
     objectId,
     superClassId,
@@ -351,7 +360,7 @@ function readHeapSegment(
     const subTag = cursor.u1();
     switch (subTag) {
       case HEAP_SUBTAGS.classDump: {
-        const record = readClassDump(cursor, identifierSize, warnings);
+        const record = readClassDump(cursor, identifierSize);
         // LOAD_CLASS carries the name; CLASS_DUMP carries the field layout.
         // Either record may arrive first, so merge instead of overwriting.
         const existing = classes.get(record.objectId);
@@ -367,16 +376,19 @@ function readHeapSegment(
         const classObjectId = cursor.id();
         const fieldBytes = cursor.u4();
         const payload = cursor.bytesOf(fieldBytes);
-        const layout = classes.get(classObjectId)?.instanceFields;
+        const classRecord = classes.get(classObjectId);
+        const layout = classRecord?.instanceFields;
+        const shallowBytes = classRecord?.instanceFieldBytes ?? Math.max(fieldBytes, 0);
         const index = instances.length;
         if (layout === undefined) {
           deferred.push({ index, classObjectId, payload });
-          instances.push({ objectId, classObjectId, fieldBytes, references: [] });
+          instances.push({ objectId, classObjectId, fieldBytes, shallowBytes, references: [] });
         } else {
           instances.push({
             objectId,
             classObjectId,
             fieldBytes,
+            shallowBytes,
             references: collectInstanceReferences(payload, layout, identifierSize),
           });
         }
@@ -396,7 +408,7 @@ function readHeapSegment(
           objectId,
           kind: 'object',
           length,
-          shallowBytes: length * identifierSize + objectHeaderBytes(identifierSize),
+          shallowBytes: ARRAY_HEADER_BYTES + length * identifierSize,
           references,
         });
         break;
@@ -414,7 +426,7 @@ function readHeapSegment(
           kind: 'primitive',
           elementType,
           length,
-          shallowBytes: length * elementSize + objectHeaderBytes(identifierSize),
+          shallowBytes: ARRAY_HEADER_BYTES + length * elementSize,
           references: [],
         });
         break;
@@ -450,7 +462,9 @@ export function parseHprof(bytes: Uint8Array): HprofParseResult {
     const bodyEnd = cursor.position + length;
     if (tag === HPROF_TAGS.string) {
       const id = cursor.id();
-      strings.set(id, cursor.utf8UntilNull());
+      // STRING bodies are id + UTF-8 text delimited by the record length, not by
+      // a NUL byte; scanning for a terminator consumes the next record.
+      strings.set(id, utf8Of(cursor.bytesOf(Math.max(length - header.identifierSize, 0))));
     } else if (tag === HPROF_TAGS.loadClass) {
       cursor.u4();
       const classObjectId = cursor.id();
@@ -488,6 +502,7 @@ export function parseHprof(bytes: Uint8Array): HprofParseResult {
     if (layout === undefined || current === undefined) continue;
     instances[entry.index] = {
       ...current,
+      shallowBytes: classes.get(entry.classObjectId)?.instanceFieldBytes ?? current.shallowBytes,
       references: collectInstanceReferences(entry.payload, layout, header.identifierSize),
     };
   }
