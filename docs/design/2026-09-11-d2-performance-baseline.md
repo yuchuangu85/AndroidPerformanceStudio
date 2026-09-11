@@ -64,23 +64,43 @@ APS_PERF=1 APS_PERF_OUT=perf/hprof-baseline-$(uname -m).json \\
    一次会话里同样的工作做了两遍。
 4. 因此 D2 的闸门必须**分阶段定义**：解析/直方图一条线，dominator/泄漏另一条线。
 
-## 与 JVM 版本的对照（未完成）
+## 与 JVM 版本的对照（CI，已完成）
 
-原定闸门是「HPROF 解析 + 直方图 ≤ 旧 JVM 实现的 1.5 倍」。要闭合它需要：
+`.github/workflows/golden.yml` 在同一个 job 里先后跑 Kotlin 基准
+（`HprofJvmBenchmarkTest`，与 TS 完全相同的合成堆）和 TypeScript 基准，
+因此两侧在同一台机器、同一轮 CI 内测量。闸门：`parseHprof` 与
+`classSumAggregation` 均需 ≤ 1.5× JVM 时间。
 
-1. Kotlin 侧一个可重复的基准入口：对**同一份**字节（把 \`syntheticHeap\` 生成器移植到
-   Kotlin 测试，或把生成的转储提交为夹具）跑 \`HprofParser\` + 直方图，输出同结构 JSON；
-2. 在同一台机器、同一次 CI 运行里先后跑两侧，避免机器差异；
-3. 比较 \`parseHprof\` 与 \`classHistogram\`（闸门阶段），dominator 单独设阈值。
+2026-09-11 的绿跑结果：
 
-**当前阻塞**：本机无法下载 Gradle 发行版（\`services.gradle.org\` 的 zip 连接超时，
-缓存里只有 8.13/8.14.4 而 wrapper 固定 9.5.1），Kotlin 侧跑不起来；CI runner 可以。
-与 D1 的 golden 导出器是同一条链路，建议合并成一个 CI 作业。
+| 形状 | 阶段 | TypeScript | JVM | 比值 | 闸门 |
+| --- | --- | ---: | ---: | ---: | --- |
+| chain | `parseHprof` | 244.6 ms | 270.1 ms | **0.91×** | 通过 |
+| chain | `classSumAggregation` | 121.6 ms | 88.5 ms | **1.37×** | 通过 |
+| cyclic | `parseHprof` | 314.9 ms | 250.9 ms | **1.26×** | 通过 |
+| cyclic | `classSumAggregation` | 124.9 ms | 94.2 ms | **1.33×** | 通过 |
+
+### 闸门第一次跑就发挥了作用
+
+首轮带闸门的运行报出聚合阶段 **1.96×**（单次 4–10 ms，被 JIT/GC 噪声主导）。把两侧的
+聚合循环放大 20 倍后，差距稳定在 **1.79–1.80×**，说明不是噪声：TypeScript 用
+`Map<bigint, ...>` 分组，而 bigint 作为 Map 键的开销远高于 JVM 的
+`HashMap<Long, Long>`。真实堆转储里的对象 id 都能放进 double，于是热循环改为按 number
+分组，只有超过 2^53 的 id 落到第二个 bigint 键的 map（保持正确性）。本地该阶段从
+171 ms 降到 46 ms，CI 上从 1.80× 降到 **1.33–1.37×**。
+
+基准阶段现在调用与直方图相同的 `groupInstancesByClass`，测的是产品代码路径而不是副本。
+
+### 注意
+
+- CI runner 的绝对值在轮次间有波动（同一份代码的 `parseHprof` 见过 218–315 ms），
+  所以看的是同一次运行内的比值，不是跨运行的绝对值。
+- 目前只有 HPROF 有 JVM 对照；SIMPLEPERF 与 ART trace 的基准尚未建立。
 
 ## 下一步
 
-- 让 \`findLeakSuspects\` 接受外部传入的 dominator 结果，消除会话创建时的重复计算
-  （预计 \`createMemorySession\` 从 637 ms 降到约 570 ms，环状情形节省更多）。
-- 优化 dominator 定点：先记录迭代次数（长环会放大迭代），再考虑按需分析——只对用户
-  展开的子树或前 N 个可疑对象计算保留大小。
-- 在 CI 增加 \`APS_PERF=1\` 的定时任务（非每次 push），把 JSON 作为 artifact 存档以追踪回归。
+- 让 `findLeakSuspects` 接受外部传入的 dominator 结果，消除会话创建时的重复计算
+  （chain 形状 `createMemorySession` 637 ms 中约 500 ms 是 dominator）。
+- 为 SIMPLEPERF 与 ART trace 补上同样的 JVM 对照与导出器。
+- 把带闸门的基准从「每次 push」改成定时任务或仅在相关路径变化时运行，避免拖慢日常 PR
+  （当前 golden 作业约 3 分钟，其中 Gradle 构建占大头）。

@@ -56,27 +56,46 @@ TS 测试会：
 人工转录的**弱点**很明确：如果 Kotlin 侧改了行为而没人同步 TS 测试，对照不会失败。
 这正是下一节要补的。
 
-## 未完成：由 Kotlin 生成的 golden 语料
+## 已完成：由 Kotlin 生成的 golden 语料（CI 自动对照）
 
-要把「人工转录」升级为「自动对照」，需要让 Kotlin 侧把**程序构造的输入字节**连同它的
-解析结论一起导出，TS 侧只负责消费：
+`desktop-viewer/memory-profiler/parser-hprof` 的测试现在同时是导出器：
+`HprofGoldenExportTest` 用现有的 `HprofFixtureBuilder` 构造 5 个用例，把字节写成
+`<case>.hprof`，并把**它自己解析出来的结论**写成 `<case>.json`：
 
-1. 在 `desktop-viewer/memory-profiler/parser-hprof/src/test/` 增加一个 golden 导出测试：
-   用现有的 `HprofFixtureBuilder` 构造若干用例，把字节写入
-   `build/golden/<case>.hprof`，把解析结论（类名、实例数、浅层大小、GC 根、字段引用、
-   告警）写成 `<case>.json`。SIMPLEPERF 与 ART trace 各加一份同样结构的导出器。
-2. 把导出的文件复制到 `electron-viewer/golden/`，纳入版本控制。
-3. TS 侧增加语料运行器（`electron-viewer/packages/*/src/golden.test.ts` 的扩展）：
-   遍历 `golden/*.json`，按 `parser` 字段选择实现，逐字段比对。
-4. 在 CI 中固定这条链路：CI 里网络可用，因此 Gradle 侧可以跑导出器；
-   本地受限时语料保持只读。
+| 用例 | 覆盖 |
+| --- | --- |
+| `basic` | 字符串、类、实例引用、基本类型数组 |
+| `eight-byte-ids` | 8 字节标识、long 字段、对象数组 |
+| `android-extensions` | `HEAP_DUMP_INFO` 堆名切换、Android 扩展根、no-data 数组 |
+| `null-root` | objectId 为 0 的根（参考实现会丢弃） |
 
-**当前阻塞**：本机无法下载 Gradle 发行版（`services.gradle.org` 的 zip 连接超时），
-因此第一步的导出器还没跑起来；`~/.gradle/wrapper/dists` 只有 8.13/8.14.4，而
-`desktop-viewer/memory-profiler` 的 wrapper 固定 9.5.1。CI（GitHub runner）不受此限制。
+TypeScript 侧 `packages/memory-profiler/src/golden-corpus.test.ts` 解析同一份字节，
+逐字段比对：format、id 宽度、类名集合、实例数、实例与数组的浅层大小、堆名集合、
+根数量、告警数量。没有语料时该套件跳过，本地开发不受影响。
+
+CI 作业 `.github/workflows/golden.yml` 在同一个 job 里先跑 Kotlin 导出器，再跑
+TypeScript 对照，并把语料与两侧基线作为 artifact 上传。**当前状态：绿**，
+5/5 用例通过。
+
+### D1 抓到的真实缺陷（累计 5 个）
+
+前 3 个由磁盘夹具发现（见上一节）。语料对照又发现 2 个：
+
+4. **objectId 为 0 的 GC 根**：Kotlin 用 `if (objectId != 0L)` 丢弃，TypeScript 之前把它
+   计入了根集合。现在两侧一致，`null-root` 用例持续盯住这个行为。
+5. **`HEAP_DUMP_INFO (0xFE)` 完全没有处理**：TypeScript 把它当成未知子标签，
+   于是**停止解析整个 heap segment**，该用例的类与实例全部丢失。现在会切换当前堆并按
+   Kotlin 的 `normalizeHeapName` 归一化（App/Image/Zygote/Default），结果新增
+   `heapByObjectId`，语料也比对堆名集合。
+
+这两个都属于同一类问题：自造夹具里永远不会出现的记录。
 
 ## 结论
 
-- 磁盘夹具对照：**已建立**，并且已经产生实际收益（三个缺陷）。
-- 生成语料对照：**未完成**，需要 Kotlin 侧导出器 + CI 运行。
-- 在生成语料落地之前，D1 不应标记为完成。
+- 磁盘夹具对照：**已完成**，抓到 3 个缺陷。
+- 生成语料对照：**已完成并在 CI 中自动运行**，又抓到 2 个缺陷，5/5 用例通过。
+- 人工转录的测试映射（上一节）仍然保留，作为生成语料之外的行为对照。
+
+D1 现在可以视为达成：每个已迁移的 HPROF 行为都有由 Kotlin 侧产出的期望值驱动、
+在 CI 中自动运行的对照证据。SIMPLEPERF 与 ART trace 的同类导出器尚未建立，
+它们的对照目前仍依赖人工转录的测试向量。
