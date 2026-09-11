@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-11T10:03:52.702Z",
+  "generatedAt": "2026-09-11T11:08:59.901Z",
   "runtime": {
     "node": "v24.19.0",
     "platform": "darwin",
     "arch": "arm64"
   },
-  "parseThroughputInstancesPerSecond": 2928258,
+  "parseThroughputInstancesPerSecond": 1391788,
   "cases": [
     {
       "shape": "chain",
@@ -22,35 +22,43 @@
       "measurements": [
         {
           "stage": "parseHprof",
-          "milliseconds": 68.3
+          "milliseconds": 143.7
         },
         {
           "stage": "classHistogram",
-          "milliseconds": 4.2
+          "milliseconds": 6.6
+        },
+        {
+          "stage": "classSumAggregation",
+          "milliseconds": 50.1
         },
         {
           "stage": "summarizeMemory",
-          "milliseconds": 1
+          "milliseconds": 1.1
         },
         {
           "stage": "buildObjectGraph",
-          "milliseconds": 50.2
+          "milliseconds": 36.9
         },
         {
           "stage": "reachableFromRoots",
-          "milliseconds": 68.6
+          "milliseconds": 71.8
         },
         {
           "stage": "computeDominators",
-          "milliseconds": 503.8
+          "milliseconds": 523.5
         },
         {
           "stage": "findLeakSuspects",
-          "milliseconds": 533.4
+          "milliseconds": 685
         },
         {
           "stage": "createMemorySession",
-          "milliseconds": 637.5
+          "milliseconds": 898.5
+        },
+        {
+          "stage": "sessionBeforeReachabilityReuse",
+          "milliseconds": 1022.6
         }
       ]
     },
@@ -69,35 +77,43 @@
       "measurements": [
         {
           "stage": "parseHprof",
-          "milliseconds": 59.9
+          "milliseconds": 120.4
         },
         {
           "stage": "classHistogram",
-          "milliseconds": 4.6
+          "milliseconds": 4.3
+        },
+        {
+          "stage": "classSumAggregation",
+          "milliseconds": 58.5
         },
         {
           "stage": "summarizeMemory",
-          "milliseconds": 0.9
+          "milliseconds": 1.2
         },
         {
           "stage": "buildObjectGraph",
-          "milliseconds": 39
+          "milliseconds": 82.6
         },
         {
           "stage": "reachableFromRoots",
-          "milliseconds": 61.2
+          "milliseconds": 135.3
         },
         {
           "stage": "computeDominators",
-          "milliseconds": 3923.3
+          "milliseconds": 4945.5
         },
         {
           "stage": "findLeakSuspects",
-          "milliseconds": 3922.1
+          "milliseconds": 5214.9
         },
         {
           "stage": "createMemorySession",
-          "milliseconds": 4511.9
+          "milliseconds": 5243.7
+        },
+        {
+          "stage": "sessionBeforeReachabilityReuse",
+          "milliseconds": 5710.1
         }
       ]
     }

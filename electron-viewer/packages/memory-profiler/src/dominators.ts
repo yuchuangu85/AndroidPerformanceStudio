@@ -42,8 +42,13 @@ const VIRTUAL_ROOT: Identifier = -1n;
  * graph. Retained size is the dominator-subtree sum, which is the figure leak
  * suspects are ranked by.
  */
-export function computeDominators(graph: ObjectGraph): DominatorResult {
-  const reachability = reachableFromRoots(graph);
+export function computeDominators(
+  graph: ObjectGraph,
+  options: { readonly reachability?: ReachabilityResult } = {},
+): DominatorResult {
+  // Reachability is reusable: callers that already walked the graph pass it in
+  // rather than paying for a second traversal.
+  const reachability = options.reachability ?? reachableFromRoots(graph);
   const order: Identifier[] = [];
   const visited = new Set<Identifier>();
   // Depth-first post-order over reachable nodes, then reversed.
@@ -125,6 +130,21 @@ export function computeDominators(graph: ObjectGraph): DominatorResult {
   }
 
   return { immediateDominator: dominator, retainedBytes: retained, virtualRoot: VIRTUAL_ROOT };
+}
+
+export interface GraphAnalysis {
+  readonly reachability: ReachabilityResult;
+  readonly dominators: DominatorResult;
+}
+
+/**
+ * Everything the leak ranking needs, computed once. A session used to derive
+ * reachability and dominators twice, which roughly doubled the cost of opening
+ * a large dump.
+ */
+export function analyzeGraph(graph: ObjectGraph): GraphAnalysis {
+  const reachability = reachableFromRoots(graph);
+  return { reachability, dominators: computeDominators(graph, { reachability }) };
 }
 
 export { VIRTUAL_ROOT };

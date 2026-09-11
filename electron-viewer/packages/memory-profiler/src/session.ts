@@ -1,5 +1,6 @@
 import type { ClassHistogramEntry, MemorySummary } from './histogram.js';
 import { classHistogram, summarizeMemory } from './histogram.js';
+import { analyzeGraph } from './dominators.js';
 import { buildObjectGraph } from './graph.js';
 import { findLeakSuspects } from './leaks.js';
 import type { HprofParseResult, Identifier } from './hprof.js';
@@ -41,7 +42,10 @@ export function createMemorySession(
   },
 ): MemorySession {
   const graph = buildObjectGraph(result);
-  const report = findLeakSuspects(graph, { top: options.suspectLimit ?? 20 });
+  // One analysis for the whole session: the leak ranking reuses it instead of
+  // recomputing reachability and dominators.
+  const analysis = analyzeGraph(graph);
+  const report = findLeakSuspects(graph, { top: options.suspectLimit ?? 20, analysis });
   return {
     id: options.id,
     ...(options.deviceSerial !== undefined ? { deviceSerial: options.deviceSerial } : {}),

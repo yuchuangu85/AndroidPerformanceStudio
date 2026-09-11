@@ -365,6 +365,16 @@ function measureShape(shape: string, wrapChains: boolean): ShapeCase {
   measure('createMemorySession', () => {
     session = createMemorySession(parsed, { id: 'perf', capturedAtEpochMillis: 0, histogramLimit: 50 });
   }, results);
+
+  // The pre-optimization path, as an A/B control in the same run: the leak
+  // ranking walked reachability a second time because the caller had no way to
+  // pass its analysis in. The saving is one traversal, not a whole dominator
+  // pass, so expect a few percent rather than a multiple.
+  measure('sessionBeforeReachabilityReuse', () => {
+    const graphBeforeReuse = buildObjectGraph(parsed);
+    findLeakSuspects(graphBeforeReuse, { top: 20 });
+    sink = classHistogram(parsed).length;
+  }, results);
   expect(session.histogram.length).toBeGreaterThan(0);
   expect(session.summary.instanceCount).toBe(heap.instanceCount + heap.garbageCount);
 

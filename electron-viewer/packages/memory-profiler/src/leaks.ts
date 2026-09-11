@@ -1,4 +1,4 @@
-import { computeDominators, reachableFromRoots } from './dominators.js';
+import { analyzeGraph, type GraphAnalysis } from './dominators.js';
 import type { ObjectGraph } from './graph.js';
 import type { Identifier } from './hprof.js';
 
@@ -54,10 +54,15 @@ export function referenceChainTo(graph: ObjectGraph, target: Identifier): Identi
  * Ranks reachable objects by retained size. A suspect is a hypothesis with an
  * evidence chain, not a confirmed leak (CONTEXT.md: 泄漏嫌疑人).
  */
-export function findLeakSuspects(graph: ObjectGraph, options: { readonly top?: number } = {}): LeakSuspicionReport {
+export function findLeakSuspects(
+  graph: ObjectGraph,
+  options: { readonly top?: number; readonly analysis?: GraphAnalysis } = {},
+): LeakSuspicionReport {
   const top = options.top ?? 10;
-  const { retainedBytes } = computeDominators(graph);
-  const reachability = reachableFromRoots(graph);
+  // Callers that already analysed the graph pass the result in; otherwise the
+  // analysis runs here.
+  const { reachability, dominators } = options.analysis ?? analyzeGraph(graph);
+  const retainedBytes = dominators.retainedBytes;
   const candidates = [...graph.nodes.values()]
     // An unreachable object is collected garbage, not a leak suspect; only
     // objects still held from a GC root can be one.

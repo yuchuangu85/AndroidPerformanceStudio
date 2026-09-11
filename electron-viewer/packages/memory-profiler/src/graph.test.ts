@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseHprof } from './hprof.js';
 import { buildObjectGraph } from './graph.js';
-import { computeDominators, reachableFromRoots } from './dominators.js';
+import { analyzeGraph, computeDominators, reachableFromRoots } from './dominators.js';
 import { findLeakSuspects, referenceChainTo } from './leaks.js';
 
 const ID_SIZE = 4;
@@ -181,5 +181,15 @@ describe('leak suspects', () => {
     const graph = buildObjectGraph(parseHprof(sampleHprof()));
     expect(referenceChainTo(graph, 0x200n)).toEqual([0x200n]);
     expect(referenceChainTo(graph, 0x500n)).toBeUndefined();
+  });
+
+  it('produces the same report from a reused analysis', () => {
+    const graph = buildObjectGraph(parseHprof(sampleHprof()));
+    const computed = findLeakSuspects(graph, { top: 3 });
+    const reused = findLeakSuspects(graph, { top: 3, analysis: analyzeGraph(graph) });
+    // The session path passes the analysis in; it must not change the ranking or
+    // the evidence chains.
+    expect(reused.suspects).toEqual(computed.suspects);
+    expect(reused.totalRetainedBytes).toBe(computed.totalRetainedBytes);
   });
 });
