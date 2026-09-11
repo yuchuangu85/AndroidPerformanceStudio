@@ -19,8 +19,9 @@ import kotlin.test.assertIs
  * Output directory: APS_GOLDEN_OUT, or the module build/golden.
  */
 class ArtTraceGoldenExportTest {
+    // Case names are not unique across parsers, so each exporter owns a directory.
     private val outputDirectory: File =
-        File(System.getenv("APS_GOLDEN_OUT") ?: "build/golden").apply { mkdirs() }
+        File(System.getenv("APS_GOLDEN_OUT") ?: "build/golden", "art-trace").apply { mkdirs() }
 
     @Test
     fun `exports golden cases with their parse digests`() {

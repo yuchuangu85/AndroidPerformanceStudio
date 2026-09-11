@@ -23,8 +23,10 @@ import kotlin.test.assertTrue
 class HprofGoldenExportTest {
     private val parser = HprofParser()
 
+    // Each exporter owns a subdirectory: case names are not unique across parsers,
+    // and two "basic" digests in one directory silently overwrite each other.
     private val outputDirectory: File =
-        File(System.getenv("APS_GOLDEN_OUT") ?: "build/golden").apply { mkdirs() }
+        File(System.getenv("APS_GOLDEN_OUT") ?: "build/golden", "hprof").apply { mkdirs() }
 
     @Test
     fun `exports golden cases with their parse digests`() {

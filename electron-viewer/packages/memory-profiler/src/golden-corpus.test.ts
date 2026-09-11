@@ -20,6 +20,8 @@ import { parseHprof } from './hprof.js';
  * Without APS_GOLDEN_DIR (or with an empty directory) the suite is skipped.
  */
 const GOLDEN_DIRECTORY = process.env['APS_GOLDEN_DIR'];
+/** Each exporter writes its own subdirectory. */
+const CORPUS_DIRECTORY = 'hprof';
 
 interface GoldenDigest {
   readonly parser: string;
@@ -43,17 +45,17 @@ function loadCorpus(): readonly { readonly digest: GoldenDigest; readonly bytes:
   if (GOLDEN_DIRECTORY === undefined || GOLDEN_DIRECTORY.length === 0) return [];
   let entries: string[];
   try {
-    entries = readdirSync(GOLDEN_DIRECTORY);
+    entries = readdirSync(join(GOLDEN_DIRECTORY, CORPUS_DIRECTORY));
   } catch {
     return [];
   }
   const corpus: { digest: GoldenDigest; bytes: Uint8Array }[] = [];
   for (const entry of entries.filter((name) => name.endsWith('.json')).sort()) {
-    const parsed: unknown = JSON.parse(readFileSync(join(GOLDEN_DIRECTORY as string, entry), 'utf8'));
+    const parsed: unknown = JSON.parse(readFileSync(join(GOLDEN_DIRECTORY as string, CORPUS_DIRECTORY, entry), 'utf8'));
     // The directory also holds the JVM benchmark, so only well-formed HPROF
     // digests are treated as corpus cases.
     if (!isDigest(parsed)) continue;
-    const bytes = new Uint8Array(readFileSync(join(GOLDEN_DIRECTORY as string, parsed.inputFile)));
+    const bytes = new Uint8Array(readFileSync(join(GOLDEN_DIRECTORY as string, CORPUS_DIRECTORY, parsed.inputFile)));
     corpus.push({ digest: parsed, bytes });
   }
   return corpus;
@@ -78,7 +80,11 @@ function sorted(values: readonly number[]): number[] {
   return [...values].sort((left, right) => left - right);
 }
 
-describe.skipIf(corpus.length === 0)('Kotlin golden corpus', () => {
+// A corpus path that is set but empty is a failure, not a skip: silently
+// skipping would make a missing exporter look green.
+const corpusSuite = GOLDEN_DIRECTORY === undefined ? describe.skip : describe;
+
+corpusSuite('Kotlin golden corpus', () => {
   it('found at least one case', () => {
     expect(corpus.length).toBeGreaterThan(0);
   });

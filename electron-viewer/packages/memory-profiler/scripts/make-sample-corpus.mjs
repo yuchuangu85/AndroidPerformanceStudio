@@ -6,7 +6,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const out = join(here, '..', '..', '..', '.cache', 'golden-sample');
+// The parser's own subdirectory, matching the Kotlin exporter layout.
+const out = join(here, '..', '..', '..', '.cache', 'golden-sample', 'hprof');
 mkdirSync(out, { recursive: true });
 
 const ID_SIZE = 4;
@@ -105,6 +106,7 @@ writeFileSync(
         instanceCount: 1,
         instanceShallowSizes: [4],
         arrayShallowSizes: [16 + 4 * 4],
+        heapNames: ['Default'],
         rootCount: 1,
         warningCount: 0,
       },

@@ -23,8 +23,9 @@ import kotlin.test.assertEquals
  * Output directory: APS_GOLDEN_OUT, or the module build/golden.
  */
 class SimpleperfGoldenExportTest {
+    // Case names are not unique across parsers, so each exporter owns a directory.
     private val outputDirectory: File =
-        File(System.getenv("APS_GOLDEN_OUT") ?: "build/golden").apply { mkdirs() }
+        File(System.getenv("APS_GOLDEN_OUT") ?: "build/golden", "simpleperf").apply { mkdirs() }
 
     @Test
     fun `exports golden cases with their parse digests`() {
