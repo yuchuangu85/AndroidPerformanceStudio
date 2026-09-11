@@ -33,8 +33,14 @@ const THREAD_COUNT = 64;
 const EVENTS_PER_THREAD = 1600;
 const EVENT_COUNT = THREAD_COUNT * EVENTS_PER_THREAD;
 
-const WARMUP_ROUNDS = 2;
-const MEASURED_ROUNDS = 3;
+/**
+ * Warm-ups then measured rounds. Both sides of the comparison use three warm-ups
+ * and five measured rounds: with three measured rounds the median is a single
+ * sample, so one scheduling hiccup moves the ratio by tens of percent and the
+ * gate then fails on the runner rather than on the code.
+ */
+const WARMUP_ROUNDS = 3;
+const MEASURED_ROUNDS = 5;
 
 const HEADER_PADDING = new Uint8Array(18);
 
@@ -115,6 +121,8 @@ function syntheticTrace(): Uint8Array {
 interface Measurement {
   readonly stage: string;
   readonly milliseconds: number;
+  /** Every measured round, so a borderline ratio reads as a spread. */
+  readonly runs: readonly number[];
 }
 
 function measureMedian(stage: string, run: () => void, results: Measurement[]): void {
@@ -126,9 +134,11 @@ function measureMedian(stage: string, run: () => void, results: Measurement[]): 
     runs.push(performance.now() - start);
   }
   const sorted = [...runs].sort((left, right) => left - right);
+  const round = (value: number): number => Math.round(value * 10) / 10;
   results.push({
     stage,
-    milliseconds: Math.round((sorted[Math.floor(sorted.length / 2)] as number) * 10) / 10,
+    milliseconds: round(sorted[Math.floor(sorted.length / 2)] as number),
+    runs: runs.map(round),
   });
 }
 
@@ -177,7 +187,12 @@ function baselinePath(): string | undefined {
 }
 
 interface JvmBenchmark {
-  readonly measurements: readonly { readonly stage: string; readonly milliseconds: number }[];
+  readonly measurements: readonly {
+    readonly stage: string;
+    readonly milliseconds: number;
+    /** Present in every baseline this gate reads; older files simply omit it. */
+    readonly runs?: readonly number[];
+  }[];
 }
 
 function compareWithJvm(report: { readonly measurements: readonly Measurement[] }, baseline: string): void {
@@ -204,7 +219,14 @@ function compareWithJvm(report: { readonly measurements: readonly Measurement[] 
       failures.push(pair[0] + ': measurement missing');
       continue;
     }
-    const ratio = logRatio(pair[0], ts, jvmValue, true);
+    const ratio = logRatio(
+      pair[0],
+      ts,
+      jvmValue,
+      true,
+      report.measurements.find((entry) => entry.stage === pair[0])?.runs,
+      parsed.measurements.find((entry) => entry.stage === pair[1])?.runs,
+    );
     if (ratio > GATE_RATIO) {
       failures.push(pair[0] + ' is ' + ratio.toFixed(2) + 'x the JVM time (gate ' + GATE_RATIO + 'x)');
     }
@@ -212,7 +234,20 @@ function compareWithJvm(report: { readonly measurements: readonly Measurement[] 
   expect(failures).toEqual([]);
 }
 
-function logRatio(stage: string, ts: number, jvmValue: number, gated: boolean): number {
+function spread(runs: readonly number[] | undefined): string {
+  if (runs === undefined || runs.length === 0) return '';
+  const sorted = [...runs].sort((left, right) => left - right);
+  return ' [' + (sorted[0] as number).toFixed(1) + '..' + (sorted[sorted.length - 1] as number).toFixed(1) + ']';
+}
+
+function logRatio(
+  stage: string,
+  ts: number,
+  jvmValue: number,
+  gated: boolean,
+  tsRuns?: readonly number[],
+  jvmRuns?: readonly number[],
+): number {
   const ratio = ts / jvmValue;
   console.log(
     '  ' +
@@ -220,8 +255,10 @@ function logRatio(stage: string, ts: number, jvmValue: number, gated: boolean): 
       (gated ? '' : ' (reported, not gated)') +
       ': ' +
       ts.toFixed(1) +
+      spread(tsRuns) +
       ' ms vs JVM ' +
       jvmValue.toFixed(1) +
+      spread(jvmRuns) +
       ' ms = ' +
       ratio.toFixed(2) +
       'x',

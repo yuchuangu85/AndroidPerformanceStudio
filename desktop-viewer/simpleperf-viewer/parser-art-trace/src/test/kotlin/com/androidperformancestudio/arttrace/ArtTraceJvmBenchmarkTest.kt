@@ -196,8 +196,10 @@ class ArtTraceJvmBenchmarkTest {
         const val THREAD_COUNT = 64
         const val EVENTS_PER_THREAD = 1600
         const val EVENT_COUNT = THREAD_COUNT * EVENTS_PER_THREAD
-        const val WARMUPS = 2
-        const val ROUNDS = 3
+        // Matched to the TypeScript benchmark: same warm-ups, same sample count.
+        // A median of three is a single sample and moves with the runner.
+        const val WARMUPS = 3
+        const val ROUNDS = 5
         const val NANOS_PER_MILLI = 1_000_000.0
         const val BUFFER_BYTES = 8 * 1024 * 1024
     }

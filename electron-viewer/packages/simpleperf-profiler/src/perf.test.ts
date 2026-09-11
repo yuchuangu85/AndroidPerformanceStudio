@@ -218,9 +218,13 @@ interface Measurement {
   readonly milliseconds: number;
 }
 
-/** Warmup rounds before a measured stage, matching the JVM benchmark. */
-const WARMUP_ROUNDS = 2;
-const MEASURED_ROUNDS = 3;
+/**
+ * Warm-ups and measured rounds, matching the JVM benchmark. Three warm-ups and
+ * five measured rounds on both sides: a median of three is one sample, so a
+ * single scheduling hiccup moves the ratio by tens of percent.
+ */
+const WARMUP_ROUNDS = 3;
+const MEASURED_ROUNDS = 5;
 
 /**
  * Measures a gated stage as the median of several rounds. A single sample is

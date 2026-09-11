@@ -319,8 +319,13 @@ interface Measurement {
 }
 
 /** Warmup rounds before a measured stage, matching the JVM benchmark. */
-const WARMUP_ROUNDS = 2;
-const MEASURED_ROUNDS = 3;
+/**
+ * Three warm-ups then five measured rounds, matching HprofJvmBenchmarkTest. A
+ * median of three is a single sample, which makes the ratio move with the runner
+ * instead of with the code.
+ */
+const WARMUP_ROUNDS = 3;
+const MEASURED_ROUNDS = 5;
 
 /**
  * Measures a gated stage as the median of several rounds. A single sample is

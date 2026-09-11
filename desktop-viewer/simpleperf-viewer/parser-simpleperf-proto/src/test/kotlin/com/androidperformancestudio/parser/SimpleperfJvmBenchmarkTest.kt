@@ -156,8 +156,9 @@ class SimpleperfJvmBenchmarkTest {
         const val SAMPLE_COUNT = 100_000
         const val FRAMES_PER_SAMPLE = 12
         const val EXPECTED_RECORDS = 1 + FILE_COUNT + THREAD_COUNT + SAMPLE_COUNT
-        const val WARMUPS = 2
-        const val ROUNDS = 3
+        // Matched to the TypeScript benchmark: same warm-ups, same sample count.
+        const val WARMUPS = 3
+        const val ROUNDS = 5
         const val NANOS_PER_MILLI = 1_000_000.0
         const val BUFFER_BYTES = 16 * 1024 * 1024
     }
