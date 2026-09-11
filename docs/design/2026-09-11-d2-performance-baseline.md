@@ -97,10 +97,36 @@ APS_PERF=1 APS_PERF_OUT=perf/hprof-baseline-$(uname -m).json \\
   所以看的是同一次运行内的比值，不是跨运行的绝对值。
 - 目前只有 HPROF 有 JVM 对照；SIMPLEPERF 与 ART trace 的基准尚未建立。
 
+## 会话分析复用（2026-09-11 追加）
+
+原本的计划是「消除会话创建时重复的 dominator 计算」。实现后测量发现**这个判断是错的**：
+`createMemorySession` 从来不自己算 dominator，它只调用 `findLeakSuspects`，而后者算了一次
+dominator 和一次可达性，再加上 `computeDominators` 内部自己的一次可达性——重复的是
+**可达性遍历**，不是 dominator。
+
+改动：`analyzeGraph(graph)` 一次算出可达性与 dominator，`findLeakSuspects` 接受可选的
+`analysis` 参数（不传时自己算，调用方无感），会话把同一份分析传给泄漏排序。
+
+同一轮运行内的 A/B（`sessionBeforeReachabilityReuse` 阶段复现旧路径）：
+
+| 形状 | 复用后 | 旧路径 | 变化 |
+| --- | ---: | ---: | ---: |
+| chain | 898.5 ms | 1022.6 ms | **−12%** |
+| cyclic | 5243.7 ms | 5710.1 ms | **−8%** |
+
+与「省掉一次全图可达性遍历」（实测 71.8 ms chain / 135.3 ms cyclic）的量级一致。
+注意：上一轮 A/B 里 chain 方向是反的（657.9 vs 632.7），共享 runner 上单轮差异不可靠，
+所以这个对照阶段保留在基准里，用同轮数据而不是跨轮数据说话。
+
+**dominant 成本没有变化**：`computeDominators` 仍是 523 ms（chain）/ 4.9 s（cyclic）,
+占会话时间的绝大部分。真正的优化空间在 dominator 定点本身（长环会放大迭代次数），
+而不是在调用方重复计算。
+
 ## 下一步
 
-- 让 `findLeakSuspects` 接受外部传入的 dominator 结果，消除会话创建时的重复计算
-  （chain 形状 `createMemorySession` 637 ms 中约 500 ms 是 dominator）。
-- 为 SIMPLEPERF 与 ART trace 补上同样的 JVM 对照与导出器。
+- **优化 dominator 定点**：这是唯一还有量级空间的地方。先记录迭代次数（长环会显著放大），
+  再考虑用工作列表（worklist）替代「每轮重扫全部节点」，或改为按需分析——只对用户展开的
+  子树或前 N 个可疑对象计算保留大小。
+- 为 SIMPLEPERF 与 ART trace 补上同样的 JVM 对照与 golden 导出器（D1 目前只覆盖 HPROF）。
 - 把带闸门的基准从「每次 push」改成定时任务或仅在相关路径变化时运行，避免拖慢日常 PR
   （当前 golden 作业约 3 分钟，其中 Gradle 构建占大头）。
