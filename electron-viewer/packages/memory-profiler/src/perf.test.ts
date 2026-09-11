@@ -48,7 +48,14 @@ interface JvmBenchmark {
 }
 
 function compareWithJvm(report: { readonly cases: readonly ShapeCase[] }, baselinePath: string): void {
-  const jvm = JSON.parse(readFileSync(baselinePath, 'utf8')) as JvmBenchmark;
+  let jvm: JvmBenchmark;
+  try {
+    jvm = JSON.parse(readFileSync(baselinePath, 'utf8')) as JvmBenchmark;
+  } catch (error) {
+    // A baseline path only exists when the caller asked for a comparison, so an
+    // unreadable file is a broken gate rather than a reason to skip the check.
+    throw new Error('JVM baseline unreadable at ' + baselinePath, { cause: error });
+  }
   const failures: string[] = [];
   console.log('stage comparison (TypeScript / JVM):');
   for (const shapeCase of report.cases) {

@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { SimpleperfProfileNormalizer } from './normalizer.js';
 import { readSimpleperfReport } from './reader.js';
-import { normalizeSimpleperfReport } from './report.js';
+import { normalizeSimpleperfReport, type NormalizedProfile } from './report.js';
 import { samplesToCallStackTable } from './analysis/table.js';
 
 /**
@@ -10,6 +11,13 @@ import { samplesToCallStackTable } from './analysis/table.js';
  * Opt-in: run with APS_PERF=1. When APS_GOLDEN_DIR holds the JVM baseline
  * (simpleperf/benchmark.json, written by SimpleperfJvmBenchmarkTest in CI), the
  * same two stages are compared and gated at 1.5x.
+ *
+ * The gated stages are the JVM benchmark's stages, not the app's pipeline:
+ * SimpleperfJvmBenchmarkTest decodes every record and then feeds every record
+ * through SimpleperfProfileNormalizer without keeping the result. Measuring
+ * normalizeSimpleperfReport here would materialise a 100000 sample profile on
+ * the TypeScript side only and compare two different amounts of work. The full
+ * pipeline is measured separately, without a gate.
  */
 const ENABLED = process.env['APS_PERF'] === '1';
 const GOLDEN_DIRECTORY = process.env['APS_GOLDEN_DIR'];
@@ -24,18 +32,29 @@ const SYMBOLS_PER_FILE = 120;
 const THREAD_COUNT = 64;
 const SAMPLE_COUNT = 100_000;
 const FRAMES_PER_SAMPLE = 12;
+const EXPECTED_RECORDS = 1 + FILE_COUNT + THREAD_COUNT + SAMPLE_COUNT;
+/** Size of the report the generator below builds; the JVM builds the same one. */
+const EXPECTED_BYTES = 15_052_649;
 
-class Writer {
+const ENCODER = new TextEncoder();
+
+/**
+ * Growable byte sink. The generator used to build every field as its own
+ * Uint8Array and copy it into its parent: 1.2 million call chain frames meant
+ * tens of millions of short-lived arrays, and generation alone took 150 s of
+ * the 152 s this test ran. Writing into one reused buffer takes well under a
+ * second for the same bytes.
+ */
+class ByteSink {
   private bytes = new Uint8Array(1 << 20);
   private length = 0;
 
-  private ensure(count: number): void {
-    if (this.length + count <= this.bytes.length) return;
-    let size = this.bytes.length * 2;
-    while (size < this.length + count) size *= 2;
-    const grown = new Uint8Array(size);
-    grown.set(this.bytes.subarray(0, this.length));
-    this.bytes = grown;
+  get size(): number {
+    return this.length;
+  }
+
+  reset(): void {
+    this.length = 0;
   }
 
   u8(value: number): void {
@@ -53,134 +72,143 @@ class Writer {
     this.length += 4;
   }
 
-  bytesOf(value: Uint8Array): void {
-    this.ensure(value.length);
-    this.bytes.set(value, this.length);
-    this.length += value.length;
+  /** Unsigned LEB128; the generator only writes values far below 2^53. */
+  varint(value: number): void {
+    let remaining = value;
+    do {
+      const byte = remaining & 0x7f;
+      remaining = Math.floor(remaining / 128);
+      this.u8(remaining === 0 ? byte : byte | 0x80);
+    } while (remaining !== 0);
+  }
+
+  raw(source: Uint8Array): void {
+    this.ensure(source.length);
+    this.bytes.set(source, this.length);
+    this.length += source.length;
   }
 
   utf8(value: string): void {
-    this.bytesOf(new TextEncoder().encode(value));
-  }
-
-  varint(value: number | bigint): void {
-    let remaining = BigInt(value);
-    do {
-      const byte = Number(remaining & 0x7fn);
-      remaining >>= 7n;
-      this.u8(remaining === 0n ? byte : byte | 0x80);
-    } while (remaining !== 0n);
+    this.raw(ENCODER.encode(value));
   }
 
   result(): Uint8Array {
     return this.bytes.subarray(0, this.length);
   }
 
-  get size(): number {
-    return this.length;
+  private ensure(count: number): void {
+    if (this.length + count <= this.bytes.length) return;
+    let size = this.bytes.length * 2;
+    while (size < this.length + count) size *= 2;
+    const grown = new Uint8Array(size);
+    grown.set(this.bytes.subarray(0, this.length));
+    this.bytes = grown;
   }
 }
 
-function varintField(field: number, value: number | bigint): Uint8Array {
-  const writer = new Writer();
-  writer.varint((BigInt(field) << 3n) | 0n);
-  writer.varint(value);
-  return writer.result().slice();
-}
+/** One protobuf message, reused across records so nesting allocates nothing. */
+class Message {
+  private readonly body = new ByteSink();
 
-function bytesField(field: number, value: Uint8Array): Uint8Array {
-  const writer = new Writer();
-  writer.varint((BigInt(field) << 3n) | 2n);
-  writer.varint(value.length);
-  writer.bytesOf(value);
-  return writer.result().slice();
-}
+  get length(): number {
+    return this.body.size;
+  }
 
-function record(field: number, payload: Uint8Array): Uint8Array {
-  return bytesField(field, payload);
-}
+  reset(): void {
+    this.body.reset();
+  }
 
-function joinBytes(chunks: readonly Uint8Array[]): Uint8Array {
-  const writer = new Writer();
-  chunks.forEach((chunk) => writer.bytesOf(chunk));
-  return writer.result().slice();
+  varintField(field: number, value: number): void {
+    this.body.varint(field << 3);
+    this.body.varint(value);
+  }
+
+  stringField(field: number, value: string): void {
+    this.body.varint((field << 3) | 2);
+    this.body.varint(ENCODER.encode(value).length);
+    this.body.utf8(value);
+  }
+
+  /** Appends this message to `parent` as a length delimited field. */
+  appendTo(parent: Message, field: number): void {
+    parent.body.varint((field << 3) | 2);
+    parent.body.varint(this.body.size);
+    parent.body.raw(this.body.result());
+  }
+
+  /** Appends the raw message bytes, for the stream's own length framing. */
+  bodyTo(sink: ByteSink): void {
+    sink.raw(this.body.result());
+  }
 }
 
 /** A report shaped like a real capture: many files, symbols, threads, samples. */
 function syntheticReport(): Uint8Array {
-  const stream = new Writer();
+  const stream = new ByteSink();
   stream.utf8('SIMPLEPERF');
   stream.u8(1);
   stream.u8(0);
-  const emit = (recordBytes: Uint8Array): void => {
-    stream.u32(recordBytes.length);
-    stream.bytesOf(recordBytes);
+
+  const record = new Message();
+  const meta = new Message();
+  const file = new Message();
+  const thread = new Message();
+  const sample = new Message();
+  const entry = new Message();
+
+  // Emits and clears: the record message is reused for the next record, so
+  // leaving it populated would copy every earlier record again on each emit.
+  const emit = (message: Message): void => {
+    stream.u32(message.length);
+    message.bodyTo(stream);
+    message.reset();
   };
 
-  const metaInfo = joinBytes([
-    bytesField(1, new TextEncoder().encode('cpu-cycles')),
-    bytesField(2, new TextEncoder().encode('com.example.app')),
-    varintField(6, 0),
-  ]);
-  emit(record(5, metaInfo));
-  for (let file = 0; file < FILE_COUNT; file += 1) {
-    const symbols: Uint8Array[] = [];
+  meta.stringField(1, 'cpu-cycles');
+  meta.stringField(2, 'com.example.app');
+  meta.varintField(6, 0);
+  meta.appendTo(record, 5);
+  emit(record);
+
+  for (let index = 0; index < FILE_COUNT; index += 1) {
+    file.reset();
+    file.varintField(1, index);
+    file.stringField(2, '/system/lib64/lib' + String(index) + '.so');
     for (let symbol = 0; symbol < SYMBOLS_PER_FILE; symbol += 1) {
-      symbols.push(bytesField(3, new TextEncoder().encode('symbol_' + String(file) + '_' + String(symbol))));
+      file.stringField(3, 'symbol_' + String(index) + '_' + String(symbol));
     }
-    emit(
-      record(
-        3,
-        joinBytes([
-          varintField(1, file),
-          bytesField(2, new TextEncoder().encode('/system/lib64/lib' + String(file) + '.so')),
-          ...symbols,
-        ]),
-      ),
-    );
+    file.appendTo(record, 3);
+    emit(record);
   }
-  for (let thread = 0; thread < THREAD_COUNT; thread += 1) {
-    emit(
-      record(
-        4,
-        joinBytes([
-          varintField(1, thread),
-          varintField(2, 1000 + thread),
-          bytesField(3, new TextEncoder().encode('Thread-' + String(thread))),
-        ]),
-      ),
-    );
+
+  for (let index = 0; index < THREAD_COUNT; index += 1) {
+    thread.reset();
+    thread.varintField(1, index);
+    thread.varintField(2, 1000 + index);
+    thread.stringField(3, 'Thread-' + String(index));
+    thread.appendTo(record, 4);
+    emit(record);
   }
 
   // Frames alternate between two files so the normalizer resolves real names.
   for (let index = 0; index < SAMPLE_COUNT; index += 1) {
-    const frames: Uint8Array[] = [];
+    sample.reset();
+    sample.varintField(1, index);
+    sample.varintField(2, index % THREAD_COUNT);
     for (let frame = 0; frame < FRAMES_PER_SAMPLE; frame += 1) {
-      frames.push(
-        record(
-          3,
-          joinBytes([
-            varintField(1, 0x1000 + frame * 8),
-            varintField(2, (index + frame) % FILE_COUNT),
-            varintField(3, (index + frame) % SYMBOLS_PER_FILE),
-            varintField(4, 0),
-          ]),
-        ),
-      );
+      entry.reset();
+      entry.varintField(1, 0x1000 + frame * 8);
+      entry.varintField(2, (index + frame) % FILE_COUNT);
+      entry.varintField(3, (index + frame) % SYMBOLS_PER_FILE);
+      entry.varintField(4, 0);
+      entry.appendTo(sample, 3);
     }
-    emit(
-      record(
-        1,
-        joinBytes([
-          varintField(1, index),
-          varintField(2, index % THREAD_COUNT),
-          ...frames,
-          varintField(4, 1000),
-          varintField(5, 0),
-        ]),
-      ),
-    );
+    sample.varintField(4, 1000);
+    sample.varintField(5, 0);
+    sample.appendTo(record, 1);
+    emit(record);
   }
+
   stream.u32(0);
   return stream.result().slice();
 }
@@ -214,6 +242,8 @@ function measureMedian(stage: string, run: () => void, results: Measurement[]): 
     milliseconds: Math.round((sorted[Math.floor(sorted.length / 2)] as number) * 10) / 10,
   });
 }
+
+/** Informational stage: not compared with the JVM, so a single sample is fine. */
 function measure(stage: string, run: () => void, results: Measurement[]): void {
   const start = performance.now();
   run();
@@ -223,6 +253,9 @@ function measure(stage: string, run: () => void, results: Measurement[]): void {
 describe.runIf(ENABLED)('SIMPLEPERF performance baseline', () => {
   it('reads and normalizes a large synthetic report', () => {
     const bytes = syntheticReport();
+    // The JVM benchmark builds the same report from the same constants; a
+    // different size means the two sides stopped measuring the same input.
+    expect(bytes.length).toBe(EXPECTED_BYTES);
     const results: Measurement[] = [];
 
     let records = 0;
@@ -231,27 +264,42 @@ describe.runIf(ENABLED)('SIMPLEPERF performance baseline', () => {
       const read = readSimpleperfReport(bytes, { onRecord: () => { records += 1; } });
       if (!read.ok) throw new Error(read.error.message);
     }, results);
-    expect(records).toBe(1 + FILE_COUNT + THREAD_COUNT + SAMPLE_COUNT);
+    expect(records).toBe(EXPECTED_RECORDS);
 
     let samples = 0;
     measureMedian('readAndNormalize', () => {
-      const normalized = normalizeSimpleperfReport(bytes);
-      if (!normalized.ok) throw new Error(normalized.error.message);
-      samples = normalized.value.samples.length;
+      samples = 0;
+      const normalizer = new SimpleperfProfileNormalizer();
+      const read = readSimpleperfReport(bytes, {
+        onRecord: (envelope) => {
+          if (normalizer.normalize(envelope.record).kind === 'SAMPLE') samples += 1;
+        },
+      });
+      if (!read.ok) throw new Error(read.error.message);
     }, results);
     expect(samples).toBe(SAMPLE_COUNT);
 
-    let stacks = 0;
-    measure('buildCallStackTable', () => {
+    // The pipeline the app actually runs, which keeps every sample and frame.
+    let materialized: NormalizedProfile | undefined;
+    measure('normalizeProfile', () => {
       const normalized = normalizeSimpleperfReport(bytes);
       if (!normalized.ok) throw new Error(normalized.error.message);
-      stacks = samplesToCallStackTable(normalized.value.samples).stacks.length;
+      materialized = normalized.value;
+    }, results);
+    const profile = materialized;
+    if (profile === undefined) throw new Error('normalizeProfile did not run');
+    expect(profile.samples.length).toBe(SAMPLE_COUNT);
+
+    let stacks = 0;
+    measure('buildCallStackTable', () => {
+      stacks = samplesToCallStackTable(profile.samples).stacks.length;
     }, results);
     expect(stacks).toBe(SAMPLE_COUNT);
 
     const report = {
       generatedAt: new Date().toISOString(),
       runtime: { node: process.version, platform: process.platform, arch: process.arch },
+      gatedStages: GATED_STAGES.map((pair) => pair[0]),
       input: {
         bytes: bytes.length,
         files: FILE_COUNT,
@@ -266,7 +314,7 @@ describe.runIf(ENABLED)('SIMPLEPERF performance baseline', () => {
 
     const baseline = baselinePath();
     if (baseline !== undefined) compareWithJvm(report, baseline);
-  }, 900_000);
+  }, 300_000);
 });
 
 function baselinePath(): string | undefined {
@@ -282,9 +330,10 @@ function compareWithJvm(report: { readonly measurements: readonly Measurement[] 
   let parsed: JvmBenchmark;
   try {
     parsed = JSON.parse(readFileSync(baseline, 'utf8')) as JvmBenchmark;
-  } catch {
-    // Without the JVM baseline there is nothing to gate against.
-    return;
+  } catch (error) {
+    // APS_GOLDEN_DIR is set, so the CI job that writes this file ran: a missing
+    // or unreadable baseline is a broken gate, not a reason to skip the check.
+    throw new Error('JVM baseline unreadable at ' + baseline, { cause: error });
   }
   const failures: string[] = [];
   console.log('stage comparison (TypeScript / JVM):');

@@ -4,16 +4,7 @@
  * Field numbers and defaults mirror the AOSP proto shipped with the Kotlin
  * app; unknown fields are skipped so a newer simpleperf still parses.
  */
-import {
-  bytesOf,
-  int32Of,
-  ProtoCursor,
-  readFields,
-  uint32Of,
-  utf8Of,
-  varintOf,
-  type ProtoField,
-} from './wire.js';
+import { ProtoCursor, utf8Of, type ProtoField } from './wire.js';
 import type { ProfileUnwindErrorCode } from './model.js';
 
 export interface ProtoCallChainEntry {
@@ -97,26 +88,30 @@ export function executionTypeName(value: number): (typeof EXECUTION_TYPE_NAMES)[
   return EXECUTION_TYPE_NAMES[value] ?? 'NATIVE_METHOD';
 }
 
-export function decodeRecord(bytes: Uint8Array): ProtoRecord {
+/**
+ * Decodes one record from `bytes[offset, end)`. Decoding in place avoids the
+ * per-record subarray the reader would otherwise hand out; nothing in the
+ * result aliases the buffer, so the caller can keep reusing it.
+ */
+export function decodeRecord(bytes: Uint8Array, offset = 0, end = bytes.length): ProtoRecord {
   // Hot path: a report has one record per sample, so this loop avoids the
   // allocation-heavy generic field reader.
-  const cursor = new ProtoCursor(bytes);
+  const cursor = new ProtoCursor(bytes, offset, end);
   while (!cursor.atEnd()) {
     const tag = cursor.tag();
-    const field = tag >> 3;
-    switch (field) {
+    switch (tag >> 3) {
       case 1:
-        return { kind: 'SAMPLE', sample: decodeSample(cursor.view()) };
+        return { kind: 'SAMPLE', sample: decodeSample(cursor) };
       case 2:
-        return { kind: 'LOST', lost: decodeLost(cursor.view()) };
+        return { kind: 'LOST', lost: decodeLost(cursor) };
       case 3:
-        return { kind: 'FILE', file: decodeFile(cursor.view()) };
+        return { kind: 'FILE', file: decodeFile(cursor) };
       case 4:
-        return { kind: 'THREAD', thread: decodeThread(cursor.view()) };
+        return { kind: 'THREAD', thread: decodeThread(cursor) };
       case 5:
-        return { kind: 'META_INFO', metaInfo: decodeMetaInfo(cursor.view()) };
+        return { kind: 'META_INFO', metaInfo: decodeMetaInfo(cursor) };
       case 6:
-        return { kind: 'CONTEXT_SWITCH', contextSwitch: decodeContextSwitch(cursor.view()) };
+        return { kind: 'CONTEXT_SWITCH', contextSwitch: decodeContextSwitch(cursor) };
       default:
         cursor.skip(tag & 7);
         break;
@@ -125,8 +120,8 @@ export function decodeRecord(bytes: Uint8Array): ProtoRecord {
   return { kind: 'NOT_SET' };
 }
 
-function decodeSample(bytes: Uint8Array): ProtoSample {
-  const cursor = new ProtoCursor(bytes);
+function decodeSample(cursor: ProtoCursor): ProtoSample {
+  const enclosing = cursor.enterDelimited();
   let time = 0n;
   let threadId = 0;
   let eventCount = 0n;
@@ -143,7 +138,7 @@ function decodeSample(bytes: Uint8Array): ProtoSample {
         threadId = cursor.int32();
         break;
       case 3:
-        (callchain ??= []).push(decodeCallChainEntry(cursor.view()));
+        (callchain ??= []).push(decodeCallChainEntry(cursor));
         break;
       case 4:
         eventCount = cursor.varint();
@@ -152,25 +147,21 @@ function decodeSample(bytes: Uint8Array): ProtoSample {
         eventTypeId = cursor.uint32();
         break;
       case 6:
-        unwindingResult = decodeUnwindingResult(cursor.view());
+        unwindingResult = decodeUnwindingResult(cursor);
         break;
       default:
         cursor.skip(tag & 7);
         break;
     }
   }
-  return {
-    time,
-    threadId,
-    callchain: callchain ?? [],
-    eventCount,
-    eventTypeId,
-    ...(unwindingResult !== undefined ? { unwindingResult } : {}),
-  };
+  cursor.leaveDelimited(enclosing);
+  // Every sample gets the same shape: a conditional property here would make
+  // the frames polymorphic for the normalizer that walks them right after.
+  return { time, threadId, callchain: callchain ?? [], eventCount, eventTypeId, unwindingResult };
 }
 
-function decodeCallChainEntry(bytes: Uint8Array): ProtoCallChainEntry {
-  const cursor = new ProtoCursor(bytes);
+function decodeCallChainEntry(cursor: ProtoCursor): ProtoCallChainEntry {
+  const enclosing = cursor.enterDelimited();
   let vaddrInFile = 0n;
   let fileId = 0;
   let symbolId = -1;
@@ -195,120 +186,149 @@ function decodeCallChainEntry(bytes: Uint8Array): ProtoCallChainEntry {
         break;
     }
   }
+  cursor.leaveDelimited(enclosing);
   return { vaddrInFile, fileId, symbolId, executionType };
 }
 
-function decodeUnwindingResult(bytes: Uint8Array): NonNullable<ProtoSample['unwindingResult']> {
+function decodeUnwindingResult(cursor: ProtoCursor): NonNullable<ProtoSample['unwindingResult']> {
+  const enclosing = cursor.enterDelimited();
   let rawErrorCode = 0;
   let errorAddr = 0n;
   let errorCode = 0;
-  for (const field of readFields(bytes)) {
-    switch (field.fieldNumber) {
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    switch (tag >> 3) {
       case 1:
-        rawErrorCode = uint32Of(varintOf(field));
+        rawErrorCode = cursor.uint32();
         break;
       case 2:
-        errorAddr = varintOf(field);
+        errorAddr = cursor.varint();
         break;
       case 3:
-        errorCode = int32Of(varintOf(field));
+        errorCode = cursor.int32();
         break;
       default:
+        cursor.skip(tag & 7);
         break;
     }
   }
+  cursor.leaveDelimited(enclosing);
   return { rawErrorCode, errorAddr, errorCode };
 }
 
-function decodeLost(bytes: Uint8Array): ProtoLostSituation {
+function decodeLost(cursor: ProtoCursor): ProtoLostSituation {
+  const enclosing = cursor.enterDelimited();
   let sampleCount = 0n;
   let lostCount = 0n;
-  for (const field of readFields(bytes)) {
-    if (field.fieldNumber === 1) sampleCount = varintOf(field);
-    else if (field.fieldNumber === 2) lostCount = varintOf(field);
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    switch (tag >> 3) {
+      case 1:
+        sampleCount = cursor.varint();
+        break;
+      case 2:
+        lostCount = cursor.varint();
+        break;
+      default:
+        cursor.skip(tag & 7);
+        break;
+    }
   }
+  cursor.leaveDelimited(enclosing);
   return { sampleCount, lostCount };
 }
 
-function decodeFile(bytes: Uint8Array): ProtoFile {
+function decodeFile(cursor: ProtoCursor): ProtoFile {
+  const enclosing = cursor.enterDelimited();
   let id = 0;
   let path = '';
   const symbols: string[] = [];
   const mangledSymbols: string[] = [];
-  for (const field of readFields(bytes)) {
-    switch (field.fieldNumber) {
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    switch (tag >> 3) {
       case 1:
-        id = uint32Of(varintOf(field));
+        id = cursor.uint32();
         break;
       case 2:
-        path = utf8Of(bytesOf(field));
+        path = utf8Of(cursor.view());
         break;
       case 3:
-        symbols.push(utf8Of(bytesOf(field)));
+        symbols.push(utf8Of(cursor.view()));
         break;
       case 4:
-        mangledSymbols.push(utf8Of(bytesOf(field)));
+        mangledSymbols.push(utf8Of(cursor.view()));
         break;
       default:
+        cursor.skip(tag & 7);
         break;
     }
   }
+  cursor.leaveDelimited(enclosing);
   return { id, path, symbols, mangledSymbols };
 }
 
-function decodeThread(bytes: Uint8Array): ProtoThread {
+function decodeThread(cursor: ProtoCursor): ProtoThread {
+  const enclosing = cursor.enterDelimited();
   let threadId = 0;
   let processId = 0;
   let threadName = '';
-  for (const field of readFields(bytes)) {
-    switch (field.fieldNumber) {
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    switch (tag >> 3) {
       case 1:
-        threadId = uint32Of(varintOf(field));
+        threadId = cursor.uint32();
         break;
       case 2:
-        processId = uint32Of(varintOf(field));
+        processId = cursor.uint32();
         break;
       case 3:
-        threadName = utf8Of(bytesOf(field));
+        threadName = utf8Of(cursor.view());
         break;
       default:
+        cursor.skip(tag & 7);
         break;
     }
   }
+  cursor.leaveDelimited(enclosing);
   return { threadId, processId, threadName };
 }
 
-function decodeMetaInfo(bytes: Uint8Array): ProtoMetaInfo {
+function decodeMetaInfo(cursor: ProtoCursor): ProtoMetaInfo {
+  const enclosing = cursor.enterDelimited();
   const eventTypes: string[] = [];
   let appPackageName: string | undefined;
   let appType: string | undefined;
   let androidSdkVersion: string | undefined;
   let androidBuildType: string | undefined;
   let traceOffCpu = false;
-  for (const field of readFields(bytes)) {
-    switch (field.fieldNumber) {
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    switch (tag >> 3) {
       case 1:
-        eventTypes.push(utf8Of(bytesOf(field)));
+        eventTypes.push(utf8Of(cursor.view()));
         break;
       case 2:
-        appPackageName = utf8Of(bytesOf(field));
+        appPackageName = utf8Of(cursor.view());
         break;
       case 3:
-        appType = utf8Of(bytesOf(field));
+        appType = utf8Of(cursor.view());
         break;
       case 4:
-        androidSdkVersion = utf8Of(bytesOf(field));
+        androidSdkVersion = utf8Of(cursor.view());
         break;
       case 5:
-        androidBuildType = utf8Of(bytesOf(field));
+        androidBuildType = utf8Of(cursor.view());
         break;
       case 6:
-        traceOffCpu = varintOf(field) !== 0n;
+        traceOffCpu = cursor.varint() !== 0n;
         break;
       default:
+        cursor.skip(tag & 7);
         break;
     }
   }
+  cursor.leaveDelimited(enclosing);
   return {
     eventTypes,
     ...(appPackageName !== undefined ? { appPackageName } : {}),
@@ -319,25 +339,29 @@ function decodeMetaInfo(bytes: Uint8Array): ProtoMetaInfo {
   };
 }
 
-function decodeContextSwitch(bytes: Uint8Array): ProtoContextSwitch {
+function decodeContextSwitch(cursor: ProtoCursor): ProtoContextSwitch {
+  const enclosing = cursor.enterDelimited();
   let switchOn = false;
   let time = 0n;
   let threadId = 0;
-  for (const field of readFields(bytes)) {
-    switch (field.fieldNumber) {
+  while (!cursor.atEnd()) {
+    const tag = cursor.tag();
+    switch (tag >> 3) {
       case 1:
-        switchOn = varintOf(field) !== 0n;
+        switchOn = cursor.varint() !== 0n;
         break;
       case 2:
-        time = varintOf(field);
+        time = cursor.varint();
         break;
       case 3:
-        threadId = uint32Of(varintOf(field));
+        threadId = cursor.uint32();
         break;
       default:
+        cursor.skip(tag & 7);
         break;
     }
   }
+  cursor.leaveDelimited(enclosing);
   return { switchOn, time, threadId };
 }
 

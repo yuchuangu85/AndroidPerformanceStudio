@@ -136,14 +136,15 @@ function parse(
           String(bytes.length - offset),
       );
     }
-    const payload = bytes.subarray(offset, offset + encodedSize);
     const byteOffset = offset;
     offset += encodedSize;
     onRecord?.({
       index: recordIndex,
       byteOffset: BigInt(byteOffset),
       encodedSize,
-      record: decodeRecord(payload),
+      // Decoded straight out of the stream: the record holds no view of it,
+      // so the payload never needs its own subarray.
+      record: decodeRecord(bytes, byteOffset, offset),
     });
     recordIndex += 1n;
   }

@@ -37,10 +37,17 @@ export class ProtoDecodeError extends Error {
 export class ProtoCursor {
   private readonly bytes: Uint8Array;
   private offset: number;
+  /**
+   * Exclusive end of the message being read. A length delimited submessage
+   * lowers the limit instead of handing out a subarray, because a sample has a
+   * dozen frames and the subarray plus cursor pair cost more than the fields.
+   */
+  private limit: number;
 
-  constructor(bytes: Uint8Array, offset = 0) {
+  constructor(bytes: Uint8Array, offset = 0, limit = bytes.length) {
     this.bytes = bytes;
     this.offset = offset;
+    this.limit = limit;
   }
 
   get position(): number {
@@ -48,11 +55,31 @@ export class ProtoCursor {
   }
 
   get remaining(): number {
-    return this.bytes.length - this.offset;
+    return this.limit - this.offset;
   }
 
   atEnd(): boolean {
-    return this.offset >= this.bytes.length;
+    return this.offset >= this.limit;
+  }
+
+  /**
+   * Enters a length delimited submessage in place and returns the enclosing
+   * limit, which the caller must hand back to leaveDelimited.
+   */
+  enterDelimited(): number {
+    const length = this.uint32();
+    const end = this.offset + length;
+    if (end > this.limit) {
+      throw new ProtoDecodeError('Truncated message: needed ' + String(length) + ' bytes', this.offset);
+    }
+    const previous = this.limit;
+    this.limit = end;
+    return previous;
+  }
+
+  /** Restores the limit saved by enterDelimited. Decoders consume to the end. */
+  leaveDelimited(previous: number): void {
+    this.limit = previous;
   }
 
   /**
@@ -67,7 +94,7 @@ export class ProtoCursor {
     let result = 0;
     let shift = 0;
     for (;;) {
-      if (this.offset >= this.bytes.length) {
+      if (this.offset >= this.limit) {
         throw new ProtoDecodeError('Truncated tag', this.offset);
       }
       const byte = this.bytes[this.offset] as number;
@@ -84,7 +111,7 @@ export class ProtoCursor {
     let result = 0;
     let shift = 0;
     for (;;) {
-      if (this.offset >= this.bytes.length) {
+      if (this.offset >= this.limit) {
         throw new ProtoDecodeError('Truncated varint', this.offset);
       }
       const byte = this.bytes[this.offset] as number;
@@ -95,7 +122,7 @@ export class ProtoCursor {
         if ((byte & 0x80) !== 0) {
           // Consume the remaining sign extension bytes of a 64 bit value.
           while ((this.bytes[this.offset - 1] as number) & 0x80) {
-            if (this.offset >= this.bytes.length) {
+            if (this.offset >= this.limit) {
               throw new ProtoDecodeError('Truncated varint', this.offset);
             }
             this.offset += 1;
@@ -171,10 +198,38 @@ export class ProtoCursor {
   }
 
   varint(): bigint {
+    // Fast path: the four bytes that fit a 32 bit accumulator are read as
+    // numbers, so a small field costs one BigInt instead of one per byte.
+    const start = this.offset;
+    let result = 0;
+    for (let shift = 0; shift < 28; shift += 7) {
+      if (this.offset >= this.limit) {
+        throw new ProtoDecodeError('Truncated varint', this.offset);
+      }
+      const byte = this.bytes[this.offset] as number;
+      this.offset += 1;
+      result |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) return BigInt(result >>> 0);
+    }
+    // A fifth byte holds bits 28 to 34, still exact as a double.
+    if (this.offset >= this.limit) {
+      throw new ProtoDecodeError('Truncated varint', this.offset);
+    }
+    const byte = this.bytes[this.offset] as number;
+    if ((byte & 0x80) === 0) {
+      this.offset += 1;
+      return BigInt(result >>> 0) + (BigInt(byte) << 28n);
+    }
+    return this.wideVarint(start);
+  }
+
+  /** BigInt path for the 64 bit values that need more than five bytes. */
+  private wideVarint(start: number): bigint {
+    this.offset = start;
     let result = 0n;
     let shift = 0n;
     for (let index = 0; index < 10; index += 1) {
-      if (this.offset >= this.bytes.length) {
+      if (this.offset >= this.limit) {
         throw new ProtoDecodeError('Truncated varint', this.offset);
       }
       const byte = this.bytes[this.offset] as number;
@@ -217,7 +272,7 @@ export class ProtoCursor {
   }
 
   private require(count: number): void {
-    if (this.offset + count > this.bytes.length) {
+    if (this.offset + count > this.limit) {
       throw new ProtoDecodeError('Truncated message: needed ' + String(count) + ' bytes', this.offset);
     }
   }

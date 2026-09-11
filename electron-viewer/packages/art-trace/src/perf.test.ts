@@ -42,11 +42,15 @@ function methodInfoPacket(methodId: bigint, info: string): Uint8Array {
 /**
  * One entry block per thread. Method words are (index << 2) | action and are
  * delta encoded inside the block, exactly like ART writes them.
+ *
+ * The block header declares EVENTS_PER_THREAD records, so the body has to hold
+ * that many: a version 5 record is a delta, a time, and a CPU time, and the
+ * parser reads exactly as many records as the header promises.
  */
 function entryBlock(threadId: number, methodIds: readonly number[]): Uint8Array {
   const payload = new TraceWriter();
   let previous = 0n;
-  for (let index = 0; index < methodIds.length; index += 1) {
+  for (let index = 0; index < EVENTS_PER_THREAD; index += 1) {
     // Two enters followed by two exits keeps a small live stack per thread.
     const step = index % 4;
     const action = step < 2 ? 0 : 1;
@@ -171,8 +175,10 @@ function compareWithJvm(report: { readonly measurements: readonly Measurement[] 
   let parsed: JvmBenchmark;
   try {
     parsed = JSON.parse(readFileSync(baseline, 'utf8')) as JvmBenchmark;
-  } catch {
-    return;
+  } catch (error) {
+    // APS_GOLDEN_DIR is set, so the CI job that writes this file ran: a missing
+    // or unreadable baseline is a broken gate, not a reason to skip the check.
+    throw new Error('JVM baseline unreadable at ' + baseline, { cause: error });
   }
   const failures: string[] = [];
   console.log('stage comparison (TypeScript / JVM):');
