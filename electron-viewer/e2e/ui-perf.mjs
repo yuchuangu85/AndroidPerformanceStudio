@@ -229,7 +229,12 @@ function probeSource(seconds) {
     '    throw new Error(\'timed out waiting for \' + what);',
     '  };',
     '  const describe = () => ({',
+    '    href: location.href,',
+    '    title: document.title,',
+    '    rootChildren: document.getElementById(\'root\') ? document.getElementById(\'root\').childElementCount : -1,',
+    '    hasApsApi: typeof window.aps === \'object\' && window.aps !== null,',
     '    buttons: [...document.querySelectorAll(\'button\')].map((element) => (element.textContent || \'\').trim()).slice(0, 24),',
+    '    html: document.documentElement ? document.documentElement.outerHTML.slice(0, 300) : \'\',',
     '    body: (document.body ? document.body.innerText : \'\').slice(0, 400),',
     '  });',
     '  try {',
@@ -303,6 +308,24 @@ async function main() {
       socket.addEventListener('error', () => reject(new Error('the debugging socket failed to open')));
     });
     await callMethod(socket, 1, 'Runtime.enable', {});
+    // Renderer failures are the reason a page looks empty, so they are collected
+    // and reported next to the measurement instead of being left in the log.
+    const rendererProblems = [];
+    socket.addEventListener('message', (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.method === 'Runtime.exceptionThrown') {
+          const details = message.params?.exceptionDetails;
+          rendererProblems.push(String(details?.exception?.description ?? details?.text ?? 'exception'));
+        }
+        if (message.method === 'Log.entryAdded' && message.params?.entry?.level === 'error') {
+          rendererProblems.push(String(message.params.entry.text));
+        }
+      } catch {
+        // A malformed event is not worth failing the run over.
+      }
+    });
+    await callMethod(socket, 3, 'Log.enable', {});
     const result = await callMethod(socket, 2, 'Runtime.evaluate', {
       expression: probeSource(SECONDS),
       awaitPromise: true,
@@ -326,6 +349,12 @@ async function main() {
             reason: value?.reason ?? 'the probe did not run',
             buttons: value?.buttons ?? [],
             body: value?.body ?? '',
+            href: value?.href ?? '',
+            title: value?.title ?? '',
+            rootChildren: value?.rootChildren ?? -1,
+            hasApsApi: value?.hasApsApi ?? false,
+            html: value?.html ?? '',
+            rendererProblems,
           }),
     };
     mkdirSync(dirname(OUT), { recursive: true });
