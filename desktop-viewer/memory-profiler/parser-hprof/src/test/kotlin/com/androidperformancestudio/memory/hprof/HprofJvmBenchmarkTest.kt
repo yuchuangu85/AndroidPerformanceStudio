@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.memory.hprof
 
+import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.PrimitiveType
 import java.io.ByteArrayOutputStream
 import java.io.File
