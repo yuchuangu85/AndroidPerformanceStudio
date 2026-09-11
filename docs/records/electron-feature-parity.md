@@ -16,6 +16,24 @@
 1. 新增能力时补一行，而不是改写状态词。
 2. 「证据」列必须可核验：golden 用例名、测试文件名，或「人工对照 + 日期」。写「已完成」不算证据。
 3. 能自动化的断言直接固化进测试，矩阵引用测试名，不靠人记得更新。
+4. CI 证据写 workflow 名 + run id 与结论，不写「已验证」。
+
+## CI 首跑（2026-09-11）暴露的问题
+
+在被推上 CI 之前，Electron 应用**从未真正渲染过**：`--dir` 冒烟只检查产物存在，不启动它。首次 CI 运行（`Electron` + `Electron packages` + golden 三条流水线）逐个暴露出以下缺陷，全部已修并复跑通过：
+
+| 缺陷 | 根因 | 影响 |
+| --- | --- | --- |
+| `ERR_MODULE_NOT_FOUND: packages/<name>/src/index.ts` | 只有 `@aps/contracts` 被排除出 external，其余 18 个纯 TS 包在运行时被 `require` | 应用无法启动 |
+| `Cannot read properties of undefined (reading 'en')` | 词条 `shell.language.simplifiedChinese` 与偏好值 `simplified_chinese` 拼写不一致，`translate` 抛错导致整页卸载 | 白屏 |
+| HPROF 聚合 1.72×/1.79× | 深度分析按「每字段一个对象」存储，20 万实例多分配近百万小对象 | 性能闸门失败 |
+| HPROF cyclic/parse 1.82× | 两个合成形状解析工作量相同，逐形状比较等于比噪声 | 闸门在噪声上失败 |
+| ART `parseAndProject` 1.56× | 3 次测量取中位数=1 个样本，单轮 73% 尖峰有 1/3 概率成为上报值 | 闸门在噪声上失败 |
+| 帧率闸门测不到滚动 | 默认展开两层=4 行，滚动范围为 0 | 门禁形同虚设（绿但无意义） |
+| harness 测完后被判失败 | DevTools socket 挂住事件循环，120s 看门狗以退出码 2 结束 | 绿跑被判红 |
+| 打包 `Unknown target: deb,rpm` 等四项 | CLI 目标语法、deb/rpm 元数据、Windows 二进制后缀、macOS 资源路径 | 五组合全部无法产出 |
+
+教训写进维护规则：**门禁必须在真实产物上启动应用**，只检查文件存在会给出没有证据价值的绿。
 
 ## 外壳与平台基座
 
@@ -30,6 +48,7 @@
 | 应用数据目录 `~/.android-performance-studio/` | 各 feature 直接构造路径 | `source-backend.ts`、`ai-service.ts` 用该目录 | 📝 | `source-workspaces.db`、`analysis-sessions.db` 已共用 | 其余 feature 的会话存在 Electron `userData`，与 Kotlin 分叉 |
 | 凭据存储 | macOS Keychain，其余平台仅内存 | `packages/ai-core/src/safe-storage-credentials.ts` | ✅ | `safe-storage-credentials.test.ts`、`isPersistentBackend` 保留「无系统密钥即不落盘」 | – |
 | 进程模型与安全 | – | `main/index.ts` 窗口配置 | ✅ | `contextIsolation: true`、`sandbox: true`、`nodeIntegration: false` | `utilityProcess`/`worker_threads` 下沉未做；IPC 参数未加 schema 校验 |
+| **应用能从构建产物启动并完成交互** | – | `apps/desktop` + `e2e/ui-perf.mjs` | ✅ | CI `Electron` run `34626821255`：帧率闸门在 xvfb 下启动应用、打开目的地、展开层级并完成滚动与命中测量 | 首次跑通；此前从未真正渲染过（见下） |
 
 ## Profiler 与分析器
 
@@ -57,8 +76,8 @@
 
 | 能力 | Kotlin 位置 | Electron 落点 | 状态 | 证据 | 缺口 |
 | --- | --- | --- | --- | --- | --- |
-| 六格式安装包（DMG/PKG/MSI/EXE/DEB/RPM × 5 组合 = 10 资产） | `release.yml` + jpackage | `electron-builder.yml` + `.github/workflows/electron-package.yml` | 📝 | `release.yml:419-430` 的命名契约已写入 `artifactName`；五组合矩阵已配置 | 本环境无图形/沙箱受限，未真实产出安装包；未签名未公证（D5 有意为之） |
-| 运行时资产随包（Perfetto UI、trace_processor、图标） | `desktop-app/build.gradle.kts` 资源段 | `extraResources` + `build/icon.*` | 📝 | 源路径已存在；`scripts/verify-package.mjs` 断言包内资产与 SHA-256 | 未在打包产物上执行过（见上一行） |
+| 六格式安装包（DMG/PKG/MSI/EXE/DEB/RPM × 5 组合 = 10 资产） | `release.yml` + jpackage | `electron-builder.yml` + `.github/workflows/electron-package.yml` | 📝 | CI `Electron packages` run `34626821255`：Linux x64 DEB+RPM、Linux arm64 DEB+RPM、Windows x64 MSI+EXE、macOS arm64 DMG+PKG **实际产出并通过包内资产校验**（4/5 组合）| macOS x64 组合未通过，原因是 runner 上 `dmgbuild` 的 `hdiutil: couldn't eject "disk2" - Resource busy`，属基础设施抖动；未签名未公证（D5 有意为之） |
+| 运行时资产随包（Perfetto UI、trace_processor、图标） | `desktop-app/build.gradle.kts` 资源段 | `extraResources` + `build/icon.*` | ✅ | 每个打包 job 都对产物执行 `scripts/verify-package.mjs`：断言 `perfetto-ui/index.html`、`perfetto-tools/trace_processor_shell`（Windows 为 `.exe`）存在，且二进制 SHA-256 与 `trace-processor-manifest.json` 一致；4/5 组合已通过 | – |
 | 版本注入与产物命名 | `-PappVersion` | `scripts/set-version.mjs` + `artifactName` | ✅ | 命名契约与 Kotlin 一致 | – |
 | capture archive 导入/导出 | `CaptureArchiveCodec` | – | ⏳ | – | 未迁移 |
 | 多窗口协议 | `capture` 多 window | `layout-inspector` 模型带 `windows` | 📝 | `codec` 覆盖 windows | 面板未提供窗口选择器 |
@@ -79,7 +98,7 @@
 | --- | --- | --- |
 | D1–D5 验收项全部满足 | 📝 | D2 解析器闸门已达标；D4 的 `utilityProcess` 与 IPC schema 未做 |
 | 9 项 Profiler + Layout Inspector + Trace Analyzer + AI/Source 能力对齐并通过 golden / 人工对照 | 📝 | 全部有实现；golden 只覆盖 HPROF / SIMPLEPERF / ART trace 三条解析链路 |
-| 性能门槛全部达标 | 📝 | 解析器与 10k 层级已达标；UI 帧率待图形环境，缩放无实现对象 |
-| 六格式本地/CI 冒烟通过 | 📝 | 矩阵已配置；本环境未能产出 |
+| 性能门槛全部达标 | 📝 | 解析器闸门（HPROF / simpleperf / ART）与 10k 层级均已达标，UI 滚动与命中 60fps（p95 16.7ms）；缩放仍无实现对象，帧率样本目前只有一两轮 CI |
+| 六格式本地/CI 冒烟通过 | 📝 | 四组合已真实产出并校验（run `34626821255`）；macOS x64 待重跑 |
 | 既有设置 / SQLite / 归档可读 | 📝 | 设置与 source/ai 两个库共用；其余 feature 的会话路径分叉；归档未迁移 |
 | 文档更新，旧 Compose 路径归档 | ⏳ | 见 Phase 4 |
