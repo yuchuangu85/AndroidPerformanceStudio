@@ -24,6 +24,7 @@ import { LayoutInspectorPanel } from './LayoutInspectorPanel';
 import { MemoryProfilerPanel } from './MemoryProfilerPanel';
 import { MethodRecordingPanel } from './MethodRecordingPanel';
 import { NetworkProfilerPanel } from './NetworkProfilerPanel';
+import { SourceBackendPanel } from './SourceBackendPanel';
 import { SourceWorkspacePanel } from './SourceWorkspacePanel';
 import { StartupProfilerPanel } from './StartupProfilerPanel';
 import { TraceAnalyzerPanel } from './TraceAnalyzerPanel';
@@ -182,7 +183,10 @@ export function App(): JSX.Element {
             ) : current === 'BENCHMARK_REGRESSION' ? (
               <BenchmarkRegressionPanel language={language} devices={snapshot.devices} />
             ) : current === 'SOURCE_WORKSPACES' ? (
-              <SourceWorkspacePanel language={language} devices={snapshot.devices} />
+              <>
+                <SourceWorkspacePanel language={language} devices={snapshot.devices} />
+                <SourceBackendPanel language={language} />
+              </>
             ) : current === 'METHOD_RECORDING' ? (
               <MethodRecordingPanel language={language} devices={snapshot.devices} />
             ) : current === 'SIMPLEPERF' ? (
