@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildObjectGraph } from './graph.js';
 import { classHistogram, summarizeMemory } from './histogram.js';
@@ -18,6 +18,65 @@ import { createMemorySession } from './session.js';
  */
 const ENABLED = process.env['APS_PERF'] === '1';
 const OUTPUT = process.env['APS_PERF_OUT'];
+const JVM_BASELINE = process.env['APS_JVM_BASELINE'];
+
+/**
+ * D2 gate: the TypeScript parse and class aggregation must stay within 1.5x of
+ * the JVM implementation on this machine, measured back to back in one CI job.
+ */
+const GATE_RATIO = 1.5;
+const GATED_STAGES: readonly (readonly [string, string])[] = [
+  ['parseHprof', 'parseHprof'],
+  ['classSumAggregation', 'classSumAggregation'],
+];
+
+interface JvmBenchmark {
+  readonly cases: readonly {
+    readonly shape: string;
+    readonly measurements: readonly { readonly stage: string; readonly milliseconds: number }[];
+  }[];
+}
+
+function compareWithJvm(report: { readonly cases: readonly ShapeCase[] }, baselinePath: string): void {
+  const jvm = JSON.parse(readFileSync(baselinePath, 'utf8')) as JvmBenchmark;
+  const failures: string[] = [];
+  console.log('stage comparison (TypeScript / JVM):');
+  for (const shapeCase of report.cases) {
+    const jvmCase = jvm.cases.find((entry) => entry.shape === shapeCase.shape);
+    if (jvmCase === undefined) {
+      failures.push('JVM baseline is missing the ' + shapeCase.shape + ' shape');
+      continue;
+    }
+    for (const [tsStage, jvmStage] of GATED_STAGES) {
+      const ts = shapeCase.measurements.find((entry) => entry.stage === tsStage)?.milliseconds;
+      const jvmValue = jvmCase.measurements.find((entry) => entry.stage === jvmStage)?.milliseconds;
+      if (ts === undefined || jvmValue === undefined) {
+        failures.push(shapeCase.shape + '/' + tsStage + ': measurement missing');
+        continue;
+      }
+      const ratio = ts / jvmValue;
+      console.log(
+        '  ' +
+          shapeCase.shape +
+          ' ' +
+          tsStage +
+          ': ' +
+          ts.toFixed(1) +
+          ' ms vs JVM ' +
+          jvmValue.toFixed(1) +
+          ' ms = ' +
+          ratio.toFixed(2) +
+          'x',
+      );
+      if (ratio > GATE_RATIO) {
+        failures.push(
+          shapeCase.shape + '/' + tsStage + ' is ' + ratio.toFixed(2) + 'x the JVM time (gate ' + GATE_RATIO + 'x)',
+        );
+      }
+    }
+  }
+  expect(failures).toEqual([]);
+}
 
 interface SyntheticHeap {
   readonly bytes: Uint8Array;
@@ -251,6 +310,10 @@ interface ShapeCase {
   readonly measurements: readonly Measurement[];
 }
 
+// Kept so the aggregation work cannot be optimized away.
+let sink = 0;
+void sink;
+
 function measureShape(shape: string, wrapChains: boolean): ShapeCase {
   const heap = syntheticHeap({
     classCount: 100,
@@ -273,6 +336,15 @@ function measureShape(shape: string, wrapChains: boolean): ShapeCase {
   expect(parsed.roots.length).toBe(heap.rootCount);
 
   measure('classHistogram', () => void classHistogram(parsed), results);
+  // The same grouping work without name resolution, so it can be compared with
+  // the JVM benchmark's classSumAggregation stage.
+  measure('classSumAggregation', () => {
+    const totals = new Map<bigint, number>();
+    parsed.instances.forEach((instance) => {
+      totals.set(instance.classObjectId, (totals.get(instance.classObjectId) ?? 0) + instance.shallowBytes);
+    });
+    sink = totals.size;
+  }, results);
   measure('summarizeMemory', () => void summarizeMemory(parsed), results);
 
   let graph = buildObjectGraph(parsed);
@@ -325,6 +397,9 @@ describe.runIf(ENABLED)('HPROF performance baseline', () => {
     console.log(JSON.stringify(report, null, 2));
     if (OUTPUT !== undefined && OUTPUT.length > 0) {
       writeFileSync(OUTPUT, JSON.stringify(report, null, 2));
+    }
+    if (JVM_BASELINE !== undefined && JVM_BASELINE.length > 0) {
+      compareWithJvm(report, JVM_BASELINE);
     }
   }, 900_000);
 });

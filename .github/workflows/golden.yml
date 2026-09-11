@@ -1,0 +1,81 @@
+name: Cross-implementation golden checks
+
+on:
+  push:
+    paths:
+      - 'electron-viewer/**'
+      - 'desktop-viewer/memory-profiler/**'
+      - '.github/workflows/golden.yml'
+  pull_request:
+    paths:
+      - 'electron-viewer/**'
+      - 'desktop-viewer/memory-profiler/**'
+      - '.github/workflows/golden.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: golden-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hprof:
+    name: HPROF golden corpus and JVM baseline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # The Kotlin tests double as the golden exporter: HprofGoldenExportTest
+      # writes the corpus, HprofJvmBenchmarkTest writes the JVM baseline.
+      - name: Build the Kotlin corpus and JVM baseline
+        working-directory: desktop-viewer/memory-profiler
+        env:
+          APS_GOLDEN_OUT: ${{ github.workspace }}/golden-out
+        run: ./gradlew :parser-hprof:test --console=plain --no-daemon
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.19.0'
+
+      - name: Install electron-viewer dependencies
+        working-directory: electron-viewer
+        run: pnpm install --frozen-lockfile
+
+      - name: Compare TypeScript against the Kotlin golden corpus
+        working-directory: electron-viewer
+        env:
+          APS_GOLDEN_DIR: ${{ github.workspace }}/golden-out
+        run: pnpm --filter @aps/memory-profiler test src/golden-corpus.test.ts
+
+      # D2: both implementations measure the same synthetic heap in the same job,
+      # so the gate compares them on one machine rather than across machines.
+      - name: Compare the TypeScript pipeline against the JVM baseline
+        working-directory: electron-viewer
+        env:
+          APS_PERF: '1'
+          APS_PERF_OUT: ${{ github.workspace }}/golden-out/typescript-baseline.json
+          APS_JVM_BASELINE: ${{ github.workspace }}/golden-out/benchmark.json
+        run: pnpm --filter @aps/memory-profiler test src/perf.test.ts
+
+      - name: Upload corpus and baselines
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hprof-golden
+          path: golden-out/
+          if-no-files-found: warn
