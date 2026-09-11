@@ -5,11 +5,13 @@ on:
     paths:
       - 'electron-viewer/**'
       - 'desktop-viewer/memory-profiler/**'
+      - 'desktop-viewer/simpleperf-viewer/**'
       - '.github/workflows/golden.yml'
   pull_request:
     paths:
       - 'electron-viewer/**'
       - 'desktop-viewer/memory-profiler/**'
+      - 'desktop-viewer/simpleperf-viewer/**'
       - '.github/workflows/golden.yml'
   workflow_dispatch:
 
@@ -21,8 +23,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Two jobs rather than one: the Kotlin builds are independent, they take
+  # minutes each, and a single job would serialise them (and lose everything
+  # when a newer push cancels the run).
   hprof:
-    name: HPROF golden corpus and JVM baseline
+    name: HPROF corpus and JVM baseline
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -34,17 +39,90 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The Kotlin and Compose dependencies are hundreds of megabytes; caching
+      # them turns a multi-minute download into a restore.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('desktop-viewer/**/*.gradle.kts', 'desktop-viewer/**/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       # The Kotlin tests double as the golden exporters: HprofGoldenExportTest
-      # writes the HPROF corpus, HprofJvmBenchmarkTest writes the JVM baseline,
-      # and the simpleperf and ART trace exporters write their own cases.
-      - name: Build the Kotlin corpus and JVM baseline (memory profiler)
+      # writes the corpus and HprofJvmBenchmarkTest writes the JVM baseline.
+      - name: Build the Kotlin corpus and JVM baseline
         working-directory: desktop-viewer/memory-profiler
         env:
           APS_GOLDEN_OUT: ${{ github.workspace }}/golden-out
         run: ./gradlew :parser-hprof:test --console=plain --no-daemon
 
-      # The simpleperf and ART trace parsers live in their own composite build.
-      - name: Build the Kotlin corpus (simpleperf and ART trace)
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.19.0'
+
+      - name: Install electron-viewer dependencies
+        working-directory: electron-viewer
+        run: pnpm install --frozen-lockfile
+
+      - name: Compare TypeScript against the HPROF corpus
+        working-directory: electron-viewer
+        env:
+          APS_GOLDEN_DIR: ${{ github.workspace }}/golden-out
+        run: pnpm --filter @aps/memory-profiler test src/golden-corpus.test.ts
+
+      # D2: both implementations measure the same synthetic heap in one job, so
+      # the gate compares them on one machine rather than across machines.
+      - name: Compare the HPROF pipeline against the JVM baseline
+        working-directory: electron-viewer
+        env:
+          APS_PERF: '1'
+          APS_PERF_OUT: ${{ github.workspace }}/golden-out/typescript-hprof.json
+          APS_GOLDEN_DIR: ${{ github.workspace }}/golden-out
+        run: pnpm --filter @aps/memory-profiler test src/perf.test.ts
+
+      - name: Upload HPROF corpus and baselines
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-hprof
+          path: golden-out/
+          if-no-files-found: warn
+
+  parsers:
+    name: simpleperf and ART trace corpora
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('desktop-viewer/**/*.gradle.kts', 'desktop-viewer/**/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # SimpleperfGoldenExportTest and ArtTraceGoldenExportTest write their own
+      # subdirectories, and the two benchmark tests write the JVM baselines.
+      - name: Build the Kotlin corpora and JVM baselines
         working-directory: desktop-viewer/simpleperf-viewer
         env:
           APS_GOLDEN_OUT: ${{ github.workspace }}/golden-out
@@ -64,31 +142,27 @@ jobs:
         working-directory: electron-viewer
         run: pnpm install --frozen-lockfile
 
-      - name: Compare TypeScript against the Kotlin golden corpus
+      - name: Compare TypeScript against the parser corpora
         working-directory: electron-viewer
         env:
           APS_GOLDEN_DIR: ${{ github.workspace }}/golden-out
         run: |
-          pnpm --filter @aps/memory-profiler test src/golden-corpus.test.ts
           pnpm --filter @aps/simpleperf-profiler test src/golden-corpus.test.ts
           pnpm --filter @aps/art-trace test src/golden-corpus.test.ts
-      # D2: each benchmark measures the same synthetic input as its Kotlin
-      # counterpart in the same job, so the gates compare implementations on one
-      # machine rather than across machines.
-      - name: Compare the TypeScript pipelines against the JVM baselines
+
+      - name: Compare the parser pipelines against the JVM baselines
         working-directory: electron-viewer
         env:
           APS_PERF: '1'
-          APS_PERF_OUT: ${{ github.workspace }}/golden-out/typescript-baseline.json
           APS_GOLDEN_DIR: ${{ github.workspace }}/golden-out
         run: |
-          pnpm --filter @aps/memory-profiler test src/perf.test.ts
           pnpm --filter @aps/simpleperf-profiler test src/perf.test.ts
           pnpm --filter @aps/art-trace test src/perf.test.ts
-      - name: Upload corpus and baselines
+
+      - name: Upload parser corpora and baselines
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hprof-golden
+          name: golden-parsers
           path: golden-out/
           if-no-files-found: warn
