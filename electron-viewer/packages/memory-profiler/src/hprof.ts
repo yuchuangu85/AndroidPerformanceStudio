@@ -433,7 +433,9 @@ function readHeapSegment(
       }
       default:
         if (subTag in ROOT_SUBTAGS) {
-          roots.add(readRoot(cursor, subTag, identifierSize));
+          // A zero object id is not a root; the reference implementation drops it.
+          const rootId = readRoot(cursor, subTag, identifierSize);
+          if (rootId !== 0n) roots.add(rootId);
         } else {
           warnings.push('Unknown heap sub-tag 0x' + subTag.toString(16) + '; parsing stopped for this segment.');
           return;

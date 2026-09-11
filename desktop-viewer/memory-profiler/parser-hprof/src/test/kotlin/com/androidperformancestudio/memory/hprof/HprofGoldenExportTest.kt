@@ -112,8 +112,9 @@ class HprofGoldenExportTest {
                     .heapDump(
                         HprofFixtureBuilder(idSize = 4).classDump(classId = 0x10, instanceSize = 4),
                         // A zero object id is not a root; the reference implementation drops it.
-                        HprofFixtureBuilder(idSize = 4).androidRoot(0x01, 0),
-                        HprofFixtureBuilder(idSize = 4).androidRoot(0x01, 0x20),
+                        // Sticky-class roots carry a single id, so the record stays well formed.
+                        HprofFixtureBuilder(idSize = 4).androidRoot(0x05, 0),
+                        HprofFixtureBuilder(idSize = 4).androidRoot(0x05, 0x20),
                         HprofFixtureBuilder(idSize = 4).instanceDump(0x20, 0x10),
                     ).heapDumpEnd()
                     .build(),
