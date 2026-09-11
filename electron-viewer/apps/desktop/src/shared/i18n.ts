@@ -16,7 +16,9 @@ export const SHELL_STRINGS = {
   'shell.theme.dark': { en: 'Dark', zh: '深色' },
   'shell.language.system': { en: 'System', zh: '跟随系统' },
   'shell.language.english': { en: 'English', zh: 'English' },
-  'shell.language.simplifiedChinese': { en: '简体中文', zh: '简体中文' },
+  // The suffix is the preference value from settings-contract, not a display
+  // name: the sidebar builds this key as 'shell.language.' + option.
+  'shell.language.simplified_chinese': { en: '简体中文', zh: '简体中文' },
   'shell.devices': { en: 'Devices', zh: '设备' },
   'shell.devices.refresh': { en: 'Refresh', zh: '刷新' },
   'shell.devices.none': { en: 'No authorized device found', zh: '未发现已授权设备' },
@@ -381,5 +383,10 @@ export function resolveLanguage(
 }
 
 export function translate(key: ShellStringKey, language: UiLanguage): string {
-  return SHELL_STRINGS[key][language];
+  const entry = SHELL_STRINGS[key] as Record<UiLanguage, string> | undefined;
+  // A key that was renamed, or built from a value that changed, must not take the
+  // whole renderer down with it: the identifier is ugly but visible, and an empty
+  // screen is neither.
+  if (entry === undefined) return key;
+  return entry[language] ?? key;
 }
