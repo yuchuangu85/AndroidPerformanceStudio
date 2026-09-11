@@ -102,22 +102,24 @@ export function instanceDetail(
   const className = node?.className ?? '<unknown>';
 
   const fields: FieldValue[] = [];
-  for (const value of instance.primitiveValues) {
-    const name = fieldNameOf(result, value.nameId);
+  for (let index = 0; index < instance.primitiveNameIds.length; index += 1) {
+    const value = instance.primitiveValues[index] ?? 0n;
     fields.push({
-      name,
+      name: fieldNameOf(result, instance.primitiveNameIds[index] ?? 0n),
       kind: 'primitive',
-      value: value.value.toString(),
-      displayValue: formatPrimitive(value.value, value.nameId, result),
+      value: value.toString(),
+      displayValue: value.toString(),
     });
   }
-  for (const reference of instance.fieldReferences) {
-    const targetClassName = classNameById.get(reference.targetObjectId) ?? '<unknown>';
+  for (let index = 0; index < instance.references.length; index += 1) {
+    const targetObjectId = instance.references[index];
+    if (targetObjectId === undefined) continue;
+    const targetClassName = classNameById.get(targetObjectId) ?? '<unknown>';
     fields.push({
-      name: fieldNameOf(result, reference.nameId),
+      name: fieldNameOf(result, instance.referenceNameIds[index] ?? 0n),
       kind: 'reference',
-      value: hexId(reference.targetObjectId),
-      displayValue: targetClassName + ' @ ' + hexId(reference.targetObjectId),
+      value: hexId(targetObjectId),
+      displayValue: targetClassName + ' @ ' + hexId(targetObjectId),
       targetClassName,
     });
   }
@@ -135,11 +137,6 @@ export function instanceDetail(
   };
 }
 
-function formatPrimitive(value: bigint, nameId: Identifier, result: HprofParseResult): string {
-  void nameId;
-  void result;
-  return value.toString();
-}
 
 function parseHexId(value: string): Identifier | undefined {
   const trimmed = value.trim().replace(/^0x/i, '');

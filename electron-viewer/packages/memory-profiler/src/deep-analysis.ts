@@ -110,8 +110,11 @@ function primitiveFieldOf(
   instance: HprofInstanceRecord,
   name: string,
 ): bigint | undefined {
-  for (const value of instance.primitiveValues) {
-    if (fieldNameOf(result, value.nameId) === name) return value.value;
+  for (let index = 0; index < instance.primitiveNameIds.length; index += 1) {
+    const nameId = instance.primitiveNameIds[index];
+    if (nameId !== undefined && fieldNameOf(result, nameId) === name) {
+      return instance.primitiveValues[index];
+    }
   }
   return undefined;
 }
@@ -121,8 +124,9 @@ function referenceIdFor(
   instance: HprofInstanceRecord,
   name: string,
 ): Identifier | undefined {
-  for (const reference of instance.fieldReferences) {
-    if (fieldNameOf(result, reference.nameId) === name) return reference.targetObjectId;
+  for (let index = 0; index < instance.references.length; index += 1) {
+    const nameId = instance.referenceNameIds[index];
+    if (nameId !== undefined && fieldNameOf(result, nameId) === name) return instance.references[index];
   }
   return undefined;
 }
@@ -138,7 +142,7 @@ function hasNullReference(
   name: string,
 ): boolean {
   const layout = result.classes.get(instance.classObjectId)?.instanceFields ?? [];
-  const observed = instance.fieldReferences.some((reference) => fieldNameOf(result, reference.nameId) === name);
+  const observed = instance.referenceNameIds.some((nameId) => fieldNameOf(result, nameId) === name);
   // A dump may declare the field without recording it, or record a zero target;
   // either way the field exists and holds nothing.
   if (!layout.some((field) => fieldNameOf(result, field.nameId) === name) && !observed) return false;
@@ -198,9 +202,9 @@ export function createReferenceChainFinder(
   const outgoing = (objectId: Identifier): readonly NamedReference[] => {
     const instance = instancesById.get(objectId);
     if (instance === undefined) return [];
-    return instance.fieldReferences.map((reference) => ({
-      fieldName: fieldNameOf(result, reference.nameId),
-      targetObjectId: reference.targetObjectId,
+    return instance.references.map((targetObjectId, index) => ({
+      fieldName: fieldNameOf(result, instance.referenceNameIds[index] ?? 0n),
+      targetObjectId,
     }));
   };
 
@@ -410,17 +414,19 @@ export function deepLeakSuspects(
   for (const holder of result.instances) {
     const holderName = classNameById.get(holder.objectId) ?? '';
     if (!isHandlerOrThreadClass(holderName)) continue;
-    for (const reference of holder.fieldReferences) {
-      const target = instanceById.get(reference.targetObjectId);
+    for (let index = 0; index < holder.references.length; index += 1) {
+      const targetObjectId = holder.references[index];
+      if (targetObjectId === undefined) continue;
+      const target = instanceById.get(targetObjectId);
       if (target === undefined || !activityClassIds.has(target.classObjectId)) continue;
-      const chain = finder.chainTo(reference.targetObjectId);
+      const chain = finder.chainTo(targetObjectId);
       if (chain.length === 0) continue;
-      const targetClass = classNameById.get(reference.targetObjectId) ?? '<unknown>';
+      const targetClass = classNameById.get(targetObjectId) ?? '<unknown>';
       candidates.push({
         className: targetClass,
         reason:
-          holderName + ' retains an Activity through ' + fieldNameOf(result, reference.nameId),
-        retainedBytes: retained.get(reference.targetObjectId) ?? 0,
+          holderName + ' retains an Activity through ' + fieldNameOf(result, holder.referenceNameIds[index] ?? 0n),
+        retainedBytes: retained.get(targetObjectId) ?? 0,
         instanceCount: instancesByClass.get(targetClass)?.length ?? 1,
         chain,
         activityOrFragmentLeak: false,

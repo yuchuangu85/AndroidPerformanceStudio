@@ -11,10 +11,8 @@
 import type {
   HprofArrayRecord,
   HprofClassRecord,
-  HprofFieldReference,
   HprofInstanceRecord,
   HprofParseResult,
-  HprofPrimitiveValue,
   Identifier,
 } from './hprof.js';
 import { OBJECT_TYPE } from './hprof.js';
@@ -225,22 +223,25 @@ export function heapGraphToHprofResult(graph: HeapGraphData): HprofParseResult {
     const fieldIds = object.referenceFieldIds.length > 0
       ? object.referenceFieldIds
       : (fieldsByType.get(object.typeId.toString()) ?? []);
-    const fieldReferences: HprofFieldReference[] = [];
     const references: Identifier[] = [];
+    const referenceNameIds: Identifier[] = [];
     object.referenceObjectIds.forEach((target, index) => {
+      // A null target is not recorded; the class layout still declares the
+      // field, which is how the Fragment heuristic tells "empty" from "absent".
+      if (target === 0n) return;
       const nameId = fieldIds[index] ?? internFieldName('[' + String(index) + ']');
       if (!strings.has(nameId)) {
         strings.set(nameId, graph.fieldNames.get(nameId) ?? '[' + String(index) + ']');
       }
-      // Null targets are kept: "the field is empty" is what the Fragment
-      // heuristic looks for, and dropping them hides it.
-      fieldReferences.push({ nameId, targetObjectId: target });
-      if (target !== 0n) references.push(target);
+      references.push(target);
+      referenceNameIds.push(nameId);
     });
-    const primitiveValues: HprofPrimitiveValue[] = specialFields(object).map((field) => ({
-      nameId: internFieldName(field.name),
-      value: field.value,
-    }));
+    const primitiveNameIds: Identifier[] = [];
+    const primitiveValues: bigint[] = [];
+    for (const field of specialFields(object)) {
+      primitiveNameIds.push(internFieldName(field.name));
+      primitiveValues.push(field.value);
+    }
     instances.push({
       objectId: object.id,
       classObjectId: object.typeId,
@@ -249,7 +250,8 @@ export function heapGraphToHprofResult(graph: HeapGraphData): HprofParseResult {
       fieldBytes: classRecord === undefined ? 0 : (fieldsByType.get(object.typeId.toString()) ?? []).length * 8,
       shallowBytes: object.selfSize,
       references,
-      fieldReferences,
+      referenceNameIds,
+      primitiveNameIds,
       primitiveValues,
     });
   }
