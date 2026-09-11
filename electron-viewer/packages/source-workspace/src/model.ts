@@ -13,7 +13,14 @@ export type SourceProviderKind = (typeof SOURCE_PROVIDER_KINDS)[number];
 
 export type SourceProviderConfig =
   | { readonly kind: 'LOCAL'; readonly root: string }
-  | { readonly kind: 'GITHUB'; readonly owner: string; readonly repository: string; readonly ref: string }
+  | {
+      readonly kind: 'GITHUB';
+      readonly owner: string;
+      readonly repository: string;
+      readonly ref: string;
+      /** Credential store key holding the API token, when one is needed. */
+      readonly credentialKey?: string | null;
+    }
   | { readonly kind: 'AOSP'; readonly project: string; readonly ref: string };
 
 export const SOURCE_WORKSPACE_PHASES = [
@@ -35,6 +42,8 @@ export interface SourceWorkspace {
   readonly phase: SourceWorkspacePhase;
   readonly progress: number;
   readonly message?: string;
+  /** Off by default: sending source to a model needs an explicit opt in. */
+  readonly allowAiSourceUpload: boolean;
 }
 
 export interface SourceSnapshot {

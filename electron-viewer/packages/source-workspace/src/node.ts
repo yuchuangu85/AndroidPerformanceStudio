@@ -2,10 +2,13 @@
  * Node-only half of the source workspace: hashing, walking a local tree, and the
  * content addressed cache that keeps verified content immutable.
  */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { MAX_SOURCE_FILE_BYTES, SOURCE_EXTENSIONS, isIndexableSourcePath } from './language.js';
+import type { SourceProviderConfig, SourceProviderKind } from './model.js';
+import type { ProviderSourceFile, SourceProvider } from './providers.js';
 
 export function sha256Bytes(content: Uint8Array): string {
   return createHash('sha256').update(content).digest('hex');
@@ -128,3 +131,57 @@ export class ContentAddressedSourceCache {
 }
 
 export { SOURCE_EXTENSIONS };
+export * from './sqlite-repository.js';
+
+/** Port of LocalSourceProvider.kt: a working tree, optionally a git checkout. */
+export class LocalSourceProvider implements SourceProvider {
+  readonly kind: SourceProviderKind = 'LOCAL';
+
+  async resolveRevision(config: SourceProviderConfig): Promise<string> {
+    const local = requireLocal(config);
+    if (!statSync(local.root, { throwIfNoEntry: false })?.isDirectory()) {
+      throw new Error('Local source root is not a directory: ' + local.root);
+    }
+    const commit = git(local.root, ['rev-parse', 'HEAD'])?.trim() || 'unversioned';
+    const status = git(local.root, ['status', '--porcelain']);
+    const hasDirtyFiles = status === undefined ? commit === 'unversioned' : status.trim().length > 0;
+    if (!hasDirtyFiles) return commit;
+    return commit + '-dirty-' + contentDigest(local.root);
+  }
+
+  async listFiles(config: SourceProviderConfig): Promise<ProviderSourceFile[]> {
+    const root = resolve(requireLocal(config).root);
+    return walkSourceFiles(root).map((file) => ({
+      relativePath: file.relativePath,
+      sizeBytes: file.sizeBytes,
+      contentHash: null,
+    }));
+  }
+
+  async readFile(config: SourceProviderConfig, revision: string, relativePath: string): Promise<Uint8Array> {
+    // A local tree is read as it is on disk; the revision is only a label.
+    void revision;
+    return readSourceFile(requireLocal(config).root, relativePath);
+  }
+}
+
+export function requireLocal(config: SourceProviderConfig): { readonly kind: 'LOCAL'; readonly root: string } {
+  if (config.kind !== 'LOCAL') throw new Error('LocalSourceProvider requires Local config');
+  return config;
+}
+
+/** A manifest of relative path and content hash, hashed as a whole. */
+function contentDigest(root: string): string {
+  const manifest = walkSourceFiles(root)
+    .map((file) => file.relativePath + ':' + sha256Bytes(readSourceFile(root, file.relativePath)))
+    .join('\n');
+  return sha256Text(manifest);
+}
+
+function git(root: string, args: readonly string[]): string | undefined {
+  try {
+    return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    return undefined;
+  }
+}
