@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildObjectGraph } from './graph.js';
-import { classHistogram, summarizeMemory } from './histogram.js';
+import { classHistogram, groupInstancesByClass, summarizeMemory } from './histogram.js';
 import { parseHprof } from './hprof.js';
 import { computeDominators, reachableFromRoots } from './dominators.js';
 import { findLeakSuspects } from './leaks.js';
@@ -346,11 +346,7 @@ function measureShape(shape: string, wrapChains: boolean): ShapeCase {
   // repeats it the same number of times.
   measure('classSumAggregation', () => {
     for (let round = 0; round < AGGREGATION_ITERATIONS; round += 1) {
-      const totals = new Map<bigint, number>();
-      parsed.instances.forEach((instance) => {
-        totals.set(instance.classObjectId, (totals.get(instance.classObjectId) ?? 0) + instance.shallowBytes);
-      });
-      sink = totals.size;
+      sink = groupInstancesByClass(parsed.instances).length;
     }
   }, results);
   measure('summarizeMemory', () => void summarizeMemory(parsed), results);
