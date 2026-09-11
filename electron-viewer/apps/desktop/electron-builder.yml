@@ -42,7 +42,8 @@ win:
   extraResources:
     - from: ../../../third_party/perfetto/out/ui/dist
       to: perfetto-ui
-    - from: ../../../build/perfetto-tools/trace_processor_shell
+    # install-trace-processor.sh names the Windows download with its extension.
+    - from: ../../../build/perfetto-tools/trace_processor_shell.exe
       to: perfetto-tools/trace_processor_shell.exe
 
 linux:

@@ -14,8 +14,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const unpacked = process.argv[2];
-if (unpacked === undefined || !existsSync(unpacked)) {
-  console.error('usage: node scripts/verify-package.mjs <unpacked-directory>');
+if (unpacked === undefined) {
+  console.error('usage: node scripts/verify-package.mjs <unpacked-or-release-directory>');
+  process.exit(1);
+}
+if (!existsSync(unpacked)) {
+  console.error('the packaging output directory does not exist: ' + unpacked);
   process.exit(1);
 }
 
@@ -25,12 +29,23 @@ if (unpacked === undefined || !existsSync(unpacked)) {
  * Linux unpacked directory.
  */
 function resourcesOf(directory) {
-  if (directory.endsWith('.app')) return join(directory, 'Contents', 'Resources');
+  // The caller may name the unpacked directory itself or the directory that holds
+  // it: electron-builder uses mac/, mac-arm64/, win-unpacked/ or linux-unpacked/
+  // depending on host and target, and a hard-coded path silently missed one.
+  const candidates = [directory];
   try {
-    const bundle = readdirSync(directory).find((entry) => entry.endsWith('.app'));
-    if (bundle !== undefined) return join(directory, bundle, 'Contents', 'Resources');
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) candidates.push(join(directory, entry.name));
+    }
   } catch {
-    // Not a directory, or unreadable: fall through to the flat layout.
+    // Not a directory, or unreadable: the candidates below still get tried.
+  }
+  for (const candidate of candidates) {
+    if (candidate.endsWith('.app')) return join(candidate, 'Contents', 'Resources');
+  }
+  for (const candidate of candidates) {
+    const resources = join(candidate, 'resources');
+    if (existsSync(resources)) return resources;
   }
   return join(directory, 'resources');
 }

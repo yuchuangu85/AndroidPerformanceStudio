@@ -96,7 +96,10 @@ jobs:
       - name: Verify the packaged runtime assets
         working-directory: electron-viewer/apps/desktop
         shell: bash
-        run: node scripts/verify-package.mjs "${{ matrix.unpacked }}"
+        # The output directory, not a per-architecture path: electron-builder names
+        # it mac/, mac-arm64/, win-unpacked/ or linux-unpacked/, and the verifier
+        # finds the bundle or the unpacked directory inside it.
+        run: node scripts/verify-package.mjs release
       - name: Upload the installers
         uses: actions/upload-artifact@v4
         with:
