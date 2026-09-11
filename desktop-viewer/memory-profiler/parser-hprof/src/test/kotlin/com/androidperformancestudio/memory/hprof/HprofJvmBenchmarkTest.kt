@@ -62,11 +62,15 @@ class HprofJvmBenchmarkTest {
 
         val aggregationRuns = List(WARMUPS + ROUNDS) { round ->
             val start = System.nanoTime()
-            val totals = HashMap<Long, Long>()
-            heapDump.instances.forEach { instance ->
-                totals[instance.classObjectId] = (totals[instance.classObjectId] ?: 0L) + instance.shallowSize
+            // Repeated so the stage is long enough to compare; the TypeScript
+            // benchmark repeats it the same number of times.
+            repeat(AGGREGATION_ITERATIONS) {
+                val totals = HashMap<Long, Long>()
+                heapDump.instances.forEach { instance ->
+                    totals[instance.classObjectId] = (totals[instance.classObjectId] ?: 0L) + instance.shallowSize
+                }
+                sink = totals.size
             }
-            sink = totals.size
             val elapsed = System.nanoTime() - start
             if (round < WARMUPS) -1.0 else elapsed / NANOS_PER_MILLI
         }.filter { it >= 0.0 }
@@ -273,6 +277,7 @@ class HprofJvmBenchmarkTest {
         const val OBJECT_ARRAYS = 1000
         const val PRIMITIVE_ARRAYS = 2000
         const val WARMUPS = 3
+        const val AGGREGATION_ITERATIONS = 20
         const val ROUNDS = 5
         const val NANOS_PER_MILLI = 1_000_000.0
         const val HEAP_NAME_ID = 1L

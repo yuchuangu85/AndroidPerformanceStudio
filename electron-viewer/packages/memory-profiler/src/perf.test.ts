@@ -314,6 +314,9 @@ interface ShapeCase {
 let sink = 0;
 void sink;
 
+/** Both benchmarks repeat the aggregation this many times per measured round. */
+const AGGREGATION_ITERATIONS = 20;
+
 function measureShape(shape: string, wrapChains: boolean): ShapeCase {
   const heap = syntheticHeap({
     classCount: 100,
@@ -338,12 +341,17 @@ function measureShape(shape: string, wrapChains: boolean): ShapeCase {
   measure('classHistogram', () => void classHistogram(parsed), results);
   // The same grouping work without name resolution, so it can be compared with
   // the JVM benchmark's classSumAggregation stage.
+  // Repeated so the stage is long enough to compare: a single pass is a few
+  // milliseconds and would be decided by JIT and GC noise. The JVM benchmark
+  // repeats it the same number of times.
   measure('classSumAggregation', () => {
-    const totals = new Map<bigint, number>();
-    parsed.instances.forEach((instance) => {
-      totals.set(instance.classObjectId, (totals.get(instance.classObjectId) ?? 0) + instance.shallowBytes);
-    });
-    sink = totals.size;
+    for (let round = 0; round < AGGREGATION_ITERATIONS; round += 1) {
+      const totals = new Map<bigint, number>();
+      parsed.instances.forEach((instance) => {
+        totals.set(instance.classObjectId, (totals.get(instance.classObjectId) ?? 0) + instance.shallowBytes);
+      });
+      sink = totals.size;
+    }
   }, results);
   measure('summarizeMemory', () => void summarizeMemory(parsed), results);
 
