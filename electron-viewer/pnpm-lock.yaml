@@ -226,7 +226,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.0
-        version: 5.0.0
+        version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0))
 
   packages/art-trace:
     dependencies:
@@ -286,6 +286,43 @@ importers:
       vitest:
         specifier: ^5.0.0
         version: 5.0.0(@types/node@22.20.1)(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0))
+
+  packages/export-adapters:
+    dependencies:
+      '@aps/battery-profiler':
+        specifier: workspace:*
+        version: link:../battery-profiler
+      '@aps/benchmark-regression':
+        specifier: workspace:*
+        version: link:../benchmark-regression
+      '@aps/frame-profiler':
+        specifier: workspace:*
+        version: link:../frame-profiler
+      '@aps/memory-profiler':
+        specifier: workspace:*
+        version: link:../memory-profiler
+      '@aps/network-profiler':
+        specifier: workspace:*
+        version: link:../network-profiler
+      '@aps/profile-analysis':
+        specifier: workspace:*
+        version: link:../profile-analysis
+      '@aps/simpleperf-profiler':
+        specifier: workspace:*
+        version: link:../simpleperf-profiler
+      '@aps/startup-profiler':
+        specifier: workspace:*
+        version: link:../startup-profiler
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.2
+        version: 22.20.2
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0))
 
   packages/frame-profiler:
     devDependencies:
