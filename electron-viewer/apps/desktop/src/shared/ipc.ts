@@ -1,6 +1,14 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
 import type { AgiCapability, ArtifactLocationStatus, ArtifactOpenRoute, GpuArtifactKind } from '@aps/gpu-inspector';
-import type { MemorySession } from '@aps/memory-profiler';
+import type {
+  BitmapDumpSession,
+  InstanceQueryDetail,
+  InstanceQueryRow,
+  MemorySession,
+  NativeHeapAnalysis,
+} from '@aps/memory-profiler';
+
+export type { BitmapDumpSession, InstanceQueryDetail, InstanceQueryRow };
 import type { FlameGraphPayload, ImplementationFilter } from '@aps/profile-analysis';
 import type {
   BuildIdentityMatch,
@@ -292,6 +300,69 @@ export interface MemorySessionSummary {
   readonly warningCount: number;
   readonly packageName?: string;
   readonly deviceSerial?: string;
+  /** Present once the deep pass ran; the panel shows the counts as tabs. */
+  readonly bitmapCount?: number;
+  readonly activityLeakCount?: number;
+  readonly deepSuspectCount?: number;
+}
+
+export interface MemoryInstanceRequest {
+  readonly sessionId: string;
+  readonly className: string;
+  readonly heap?: string;
+  readonly limit?: number;
+}
+
+export interface MemoryInstanceDetailRequest {
+  readonly sessionId: string;
+  readonly objectId: string;
+}
+
+export interface BitmapCaptureRequest {
+  readonly serial: string;
+  readonly packageName: string;
+}
+
+export interface BitmapSessionSummary {
+  readonly id: string;
+  readonly packageName: string;
+  readonly deviceSerial: string;
+  readonly capturedAtEpochMillis: number;
+  readonly exportedImageCount: number;
+  readonly uniqueImageCount: number;
+  readonly duplicateGroupCount: number;
+  readonly estimatedBitmapBytes: number;
+}
+
+export interface NativeHeapCaptureRequest {
+  readonly serial: string;
+  readonly packageName: string;
+}
+
+export interface NativeHeapSessionSummary {
+  readonly id: string;
+  readonly packageName: string;
+  readonly deviceSerial: string;
+  readonly capturedAtEpochMillis: number;
+  readonly fileSizeBytes: number;
+  readonly totalAllocatedBytes: number;
+  readonly totalFreedBytes: number;
+  readonly sampleCount: number;
+}
+
+/** A heapprofd session: the raw trace plus the best-effort summary. */
+export interface NativeHeapCaptureRecord {
+  readonly id: string;
+  readonly packageName: string;
+  readonly deviceSerial: string;
+  readonly capturedAtEpochMillis: number;
+  readonly sdkLevel: number;
+  readonly traceFile: string;
+  readonly fileName: string;
+  readonly fileSizeBytes: number;
+  readonly analysis: NativeHeapAnalysis;
+  readonly evidenceSource: string;
+  readonly warnings: readonly string[];
 }
 
 export interface MemoryCaptureInput {
@@ -497,6 +568,17 @@ export interface ApsApi {
   captureMemory(input: MemoryCaptureInput): Promise<MemoryCaptureOutcome>;
   listMemorySessions(): Promise<readonly MemorySessionSummary[]>;
   loadMemorySession(id: string): Promise<MemorySession | undefined>;
+  /** Instance browsing needs the heap of this run; see the panel note. */
+  queryMemoryInstances(input: MemoryInstanceRequest): Promise<readonly InstanceQueryRow[]>;
+  memoryInstanceDetail(input: MemoryInstanceDetailRequest): Promise<InstanceQueryDetail | undefined>;
+  captureBitmapDump(input: BitmapCaptureRequest): Promise<MemoryCaptureOutcome>;
+  listBitmapSessions(): Promise<readonly BitmapSessionSummary[]>;
+  loadBitmapSession(id: string): Promise<BitmapDumpSession | undefined>;
+  removeBitmapSession(id: string): Promise<boolean>;
+  captureNativeHeap(input: NativeHeapCaptureRequest): Promise<MemoryCaptureOutcome>;
+  listNativeHeapSessions(): Promise<readonly NativeHeapSessionSummary[]>;
+  loadNativeHeapSession(id: string): Promise<NativeHeapCaptureRecord | undefined>;
+  removeNativeHeapSession(id: string): Promise<boolean>;
   getAiSettings(): Promise<AiSettingsSnapshot>;
   saveAiCredential(value: string): Promise<AiSettingsSnapshot>;
   clearAiCredential(): Promise<AiSettingsSnapshot>;
@@ -608,6 +690,16 @@ export const IPC_CHANNELS = {
   memoryCapture: 'memory:capture',
   memoryList: 'memory:list',
   memoryLoad: 'memory:load',
+  memoryInstances: 'memory:instances',
+  memoryInstanceDetail: 'memory:instanceDetail',
+  bitmapCapture: 'bitmap:capture',
+  bitmapList: 'bitmap:list',
+  bitmapLoad: 'bitmap:load',
+  bitmapRemove: 'bitmap:remove',
+  nativeHeapCapture: 'nativeHeap:capture',
+  nativeHeapList: 'nativeHeap:list',
+  nativeHeapLoad: 'nativeHeap:load',
+  nativeHeapRemove: 'nativeHeap:remove',
   aiSettings: 'ai:settings',
   aiSaveCredential: 'ai:saveCredential',
   aiClearCredential: 'ai:clearCredential',

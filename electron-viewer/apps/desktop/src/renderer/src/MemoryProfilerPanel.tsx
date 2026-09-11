@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import type { MemorySession } from '@aps/memory-profiler';
 import type { DeviceSummary, MemorySessionSummary } from '../../shared/ipc';
+import { MemoryArtifactSections, MemoryDeepPanel } from './MemoryDeepSections';
 import { translate, type UiLanguage } from '../../shared/i18n';
 
 export interface MemoryProfilerPanelProps {
@@ -221,6 +222,10 @@ export function MemoryProfilerPanel({ language, devices }: MemoryProfilerPanelPr
               </ul>
             </section>
           ) : null}
+          {session !== null ? (
+            <MemoryDeepPanel language={language} sessionId={selectedId} session={session} />
+          ) : null}
+          <MemoryArtifactSections language={language} devices={devices} />
         </>
       )}
     </>

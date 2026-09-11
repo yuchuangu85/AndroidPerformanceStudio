@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter } from 'node:path';
+import { basename, delimiter, dirname } from 'node:path';
 
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
@@ -25,6 +25,11 @@ import {
   type MethodSessionRecord,
   type MethodSnapshotRequest,
   type AiAnalyzeRequest,
+  type BitmapCaptureRequest,
+  type MemoryInstanceDetailRequest,
+  type MemoryInstanceRequest,
+  type NativeHeapCaptureRequest,
+  type NativeHeapCaptureRecord,
   type SourceResolveRequest,
   type BenchmarkCompareInput,
   type ShellSnapshot,
@@ -110,8 +115,16 @@ import { formatOfFile, importCpuProfile } from './cpu-import-service.js';
 import { defaultReportFile } from './cpu-profile-store.js';
 import { CpuProfileStore } from './cpu-profile-store.js';
 import { parseCpuProfileReport } from './cpu-profile-parser.js';
-import { captureHeapDump } from './memory-capture-service.js';
+import {
+  captureBitmapDump,
+  captureHeapDump,
+  captureNativeHeapTrace,
+  type ExtendedMemoryCaptureDependencies,
+} from './memory-capture-service.js';
 import { MemorySessionStore } from './memory-session-store.js';
+import { BitmapDumpStore, NativeHeapStore } from './memory-artifact-stores.js';
+import { cacheHeap, cachedHeap } from './memory-heap-cache.js';
+import { instancesOf, instanceDetail, type HprofParseResult } from '@aps/memory-profiler';
 import { capturePerfettoTrace } from './trace-capture-service.js';
 import { TraceStore } from './trace-store.js';
 import { resolveTraceProcessorStatus } from './trace-service.js';
@@ -327,6 +340,45 @@ function aiService(): AiAnalysisService {
     now: () => Date.now(),
   });
   return aiServiceInstance;
+}
+
+function bitmapStore(): BitmapDumpStore {
+  return new BitmapDumpStore(join(userDataDirectory(), 'bitmap-dumps'));
+}
+
+function nativeHeapStore(): NativeHeapStore {
+  return new NativeHeapStore(join(userDataDirectory(), 'native-heap'));
+}
+
+/** The extended dependency set the bitmap and heapprofd captures need. */
+function extendedCaptureDependencies(
+  client: AdbClient,
+  serial: string,
+  temporaryDirectory: string,
+): ExtendedMemoryCaptureDependencies {
+  return {
+    adb: {
+      shell: (args, options) => client.shell(serial, args, options),
+      pull: async (remote, local, options) => {
+        await client.pull(serial, remote, local, options);
+      },
+    },
+    push: async (local, remote, options) => {
+      await client.push(serial, local, remote, options);
+    },
+    writeTextFile: async (path, contents) => {
+      await writeFile(path, contents, 'utf8');
+    },
+    directoryOf: (path) => dirname(path),
+    sizeOf: async (path) => (await stat(path)).size,
+    readFile: async (path) => new Uint8Array(await readFile(path)),
+    removeFile: async (path) => {
+      await rm(path, { force: true });
+    },
+    temporaryPath: (name) => join(temporaryDirectory, name),
+    now: () => Date.now(),
+    newId: () => String(Date.now()),
+  };
 }
 
 function memoryStore(): MemorySessionStore {
@@ -1128,6 +1180,7 @@ function registerHandlers(): void {
     const client = adbClientFor();
     if (client === undefined) return { ok: false, error: 'ADB is not available' };
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'aps-heap-'));
+    let parsedHeap: HprofParseResult | undefined;
     try {
       const result = await captureHeapDump(
         {
@@ -1146,9 +1199,17 @@ function registerHandlers(): void {
           now: () => Date.now(),
           newId: () => String(Date.now()),
         },
-        { serial: input.serial, packageName: input.packageName },
+        {
+          serial: input.serial,
+          packageName: input.packageName,
+          // The raw dump is deleted below, so the parse is what browsing keeps.
+          onParsed: (parsed) => {
+            parsedHeap = parsed;
+          },
+        },
       );
       if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+      if (parsedHeap !== undefined) cacheHeap(result.value.id, parsedHeap);
       const summary = await memoryStore().add(result.value);
       return { ok: true, id: summary.id };
     } finally {
@@ -1157,6 +1218,72 @@ function registerHandlers(): void {
   });
   ipcMain.handle(IPC_CHANNELS.memoryList, () => memoryStore().list());
   ipcMain.handle(IPC_CHANNELS.memoryLoad, (_event, id: string) => memoryStore().load(id));
+  ipcMain.handle(IPC_CHANNELS.memoryInstances, (_event, input: MemoryInstanceRequest) => {
+    const cached = cachedHeap(input.sessionId);
+    if (cached === undefined) return [];
+    return instancesOf(cached.result, cached.graph, input.className, {
+      ...(input.heap !== undefined ? { heap: input.heap } : {}),
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      retainedBytes: cached.analysis.dominators.retainedBytes,
+      reachable: cached.analysis.reachability.reachable,
+    });
+  });
+  ipcMain.handle(IPC_CHANNELS.memoryInstanceDetail, (_event, input: MemoryInstanceDetailRequest) => {
+    const cached = cachedHeap(input.sessionId);
+    if (cached === undefined) return undefined;
+    return instanceDetail(cached.result, cached.graph, input.objectId, cached.analysis);
+  });
+  ipcMain.handle(IPC_CHANNELS.bitmapCapture, async (_event, input: BitmapCaptureRequest) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'aps-bitmap-'));
+    try {
+      const result = await captureBitmapDump(
+        extendedCaptureDependencies(client, input.serial, temporaryDirectory),
+        { serial: input.serial, packageName: input.packageName },
+      );
+      if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+      const summary = await bitmapStore().add(result.value.session);
+      return { ok: true, id: summary.id };
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.bitmapList, () => bitmapStore().list());
+  ipcMain.handle(IPC_CHANNELS.bitmapLoad, (_event, id: string) => bitmapStore().load(id));
+  ipcMain.handle(IPC_CHANNELS.bitmapRemove, (_event, id: string) => bitmapStore().remove(id));
+  ipcMain.handle(IPC_CHANNELS.nativeHeapCapture, async (_event, input: NativeHeapCaptureRequest) => {
+    const client = adbClientFor();
+    if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'aps-native-heap-'));
+    try {
+      const result = await captureNativeHeapTrace(
+        extendedCaptureDependencies(client, input.serial, temporaryDirectory),
+        { serial: input.serial, packageName: input.packageName },
+      );
+      if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+      const record: NativeHeapCaptureRecord = {
+        id: result.value.id,
+        packageName: result.value.packageName,
+        deviceSerial: result.value.deviceSerial,
+        capturedAtEpochMillis: result.value.capturedAtEpochMillis,
+        sdkLevel: result.value.sdkLevel,
+        traceFile: result.value.traceFile,
+        fileName: result.value.fileName,
+        fileSizeBytes: result.value.fileSizeBytes,
+        analysis: result.value.analysis,
+        evidenceSource: result.value.evidenceSource,
+        warnings: result.value.warnings,
+      };
+      const summary = await nativeHeapStore().add(record);
+      return { ok: true, id: summary.id };
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.nativeHeapList, () => nativeHeapStore().list());
+  ipcMain.handle(IPC_CHANNELS.nativeHeapLoad, (_event, id: string) => nativeHeapStore().load(id));
+  ipcMain.handle(IPC_CHANNELS.nativeHeapRemove, (_event, id: string) => nativeHeapStore().remove(id));
   ipcMain.handle(IPC_CHANNELS.sourceSetAiUpload, (_event, input: { workspaceId: string; allowed: boolean }) => {
     try {
       sourceBackend().setAiUploadAllowed(input.workspaceId, input.allowed);

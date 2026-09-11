@@ -12,3 +12,4 @@ export * from './java-heap-trace.js';
 export * from './heap-graph-bridge.js';
 export * from './native-heap-trace.js';
 export * from './proto.js';
+export * from './bitmap-model.js';

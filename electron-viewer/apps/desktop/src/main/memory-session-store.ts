@@ -58,6 +58,13 @@ export function summarizeMemorySession(session: MemorySession): MemorySessionSum
     warningCount: session.warnings.length,
     ...(session.packageName !== undefined ? { packageName: session.packageName } : {}),
     ...(session.deviceSerial !== undefined ? { deviceSerial: session.deviceSerial } : {}),
+    ...(session.deep !== undefined
+      ? {
+          bitmapCount: session.deep.bitmaps.length,
+          activityLeakCount: session.deep.activityLeaks.length,
+          deepSuspectCount: session.deep.suspects.length,
+        }
+      : {}),
   };
 }
 

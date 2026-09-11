@@ -16,6 +16,8 @@ import {
 } from './native-heap-trace.js';
 
 export * from './bitmap-dump.js';
+export * from './bitmap-model.js';
+export * from './native-heap-trace.js';
 export * from './java-heap-adapter.js';
 export * from './native-heap-adapter.js';
 export * from './trace-query-runner.js';

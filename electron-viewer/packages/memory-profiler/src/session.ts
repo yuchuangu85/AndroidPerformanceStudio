@@ -1,6 +1,12 @@
 import type { ClassHistogramEntry, MemorySummary } from './histogram.js';
 import { classHistogram, summarizeMemory } from './histogram.js';
 import { analyzeGraph } from './dominators.js';
+import {
+  analyzeHeapDeeply,
+  type ActivityLeakEntry,
+  type BitmapInstanceStats,
+  type DeepLeakSuspect,
+} from './deep-analysis.js';
 import { buildObjectGraph } from './graph.js';
 import { findLeakSuspects } from './leaks.js';
 import type { HprofParseResult, Identifier } from './hprof.js';
@@ -14,6 +20,13 @@ export interface MemoryLeakSuspect {
   readonly referenceChain: readonly string[];
 }
 
+/** The reports that need field names, which only the deep pass pays for. */
+export interface MemoryDeepReports {
+  readonly suspects: readonly DeepLeakSuspect[];
+  readonly activityLeaks: readonly ActivityLeakEntry[];
+  readonly bitmaps: readonly BitmapInstanceStats[];
+}
+
 export interface MemorySession {
   readonly id: string;
   readonly deviceSerial?: string;
@@ -23,6 +36,7 @@ export interface MemorySession {
   readonly histogram: readonly ClassHistogramEntry[];
   readonly suspects: readonly MemoryLeakSuspect[];
   readonly warnings: readonly string[];
+  readonly deep?: MemoryDeepReports;
 }
 
 function toHex(id: Identifier): string {
@@ -39,13 +53,19 @@ export function createMemorySession(
     readonly packageName?: string;
     readonly histogramLimit?: number;
     readonly suspectLimit?: number;
+    /**
+     * Adds the field-aware reports. On by default because the panel shows them;
+     * a caller that only needs sizes can turn it off and skip the extra walk.
+     */
+    readonly deep?: boolean;
   },
 ): MemorySession {
   const graph = buildObjectGraph(result);
-  // One analysis for the whole session: the leak ranking reuses it instead of
-  // recomputing reachability and dominators.
+  // One analysis for the whole session: the leak ranking, the deep reports, and
+  // the bitmap list all reuse it instead of recomputing dominators.
   const analysis = analyzeGraph(graph);
   const report = findLeakSuspects(graph, { top: options.suspectLimit ?? 20, analysis });
+  const deep = options.deep === false ? undefined : analyzeHeapDeeply(result, graph, { analysis });
   return {
     id: options.id,
     ...(options.deviceSerial !== undefined ? { deviceSerial: options.deviceSerial } : {}),
@@ -61,5 +81,6 @@ export function createMemorySession(
       referenceChain: suspect.referenceChain.map(toHex),
     })),
     warnings: [...result.warnings, ...graph.warnings],
+    ...(deep !== undefined ? { deep } : {}),
   };
 }
