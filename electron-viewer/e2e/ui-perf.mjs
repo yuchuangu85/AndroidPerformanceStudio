@@ -211,7 +211,12 @@ function callMethod(socket, id, method, params) {
 
 /**
  * The probe runs inside the renderer. It waits for the shell to render, opens the
- * layout destination, and measures frame times while scrolling and hit testing.
+ * layout destination, expands enough of the hierarchy that scrolling has somewhere
+ * to go, and measures frame times while scrolling and hit testing.
+ *
+ * The panel opens with two levels expanded, which is four rows: scrolling four
+ * rows measures nothing. The probe clicks the disclosure controls until the row
+ * count stops growing, which is what a reviewer does before judging a long list.
  * A failure returns what the page actually contained, because "the tree is not on
  * screen" is not a diagnosable report on its own.
  */
@@ -235,7 +240,6 @@ function probeSource(seconds) {
     '    hasApsApi: typeof window.aps === \'object\' && window.aps !== null,',
     '    buttons: [...document.querySelectorAll(\'button\')].map((element) => (element.textContent || \'\').trim()).slice(0, 24),',
     '    html: document.documentElement ? document.documentElement.outerHTML.slice(0, 300) : \'\',',
-    '    body: (document.body ? document.body.innerText : \'\').slice(0, 400),',
     '  });',
     '  try {',
     '    await waitFor(() => document.readyState === \'complete\', 30000, \'the document\');',
@@ -249,6 +253,24 @@ function probeSource(seconds) {
     '    );',
     '    destination.click();',
     '    const tree = await waitFor(() => document.querySelector(\'.tree\'), 20000, \'the tree view\');',
+    '    const expand = async (rounds) => {',
+    '      let previous = 0;',
+    '      for (let round = 0; round < rounds; round += 1) {',
+    '        const twisties = [...document.querySelectorAll(\'.tree__row .tree__twisty\')]',
+    '          .filter((element) => (element.textContent || \'\') === \'▸\');',
+    '        if (twisties.length === 0) break;',
+    '        for (const twisty of twisties) twisty.click();',
+    '        await sleep(150);',
+    '        const rows = document.querySelectorAll(\'.tree__row\').length;',
+    '        if (rows === previous) break;',
+    '        previous = rows;',
+    '      }',
+    '      return document.querySelectorAll(\'.tree__row\').length;',
+    '    };',
+    '    const expandedRows = await expand(8);',
+    '    // Two frames of warm-up: the first paint after expanding is not a',
+    '    // steady-state frame and would read as a stall.',
+    '    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));',
     '    const sample = async (action) => {',
     '      const stamps = [];',
     '      let running = true;',
@@ -265,14 +287,16 @@ function probeSource(seconds) {
     '      const p95 = deltas[Math.min(deltas.length - 1, Math.floor(deltas.length * 0.95))];',
     '      return { frames: deltas.length, fps: Math.round(1000 / median), p95FrameMs: Math.round(p95 * 100) / 100, longFrames: deltas.filter((delta) => delta > 20).length };',
     '    };',
-    '    const scroll = await sample(() => { tree.scrollTop = (tree.scrollTop + 220) % Math.max(1, tree.scrollHeight - tree.clientHeight); });',
+    '    const scrollRange = Math.max(1, tree.scrollHeight - tree.clientHeight);',
+    '    let offset = 0;',
+    '    const scroll = await sample(() => { offset = (offset + 240) % scrollRange; tree.scrollTop = offset; });',
     '    const image = document.querySelector(\'.preview img\');',
     '    const hit = await sample(() => {',
     '      if (!image) return;',
     '      const rect = image.getBoundingClientRect();',
     '      image.dispatchEvent(new MouseEvent(\'click\', { bubbles: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }));',
     '    });',
-    '    return { ok: true, scroll, hit, zoom: null, rows: document.querySelectorAll(\'.tree__row\').length, hasPreview: image !== null };',
+    '    return { ok: true, scroll, hit, zoom: null, rows: expandedRows, scrollRange, hasPreview: image !== null };',
     '  } catch (error) {',
     '    return { ok: false, reason: String((error && error.message) || error), ...describe() };',
     '  }',
@@ -340,6 +364,7 @@ async function main() {
       hit: value?.hit ?? null,
       zoom: value?.zoom ?? null,
       rows: value?.rows ?? 0,
+      scrollRange: value?.scrollRange ?? 0,
       zoomCovered: false,
       osSandbox: sandbox.state,
       ok: value?.ok === true,
