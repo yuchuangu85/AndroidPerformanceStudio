@@ -16,7 +16,7 @@
  * Requires the app to be built first: pnpm --filter @aps/desktop build
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +48,39 @@ const OUT = argument('out', join(here, '..', 'perf', 'ui-tree.json'));
 /** The PRD gate. */
 const MIN_FPS = 55;
 const DEBUG_PORT = 9222 + (process.pid % 500);
+
+/**
+ * Chromium refuses to start on Linux unless its SUID helper is root-owned and
+ * setuid, and a pnpm store preserves neither. Rather than fail the gate, the
+ * harness relaxes the OS-level sandbox and records that it did, so a reported
+ * number never claims a stricter environment than the one it ran in.
+ */
+function findChromeSandbox() {
+  const store = join(here, '..', 'node_modules', '.pnpm');
+  try {
+    for (const entry of readdirSync(store, { recursive: true })) {
+      const candidate = String(entry);
+      if (candidate.endsWith('electron/dist/chrome-sandbox')) return join(store, candidate);
+    }
+  } catch {
+    // No store, or an unreadable one: fall through to the relaxed path.
+  }
+  return undefined;
+}
+
+function sandboxArguments() {
+  if (process.platform !== 'linux') return { args: [], state: 'not-applicable' };
+  const helper = findChromeSandbox();
+  if (helper !== undefined) {
+    try {
+      const stats = statSync(helper);
+      if (stats.uid === 0 && (stats.mode & 0o4000) !== 0) return { args: [], state: 'enabled' };
+    } catch {
+      // Unreadable helper counts as unusable.
+    }
+  }
+  return { args: ['--no-sandbox'], state: 'relaxed' };
+}
 
 /**
  * The same shape the package fixture builds: wide and deep containers with
@@ -229,9 +262,10 @@ async function main() {
   }
   const userData = mkdtempSync(join(tmpdir(), 'aps-ui-perf-'));
   seedCapture(userData);
+  const sandbox = sandboxArguments();
   const child = spawn(
     resolveElectron(),
-    [mainEntry, '--user-data-dir=' + userData, '--remote-debugging-port=' + String(DEBUG_PORT)],
+    [mainEntry, '--user-data-dir=' + userData, '--remote-debugging-port=' + String(DEBUG_PORT), ...sandbox.args],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );
   let stderr = '';
@@ -259,6 +293,7 @@ async function main() {
       zoom: value?.zoom ?? null,
       rows: value?.rows ?? 0,
       zoomCovered: false,
+      osSandbox: sandbox.state,
       ok: value?.ok === true,
       ...(value?.ok === true ? {} : { reason: value?.reason ?? 'the probe did not run' }),
     };
