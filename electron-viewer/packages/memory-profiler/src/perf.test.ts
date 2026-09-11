@@ -4,6 +4,7 @@ import { buildObjectGraph } from './graph.js';
 import { classHistogram, groupInstancesByClass, summarizeMemory } from './histogram.js';
 import { parseHprof } from './hprof.js';
 import { computeDominators, reachableFromRoots } from './dominators.js';
+import { computeDominatorsReference } from './dominators-reference.js';
 import { findLeakSuspects } from './leaks.js';
 import { createMemorySession } from './session.js';
 
@@ -358,6 +359,9 @@ function measureShape(shape: string, wrapChains: boolean): ShapeCase {
 
   measure('reachableFromRoots', () => void reachableFromRoots(graph), results);
   measure('computeDominators', () => void computeDominators(graph), results);
+  // The iterative fixpoint this replaced, measured in the same run: cross-run
+  // numbers on shared machines are not comparable.
+  measure('computeDominatorsReference', () => void computeDominatorsReference(graph), results);
   measure('findLeakSuspects', () => void findLeakSuspects(graph, { top: 20 }), results);
 
   // A session is what the UI actually builds: graph, dominators, leaks, history.
