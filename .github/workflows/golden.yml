@@ -34,13 +34,21 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # The Kotlin tests double as the golden exporter: HprofGoldenExportTest
-      # writes the corpus, HprofJvmBenchmarkTest writes the JVM baseline.
-      - name: Build the Kotlin corpus and JVM baseline
+      # The Kotlin tests double as the golden exporters: HprofGoldenExportTest
+      # writes the HPROF corpus, HprofJvmBenchmarkTest writes the JVM baseline,
+      # and the simpleperf and ART trace exporters write their own cases.
+      - name: Build the Kotlin corpus and JVM baseline (memory profiler)
         working-directory: desktop-viewer/memory-profiler
         env:
           APS_GOLDEN_OUT: ${{ github.workspace }}/golden-out
         run: ./gradlew :parser-hprof:test --console=plain --no-daemon
+
+      # The simpleperf and ART trace parsers live in their own composite build.
+      - name: Build the Kotlin corpus (simpleperf and ART trace)
+        working-directory: desktop-viewer/simpleperf-viewer
+        env:
+          APS_GOLDEN_OUT: ${{ github.workspace }}/golden-out
+        run: ./gradlew :parser-simpleperf-proto:test :parser-art-trace:test --console=plain --no-daemon
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -60,8 +68,10 @@ jobs:
         working-directory: electron-viewer
         env:
           APS_GOLDEN_DIR: ${{ github.workspace }}/golden-out
-        run: pnpm --filter @aps/memory-profiler test src/golden-corpus.test.ts
-
+        run: |
+          pnpm --filter @aps/memory-profiler test src/golden-corpus.test.ts
+          pnpm --filter @aps/simpleperf-profiler test src/golden-corpus.test.ts
+          pnpm --filter @aps/art-trace test src/golden-corpus.test.ts
       # D2: both implementations measure the same synthetic heap in the same job,
       # so the gate compares them on one machine rather than across machines.
       - name: Compare the TypeScript pipeline against the JVM baseline
