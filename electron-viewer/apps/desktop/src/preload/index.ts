@@ -66,6 +66,7 @@ const api: ApsApi = {
   methodSnapshot: (input: MethodSnapshotRequest) => ipcRenderer.invoke(IPC_CHANNELS.methodSnapshot, input),
   removeMethodSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.methodRemove, id),
   captureCpuProfile: (input: CpuCaptureRequest) => ipcRenderer.invoke(IPC_CHANNELS.cpuCapture, input),
+  importCpuProfile: () => ipcRenderer.invoke(IPC_CHANNELS.cpuImport),
   listCpuProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.cpuList),
   cpuSnapshot: (input: CpuSnapshotRequest) => ipcRenderer.invoke(IPC_CHANNELS.cpuSnapshot, input),
   removeCpuProfile: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.cpuRemove, id),

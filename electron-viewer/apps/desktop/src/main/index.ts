@@ -61,9 +61,12 @@ import { runStartupExperiment } from './startup-capture-service.js';
 import { StartupSessionStore } from './startup-session-store.js';
 import {
   buildFlameGraphPayload,
+  samplesToCallStackTable,
   createCpuProfileSession,
   directionOf,
+  readGeckoProfileText,
   reportSampleArguments,
+  metadataRecord,
   transformFromRequest,
   type CpuProfileSessionRecord,
 } from '@aps/simpleperf-profiler';
@@ -95,8 +98,12 @@ import {
   defaultHostSimpleperfLocatorDependencies,
   locateHostSimpleperf,
   runReportSample,
+  gunzipProfileText,
+  type HostSimpleperfLocatorDependencies,
 } from '@aps/simpleperf-profiler/node';
 import { captureCpuProfile } from './cpu-capture-service.js';
+import { formatOfFile, importCpuProfile } from './cpu-import-service.js';
+import { defaultReportFile } from './cpu-profile-store.js';
 import { CpuProfileStore } from './cpu-profile-store.js';
 import { parseCpuProfileReport } from './cpu-profile-parser.js';
 import { captureHeapDump } from './memory-capture-service.js';
@@ -239,6 +246,14 @@ async function methodSessionFor(record: MethodSessionRecord): Promise<StoredMeth
   return session;
 }
 
+function hostSimpleperfDependencies(): HostSimpleperfLocatorDependencies {
+  const configured = process.env['APS_SIMPLEPERF'];
+  return defaultHostSimpleperfLocatorDependencies({
+    ...(configured !== undefined && configured.length > 0 ? { configuredExecutable: configured } : {}),
+    pathDirectories: (process.env['PATH'] ?? '').split(delimiter).filter((entry) => entry.length > 0),
+  });
+}
+
 function cpuStore(): CpuProfileStore {
   return new CpuProfileStore(join(userDataDirectory(), 'cpu-profiles'));
 }
@@ -251,6 +266,16 @@ async function cpuTableFor(record: CpuProfileSessionRecord): Promise<StudioResul
   const report = await store.readReport(record);
   if (report === undefined) {
     return fail('IO', 'CPU_REPORT_MISSING', 'The stored report for this session is gone');
+  }
+  if (record.sourceFormat === 'GECKO_PROFILE_JSON_GZIP') {
+    // Imported Gecko sessions keep the original archive and are re-read on load.
+    const text = gunzipProfileText(report);
+    if (!text.ok) return text;
+    const gecko = readGeckoProfileText(text.value);
+    if (!gecko.ok) return gecko;
+    const table = samplesToCallStackTable(gecko.value.samples);
+    store.cacheTable(record.id, table);
+    return ok(table);
   }
   const parsed = parseCpuProfileReport(report);
   if (!parsed.ok) return parsed;
@@ -906,15 +931,7 @@ function registerHandlers(): void {
             },
           },
           locateHostSimpleperf: async () => {
-            const configured = process.env['APS_SIMPLEPERF'];
-            const located = await locateHostSimpleperf(
-              defaultHostSimpleperfLocatorDependencies({
-                ...(configured !== undefined && configured.length > 0 ? { configuredExecutable: configured } : {}),
-                pathDirectories: (process.env['PATH'] ?? '')
-                  .split(delimiter)
-                  .filter((entry) => entry.length > 0),
-              }),
-            );
+            const located = await locateHostSimpleperf(hostSimpleperfDependencies());
             return located.ok ? ok({ executable: located.value.executable }) : located;
           },
           convert: (conversion) =>
@@ -959,6 +976,83 @@ function registerHandlers(): void {
       );
       await cpuStore().save(session.record, result.value.report, session.table);
       return { ok: true, id: session.record.id };
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.cpuImport, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Import a CPU profile',
+      properties: ['openFile'],
+      filters: [
+        { name: 'CPU profiles', extensions: ['data', 'pb', 'protobuf', 'simpleperf', 'gz'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    const filePath = selection.filePaths[0];
+    if (selection.canceled || filePath === undefined) return { ok: false, cancelled: true };
+    const fileName = basename(filePath);
+    const format = formatOfFile(fileName);
+    if (!format.ok) return { ok: false, error: format.error.code + ': ' + format.error.message };
+
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'aps-import-'));
+    try {
+      let sourceBytes = new Uint8Array(await readFile(filePath));
+      let importFileName = fileName;
+      let text: string | undefined;
+      let sourceFormat = format.value;
+
+      if (format.value === 'PERF_DATA') {
+        // perf.data is not portable, so it is converted exactly like a capture.
+        const located = await locateHostSimpleperf(hostSimpleperfDependencies());
+        if (!located.ok) return { ok: false, error: located.error.code + ': ' + located.error.message };
+        const converted = join(temporaryDirectory, 'imported.pb');
+        const conversion = await runReportSample(defaultConversionDependencies(), {
+          simpleperf: located.value.executable,
+          args: reportSampleArguments({ perfData: filePath, protobufTrace: converted }),
+          protobufTrace: converted,
+        });
+        if (!conversion.ok) return { ok: false, error: conversion.error.code + ': ' + conversion.error.message };
+        sourceBytes = new Uint8Array(await readFile(converted));
+        importFileName = 'imported.pb';
+        sourceFormat = 'SIMPLEPERF_PROTOBUF';
+      } else if (format.value === 'GECKO_PROFILE_JSON_GZIP') {
+        const gunzipped = gunzipProfileText(sourceBytes);
+        if (!gunzipped.ok) return { ok: false, error: gunzipped.error.code + ': ' + gunzipped.error.message };
+        text = gunzipped.value;
+      }
+
+      const imported = importCpuProfile({
+        fileName: importFileName,
+        ...(text !== undefined ? { text } : { bytes: sourceBytes }),
+      });
+      if (!imported.ok) return { ok: false, error: imported.error.code + ': ' + imported.error.message };
+
+      const now = Date.now();
+      const date = new Date(now);
+      const reportFile = date.toISOString().replaceAll(':', '-') + '-' + defaultReportFile(sourceFormat);
+      const record: CpuProfileSessionRecord = {
+        id: String(now),
+        capturedAtEpochMillis: now,
+        serial: 'imported',
+        reportFile,
+        sourceFormat,
+        perfDataBytes: sourceBytes.length,
+        sampleCount: imported.value.samples.length,
+        lostCount: Number(imported.value.lostCount),
+        eventTypes: [...(imported.value.metadata?.eventTypes ?? [])],
+        threadKeys: imported.value.threadKeys,
+        metadata: metadataRecord(imported.value.metadata),
+        parameters: {
+          target: fileName,
+          event: imported.value.metadata?.eventTypes[0] ?? 'cpu-cycles',
+          rate: '-',
+          callGraph: '-',
+          scope: '-',
+        },
+      };
+      await cpuStore().save(record, sourceBytes, imported.value.table);
+      return { ok: true, id: record.id };
     } finally {
       await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
     }

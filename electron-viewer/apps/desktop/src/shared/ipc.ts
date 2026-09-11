@@ -485,6 +485,7 @@ export interface ApsApi {
   methodSnapshot(input: MethodSnapshotRequest): Promise<MethodSnapshotOutcome>;
   removeMethodSession(id: string): Promise<boolean>;
   captureCpuProfile(input: CpuCaptureRequest): Promise<MemoryCaptureOutcome>;
+  importCpuProfile(): Promise<MemoryCaptureOutcome>;
   listCpuProfiles(): Promise<readonly CpuProfileSessionRecord[]>;
   cpuSnapshot(input: CpuSnapshotRequest): Promise<CpuSnapshotOutcome>;
   removeCpuProfile(id: string): Promise<boolean>;
@@ -541,6 +542,7 @@ export const IPC_CHANNELS = {
   methodSnapshot: 'method:snapshot',
   methodRemove: 'method:remove',
   cpuCapture: 'cpu:capture',
+  cpuImport: 'cpu:import',
   cpuList: 'cpu:list',
   cpuSnapshot: 'cpu:snapshot',
   cpuRemove: 'cpu:remove',

@@ -1,5 +1,7 @@
 export * from './analysis/table.js';
 export * from './capture.js';
+export * from './gecko.js';
+export * from './offline.js';
 export * from './model.js';
 export * from './normalizer.js';
 export * from './proto.js';

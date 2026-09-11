@@ -3,6 +3,7 @@
  * the perf.data to protobuf conversion with it.
  */
 import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import { mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fail, ok, type StudioResult } from '@aps/contracts';
@@ -218,6 +219,28 @@ export function defaultConversionDependencies(): SimpleperfConversionDependencie
     },
   };
 }
+
+/**
+ * Decompresses a gzipped profile. The reference reader caps the decompressed
+ * size so a hostile file cannot exhaust memory; zlib enforces the same bound.
+ */
+export function gunzipProfileText(
+  bytes: Uint8Array,
+  options: { readonly maxBytes?: number } = {},
+): StudioResult<string> {
+  try {
+    const text = gunzipSync(bytes, { maxOutputLength: options.maxBytes ?? MAX_GECKO_BYTES }).toString('utf8');
+    return ok(text);
+  } catch (error) {
+    return fail(
+      'DATA_VALIDATION',
+      'GECKO_PROFILE_INVALID',
+      'Gecko profile could not be decompressed: ' + (error instanceof Error ? error.message : String(error)),
+    );
+  }
+}
+
+export const MAX_GECKO_BYTES = 2 * 1024 * 1024 * 1024;
 
 /** Converts perf.data into the protobuf report the parser reads. */
 export async function convertPerfDataToProtobuf(

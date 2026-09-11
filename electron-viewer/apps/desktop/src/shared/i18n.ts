@@ -286,6 +286,9 @@ export const SHELL_STRINGS = {
   'cpu.scope': { en: 'Scope', zh: '范围' },
   'cpu.captureAction': { en: 'Record profile', zh: '开始采样' },
   'cpu.capturing': { en: 'Recording…', zh: '采样中…' },
+  'cpu.importAction': { en: 'Import profile', zh: '导入采样文件' },
+  'cpu.imported': { en: 'Profile imported', zh: '采样文件已导入' },
+  'cpu.importFailed': { en: 'Import failed', zh: '导入失败' },
   'cpu.complete': { en: 'Profile recorded', zh: '采样完成' },
   'cpu.failed': { en: 'Recording failed', zh: '采样失败' },
   'cpu.sessions': { en: 'CPU profiles', zh: 'CPU 采样会话' },
@@ -317,6 +320,10 @@ export const SHELL_STRINGS = {
   'cpu.clickHint': {
     en: 'Click a frame to focus it; the search box accepts comma separated terms that must all match.',
     zh: '点击帧可聚焦；搜索框支持逗号分隔的多个条件，需全部匹配。',
+  },
+  'cpu.importNote': {
+    en: 'Import accepts perf.data (converted with the host simpleperf), a converted protobuf report, or a gzipped Gecko profile.',
+    zh: '可导入 perf.data（用主机 simpleperf 转换）、已转换的 protobuf 报告，或 gzip 的 Gecko profile。',
   },
   'cpu.disclaimer': {
     en: 'Recording pauses nothing, but the profile needs a debuggable or profileable app and an unlocked device.',

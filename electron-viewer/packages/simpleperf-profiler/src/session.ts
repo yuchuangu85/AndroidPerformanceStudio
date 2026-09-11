@@ -23,6 +23,7 @@ export {
   directionOf,
 } from '@aps/profile-analysis';
 import type { SimpleperfCaptureResult } from './capture.js';
+import type { OfflineProfileFormat } from './offline.js';
 import type { SamplingParameters } from './toolchain.js';
 
 export interface CpuProfileSessionRecord {
@@ -31,8 +32,13 @@ export interface CpuProfileSessionRecord {
   readonly serial: string;
   readonly packageName?: string;
   readonly simpleperfVersion?: string;
-  /** Relative path of the retained protobuf report inside the session folder. */
+  /** Relative path of the retained source inside the session folder. */
   readonly reportFile: string;
+  /**
+   * What the retained source is. Absent means a simpleperf protobuf report, which
+   * is what every captured session holds; imports may keep the original bytes.
+   */
+  readonly sourceFormat?: OfflineProfileFormat;
   readonly perfDataBytes: number;
   readonly sampleCount: number;
   readonly lostCount: number;

@@ -4,7 +4,16 @@ import type { CallStackTable } from '@aps/profile-analysis';
 import type { CpuProfileSessionRecord } from '@aps/simpleperf-profiler';
 
 const RECORD_FILE = 'session.json';
-const REPORT_FILE = 'report.pb';
+
+/** Captured sessions keep the converted report; imports keep their source. */
+export function reportFileOf(record: CpuProfileSessionRecord): string {
+  const separator = record.reportFile.lastIndexOf('/');
+  return separator === -1 ? record.reportFile : record.reportFile.slice(separator + 1);
+}
+
+export function defaultReportFile(sourceFormat: string | undefined): string {
+  return sourceFormat === 'GECKO_PROFILE_JSON_GZIP' ? 'gecko-profile.json.gz' : 'report.pb';
+}
 
 export interface StoredCpuProfile {
   readonly record: CpuProfileSessionRecord;
@@ -29,8 +38,8 @@ export class CpuProfileStore {
     return join(this.directory, id);
   }
 
-  reportPath(id: string): string {
-    return join(this.directoryFor(id), REPORT_FILE);
+  reportPath(id: string, sourceFormat?: string): string {
+    return join(this.directoryFor(id), defaultReportFile(sourceFormat));
   }
 
   /** Remembers a parsed table so snapshots do not reparse the report. */
@@ -45,7 +54,7 @@ export class CpuProfileStore {
   async save(record: CpuProfileSessionRecord, report: Uint8Array, table: CallStackTable): Promise<void> {
     const directory = this.directoryFor(record.id);
     await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, REPORT_FILE), report);
+    await writeFile(join(directory, reportFileOf(record)), report);
     await writeFile(join(directory, RECORD_FILE), JSON.stringify(record, null, 2));
     this.tables.set(record.id, table);
     await writeFile(join(this.directory, 'index.json'), JSON.stringify(await this.list(), null, 2));
@@ -78,7 +87,7 @@ export class CpuProfileStore {
 
   async readReport(record: CpuProfileSessionRecord): Promise<Uint8Array | undefined> {
     try {
-      return new Uint8Array(await readFile(this.reportPath(record.id)));
+      return new Uint8Array(await readFile(join(this.directoryFor(record.id), reportFileOf(record))));
     } catch {
       return undefined;
     }

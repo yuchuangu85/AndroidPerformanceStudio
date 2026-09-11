@@ -182,6 +182,28 @@ export function CpuProfilerPanel({ language, devices }: CpuProfilerPanelProps): 
     target,
   ]);
 
+  const importProfile = useCallback(() => {
+    setBusy(true);
+    setMessage(null);
+    window.aps
+      .importCpuProfile()
+      .then((result) => {
+        setMessage(
+          result.ok
+            ? translate('cpu.imported', language)
+            : translate('cpu.importFailed', language) + ': ' + String(result.error ?? ''),
+        );
+        if (result.ok && result.id !== undefined) {
+          setSelectedId(result.id);
+          setThreadKey('');
+          setTransforms([]);
+        }
+        refresh();
+      })
+      .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setBusy(false));
+  }, [language, refresh]);
+
   const session = useMemo(
     () => sessions.find((record) => record.id === selectedId),
     [selectedId, sessions],
@@ -292,8 +314,12 @@ export function CpuProfilerPanel({ language, devices }: CpuProfilerPanelProps): 
           >
             {busy ? translate('cpu.capturing', language) : translate('cpu.captureAction', language)}
           </button>
+          <button type="button" className="button" disabled={busy} onClick={importProfile}>
+            {translate('cpu.importAction', language)}
+          </button>
         </div>
         {message !== null ? <p className="card__muted">{message}</p> : null}
+        <p className="card__muted">{translate('cpu.importNote', language)}</p>
         <p className="card__muted">{translate('cpu.disclaimer', language)}</p>
       </section>
 
