@@ -1416,9 +1416,9 @@ function createWindow(): void {
     ...(mac
       ? {
           titleBarStyle: 'hiddenInset' as const,
-          // Centred in the 26px toolbar the shell reserves for it; the buttons
-          // are about 16px tall, so 5px above and below.
-          trafficLightPosition: { x: 16, y: 5 },
+          // Centred in the 39px toolbar the shell reserves for it; the buttons
+          // are about 16px tall, so 11px above and 12px below.
+          trafficLightPosition: { x: 16, y: 11 },
           vibrancy: 'sidebar' as const,
           visualEffectState: 'followWindow' as const,
         }

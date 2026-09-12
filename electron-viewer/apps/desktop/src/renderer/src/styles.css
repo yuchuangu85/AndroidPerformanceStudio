@@ -62,9 +62,9 @@
   --radius-control: 6px;
   --radius-panel: 10px;
   --radius-tile: 12px;
-  /* Half the original title bar: the shell is a launcher, and a strip this thin
-     only has to hold the toolbar's own small controls. */
-  --titlebar-height: 26px;
+  /* 26px (half the original 52px bar) plus half of that again: a compact strip
+     that still leaves room for AppKit's regular 24px controls. */
+  --titlebar-height: 39px;
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
@@ -218,24 +218,11 @@ samp {
   background: var(--chrome-tint);
 }
 
-/* Everything the toolbar holds has to be clickable, not a window drag handle,
-   and it takes AppKit's small control size: a regular 24px button would fill a
-   26px strip edge to edge. */
+/* Everything the toolbar holds has to be clickable, not a window drag handle.
+   The strip is back to regular height, so its controls keep AppKit's regular
+   24px size instead of the small size a 26px strip needed. */
 .toolbar .button {
-  height: 20px;
-  padding: 0 10px;
   -webkit-app-region: no-drag;
-}
-
-.toolbar .button--icon {
-  width: 22px;
-  padding: 0;
-}
-
-.toolbar .chip {
-  height: 18px;
-  padding: 0 8px;
-  border-radius: 9px;
 }
 
 .toolbar__leading {
