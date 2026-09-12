@@ -1,6 +1,7 @@
 # Adopt the macOS system visual language for the desktop shell
 
-Status: Accepted (2026-09-12)
+Status: Accepted (2026-09-12). The sidebar it describes was removed by
+ADR-0038; the visual language, controls and tokens still hold.
 
 ## Context
 

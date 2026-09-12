@@ -1,9 +1,4 @@
-import {
-  DEFAULT_APPLICATION_UI_SETTINGS,
-  parseLanguagePreference,
-  parseThemePreference,
-  type ApplicationUiSettings,
-} from './model.js';
+import { normalizeApplicationUiSettings, type ApplicationUiSettings } from './model.js';
 
 export interface SettingsStoreIo {
   readFile(path: string): Promise<string>;
@@ -23,17 +18,10 @@ export class JsonSettingsStore {
 
   async load(): Promise<ApplicationUiSettings> {
     try {
-      const parsed: unknown = JSON.parse(await this.io.readFile(this.filePath));
-      if (parsed === null || typeof parsed !== 'object') return DEFAULT_APPLICATION_UI_SETTINGS;
-      const record = parsed as Record<string, unknown>;
-      const androidSdkPath = typeof record['androidSdkPath'] === 'string' ? record['androidSdkPath'].trim() : '';
-      return {
-        theme: parseThemePreference(typeof record['theme'] === 'string' ? record['theme'] : undefined),
-        language: parseLanguagePreference(typeof record['language'] === 'string' ? record['language'] : undefined),
-        ...(androidSdkPath.length > 0 ? { androidSdkPath } : {}),
-      };
+      return normalizeApplicationUiSettings(JSON.parse(await this.io.readFile(this.filePath)));
     } catch {
-      return DEFAULT_APPLICATION_UI_SETTINGS;
+      // A missing or malformed file is a fresh install, not a failure.
+      return normalizeApplicationUiSettings(undefined);
     }
   }
 

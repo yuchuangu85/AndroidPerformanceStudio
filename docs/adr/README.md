@@ -11,6 +11,7 @@
 - `0031`–`0034`：Winscope 的原生 Compose 工作区与可选浏览器查看器路径（已被 `0035` 取代）。
 - `0035`：移除 Winscope 工作区与上游查看器 submodule：删除 `third_party/aosp-winscope`、`desktop-viewer/winscope` 复合构建、浏览器查看器打包与页面入口。
 - `0036`–`0037`：桌面端改写为 Electron（目标产物不含 JVM），并采用 macOS 系统视觉语言（AppKit 语义色、系统字体、原生窗口 chrome 与控件尺寸）。
+- `0038`：外壳去掉侧边栏：主页功能卡片网格（每行 4 张、13 个功能）是唯一导航面，工具栏承载返回主页与设置入口（部分取代 `0037` 的侧边栏描述）。
 
 总体方案见
 [`../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md)。

@@ -1,4 +1,5 @@
 import type { Bounds, UiNode } from '@aps/layout-inspector';
+import { parseArgbColor } from '../../../shared/settings-contract';
 
 /**
  * Port of CanvasGeometry, PreviewZoomState, PreviewPanState and
@@ -40,6 +41,21 @@ export const CANVAS_BORDER_COLORS = {
   hovered: '#f59e0b',
   selected: '#ef4444',
 } as const;
+
+/**
+ * CanvasArgb stores #AARRGGBB because that is the form the Kotlin preferences
+ * hold; a canvas context needs the CSS form. An unreadable value falls through
+ * unchanged so a bad edit shows up instead of silently painting black.
+ */
+export function argbToCss(color: string): string {
+  const parsed = parseArgbColor(color);
+  if (parsed === undefined) return color;
+  const alpha = parseInt(parsed.slice(1, 3), 16) / 255;
+  const red = parseInt(parsed.slice(3, 5), 16);
+  const green = parseInt(parsed.slice(5, 7), 16);
+  const blue = parseInt(parsed.slice(7, 9), 16);
+  return 'rgba(' + String(red) + ', ' + String(green) + ', ' + String(blue) + ', ' + String(alpha) + ')';
+}
 
 export function zoomIn(scale: number): number {
   return Math.min(PREVIEW_ZOOM.maxScale, scale + PREVIEW_ZOOM.step);

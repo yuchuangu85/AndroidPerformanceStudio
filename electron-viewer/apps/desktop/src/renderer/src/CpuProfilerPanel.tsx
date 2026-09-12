@@ -10,11 +10,14 @@ import type {
 } from '@aps/simpleperf-profiler';
 import type { DeviceSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
+import type { SimpleperfSettings } from '../../shared/settings-contract';
 import { FlameGraph, flamePathTo, nodesByIndex } from './FlameGraph';
 
 export interface CpuProfilerPanelProps {
   readonly language: UiLanguage;
   readonly devices: readonly DeviceSummary[];
+  /** Stored Simpleperf defaults; the settings page owns them. */
+  readonly settings: SimpleperfSettings;
 }
 
 const CALL_GRAPHS: readonly CallGraphMode[] = ['DWARF', 'FRAME_POINTER', 'NONE'];
@@ -79,16 +82,17 @@ function topNodes(
     .slice(0, limit);
 }
 
-export function CpuProfilerPanel({ language, devices }: CpuProfilerPanelProps): JSX.Element {
+export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPanelProps): JSX.Element {
+  const defaults = settings.captureDefaults;
   const [sessions, setSessions] = useState<readonly CpuProfileSessionRecord[]>([]);
   const [serial, setSerial] = useState('');
   const [packageName, setPackageName] = useState('');
-  const [target, setTarget] = useState<'APP' | 'SYSTEM_WIDE'>('APP');
-  const [event, setEvent] = useState('cpu-clock');
-  const [frequencyHertz, setFrequencyHertz] = useState(1000);
-  const [durationSeconds, setDurationSeconds] = useState(10);
-  const [callGraph, setCallGraph] = useState<CallGraphMode>('DWARF');
-  const [scope, setScope] = useState<EventScope>('BOTH');
+  const [target, setTarget] = useState<'APP' | 'SYSTEM_WIDE'>(defaults.target);
+  const [event, setEvent] = useState(defaults.event);
+  const [frequencyHertz, setFrequencyHertz] = useState(defaults.frequencyHertz);
+  const [durationSeconds, setDurationSeconds] = useState(defaults.durationSeconds);
+  const [callGraph, setCallGraph] = useState<CallGraphMode>(defaults.callGraph);
+  const [scope, setScope] = useState<EventScope>(defaults.scope);
   const [selectedId, setSelectedId] = useState('');
   const [threadKey, setThreadKey] = useState('');
   const [searchText, setSearchText] = useState('');
@@ -114,6 +118,25 @@ export function CpuProfilerPanel({ language, devices }: CpuProfilerPanelProps): 
   useEffect(() => {
     if (serial.length === 0 && devices.length > 0) setSerial(devices[0]?.serial ?? '');
   }, [devices, serial]);
+
+  // A template or a capture default saved in Settings fills this form. The
+  // effect watches the values, not the object, so an unrelated settings write
+  // never overwrites a capture the user is configuring here.
+  useEffect(() => {
+    setTarget(defaults.target);
+    setEvent(defaults.event);
+    setFrequencyHertz(defaults.frequencyHertz);
+    setDurationSeconds(defaults.durationSeconds);
+    setCallGraph(defaults.callGraph);
+    setScope(defaults.scope);
+  }, [
+    defaults.callGraph,
+    defaults.durationSeconds,
+    defaults.event,
+    defaults.frequencyHertz,
+    defaults.scope,
+    defaults.target,
+  ]);
 
   useEffect(() => {
     if (selectedId.length === 0) {
@@ -430,7 +453,12 @@ export function CpuProfilerPanel({ language, devices }: CpuProfilerPanelProps): 
                 {translate('cpu.empty', language)}: {graph.emptyReason ?? 'UNKNOWN'}
               </p>
             ) : (
-              <FlameGraph graph={graph} language={language} onFocus={focus} />
+              <FlameGraph
+                graph={graph}
+                language={language}
+                tooltipMode={settings.flameTooltipMode}
+                onFocus={focus}
+              />
             )}
           </section>
 

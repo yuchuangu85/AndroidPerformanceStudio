@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { UiNode } from '@aps/layout-inspector';
 import {
   CANVAS_BORDER_COLORS,
+  argbToCss,
   clampPan,
   mapBounds,
   parseCanvasArgb,
@@ -175,5 +176,12 @@ describe('canvas border colours', () => {
 
   it('keeps the reference defaults', () => {
     expect(CANVAS_BORDER_COLORS).toEqual({ normal: '#7dd3fc', hovered: '#f59e0b', selected: '#ef4444' });
+  });
+
+  it('converts a stored CanvasArgb value into a canvas colour', () => {
+    expect(argbToCss('#7DD3FC')).toBe('rgba(125, 211, 252, 1)');
+    expect(argbToCss('#807DD3FC')).toBe('rgba(125, 211, 252, 0.5019607843137255)');
+    // An unreadable value stays visible as itself instead of painting black.
+    expect(argbToCss('#GG0000')).toBe('#GG0000');
   });
 });

@@ -25,6 +25,7 @@ import {
   type MethodSessionRecord,
   type MethodSnapshotRequest,
   type AiAnalyzeRequest,
+  type AiConfigurationInput,
   type BitmapCaptureRequest,
   type MemoryInstanceDetailRequest,
   type MemoryInstanceRequest,
@@ -39,7 +40,11 @@ import {
   type TraceCaptureOutcome,
   type TraceOpenOutcome,
 } from '../shared/ipc.js';
-import type { ApplicationUiSettings } from '../shared/settings-contract.js';
+import {
+  mergeApplicationUiSettings,
+  type ApplicationUiSettings,
+  type ApplicationUiSettingsPatch,
+} from '../shared/settings-contract.js';
 import { openAdb } from './device-service.js';
 import { createLegacyPreferenceSource, defaultLegacySourceDependencies } from './legacy-prefs-source.js';
 import {
@@ -494,17 +499,11 @@ async function buildSnapshot(): Promise<ShellSnapshot> {
   };
 }
 
-async function updateSettings(patch: Partial<ApplicationUiSettings>): Promise<ShellSnapshot> {
+async function updateSettings(patch: ApplicationUiSettingsPatch): Promise<ShellSnapshot> {
   const current = await ensureSettings();
-  const merged: ApplicationUiSettings = {
-    theme: patch.theme ?? current.theme,
-    language: patch.language ?? current.language,
-    ...(patch.androidSdkPath !== undefined
-      ? { androidSdkPath: patch.androidSdkPath }
-      : current.androidSdkPath !== undefined
-        ? { androidSdkPath: current.androidSdkPath }
-        : {}),
-  };
+  // One deep merge for every page: a patch that carries one toggle must not
+  // erase the sections the sender never read.
+  const merged = mergeApplicationUiSettings(current, patch);
   const store = new JsonSettingsStore(join(userDataDirectory(), 'settings.json'), settingsIo);
   if (await store.save(merged)) settings = merged;
   return await buildSnapshot();
@@ -587,9 +586,20 @@ async function openTraceInAnalyzer(id: string): Promise<TraceOpenOutcome> {
 
 function registerHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.shellSnapshot, () => buildSnapshot());
-  ipcMain.handle(IPC_CHANNELS.updateSettings, (_event, patch: Partial<ApplicationUiSettings>) =>
+  ipcMain.handle(IPC_CHANNELS.updateSettings, (_event, patch: ApplicationUiSettingsPatch) =>
     updateSettings(patch),
   );
+  // The General page's Browse button: the renderer never sees a path it did not
+  // get from the platform picker or from the stored settings.
+  ipcMain.handle(IPC_CHANNELS.chooseAndroidSdkDirectory, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Select Android SDK directory',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    const directory = selection.filePaths[0];
+    if (selection.canceled || directory === undefined) return undefined;
+    return directory;
+  });
   ipcMain.handle(IPC_CHANNELS.refreshDevices, () => buildSnapshot());
   ipcMain.handle(IPC_CHANNELS.openDestination, (_event, destination: string) => {
     if (window === undefined) return;
@@ -1293,6 +1303,9 @@ function registerHandlers(): void {
     }
   });
   ipcMain.handle(IPC_CHANNELS.aiSettings, () => aiService().status());
+  ipcMain.handle(IPC_CHANNELS.aiSaveConfiguration, (_event, input: AiConfigurationInput) =>
+    aiService().saveConfiguration(input.model, input.endpoint),
+  );
   ipcMain.handle(IPC_CHANNELS.aiSaveCredential, (_event, value: string) => aiService().saveCredential(value));
   ipcMain.handle(IPC_CHANNELS.aiClearCredential, () => aiService().clearCredential());
   ipcMain.handle(IPC_CHANNELS.aiModels, () => aiService().models());

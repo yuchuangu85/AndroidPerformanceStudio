@@ -8,6 +8,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  OPENAI_DEFAULT_ENDPOINT,
   OpenAiAnalysisGateway,
   OpenAiModelCatalog,
   OpenAiResponsesClient,
@@ -49,6 +50,7 @@ export interface AiSettingsSnapshot {
   readonly configured: boolean;
   readonly persistent: boolean;
   readonly model: string;
+  readonly endpoint: string;
 }
 
 export interface AiLayoutEvidenceInput {
@@ -202,11 +204,25 @@ export class AiAnalysisService {
       configured: this.apiKey() !== undefined,
       persistent: this.dependencies.persistent,
       model: this.model(),
+      endpoint: this.endpoint() ?? OPENAI_DEFAULT_ENDPOINT,
     };
   }
 
   saveCredential(value: string): AiSettingsSnapshot {
     this.dependencies.credentials.write(AI_CREDENTIAL_KEY, value.trim());
+    return this.status();
+  }
+
+  /**
+   * Stores the model and the responses endpoint the settings page saved. An
+   * empty endpoint clears the override, which returns the default.
+   */
+  saveConfiguration(model: string, endpoint: string): AiSettingsSnapshot {
+    const trimmedModel = model.trim();
+    if (trimmedModel.length > 0) this.dependencies.credentials.write(AI_MODEL_KEY, trimmedModel);
+    const trimmedEndpoint = endpoint.trim();
+    if (trimmedEndpoint.length > 0) this.dependencies.credentials.write(AI_ENDPOINT_KEY, trimmedEndpoint);
+    else this.dependencies.credentials.delete(AI_ENDPOINT_KEY);
     return this.status();
   }
 
@@ -217,10 +233,11 @@ export class AiAnalysisService {
 
   async models(): Promise<readonly string[]> {
     const apiKey = this.requireKey();
+    const endpoint = this.endpoint();
     const catalog = new OpenAiModelCatalog({
       apiKey,
       transport: this.dependencies.transport,
-      ...(this.dependencies.endpoint !== undefined ? { responsesEndpoint: this.dependencies.endpoint } : {}),
+      ...(endpoint !== undefined ? { responsesEndpoint: endpoint } : {}),
     });
     return catalog.listModels();
   }
@@ -259,12 +276,13 @@ export class AiAnalysisService {
         throw new Error('AI payload is ' + String(payloadBytes) + ' bytes; limit is ' + String(AI_MAX_PAYLOAD_BYTES));
       }
       this.dependencies.repository.saveRequest(analysisRequest);
+      const endpoint = this.endpoint();
       const gateway = new OpenAiAnalysisGateway({
         client: new OpenAiResponsesClient({
           apiKey,
           model,
           transport: this.dependencies.transport,
-          ...(this.dependencies.endpoint !== undefined ? { endpoint: this.dependencies.endpoint } : {}),
+          ...(endpoint !== undefined ? { endpoint } : {}),
         }),
       });
       const result: AnalysisResult = await gateway.analyze(analysisRequest);
@@ -305,9 +323,17 @@ export class AiAnalysisService {
   private model(): string {
     return this.dependencies.credentials.read(AI_MODEL_KEY) ?? AI_DEFAULT_MODEL;
   }
+
+  /** A stored override wins over the dependency default. */
+  private endpoint(): string | undefined {
+    const stored = this.dependencies.credentials.read(AI_ENDPOINT_KEY)?.trim();
+    if (stored !== undefined && stored.length > 0) return stored;
+    return this.dependencies.endpoint;
+  }
 }
 
 export const AI_MODEL_KEY = 'openai:model';
+export const AI_ENDPOINT_KEY = 'openai:endpoint';
 
 /** The app creates the sessions directory before the repository opens it. */
 export function ensureAiDirectory(): void {

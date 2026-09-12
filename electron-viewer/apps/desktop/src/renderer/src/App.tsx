@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 import {
   activateDestination,
-  DESTINATIONS,
+  DESTINATION_SUMMARY_KEYS,
   DESTINATION_TITLE_KEYS,
   HOME_DESTINATIONS,
   INITIAL_NAVIGATION_STATE,
@@ -9,9 +9,10 @@ import {
 } from '../../shared/destinations';
 import { resolveLanguage, translate, type UiLanguage } from '../../shared/i18n';
 import type { DeviceSummary, ShellSnapshot } from '../../shared/ipc';
-import type {
-  ApplicationLanguagePreference,
-  ApplicationThemePreference,
+import {
+  mergeApplicationUiSettings,
+  type ApplicationUiSettings,
+  type ApplicationUiSettingsPatch,
 } from '../../shared/settings-contract';
 import { resolvedTheme } from '../../shared/theme';
 import { AiAnalysisPanel } from './AiAnalysisPanel';
@@ -25,12 +26,11 @@ import { LayoutInspectorPanel } from './LayoutInspectorPanel';
 import { MemoryProfilerPanel } from './MemoryProfilerPanel';
 import { MethodRecordingPanel } from './MethodRecordingPanel';
 import { NetworkProfilerPanel } from './NetworkProfilerPanel';
+import { SettingsIcon } from './SettingsIcon';
+import { SettingsPage } from './settings/SettingsPage';
 import { SourceWorkspacePanel } from './SourceWorkspacePanel';
 import { StartupProfilerPanel } from './StartupProfilerPanel';
 import { TraceAnalyzerPanel } from './TraceAnalyzerPanel';
-
-const THEME_OPTIONS: readonly ApplicationThemePreference[] = ['system', 'light', 'dark'];
-const LANGUAGE_OPTIONS: readonly ApplicationLanguagePreference[] = ['system', 'english', 'simplified_chinese'];
 
 interface PanelProps {
   readonly destination: AppDestination;
@@ -38,6 +38,9 @@ interface PanelProps {
   readonly devices: readonly DeviceSummary[];
   /** Visited destinations, reported by the placeholder for one with no panel yet. */
   readonly retainedCount: number;
+  readonly settings: ApplicationUiSettings;
+  readonly onPatchSettings: (patch: ApplicationUiSettingsPatch) => void;
+  readonly onOpenSettings: () => void;
 }
 
 /**
@@ -45,12 +48,27 @@ interface PanelProps {
  * a destination that has no panel yet keeps the placeholder rather than an
  * empty frame.
  */
-function destinationPanel({ destination, language, devices, retainedCount }: PanelProps): JSX.Element {
+function destinationPanel({
+  destination,
+  language,
+  devices,
+  retainedCount,
+  settings,
+  onPatchSettings,
+  onOpenSettings,
+}: PanelProps): JSX.Element {
   switch (destination) {
     case 'PERFETTO':
       return <TraceAnalyzerPanel language={language} devices={devices} />;
     case 'LAYOUT_INSPECTOR':
-      return <LayoutInspectorPanel language={language} devices={devices} />;
+      return (
+        <LayoutInspectorPanel
+          language={language}
+          devices={devices}
+          settings={settings.layoutInspector}
+          onPatchSettings={onPatchSettings}
+        />
+      );
     case 'FRAME_PROFILER':
       return <FrameProfilerPanel language={language} devices={devices} />;
     case 'STARTUP_PROFILER':
@@ -66,11 +84,11 @@ function destinationPanel({ destination, language, devices, retainedCount }: Pan
     case 'METHOD_RECORDING':
       return <MethodRecordingPanel language={language} devices={devices} />;
     case 'SIMPLEPERF':
-      return <CpuProfilerPanel language={language} devices={devices} />;
+      return <CpuProfilerPanel language={language} devices={devices} settings={settings.simpleperf} />;
     case 'MEMORY_PROFILER':
       return <MemoryProfilerPanel language={language} devices={devices} />;
     case 'AI_ANALYSIS':
-      return <AiAnalysisPanel language={language} />;
+      return <AiAnalysisPanel language={language} onOpenSettings={onOpenSettings} />;
     case 'GPU_INSPECTOR':
       return <GpuInspectorPanel language={language} devices={devices} />;
     default:
@@ -83,6 +101,7 @@ export function App(): JSX.Element {
   const [current, setCurrent] = useState<AppDestination>(INITIAL_NAVIGATION_STATE.current);
   const [retained, setRetained] = useState<readonly AppDestination[]>(INITIAL_NAVIGATION_STATE.retained);
   const [systemDark, setSystemDark] = useState<boolean>(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -119,23 +138,53 @@ export function App(): JSX.Element {
   }, [snapshot]);
 
   useEffect(() => {
-    document.title = translate(DESTINATION_TITLE_KEYS[current], language);
-  }, [current, language]);
+    document.title = settingsOpen
+      ? translate('settings.title', language)
+      : translate(DESTINATION_TITLE_KEYS[current], language);
+  }, [current, language, settingsOpen]);
 
-  const navigate = useCallback((destination: AppDestination) => {
-    const next = activateDestination({ current, retained }, destination);
-    setCurrent(next.current);
-    setRetained(next.retained);
-    void window.aps.openDestination(next.current);
-  }, [current, retained]);
-
-  const applySettings = useCallback(
-    (patch: { theme?: ApplicationThemePreference; language?: ApplicationLanguagePreference }) => {
-      window.aps.updateSettings(patch).then(setSnapshot).catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      });
+  const navigate = useCallback(
+    (destination: AppDestination) => {
+      const next = activateDestination({ current, retained }, destination);
+      setCurrent(next.current);
+      setRetained(next.retained);
+      setSettingsOpen(false);
+      void window.aps.openDestination(next.current);
     },
-    [],
+    [current, retained],
+  );
+
+  /**
+   * A settings change is applied to the rendered snapshot first and stored
+   * second: the switch, the colour field and the canvas all answer immediately,
+   * and a failed write rolls the page back to what is still on disk. Returns
+   * whether the value reached settings.json.
+   */
+  const applySettings = useCallback(
+    async (patch: ApplicationUiSettingsPatch): Promise<boolean> => {
+      const previous = snapshot;
+      if (previous !== null) {
+        setSnapshot({ ...previous, settings: mergeApplicationUiSettings(previous.settings, patch) });
+      }
+      try {
+        setSnapshot(await window.aps.updateSettings(patch));
+        setError(null);
+        return true;
+      } catch (reason) {
+        if (previous !== null) setSnapshot(previous);
+        setError(reason instanceof Error ? reason.message : String(reason));
+        return false;
+      }
+    },
+    [snapshot],
+  );
+
+  /** Fire-and-forget for the panel toggles that have no error line of their own. */
+  const patchSettings = useCallback(
+    (patch: ApplicationUiSettingsPatch): void => {
+      void applySettings(patch);
+    },
+    [applySettings],
   );
 
   const refreshDevices = useCallback(() => {
@@ -160,79 +209,33 @@ export function App(): JSX.Element {
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="sidebar__titlebar">
-          <h1 className="sidebar__title">{translate('app.name', language)}</h1>
-        </div>
-
-        <nav className="nav" aria-label={translate('shell.navigation', language)}>
-          {DESTINATIONS.map((destination) => {
-            const active = current === destination;
-            // Home is the app's own entry point, so it keeps the short label the
-            // sidebar always used instead of the window title.
-            const label =
-              destination === 'HOME'
-                ? translate('shell.home', language)
-                : translate(DESTINATION_TITLE_KEYS[destination], language);
-            return (
-              <button
-                key={destination}
-                type="button"
-                className={active ? 'nav__item nav__item--active' : 'nav__item'}
-                aria-current={active ? 'page' : undefined}
-                title={label}
-                onClick={() => navigate(destination)}
-              >
-                <DestinationIcon destination={destination} />
-                <span className="nav__label">{label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <p className="sidebar__note">{translate('shell.phase', language)}</p>
-
-        <section className="sidebar__section">
-          <h2 className="sidebar__heading">{translate('shell.settings', language)}</h2>
-          <div className="field field--stacked">
-            <span className="field__label">{translate('shell.theme', language)}</span>
-            <div className="segmented" role="group" aria-label={translate('shell.theme', language)}>
-              {THEME_OPTIONS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={
-                    snapshot.settings.theme === option
-                      ? 'segmented__option segmented__option--selected'
-                      : 'segmented__option'
-                  }
-                  aria-pressed={snapshot.settings.theme === option}
-                  onClick={() => applySettings({ theme: option })}
-                >
-                  {translate(('shell.theme.' + option) as 'shell.theme.system', language)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="field field--stacked">
-            <span className="field__label">{translate('shell.language', language)}</span>
-            <select
-              value={snapshot.settings.language}
-              onChange={(event) => applySettings({ language: event.target.value as ApplicationLanguagePreference })}
-            >
-              {LANGUAGE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {translate(('shell.language.' + option) as 'shell.language.system', language)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </section>
-      </aside>
-
-      <main className="content">
+      {/*
+        The destination page stays mounted while Settings is open — hidden, not
+        unmounted — so a capture selection survives a visit to the settings page.
+      */}
+      <main className="content" hidden={settingsOpen}>
         <header className="toolbar">
           <div className="toolbar__leading">
+            {current === 'HOME' ? null : (
+              <button
+                type="button"
+                className="button button--icon"
+                aria-label={translate('shell.backToHome', language)}
+                title={translate('shell.backToHome', language)}
+                onClick={() => navigate('HOME')}
+              >
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                  <path
+                    d="M10.1 3.3 5.4 8l4.7 4.7"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.6}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
             <h2 className="toolbar__title">{current === 'HOME' ? translate('shell.home', language) : title}</h2>
             {current === 'HOME' ? null : (
               <span className="toolbar__subtitle">{translate('app.name', language)}</span>
@@ -249,32 +252,55 @@ export function App(): JSX.Element {
             <button type="button" className="button" onClick={refreshDevices}>
               {translate('shell.devices.refresh', language)}
             </button>
+            <button
+              type="button"
+              className="button button--icon"
+              aria-label={translate('settings.title', language)}
+              title={translate('settings.title', language)}
+              onClick={() => setSettingsOpen(true)}
+            >
+              <SettingsIcon />
+            </button>
           </div>
         </header>
 
-        <div className="content__body">
+        <div className={current === 'HOME' ? 'content__body content__body--home' : 'content__body'}>
           {current === 'HOME' ? (
-            <div className="grid">
-              {HOME_DESTINATIONS.map((destination) => (
-                <button
-                  key={destination}
-                  type="button"
-                  className="card card--action"
-                  onClick={() => navigate(destination)}
-                >
-                  <span className="card__glyph">
-                    <DestinationIcon destination={destination} />
-                  </span>
-                  <span className="card__label">{translate(DESTINATION_TITLE_KEYS[destination], language)}</span>
-                </button>
-              ))}
-            </div>
+            <section className="home">
+              <h1 className="home__title">{translate('app.name', language)}</h1>
+              <p className="home__subtitle">{translate('shell.home.tagline', language)}</p>
+              <nav className="home__grid" aria-label={translate('shell.navigation', language)}>
+                {HOME_DESTINATIONS.map((destination) => (
+                  <button
+                    key={destination}
+                    type="button"
+                    className="card card--action"
+                    onClick={() => navigate(destination)}
+                  >
+                    <span className="card__head">
+                      <span className="card__glyph">
+                        <DestinationIcon destination={destination} />
+                      </span>
+                      <span className="card__label">
+                        {translate(DESTINATION_TITLE_KEYS[destination], language)}
+                      </span>
+                    </span>
+                    <span className="card__summary">
+                      {translate(DESTINATION_SUMMARY_KEYS[destination], language)}
+                    </span>
+                  </button>
+                ))}
+              </nav>
+            </section>
           ) : (
             destinationPanel({
               destination: current,
               language,
               devices: snapshot.devices,
               retainedCount: retained.length,
+              settings: snapshot.settings,
+              onPatchSettings: patchSettings,
+              onOpenSettings: () => setSettingsOpen(true),
             })
           )}
 
@@ -316,6 +342,17 @@ export function App(): JSX.Element {
           {error !== null ? <p className="card__error">{error}</p> : null}
         </div>
       </main>
+
+      {settingsOpen ? (
+        <SettingsPage
+          language={language}
+          settings={snapshot.settings}
+          appInfo={snapshot.appInfo}
+          onPatch={applySettings}
+          onClose={() => setSettingsOpen(false)}
+          onOpenDestination={navigate}
+        />
+      ) : null}
     </div>
   );
 }

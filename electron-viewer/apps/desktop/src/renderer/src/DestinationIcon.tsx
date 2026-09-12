@@ -3,10 +3,10 @@ import type { AppDestination } from '../../shared/destinations';
 
 /**
  * One line-art glyph per destination, drawn on a 16x16 grid with a 1.4px round
- * stroke so it matches the weight of AppKit's own sidebar symbols. They are
- * inline SVG rather than an icon font or image assets: the sidebar renders 14 of
- * them, they inherit the accent colour through currentColor, and the packaged
- * app gains no extra file to ship.
+ * stroke so it matches the weight of AppKit's own symbols. They are inline SVG
+ * rather than an icon font or image assets: every home card draws one, they
+ * inherit the accent colour through currentColor, and the packaged app gains no
+ * extra file to ship.
  */
 const ICON_PATHS: Readonly<Record<AppDestination, readonly string[]>> = {
   HOME: ['M2.8 7.4 8 3.1l5.2 4.3V13H9.8V9.8H6.2V13H2.8z'],
@@ -35,7 +35,7 @@ export interface DestinationIconProps {
 
 export function DestinationIcon({ destination }: DestinationIconProps): JSX.Element {
   return (
-    <svg className="nav__icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+    <svg className="destination-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
       {ICON_PATHS[destination].map((path, index) => (
         <path
           key={String(index)}

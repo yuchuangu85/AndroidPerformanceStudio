@@ -1,8 +1,8 @@
 /*
  * Android Performance Studio — macOS visual language.
  *
- * One stylesheet for the whole shell: window chrome, source-list navigation,
- * toolbar, and every panel surface. The tokens below mirror AppKit's semantic
+ * One stylesheet for the whole shell: window chrome, the toolbar, the home
+ * launcher, and every panel surface. The tokens below mirror AppKit's semantic
  * colours (labelColor, separatorColor, controlBackgroundColor, controlAccentColor)
  * so light and dark are the same design, not two designs.
  *
@@ -20,7 +20,7 @@
   /* AppKit semantic colours — light appearance. */
   --window: #ececec;
   --content: #f5f5f7;
-  --sidebar-tint: rgba(246, 246, 246, 0.72);
+  --chrome-tint: rgba(246, 246, 246, 0.72);
   --surface: #ffffff;
   --surface-sunken: #f0f0f2;
 
@@ -62,8 +62,6 @@
   --radius-control: 6px;
   --radius-panel: 10px;
   --radius-tile: 12px;
-  /* Wide enough for the app title behind the traffic lights without an ellipsis. */
-  --sidebar-width: 284px;
   --titlebar-height: 52px;
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'PingFang SC',
@@ -77,7 +75,7 @@
   /* AppKit semantic colours — dark appearance. */
   --window: #1e1e1e;
   --content: #1e1e1e;
-  --sidebar-tint: rgba(38, 38, 40, 0.62);
+  --chrome-tint: rgba(38, 38, 40, 0.62);
   --surface: #2c2c2e;
   --surface-sunken: #232325;
 
@@ -164,11 +162,9 @@ samp {
 /* ---------------------------------------------------------------- window -- */
 
 .app {
-  display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100vh;
   /* Opaque base for platforms without a vibrancy material; macOS turns this
-     off so the blur behind the sidebar stays visible. */
+     off so the material behind the toolbar stays visible. */
   background: var(--window);
 }
 
@@ -176,119 +172,8 @@ samp {
   background: transparent;
 }
 
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 0 10px 10px;
-  background: var(--sidebar-tint);
-  border-right: 1px solid var(--separator);
-}
-
-/* The traffic lights live here: the leading inset keeps the window title clear
-   of them, and the whole strip drags the window. */
-.sidebar__titlebar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  height: var(--titlebar-height);
-  padding-left: 74px;
-  -webkit-app-region: drag;
-  user-select: none;
-}
-
-.sidebar__title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sidebar__eyebrow {
-  margin: 0 0 1px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 400;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sidebar__note {
-  flex: 0 0 auto;
-  margin: 8px 0 0;
-  padding: 0 8px;
-  color: var(--faint);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sidebar__section {
-  flex: 0 0 auto;
-  margin-top: auto;
-  padding-top: 10px;
-  border-top: 1px solid var(--separator);
-}
-
-.sidebar__heading {
-  margin: 0 0 6px;
-  padding: 0 8px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-/* ------------------------------------------------------------ navigation -- */
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-height: 0;
-  overflow: auto;
-  margin: 0 -4px;
-  padding: 0 4px 4px;
-}
-
-.nav__item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  height: 28px;
-  padding: 0 8px;
-  border: none;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: default;
-  user-select: none;
-}
-
-.nav__item:hover {
-  background: var(--fill);
-}
-
-.nav__item:active {
-  background: var(--fill-strong);
-}
-
-.nav__item--active,
-.nav__item--active:hover {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.nav__icon {
+/* The destination glyphs draw the home cards; the shell has no other list. */
+.destination-icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -298,24 +183,14 @@ samp {
   color: var(--accent);
 }
 
-.nav__item--active .nav__icon {
-  color: var(--on-accent);
-}
-
-.nav__label {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 /* --------------------------------------------------------------- layout -- */
 
 .content {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-width: 0;
   min-height: 0;
-  background: var(--content);
 }
 
 .toolbar {
@@ -330,6 +205,18 @@ samp {
   background: var(--content);
   -webkit-app-region: drag;
   user-select: none;
+}
+
+/* The traffic lights live in the toolbar, so the strip keeps a translucent
+   tint over the window's material and reserves their leading inset. */
+:root[data-vibrancy='on'] .toolbar {
+  padding-left: 74px;
+  background: var(--chrome-tint);
+}
+
+/* Everything the toolbar holds has to be clickable, not a window drag handle. */
+.toolbar .button {
+  -webkit-app-region: no-drag;
 }
 
 .toolbar__leading {
@@ -367,6 +254,11 @@ samp {
   min-height: 0;
   overflow: auto;
   padding: 16px 20px 28px;
+  background: var(--content);
+}
+
+.content__body--home {
+  padding: 26px 32px 32px;
 }
 
 .content__title {
@@ -429,6 +321,12 @@ samp {
 .button:disabled {
   opacity: 0.42;
   cursor: default;
+}
+
+/* Square push button that holds one 16px glyph: back to home, settings. */
+.button--icon {
+  width: 26px;
+  padding: 0;
 }
 
 .button--inline {
@@ -646,21 +544,30 @@ input:focus {
 .card--action {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 10px;
+  min-height: 124px;
   margin: 0;
-  padding: 14px;
+  padding: 16px;
   border: 1px solid var(--separator);
   border-radius: var(--radius-tile);
   background: var(--surface);
   box-shadow: var(--tile-shadow);
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
   text-align: left;
   cursor: default;
   user-select: none;
+}
+
+/* First row of a feature card: the destination glyph and its name. */
+.card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .card--action:hover {
@@ -680,30 +587,61 @@ input:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
 }
 
 .card__glyph svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex: none;
 }
 
 .card__label {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  max-width: 100%;
 }
 
-.grid {
+/* The reference home page's own description of the feature, kept verbatim. */
+.card__summary {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* Home: the shell's only navigation surface, four feature cards per row. */
+.home {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.home__title {
+  margin: 0 0 5px;
+  font-size: 30px;
+  line-height: 36px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.home__subtitle {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 19px;
+}
+
+.home__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
   margin-bottom: 20px;
 }
 
@@ -1336,3 +1274,362 @@ input:focus {
     animation: none !important;
   }
 }
+
+/* ------------------------------------------------------------- settings -- */
+
+/* The destination page stays mounted behind Settings so its state survives a
+   visit; an author rule has to beat .content's own display for that. */
+[hidden] {
+  display: none !important;
+}
+
+.content__body--settings {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+}
+
+.settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 8px;
+  overflow: auto;
+  border-right: 1px solid var(--separator);
+  background: var(--chrome-tint);
+}
+
+.settings__nav-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+
+.settings__nav-row:hover {
+  background: var(--fill);
+}
+
+.settings__nav-row--selected,
+.settings__nav-row--selected:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.settings__nav-row--nested {
+  padding-left: 24px;
+  font-size: 12px;
+}
+
+.settings__nav-disclosure {
+  width: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.settings__nav-row--selected .settings__nav-disclosure {
+  color: var(--on-accent);
+}
+
+.settings__nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__panes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px 28px;
+  overflow: auto;
+}
+
+.settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--panel-shadow);
+}
+
+.settings__section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.settings__section-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings__section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+}
+
+.settings__row-label {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings__row-value {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settings__field input,
+.settings__field select {
+  width: 100%;
+}
+
+.settings__field-hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* AppKit-style switch: the knob is the only thing that moves, and only when
+   the value it shows changes. */
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: var(--fill-strong);
+  cursor: default;
+}
+
+.switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.35);
+  transition: transform 0.12s ease;
+}
+
+.switch--on {
+  background: var(--accent);
+}
+
+.switch--on .switch__knob {
+  transform: translateX(15px);
+}
+
+.switch:disabled {
+  opacity: 0.4;
+}
+
+.settings__choice-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings__choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+.settings__choice:hover:not(:disabled) {
+  background: var(--control-bg-hover);
+}
+
+.settings__choice--selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.settings__choice:disabled {
+  opacity: 0.5;
+}
+
+.settings__choice-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings__color {
+  display: grid;
+  grid-template-columns: 74px 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings__swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.settings__color-input {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.settings__presets {
+  display: flex;
+  gap: 6px;
+  padding-left: 102px;
+  grid-column: 1 / -1;
+}
+
+.settings__preset {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: default;
+}
+
+.settings__about {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings__about-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings__about-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+/* ------------------------------------------------------- flame tooltip -- */
+
+.flame {
+  position: relative;
+}
+
+.flame__tooltip {
+  position: absolute;
+  z-index: 2;
+  width: 260px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  box-shadow: var(--panel-shadow);
+  pointer-events: none;
+}
+
+.flame__tooltip--fixed {
+  top: 8px;
+  right: 8px;
+}
+
+.flame__tooltip-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.flame__tooltip-note {
+  margin: 2px 0 6px;
+  color: var(--muted);
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.flame__tooltip-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.flame__tooltip-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.flame__tooltip-rows dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.flame__tooltip-rows dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+

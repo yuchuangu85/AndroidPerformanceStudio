@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   IPC_CHANNELS,
   type ApsApi,
+  type AiConfigurationInput,
   type ApplicationUiSettingsPatch,
   type BatteryCaptureInput,
   type BenchmarkCompareInput,
@@ -24,6 +25,7 @@ import {
 const api: ApsApi = {
   getShellSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.shellSnapshot),
   updateSettings: (patch: ApplicationUiSettingsPatch) => ipcRenderer.invoke(IPC_CHANNELS.updateSettings, patch),
+  chooseAndroidSdkDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseAndroidSdkDirectory),
   refreshDevices: () => ipcRenderer.invoke(IPC_CHANNELS.refreshDevices),
   openDestination: (destination) => ipcRenderer.invoke(IPC_CHANNELS.openDestination, destination),
   getTraceAnalyzer: () => ipcRenderer.invoke(IPC_CHANNELS.traceAnalyzer),
@@ -93,6 +95,7 @@ const api: ApsApi = {
   loadNativeHeapSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.nativeHeapLoad, id),
   removeNativeHeapSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.nativeHeapRemove, id),
   getAiSettings: () => ipcRenderer.invoke(IPC_CHANNELS.aiSettings),
+  saveAiConfiguration: (input: AiConfigurationInput) => ipcRenderer.invoke(IPC_CHANNELS.aiSaveConfiguration, input),
   saveAiCredential: (value: string) => ipcRenderer.invoke(IPC_CHANNELS.aiSaveCredential, value),
   clearAiCredential: () => ipcRenderer.invoke(IPC_CHANNELS.aiClearCredential),
   listAiModels: () => ipcRenderer.invoke(IPC_CHANNELS.aiModels),

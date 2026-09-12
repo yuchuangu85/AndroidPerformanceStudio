@@ -30,7 +30,9 @@ import type { LayoutSnapshot } from '@aps/layout-inspector';
 import type { NetworkCaptureResult } from '@aps/network-profiler';
 import type { StartupSession, StartupType } from '@aps/startup-profiler';
 import type { AppDestination } from './destinations.js';
-import type { ApplicationUiSettings } from './settings-contract.js';
+import type { ApplicationUiSettings, ApplicationUiSettingsPatch } from './settings-contract.js';
+
+export type { ApplicationUiSettingsPatch };
 
 export interface AppInfo {
   readonly name: string;
@@ -510,11 +512,11 @@ export interface SourceReadOutcome {
   readonly error?: string;
 }
 
-export type ApplicationUiSettingsPatch = Partial<ApplicationUiSettings>;
-
 export interface ApsApi {
   getShellSnapshot(): Promise<ShellSnapshot>;
   updateSettings(patch: ApplicationUiSettingsPatch): Promise<ShellSnapshot>;
+  /** Opens the platform directory picker; undefined means the user cancelled. */
+  chooseAndroidSdkDirectory(): Promise<string | undefined>;
   refreshDevices(): Promise<ShellSnapshot>;
   openDestination(destination: AppDestination): Promise<void>;
   getTraceAnalyzer(): Promise<TraceAnalyzerSnapshot>;
@@ -580,6 +582,7 @@ export interface ApsApi {
   loadNativeHeapSession(id: string): Promise<NativeHeapCaptureRecord | undefined>;
   removeNativeHeapSession(id: string): Promise<boolean>;
   getAiSettings(): Promise<AiSettingsSnapshot>;
+  saveAiConfiguration(input: AiConfigurationInput): Promise<AiSettingsSnapshot>;
   saveAiCredential(value: string): Promise<AiSettingsSnapshot>;
   clearAiCredential(): Promise<AiSettingsSnapshot>;
   listAiModels(): Promise<readonly string[]>;
@@ -592,6 +595,13 @@ export interface AiSettingsSnapshot {
   readonly configured: boolean;
   readonly persistent: boolean;
   readonly model: string;
+  readonly endpoint: string;
+}
+
+/** The model and endpoint the AI settings page saves. */
+export interface AiConfigurationInput {
+  readonly model: string;
+  readonly endpoint: string;
 }
 
 export interface AiAnalyzeRequest {
@@ -637,6 +647,7 @@ export interface AiSessionSummary {
 export const IPC_CHANNELS = {
   shellSnapshot: 'shell:getSnapshot',
   updateSettings: 'shell:updateSettings',
+  chooseAndroidSdkDirectory: 'shell:chooseAndroidSdkDirectory',
   refreshDevices: 'shell:refreshDevices',
   openDestination: 'shell:openDestination',
   traceAnalyzer: 'trace:getAnalyzer',
@@ -701,6 +712,7 @@ export const IPC_CHANNELS = {
   nativeHeapLoad: 'nativeHeap:load',
   nativeHeapRemove: 'nativeHeap:remove',
   aiSettings: 'ai:settings',
+  aiSaveConfiguration: 'ai:saveConfiguration',
   aiSaveCredential: 'ai:saveCredential',
   aiClearCredential: 'ai:clearCredential',
   aiModels: 'ai:models',

@@ -13,6 +13,8 @@ import {
 } from '@aps/layout-inspector';
 import type { DeviceSummary, LayoutCaptureDetail, LayoutCaptureSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
+import type { ApplicationUiSettingsPatch, LayoutInspectorSettings } from '../../shared/settings-contract';
+import { argbToCss } from './layout-inspector/canvas';
 import { nodeDetailSections } from './layout-inspector/details';
 import {
   FINDINGS_LAYOUT,
@@ -29,6 +31,9 @@ import { buildLayoutTreeRows, hierarchyLabel, visibleTreeRows, type LayoutTreeRo
 export interface LayoutInspectorPanelProps {
   readonly language: UiLanguage;
   readonly devices: readonly DeviceSummary[];
+  /** The stored view and canvas preferences; the settings page owns them. */
+  readonly settings: LayoutInspectorSettings;
+  readonly onPatchSettings: (patch: ApplicationUiSettingsPatch) => void;
 }
 
 /** The reference draws 20dp rows at 10sp with a 14dp indent. */
@@ -44,19 +49,37 @@ interface ViewOptions {
   readonly hideInvisibleFindings: boolean;
 }
 
-const DEFAULT_VIEW_OPTIONS: ViewOptions = {
-  showIds: true,
-  hideIndices: false,
-  hideInvisible: false,
-  hideInvisibleFindings: false,
-};
+/** ViewDisplayOptions, read from the stored Layout Inspector settings. */
+function viewOptions(settings: LayoutInspectorSettings): ViewOptions {
+  return {
+    showIds: settings.showHierarchyIds,
+    hideIndices: settings.hideHierarchyIndices,
+    hideInvisible: settings.hideInvisibleHierarchyViews,
+    hideInvisibleFindings: settings.hideInvisibleFindings,
+  };
+}
+
+/** The option's storage key, so a quick toggle writes the same field the page does. */
+const VIEW_OPTION_FIELDS = {
+  showIds: 'showHierarchyIds',
+  hideIndices: 'hideHierarchyIndices',
+  hideInvisible: 'hideInvisibleHierarchyViews',
+  hideInvisibleFindings: 'hideInvisibleFindings',
+} as const;
+
+type BooleanViewField = (typeof VIEW_OPTION_FIELDS)[keyof typeof VIEW_OPTION_FIELDS];
 
 function windowOf(snapshot: LayoutSnapshot, windowId: string): WindowSnapshot {
   const windows = effectiveWindows(snapshot);
   return windows.find((window) => window.id === windowId) ?? (windows[0] as WindowSnapshot);
 }
 
-export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanelProps): JSX.Element {
+export function LayoutInspectorPanel({
+  language,
+  devices,
+  settings,
+  onPatchSettings,
+}: LayoutInspectorPanelProps): JSX.Element {
   const [captures, setCaptures] = useState<readonly LayoutCaptureSummary[]>([]);
   const [serial, setSerial] = useState('');
   const [selectedId, setSelectedId] = useState('');
@@ -66,8 +89,6 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [activeWindowId, setActiveWindowId] = useState('');
-  const [options, setOptions] = useState<ViewOptions>(DEFAULT_VIEW_OPTIONS);
-  const [hitOrder, setHitOrder] = useState<HitTestOrder>('smallest-area');
   const [scrollTop, setScrollTop] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -75,6 +96,12 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   const [selectedFindingKey, setSelectedFindingKey] = useState<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const layoutRef = useRef<HTMLDivElement | null>(null);
+
+  // The stored view options drive the tree, the canvas and the findings pane;
+  // the toggles in this toolbar write them back through the settings page's
+  // own update path, so both surfaces always show the same values.
+  const options = viewOptions(settings);
+  const hitOrder: HitTestOrder = settings.canvasHitTestOrder;
 
   const refresh = useCallback(() => {
     window.aps.listLayoutCaptures().then((records) => {
@@ -226,9 +253,13 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
     });
   }, []);
 
-  const toggleOption = useCallback((key: keyof ViewOptions) => {
-    setOptions((current) => ({ ...current, [key]: !current[key] }));
-  }, []);
+  const toggleOption = useCallback(
+    (key: keyof ViewOptions) => {
+      const update: Partial<Record<BooleanViewField, boolean>> = { [VIEW_OPTION_FIELDS[key]]: !options[key] };
+      onPatchSettings({ layoutInspector: update });
+    },
+    [onPatchSettings, options],
+  );
 
   const selectWindow = useCallback(
     (windowId: string) => {
@@ -370,17 +401,23 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
                     <span className="tree__label" role="presentation" onClick={() => selectAndReveal(row.node.id)}>
                       {hierarchyLabel(row, { hideIndex: options.hideIndices, showId: options.showIds })}
                     </span>
-                    <span
-                      className="tree__action"
-                      role="presentation"
-                      onClick={() =>
-                        setHidden((current) =>
-                          current.has(row.node.id) ? showLayer(current, row.node.id) : hideLayer(current, row.node.id),
-                        )
-                      }
-                    >
-                      {hidden.has(row.node.id) ? translate('layout.show', language) : translate('layout.hide', language)}
-                    </span>
+                    {settings.showHierarchyLayerVisibilityButtons ? (
+                      <span
+                        className="tree__action"
+                        role="presentation"
+                        onClick={() =>
+                          setHidden((current) =>
+                            current.has(row.node.id)
+                              ? showLayer(current, row.node.id)
+                              : hideLayer(current, row.node.id),
+                          )
+                        }
+                      >
+                        {hidden.has(row.node.id)
+                          ? translate('layout.show', language)
+                          : translate('layout.hide', language)}
+                      </span>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -396,11 +433,21 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
               hiddenSubtree={hiddenSubtree}
               hiddenCount={hidden.size}
               hitOrder={hitOrder}
+              borderColors={{
+                normal: argbToCss(settings.canvasBorderColors.normal),
+                hovered: argbToCss(settings.canvasBorderColors.hovered),
+                selected: argbToCss(settings.canvasBorderColors.selected),
+              }}
+              showBounds={settings.showVisibleViewBounds}
               language={language}
               onSelect={selectAndReveal}
               onHover={setHoveredNodeId}
               onToggleHitOrder={() =>
-                setHitOrder((current) => (current === 'smallest-area' ? 'z-order' : 'smallest-area'))
+                onPatchSettings({
+                  layoutInspector: {
+                    canvasHitTestOrder: hitOrder === 'smallest-area' ? 'z-order' : 'smallest-area',
+                  },
+                })
               }
               onClearHidden={() => setHidden(clearHiddenLayers())}
             />

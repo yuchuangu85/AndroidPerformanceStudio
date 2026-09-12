@@ -1,10 +1,19 @@
-import { useMemo, type JSX } from 'react';
+import { useCallback, useMemo, useRef, useState, type JSX } from 'react';
 import type { FlameGraphPayload, FlameGraphPayloadNode, FrameImplementation } from '@aps/profile-analysis';
 import { translate, type UiLanguage } from '../../shared/i18n';
+
+/** FlameTooltipMode: where the frame facts appear. */
+export type FlameTooltipMode = 'follow-mouse' | 'fixed';
 
 export interface FlameGraphProps {
   readonly graph: FlameGraphPayload;
   readonly language: UiLanguage;
+  /**
+   * Undefined keeps the browser's own title tooltip, which is what the method
+   * recording panel uses; the flame graph setting picks one of the two drawn
+   * boxes instead.
+   */
+  readonly tooltipMode?: FlameTooltipMode;
   /** Called with the clicked frame; the parent decides what focusing means. */
   readonly onFocus?: (node: FlameGraphPayloadNode) => void;
   /** Formats a weight for display; defaults to a plain localized integer. */
@@ -15,6 +24,10 @@ const GRAPH_WIDTH = 1000;
 const ROW_HEIGHT = 18;
 const MIN_LABEL_WIDTH = 26;
 const DEFAULT_LABEL_CHAR_WIDTH = 6;
+/** Keeps the follow-mouse box inside the pane instead of under the pointer. */
+const TOOLTIP_WIDTH = 260;
+const TOOLTIP_MARGIN = 8;
+const TOOLTIP_OFFSET = 14;
 
 export const IMPLEMENTATION_FILL: Record<FrameImplementation, string> = {
   NATIVE: '#4a7fb5',
@@ -55,16 +68,60 @@ export function nodesByIndex(graph: FlameGraphPayload): Map<number, FlameGraphPa
  * Draws a projected flame graph as SVG. Rows come from the payload already
  * normalized to 0..1, so the only geometry here is scaling and label fitting.
  */
-export function FlameGraph({ graph, language, onFocus, formatWeight }: FlameGraphProps): JSX.Element {
+export function FlameGraph({ graph, language, tooltipMode, onFocus, formatWeight }: FlameGraphProps): JSX.Element {
   const format = formatWeight ?? defaultFormatWeight;
   const byIndex = useMemo(() => nodesByIndex(graph), [graph]);
   const rowsTopDown = useMemo(
     () => (graph.startsAtBottom ? [...graph.rows].reverse() : [...graph.rows]),
     [graph],
   );
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [hovered, setHovered] = useState<FlameGraphPayloadNode | null>(null);
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+
+  const track = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const bounds = containerRef.current?.getBoundingClientRect();
+    if (bounds === undefined) return;
+    setPointer({ x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+  }, []);
+
+  const tooltip = tooltipMode === undefined || hovered === null ? null : (
+    <div
+      className={
+        tooltipMode === 'fixed' ? 'flame__tooltip flame__tooltip--fixed' : 'flame__tooltip'
+      }
+      style={
+        tooltipMode === 'fixed'
+          ? undefined
+          : {
+              left: Math.min(
+                pointer.x + TOOLTIP_OFFSET,
+                Math.max(
+                  TOOLTIP_MARGIN,
+                  (containerRef.current?.clientWidth ?? TOOLTIP_WIDTH) - TOOLTIP_WIDTH - TOOLTIP_MARGIN,
+                ),
+              ),
+              top: pointer.y + TOOLTIP_OFFSET,
+            }
+      }
+    >
+      <p className="flame__tooltip-title">{hovered.symbolName}</p>
+      <p className="flame__tooltip-note">{hovered.resource}</p>
+      <dl className="flame__tooltip-rows">
+        <div>
+          <dt>{translate('cpu.inclusive', language)}</dt>
+          <dd>{format(hovered.inclusiveWeight)}</dd>
+        </div>
+        <div>
+          <dt>{translate('cpu.self', language)}</dt>
+          <dd>{format(hovered.selfWeight)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
 
   return (
-    <div className="flame">
+    <div className="flame" ref={containerRef} onMouseMove={track} onMouseLeave={() => setHovered(null)}>
       <svg
         viewBox={'0 0 ' + String(GRAPH_WIDTH) + ' ' + String(Math.max(rowsTopDown.length * ROW_HEIGHT, ROW_HEIGHT))}
         width="100%"
@@ -87,21 +144,24 @@ export function FlameGraph({ graph, language, onFocus, formatWeight }: FlameGrap
                   height={ROW_HEIGHT - 1}
                   fill={IMPLEMENTATION_FILL[node.implementation]}
                   opacity={node.selfWeight === '0' ? 0.75 : 1}
+                  onMouseEnter={tooltipMode === undefined ? undefined : () => setHovered(node)}
                   onClick={onFocus === undefined ? undefined : () => onFocus(node)}
                 >
-                  <title>
-                    {node.symbolName +
-                      '\n' +
-                      node.resource +
-                      '\n' +
-                      translate('cpu.inclusive', language) +
-                      ': ' +
-                      format(node.inclusiveWeight) +
-                      '\n' +
-                      translate('cpu.self', language) +
-                      ': ' +
-                      format(node.selfWeight)}
-                  </title>
+                  {tooltipMode === undefined ? (
+                    <title>
+                      {node.symbolName +
+                        '\n' +
+                        node.resource +
+                        '\n' +
+                        translate('cpu.inclusive', language) +
+                        ': ' +
+                        format(node.inclusiveWeight) +
+                        '\n' +
+                        translate('cpu.self', language) +
+                        ': ' +
+                        format(node.selfWeight)}
+                    </title>
+                  ) : null}
                 </rect>
                 {width >= MIN_LABEL_WIDTH ? (
                   <text
@@ -121,6 +181,7 @@ export function FlameGraph({ graph, language, onFocus, formatWeight }: FlameGrap
           }),
         )}
       </svg>
+      {tooltip}
     </div>
   );
 }

@@ -8,6 +8,11 @@ export const UI_LANGUAGES: readonly UiLanguage[] = ['en', 'zh'];
 export const SHELL_STRINGS = {
   'app.name': { en: 'Android Performance Studio', zh: 'Android Performance Studio' },
   'shell.home': { en: 'Home', zh: '首页' },
+  'shell.home.tagline': {
+    en: 'Choose a performance analysis tool',
+    zh: '选择要使用的性能分析工具',
+  },
+  'shell.backToHome': { en: 'Back to home', zh: '返回主页' },
   'shell.navigation': { en: 'Navigation', zh: '导航' },
   'shell.settings': { en: 'Settings', zh: '设置' },
   'shell.language': { en: 'Language', zh: '语言' },
@@ -18,7 +23,7 @@ export const SHELL_STRINGS = {
   'shell.language.system': { en: 'System', zh: '跟随系统' },
   'shell.language.english': { en: 'English', zh: 'English' },
   // The suffix is the preference value from settings-contract, not a display
-  // name: the sidebar builds this key as 'shell.language.' + option.
+  // name: the settings page builds this key as 'shell.language.' + option.
   'shell.language.simplified_chinese': { en: '简体中文', zh: '简体中文' },
   'shell.devices': { en: 'Devices', zh: '设备' },
   'shell.devices.refresh': { en: 'Refresh', zh: '刷新' },
@@ -43,6 +48,62 @@ export const SHELL_STRINGS = {
   'destination.gpuInspector': { en: 'GPU Inspector', zh: 'GPU 检查器' },
   'destination.benchmarkRegression': { en: 'Benchmark Regression', zh: '基准回归' },
   'destination.methodRecording': { en: 'Method Recording', zh: '方法录制' },
+  // Home card summaries. The reference app's home page prints these verbatim
+  // (desktop-viewer/desktop-app/src/main/composeResources/values{,-zh}/strings.xml),
+  // so the two apps describe the same feature in the same words; the last one
+  // describes a destination the reference has no card for.
+  'destination.layoutInspector.summary': {
+    en: 'Inspect Android View hierarchies, screenshots, bounds, and properties.',
+    zh: '检查 Android View 层级、截图、边界与属性。',
+  },
+  'destination.cpuProfiler.summary': {
+    en: 'Simpleperf-based CPU sampling, flame graphs, call tree analysis.',
+    zh: 'Simpleperf 采集、FlameGraph、CallTree 分析 CPU 样本。',
+  },
+  'destination.traceAnalyzer.summary': {
+    en: 'Perfetto system-level trace capture with scheduling, binder, and graphics analysis.',
+    zh: 'Perfetto 系统级 Trace 采集、调度/Binder/图形管线分析。',
+  },
+  'destination.memoryProfiler.summary': {
+    en: 'Heap dump capture, object statistics, and class histogram analysis.',
+    zh: '堆内存 dump、对象统计与类直方图分析。',
+  },
+  'destination.frameProfiler.summary': {
+    en: 'Capture online or import gfxinfo FrameStats to analyze frame timing and jank clusters.',
+    zh: '在线采集或导入 gfxinfo FrameStats，分析帧耗时与卡顿区间。',
+  },
+  'destination.startupProfiler.summary': {
+    en: 'Cold/warm startup breakdown and Baseline Profile support.',
+    zh: '冷启动/温启动耗时分解、Baseline Profile 支持。',
+  },
+  'destination.batteryProfiler.summary': {
+    en: 'batterystats analysis with wakelock, alarm, and network usage stats.',
+    zh: 'batterystats 解析、wakelock/alarm/network 使用统计。',
+  },
+  'destination.networkProfiler.summary': {
+    en: 'HTTP/HTTPS traffic capture and request timeline analysis.',
+    zh: 'HTTP/HTTPS 流量捕获与请求时间线分析。',
+  },
+  'destination.sourceWorkspaces.summary': {
+    en: 'Manage Local, GitHub, and AOSP source snapshots, indexes, and build evidence.',
+    zh: '管理本地、GitHub 和 AOSP 源码快照、索引与构建证据。',
+  },
+  'destination.gpuInspector.summary': {
+    en: 'Discover and launch Android GPU Inspector, then index and verify GPU artifacts.',
+    zh: '探测并启动 Android GPU Inspector，索引和校验 GPU 分析产物。',
+  },
+  'destination.benchmarkRegression.summary': {
+    en: 'Compare AndroidX Benchmark baselines and current results with CI regression reports.',
+    zh: '比较 AndroidX Benchmark 基线与当前结果，并生成 CI 回归报告。',
+  },
+  'destination.methodRecording.summary': {
+    en: 'Record Java/Kotlin method entry and exit to reconstruct method-level execution timelines.',
+    zh: '记录 Java/Kotlin 方法的进入/退出，还原方法级执行时间线。',
+  },
+  'destination.aiAnalysis.summary': {
+    en: 'Structured findings bound to profiler evidence, source snapshots, and build evidence.',
+    zh: '把性能证据、源码快照与构建证据整理为结构化结论。',
+  },
   'status.available': { en: 'Available', zh: '可用' },
   'status.unavailable': { en: 'Unavailable', zh: '不可用' },
   'trace.capture': { en: 'Capture system trace', zh: '采集系统 Trace' },
@@ -369,6 +430,155 @@ export const SHELL_STRINGS = {
     en: 'Regressions require a configured threshold and at least three samples per side.',
     zh: '判定回归需要配置阈值，且两侧各至少 3 个样本。',
   },
+
+  // ------------------------------------------------------------- settings --
+  // The settings window is its own page: one navigation row per section, then
+  // General, Layout Inspector, Simpleperf, AI Settings and About in page order.
+  'settings.title': { en: 'Settings', zh: '设置' },
+  'settings.done': { en: 'Done', zh: '完成' },
+  'settings.general': { en: 'General', zh: '通用' },
+  'settings.layoutInspector': { en: 'Layout Inspector', zh: 'Layout Inspector' },
+  'settings.simpleperf': { en: 'Simpleperf', zh: 'Simpleperf' },
+  'settings.ai': { en: 'AI Settings', zh: 'AI 设置' },
+  'settings.about': { en: 'About', zh: '关于' },
+  'settings.saveFailed': {
+    en: 'Settings could not be saved. This session keeps using the last stored values.',
+    zh: '设置保存失败，当前会话仍使用上次保存的值。',
+  },
+  'settings.sdkPath': { en: 'Android SDK path', zh: 'Android SDK 路径' },
+  'settings.sdkPathHint': {
+    en: 'Leave empty to discover the SDK from ANDROID_HOME and PATH.',
+    zh: '留空时从 ANDROID_HOME 与 PATH 查找 SDK。',
+  },
+  'settings.browse': { en: 'Browse…', zh: '浏览…' },
+  'settings.apply': { en: 'Apply', zh: '应用' },
+  'settings.clear': { en: 'Clear', zh: '清除' },
+
+  'settings.viewAndHierarchy': { en: 'View and hierarchy', zh: '视图与层级' },
+  'settings.hideInvisibleHierarchyViews': {
+    en: 'Hide invisible views in the hierarchy',
+    zh: '在层级中隐藏不可见视图',
+  },
+  'settings.hideInvisibleFindings': {
+    en: 'Hide findings about invisible views',
+    zh: '隐藏不可见视图相关的问题',
+  },
+  'settings.hideHierarchyIndices': { en: 'Hide hierarchy indices', zh: '隐藏层级编号' },
+  'settings.showHierarchyIds': { en: 'Show view ids', zh: '显示视图 ID' },
+  'settings.showHierarchyLayerVisibilityButtons': {
+    en: 'Show layer visibility buttons',
+    zh: '显示图层显隐按钮',
+  },
+  'settings.showVisibleViewBounds': { en: 'Show bounds of visible views', zh: '显示可见视图边界' },
+  'settings.canvasHitTestOrder': { en: 'Canvas click order', zh: '画布点击顺序' },
+  'settings.smallestAreaFirst': { en: 'Smallest area first', zh: '小面积优先' },
+  'settings.zOrder': { en: 'Z-order', zh: 'Z 序' },
+  'settings.captureArchive': { en: 'Capture archive', zh: '采集归档' },
+  'settings.captureArchiveUnavailable': {
+    en: 'Capture archive import and export are not migrated yet, so the snapshot size limit has nothing to apply to.',
+    zh: '采集归档的导入导出尚未迁移，快照大小上限暂时没有作用对象。',
+  },
+  'settings.canvasBorderColors': { en: 'Canvas border colors', zh: '画布边框颜色' },
+  'settings.normal': { en: 'Normal', zh: '普通' },
+  'settings.hovered': { en: 'Hovered', zh: '悬停' },
+  'settings.selected': { en: 'Selected', zh: '选中' },
+  'settings.reset': { en: 'Reset', zh: '重置' },
+
+  'settings.samplingTemplate': { en: 'Sampling template', zh: '采样模板' },
+  'settings.samplingTemplateHint': {
+    en: 'A template fills the capture configuration; every field stays editable afterwards.',
+    zh: '模板会填入采集配置，填入后各字段仍可修改。',
+  },
+  'settings.template.APP_CPU_BASIC': { en: 'App CPU Basic', zh: '应用 CPU 基础' },
+  'settings.template.APP_CPU_BASIC.description': {
+    en: 'General-purpose app CPU hotspot sampling.',
+    zh: '通用的应用 CPU 热点采样。',
+  },
+  'settings.template.UI_THREAD_FOCUS': { en: 'UI Thread Focus', zh: 'UI 线程聚焦' },
+  'settings.template.UI_THREAD_FOCUS.description': {
+    en: 'High-frequency sampling for a selected UI thread.',
+    zh: '针对选定 UI 线程的高频采样。',
+  },
+  'settings.template.NATIVE_HOTSPOT': { en: 'Native Hotspot', zh: 'Native 热点' },
+  'settings.template.NATIVE_HOTSPOT.description': {
+    en: 'CPU cycle sampling for native computation hotspots.',
+    zh: '面向 Native 计算热点的 CPU 周期采样。',
+  },
+  'settings.template.LOW_OVERHEAD': { en: 'Low Overhead', zh: '低开销' },
+  'settings.template.LOW_OVERHEAD.description': {
+    en: 'Reduced frequency with frame-pointer call graphs.',
+    zh: '较低频率，使用帧指针调用图。',
+  },
+  'settings.template.SYSTEM_PROCESS': { en: 'System Process', zh: '系统进程' },
+  'settings.template.SYSTEM_PROCESS.description': {
+    en: 'Conservative sampling for a root-accessible system process.',
+    zh: '对需要 root 的系统进程使用保守采样。',
+  },
+  'settings.captureConfiguration': { en: 'Capture configuration', zh: '采集配置' },
+  'settings.captureConfigurationHint': {
+    en: 'These defaults prefill the Simpleperf capture form.',
+    zh: '这些默认值会预填 Simpleperf 采集表单。',
+  },
+  'settings.advancedParameters': { en: 'Advanced parameters', zh: '高级参数' },
+  'settings.advancedParametersUnavailable': {
+    en: 'Per-event parameters come from the connected device and are not migrated yet.',
+    zh: '按事件提供的参数来自已连接设备，尚未迁移。',
+  },
+  'settings.flameGraph': { en: 'Flame graph', zh: '火焰图' },
+  'settings.frameInformationBox': { en: 'Frame information box', zh: '帧信息框' },
+  'settings.frameInformationBehavior': {
+    en: 'Where the hovered frame facts appear.',
+    zh: '悬停帧信息出现的位置。',
+  },
+  'settings.fixed': { en: 'Fixed', zh: '固定' },
+  'settings.followMouse': { en: 'Follow mouse', zh: '跟随鼠标' },
+  'settings.callGraph.dwarf': { en: 'DWARF (debug info)', zh: 'DWARF（调试信息）' },
+  'settings.callGraph.framePointer': { en: 'Frame pointer', zh: '帧指针' },
+  'settings.callGraph.none': { en: 'None', zh: '无' },
+  'settings.scope.both': { en: 'User and kernel', zh: '用户态与内核态' },
+  'settings.scope.user': { en: 'User only', zh: '仅用户态' },
+  'settings.scope.kernel': { en: 'Kernel only', zh: '仅内核态' },
+  'settings.simpleperfEngine': { en: 'Simpleperf engine', zh: 'Simpleperf 引擎' },
+  'settings.engineDescription': {
+    en: 'The engine that renders a recorded profile.',
+    zh: '用于呈现采样结果的引擎。',
+  },
+  'settings.engineLocal': { en: 'Local (built-in flame graph)', zh: '本地（内置火焰图）' },
+  'settings.engineFirefoxLocal': { en: 'Firefox Profiler (local)', zh: 'Firefox Profiler（本地）' },
+  'settings.engineFirefox': { en: 'Firefox Profiler', zh: 'Firefox Profiler' },
+  'settings.notMigrated': { en: 'not migrated yet', zh: '尚未迁移' },
+  'settings.userGuide': { en: 'User guide', zh: '使用指南' },
+  'settings.userGuideUnavailable': {
+    en: 'The user guide is not bundled with the Electron build yet.',
+    zh: 'Electron 版本尚未随包分发使用指南。',
+  },
+
+  'settings.aiKey': { en: 'OpenAI API key', zh: 'OpenAI API key' },
+  'settings.aiKeyConfigured': { en: 'API key stored', zh: 'API key 已保存' },
+  'settings.aiKeyMemoryOnly': {
+    en: 'stored in memory only: no OS key store on this platform',
+    zh: '仅保存在内存中：此平台没有系统密钥存储',
+  },
+  'settings.aiKeyMissing': { en: 'No API key configured', zh: '尚未配置 API key' },
+  'settings.aiModel': { en: 'Model', zh: '模型' },
+  'settings.aiEndpoint': { en: 'Endpoint', zh: '接口地址' },
+  'settings.aiChooseModel': { en: 'Choose model', zh: '选择模型' },
+  'settings.aiRefreshModels': { en: 'Refresh models', zh: '刷新模型' },
+  'settings.aiSave': { en: 'Save', zh: '保存' },
+  'settings.aiSaved': { en: 'Saved', zh: '已保存' },
+  'settings.aiWorking': { en: 'Working…', zh: '处理中…' },
+  'settings.aiRemove': { en: 'Remove key', zh: '移除密钥' },
+  'settings.aiModelsFailed': { en: 'Could not load models: ', zh: '无法加载模型：' },
+  'settings.aiSaveFailed': { en: 'Could not save: ', zh: '保存失败：' },
+  'settings.aiHint': {
+    en: 'The AI Analysis page uses this key, model and endpoint.',
+    zh: 'AI 分析页面使用这里的密钥、模型与接口地址。',
+  },
+  'settings.aiOpenAnalysis': { en: 'Open AI Analysis', zh: '打开 AI 分析' },
+
+  'settings.aboutVersion': { en: 'Version', zh: '版本' },
+  'settings.aboutContract': { en: 'Capture artifact contract', zh: '采集制品契约' },
+  'settings.aboutPlatform': { en: 'Platform', zh: '平台' },
 } as const;
 
 export type ShellStringKey = keyof typeof SHELL_STRINGS;

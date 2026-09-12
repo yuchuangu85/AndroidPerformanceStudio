@@ -10,17 +10,17 @@ import type {
 } from '../../shared/ipc';
 
 const STRINGS = {
-  key: { en: 'OpenAI API key', zh: 'OpenAI API key' },
-  save: { en: 'Save', zh: '保存' },
-  clear: { en: 'Remove', zh: '移除' },
-  models: { en: 'Load models', zh: '加载模型' },
-  model: { en: 'Model', zh: '模型' },
   capture: { en: 'Layout capture', zh: '布局抓取' },
   analyze: { en: 'Analyze', zh: '开始分析' },
   none: { en: 'No layout capture yet', zh: '还没有布局抓取' },
   configured: { en: 'Key stored', zh: '密钥已保存' },
   memoryOnly: { en: 'memory only (no OS key)', zh: '仅内存（无系统密钥）' },
   notConfigured: { en: 'No API key configured', zh: '尚未配置 API key' },
+  openSettings: { en: 'AI Settings', zh: 'AI 设置' },
+  settingsHint: {
+    en: 'The API key, model and endpoint are configured in Settings › AI Settings.',
+    zh: 'API key、模型与接口地址在「设置 › AI 设置」中配置。',
+  },
   findings: { en: 'Findings', zh: '发现' },
   history: { en: 'Sessions', zh: '会话' },
   empty: { en: 'No findings yet', zh: '还没有结果' },
@@ -44,11 +44,17 @@ const SEVERITY_CLASS: Record<AnalysisFinding['severity'], string> = {
   ERROR: 'card__error',
 };
 
-export function AiAnalysisPanel({ language }: { readonly language: UiLanguage }): JSX.Element {
+export interface AiAnalysisPanelProps {
+  readonly language: UiLanguage;
+  readonly onOpenSettings: () => void;
+}
+
+/**
+ * The analysis workflow. Configuration lives in Settings › AI Settings, so this
+ * panel only reports which model the stored settings will use.
+ */
+export function AiAnalysisPanel({ language, onOpenSettings }: AiAnalysisPanelProps): JSX.Element {
   const [settings, setSettings] = useState<AiSettingsSnapshot | null>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [models, setModels] = useState<readonly string[]>([]);
-  const [model, setModel] = useState('');
   const [captures, setCaptures] = useState<readonly LayoutCaptureSummary[]>([]);
   const [captureId, setCaptureId] = useState('');
   const [workspaces, setWorkspaces] = useState<readonly SourceWorkspaceRecord[]>([]);
@@ -60,10 +66,7 @@ export function AiAnalysisPanel({ language }: { readonly language: UiLanguage })
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
-    void window.aps.getAiSettings().then((snapshot) => {
-      setSettings(snapshot);
-      setModel((current) => (current.length > 0 ? current : snapshot.model));
-    });
+    void window.aps.getAiSettings().then(setSettings);
     void window.aps.listAiSessions().then(setSessions);
     void window.aps.listSourceWorkspaces().then(setWorkspaces);
     void window.aps.listLayoutCaptures().then((listed) => {
@@ -84,69 +87,21 @@ export function AiAnalysisPanel({ language }: { readonly language: UiLanguage })
 
   return (
     <section className="card">
-      <h3 className="card__title">{t('key', language)}</h3>
+      <h3 className="card__title">{t('openSettings', language)}</h3>
       <p className="card__muted">
         {settings === null
           ? ''
           : settings.configured
-            ? t('configured', language) + (settings.persistent ? '' : ' · ' + t('memoryOnly', language))
+            ? t('configured', language) +
+              ' · ' +
+              settings.model +
+              (settings.persistent ? '' : ' · ' + t('memoryOnly', language))
             : t('notConfigured', language)}
       </p>
-      <label className="field">
-        <span>{t('key', language)}</span>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-          placeholder="sk-..."
-        />
-      </label>
-      <button
-        type="button"
-        className="button"
-        disabled={busy || apiKey.trim().length === 0}
-        onClick={() =>
-          run(async () => {
-            setSettings(await window.aps.saveAiCredential(apiKey));
-            setApiKey('');
-          })
-        }
-      >
-        {t('save', language)}
+      <p className="card__muted">{t('settingsHint', language)}</p>
+      <button type="button" className="button" onClick={onOpenSettings}>
+        {t('openSettings', language)}
       </button>
-      <button
-        type="button"
-        className="button"
-        disabled={busy}
-        onClick={() => run(async () => setSettings(await window.aps.clearAiCredential()))}
-      >
-        {t('clear', language)}
-      </button>
-
-      <h3 className="card__title">{t('model', language)}</h3>
-      <button
-        type="button"
-        className="button"
-        disabled={busy}
-        onClick={() => run(async () => setModels(await window.aps.listAiModels()))}
-      >
-        {t('models', language)}
-      </button>
-      <label className="field">
-        <span>{t('model', language)}</span>
-        <input value={model} onChange={(event) => setModel(event.target.value)} />
-      </label>
-      {models.length > 0 ? (
-        <ul className="list">
-          {models.map((id) => (
-            <li key={id}>
-              <button type="button" className="button" onClick={() => setModel(id)}>
-                {id}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
 
       <h3 className="card__title">{t('capture', language)}</h3>
       {captures.length === 0 ? (
@@ -183,7 +138,6 @@ export function AiAnalysisPanel({ language }: { readonly language: UiLanguage })
           run(async () => {
             const result = await window.aps.analyzeLayoutWithAi({
               captureId,
-              ...(model.trim().length > 0 ? { model: model.trim() } : {}),
               ...(workspaceId.length > 0 ? { workspaceId } : {}),
             });
             setOutcome(result);

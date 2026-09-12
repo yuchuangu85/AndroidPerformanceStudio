@@ -69,6 +69,12 @@ function findChromeSandbox() {
 }
 
 function sandboxArguments() {
+  // A sandboxed launcher (container, agent shell) can block Chromium's own
+  // sandbox on macOS too. Electron reads ELECTRON_DISABLE_SANDBOX itself, so
+  // the harness only has to record that the run was relaxed.
+  if (process.platform === 'darwin' && process.env['ELECTRON_DISABLE_SANDBOX'] === '1') {
+    return { args: [], state: 'relaxed-by-environment' };
+  }
   if (process.platform !== 'linux') return { args: [], state: 'not-applicable' };
   const helper = findChromeSandbox();
   if (helper !== undefined) {
@@ -243,6 +249,50 @@ function probeSource(seconds) {
     '  });',
     '  try {',
     '    await waitFor(() => document.readyState === \'complete\', 30000, \'the document\');',
+    '    // Settings is its own page: five top-level rows plus the six sections',
+    '    // nested under Simpleperf, and every one of them must render a pane.',
+    '    const settingsButton = await waitFor(',
+    '      () => [...document.querySelectorAll(\'button\')].find((element) => {',
+    '        // The shell entry point is an icon button, so its name is the',
+    '        // accessible label rather than its (empty) text content.',
+    '        const text = (element.textContent || \'\').trim();',
+    '        const label = element.getAttribute(\'aria-label\') || element.getAttribute(\'title\') || \'\';',
+    '        return text === \'Settings\' || text === \'设置\' || label === \'Settings\' || label === \'设置\';',
+    '      }),',
+    '      20000,',
+    '      \'the settings button\',',
+    '    );',
+    '    settingsButton.click();',
+    '    await waitFor(() => document.querySelector(\'.settings__nav\'), 20000, \'the settings navigation\');',
+    '    const topRows = () => [...document.querySelectorAll(\'.settings__nav-row:not(.settings__nav-row--nested)\')];',
+    '    const nestedRows = () => [...document.querySelectorAll(\'.settings__nav-row--nested\')];',
+    '    const settingsPages = [];',
+    '    for (let index = 0; index < 5; index += 1) {',
+    '      const row = topRows()[index];',
+    '      if (!row) throw new Error(\'missing settings page at index \' + index);',
+    '      row.click();',
+    '      await sleep(60);',
+    '      await waitFor(() => document.querySelector(\'.settings__section\'), 10000, \'a settings section\');',
+    '      settingsPages.push((row.textContent || \'\').trim());',
+    '    }',
+    '    topRows()[2].click();',
+    '    await waitFor(() => nestedRows().length === 6, 10000, \'the Simpleperf sections\');',
+    '    const simpleperfSections = [];',
+    '    for (let index = 0; index < 6; index += 1) {',
+    '      const row = nestedRows()[index];',
+    '      row.click();',
+    '      await sleep(60);',
+    '      await waitFor(() => document.querySelector(\'.settings__section\'), 10000, \'a Simpleperf section\');',
+    '      simpleperfSections.push((row.textContent || \'\').trim());',
+    '    }',
+    '    const done = [...document.querySelectorAll(\'button\')].find((element) => {',
+    '      const text = (element.textContent || \'\').trim();',
+    '      return text === \'Done\' || text === \'完成\';',
+    '    });',
+    '    if (!done) throw new Error(\'the settings page has no Done button\');',
+    '    done.click();',
+    '    await waitFor(() => document.querySelector(\'.settings__nav\') === null, 10000, \'settings to close\');',
+    '    const settings = { pages: settingsPages, simpleperfSections };',
     '    const destination = await waitFor(',
     '      () => [...document.querySelectorAll(\'button\')].find((element) => {',
     '        const text = (element.textContent || \'\').trim();',
@@ -310,7 +360,7 @@ function probeSource(seconds) {
     '      if (!button || button.disabled) { zoomDirection = -zoomDirection; return; }',
     '      button.click();',
     '    }) : null;',
-    '    return { ok: true, scroll, hit, zoom, rows: expandedRows, scrollRange, hasPreview: image !== null };',
+    '    return { ok: true, scroll, hit, zoom, rows: expandedRows, scrollRange, hasPreview: image !== null, settings };',
     '  } catch (error) {',
     '    return { ok: false, reason: String((error && error.message) || error), ...describe() };',
     '  }',
@@ -381,6 +431,7 @@ async function main() {
       scrollRange: value?.scrollRange ?? 0,
       zoomCovered: value?.zoom !== null && value?.zoom !== undefined,
       osSandbox: sandbox.state,
+      settings: value?.settings ?? null,
       ok: value?.ok === true,
       ...(value?.ok === true
         ? {}
@@ -402,7 +453,13 @@ async function main() {
     const scrollOk = report.scroll !== null && report.scroll.fps >= MIN_FPS;
     const hitOk = report.hit !== null && report.hit.fps >= MIN_FPS;
     const zoomOk = report.zoom !== null && report.zoom.fps >= MIN_FPS;
-    if (!report.ok || !scrollOk || !hitOk || !zoomOk) {
+    // The settings walk is a functional gate, not a frame-rate one: five pages
+    // and six Simpleperf sections either render or the shell is broken.
+    const settingsOk =
+      report.settings !== null &&
+      report.settings.pages.length === 5 &&
+      report.settings.simpleperfSections.length === 6;
+    if (!report.ok || !scrollOk || !hitOk || !zoomOk || !settingsOk) {
       console.error('the UI gate did not pass');
       process.exitCode = 1;
     }

@@ -21,6 +21,13 @@ import {
 } from './canvas';
 import { layoutText } from './labels';
 
+/** The three border colours, already converted to CSS colours. */
+export interface CanvasBorderColors {
+  readonly normal: string;
+  readonly hovered: string;
+  readonly selected: string;
+}
+
 export interface LayoutCanvasProps {
   readonly root: UiNode;
   readonly display: { readonly widthPx: number; readonly heightPx: number };
@@ -28,6 +35,10 @@ export interface LayoutCanvasProps {
   readonly selectedNodeId: string;
   readonly hiddenSubtree: ReadonlySet<string>;
   readonly hitOrder: HitTestOrder;
+  /** Defaults to CanvasBorderColors. */
+  readonly borderColors?: CanvasBorderColors;
+  /** ViewDisplayOptions.showVisibleViewBounds; the highlight layer is unaffected. */
+  readonly showBounds?: boolean;
   readonly language: UiLanguage;
   readonly onSelect: (nodeId: string) => void;
   readonly onHover: (nodeId: string | undefined) => void;
@@ -59,6 +70,7 @@ interface ClickCycle {
  */
 export function LayoutCanvas(props: LayoutCanvasProps): JSX.Element {
   const {
+    borderColors = CANVAS_BORDER_COLORS,
     display,
     hiddenCount,
     hiddenSubtree,
@@ -71,6 +83,7 @@ export function LayoutCanvas(props: LayoutCanvasProps): JSX.Element {
     root,
     screenshotBase64,
     selectedNodeId,
+    showBounds = true,
   } = props;
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -183,9 +196,9 @@ export function LayoutCanvas(props: LayoutCanvasProps): JSX.Element {
   // Layer one: every visible view's bounds, repainted when the view or crop moves.
   useEffect(() => {
     const context = prepare(overlayRef.current);
-    if (context === undefined) return;
-    for (const rect of overlayRects) stroke(context, rect, CANVAS_BORDER_COLORS.normal);
-  }, [overlayRects, prepare, stroke]);
+    if (context === undefined || !showBounds) return;
+    for (const rect of overlayRects) stroke(context, rect, borderColors.normal);
+  }, [borderColors.normal, overlayRects, prepare, showBounds, stroke]);
 
   // Layer two: the hover in amber and the selection in red.
   useEffect(() => {
@@ -194,12 +207,12 @@ export function LayoutCanvas(props: LayoutCanvasProps): JSX.Element {
     if (hoveredNodeId !== undefined && hoveredNodeId !== selectedNodeId) {
       const hovered = nodesById.get(hoveredNodeId);
       const rect = hovered === undefined ? undefined : mapBounds(hovered.bounds, source, destination);
-      if (rect !== undefined) stroke(context, rect, CANVAS_BORDER_COLORS.hovered);
+      if (rect !== undefined) stroke(context, rect, borderColors.hovered);
     }
     const selected = nodesById.get(selectedNodeId);
     const rect = selected === undefined ? undefined : mapBounds(selected.bounds, source, destination);
-    if (rect !== undefined) stroke(context, rect, CANVAS_BORDER_COLORS.selected);
-  }, [hoveredNodeId, nodesById, prepare, selectedNodeId, source, stroke, destination]);
+    if (rect !== undefined) stroke(context, rect, borderColors.selected);
+  }, [borderColors.hovered, borderColors.selected, hoveredNodeId, nodesById, prepare, selectedNodeId, source, stroke, destination]);
 
   const sourcePoint = useCallback(
     (event: { clientX: number; clientY: number }): { point: Offset; candidates: UiNode[] } | undefined => {
