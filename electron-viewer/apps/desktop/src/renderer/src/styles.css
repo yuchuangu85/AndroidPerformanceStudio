@@ -984,6 +984,88 @@ input:focus {
   );
 }
 
+/* FINDINGS: the analysis rules, one compact row each, across the whole layout. */
+.findings-splitter {
+  grid-column: 1 / -1;
+  height: 7px;
+  cursor: row-resize;
+}
+
+.findings-splitter:hover {
+  background: var(--fill);
+}
+
+.findings {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  min-height: 56px;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 10px 12px 8px;
+  overflow: hidden;
+}
+
+.findings .pane-header {
+  margin-bottom: 6px;
+}
+
+.findings__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.finding {
+  padding: 2px 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.finding--selected {
+  background: var(--fill-strong);
+}
+
+.finding--info {
+  color: var(--accent);
+}
+
+.finding--warning {
+  color: var(--warning);
+}
+
+.finding--error {
+  color: var(--danger);
+}
+
+.badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge--info {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge--warning {
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--warning);
+}
+
+.badge--error {
+  background: rgba(215, 0, 21, 0.14);
+  color: var(--danger);
+}
+
 /* ------------------------------------------------------ hierarchy tree -- */
 
 .layout {

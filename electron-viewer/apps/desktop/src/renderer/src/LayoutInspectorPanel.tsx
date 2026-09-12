@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import {
+  analyzeLayout,
   clearHiddenLayers,
   computeHiddenSubtree,
   effectiveDefaultWindowId,
@@ -13,15 +14,17 @@ import {
 import type { DeviceSummary, LayoutCaptureDetail, LayoutCaptureSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
 import { nodeDetailSections } from './layout-inspector/details';
+import {
+  FINDINGS_LAYOUT,
+  dragFindingsHeight,
+  filterHiddenFindings,
+  findingRows,
+  fitFindingsHeight,
+  severitySummary,
+} from './layout-inspector/findings';
 import { layoutText } from './layout-inspector/labels';
 import { LayoutCanvas } from './layout-inspector/LayoutCanvas';
-import {
-  buildLayoutTreeRows,
-  hierarchyLabel,
-  treeMetrics,
-  visibleTreeRows,
-  type LayoutTreeRow,
-} from './layout-inspector/tree';
+import { buildLayoutTreeRows, hierarchyLabel, visibleTreeRows, type LayoutTreeRow } from './layout-inspector/tree';
 
 export interface LayoutInspectorPanelProps {
   readonly language: UiLanguage;
@@ -38,9 +41,15 @@ interface ViewOptions {
   readonly showIds: boolean;
   readonly hideIndices: boolean;
   readonly hideInvisible: boolean;
+  readonly hideInvisibleFindings: boolean;
 }
 
-const DEFAULT_VIEW_OPTIONS: ViewOptions = { showIds: true, hideIndices: false, hideInvisible: false };
+const DEFAULT_VIEW_OPTIONS: ViewOptions = {
+  showIds: true,
+  hideIndices: false,
+  hideInvisible: false,
+  hideInvisibleFindings: false,
+};
 
 function windowOf(snapshot: LayoutSnapshot, windowId: string): WindowSnapshot {
   const windows = effectiveWindows(snapshot);
@@ -62,7 +71,10 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   const [scrollTop, setScrollTop] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [findingsHeight, setFindingsHeight] = useState<number>(FINDINGS_LAYOUT.defaultHeight);
+  const [selectedFindingKey, setSelectedFindingKey] = useState<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const layoutRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(() => {
     window.aps.listLayoutCaptures().then((records) => {
@@ -138,11 +150,46 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
     () => visibleTreeRows(rows, collapsed, options.hideInvisible),
     [collapsed, options.hideInvisible, rows],
   );
-  const metrics = useMemo(() => treeMetrics(rows), [rows]);
+  // The analysis engine owns the metrics, the findings and the rule ordering.
+  const report = useMemo(() => (activeWindow === null ? null : analyzeLayout(activeWindow.root)), [activeWindow]);
+  const allFindings = useMemo(
+    () => (report === null ? [] : findingRows(report, rows, language)),
+    [language, report, rows],
+  );
+  const shownFindings = useMemo(
+    () => filterHiddenFindings(allFindings, rows, options.hideInvisibleFindings),
+    [allFindings, options.hideInvisibleFindings, rows],
+  );
+  const summary = useMemo(() => severitySummary(shownFindings), [shownFindings]);
+
+  const startFindingsDrag = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const startY = event.clientY;
+      const startHeight = findingsHeight;
+      const available = layoutRef.current?.clientHeight ?? 800;
+      const onMove = (move: MouseEvent): void => {
+        setFindingsHeight(dragFindingsHeight(startHeight, move.clientY - startY, available));
+      };
+      const onUp = (): void => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [findingsHeight],
+  );
 
   const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const end = Math.min(visibleRows.length, Math.ceil((scrollTop + VIEWPORT_HEIGHT) / ROW_HEIGHT) + OVERSCAN);
   const windowRows = visibleRows.slice(start, end);
+
+  useEffect(() => {
+    // The remembered height follows the pane the way FindingsLayout.fit does.
+    const available = layoutRef.current?.clientHeight ?? 0;
+    if (available > 0) setFindingsHeight((current) => fitFindingsHeight(current, available));
+  }, [activeWindowId, snapshot]);
 
   const selected = useMemo(
     () => rows.find((row) => row.node.id === selectedNodeId)?.node ?? activeWindow?.root ?? null,
@@ -243,14 +290,22 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
       {snapshot === null || activeWindow === null ? (
         <p className="content__muted">{translate('layout.none', language)}</p>
       ) : (
-        <div className="layout">
+        <div className="layout" ref={layoutRef}>
           <section className="card layout__pane">
             <div className="pane-header">
               <h3 className="pane-header__title">{layoutText('pane.hierarchy', language)}</h3>
               <div className="pane-header__options">
                 <span className="pane-header__note">{visibleRows.length}</span>
                 <span className="pane-header__note">
-                  {layoutText('metrics.summary', language, metrics.nodeCount, metrics.maxDepth, metrics.widestLevel)}
+                  {report === null
+                    ? null
+                    : layoutText(
+                        'metrics.summary',
+                        language,
+                        report.metrics.nodeCount,
+                        report.metrics.maxDepth,
+                        report.metrics.widestLevel,
+                      )}
                 </span>
               </div>
             </div>
@@ -378,6 +433,53 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
                       ))}
                     </dl>
                   </section>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <div
+            className="findings-splitter"
+            role="separator"
+            aria-orientation="horizontal"
+            onMouseDown={startFindingsDrag}
+          />
+
+          <section className="card findings" style={{ height: findingsHeight }}>
+            <div className="pane-header">
+              <h3 className="pane-header__title">{layoutText('pane.findings', language)}</h3>
+              <div className="pane-header__options">
+                <span className="badge badge--info">{layoutText('badge.info', language, summary.info)}</span>
+                <span className="badge badge--warning">{layoutText('badge.warning', language, summary.warning)}</span>
+                <span className="badge badge--error">{layoutText('badge.error', language, summary.error)}</span>
+                <button
+                  type="button"
+                  className={options.hideInvisibleFindings ? 'toggle toggle--on' : 'toggle'}
+                  aria-pressed={options.hideInvisibleFindings}
+                  onClick={() => toggleOption('hideInvisibleFindings')}
+                >
+                  {layoutText('view.hideInvisibleFindings', language)}
+                </button>
+              </div>
+            </div>
+            {shownFindings.length === 0 ? (
+              <p className="card__muted">{layoutText('findings.none', language)}</p>
+            ) : (
+              <div className="findings__list">
+                {shownFindings.map((finding) => (
+                  <div
+                    key={finding.key}
+                    className={
+                      'finding finding--' +
+                      finding.tone +
+                      (finding.key === selectedFindingKey ? ' finding--selected' : '')
+                    }
+                    title={finding.nodeId}
+                    onClick={() => setSelectedFindingKey(finding.key)}
+                    onDoubleClick={() => selectAndReveal(finding.nodeId)}
+                  >
+                    {'[' + finding.nodeNumber + ']  ' + finding.title + '  ·  ' + finding.message}
+                  </div>
                 ))}
               </div>
             )}

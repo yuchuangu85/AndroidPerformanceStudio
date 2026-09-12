@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UiNode } from '@aps/layout-inspector';
-import { buildLayoutTreeRows, hierarchyLabel, treeMetrics, visibleTreeRows } from './tree';
+import { buildLayoutTreeRows, hierarchyLabel, visibleTreeRows } from './tree';
 
 function view(
   id: string,
@@ -82,9 +82,5 @@ describe('layout tree rows', () => {
       '1-1',
       '2-0',
     ]);
-  });
-
-  it('summarises nodes, depth, and widest level', () => {
-    expect(treeMetrics(buildLayoutTreeRows(ROOT))).toEqual({ nodeCount: 5, maxDepth: 3, widestLevel: 2 });
   });
 });

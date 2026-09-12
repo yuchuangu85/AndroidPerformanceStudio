@@ -11,4 +11,5 @@ export * from './visible-window-views.js';
 export * from './fixtures/encoded-hierarchy.js';
 export * from './hidden-layers.js';
 export * from './hit-test.js';
+export * from './analysis.js';
 export * from './tree.js';

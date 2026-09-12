@@ -126,20 +126,3 @@ export function nodeNumbers(rows: readonly LayoutTreeRow[]): Map<string, string>
   return numbers;
 }
 
-export interface TreeMetrics {
-  readonly nodeCount: number;
-  readonly maxDepth: number;
-  readonly widestLevel: number;
-}
-
-export function treeMetrics(rows: readonly LayoutTreeRow[]): TreeMetrics {
-  const perDepth = new Map<number, number>();
-  let maxDepth = 0;
-  for (const row of rows) {
-    perDepth.set(row.depth, (perDepth.get(row.depth) ?? 0) + 1);
-    maxDepth = Math.max(maxDepth, row.depth);
-  }
-  let widestLevel = 0;
-  for (const count of perDepth.values()) widestLevel = Math.max(widestLevel, count);
-  return { nodeCount: rows.length, maxDepth: maxDepth + 1, widestLevel };
-}
