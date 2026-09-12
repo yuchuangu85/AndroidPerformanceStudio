@@ -1398,10 +1398,9 @@ function registerHandlers(): void {
 
 function createWindow(): void {
   // macOS gets the system window chrome: the traffic lights sit inside the
-  // shell's own sidebar header, and the window supplies the vibrancy material
-  // behind it, which only shows when the page and the base colour stay
-  // transparent. Other platforms keep a normal frame and the shell's own
-  // window colour.
+  // shell's own toolbar, and the window supplies the vibrancy material behind
+  // it, which only shows when the page and the base colour stay transparent.
+  // Other platforms keep a normal frame and the shell's own window colour.
   const mac = process.platform === 'darwin';
   window = new BrowserWindow({
     width: 1280,
@@ -1414,7 +1413,9 @@ function createWindow(): void {
     ...(mac
       ? {
           titleBarStyle: 'hiddenInset' as const,
-          trafficLightPosition: { x: 16, y: 18 },
+          // Centred in the 26px toolbar the shell reserves for it; the buttons
+          // are about 16px tall, so 5px above and below.
+          trafficLightPosition: { x: 16, y: 5 },
           vibrancy: 'sidebar' as const,
           visualEffectState: 'followWindow' as const,
         }

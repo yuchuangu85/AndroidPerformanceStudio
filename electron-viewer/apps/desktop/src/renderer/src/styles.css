@@ -62,7 +62,9 @@
   --radius-control: 6px;
   --radius-panel: 10px;
   --radius-tile: 12px;
-  --titlebar-height: 52px;
+  /* Half the original title bar: the shell is a launcher, and a strip this thin
+     only has to hold the toolbar's own small controls. */
+  --titlebar-height: 26px;
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
@@ -208,15 +210,32 @@ samp {
 }
 
 /* The traffic lights live in the toolbar, so the strip keeps a translucent
-   tint over the window's material and reserves their leading inset. */
+   tint over the window's material and reserves their leading inset: the three
+   buttons end around 74px, and the extra 22px is the gap the title needs to
+   read as a separate element rather than a caption for the close button. */
 :root[data-vibrancy='on'] .toolbar {
-  padding-left: 74px;
+  padding-left: 96px;
   background: var(--chrome-tint);
 }
 
-/* Everything the toolbar holds has to be clickable, not a window drag handle. */
+/* Everything the toolbar holds has to be clickable, not a window drag handle,
+   and it takes AppKit's small control size: a regular 24px button would fill a
+   26px strip edge to edge. */
 .toolbar .button {
+  height: 20px;
+  padding: 0 10px;
   -webkit-app-region: no-drag;
+}
+
+.toolbar .button--icon {
+  width: 22px;
+  padding: 0;
+}
+
+.toolbar .chip {
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
 }
 
 .toolbar__leading {
@@ -617,7 +636,8 @@ input:focus {
   line-height: 16px;
 }
 
-/* Home: the shell's only navigation surface, four feature cards per row. */
+/* Home: the shell's only navigation surface, four feature cards per row. The
+   page heading is centred over the grid; the cards keep their own left edge. */
 .home {
   max-width: 1180px;
   margin: 0 auto;
@@ -629,6 +649,7 @@ input:focus {
   line-height: 36px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  text-align: center;
 }
 
 .home__subtitle {
@@ -636,6 +657,7 @@ input:focus {
   color: var(--muted);
   font-size: 14px;
   line-height: 19px;
+  text-align: center;
 }
 
 .home__grid {

@@ -17,6 +17,11 @@ describe('shell layout', () => {
     expect(declarations('.home__grid')).toMatch(/grid-template-columns:\s*repeat\(4,/);
   });
 
+  it('centres the home heading and its tagline over the grid', () => {
+    expect(declarations('.home__title')).toMatch(/text-align:\s*center/);
+    expect(declarations('.home__subtitle')).toMatch(/text-align:\s*center/);
+  });
+
   it('lays a feature card out as icon and title, then the description', () => {
     expect(declarations('.card--action')).toMatch(/flex-direction:\s*column/);
     expect(declarations('.card__head')).toMatch(/align-items:\s*center/);
