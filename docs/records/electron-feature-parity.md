@@ -54,7 +54,7 @@
 
 | 能力 | Kotlin 位置 | Electron 落点 | 状态 | 证据 | 缺口 |
 | --- | --- | --- | --- | --- | --- |
-| Layout Inspector：协议 v1、可见窗口树采集、三栏工作区、隐藏层级、命中测试、虚拟化树 | `layout-inspector` (23,652 行) | `packages/layout-inspector` + `LayoutInspectorPanel` | 📝 | 采集走与 Kotlin 同一条 `cmd window dump-visible-window-views` 路径，解码器按 `VisibleWindowHierarchyParserTest` 的同一份编码夹具与断言逐条对照（`visible-window-views.test.ts`）；`layout-capture-service.test.ts`（原生优先、uiautomator 兜底、截图像素定标、截图失败不致命）、`tree.test.ts`（`depth-index` 编号 + `id/name` + 短类名）、`details.test.ts`（六段属性、缺失字段为 `—`、Float 渲染为 `8.0`）、`foreground-activity.test.ts` | 无 canvas 缩放/平移与全量 bounds 叠加；无 analysis findings 引擎；Compose 检查侧只落了 model 与脱敏；capture archive 未迁移 |
+| Layout Inspector：协议 v1、可见窗口树采集、三栏工作区、隐藏层级、命中测试、虚拟化树 | `layout-inspector` (23,652 行) | `packages/layout-inspector` + `LayoutInspectorPanel` | 📝 | 采集走与 Kotlin 同一条 `cmd window dump-visible-window-views` 路径，解码器按 `VisibleWindowHierarchyParserTest` 的同一份编码夹具与断言逐条对照（`visible-window-views.test.ts`）；`layout-capture-service.test.ts`（原生优先、uiautomator 兜底、截图像素定标、截图失败不致命）、`tree.test.ts`（`depth-index` 编号 + `id/name` + 短类名）、`details.test.ts`（六段属性、缺失字段为 `—`、Float 渲染为 `8.0`）、`foreground-activity.test.ts` | 画布已按 `CanvasGeometry`/`PreviewZoomState`/`PreviewPanState`/`ViewBoundsOverlay` 移植：缩放 0.5–2.5、平移钳制、仅应用裁剪（圆角 24）、全量可见 bounds 叠加与 hover/选中三色边框、同点轮选；`canvas.test.ts` 逐条移植参考实现的 CanvasGeometryTest / PreviewPanStateTest / PreviewZoomStateTest / ViewBoundsOverlayTest 断言。缺：FINDINGS 分析引擎（4 条规则与问题列表）、TIMELINE、层级搜索/隔离、Compose 检查、capture archive |
 | Trace Analyzer（内置 Perfetto UI） | `perfetto-viewer` | `TraceAnalyzerPanel` + `aps-perfetto://` | ✅ | `trace-capture-service.test.ts`、`trace-store.test.ts` | 依赖打包资源，见「打包」行 |
 | CPU Profiler（simpleperf） | `simpleperf-viewer` (46,238 行) | `packages/simpleperf-profiler` + `profile-analysis` | ✅ | golden corpus 3 例 + `perf.test.ts` 比值闸门 | 未接真实设备；百万 sample 口径未单独验证 |
 | Method Recording（ART trace） | `parser-art-trace` | `packages/art-trace` | ✅ | golden corpus 3 例 + `perf.test.ts` | `parse` 单段约为 JVM 的 2.4×，只报告不断言 |
@@ -98,7 +98,7 @@
 | --- | --- | --- |
 | D1–D5 验收项全部满足 | 📝 | D2 解析器闸门已达标；D4 的 `utilityProcess` 与 IPC schema 未做 |
 | 9 项 Profiler + Layout Inspector + Trace Analyzer + AI/Source 能力对齐并通过 golden / 人工对照 | 📝 | 全部有实现；golden 只覆盖 HPROF / SIMPLEPERF / ART trace 三条解析链路 |
-| 性能门槛全部达标 | 📝 | 解析器闸门（HPROF / simpleperf / ART）与 10k 层级均已达标，UI 滚动与命中 60fps（p95 16.7ms）；缩放仍无实现对象，帧率样本目前只有一两轮 CI |
+| 性能门槛全部达标 | 📝 | 解析器闸门（HPROF / simpleperf / ART）与 10k 层级均已达标；UI 闸门现在同时测量滚动、命中与画布缩放（`e2e/ui-perf.mjs` 的 `zoomCovered` 不再恒为 false），本机 10k 节点三项均为 120fps / p95 ≈ 9ms；CI 帧率样本仍只有一两轮 |
 | 六格式本地/CI 冒烟通过 | 📝 | 四组合已真实产出并校验（run `34626821255`）；macOS x64 待重跑 |
 | 既有设置 / SQLite / 归档可读 | 📝 | 设置与 source/ai 两个库共用；其余 feature 的会话路径分叉；归档未迁移 |
 | 文档更新，旧 Compose 路径归档 | ⏳ | 见 Phase 4 |

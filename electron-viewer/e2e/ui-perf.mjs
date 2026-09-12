@@ -9,8 +9,8 @@
  * that Electron already exposes. No extra dependency, and the numbers come from
  * the same code path a user gets.
  *
- * Zoom is reported as uncovered: the canvas has no zoom yet, and the gate says
- * so instead of quietly counting two of the three interactions as all three.
+ * All three interactions the PRD names are measured: scroll, hit test, and the
+ * canvas zoom, which repaints the bounds overlay of the whole tree.
  *
  * Usage: node e2e/ui-perf.mjs [--nodes 10000] [--seconds 2] [--out perf/ui-tree.json]
  * Requires the app to be built first: pnpm --filter @aps/desktop build
@@ -295,12 +295,22 @@ function probeSource(seconds) {
     '    let offset = 0;',
     '    const scroll = await sample(() => { offset = (offset + 240) % scrollRange; tree.scrollTop = offset; });',
     '    const image = document.querySelector(\'.preview img\');',
+    '    const zoomButtons = [...document.querySelectorAll(\'.canvas__zoom button\')];',
     '    const hit = await sample(() => {',
     '      if (!image) return;',
     '      const rect = image.getBoundingClientRect();',
     '      image.dispatchEvent(new MouseEvent(\'click\', { bubbles: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }));',
     '    });',
-    '    return { ok: true, scroll, hit, zoom: null, rows: expandedRows, scrollRange, hasPreview: image !== null };',
+    '    // Zoom steps repaint the bounds overlay, which is the expensive path for a',
+    '    // 10,000-node hierarchy; alternate between the two controls until each one',
+    '    // reaches its limit so the sample keeps changing the scale.',
+    '    let zoomDirection = 1;',
+    '    const zoom = zoomButtons.length === 2 ? await sample(() => {',
+    '      const button = zoomDirection === 1 ? zoomButtons[1] : zoomButtons[0];',
+    '      if (!button || button.disabled) { zoomDirection = -zoomDirection; return; }',
+    '      button.click();',
+    '    }) : null;',
+    '    return { ok: true, scroll, hit, zoom, rows: expandedRows, scrollRange, hasPreview: image !== null };',
     '  } catch (error) {',
     '    return { ok: false, reason: String((error && error.message) || error), ...describe() };',
     '  }',
@@ -369,7 +379,7 @@ async function main() {
       zoom: value?.zoom ?? null,
       rows: value?.rows ?? 0,
       scrollRange: value?.scrollRange ?? 0,
-      zoomCovered: false,
+      zoomCovered: value?.zoom !== null && value?.zoom !== undefined,
       osSandbox: sandbox.state,
       ok: value?.ok === true,
       ...(value?.ok === true
@@ -391,8 +401,9 @@ async function main() {
     console.log(JSON.stringify(report));
     const scrollOk = report.scroll !== null && report.scroll.fps >= MIN_FPS;
     const hitOk = report.hit !== null && report.hit.fps >= MIN_FPS;
-    if (!report.ok || !scrollOk || !hitOk) {
-      console.error('the UI gate did not pass; zoom is not covered because the canvas has no zoom yet');
+    const zoomOk = report.zoom !== null && report.zoom.fps >= MIN_FPS;
+    if (!report.ok || !scrollOk || !hitOk || !zoomOk) {
+      console.error('the UI gate did not pass');
       process.exitCode = 1;
     }
   } catch (error) {

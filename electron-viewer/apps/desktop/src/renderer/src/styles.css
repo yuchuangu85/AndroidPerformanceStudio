@@ -37,6 +37,8 @@
   --accent: #007aff;
   --accent-strong: #0062cc;
   --accent-soft: rgba(0, 122, 255, 0.12);
+  /* The hovered view's border, the same amber the canvas draws. */
+  --hover-ring: #f59e0b;
   --on-accent: #ffffff;
   --focus-ring: rgba(0, 122, 255, 0.35);
 
@@ -92,6 +94,7 @@
   --accent: #0a84ff;
   --accent-strong: #409cff;
   --accent-soft: rgba(10, 132, 255, 0.22);
+  --hover-ring: #f59e0b;
   --on-accent: #ffffff;
   --focus-ring: rgba(10, 132, 255, 0.45);
 
@@ -1033,10 +1036,15 @@ input:focus {
   opacity: 0.45;
 }
 
+.tree__row--hovered {
+  box-shadow: inset 2px 0 0 var(--hover-ring);
+}
+
 .tree__row--active,
 .tree__row--active:hover {
   background: var(--accent);
   color: var(--on-accent);
+  box-shadow: none;
 }
 
 .tree__twisty {
@@ -1079,26 +1087,73 @@ input:focus {
   font-size: 11px;
 }
 
+/* CANVAS: the screenshot at its own zoom and pan, with the bounds overlay. */
 .preview {
   position: relative;
-  display: inline-block;
-  max-width: 100%;
 }
 
-.preview__image {
-  display: block;
-  max-width: 100%;
-  max-height: 62vh;
+.canvas {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.canvas__viewport {
+  position: relative;
+  height: 460px;
+  overflow: hidden;
   border: 1px solid var(--separator);
   border-radius: var(--radius-control);
+  background: var(--surface-sunken);
   cursor: crosshair;
 }
 
-.preview__overlay {
+.canvas__stage {
   position: absolute;
-  border: 2px solid var(--accent);
-  background: var(--accent-soft);
+  overflow: hidden;
+}
+
+/* The reference rounds an app-only crop much more than a full-screen one. */
+.canvas__stage--app {
+  border-radius: 24px;
+}
+
+.canvas__stage .preview__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.canvas__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
+}
+
+.canvas__zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border: 1px solid var(--separator);
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: var(--panel-shadow);
+}
+
+.canvas__zoom-label {
+  min-width: 38px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .source-view {

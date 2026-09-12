@@ -2,10 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'rea
 import {
   clearHiddenLayers,
   computeHiddenSubtree,
-  cycleHitCandidate,
-  effectiveWindows,
   effectiveDefaultWindowId,
-  hitTestCandidates,
+  effectiveWindows,
   hideLayer,
   showLayer,
   type HitTestOrder,
@@ -16,6 +14,7 @@ import type { DeviceSummary, LayoutCaptureDetail, LayoutCaptureSummary } from '.
 import { translate, type UiLanguage } from '../../shared/i18n';
 import { nodeDetailSections } from './layout-inspector/details';
 import { layoutText } from './layout-inspector/labels';
+import { LayoutCanvas } from './layout-inspector/LayoutCanvas';
 import {
   buildLayoutTreeRows,
   hierarchyLabel,
@@ -43,14 +42,9 @@ interface ViewOptions {
 
 const DEFAULT_VIEW_OPTIONS: ViewOptions = { showIds: true, hideIndices: false, hideInvisible: false };
 
-function percent(value: number, total: number): string {
-  if (total <= 0) return '0%';
-  return (Math.min(Math.max(value, 0), total) / total) * 100 + '%';
-}
-
 function windowOf(snapshot: LayoutSnapshot, windowId: string): WindowSnapshot {
   const windows = effectiveWindows(snapshot);
-  return windows.find((window) => window.id === windowId) ?? windows[0] as WindowSnapshot;
+  return windows.find((window) => window.id === windowId) ?? (windows[0] as WindowSnapshot);
 }
 
 export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanelProps): JSX.Element {
@@ -59,6 +53,7 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   const [selectedId, setSelectedId] = useState('');
   const [detail, setDetail] = useState<LayoutCaptureDetail | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState('');
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | undefined>(undefined);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [activeWindowId, setActiveWindowId] = useState('');
@@ -67,7 +62,7 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   const [scrollTop, setScrollTop] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const lastClick = useRef<string>('');
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(() => {
     window.aps.listLayoutCaptures().then((records) => {
@@ -99,6 +94,7 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
         const windowId = effectiveDefaultWindowId(loaded.snapshot);
         setCollapsed(new Set());
         setHidden(clearHiddenLayers());
+        setHoveredNodeId(undefined);
         setActiveWindowId(windowId);
         setSelectedNodeId(windowOf(loaded.snapshot, windowId).root.id);
         setScrollTop(0);
@@ -152,13 +148,26 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
     () => rows.find((row) => row.node.id === selectedNodeId)?.node ?? activeWindow?.root ?? null,
     [rows, selectedNodeId, activeWindow],
   );
-  const selectedRow = useMemo(
-    () => rows.find((row) => row.node.id === selectedNodeId),
-    [rows, selectedNodeId],
-  );
+  const selectedRow = useMemo(() => rows.find((row) => row.node.id === selectedNodeId), [rows, selectedNodeId]);
   const detailSections = useMemo(
     () => (selected === null ? [] : nodeDetailSections(selected, (selectedRow?.depth ?? 0) + 1, language)),
     [language, selected, selectedRow],
+  );
+
+  /** Selecting from the canvas scrolls the row into view, as the reference does. */
+  const selectAndReveal = useCallback(
+    (nodeId: string) => {
+      setSelectedNodeId(nodeId);
+      const index = visibleRows.findIndex((row) => row.node.id === nodeId);
+      if (index < 0) return;
+      const first = Math.floor(scrollTop / ROW_HEIGHT);
+      const last = first + Math.floor(VIEWPORT_HEIGHT / ROW_HEIGHT);
+      if (index >= first && index <= last) return;
+      const target = Math.max(0, (index - Math.floor((last - first) / 2)) * ROW_HEIGHT);
+      setScrollTop(target);
+      if (scrollRef.current !== null) scrollRef.current.scrollTop = target;
+    },
+    [scrollTop, visibleRows],
   );
 
   const toggleCollapsed = useCallback((id: string) => {
@@ -184,23 +193,6 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
       setScrollTop(0);
     },
     [snapshot],
-  );
-
-  const onCanvasClick = useCallback(
-    (event: React.MouseEvent<HTMLImageElement>) => {
-      if (snapshot === null || activeWindow === null) return;
-      const rect = event.currentTarget.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
-      const x = ((event.clientX - rect.left) / rect.width) * snapshot.display.widthPx;
-      const y = ((event.clientY - rect.top) / rect.height) * snapshot.display.heightPx;
-      const candidates = hitTestCandidates(activeWindow.root, { x, y, hiddenSubtree, order: hitOrder });
-      if (candidates.length === 0) return;
-      const key = Math.round(x) + ':' + Math.round(y);
-      const next = key === lastClick.current ? cycleHitCandidate(candidates, selectedNodeId) : candidates[0];
-      lastClick.current = key;
-      if (next !== undefined) setSelectedNodeId(next.id);
-    },
-    [activeWindow, hiddenSubtree, hitOrder, selectedNodeId, snapshot],
   );
 
   return (
@@ -242,25 +234,10 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
               </select>
             </label>
           ) : null}
-          <label className="field">
-            <span>{translate('layout.hitOrder', language)}</span>
-            <select value={hitOrder} onChange={(event) => setHitOrder(event.target.value as HitTestOrder)}>
-              <option value="z-order">{translate('layout.orderZ', language)}</option>
-              <option value="smallest-area">{translate('layout.orderSmallest', language)}</option>
-            </select>
-          </label>
         </div>
         <button type="button" className="button" disabled={busy || serial.length === 0} onClick={capture}>
           {busy ? translate('layout.capturing', language) : translate('layout.captureAction', language)}
         </button>
-        {hidden.size > 0 ? (
-          <span className="hidden-summary">
-            {translate('layout.hidden', language)} {hidden.size} ·{' '}
-            <button type="button" className="button button--inline" onClick={() => setHidden(clearHiddenLayers())}>
-              {translate('layout.clearHidden', language)}
-            </button>
-          </span>
-        ) : null}
       </section>
 
       {snapshot === null || activeWindow === null ? (
@@ -270,6 +247,14 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
           <section className="card layout__pane">
             <div className="pane-header">
               <h3 className="pane-header__title">{layoutText('pane.hierarchy', language)}</h3>
+              <div className="pane-header__options">
+                <span className="pane-header__note">{visibleRows.length}</span>
+                <span className="pane-header__note">
+                  {layoutText('metrics.summary', language, metrics.nodeCount, metrics.maxDepth, metrics.widestLevel)}
+                </span>
+              </div>
+            </div>
+            <div className="pane-header">
               <div className="pane-header__options">
                 <button
                   type="button"
@@ -299,8 +284,10 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
             </div>
             <div
               className="tree"
+              ref={scrollRef}
               style={{ height: VIEWPORT_HEIGHT }}
               onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+              onMouseLeave={() => setHoveredNodeId(undefined)}
             >
               <div className="tree__spacer" style={{ height: visibleRows.length * ROW_HEIGHT }}>
                 {windowRows.map((row, index) => (
@@ -309,11 +296,14 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
                     className={
                       row.node.id === selectedNodeId
                         ? 'tree__row tree__row--active'
-                        : hiddenSubtree.has(row.node.id)
-                          ? 'tree__row tree__row--hidden'
-                          : 'tree__row'
+                        : row.node.id === hoveredNodeId
+                          ? 'tree__row tree__row--hovered'
+                          : hiddenSubtree.has(row.node.id)
+                            ? 'tree__row tree__row--hidden'
+                            : 'tree__row'
                     }
                     style={{ top: (start + index) * ROW_HEIGHT, paddingLeft: 4 + row.depth * INDENT }}
+                    onMouseEnter={() => setHoveredNodeId(row.node.id)}
                   >
                     <span
                       className="tree__twisty"
@@ -322,7 +312,7 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
                     >
                       {row.hasChildren ? (collapsed.has(row.node.id) ? '▸' : '▾') : '·'}
                     </span>
-                    <span className="tree__label" role="presentation" onClick={() => setSelectedNodeId(row.node.id)}>
+                    <span className="tree__label" role="presentation" onClick={() => selectAndReveal(row.node.id)}>
                       {hierarchyLabel(row, { hideIndex: options.hideIndices, showId: options.showIds })}
                     </span>
                     <span
@@ -343,37 +333,22 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
           </section>
 
           <section className="card layout__pane">
-            <div className="pane-header">
-              <h3 className="pane-header__title">{layoutText('pane.canvas', language)}</h3>
-              <span className="pane-header__note">
-                {layoutText('metrics.summary', language, metrics.nodeCount, metrics.maxDepth, metrics.widestLevel)}
-              </span>
-            </div>
-            <div className="preview">
-              {detail?.screenshotBase64 !== undefined ? (
-                <>
-                  <img
-                    className="preview__image"
-                    alt="device screenshot"
-                    src={'data:image/png;base64,' + detail.screenshotBase64}
-                    onClick={onCanvasClick}
-                  />
-                  {selected !== null && snapshot.display.widthPx > 0 ? (
-                    <div
-                      className="preview__overlay"
-                      style={{
-                        left: percent(selected.bounds.left, snapshot.display.widthPx),
-                        top: percent(selected.bounds.top, snapshot.display.heightPx),
-                        width: percent(selected.bounds.right - selected.bounds.left, snapshot.display.widthPx),
-                        height: percent(selected.bounds.bottom - selected.bounds.top, snapshot.display.heightPx),
-                      }}
-                    />
-                  ) : null}
-                </>
-              ) : (
-                <p className="card__muted">{layoutText('value.unavailable', language)}</p>
-              )}
-            </div>
+            <LayoutCanvas
+              root={activeWindow.root}
+              display={snapshot.display}
+              {...(detail?.screenshotBase64 !== undefined ? { screenshotBase64: detail.screenshotBase64 } : {})}
+              selectedNodeId={selectedNodeId}
+              hiddenSubtree={hiddenSubtree}
+              hiddenCount={hidden.size}
+              hitOrder={hitOrder}
+              language={language}
+              onSelect={selectAndReveal}
+              onHover={setHoveredNodeId}
+              onToggleHitOrder={() =>
+                setHitOrder((current) => (current === 'smallest-area' ? 'z-order' : 'smallest-area'))
+              }
+              onClearHidden={() => setHidden(clearHiddenLayers())}
+            />
           </section>
 
           <section className="card layout__pane">
@@ -387,7 +362,11 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
                 {detailSections.map((section) => (
                   <section
                     key={section.title}
-                    className={section.highlightsRenderingRisk === true ? 'details__section details__section--risks' : 'details__section'}
+                    className={
+                      section.highlightsRenderingRisk === true
+                        ? 'details__section details__section--risks'
+                        : 'details__section'
+                    }
                   >
                     <h4 className="details__title">{section.title}</h4>
                     <dl className="details__rows">
