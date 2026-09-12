@@ -13,6 +13,7 @@ import type { SourceResolutionEvidence } from '@aps/source-workspace';
 import { findPerfettoUiAssetsDirectory, type PerfettoUiAssetProbe } from '@aps/platform-perfetto';
 import { JsonSettingsStore } from '@aps/settings';
 import { buildAppInfo } from '../shared/app-info.js';
+import { shouldMaximizeWindow, type AppDestination } from '../shared/destinations.js';
 import {
   IPC_CHANNELS,
   type FrameCaptureInput,
@@ -601,10 +602,12 @@ function registerHandlers(): void {
     return directory;
   });
   ipcMain.handle(IPC_CHANNELS.refreshDevices, () => buildSnapshot());
-  ipcMain.handle(IPC_CHANNELS.openDestination, (_event, destination: string) => {
+  ipcMain.handle(IPC_CHANNELS.openDestination, (_event, destination: AppDestination) => {
     if (window === undefined) return;
-    if (destination === 'HOME') window.unmaximize();
-    else window.maximize();
+    // The window opens maximized and stays that way: coming back to the grid
+    // never shrinks it, because a launcher that resizes on the way home reads
+    // as a state change the user did not ask for.
+    if (shouldMaximizeWindow(destination)) window.maximize();
   });
   ipcMain.handle(IPC_CHANNELS.traceAnalyzer, () => buildTraceAnalyzerSnapshot());
   ipcMain.handle(IPC_CHANNELS.traceCapture, (_event, input: TraceCaptureInput) => runCapture(input));
@@ -1428,7 +1431,10 @@ function createWindow(): void {
     },
   });
 
+  // The app opens filling the work area rather than at 1280x800: the home page
+  // is a launcher grid, and every feature page has always maximized on entry.
   window.once('ready-to-show', () => {
+    window?.maximize();
     window?.show();
   });
 

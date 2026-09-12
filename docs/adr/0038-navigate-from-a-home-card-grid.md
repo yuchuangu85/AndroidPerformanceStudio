@@ -32,6 +32,10 @@ The shell has no sidebar. The home page is its only navigation surface.
   apps describe a feature in the same words; AI Analysis, which has no card
   there, gets a line written in the same voice. `DESTINATION_SUMMARY_KEYS` is
   typed over every feature destination, so a new card cannot ship without copy.
+- The window opens filling the work area and stays there. The reference
+  maximizes only when a feature page opens and never restores the windowed size
+  on the way back, so the shell now starts maximized: a launcher that resized on
+  the way home would read as a state change the user did not ask for.
 - The toolbar owns the chrome the sidebar used to carry: a back-to-home icon
   button whenever the current destination is not home, and the settings button
   that opens `SettingsPage`. The device chip and Refresh stay where they were.
