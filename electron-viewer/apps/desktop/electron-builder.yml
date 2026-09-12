@@ -14,6 +14,13 @@ files:
 npmRebuild: false
 publish: null
 
+# electron-builder copies out/ as it finds it; it never builds it. A stale out/
+# is how a package that starts and then shows an empty window gets produced, and
+# nothing about the package looks wrong afterwards. The hook refuses to pack a
+# bundle older than the sources it came from, so the mistake fails here instead
+# of in front of a user.
+beforePack: ./scripts/check-build-freshness.mjs
+
 # The resource names the application looks for at runtime. Both paths are
 # checked in main: <resources>/perfetto-ui and <resources>/perfetto-tools.
 # Without them a package starts and then has no Trace Processor and no bundled
