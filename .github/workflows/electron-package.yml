@@ -76,10 +76,14 @@ jobs:
       - name: Install dependencies
         working-directory: electron-viewer
         run: pnpm install --frozen-lockfile
-      - name: Set the package version
+      # package.json carries the release version and electron-builder reads it
+      # from there, so a smoke package is named after the version the app itself
+      # reports. Checking the format here fails before the matrix spends its
+      # minutes, which is what the old placeholder injection bought.
+      - name: Check the package version
         working-directory: electron-viewer/apps/desktop
         shell: bash
-        run: node scripts/set-version.mjs 0.0.0
+        run: node -e "const v = require('./package.json').version; if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(v)) { console.error('malformed version ' + v); process.exit(1); } console.log('packaging version ' + v);"
       - name: Build the renderer and main process
         working-directory: electron-viewer
         run: pnpm --filter @aps/desktop build

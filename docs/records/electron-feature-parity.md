@@ -79,7 +79,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 六格式安装包（DMG/PKG/MSI/EXE/DEB/RPM × 5 组合 = 10 资产） | `release.yml` + jpackage | `electron-builder.yml` + `.github/workflows/electron-package.yml` | 📝 | CI `Electron packages` run `34626821255`：Linux x64 DEB+RPM、Linux arm64 DEB+RPM、Windows x64 MSI+EXE、macOS arm64 DMG+PKG **实际产出并通过包内资产校验**（4/5 组合）| macOS x64 组合未通过，原因是 runner 上 `dmgbuild` 的 `hdiutil: couldn't eject "disk2" - Resource busy`，属基础设施抖动；未签名未公证（D5 有意为之） |
 | 运行时资产随包（Perfetto UI、trace_processor、图标） | `desktop-app/build.gradle.kts` 资源段 | `extraResources` + `build/icon.*` | ✅ | 每个打包 job 都对产物执行 `scripts/verify-package.mjs`：断言 `perfetto-ui/index.html`、`perfetto-tools/trace_processor_shell`（Windows 为 `.exe`）存在，且二进制 SHA-256 与 `trace-processor-manifest.json` 一致；4/5 组合已通过 | – |
-| 版本注入与产物命名 | `-PappVersion` | `scripts/set-version.mjs` + `artifactName` | ✅ | 命名契约与 Kotlin 一致 | – |
+| 版本注入与产物命名 | `-PappVersion`（默认 0.4.6） | `scripts/set-version.mjs` + `artifactName` | ✅ | 命名契约与 Kotlin 一致；版本写在 `apps/desktop/package.json`（当前 0.4.6，与 Kotlin 默认版本同一号），`app.getVersion()` 与产物名都取自它；CI 只校验格式、不再用占位版本覆盖 | – |
 | capture archive 导入/导出 | `CaptureArchiveCodec` | – | ⏳ | – | 未迁移 |
 | 多窗口协议 | `capture` 多 window | `layout-inspector` 模型带 `windows` + 面板窗口选择器 | ✅ | `codec` 覆盖 windows；`layout-capture-service.test.ts` 断言多窗口解析、`defaultWindowId` 取节点最多的窗口；面板在两个以上窗口时显示选择器并切换树/画布/属性 | – |
 | 文档随包分发 | `docs-user` / `docs-user-zh` | – | ⏳ | – | 未打包，应用内也没有打开入口 |
