@@ -718,35 +718,131 @@ input:focus {
   color: var(--faint);
 }
 
-/* Key/value inspector. */
-.facts {
+/* Pane chrome: the three inspector panes share one header shape. */
+.pane-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.pane-header__title {
   margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pane-header__note {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pane-header__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.toggle {
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  background: var(--control-bg);
+  color: var(--muted);
+  box-shadow: var(--control-shadow);
+  font-family: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.toggle:hover {
+  color: var(--text);
+}
+
+.toggle--on {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+
+.toggle--on:hover {
+  color: var(--on-accent);
+}
+
+/* PROPERTIES: five derived sections plus every raw property the device sent. */
+.details {
+  max-height: 460px;
+  overflow: auto;
+  padding-right: 4px;
   font-size: 12px;
 }
 
-.facts__row {
+.details__section {
+  margin-bottom: 14px;
+}
+
+.details__section:last-child {
+  margin-bottom: 0;
+}
+
+.details__section--risks .details__title {
+  color: var(--accent);
+}
+
+.details__title {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.details__rows {
+  margin: 0;
+}
+
+.details__row {
   display: grid;
-  grid-template-columns: minmax(80px, 34%) minmax(0, 1fr);
-  gap: 10px;
-  padding: 5px 0;
+  grid-template-columns: minmax(76px, 38%) minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0;
   border-bottom: 1px solid var(--separator);
 }
 
-.facts__row:last-child {
+.details__row:last-child {
   border-bottom: none;
 }
 
-.facts__row dt {
+.details__label {
   color: var(--muted);
   font-size: 11px;
   overflow-wrap: anywhere;
 }
 
-.facts__row dd {
+.details__value {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11.5px;
   overflow-wrap: anywhere;
+}
+
+.details__row--warning .details__value {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.details__row--info .details__value {
+  color: var(--accent);
 }
 
 .metrics {
@@ -906,7 +1002,8 @@ input:focus {
   border-radius: var(--radius-control);
   background: var(--surface-sunken);
   font-family: var(--font-mono);
-  font-size: 12px;
+  /* The reference draws a dense 20dp row at 10sp so a deep hierarchy fits. */
+  font-size: 11px;
 }
 
 .tree__spacer {
@@ -920,7 +1017,7 @@ input:focus {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 22px;
+  height: 20px;
   padding-right: 6px;
   border-radius: 4px;
   white-space: nowrap;

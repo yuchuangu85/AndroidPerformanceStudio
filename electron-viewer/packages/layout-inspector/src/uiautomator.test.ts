@@ -30,8 +30,8 @@ describe('parseUiAutomatorHierarchy', () => {
     expect(hierarchy.rotation).toBe(0);
     expect(hierarchy.root.type).toBe('view');
     expect(hierarchy.root.className).toBe('android.widget.FrameLayout');
-    expect(hierarchy.root.id).toBe('0');
-    expect(hierarchy.root.children.map((child) => child.id)).toEqual(['0.0', '0.1']);
+    expect(hierarchy.root.id).toBe('root');
+    expect(hierarchy.root.children.map((child) => child.id)).toEqual(['root/0', 'root/1']);
     expect(hierarchy.root.children[0]?.className).toBe('android.widget.TextView');
   });
 

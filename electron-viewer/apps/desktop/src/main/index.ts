@@ -1368,7 +1368,9 @@ function registerHandlers(): void {
     const png = await store.loadScreenshot(id);
     return {
       snapshot,
-      ...(png !== undefined && png.length <= MAX_INLINE_SCREENSHOT_BYTES
+      // An empty file is a capture taken without pixels, which the canvas
+      // reports as unavailable rather than rendering a broken image.
+      ...(png !== undefined && png.length > 0 && png.length <= MAX_INLINE_SCREENSHOT_BYTES
         ? { screenshotBase64: png.toString('base64') }
         : {}),
     };

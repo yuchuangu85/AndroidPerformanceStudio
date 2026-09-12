@@ -3,48 +3,54 @@ import {
   clearHiddenLayers,
   computeHiddenSubtree,
   cycleHitCandidate,
-  flattenVisibleTree,
+  effectiveWindows,
+  effectiveDefaultWindowId,
   hitTestCandidates,
   hideLayer,
   showLayer,
   type HitTestOrder,
   type LayoutSnapshot,
-  type TreeRow,
-  type UiNode,
+  type WindowSnapshot,
 } from '@aps/layout-inspector';
 import type { DeviceSummary, LayoutCaptureDetail, LayoutCaptureSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
+import { nodeDetailSections } from './layout-inspector/details';
+import { layoutText } from './layout-inspector/labels';
+import {
+  buildLayoutTreeRows,
+  hierarchyLabel,
+  treeMetrics,
+  visibleTreeRows,
+  type LayoutTreeRow,
+} from './layout-inspector/tree';
 
 export interface LayoutInspectorPanelProps {
   readonly language: UiLanguage;
   readonly devices: readonly DeviceSummary[];
 }
 
-const ROW_HEIGHT = 22;
+/** The reference draws 20dp rows at 10sp with a 14dp indent. */
+const ROW_HEIGHT = 20;
+const INDENT = 14;
 const VIEWPORT_HEIGHT = 440;
 const OVERSCAN = 12;
-const DEFAULT_EXPANDED_DEPTH = 2;
 
-function defaultExpanded(root: UiNode): Set<string> {
-  const expanded = new Set<string>();
-  const visit = (node: UiNode, depth: number): void => {
-    if (depth >= DEFAULT_EXPANDED_DEPTH) return;
-    expanded.add(node.id);
-    for (const child of node.children) visit(child, depth + 1);
-  };
-  visit(root, 0);
-  return expanded;
+interface ViewOptions {
+  readonly showIds: boolean;
+  readonly hideIndices: boolean;
+  readonly hideInvisible: boolean;
 }
 
-function labelOf(node: UiNode): string {
-  const shortClass = node.className.split('.').pop() ?? node.className;
-  const name = node.type === 'view' ? node.resourceName : undefined;
-  return name !== undefined && name.length > 0 ? shortClass + ' · ' + name : shortClass;
-}
+const DEFAULT_VIEW_OPTIONS: ViewOptions = { showIds: true, hideIndices: false, hideInvisible: false };
 
 function percent(value: number, total: number): string {
   if (total <= 0) return '0%';
   return (Math.min(Math.max(value, 0), total) / total) * 100 + '%';
+}
+
+function windowOf(snapshot: LayoutSnapshot, windowId: string): WindowSnapshot {
+  const windows = effectiveWindows(snapshot);
+  return windows.find((window) => window.id === windowId) ?? windows[0] as WindowSnapshot;
 }
 
 export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanelProps): JSX.Element {
@@ -53,9 +59,11 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   const [selectedId, setSelectedId] = useState('');
   const [detail, setDetail] = useState<LayoutCaptureDetail | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState('');
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
-  const [hitOrder, setHitOrder] = useState<HitTestOrder>('z-order');
+  const [activeWindowId, setActiveWindowId] = useState('');
+  const [options, setOptions] = useState<ViewOptions>(DEFAULT_VIEW_OPTIONS);
+  const [hitOrder, setHitOrder] = useState<HitTestOrder>('smallest-area');
   const [scrollTop, setScrollTop] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -86,10 +94,13 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
       .then((loaded) => {
         setDetail(loaded ?? null);
         if (loaded === undefined) return;
-        // Hidden layers and expansion are per-snapshot; a new capture starts clean.
-        setExpanded(defaultExpanded(loaded.snapshot.root));
+        // Collapsed layers, hidden layers and the open window are per-snapshot;
+        // a new capture starts fully expanded, exactly as the reference opens it.
+        const windowId = effectiveDefaultWindowId(loaded.snapshot);
+        setCollapsed(new Set());
         setHidden(clearHiddenLayers());
-        setSelectedNodeId(loaded.snapshot.root.id);
+        setActiveWindowId(windowId);
+        setSelectedNodeId(windowOf(loaded.snapshot, windowId).root.id);
         setScrollTop(0);
       })
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)));
@@ -114,26 +125,44 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
   }, [language, refresh, serial]);
 
   const snapshot: LayoutSnapshot | null = detail?.snapshot ?? null;
+  const windows = useMemo(() => (snapshot === null ? [] : effectiveWindows(snapshot)), [snapshot]);
+  const activeWindow = useMemo(
+    () => (snapshot === null ? null : windowOf(snapshot, activeWindowId)),
+    [activeWindowId, snapshot],
+  );
   const hiddenSubtree = useMemo(
-    () => (snapshot === null ? new Set<string>() : computeHiddenSubtree(hidden, snapshot.root)),
-    [hidden, snapshot],
+    () => (activeWindow === null ? new Set<string>() : computeHiddenSubtree(hidden, activeWindow.root)),
+    [activeWindow, hidden],
   );
-  const rows: TreeRow[] = useMemo(
-    () => (snapshot === null ? [] : flattenVisibleTree(snapshot.root, { expanded, hiddenSubtree })),
-    [expanded, hiddenSubtree, snapshot],
+  const rows: LayoutTreeRow[] = useMemo(
+    () => (activeWindow === null ? [] : buildLayoutTreeRows(activeWindow.root)),
+    [activeWindow],
   );
+  const visibleRows = useMemo(
+    () => visibleTreeRows(rows, collapsed, options.hideInvisible),
+    [collapsed, options.hideInvisible, rows],
+  );
+  const metrics = useMemo(() => treeMetrics(rows), [rows]);
 
   const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const end = Math.min(rows.length, Math.ceil((scrollTop + VIEWPORT_HEIGHT) / ROW_HEIGHT) + OVERSCAN);
-  const windowRows = rows.slice(start, end);
+  const end = Math.min(visibleRows.length, Math.ceil((scrollTop + VIEWPORT_HEIGHT) / ROW_HEIGHT) + OVERSCAN);
+  const windowRows = visibleRows.slice(start, end);
 
   const selected = useMemo(
-    () => rows.find((row) => row.node.id === selectedNodeId)?.node ?? snapshot?.root ?? null,
-    [rows, selectedNodeId, snapshot],
+    () => rows.find((row) => row.node.id === selectedNodeId)?.node ?? activeWindow?.root ?? null,
+    [rows, selectedNodeId, activeWindow],
+  );
+  const selectedRow = useMemo(
+    () => rows.find((row) => row.node.id === selectedNodeId),
+    [rows, selectedNodeId],
+  );
+  const detailSections = useMemo(
+    () => (selected === null ? [] : nodeDetailSections(selected, (selectedRow?.depth ?? 0) + 1, language)),
+    [language, selected, selectedRow],
   );
 
-  const toggleExpanded = useCallback((id: string) => {
-    setExpanded((current) => {
+  const toggleCollapsed = useCallback((id: string) => {
+    setCollapsed((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -141,21 +170,37 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
     });
   }, []);
 
+  const toggleOption = useCallback((key: keyof ViewOptions) => {
+    setOptions((current) => ({ ...current, [key]: !current[key] }));
+  }, []);
+
+  const selectWindow = useCallback(
+    (windowId: string) => {
+      if (snapshot === null) return;
+      const window = windowOf(snapshot, windowId);
+      setActiveWindowId(window.id);
+      setSelectedNodeId(window.root.id);
+      setCollapsed(new Set());
+      setScrollTop(0);
+    },
+    [snapshot],
+  );
+
   const onCanvasClick = useCallback(
     (event: React.MouseEvent<HTMLImageElement>) => {
-      if (snapshot === null) return;
+      if (snapshot === null || activeWindow === null) return;
       const rect = event.currentTarget.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       const x = ((event.clientX - rect.left) / rect.width) * snapshot.display.widthPx;
       const y = ((event.clientY - rect.top) / rect.height) * snapshot.display.heightPx;
-      const candidates = hitTestCandidates(snapshot.root, { x, y, hiddenSubtree, order: hitOrder });
+      const candidates = hitTestCandidates(activeWindow.root, { x, y, hiddenSubtree, order: hitOrder });
       if (candidates.length === 0) return;
       const key = Math.round(x) + ':' + Math.round(y);
       const next = key === lastClick.current ? cycleHitCandidate(candidates, selectedNodeId) : candidates[0];
       lastClick.current = key;
       if (next !== undefined) setSelectedNodeId(next.id);
     },
-    [hiddenSubtree, hitOrder, selectedNodeId, snapshot],
+    [activeWindow, hiddenSubtree, hitOrder, selectedNodeId, snapshot],
   );
 
   return (
@@ -185,6 +230,18 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
               ))}
             </select>
           </label>
+          {windows.length > 1 ? (
+            <label className="field">
+              <span>{layoutText('window.title', language)}</span>
+              <select value={activeWindowId} onChange={(event) => selectWindow(event.target.value)}>
+                {windows.map((window) => (
+                  <option key={window.id} value={window.id}>
+                    {window.title} · {window.type}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="field">
             <span>{translate('layout.hitOrder', language)}</span>
             <select value={hitOrder} onChange={(event) => setHitOrder(event.target.value as HitTestOrder)}>
@@ -199,55 +256,83 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
         {hidden.size > 0 ? (
           <span className="hidden-summary">
             {translate('layout.hidden', language)} {hidden.size} ·{' '}
-            <button
-              type="button"
-              className="button button--inline"
-              onClick={() => setHidden(clearHiddenLayers())}
-            >
+            <button type="button" className="button button--inline" onClick={() => setHidden(clearHiddenLayers())}>
               {translate('layout.clearHidden', language)}
             </button>
           </span>
         ) : null}
       </section>
 
-      {snapshot === null ? (
+      {snapshot === null || activeWindow === null ? (
         <p className="content__muted">{translate('layout.none', language)}</p>
       ) : (
         <div className="layout">
           <section className="card layout__pane">
-            <h3 className="card__title">{translate('layout.hierarchy', language)}</h3>
+            <div className="pane-header">
+              <h3 className="pane-header__title">{layoutText('pane.hierarchy', language)}</h3>
+              <div className="pane-header__options">
+                <button
+                  type="button"
+                  className={options.showIds ? 'toggle toggle--on' : 'toggle'}
+                  aria-pressed={options.showIds}
+                  onClick={() => toggleOption('showIds')}
+                >
+                  {layoutText('view.showIds', language)}
+                </button>
+                <button
+                  type="button"
+                  className={options.hideIndices ? 'toggle toggle--on' : 'toggle'}
+                  aria-pressed={options.hideIndices}
+                  onClick={() => toggleOption('hideIndices')}
+                >
+                  {layoutText('view.hideIndices', language)}
+                </button>
+                <button
+                  type="button"
+                  className={options.hideInvisible ? 'toggle toggle--on' : 'toggle'}
+                  aria-pressed={options.hideInvisible}
+                  onClick={() => toggleOption('hideInvisible')}
+                >
+                  {layoutText('view.hideInvisible', language)}
+                </button>
+              </div>
+            </div>
             <div
               className="tree"
               style={{ height: VIEWPORT_HEIGHT }}
               onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
             >
-              <div className="tree__spacer" style={{ height: rows.length * ROW_HEIGHT }}>
+              <div className="tree__spacer" style={{ height: visibleRows.length * ROW_HEIGHT }}>
                 {windowRows.map((row, index) => (
                   <div
                     key={row.node.id}
                     className={
                       row.node.id === selectedNodeId
                         ? 'tree__row tree__row--active'
-                        : row.hidden || row.hiddenByAncestor
+                        : hiddenSubtree.has(row.node.id)
                           ? 'tree__row tree__row--hidden'
                           : 'tree__row'
                     }
-                    style={{ top: (start + index) * ROW_HEIGHT, paddingLeft: 4 + row.depth * 12 }}
+                    style={{ top: (start + index) * ROW_HEIGHT, paddingLeft: 4 + row.depth * INDENT }}
                   >
                     <span
                       className="tree__twisty"
                       role="presentation"
-                      onClick={() => row.hasChildren && toggleExpanded(row.node.id)}
+                      onClick={() => row.hasChildren && toggleCollapsed(row.node.id)}
                     >
-                      {row.hasChildren ? (row.expanded ? '▾' : '▸') : '·'}
+                      {row.hasChildren ? (collapsed.has(row.node.id) ? '▸' : '▾') : '·'}
                     </span>
                     <span className="tree__label" role="presentation" onClick={() => setSelectedNodeId(row.node.id)}>
-                      {labelOf(row.node)}
+                      {hierarchyLabel(row, { hideIndex: options.hideIndices, showId: options.showIds })}
                     </span>
                     <span
                       className="tree__action"
                       role="presentation"
-                      onClick={() => setHidden((current) => (current.has(row.node.id) ? showLayer(current, row.node.id) : hideLayer(current, row.node.id)))}
+                      onClick={() =>
+                        setHidden((current) =>
+                          current.has(row.node.id) ? showLayer(current, row.node.id) : hideLayer(current, row.node.id),
+                        )
+                      }
                     >
                       {hidden.has(row.node.id) ? translate('layout.show', language) : translate('layout.hide', language)}
                     </span>
@@ -258,7 +343,12 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
           </section>
 
           <section className="card layout__pane">
-            <h3 className="card__title">{translate('layout.preview', language)}</h3>
+            <div className="pane-header">
+              <h3 className="pane-header__title">{layoutText('pane.canvas', language)}</h3>
+              <span className="pane-header__note">
+                {layoutText('metrics.summary', language, metrics.nodeCount, metrics.maxDepth, metrics.widestLevel)}
+              </span>
+            </div>
             <div className="preview">
               {detail?.screenshotBase64 !== undefined ? (
                 <>
@@ -281,48 +371,36 @@ export function LayoutInspectorPanel({ language, devices }: LayoutInspectorPanel
                   ) : null}
                 </>
               ) : (
-                <p className="card__muted">{translate('status.unavailable', language)}</p>
+                <p className="card__muted">{layoutText('value.unavailable', language)}</p>
               )}
             </div>
           </section>
 
           <section className="card layout__pane">
-            <h3 className="card__title">{translate('layout.properties', language)}</h3>
+            <div className="pane-header">
+              <h3 className="pane-header__title">{layoutText('pane.properties', language)}</h3>
+            </div>
             {selected === null ? (
               <p className="card__muted">{translate('layout.noSelection', language)}</p>
             ) : (
-              <dl className="facts">
-                <div className="facts__row">
-                  <dt>id</dt>
-                  <dd>{selected.id}</dd>
-                </div>
-                <div className="facts__row">
-                  <dt>class</dt>
-                  <dd>{selected.className}</dd>
-                </div>
-                {selected.text !== undefined ? (
-                  <div className="facts__row">
-                    <dt>text</dt>
-                    <dd>{selected.text}</dd>
-                  </div>
-                ) : null}
-                <div className="facts__row">
-                  <dt>bounds</dt>
-                  <dd>
-                    [{selected.bounds.left},{selected.bounds.top}][{selected.bounds.right},{selected.bounds.bottom}]
-                  </dd>
-                </div>
-                {selected.type === 'view'
-                  ? Object.entries(selected.attributes.rawProperties)
-                      .filter(([key]) => ['content-desc', 'clickable', 'enabled', 'focused', 'selected'].includes(key))
-                      .map(([key, value]) => (
-                        <div className="facts__row" key={key}>
-                          <dt>{key}</dt>
-                          <dd>{value}</dd>
+              <div className="details">
+                {detailSections.map((section) => (
+                  <section
+                    key={section.title}
+                    className={section.highlightsRenderingRisk === true ? 'details__section details__section--risks' : 'details__section'}
+                  >
+                    <h4 className="details__title">{section.title}</h4>
+                    <dl className="details__rows">
+                      {section.rows.map((row) => (
+                        <div className={'details__row details__row--' + row.tone} key={row.label}>
+                          <dt className="details__label">{row.label}</dt>
+                          <dd className="details__value">{row.value}</dd>
                         </div>
-                      ))
-                  : null}
-              </dl>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
+              </div>
             )}
           </section>
         </div>

@@ -85,7 +85,9 @@ export function parseUiAutomatorHierarchy(xml: string): UiAutomatorHierarchy {
     const attributes = attributesOf(match[3] ?? '');
     const parent = stack.at(-1);
     const index = parent === undefined ? String(roots.length) : String(parent.children.length);
-    const id = parent === undefined ? index : parent.id + '.' + index;
+    // The reference names paths root, root/0, root/0/1 — the same ids the
+    // Visible Window Views reader produces, so both paths show one id scheme.
+    const id = parent === undefined ? 'root' : parent.id + '/' + index;
     const entry: RawNode = { id, attributes, children: [] };
     if (selfClosing) {
       if (parent === undefined) roots.push(entry);

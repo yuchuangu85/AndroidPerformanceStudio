@@ -54,7 +54,7 @@
 
 | 能力 | Kotlin 位置 | Electron 落点 | 状态 | 证据 | 缺口 |
 | --- | --- | --- | --- | --- | --- |
-| Layout Inspector：协议 v1、隐藏层级、命中测试、虚拟化树 | `layout-inspector` (23,652 行) | `packages/layout-inspector` + `LayoutInspectorPanel` | 📝 | `codec.test.ts`、`interaction.test.ts`、`uiautomator.test.ts`、`hidden-layers` | 无 canvas：没有缩放/平移/全量 bounds 叠加；Compose 检查侧只落了 model 与脱敏 |
+| Layout Inspector：协议 v1、可见窗口树采集、三栏工作区、隐藏层级、命中测试、虚拟化树 | `layout-inspector` (23,652 行) | `packages/layout-inspector` + `LayoutInspectorPanel` | 📝 | 采集走与 Kotlin 同一条 `cmd window dump-visible-window-views` 路径，解码器按 `VisibleWindowHierarchyParserTest` 的同一份编码夹具与断言逐条对照（`visible-window-views.test.ts`）；`layout-capture-service.test.ts`（原生优先、uiautomator 兜底、截图像素定标、截图失败不致命）、`tree.test.ts`（`depth-index` 编号 + `id/name` + 短类名）、`details.test.ts`（六段属性、缺失字段为 `—`、Float 渲染为 `8.0`）、`foreground-activity.test.ts` | 无 canvas 缩放/平移与全量 bounds 叠加；无 analysis findings 引擎；Compose 检查侧只落了 model 与脱敏；capture archive 未迁移 |
 | Trace Analyzer（内置 Perfetto UI） | `perfetto-viewer` | `TraceAnalyzerPanel` + `aps-perfetto://` | ✅ | `trace-capture-service.test.ts`、`trace-store.test.ts` | 依赖打包资源，见「打包」行 |
 | CPU Profiler（simpleperf） | `simpleperf-viewer` (46,238 行) | `packages/simpleperf-profiler` + `profile-analysis` | ✅ | golden corpus 3 例 + `perf.test.ts` 比值闸门 | 未接真实设备；百万 sample 口径未单独验证 |
 | Method Recording（ART trace） | `parser-art-trace` | `packages/art-trace` | ✅ | golden corpus 3 例 + `perf.test.ts` | `parse` 单段约为 JVM 的 2.4×，只报告不断言 |
@@ -80,7 +80,7 @@
 | 运行时资产随包（Perfetto UI、trace_processor、图标） | `desktop-app/build.gradle.kts` 资源段 | `extraResources` + `build/icon.*` | ✅ | 每个打包 job 都对产物执行 `scripts/verify-package.mjs`：断言 `perfetto-ui/index.html`、`perfetto-tools/trace_processor_shell`（Windows 为 `.exe`）存在，且二进制 SHA-256 与 `trace-processor-manifest.json` 一致；4/5 组合已通过 | – |
 | 版本注入与产物命名 | `-PappVersion` | `scripts/set-version.mjs` + `artifactName` | ✅ | 命名契约与 Kotlin 一致 | – |
 | capture archive 导入/导出 | `CaptureArchiveCodec` | – | ⏳ | – | 未迁移 |
-| 多窗口协议 | `capture` 多 window | `layout-inspector` 模型带 `windows` | 📝 | `codec` 覆盖 windows | 面板未提供窗口选择器 |
+| 多窗口协议 | `capture` 多 window | `layout-inspector` 模型带 `windows` + 面板窗口选择器 | ✅ | `codec` 覆盖 windows；`layout-capture-service.test.ts` 断言多窗口解析、`defaultWindowId` 取节点最多的窗口；面板在两个以上窗口时显示选择器并切换树/画布/属性 | – |
 | 文档随包分发 | `docs-user` / `docs-user-zh` | – | ⏳ | – | 未打包，应用内也没有打开入口 |
 
 ## 已知的有意偏离
