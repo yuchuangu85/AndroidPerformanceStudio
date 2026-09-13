@@ -6,6 +6,12 @@
   "engines": {
     "node": ">=22"
   },
+  "pnpm": {
+    "//": "pnpm 10+ skips dependency build scripts unless they are listed here. Electron postinstall is what unpacks node_modules/electron/dist, and without it neither the dev server nor electron-vite can start the app.",
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
+  },
   "scripts": {
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",

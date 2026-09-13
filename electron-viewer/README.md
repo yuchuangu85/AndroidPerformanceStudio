@@ -29,6 +29,11 @@ pnpm perf:ui          # frame-rate gate; needs a display or xvfb
 pnpm package:smoke    # electron-builder --dir, no publish/signing
 ```
 
+`scripts/package-electron.sh` (from the repository root) runs the whole sequence
+— build, package, asset verification, checksums — for the host platform. It
+drives the local electron-vite and electron-builder binaries, so it also works
+on a machine where `pnpm` is not on `PATH`.
+
 Packaging a real installer also needs the bundled assets to exist first:
 `./scripts/build-perfetto-ui.sh download` and
 `PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh`
