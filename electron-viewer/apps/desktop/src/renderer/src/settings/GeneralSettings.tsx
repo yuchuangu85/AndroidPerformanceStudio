@@ -6,7 +6,8 @@ import type {
   ApplicationUiSettings,
   ApplicationUiSettingsPatch,
 } from '../../../shared/settings-contract';
-import { SettingsChoice, SettingsField, SettingsSection } from './controls';
+import { ACCENT_COLOR_PRESETS, DISPLAY_SCALE_PERCENTS } from '../../../shared/settings-contract';
+import { SettingsField, SettingsSection, SettingsSelect } from './controls';
 
 export interface GeneralSettingsProps {
   readonly language: UiLanguage;
@@ -41,8 +42,11 @@ export function GeneralSettings({ language, settings, onPatch }: GeneralSettings
 
   return (
     <>
-      <SettingsSection title={translate('settings.general', language)}>
-        <SettingsChoice
+      <SettingsSection
+        title={translate('settings.general', language)}
+        description={translate('settings.displayScaleHint', language)}
+      >
+        <SettingsSelect
           label={translate('shell.language', language)}
           value={settings.language}
           options={(['system', 'simplified_chinese', 'english'] as const).map((option) => ({
@@ -51,7 +55,7 @@ export function GeneralSettings({ language, settings, onPatch }: GeneralSettings
           }))}
           onChange={(value) => onPatch({ language: value })}
         />
-        <SettingsChoice
+        <SettingsSelect
           label={translate('shell.theme', language)}
           value={settings.theme}
           options={(['system', 'light', 'dark'] as const).map((option) => ({
@@ -59,6 +63,41 @@ export function GeneralSettings({ language, settings, onPatch }: GeneralSettings
             label: translate(THEME_KEYS[option], language),
           }))}
           onChange={(value) => onPatch({ theme: value })}
+        />
+        <div className="settings__row">
+          <span className="settings__row-label">{translate('settings.accentColor', language)}</span>
+          <div
+            className="settings__accents"
+            role="radiogroup"
+            aria-label={translate('settings.accentColor', language)}
+          >
+            {ACCENT_COLOR_PRESETS.map((preset) => {
+              const name = translate(('accentColor.' + preset.key) as ShellStringKey, language);
+              const chosen = settings.accentColor === preset.key;
+              return (
+                <button
+                  key={preset.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={chosen}
+                  aria-label={name}
+                  title={name}
+                  className={chosen ? 'settings__accent settings__accent--selected' : 'settings__accent'}
+                  style={{ background: preset.color }}
+                  onClick={() => onPatch({ accentColor: preset.key })}
+                />
+              );
+            })}
+          </div>
+        </div>
+        <SettingsSelect
+          label={translate('settings.displayScale', language)}
+          value={String(settings.displayScalePercent)}
+          options={DISPLAY_SCALE_PERCENTS.map((percent) => ({
+            value: String(percent),
+            label: String(percent) + '%',
+          }))}
+          onChange={(value) => onPatch({ displayScalePercent: Number(value) })}
         />
       </SettingsSection>
 

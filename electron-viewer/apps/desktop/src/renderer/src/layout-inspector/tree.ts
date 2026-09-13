@@ -117,6 +117,69 @@ export function hierarchyLabel(row: LayoutTreeRow, options: HierarchyLabelOption
   return parts.join('  ');
 }
 
+/**
+ * The reference's HierarchyTreeState.toggleExpandable: Enter on a row with
+ * children collapses or expands it, and does nothing on a leaf.
+ */
+export function toggledCollapsed(
+  collapsed: ReadonlySet<string>,
+  rows: readonly LayoutTreeRow[],
+  nodeId: string,
+): ReadonlySet<string> {
+  if (!rows.some((row) => row.node.id === nodeId && row.hasChildren)) return collapsed;
+  const next = new Set(collapsed);
+  if (next.has(nodeId)) next.delete(nodeId);
+  else next.add(nodeId);
+  return next;
+}
+
+/**
+ * The reference's HierarchyTreeState.reveal: every collapsed ancestor of the
+ * node is expanded, so selecting a node the canvas found brings its row back
+ * into view.
+ */
+export function revealedCollapsed(
+  collapsed: ReadonlySet<string>,
+  rows: readonly LayoutTreeRow[],
+  nodeId: string,
+): ReadonlySet<string> {
+  const targetIndex = rows.findIndex((row) => row.node.id === nodeId);
+  if (targetIndex < 0) return collapsed;
+  let neededDepth = rows[targetIndex]!.depth - 1;
+  const ancestors = new Set<string>();
+  for (let index = targetIndex - 1; index >= 0 && neededDepth >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.depth === neededDepth) {
+      ancestors.add(row.node.id);
+      neededDepth -= 1;
+    }
+  }
+  if (ancestors.size === 0) return collapsed;
+  const next = new Set(collapsed);
+  for (const id of ancestors) next.delete(id);
+  return next;
+}
+
+/**
+ * The reference's HierarchyTreeState.adjacentNodeId: the neighbour in the
+ * visible order, clamped at both edges. A selection that is not visible lands
+ * the cursor on the first row instead of moving nowhere.
+ */
+export function adjacentNodeId(
+  visibleRows: readonly LayoutTreeRow[],
+  selectedNodeId: string,
+  direction: 'up' | 'down',
+): string | undefined {
+  if (visibleRows.length === 0) return undefined;
+  const selectedIndex = visibleRows.findIndex((row) => row.node.id === selectedNodeId);
+  if (selectedIndex === -1) return visibleRows[0]!.node.id;
+  const nextIndex =
+    direction === 'up'
+      ? Math.max(selectedIndex - 1, 0)
+      : Math.min(selectedIndex + 1, visibleRows.length - 1);
+  return visibleRows[nextIndex]!.node.id;
+}
+
 /** Node id to row number, which is how findings name the node they point at. */
 export function nodeNumbers(rows: readonly LayoutTreeRow[]): Map<string, string> {
   const numbers = new Map<string, string>();

@@ -11,8 +11,11 @@ import { walkNode, type LayoutSnapshot } from '@aps/layout-inspector';
 import { AdbClient } from '@aps/platform-adb';
 import type { SourceResolutionEvidence } from '@aps/source-workspace';
 import { findPerfettoUiAssetsDirectory, type PerfettoUiAssetProbe } from '@aps/platform-perfetto';
-import { JsonSettingsStore } from '@aps/settings';
+import { DEFAULT_DISPLAY_SCALE_PERCENT, JsonSettingsStore } from '@aps/settings';
 import { buildAppInfo } from '../shared/app-info.js';
+import { installViewerMenu, idleViewerMenuState } from './menu.js';
+import type { ViewerMenuCommand, ViewerMenuState } from '../shared/viewer-menu.js';
+import { resolveLanguage } from '../shared/i18n.js';
 import { shouldMaximizeWindow, type AppDestination } from '../shared/destinations.js';
 import {
   IPC_CHANNELS,
@@ -34,6 +37,7 @@ import {
   type NativeHeapCaptureRecord,
   type SourceResolveRequest,
   type BenchmarkCompareInput,
+  type LayoutCaptureOptions,
   type ShellSnapshot,
   type StartupCaptureInput,
   type TraceAnalyzerSnapshot,
@@ -434,6 +438,9 @@ async function importTraceFromPath(path: string): Promise<{ ok: boolean; id?: st
 
 const MAX_INLINE_SCREENSHOT_BYTES = 16 * 1024 * 1024;
 
+/** The reference's CaptureTargetMode.SYSTEM_UI names System UI's package. */
+const SYSTEM_UI_PACKAGE_NAME = 'com.android.systemui';
+
 function assetProbe(): PerfettoUiAssetProbe {
   const isDirectory = (path: string): boolean => {
     try {
@@ -500,13 +507,27 @@ async function buildSnapshot(): Promise<ShellSnapshot> {
   };
 }
 
+/**
+ * The display size the settings page offers is the window's zoom factor: one
+ * percentage for the whole shell. It is re-applied after every navigation,
+ * because the factor belongs to the contents and a load resets it.
+ */
+function applyDisplayScale(): void {
+  const factor = (settings?.displayScalePercent ?? DEFAULT_DISPLAY_SCALE_PERCENT) / 100;
+  for (const target of BrowserWindow.getAllWindows()) target.webContents.setZoomFactor(factor);
+}
+
 async function updateSettings(patch: ApplicationUiSettingsPatch): Promise<ShellSnapshot> {
   const current = await ensureSettings();
   // One deep merge for every page: a patch that carries one toggle must not
   // erase the sections the sender never read.
   const merged = mergeApplicationUiSettings(current, patch);
   const store = new JsonSettingsStore(join(userDataDirectory(), 'settings.json'), settingsIo);
-  if (await store.save(merged)) settings = merged;
+  if (await store.save(merged)) {
+    settings = merged;
+    // The display size takes effect as it is chosen, not on the next launch.
+    applyDisplayScale();
+  }
   return await buildSnapshot();
 }
 
@@ -585,8 +606,23 @@ async function openTraceInAnalyzer(id: string): Promise<TraceOpenOutcome> {
   return { ok: true };
 }
 
+/**
+ * Menu clicks travel to the renderer that owns the state behind them; the menu
+ * has no window of its own, so every window hears the command.
+ */
+function dispatchViewerCommand(command: ViewerMenuCommand): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(IPC_CHANNELS.viewerMenuCommand, command);
+  }
+}
+
 function registerHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.shellSnapshot, () => buildSnapshot());
+  // The renderer reports the menu's enabled and checked state whenever any of it
+  // moves, and the menu is rebuilt from it: Electron menus are immutable.
+  ipcMain.on(IPC_CHANNELS.viewerMenuState, (_event, state: ViewerMenuState) => {
+    installViewerMenu(state, dispatchViewerCommand);
+  });
   ipcMain.handle(IPC_CHANNELS.updateSettings, (_event, patch: ApplicationUiSettingsPatch) =>
     updateSettings(patch),
   );
@@ -1359,20 +1395,45 @@ function registerHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.startupLoad, (_event, id: string) => startupStore().load(id));
   ipcMain.handle(IPC_CHANNELS.frameList, () => frameStore().list());
   ipcMain.handle(IPC_CHANNELS.frameLoad, (_event, id: string) => frameStore().load(id));
-  ipcMain.handle(IPC_CHANNELS.layoutCapture, async (_event, serial: string) => {
+  ipcMain.handle(
+    IPC_CHANNELS.layoutCapture,
+    async (_event, requestedSerial: string, options: LayoutCaptureOptions = {}) => {
     const client = adbClientFor();
     if (client === undefined) return { ok: false, error: 'ADB is not available' };
+    // The reference's device selector offers "Auto device"; an empty serial is
+    // that choice, and the first online device is the one it means.
+    const serial =
+      requestedSerial.length > 0
+        ? requestedSerial
+        : (await buildSnapshot()).devices.find((device) => device.state === 'ONLINE')?.serial;
+    if (serial === undefined) return { ok: false, error: 'No online device' };
+    const archive = options.archive ?? true;
     const result = await captureLayoutSnapshot(
       {
         adb: {
-          shell: (args, options) => client.shell(serial, args, options),
-          execOut: async (args, options) => (await client.execOut(serial, args, options)).stdout,
+          shell: (args, shellOptions) => client.shell(serial, args, shellOptions),
+          execOut: async (args, execOptions) => (await client.execOut(serial, args, execOptions)).stdout,
         },
         now: () => Date.now(),
       },
       serial,
+      options.target === 'systemUi' ? SYSTEM_UI_PACKAGE_NAME : undefined,
     );
     if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
+    if (!archive) {
+      // Auto scan's path: the frame goes straight to the page, and the store
+      // keeps the captures the user actually asked for.
+      return {
+        ok: true,
+        detail: {
+          snapshot: result.value.snapshot,
+          ...(result.value.screenshotPng.length > 0 &&
+          result.value.screenshotPng.length <= MAX_INLINE_SCREENSHOT_BYTES
+            ? { screenshotBase64: result.value.screenshotPng.toString('base64') }
+            : {}),
+        },
+      };
+    }
     const record = await layoutStore().add(result.value.snapshot, result.value.screenshotPng);
     return { ok: true, id: record.id };
   });
@@ -1438,6 +1499,10 @@ function createWindow(): void {
     window?.show();
   });
 
+  // The stored display size has to be on before the first paint: the shell's
+  // layout is dense, and a scale applied later reads as a resize.
+  window.webContents.on('did-finish-load', () => applyDisplayScale());
+
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
@@ -1466,6 +1531,13 @@ app.whenReady().then(async () => {
     },
   });
   createWindow();
+  // A menu exists before the renderer reports, so the app never falls back to
+  // Electron's default menu; the renderer replaces this state as it mounts.
+  const storedSettings = await ensureSettings();
+  installViewerMenu(
+    idleViewerMenuState(resolveLanguage(storedSettings.language ?? 'system', app.getLocale())),
+    dispatchViewerCommand,
+  );
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

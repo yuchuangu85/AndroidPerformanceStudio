@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UiNode } from '@aps/layout-inspector';
-import { nodeDetailSections } from './details';
+import { nodeDetailSections, usesDeepDetailStripe } from './details';
 
 const NODE: UiNode = {
   type: 'view',
@@ -198,6 +198,20 @@ describe('node details sections', () => {
     expect(rows.get('Layer type')).toBe('—');
     // A view with no raw properties has no RAW PROPERTIES section at all.
     expect(sections.map((section) => section.title)).not.toContain('RAW PROPERTIES');
+  });
+
+  it('stripes the even property rows, the way DetailRowStripe does', () => {
+    expect([0, 1, 2, 3, 4].map(usesDeepDetailStripe)).toEqual([true, false, true, false, true]);
+  });
+
+  it('restarts the stripe at every section, so each block opens on the deep row', () => {
+    // The pane maps each section's rows through the same index, which is what
+    // the reference's forEachIndexed does per section.
+    const sections = nodeDetailSections(NODE, 1, 'en');
+    sections.forEach((section) => {
+      const deep = section.rows.map((_row, index) => usesDeepDetailStripe(index));
+      expect(deep[0]).toBe(true);
+    });
   });
 
   it('sorts raw properties and keeps the property names the device reports', () => {

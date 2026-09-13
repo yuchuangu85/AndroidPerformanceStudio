@@ -23,6 +23,15 @@ export interface DetailSection {
   readonly highlightsRenderingRisk?: boolean;
 }
 
+/**
+ * Port of DetailRowStripe: inside a section the even rows — index 0, 2, 4 — take
+ * the deeper stripe, which is what makes a label and its value read as one row
+ * across the pane.
+ */
+export function usesDeepDetailStripe(index: number): boolean {
+  return index % 2 === 0;
+}
+
 const SIGNIFICANT_OVERLAP_RATIO = 0.8;
 const COMPLEXITY_DEPTH_WARNING = 10;
 const DESCENDANT_WARNING = 50;

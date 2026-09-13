@@ -24,6 +24,11 @@
   --content: #f5f5f7;
   --chrome-tint: rgba(246, 246, 246, 0.72);
   --surface: #ffffff;
+  /* PROPERTIES rows: the reference's DetailRowStripe pair. Dark keeps its exact
+     values; its light palette is white on white, so the light theme uses
+     AppKit's alternating-row pair instead and the stripe stays readable. */
+  --detail-row-deep: #f5f5f7;
+  --detail-row-light: #ffffff;
   --surface-sunken: #f0f0f2;
 
   --text: rgba(0, 0, 0, 0.85);
@@ -39,6 +44,11 @@
   --accent: #007aff;
   --accent-strong: #0062cc;
   --accent-soft: rgba(0, 122, 255, 0.12);
+  /* HIERARCHY search: the reference's searchMatchRow / searchCurrentMatchRow /
+     searchHighlightText trio. */
+  --search-match: rgba(10, 132, 255, 0.2);
+  --search-current-match: rgba(10, 132, 255, 0.4);
+  --search-highlight: #0a84ff;
   /* The hovered view's border, the same amber the canvas draws. */
   --hover-ring: #f59e0b;
   --on-accent: #ffffff;
@@ -56,12 +66,16 @@
   --field-bg: #ffffff;
   --field-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
 
-  /* Floating overlays only: the canvas zoom control and the flame tooltip. */
+  /* Floating overlays: the canvas zoom control and the flame tooltip. */
   --panel-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.07);
+  /* The home page's feature cards are the one page surface that still floats;
+     see ADR-0041. */
+  --tile-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.06);
 
   --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2.2 4.1 5 6.9l2.8-2.8' fill='none' stroke='%23000000' stroke-opacity='0.5' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --radius-control: 6px;
+  --radius-tile: 12px;
   /* 26px (half the original 52px bar) plus half of that again: a compact strip
      that still leaves room for AppKit's regular 24px controls. */
   --titlebar-height: 39px;
@@ -79,6 +93,8 @@
   --content: #1e1e1e;
   --chrome-tint: rgba(38, 38, 40, 0.62);
   --surface: #2c2c2e;
+  --detail-row-deep: #1c1c1e;
+  --detail-row-light: #2c2c2e;
   --surface-sunken: #232325;
 
   --text: rgba(255, 255, 255, 0.88);
@@ -94,6 +110,9 @@
   --accent: #0a84ff;
   --accent-strong: #409cff;
   --accent-soft: rgba(10, 132, 255, 0.22);
+  --search-match: rgba(10, 132, 255, 0.2);
+  --search-current-match: rgba(10, 132, 255, 0.4);
+  --search-highlight: #64b5ff;
   --hover-ring: #f59e0b;
   --on-accent: #ffffff;
   --focus-ring: rgba(10, 132, 255, 0.45);
@@ -111,8 +130,62 @@
   --field-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 
   --panel-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.04), 0 1px 3px rgba(0, 0, 0, 0.45);
+  --tile-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4);
 
   --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2.2 4.1 5 6.9l2.8-2.8' fill='none' stroke='%23ffffff' stroke-opacity='0.6' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* Theme colours. Every accent declares one base colour and the rest of the
+   family derives from it, so a preset cannot drift from the tokens it feeds;
+   "default" leaves the AppKit blue above untouched. */
+:root[data-accent='banana-red'] {
+  --accent: #d4042d;
+}
+
+:root[data-accent='warm-sun-orange'] {
+  --accent: #db7a0e;
+}
+
+:root[data-accent='cornflower-blue'] {
+  --accent: #5a92e5;
+}
+
+:root[data-accent='jade-green'] {
+  --accent: #5e8034;
+}
+
+:root[data-accent='merlot-pink'] {
+  --accent: #eb6d98;
+}
+
+:root[data-accent='azure'] {
+  --accent: #41b5c2;
+}
+
+:root[data-accent='lemon-yellow'] {
+  --accent: #faca2e;
+}
+
+:root[data-accent='royal-purple'] {
+  --accent: #722169;
+}
+
+:root[data-accent]:not([data-accent='default']) {
+  --accent-strong: color-mix(in srgb, var(--accent) 84%, black);
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --focus-ring: color-mix(in srgb, var(--accent) 35%, transparent);
+  --search-match: color-mix(in srgb, var(--accent) 20%, transparent);
+  --search-current-match: color-mix(in srgb, var(--accent) 40%, transparent);
+  --search-highlight: var(--accent);
+}
+
+:root[data-theme='dark'][data-accent]:not([data-accent='default']) {
+  --accent-strong: color-mix(in srgb, var(--accent) 72%, white);
+  --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+  --focus-ring: color-mix(in srgb, var(--accent) 45%, transparent);
+  /* The dark palette lifts its highlight towards white, the way the reference
+     pairs #0a84ff with #64b5ff. */
+  --search-highlight: color-mix(in srgb, var(--accent) 62%, white);
 }
 
 * {
@@ -269,6 +342,222 @@ samp {
 .content__body > p {
   margin: 0;
   padding: 14px 16px;
+}
+
+/* The home page is the exception to the edge-to-edge rule: its cards want a
+   gutter to float in, and the grid reads better held to a measured column. */
+.content__body--home {
+  padding: 26px 32px 32px;
+}
+
+/* The Layout Inspector page owns its own height: the capture bar is fixed, the
+   workspace takes everything that is left, and the findings pane sits on the
+   bottom edge, the way the reference's weight(1f) column does. */
+.content__body--fill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.layout-page {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.layout-page > .layout-header,
+.layout-page > .card.findings {
+  flex: 0 0 auto;
+}
+
+/* The page's own status lines are inside the wrapper, so the gutter the body's
+   direct children get has to be repeated here. */
+.layout-page > .content__muted,
+.layout-page > .card__muted {
+  margin: 0;
+  padding: 14px 16px;
+}
+
+/* The page's header toolbar, ported from the reference's HeaderToolbar: 40dp
+   there, the same height here, with the package name monospace on the left, the
+   selectors inline, the status reading behind a divider, and the action pushed
+   to the far right. */
+.layout-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--separator);
+  background: var(--surface);
+}
+
+/* The reference's manual refresh is a 56dp compact button. */
+.layout-header__action {
+  flex: none;
+  width: 56px;
+  padding: 0;
+}
+
+/* The reference's AutoScanSwitch: label, then a 30x16 track with a 12px thumb. */
+.layout-switch {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: default;
+}
+
+.layout-switch__label {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.layout-switch--on .layout-switch__label {
+  color: var(--text);
+}
+
+.layout-switch__track {
+  display: flex;
+  align-items: center;
+  width: 30px;
+  height: 16px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--control-bg-active);
+}
+
+.layout-switch--on .layout-switch__track {
+  justify-content: flex-end;
+  background: var(--accent);
+}
+
+.layout-switch__thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+/* The reference's PanelToggleButton: a 26x21 well around a 15dp pane glyph. */
+.panel-toggle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: default;
+}
+
+.panel-toggle--on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.panel-toggle:focus-visible {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.layout-header__metrics {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The package name truncates rather than pushing the selectors off the row. */
+.layout-header__package {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The window selector is the reference's 240dp ceiling; the others share it so
+   a long capture id cannot stretch the row either. */
+.layout-header select {
+  flex: none;
+  max-width: 240px;
+}
+
+.layout-header__divider {
+  flex: none;
+  width: 1px;
+  height: 14px;
+  background: var(--control-border);
+}
+
+.layout-header__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.layout-header__dot--neutral {
+  background: var(--muted);
+}
+
+.layout-header__dot--success {
+  background: var(--success);
+}
+
+.layout-header__dot--error {
+  background: var(--danger);
+}
+
+.layout-header__status {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.layout-header__status--neutral {
+  color: var(--muted);
+}
+
+.layout-header__status--success {
+  color: var(--success);
+}
+
+.layout-header__status--error {
+  color: var(--danger);
+}
+
+.layout-header__spacer {
+  flex: 1 1 auto;
+}
+
+/* The reference's Actions menu toggles the three panes. A hidden pane leaves the
+   row entirely — no gap, no splitter — and the canvas keeps the space. */
+.layout--no-hierarchy > .layout__pane--hierarchy,
+.layout--no-hierarchy > .pane-splitter--hierarchy,
+.layout--no-details > .layout__pane--details,
+.layout--no-details > .pane-splitter--details,
+.layout-page--no-findings > .findings-splitter,
+.layout-page--no-findings > .card.findings {
+  display: none;
 }
 
 .content__title {
@@ -555,10 +844,10 @@ input:focus {
   min-height: 124px;
   margin: 0;
   padding: 16px;
-  border: 0;
-  border-right: 1px solid var(--separator);
-  border-bottom: 1px solid var(--separator);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-tile);
   background: var(--surface);
+  box-shadow: var(--tile-shadow);
   color: var(--text);
   font-family: inherit;
   font-size: 12px;
@@ -566,11 +855,6 @@ input:focus {
   text-align: left;
   cursor: default;
   user-select: none;
-}
-
-/* The grid is four columns wide, so every fourth cell closes its row. */
-.card--action:nth-child(4n) {
-  border-right: 0;
 }
 
 /* First row of a feature card: the destination glyph and its name. */
@@ -582,16 +866,17 @@ input:focus {
 }
 
 .card--action:hover {
-  background: var(--control-bg-hover);
+  border-color: var(--accent);
 }
 
 .card--action:active {
   background: var(--fill);
 }
 
-/* Inset, not a halo around a card: the cell has no shape of its own to ring. */
+/* A halo again, not an inset ring: the card has a shape of its own to ring. */
 .card--action:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  border-color: var(--accent);
+  box-shadow: var(--tile-shadow), 0 0 0 3.5px var(--focus-ring);
 }
 
 .card__glyph {
@@ -628,16 +913,17 @@ input:focus {
   line-height: 16px;
 }
 
-/* Home: the shell's only navigation surface, four feature cells per row. The
-   heading is a band across the top, the grid below it runs to the window edges,
-   and the hairlines that separate the cells carry the page's ruled look. */
+/* Home: the shell's only navigation surface, four feature cards per row. It is
+   the one page that is not a ruled stack — the cards float on the window again,
+   centred in a measured column, because a grid of destinations is an index
+   rather than a screen of data (ADR-0041). */
 .home {
-  margin: 0;
+  max-width: 1180px;
+  margin: 0 auto;
 }
 
 .home__title {
-  margin: 0;
-  padding: 26px 32px 0;
+  margin: 0 0 5px;
   font-size: 30px;
   line-height: 36px;
   font-weight: 600;
@@ -646,9 +932,7 @@ input:focus {
 }
 
 .home__subtitle {
-  margin: 0;
-  padding: 5px 32px 24px;
-  border-bottom: 1px solid var(--separator);
+  margin: 0 0 24px;
   color: var(--muted);
   font-size: 14px;
   line-height: 19px;
@@ -658,7 +942,8 @@ input:focus {
 .home__grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
+  gap: 14px;
+  margin-bottom: 20px;
 }
 
 .list {
@@ -703,7 +988,30 @@ input:focus {
 .pane-header__options {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
+}
+
+/* PanelTitle's trailing buttons — the isolation controls — carry no chrome of
+   their own, the way the reference's TextButtons at 9sp do not. */
+.pane-action {
+  height: 16px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 9px;
+  cursor: default;
+}
+
+.pane-action:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.pane-action:disabled {
+  opacity: 0.45;
 }
 
 .toggle {
@@ -737,7 +1045,8 @@ input:focus {
 
 /* PROPERTIES: five derived sections plus every raw property the device sent. */
 .details {
-  max-height: 460px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding-right: 4px;
   font-size: 12px;
@@ -745,10 +1054,14 @@ input:focus {
 
 .details__section {
   margin-bottom: 14px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--separator);
 }
 
 .details__section:last-child {
   margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .details__section--risks .details__title {
@@ -768,16 +1081,18 @@ input:focus {
   margin: 0;
 }
 
+/* Every other row sits on the deeper stripe; the section's own hairline closes
+   the block, the way the reference draws it. */
 .details__row {
   display: grid;
   grid-template-columns: minmax(76px, 38%) minmax(0, 1fr);
   gap: 8px;
   padding: 3px 0;
-  border-bottom: 1px solid var(--separator);
+  background: var(--detail-row-light);
 }
 
-.details__row:last-child {
-  border-bottom: none;
+.details__row--deep {
+  background: var(--detail-row-deep);
 }
 
 .details__label {
@@ -943,7 +1258,7 @@ input:focus {
 
 /* FINDINGS: the analysis rules, one compact row each, across the whole layout. */
 .findings-splitter {
-  grid-column: 1 / -1;
+  flex: 0 0 7px;
   height: 7px;
   cursor: row-resize;
 }
@@ -953,13 +1268,14 @@ input:focus {
 }
 
 .findings {
-  grid-column: 1 / -1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   min-height: 56px;
   margin-top: 0;
   margin-bottom: 0;
-  padding: 10px 12px 8px;
+  /* The same 4px inset the three panes above the workspace keep. */
+  padding: 4px;
   overflow: hidden;
 }
 
@@ -967,10 +1283,16 @@ input:focus {
   margin-bottom: 6px;
 }
 
+/* The findings list is this pane's content area, so it carries the same sunken
+   surface and hairline the tree and the canvas viewport draw; the title row
+   keeps the card's own surface above it, the way CANVAS pairs the two. */
 .findings__list {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
 }
 
 .finding {
@@ -1025,25 +1347,67 @@ input:focus {
 
 /* ------------------------------------------------------ hierarchy tree -- */
 
-/* The three inspector panes are one row of a table: no gap, a vertical hairline
-   between neighbours, and one bottom hairline because the row stretches. */
+/* The three-pane workspace. The side panes carry the widths the separators
+   drag (set inline by the panel), the canvas takes what is left, and each pane
+   scrolls inside itself: the workspace is as tall as the window, not as tall as
+   its content. */
 .layout {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.35fr) minmax(240px, 1fr);
-  gap: 0;
+  display: flex;
+  flex: 1 1 auto;
   align-items: stretch;
+  min-height: 0;
 }
 
 .layout__pane {
+  display: flex;
+  flex-direction: column;
   margin: 0;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.layout__pane + .layout__pane {
-  border-left: 1px solid var(--separator);
+/* Every inspector pane keeps the same 4px inset. The reference draws each
+   pane's content edge to edge, and the port's card padding (14/16px) was the
+   only thing holding it back; one value for all four panes keeps them from
+   drifting apart. */
+.layout__pane--hierarchy {
+  padding: 4px;
+}
+
+.layout__pane--canvas {
+  flex: 1 1 auto;
+  padding: 4px;
+}
+
+.layout__pane--details {
+  padding: 4px;
+}
+
+/* A separator's 7px grab area with the hairline drawn down its middle, the way
+   the reference's ResizableSeparator draws it. */
+.pane-splitter {
+  flex: 0 0 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+}
+
+.pane-splitter::after {
+  content: '';
+  width: 1px;
+  height: 100%;
+  background: var(--separator);
+}
+
+.pane-splitter:hover::after {
+  background: var(--accent);
 }
 
 .tree {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   border: 1px solid var(--separator);
   border-radius: var(--radius-control);
@@ -1053,22 +1417,131 @@ input:focus {
   font-size: 11px;
 }
 
+/* The list is at least as wide as the pane and grows with its longest row — the
+   reference's LazyColumn inside a horizontal scroll, with widthIn(min =
+   viewportWidth) — so a deep hierarchy can be read by scrolling sideways. */
 .tree__spacer {
-  position: relative;
+  /* The virtual window is offset by a top margin. Without a formatting context
+     of its own that margin collapses with the spacer's, which slides the whole
+     spacer down as the list scrolls: the scroll range then grows by itself and
+     the list can be scrolled past its last row forever. */
+  display: flow-root;
+  width: max-content;
+  min-width: 100%;
+}
+
+.tree__window {
+  display: flex;
+  flex-direction: column;
+}
+
+/* HierarchySearchBar: a 28px row holding the 22px field, then the match cursor
+   and the two arrows that walk the matches. */
+.tree-search {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 2px 6px;
+}
+
+.tree-search__field {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--fill);
+}
+
+.tree-search__field input {
+  min-width: 0;
+  flex: 1 1 auto;
+  /* The global input box is 24px tall with 8px of padding; inside a 22px field
+     that overflows the border and pushes the caret off centre, so the field's
+     own box is the only one that shows. */
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  outline: none;
+}
+
+/* The field carries the focus ring, not the input inside it: an inset input's
+   own ring lands inside the border it belongs to instead of on it. */
+.tree-search__field input:focus {
+  box-shadow: none;
+}
+
+.tree-search__field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.tree-search__field input::placeholder {
+  color: var(--muted);
+}
+
+.tree-search__clear {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: default;
+}
+
+.tree-search__summary {
+  flex: none;
+  min-width: 32px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.tree-search__summary--none {
+  color: var(--danger);
+}
+
+.tree-search__nav {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--fill);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 9px;
+  cursor: default;
+}
+
+.tree-search__nav:disabled {
+  background: transparent;
+  opacity: 0.4;
 }
 
 .tree__row {
-  position: absolute;
-  left: 0;
-  right: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   height: 20px;
-  padding-right: 6px;
-  border-radius: 4px;
+  padding-right: 8px;
   white-space: nowrap;
-  overflow: hidden;
   user-select: none;
 }
 
@@ -1076,8 +1549,26 @@ input:focus {
   background: var(--fill);
 }
 
+/* Every match is tinted, the one the arrows point at is tinted twice, and a
+   hidden or invisible layer reads in the muted colour. */
+.tree__row--match {
+  background: var(--search-match);
+}
+
+.tree__row--current-match {
+  background: var(--search-current-match);
+}
+
 .tree__row--hidden {
-  opacity: 0.45;
+  color: var(--muted);
+}
+
+.tree__row--current-match .tree__label {
+  color: var(--search-highlight);
+}
+
+.tree__label-match {
+  color: var(--search-highlight);
 }
 
 .tree__row--hovered {
@@ -1091,34 +1582,67 @@ input:focus {
   box-shadow: none;
 }
 
+/* The disclosure is the reference's 8px accent chevron, centred in a 12px box;
+   a leaf draws nothing at all. */
 .tree__twisty {
-  width: 12px;
+  display: flex;
   flex: 0 0 12px;
-  color: var(--faint);
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 100%;
   cursor: default;
 }
 
+.tree__chevron {
+  width: 8px;
+  height: 8px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The label keeps its whole width: a truncated one hides exactly the ids and
+   names the pane exists to show, and the pane scrolls instead. */
 .tree__label {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: default;
-}
-
-.tree__action {
   flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 11px;
   cursor: default;
 }
 
-.tree__action:hover {
+/* LayerVisibilityButton: 28x16 with its text at 9sp, and the accent when the
+   layer is hidden. */
+.tree__action {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 16px;
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 9px;
+  cursor: default;
+}
+
+.tree__action--hidden {
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
-.tree__row--active .tree__twisty,
+.tree__row--active .tree__chevron {
+  stroke: var(--on-accent);
+}
+
 .tree__row--active .tree__action {
   color: rgba(255, 255, 255, 0.82);
+}
+
+.tree__row--active .tree__action--hidden {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
 }
 
 .tree__row--active .tree__action:hover {
@@ -1138,13 +1662,16 @@ input:focus {
 
 .canvas {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .canvas__viewport {
   position: relative;
-  height: 460px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--separator);
   border-radius: var(--radius-control);
@@ -1157,9 +1684,11 @@ input:focus {
   overflow: hidden;
 }
 
-/* The reference rounds an app-only crop much more than a full-screen one. */
+/* The reference rounds an app-only crop much more than a full-screen one; at
+   half its 24dp the crop still reads as an app card without eating the corners
+   of a full-height phone screenshot. */
 .canvas__stage--app {
-  border-radius: 24px;
+  border-radius: 12px;
 }
 
 .canvas__stage .preview__image {
@@ -1379,13 +1908,19 @@ input:focus {
   overflow: auto;
 }
 
+/* The settings sections float as cards, the way the home page's destinations do;
+   the 8px margin is the gutter between a card, its neighbours and the pane's
+   edge, so the two never share a hairline. */
 .settings__section {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin: 8px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--separator);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-tile);
   background: var(--surface);
+  box-shadow: var(--tile-shadow);
 }
 
 .settings__section-title {
@@ -1425,6 +1960,14 @@ input:focus {
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+/* A settings dropdown keeps a fixed width of its own. The reference draws its
+   General settings' language and theme as one DropdownSelector beside the row's
+   own label — never as a list of full-width options. */
+.settings__select select {
+  flex: none;
+  width: 200px;
 }
 
 .settings__field {
@@ -1576,6 +2119,28 @@ input:focus {
   border: 1px solid var(--border);
   border-radius: 50%;
   cursor: default;
+}
+
+/* Theme colour: the presets sit in one row, and the chosen one wears a ring
+   instead of a second colour. */
+.settings__accents {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings__accent {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: default;
+}
+
+.settings__accent--selected {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
 }
 
 .settings__about {

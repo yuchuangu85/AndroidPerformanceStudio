@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { UiNode } from '@aps/layout-inspector';
-import { buildLayoutTreeRows, hierarchyLabel, visibleTreeRows } from './tree';
+import {
+  adjacentNodeId,
+  buildLayoutTreeRows,
+  hierarchyLabel,
+  revealedCollapsed,
+  toggledCollapsed,
+  visibleTreeRows,
+} from './tree';
 
 function view(
   id: string,
@@ -82,5 +89,38 @@ describe('layout tree rows', () => {
       '1-1',
       '2-0',
     ]);
+  });
+
+  it('walks the keyboard along the visible rows and stops at both edges', () => {
+    // HierarchyTreeStateTest: the neighbour in the visible order, clamped.
+    const rows = buildLayoutTreeRows(ROOT);
+    const collapsed = new Set(['root/1']);
+    const visible = visibleTreeRows(rows, collapsed, false);
+    expect(visible.map((row) => row.node.id)).toEqual(['root', 'root/0', 'root/1']);
+    expect(adjacentNodeId(visible, 'root', 'down')).toBe('root/0');
+    expect(adjacentNodeId(visible, 'root/0', 'down')).toBe('root/1');
+    expect(adjacentNodeId(visible, 'root/1', 'down')).toBe('root/1');
+    expect(adjacentNodeId(visible, 'root/1', 'up')).toBe('root/0');
+    expect(adjacentNodeId(visible, 'root', 'up')).toBe('root');
+    // A selection that is not on screen lands on the first row.
+    expect(adjacentNodeId(visible, 'root/1/0', 'down')).toBe('root');
+  });
+
+  it('toggles only rows that have children', () => {
+    const rows = buildLayoutTreeRows(ROOT);
+    expect([...toggledCollapsed(new Set(), rows, 'root/1')]).toEqual(['root/1']);
+    expect([...toggledCollapsed(new Set(['root/1']), rows, 'root/1')]).toEqual([]);
+    expect([...toggledCollapsed(new Set(), rows, 'root/0')]).toEqual([]);
+    expect([...toggledCollapsed(new Set(), rows, 'missing')]).toEqual([]);
+  });
+
+  it('reveals a node by expanding every collapsed ancestor', () => {
+    const rows = buildLayoutTreeRows(ROOT);
+    const collapsed = new Set(['root', 'root/1']);
+    // Both ancestors are expanded, so nothing is left collapsed on the path.
+    expect([...revealedCollapsed(collapsed, rows, 'root/1/0')]).toEqual([]);
+    expect([...revealedCollapsed(new Set(['root/1']), rows, 'root/1/0')]).toEqual([]);
+    // A node outside the tree leaves the collapsed set exactly as it was.
+    expect([...revealedCollapsed(collapsed, rows, 'missing')]).toEqual(['root', 'root/1']);
   });
 });

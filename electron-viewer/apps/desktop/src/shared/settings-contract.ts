@@ -4,6 +4,7 @@
  * java.util.prefs migration and the settings page cannot drift apart.
  */
 export type {
+  ApplicationAccentPreference,
   ApplicationLanguagePreference,
   ApplicationThemePreference,
   ApplicationUiSettings,
@@ -21,7 +22,13 @@ export type {
 } from '@aps/settings';
 
 export {
+  ACCENT_COLOR_PRESETS,
+  accentColorOf,
+  parseAccentPreference,
   CANVAS_BORDER_COLOR_PRESETS,
+  DEFAULT_DISPLAY_SCALE_PERCENT,
+  DISPLAY_SCALE_PERCENTS,
+  parseDisplayScalePercent,
   DEFAULT_APPLICATION_UI_SETTINGS as DEFAULT_SETTINGS,
   DEFAULT_CANVAS_BORDER_COLORS,
   DEFAULT_LAYOUT_INSPECTOR_SETTINGS,

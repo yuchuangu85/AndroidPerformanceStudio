@@ -1,6 +1,26 @@
 export type ApplicationThemePreference = 'system' | 'light' | 'dark';
 export type ApplicationLanguagePreference = 'system' | 'simplified_chinese' | 'english';
 
+/**
+ * The window's accent colour, by palette name. "default" is the AppKit blue the
+ * shell ships with; the rest are the theme colours the General settings offer.
+ * The colour lives here so the picker, the stylesheet and the store cannot
+ * disagree about what a name means.
+ */
+export const ACCENT_COLOR_PRESETS = [
+  { key: 'default', color: '#007AFF' },
+  { key: 'banana-red', color: '#D4042D' },
+  { key: 'warm-sun-orange', color: '#DB7A0E' },
+  { key: 'cornflower-blue', color: '#5A92E5' },
+  { key: 'jade-green', color: '#5E8034' },
+  { key: 'merlot-pink', color: '#EB6D98' },
+  { key: 'azure', color: '#41B5C2' },
+  { key: 'lemon-yellow', color: '#FACA2E' },
+  { key: 'royal-purple', color: '#722169' },
+] as const;
+
+export type ApplicationAccentPreference = (typeof ACCENT_COLOR_PRESETS)[number]['key'];
+
 /** CanvasHitTestOrder: the order a canvas click cycles through stacked views. */
 export type CanvasHitTestOrderPreference = 'smallest-area' | 'z-order';
 
@@ -55,6 +75,10 @@ export interface SimpleperfSettings {
 export interface ApplicationUiSettings {
   readonly theme: ApplicationThemePreference;
   readonly language: ApplicationLanguagePreference;
+  /** The accent family the shell paints from; see ACCENT_COLOR_PRESETS. */
+  readonly accentColor: ApplicationAccentPreference;
+  /** The whole window's display size, as a percentage of the default. */
+  readonly displayScalePercent: number;
   readonly androidSdkPath?: string;
   readonly layoutInspector: LayoutInspectorSettings;
   readonly simpleperf: SimpleperfSettings;
@@ -64,6 +88,8 @@ export interface ApplicationUiSettings {
 export interface ApplicationUiSettingsPatch {
   readonly theme?: ApplicationThemePreference;
   readonly language?: ApplicationLanguagePreference;
+  readonly accentColor?: ApplicationAccentPreference;
+  readonly displayScalePercent?: number;
   /** null clears the stored SDK path. */
   readonly androidSdkPath?: string | null;
   readonly layoutInspector?: Partial<Omit<LayoutInspectorSettings, 'canvasBorderColors'>> & {
@@ -72,6 +98,21 @@ export interface ApplicationUiSettingsPatch {
   readonly simpleperf?: Partial<Omit<SimpleperfSettings, 'captureDefaults'>> & {
     readonly captureDefaults?: Partial<SimpleperfCaptureDefaults>;
   };
+}
+
+/** The steps the settings page offers; a stored value outside the range is clamped. */
+export const DISPLAY_SCALE_PERCENTS: readonly number[] = [80, 90, 100, 110, 125, 150];
+export const DEFAULT_DISPLAY_SCALE_PERCENT = 100;
+const DISPLAY_SCALE_MIN_PERCENT = 75;
+const DISPLAY_SCALE_MAX_PERCENT = 200;
+
+/**
+ * A display size outside the range would leave the shell unusable rather than
+ * merely wrong, so a stored value is clamped instead of rejected.
+ */
+export function parseDisplayScalePercent(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_DISPLAY_SCALE_PERCENT;
+  return Math.min(DISPLAY_SCALE_MAX_PERCENT, Math.max(DISPLAY_SCALE_MIN_PERCENT, Math.round(value)));
 }
 
 export const DEFAULT_CANVAS_BORDER_COLORS: CanvasBorderColorsSettings = {
@@ -128,6 +169,8 @@ export const DEFAULT_SIMPLEPERF_SETTINGS: SimpleperfSettings = {
 export const DEFAULT_APPLICATION_UI_SETTINGS: ApplicationUiSettings = {
   theme: 'system',
   language: 'system',
+  accentColor: 'default',
+  displayScalePercent: DEFAULT_DISPLAY_SCALE_PERCENT,
   layoutInspector: DEFAULT_LAYOUT_INSPECTOR_SETTINGS,
   simpleperf: DEFAULT_SIMPLEPERF_SETTINGS,
 };
@@ -174,6 +217,17 @@ export function parseThemePreference(value: unknown): ApplicationThemePreference
 export function parseLanguagePreference(value: unknown): ApplicationLanguagePreference {
   const normalized = typeof value === 'string' ? value.toLowerCase() : '';
   return normalized === 'simplified_chinese' || normalized === 'english' ? normalized : 'system';
+}
+
+/** An unknown or missing accent falls back to the shell's own blue. */
+export function parseAccentPreference(value: unknown): ApplicationAccentPreference {
+  const match = ACCENT_COLOR_PRESETS.find((preset) => preset.key === value);
+  return match === undefined ? 'default' : match.key;
+}
+
+/** The #RRGGBB the picker paints a preset with. */
+export function accentColorOf(preference: ApplicationAccentPreference): string {
+  return ACCENT_COLOR_PRESETS.find((preset) => preset.key === preference)?.color ?? '#007AFF';
 }
 
 export function parseCanvasHitTestOrder(value: unknown): CanvasHitTestOrderPreference {
@@ -297,6 +351,8 @@ export function normalizeApplicationUiSettings(value: unknown): ApplicationUiSet
   return {
     theme: parseThemePreference(source['theme']),
     language: parseLanguagePreference(source['language']),
+    accentColor: parseAccentPreference(source['accentColor']),
+    displayScalePercent: parseDisplayScalePercent(source['displayScalePercent']),
     ...(androidSdkPath.length > 0 ? { androidSdkPath } : {}),
     layoutInspector: normalizeLayoutInspectorSettings(source['layoutInspector']),
     simpleperf: normalizeSimpleperfSettings(source['simpleperf']),
@@ -319,6 +375,10 @@ export function mergeApplicationUiSettings(
     ...current,
     ...(patch.theme !== undefined ? { theme: patch.theme } : {}),
     ...(patch.language !== undefined ? { language: patch.language } : {}),
+    ...(patch.accentColor !== undefined ? { accentColor: patch.accentColor } : {}),
+    ...(patch.displayScalePercent !== undefined
+      ? { displayScalePercent: patch.displayScalePercent }
+      : {}),
     ...(patch.androidSdkPath !== undefined
       ? { androidSdkPath: patch.androidSdkPath === null ? '' : patch.androidSdkPath }
       : {}),

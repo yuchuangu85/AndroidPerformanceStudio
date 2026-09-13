@@ -24,10 +24,13 @@ A page is a stack of sections, ruled and edge to edge. Nothing floats.
   shadow and margins and keeps only a 1px `--separator` hairline under itself;
   the text inside keeps its gutter through the section's own padding.
 - Side-by-side sections use the same hairline turned vertical. The Layout
-  Inspector's `.layout` drops to `gap: 0` with `align-items: stretch`, so the
-  three panes share one bottom hairline and their neighbours draw
-  `border-left`. Stretching is what makes the dividers and the bottom line
-  meet.
+  Inspector's workspace is the one place that is not a fixed row: its three
+  panes are a flex row whose side panes carry widths the separators drag
+  (`PaneLayout`, ported with its test), and each separator draws the hairline
+  down the middle of its 7px grab area. That page also stops growing with its
+  content — `.content__body--fill` gives it the window's height, the workspace
+  takes what the capture bar leaves, and the findings pane keeps the bottom
+  edge, the way the reference's `weight(1f)` column does.
 - The home grid is ruled the same way: `gap: 0`, each `.card--action` draws its
   right and bottom hairline, and every fourth cell closes its row. The heading
   becomes a band with a hairline under it instead of a centred column with

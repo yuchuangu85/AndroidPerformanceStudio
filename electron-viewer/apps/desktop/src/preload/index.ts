@@ -20,6 +20,8 @@ import {
   type NativeHeapCaptureRequest,
   type StartupCaptureInput,
   type TraceCaptureInput,
+  type ViewerMenuCommand,
+  type LayoutCaptureOptions,
 } from '../shared/ipc.js';
 
 const api: ApsApi = {
@@ -33,7 +35,8 @@ const api: ApsApi = {
   openTraceInAnalyzer: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.traceOpen, id),
   openPublicPerfettoUi: () => ipcRenderer.invoke(IPC_CHANNELS.traceOpenPublicUi),
   revealTrace: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.traceReveal, id),
-  captureLayout: (serial: string) => ipcRenderer.invoke(IPC_CHANNELS.layoutCapture, serial),
+  captureLayout: (serial: string, options?: LayoutCaptureOptions) =>
+    ipcRenderer.invoke(IPC_CHANNELS.layoutCapture, serial, options),
   listLayoutCaptures: () => ipcRenderer.invoke(IPC_CHANNELS.layoutList),
   loadLayoutCapture: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.layoutLoad, id),
   captureFrame: (input: FrameCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.frameCapture, input),
@@ -102,6 +105,14 @@ const api: ApsApi = {
   analyzeLayoutWithAi: (input: AiAnalyzeRequest) => ipcRenderer.invoke(IPC_CHANNELS.aiAnalyze, input),
   listAiSessions: () => ipcRenderer.invoke(IPC_CHANNELS.aiSessions),
   loadAiFindings: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.aiFindings, sessionId),
+  onViewerMenuCommand: (handler) => {
+    const listener = (_event: unknown, command: ViewerMenuCommand): void => handler(command);
+    ipcRenderer.on(IPC_CHANNELS.viewerMenuCommand, listener);
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.viewerMenuCommand, listener);
+    };
+  },
+  updateViewerMenuState: (state) => ipcRenderer.send(IPC_CHANNELS.viewerMenuState, state),
 };
 
 contextBridge.exposeInMainWorld('aps', api);

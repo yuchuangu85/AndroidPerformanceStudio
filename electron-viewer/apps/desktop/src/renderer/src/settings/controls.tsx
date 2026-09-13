@@ -98,6 +98,52 @@ export function SettingsChoice<T extends string>({
   );
 }
 
+export interface SettingsSelectProps<T extends string> {
+  readonly label: string;
+  readonly options: readonly SettingsChoiceOption<T>[];
+  readonly value: T;
+  readonly onChange: (value: T) => void;
+  /** Values the Electron build cannot honour yet; shown disabled. */
+  readonly unavailable?: readonly T[];
+  readonly unavailableNote?: string;
+}
+
+/**
+ * A labelled dropdown. The General settings choose with this rather than the
+ * chip stack the other pages keep: the reference draws its language and theme
+ * with DropdownSelector, one fixed-width control per row — never a full-width
+ * list of every option.
+ */
+export function SettingsSelect<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  unavailable,
+  unavailableNote,
+}: SettingsSelectProps<T>): JSX.Element {
+  return (
+    <label className="settings__row settings__select">
+      <span className="settings__row-label">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value as T)}>
+        {options.map((option) => {
+          const disabled = unavailable?.includes(option.value) === true;
+          return (
+            <option
+              key={option.value}
+              value={option.value}
+              disabled={disabled}
+              title={disabled ? unavailableNote : undefined}
+            >
+              {option.label}
+            </option>
+          );
+        })}
+      </select>
+    </label>
+  );
+}
+
 export interface SettingsFieldProps {
   readonly label: string;
   readonly hint?: string;

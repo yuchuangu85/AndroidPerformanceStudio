@@ -1,4 +1,7 @@
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
+import type { ViewerMenuCommand, ViewerMenuState } from './viewer-menu.js';
+
+export type { ViewerMenuCommand, ViewerMenuState };
 import type { AgiCapability, ArtifactLocationStatus, ArtifactOpenRoute, GpuArtifactKind } from '@aps/gpu-inspector';
 import type {
   BitmapDumpSession,
@@ -127,10 +130,25 @@ export interface LayoutCaptureSummary {
   readonly nodeCount: number;
 }
 
+/** The reference's CaptureTargetMode: the foreground app, or System UI. */
+export type LayoutCaptureTarget = 'foregroundApp' | 'systemUi';
+
+export interface LayoutCaptureOptions {
+  /** Archives the capture. Auto scan turns this off: it refreshes every second. */
+  readonly archive?: boolean;
+  /** Defaults to the foreground app, the way the reference's selector does. */
+  readonly target?: LayoutCaptureTarget;
+}
+
 export interface LayoutCaptureOutcome {
   readonly ok: boolean;
   readonly id?: string;
   readonly error?: string;
+  /**
+   * Present when the capture was taken without archiving: auto scan refreshes
+   * the page every second, and a stored record per second would fill the store.
+   */
+  readonly detail?: LayoutCaptureDetail;
 }
 
 export interface LayoutCaptureDetail {
@@ -514,6 +532,13 @@ export interface SourceReadOutcome {
 
 export interface ApsApi {
   getShellSnapshot(): Promise<ShellSnapshot>;
+  /**
+   * Runs a command from the native menu bar and returns the unsubscribe. The
+   * menu is the Layout Inspector's action surface, the way the reference's is.
+   */
+  onViewerMenuCommand(handler: (command: ViewerMenuCommand) => void): () => void;
+  /** Reports what the menu's enabled and checked state should be. */
+  updateViewerMenuState(state: ViewerMenuState): void;
   updateSettings(patch: ApplicationUiSettingsPatch): Promise<ShellSnapshot>;
   /** Opens the platform directory picker; undefined means the user cancelled. */
   chooseAndroidSdkDirectory(): Promise<string | undefined>;
@@ -524,7 +549,11 @@ export interface ApsApi {
   openTraceInAnalyzer(id: string): Promise<TraceOpenOutcome>;
   openPublicPerfettoUi(): Promise<void>;
   revealTrace(id: string): Promise<TraceRevealOutcome>;
-  captureLayout(serial: string): Promise<LayoutCaptureOutcome>;
+  /**
+   * Captures the current hierarchy. An empty serial means the auto device the
+   * reference's selector offers; the main process resolves it.
+   */
+  captureLayout(serial: string, options?: LayoutCaptureOptions): Promise<LayoutCaptureOutcome>;
   listLayoutCaptures(): Promise<readonly LayoutCaptureSummary[]>;
   loadLayoutCapture(id: string): Promise<LayoutCaptureDetail | undefined>;
   captureFrame(input: FrameCaptureInput): Promise<FrameCaptureOutcome>;
@@ -719,4 +748,7 @@ export const IPC_CHANNELS = {
   aiAnalyze: 'ai:analyze',
   aiSessions: 'ai:sessions',
   aiFindings: 'ai:findings',
+  /** The viewer menu bar: main sends a command, the renderer reports its state. */
+  viewerMenuCommand: 'menu:command',
+  viewerMenuState: 'menu:updateState',
 } as const;

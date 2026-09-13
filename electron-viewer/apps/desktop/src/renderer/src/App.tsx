@@ -8,6 +8,7 @@ import {
   type AppDestination,
 } from '../../shared/destinations';
 import { resolveLanguage, translate, type UiLanguage } from '../../shared/i18n';
+import type { ViewerMenuCommand } from '../../shared/viewer-menu';
 import type { DeviceSummary, ShellSnapshot } from '../../shared/ipc';
 import {
   mergeApplicationUiSettings,
@@ -41,6 +42,8 @@ interface PanelProps {
   readonly settings: ApplicationUiSettings;
   readonly onPatchSettings: (patch: ApplicationUiSettingsPatch) => void;
   readonly onOpenSettings: () => void;
+  /** A command from the native menu bar, routed to the panel that owns its state. */
+  readonly viewerCommand: ViewerMenuCommand | null;
 }
 
 /**
@@ -56,6 +59,7 @@ function destinationPanel({
   settings,
   onPatchSettings,
   onOpenSettings,
+  viewerCommand,
 }: PanelProps): JSX.Element {
   switch (destination) {
     case 'PERFETTO':
@@ -67,6 +71,7 @@ function destinationPanel({
           devices={devices}
           settings={settings.layoutInspector}
           onPatchSettings={onPatchSettings}
+          viewerCommand={viewerCommand}
         />
       );
     case 'FRAME_PROFILER':
@@ -96,12 +101,30 @@ function destinationPanel({
   }
 }
 
+/**
+ * What a destination adds to the shared content column. Home is the one page
+ * whose sections still float as cards, so it keeps the gutter they float in; the
+ * Layout Inspector is the one page that owns its height instead of growing with
+ * its content.
+ */
+const CONTENT_BODY_MODIFIER: Partial<Record<AppDestination, string>> = {
+  HOME: 'content__body--home',
+  LAYOUT_INSPECTOR: 'content__body--fill',
+};
+
+/** The body class for a destination: the shared one plus its own modifier. */
+function contentBodyClass(destination: AppDestination): string {
+  const modifier = CONTENT_BODY_MODIFIER[destination];
+  return modifier === undefined ? 'content__body' : 'content__body ' + modifier;
+}
+
 export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<ShellSnapshot | null>(null);
   const [current, setCurrent] = useState<AppDestination>(INITIAL_NAVIGATION_STATE.current);
   const [retained, setRetained] = useState<readonly AppDestination[]>(INITIAL_NAVIGATION_STATE.retained);
   const [systemDark, setSystemDark] = useState<boolean>(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [viewerCommand, setViewerCommand] = useState<ViewerMenuCommand | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -122,11 +145,58 @@ export function App(): JSX.Element {
     () => resolveLanguage(snapshot?.settings.language ?? 'system', navigator.language),
     [snapshot],
   );
+
+  /**
+   * The native menu bar is the Layout Inspector's action surface, the way it is
+   * in the reference. Settings belongs to the shell; every other command travels
+   * to the panel, which owns the panes and the selection behind it.
+   */
+  useEffect(
+    () =>
+      window.aps.onViewerMenuCommand((command) => {
+        if (command.kind === 'action' && command.action === 'OPEN_SETTINGS') {
+          setSettingsOpen(true);
+          return;
+        }
+        setViewerCommand(command);
+      }),
+    [],
+  );
+
+  // The panel reports the menu state while it is on screen. Every other page
+  // leaves the viewer actions dormant, so the menu says so instead of offering
+  // commands that would reach nothing.
+  useEffect(() => {
+    if (current === 'LAYOUT_INSPECTOR') return;
+    window.aps.updateViewerMenuState({
+      language,
+      available: false,
+      hasSnapshot: false,
+      hasSelection: false,
+      autoScan: false,
+      panels: { hierarchy: true, details: true, findings: true },
+      view: snapshot?.settings.layoutInspector ?? {
+        hideInvisibleHierarchyViews: false,
+        hideInvisibleFindings: false,
+        hideHierarchyIndices: false,
+        showHierarchyLayerVisibilityButtons: false,
+        showVisibleViewBounds: true,
+        showHierarchyIds: true,
+      },
+    });
+  }, [current, language, snapshot]);
   const theme = resolvedTheme(snapshot?.settings.theme ?? 'system', systemDark);
 
   useEffect(() => {
     document.documentElement.dataset['theme'] = theme;
   }, [theme]);
+
+  // The theme colour rides the same document attributes as the theme: the
+  // stylesheet derives the whole accent family from the base the preset sets.
+  const accentColor = snapshot?.settings.accentColor ?? 'default';
+  useEffect(() => {
+    document.documentElement.dataset['accent'] = accentColor;
+  }, [accentColor]);
 
   /**
    * macOS draws the window's vibrancy material behind the page, so the page has
@@ -264,7 +334,7 @@ export function App(): JSX.Element {
           </div>
         </header>
 
-        <div className={current === 'HOME' ? 'content__body content__body--home' : 'content__body'}>
+        <div className={contentBodyClass(current)}>
           {current === 'HOME' ? (
             <section className="home">
               <h1 className="home__title">{translate('app.name', language)}</h1>
@@ -301,6 +371,7 @@ export function App(): JSX.Element {
               settings: snapshot.settings,
               onPatchSettings: patchSettings,
               onOpenSettings: () => setSettingsOpen(true),
+              viewerCommand,
             })
           )}
 
