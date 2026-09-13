@@ -171,6 +171,41 @@ export function scrollPan(
   );
 }
 
+/**
+ * PreviewScrollbarAdapter: the pan is centred, so a scrollbar's travel starts at
+ * the content's own middle — offset 0 is pan +limit, the end is pan -limit.
+ * `thumbOffset` is a fraction of the track, which is what a CSS bar wants.
+ */
+export interface PreviewScrollbar {
+  /** How far the content overflows the viewport on this axis; 0 hides the bar. */
+  readonly overflow: number;
+  /** The thumb's length as a fraction of the track. */
+  readonly thumbFraction: number;
+  /** The thumb's start as a fraction of the track. */
+  readonly thumbOffset: number;
+  /** The scroll offset the thumb currently stands for, in pixels. */
+  readonly scrollOffset: number;
+}
+
+export function scrollbarGeometry(content: number, viewport: number, pan: number): PreviewScrollbar {
+  const overflow = Math.max(0, content - viewport);
+  const thumbFraction = content <= 0 ? 1 : Math.min(1, viewport / content);
+  const scrollOffset = Math.min(Math.max(overflow / 2 - pan, 0), overflow);
+  const travel = 1 - thumbFraction;
+  const thumbOffset = overflow === 0 || travel <= 0 ? 0 : (scrollOffset / overflow) * travel;
+  return { overflow, thumbFraction, thumbOffset, scrollOffset };
+}
+
+/** The pan a thumb moved to `thumbOffset` (0..1 of the track) asks for. */
+export function panForScrollbar(content: number, viewport: number, thumbOffset: number): number {
+  const overflow = Math.max(0, content - viewport);
+  const thumbFraction = content <= 0 ? 1 : Math.min(1, viewport / content);
+  const travel = 1 - thumbFraction;
+  if (overflow === 0 || travel <= 0) return 0;
+  const scrollOffset = (Math.min(Math.max(thumbOffset, 0), travel) / travel) * overflow;
+  return overflow / 2 - scrollOffset;
+}
+
 /** Keeps the device pixel under the pointer fixed while the scale changes. */
 export function zoomPanAtPointer(
   pointer: Offset,

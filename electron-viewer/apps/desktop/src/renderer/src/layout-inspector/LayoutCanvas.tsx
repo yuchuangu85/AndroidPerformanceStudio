@@ -7,7 +7,9 @@ import {
   clampPan,
   destinationRect,
   mapBounds,
+  panForScrollbar,
   previewSize,
+  scrollbarGeometry,
   scrollPan,
   sourceRect,
   unmapPoint,
@@ -268,6 +270,68 @@ export function LayoutCanvas(props: LayoutCanvasProps): JSX.Element {
     [onSelect, sourcePoint],
   );
 
+  // One bar per axis, and none at all while that axis fits: the reference draws
+  // its preview scrollbars over the preview's own pan state.
+  const horizontalBar = useMemo(
+    () => scrollbarGeometry(content.width, viewport.width, pan.x),
+    [content.width, pan.x, viewport.width],
+  );
+  const verticalBar = useMemo(
+    () => scrollbarGeometry(content.height, viewport.height, pan.y),
+    [content.height, pan.y, viewport.height],
+  );
+
+  const applyThumb = useCallback(
+    (axis: 'x' | 'y', thumbOffset: number): void => {
+      setPan((current) => {
+        const x =
+          axis === 'x' ? panForScrollbar(content.width, viewport.width, thumbOffset) : current.x;
+        const y =
+          axis === 'y' ? panForScrollbar(content.height, viewport.height, thumbOffset) : current.y;
+        return clampPan({ x, y }, content.width, content.height, viewport.width, viewport.height);
+      });
+    },
+    [content, viewport],
+  );
+
+  /**
+   * A press on a bar jumps the thumb under the pointer — the way a native
+   * scrollbar does — and the rest of the gesture drags it, both mapped through
+   * the pan the preview is clamped to.
+   */
+  const startScrollbarDrag = useCallback(
+    (axis: 'x' | 'y') =>
+      (event: React.MouseEvent<HTMLDivElement>): void => {
+        event.preventDefault();
+        event.stopPropagation();
+        const track = event.currentTarget.getBoundingClientRect();
+        const length = axis === 'x' ? track.width : track.height;
+        const bar = axis === 'x' ? horizontalBar : verticalBar;
+        const travel = 1 - bar.thumbFraction;
+        if (length <= 0 || bar.overflow <= 0 || travel <= 0) return;
+        const pointer = axis === 'x' ? event.clientX : event.clientY;
+        const origin = axis === 'x' ? track.left : track.top;
+        const local = (pointer - origin) / length;
+        const onThumb = local >= bar.thumbOffset && local <= bar.thumbOffset + bar.thumbFraction;
+        const start = onThumb
+          ? bar.thumbOffset
+          : Math.min(Math.max(local - bar.thumbFraction / 2, 0), travel);
+        if (!onThumb) applyThumb(axis, start);
+        const onMove = (move: MouseEvent): void => {
+          const position = axis === 'x' ? move.clientX : move.clientY;
+          const next = start + (position - pointer) / length;
+          applyThumb(axis, Math.min(Math.max(next, 0), travel));
+        };
+        const onUp = (): void => {
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      },
+    [applyThumb, horizontalBar, verticalBar],
+  );
+
   const onWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       if (content.width <= 0) return;
@@ -356,6 +420,50 @@ export function LayoutCanvas(props: LayoutCanvasProps): JSX.Element {
             <canvas className="canvas__overlay canvas__overlay--highlight" ref={highlightRef} />
           </div>
         )}
+        {/* Only the axis that overflows gets a bar, so a preview that fits keeps
+            the reference's clean frame. */}
+        {horizontalBar.overflow > 0 ? (
+          <div
+            className="canvas__scrollbar canvas__scrollbar--horizontal"
+            role="scrollbar"
+            aria-orientation="horizontal"
+            aria-label={layoutText('canvas.scrollHorizontal', language)}
+            aria-valuemin={0}
+            aria-valuemax={Math.round(horizontalBar.overflow)}
+            aria-valuenow={Math.round(horizontalBar.scrollOffset)}
+            onMouseDown={startScrollbarDrag('x')}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span
+              className="canvas__scrollbar-thumb"
+              style={{
+                left: horizontalBar.thumbOffset * 100 + '%',
+                width: horizontalBar.thumbFraction * 100 + '%',
+              }}
+            />
+          </div>
+        ) : null}
+        {verticalBar.overflow > 0 ? (
+          <div
+            className="canvas__scrollbar canvas__scrollbar--vertical"
+            role="scrollbar"
+            aria-orientation="vertical"
+            aria-label={layoutText('canvas.scrollVertical', language)}
+            aria-valuemin={0}
+            aria-valuemax={Math.round(verticalBar.overflow)}
+            aria-valuenow={Math.round(verticalBar.scrollOffset)}
+            onMouseDown={startScrollbarDrag('y')}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span
+              className="canvas__scrollbar-thumb"
+              style={{
+                top: verticalBar.thumbOffset * 100 + '%',
+                height: verticalBar.thumbFraction * 100 + '%',
+              }}
+            />
+          </div>
+        ) : null}
         <div className="canvas__zoom">
           <button
             type="button"

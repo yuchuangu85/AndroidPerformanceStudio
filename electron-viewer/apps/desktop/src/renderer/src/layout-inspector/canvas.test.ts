@@ -6,7 +6,9 @@ import {
   clampPan,
   mapBounds,
   parseCanvasArgb,
+  panForScrollbar,
   previewSize,
+  scrollbarGeometry,
   scrollPan,
   sourceRect,
   unmapPoint,
@@ -164,6 +166,40 @@ describe('visible bounds overlay', () => {
     });
     expect(rects).toHaveLength(2);
     expect(rects[1]).toEqual({ left: 40, top: 40, width: 20, height: 20 });
+  });
+});
+
+describe('preview scrollbars', () => {
+  it('keeps the thumb full and the offset at zero while the preview fits', () => {
+    // No overflow means no bar at all; the component reads overflow for that.
+    expect(scrollbarGeometry(400, 400, 0)).toEqual({
+      overflow: 0,
+      thumbFraction: 1,
+      thumbOffset: 0,
+      scrollOffset: 0,
+    });
+    expect(panForScrollbar(400, 400, 0.5)).toBe(0);
+  });
+
+  it('maps the centred pan onto the track', () => {
+    // content 100, viewport 40: overflow 60, thumb 40% of the track, travel 60%.
+    expect(scrollbarGeometry(100, 40, 0)).toMatchObject({ overflow: 60, thumbFraction: 0.4, thumbOffset: 0.3 });
+    // Pan +30 is the top of the content, pan -30 the bottom, so the thumb runs
+    // the whole travel between them.
+    expect(scrollbarGeometry(100, 40, 30).thumbOffset).toBe(0);
+    expect(scrollbarGeometry(100, 40, -30).thumbOffset).toBeCloseTo(0.6, 10);
+    expect(scrollbarGeometry(100, 40, 30).scrollOffset).toBe(0);
+    expect(scrollbarGeometry(100, 40, -30).scrollOffset).toBe(60);
+  });
+
+  it('round trips a thumb position back into the pan it stands for', () => {
+    for (const pan of [30, 10, 0, -10, -30]) {
+      const thumb = scrollbarGeometry(100, 40, pan).thumbOffset;
+      expect(panForScrollbar(100, 40, thumb)).toBeCloseTo(pan, 10);
+    }
+    // A thumb pushed past either end stops at that end.
+    expect(panForScrollbar(100, 40, -5)).toBe(30);
+    expect(panForScrollbar(100, 40, 5)).toBe(-30);
   });
 });
 

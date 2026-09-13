@@ -1707,6 +1707,50 @@ input:focus {
   pointer-events: none;
 }
 
+/* Preview scrollbars. They are drawn only while the preview overflows that axis —
+   the component renders neither bar otherwise — and they wear the same thin
+   thumb as the shell's own scrollbars. */
+.canvas__scrollbar {
+  position: absolute;
+  z-index: 1;
+}
+
+.canvas__scrollbar--horizontal {
+  right: 8px;
+  bottom: 0;
+  left: 0;
+  height: 11px;
+}
+
+.canvas__scrollbar--vertical {
+  top: 0;
+  right: 0;
+  bottom: 8px;
+  width: 11px;
+}
+
+.canvas__scrollbar-thumb {
+  position: absolute;
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--muted) 42%, transparent);
+  background-clip: padding-box;
+}
+
+.canvas__scrollbar--horizontal .canvas__scrollbar-thumb {
+  top: 0;
+  bottom: 0;
+}
+
+.canvas__scrollbar--vertical .canvas__scrollbar-thumb {
+  right: 0;
+  left: 0;
+}
+
+.canvas__scrollbar:hover .canvas__scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--muted) 82%, transparent);
+}
+
 .canvas__zoom {
   position: absolute;
   right: 10px;

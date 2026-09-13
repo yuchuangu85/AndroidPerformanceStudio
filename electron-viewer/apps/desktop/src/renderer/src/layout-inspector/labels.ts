@@ -17,6 +17,8 @@ export const LAYOUT_STRINGS = {
   'canvas.noLiveFrame': { en: 'No live frame', zh: '无实时画面' },
   'canvas.zoomIn': { en: 'Zoom in preview', zh: '放大预览' },
   'canvas.zoomOut': { en: 'Zoom out preview', zh: '缩小预览' },
+  'canvas.scrollHorizontal': { en: 'Scroll preview horizontally', zh: '水平滚动预览' },
+  'canvas.scrollVertical': { en: 'Scroll preview vertically', zh: '垂直滚动预览' },
   'window.title': { en: 'Window', zh: '窗口' },
   'window.select': { en: 'Select window', zh: '选择窗口' },
   'view.showIds': { en: 'Show layout IDs', zh: '显示布局 ID' },
