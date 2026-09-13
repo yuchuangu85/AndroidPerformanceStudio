@@ -1,15 +1,18 @@
 name: Electron
 
+# CI is manual-only for now: the rewrite is still being iterated on locally,
+# and every push under electron-viewer/** started three workflows at once. The
+# triggers below are kept, commented, so re-enabling them is one uncomment.
 on:
-  push:
-    paths:
-      - 'electron-viewer/**'
-      - '.github/workflows/electron.yml'
-  pull_request:
-    paths:
-      - 'electron-viewer/**'
-      - '.github/workflows/electron.yml'
   workflow_dispatch:
+  # push:
+  #   paths:
+  #     - 'electron-viewer/**'
+  #     - '.github/workflows/electron.yml'
+  # pull_request:
+  #   paths:
+  #     - 'electron-viewer/**'
+  #     - '.github/workflows/electron.yml'
 
 permissions:
   contents: read

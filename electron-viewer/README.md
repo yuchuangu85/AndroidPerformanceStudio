@@ -34,6 +34,17 @@ pnpm package:smoke    # electron-builder --dir, no publish/signing
 drives the local electron-vite and electron-builder binaries, so it also works
 on a machine where `pnpm` is not on `PATH`.
 
+The sequence is built to fail rather than to ship something old. The `beforePack`
+hook refuses a bundle older than its sources, and that scan covers the `@aps/*`
+workspace packages too — they are compiled into the same bundles, so a change in
+one of them makes the bundle just as stale. Afterwards
+`apps/desktop/scripts/verify-package.mjs` looks for the renderer bundle it just
+built inside the packed `app.asar`, so a package that carries a different build
+is reported instead of blessed. Because the package is not what the machine
+launches, the run also names any other copy of the application it can see — an
+installed one, a mounted image — so "the build is stale" and "that is not the
+build you opened" are not confused for each other again.
+
 Packaging a real installer also needs the bundled assets to exist first:
 `./scripts/build-perfetto-ui.sh download` and
 `PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh`

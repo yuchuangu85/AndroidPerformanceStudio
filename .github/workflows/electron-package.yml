@@ -5,14 +5,17 @@ name: Electron packages
 # assets. Nothing is signed, notarized, published, or uploaded to a release:
 # D5 keeps release.yml untouched until the rewrite passes its gates.
 
+# CI is manual-only for now: the rewrite is still being iterated on locally,
+# and every push under electron-viewer/** started three workflows at once. The
+# triggers below are kept, commented, so re-enabling them is one uncomment.
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "electron-viewer/apps/desktop/electron-builder.yml"
-      - "electron-viewer/apps/desktop/package.json"
-      - "electron-viewer/apps/desktop/scripts/**"
-      - ".github/workflows/electron-package.yml"
+  # push:
+  #   paths:
+  #     - "electron-viewer/apps/desktop/electron-builder.yml"
+  #     - "electron-viewer/apps/desktop/package.json"
+  #     - "electron-viewer/apps/desktop/scripts/**"
+  #     - ".github/workflows/electron-package.yml"
 
 permissions:
   contents: read

@@ -13,6 +13,12 @@
  * than any bundle means the build step was skipped. Running this as the
  * `beforePack` hook puts the failure before the package exists, whichever way
  * electron-builder was invoked.
+ *
+ * The scan has to cover every package the bundles inline, not just this app's
+ * `src/`: the @aps/* workspace packages ship as TypeScript source and are
+ * compiled into the same bundles (see electron.vite.config.ts), so a change in
+ * one of them makes the bundle stale in exactly the same way. Watching only the
+ * app's own sources is how a package change rides into a package unnoticed.
  */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
@@ -22,6 +28,27 @@ const desktop = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The outputs electron-builder copies into the application. */
 const BUNDLES = ['out/main/index.js', 'out/preload/index.js', 'out/renderer/index.html'];
+
+/**
+ * The workspace packages the bundles inline. The config resolves them the same
+ * way — the electron-viewer workspace, then a packages directory beside the app
+ * — so a layout that moves does not silently drop them from the scan.
+ */
+function workspaceSourceDirectories() {
+  const candidates = [resolve(desktop, '..', '..', 'packages'), resolve(desktop, '..', 'packages')];
+  for (const directory of candidates) {
+    try {
+      const roots = readdirSync(directory, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(directory, entry.name, 'src'))
+        .filter((root) => existsSync(root));
+      if (roots.length > 0) return roots;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return [];
+}
 
 /** The extensions the build compiles. Anything else under src/ is not an input. */
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.css', '.html', '.json']);
@@ -63,6 +90,7 @@ function stamp(time) {
 export default async function checkBuildFreshness() {
   const newestSource = newest([
     ...sourceFiles(join(desktop, 'src')),
+    ...workspaceSourceDirectories().flatMap((root) => sourceFiles(root)),
     join(desktop, 'electron.vite.config.ts'),
   ]);
   if (newestSource === null) {
@@ -81,6 +109,7 @@ export default async function checkBuildFreshness() {
     throw new Error(
       'the built bundle is older than the sources it was built from\n' +
       '  newest source: ' + relative(desktop, newestSource.file) + ' (' + stamp(newestSource.time) + ')\n' +
+      '    (a bundled @aps/* package counts as a source too)\n' +
       '  oldest bundle: ' + relative(desktop, oldestBundle.file) + ' (' + stamp(oldestBundle.time) + ')\n' +
       'build before packaging: pnpm --filter @aps/desktop build',
     );

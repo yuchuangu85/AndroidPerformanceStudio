@@ -35,7 +35,7 @@ if (!existsSync(unpacked)) {
 function directoriesUnder(directory, depth) {
   const found = [directory];
   if (depth <= 0) return found;
-  let entries = [];
+  let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true });
   } catch {
@@ -91,6 +91,24 @@ if (require('the pinned Trace Processor', binaryPath)) {
     const actual = createHash('sha256').update(readFileSync(binaryPath)).digest('hex');
     if (actual !== expected) failures.push('the packaged Trace Processor checksum does not match the manifest');
     if (statSync(binaryPath).size === 0) failures.push('the packaged Trace Processor is empty');
+  }
+}
+
+// The renderer bundle's file name is a content hash, so finding it inside the
+// asar is proof that the package carries the build that is on disk right now.
+// This is the freshness guard read from the other side: the guard refuses to
+// pack an old out/, this refuses to bless a package that holds one.
+const desktop = join(dirname(fileURLToPath(import.meta.url)), '..');
+const rendererAssets = join(desktop, 'out', 'renderer', 'assets');
+const asarPath = join(resources, 'app.asar');
+if (existsSync(asarPath) && existsSync(rendererAssets)) {
+  const asar = readFileSync(asarPath);
+  const bundles = readdirSync(rendererAssets).filter((name) => name.endsWith('.js'));
+  const missing = bundles.filter((name) => !asar.includes(Buffer.from(name)));
+  if (missing.length > 0) {
+    failures.push(
+      'the package does not carry the build in out/: app.asar has none of ' + missing.join(', '),
+    );
   }
 }
 

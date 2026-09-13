@@ -1,19 +1,22 @@
 name: Cross-implementation golden checks
 
+# CI is manual-only for now: the rewrite is still being iterated on locally,
+# and every push under electron-viewer/** started three workflows at once. The
+# triggers below are kept, commented, so re-enabling them is one uncomment.
 on:
-  push:
-    paths:
-      - 'electron-viewer/**'
-      - 'desktop-viewer/memory-profiler/**'
-      - 'desktop-viewer/simpleperf-viewer/**'
-      - '.github/workflows/golden.yml'
-  pull_request:
-    paths:
-      - 'electron-viewer/**'
-      - 'desktop-viewer/memory-profiler/**'
-      - 'desktop-viewer/simpleperf-viewer/**'
-      - '.github/workflows/golden.yml'
   workflow_dispatch:
+  # push:
+  #   paths:
+  #     - 'electron-viewer/**'
+  #     - 'desktop-viewer/memory-profiler/**'
+  #     - 'desktop-viewer/simpleperf-viewer/**'
+  #     - '.github/workflows/golden.yml'
+  # pull_request:
+  #   paths:
+  #     - 'electron-viewer/**'
+  #     - 'desktop-viewer/memory-profiler/**'
+  #     - 'desktop-viewer/simpleperf-viewer/**'
+  #     - '.github/workflows/golden.yml'
 
 permissions:
   contents: read
