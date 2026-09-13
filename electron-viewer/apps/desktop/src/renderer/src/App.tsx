@@ -304,41 +304,6 @@ export function App(): JSX.Element {
             })
           )}
 
-          <section className="card">
-            <h3 className="card__title">{translate('shell.devices', language)}</h3>
-            <p className="card__muted">
-              {snapshot.adb.available
-                ? snapshot.adb.executable + ' (' + String(snapshot.adb.source) + ')'
-                : translate('status.unavailable', language) + ': ' + String(snapshot.adb.error ?? '')}
-            </p>
-            {snapshot.devices.length === 0 ? (
-              <p className="card__muted">{translate('shell.devices.none', language)}</p>
-            ) : (
-              <ul className="list">
-                {snapshot.devices.map((device) => (
-                  <li key={device.serial}>
-                    <code>{device.serial}</code> · {device.state}
-                    {device.model !== undefined ? ' · ' + device.model : ''}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="card">
-            <h3 className="card__title">{translate('shell.traceProcessor', language)}</h3>
-            <p className="card__muted">
-              {snapshot.traceProcessor.available
-                ? String(snapshot.traceProcessor.version) + ' · ' + String(snapshot.traceProcessor.path)
-                : translate('status.unavailable', language) + ': ' + String(snapshot.traceProcessor.error ?? '')}
-            </p>
-            <p className="card__muted">
-              {snapshot.migration.source === 'migrated'
-                ? translate('shell.migration.migrated', language) + ' (' + snapshot.migration.migratedKeys.length + ')'
-                : translate('shell.migration.fresh', language)}
-            </p>
-          </section>
-
           {error !== null ? <p className="card__error">{error}</p> : null}
         </div>
       </main>
@@ -346,11 +311,11 @@ export function App(): JSX.Element {
       {settingsOpen ? (
         <SettingsPage
           language={language}
-          settings={snapshot.settings}
-          appInfo={snapshot.appInfo}
+          snapshot={snapshot}
           onPatch={applySettings}
           onClose={() => setSettingsOpen(false)}
           onOpenDestination={navigate}
+          onRefreshDevices={refreshDevices}
         />
       ) : null}
     </div>

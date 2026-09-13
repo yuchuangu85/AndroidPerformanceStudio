@@ -1,6 +1,8 @@
 # Navigate the shell from a home card grid instead of a sidebar
 
-Status: Accepted (2026-09-12). Supersedes the sidebar parts of ADR-0037.
+Status: Accepted (2026-09-12). Supersedes the sidebar parts of ADR-0037. The
+environment readings it kept under the card grid moved into Settings
+(ADR-0040).
 
 ## Context
 

@@ -249,7 +249,7 @@ function probeSource(seconds) {
     '  });',
     '  try {',
     '    await waitFor(() => document.readyState === \'complete\', 30000, \'the document\');',
-    '    // Settings is its own page: five top-level rows plus the six sections',
+    '    // Settings is its own page: six top-level rows plus the six sections',
     '    // nested under Simpleperf, and every one of them must render a pane.',
     '    const settingsButton = await waitFor(',
     '      () => [...document.querySelectorAll(\'button\')].find((element) => {',
@@ -267,7 +267,8 @@ function probeSource(seconds) {
     '    const topRows = () => [...document.querySelectorAll(\'.settings__nav-row:not(.settings__nav-row--nested)\')];',
     '    const nestedRows = () => [...document.querySelectorAll(\'.settings__nav-row--nested\')];',
     '    const settingsPages = [];',
-    '    for (let index = 0; index < 5; index += 1) {',
+    '    const pageCount = topRows().length;',
+    '    for (let index = 0; index < pageCount; index += 1) {',
     '      const row = topRows()[index];',
     '      if (!row) throw new Error(\'missing settings page at index \' + index);',
     '      row.click();',
@@ -275,7 +276,11 @@ function probeSource(seconds) {
     '      await waitFor(() => document.querySelector(\'.settings__section\'), 10000, \'a settings section\');',
     '      settingsPages.push((row.textContent || \'\').trim());',
     '    }',
-    '    topRows()[2].click();',
+    '    // By name, not by index: the rows follow the page order, and a page',
+    '    // inserted above Simpleperf must not turn this into a timeout.',
+    '    const simpleperfRow = topRows().find((row) => (row.textContent || \'\').indexOf(\'Simpleperf\') >= 0);',
+    '    if (!simpleperfRow) throw new Error(\'the Simpleperf settings row is missing\');',
+    '    simpleperfRow.click();',
     '    await waitFor(() => nestedRows().length === 6, 10000, \'the Simpleperf sections\');',
     '    const simpleperfSections = [];',
     '    for (let index = 0; index < 6; index += 1) {',
@@ -453,11 +458,11 @@ async function main() {
     const scrollOk = report.scroll !== null && report.scroll.fps >= MIN_FPS;
     const hitOk = report.hit !== null && report.hit.fps >= MIN_FPS;
     const zoomOk = report.zoom !== null && report.zoom.fps >= MIN_FPS;
-    // The settings walk is a functional gate, not a frame-rate one: five pages
+    // The settings walk is a functional gate, not a frame-rate one: six pages
     // and six Simpleperf sections either render or the shell is broken.
     const settingsOk =
       report.settings !== null &&
-      report.settings.pages.length === 5 &&
+      report.settings.pages.length === 6 &&
       report.settings.simpleperfSections.length === 6;
     if (!report.ok || !scrollOk || !hitOk || !zoomOk || !settingsOk) {
       console.error('the UI gate did not pass');

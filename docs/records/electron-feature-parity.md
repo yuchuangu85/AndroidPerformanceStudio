@@ -1,6 +1,6 @@
 # Electron 功能对齐矩阵
 
-更新时间：2026-09-12
+更新时间：2026-09-13
 分支：`feature/electron-rewrite`
 
 本表回答一个问题：**换栈之后，Kotlin / Compose 桌面应用具备的能力，Electron 侧还有哪些没有对齐。**
@@ -42,7 +42,7 @@
 | 导航：14 目的地、13 张首页功能卡（每行 4 张、图标+标题+介绍）、无侧边栏、启动即最大化、已访问页面保活 | `AppDestination` / `AppNavigator` | `apps/desktop/src/shared/destinations.ts` + `App.tsx` | ✅ | `destinations.test.ts` 断言 14 个目的地、首页卡片集合 = 目的地 − HOME、顺序与保活，以及每张卡两种语言都有标题与介绍；`shell-layout.test.ts` 断言每行 4 张且样式表里没有侧边栏规则 | 参考实现首页只画 9 张卡，GPU Inspector / 基准回归 / 方法录制在参考实现里没有任何入口；Electron 侧补齐为 13 张（有意偏离，见 ADR-0038）。卡片刻画的介绍逐字取自参考实现首页（`values{,-zh}/strings.xml`），仅 AI Analysis 的文案为本地新写。窗口启动即最大化（参考实现只在进入功能页时最大化，回首页不再缩回），见 ADR-0038 |
 | 设置迁移（`java.util.prefs` 三平台底层） | `desktop-app` 设置层 | `packages/settings` | ✅ | `legacy-prefs-source.test.ts`、`legacy-macos-plist.ts` / `legacy-windows-registry.ts` / `legacy-linux-xml.ts`；`migrate.test.ts` 覆盖 `application.*`、`view.*`、`canvas.bounds.*`、`simpleperf.tooltipMode` 到设置 JSON 的映射 | 未用 Kotlin 真实写出的 plist / 注册表 / XML 做端到端对照 |
 | 主题（明暗、跟随系统） | Compose 主题 | `shared/theme.ts` + `App.tsx` | ✅ | `theme.test.ts` | – |
-| 统一设置页：通用 / Layout Inspector / Simpleperf / AI 设置 / 关于 | `DesktopAppSettingsDialog`、`GeneralSettingsContent`、`LayoutInspectorSettingsContent`、`SimpleperfSettingsSectionContent`、`AiSettingsContent`、`AboutSettingsContent` | `apps/desktop/src/renderer/src/settings/*`、`packages/settings` | 📝 | `model.test.ts`（深层合并、取值校验、模板预设）、`store.test.ts`（分区往返、越界回退）、`migrate.test.ts`（view./canvas./simpleperf. 旧键迁移）、`e2e/ui-perf.mjs` 设置走查：5 个顶层页 + Simpleperf 6 个分节全部渲染后关闭 | 采集归档（归档导入导出未迁移，页面只给说明）、按事件高级参数（来自设备，未迁移）、使用指南（未随包分发）；Simpleperf 引擎只有本地实现 |
+| 统一设置页：通用 / 环境 / Layout Inspector / Simpleperf / AI 设置 / 关于 | `DesktopAppSettingsDialog`、`GeneralSettingsContent`、`LayoutInspectorSettingsContent`、`SimpleperfSettingsSectionContent`、`AiSettingsContent`、`AboutSettingsContent` | `apps/desktop/src/renderer/src/settings/*`、`packages/settings` | 📝 | `model.test.ts`（深层合并、取值校验、模板预设）、`store.test.ts`（分区往返、越界回退）、`migrate.test.ts`（view./canvas./simpleperf. 旧键迁移）、`EnvironmentSettings.test.ts`（设备、Trace Processor、设置迁移来源三行都在）、`e2e/ui-perf.mjs` 设置走查：6 个顶层页 + Simpleperf 6 个分节全部渲染后关闭 | 采集归档（归档导入导出未迁移，页面只给说明）、按事件高级参数（来自设备，未迁移）、使用指南（未随包分发）；Simpleperf 引擎只有本地实现；环境页为 Electron 侧新增，参考实现没有对应页（设备与 Trace Processor 两张状态卡原先挂在每个目的地页底部） |
 | 国际化 en/zh | 47 个 `strings.xml`、2,936 条 | `shared/i18n.ts` + 各面板自带词条 | 📝 | `i18n.test.ts` | 不是从 `strings.xml` 抽取，而是按需重写；未做全量文案覆盖核对 |
 | ADB 发现优先级、参数向量不过 shell、输入校验 | `platform-core/adb-core` | `packages/platform-adb` | ✅ | `adb-locator.test.ts`、`adb-input-validator.test.ts` | 未在真实设备上执行 |
 | Perfetto 固定 v57.2 + SHA-256，不允许 PATH 回退 | `platform-perfetto` | `packages/platform-perfetto` | ✅ | `tool-resolver.test.ts`、`trace-processor-manifest.json` | – |

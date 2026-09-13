@@ -433,10 +433,12 @@ export const SHELL_STRINGS = {
 
   // ------------------------------------------------------------- settings --
   // The settings window is its own page: one navigation row per section, then
-  // General, Layout Inspector, Simpleperf, AI Settings and About in page order.
+  // General, Environment, Layout Inspector, Simpleperf, AI Settings and About
+  // in page order.
   'settings.title': { en: 'Settings', zh: '设置' },
   'settings.done': { en: 'Done', zh: '完成' },
   'settings.general': { en: 'General', zh: '通用' },
+  'settings.environment': { en: 'Environment', zh: '环境' },
   'settings.layoutInspector': { en: 'Layout Inspector', zh: 'Layout Inspector' },
   'settings.simpleperf': { en: 'Simpleperf', zh: 'Simpleperf' },
   'settings.ai': { en: 'AI Settings', zh: 'AI 设置' },

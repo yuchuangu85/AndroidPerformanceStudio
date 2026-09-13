@@ -1,13 +1,11 @@
 import { useCallback, useState, type JSX } from 'react';
 import { translate, type UiLanguage } from '../../../shared/i18n';
 import type { AppDestination } from '../../../shared/destinations';
-import type {
-  ApplicationUiSettings,
-  ApplicationUiSettingsPatch,
-} from '../../../shared/settings-contract';
-import type { AppInfo } from '../../../shared/ipc';
+import type { ApplicationUiSettingsPatch } from '../../../shared/settings-contract';
+import type { ShellSnapshot } from '../../../shared/ipc';
 import { AboutSettingsPage } from './AboutSettings';
 import { AiSettingsPage } from './AiSettings';
+import { EnvironmentSettingsPage } from './EnvironmentSettings';
 import { GeneralSettings } from './GeneralSettings';
 import { LayoutInspectorSettingsPage } from './LayoutInspectorSettings';
 import {
@@ -17,27 +15,29 @@ import {
   type SimpleperfSectionId,
 } from './SimpleperfSettings';
 
-/** SettingsPage: General, Layout Inspector, Simpleperf, AI, About. */
-export type SettingsPageId = 'GENERAL' | 'LAYOUT_INSPECTOR' | 'SIMPLEPERF' | 'AI' | 'ABOUT';
+/** SettingsPage: General, Environment, Layout Inspector, Simpleperf, AI, About. */
+export type SettingsPageId = 'GENERAL' | 'ENVIRONMENT' | 'LAYOUT_INSPECTOR' | 'SIMPLEPERF' | 'AI' | 'ABOUT';
 
 export interface SettingsPageProps {
   readonly language: UiLanguage;
-  readonly settings: ApplicationUiSettings;
-  readonly appInfo: AppInfo;
+  /** The live shell snapshot: Settings reads the environment from it, not a copy. */
+  readonly snapshot: ShellSnapshot;
   /** Resolves true when the patch reached settings.json. */
   readonly onPatch: (patch: ApplicationUiSettingsPatch) => Promise<boolean>;
   readonly onClose: () => void;
   readonly onOpenDestination: (destination: AppDestination) => void;
+  readonly onRefreshDevices: () => void;
 }
 
 export function SettingsPage({
   language,
-  settings,
-  appInfo,
+  snapshot,
   onPatch,
   onClose,
   onOpenDestination,
+  onRefreshDevices,
 }: SettingsPageProps): JSX.Element {
+  const settings = snapshot.settings;
   const [page, setPage] = useState<SettingsPageId>('GENERAL');
   const [simpleperfExpanded, setSimpleperfExpanded] = useState(false);
   const [simpleperfSection, setSimpleperfSection] = useState<SimpleperfSectionId>('SAMPLING_TEMPLATE');
@@ -63,7 +63,7 @@ export function SettingsPage({
       <header className="toolbar">
         <div className="toolbar__leading">
           <h2 className="toolbar__title">{translate('settings.title', language)}</h2>
-          <span className="toolbar__subtitle">{appInfo.name}</span>
+          <span className="toolbar__subtitle">{snapshot.appInfo.name}</span>
         </div>
         <div className="toolbar__actions">
           <button type="button" className="button button--primary" onClick={onClose}>
@@ -77,6 +77,11 @@ export function SettingsPage({
             label={translate('settings.general', language)}
             selected={page === 'GENERAL'}
             onClick={() => setPage('GENERAL')}
+          />
+          <SettingsNavRow
+            label={translate('settings.environment', language)}
+            selected={page === 'ENVIRONMENT'}
+            onClick={() => setPage('ENVIRONMENT')}
           />
           <SettingsNavRow
             label={translate('settings.layoutInspector', language)}
@@ -122,6 +127,16 @@ export function SettingsPage({
           {page === 'GENERAL' ? (
             <GeneralSettings language={language} settings={settings} onPatch={patch} />
           ) : null}
+          {page === 'ENVIRONMENT' ? (
+            <EnvironmentSettingsPage
+              language={language}
+              adb={snapshot.adb}
+              devices={snapshot.devices}
+              traceProcessor={snapshot.traceProcessor}
+              migration={snapshot.migration}
+              onRefreshDevices={onRefreshDevices}
+            />
+          ) : null}
           {page === 'LAYOUT_INSPECTOR' ? (
             <LayoutInspectorSettingsPage language={language} settings={settings} onPatch={patch} />
           ) : null}
@@ -136,7 +151,7 @@ export function SettingsPage({
           {page === 'AI' ? (
             <AiSettingsPage language={language} onOpenAnalysis={() => onOpenDestination('AI_ANALYSIS')} />
           ) : null}
-          {page === 'ABOUT' ? <AboutSettingsPage language={language} appInfo={appInfo} /> : null}
+          {page === 'ABOUT' ? <AboutSettingsPage language={language} appInfo={snapshot.appInfo} /> : null}
         </div>
       </div>
     </main>
