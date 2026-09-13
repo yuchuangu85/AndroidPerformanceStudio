@@ -32,4 +32,17 @@ describe('shell layout', () => {
     expect(styles).not.toMatch(/\.sidebar(__|[\s,{:.])/);
     expect(styles).not.toMatch(/\.nav__/);
   });
+
+  it('butts page sections together instead of floating them on cards', () => {
+    expect(declarations('.content__body')).toMatch(/padding:\s*0/);
+    expect(declarations('.card')).not.toMatch(/border-radius|box-shadow/);
+    expect(declarations('.card')).toMatch(/border-bottom:\s*1px solid var\(--separator\)/);
+    expect(declarations('.settings__section')).not.toMatch(/border-radius|box-shadow/);
+  });
+
+  it('rules the home grid with the same hairlines', () => {
+    expect(declarations('.home__grid')).toMatch(/gap:\s*0/);
+    expect(declarations('.card--action')).not.toMatch(/border-radius|box-shadow/);
+    expect(declarations('.card--action')).toMatch(/border-right:\s*1px solid var\(--separator\)/);
+  });
 });

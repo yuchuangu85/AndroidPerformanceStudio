@@ -11,6 +11,8 @@
  *   - Controls are 24px tall with a 6px radius and a hairline border, which is
  *     what AppKit's regular-size push button, pop-up button and text field are.
  *   - Separators are a translucent hairline, never a solid grey line.
+ *   - A page is sections butted edge to edge and divided by those hairlines:
+ *     no rounded cards, no panel shadows, no margin against the window.
  *   - Nothing animates on its own; hover and press feedback are the only motion.
  */
 
@@ -54,14 +56,12 @@
   --field-bg: #ffffff;
   --field-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
 
+  /* Floating overlays only: the canvas zoom control and the flame tooltip. */
   --panel-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.07);
-  --tile-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.06);
 
   --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2.2 4.1 5 6.9l2.8-2.8' fill='none' stroke='%23000000' stroke-opacity='0.5' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --radius-control: 6px;
-  --radius-panel: 10px;
-  --radius-tile: 12px;
   /* 26px (half the original 52px bar) plus half of that again: a compact strip
      that still leaves room for AppKit's regular 24px controls. */
   --titlebar-height: 39px;
@@ -111,7 +111,6 @@
   --field-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 
   --panel-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.04), 0 1px 3px rgba(0, 0, 0, 0.45);
-  --tile-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4);
 
   --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2.2 4.1 5 6.9l2.8-2.8' fill='none' stroke='%23ffffff' stroke-opacity='0.6' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
@@ -259,12 +258,17 @@ samp {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 16px 20px 28px;
+  /* Edge to edge: sections butt against the window and against each other, and
+     every gutter they need is their own padding. */
+  padding: 0;
   background: var(--content);
 }
 
-.content__body--home {
-  padding: 26px 32px 32px;
+/* A panel's bare status line ("nothing captured yet") is the one child the body
+   has that is not a section, so it carries the gutter the sections carry. */
+.content__body > p {
+  margin: 0;
+  padding: 14px 16px;
 }
 
 .content__title {
@@ -513,18 +517,14 @@ input:focus {
 
 /* ------------------------------------------------------------- surfaces -- */
 
+/* One section of a page. Sections are butted together and edge to edge; the
+   hairline under each one is the only thing dividing them, so a page reads as a
+   single surface instead of a stack of panels floating over the window. */
 .card {
-  margin-top: 0;
-  margin-bottom: 14px;
+  margin: 0;
   padding: 14px 16px 16px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
+  border-bottom: 1px solid var(--separator);
   background: var(--surface);
-  box-shadow: var(--panel-shadow);
-}
-
-.card:last-child {
-  margin-bottom: 0;
 }
 
 .card__title {
@@ -555,10 +555,10 @@ input:focus {
   min-height: 124px;
   margin: 0;
   padding: 16px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-tile);
+  border: 0;
+  border-right: 1px solid var(--separator);
+  border-bottom: 1px solid var(--separator);
   background: var(--surface);
-  box-shadow: var(--tile-shadow);
   color: var(--text);
   font-family: inherit;
   font-size: 12px;
@@ -566,6 +566,11 @@ input:focus {
   text-align: left;
   cursor: default;
   user-select: none;
+}
+
+/* The grid is four columns wide, so every fourth cell closes its row. */
+.card--action:nth-child(4n) {
+  border-right: 0;
 }
 
 /* First row of a feature card: the destination glyph and its name. */
@@ -577,16 +582,16 @@ input:focus {
 }
 
 .card--action:hover {
-  border-color: var(--accent);
+  background: var(--control-bg-hover);
 }
 
 .card--action:active {
   background: var(--fill);
 }
 
+/* Inset, not a halo around a card: the cell has no shape of its own to ring. */
 .card--action:focus-visible {
-  border-color: var(--accent);
-  box-shadow: var(--tile-shadow), 0 0 0 3.5px var(--focus-ring);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .card__glyph {
@@ -623,15 +628,16 @@ input:focus {
   line-height: 16px;
 }
 
-/* Home: the shell's only navigation surface, four feature cards per row. The
-   page heading is centred over the grid; the cards keep their own left edge. */
+/* Home: the shell's only navigation surface, four feature cells per row. The
+   heading is a band across the top, the grid below it runs to the window edges,
+   and the hairlines that separate the cells carry the page's ruled look. */
 .home {
-  max-width: 1180px;
-  margin: 0 auto;
+  margin: 0;
 }
 
 .home__title {
-  margin: 0 0 5px;
+  margin: 0;
+  padding: 26px 32px 0;
   font-size: 30px;
   line-height: 36px;
   font-weight: 600;
@@ -640,7 +646,9 @@ input:focus {
 }
 
 .home__subtitle {
-  margin: 0 0 24px;
+  margin: 0;
+  padding: 5px 32px 24px;
+  border-bottom: 1px solid var(--separator);
   color: var(--muted);
   font-size: 14px;
   line-height: 19px;
@@ -650,8 +658,7 @@ input:focus {
 .home__grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 20px;
+  gap: 0;
 }
 
 .list {
@@ -795,11 +802,15 @@ input:focus {
   color: var(--accent);
 }
 
+/* Metric cells are a ruled table: the container closes the last column and the
+   last row, and every cell draws its own top and left hairline. */
 .metrics {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
-  gap: 10px;
+  gap: 0;
   margin-bottom: 14px;
+  border-right: 1px solid var(--separator);
+  border-bottom: 1px solid var(--separator);
 }
 
 .metric {
@@ -807,10 +818,9 @@ input:focus {
   flex-direction: column;
   gap: 3px;
   padding: 10px 12px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
+  border-top: 1px solid var(--separator);
+  border-left: 1px solid var(--separator);
   background: var(--surface);
-  box-shadow: var(--panel-shadow);
 }
 
 .metric__label {
@@ -1015,17 +1025,22 @@ input:focus {
 
 /* ------------------------------------------------------ hierarchy tree -- */
 
+/* The three inspector panes are one row of a table: no gap, a vertical hairline
+   between neighbours, and one bottom hairline because the row stretches. */
 .layout {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.35fr) minmax(240px, 1fr);
-  gap: 12px;
-  align-items: start;
+  gap: 0;
+  align-items: stretch;
 }
 
 .layout__pane {
-  margin-top: 0;
+  margin: 0;
   min-width: 0;
-  margin-bottom: 0;
+}
+
+.layout__pane + .layout__pane {
+  border-left: 1px solid var(--separator);
 }
 
 .tree {
@@ -1359,8 +1374,8 @@ input:focus {
 .settings__panes {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px 20px 28px;
+  gap: 0;
+  padding: 0;
   overflow: auto;
 }
 
@@ -1369,9 +1384,8 @@ input:focus {
   flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
-  border-radius: var(--radius-panel);
+  border-bottom: 1px solid var(--separator);
   background: var(--surface);
-  box-shadow: var(--panel-shadow);
 }
 
 .settings__section-title {
@@ -1438,6 +1452,9 @@ input:focus {
 
 .settings__error {
   margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--separator);
+  background: var(--surface);
   color: var(--danger);
   font-size: 12px;
 }
