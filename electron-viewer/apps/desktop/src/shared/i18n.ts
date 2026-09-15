@@ -139,6 +139,11 @@ export const SHELL_STRINGS = {
   'layout.autoDevice': { en: 'Auto device', zh: '自动设备' },
   'layout.refresh': { en: 'Refresh', zh: '刷新' },
   'layout.refreshOnce': { en: 'Refresh once', zh: '刷新一次' },
+  'layout.timeline': { en: 'Capture timeline', zh: '采集时间线' },
+  'layout.timelineBaseline': { en: 'baseline', zh: '基线' },
+  'layout.timelineDiff': { en: '+{added} -{removed} moved {bounds}', zh: '+{added} -{removed} 移动 {bounds}' },
+  'layout.timelineProperties': { en: '{changed} changed: {properties}', zh: '{changed} 个属性变化：{properties}' },
+  'layout.timelineRemove': { en: 'Remove timeline item', zh: '移除时间线项目' },
 
   // The Layout Inspector's menu bar, ported from the reference's own strings
   // (ViewerActionMenu / NativeViewerMenuBar) so the menu reads as it read there.

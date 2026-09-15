@@ -27,6 +27,7 @@ import {
 import { layoutText } from './layout-inspector/labels';
 import { LayoutCanvas } from './layout-inspector/LayoutCanvas';
 import { PanelToggleButton } from './layout-inspector/PanelToggleButton';
+import { appendTimelineFrame, removeTimelineFrame, type TimelineFrame } from './layout-inspector/timeline';
 import {
   DEFAULT_PANE_WIDTHS,
   dragHierarchyWidth,
@@ -171,6 +172,8 @@ export function LayoutInspectorPanel({
   /** Pane visibility; the reference's Actions menu toggles the same three. */
   const [panes, setPanes] = useState<PaneVisibility>({ hierarchy: true, details: true, findings: true });
   const [autoScan, setAutoScan] = useState(false);
+  const [timelineFrames, setTimelineFrames] = useState<readonly TimelineFrame[]>([]);
+  const [selectedTimelineFrameIndex, setSelectedTimelineFrameIndex] = useState<number | null>(null);
   /** The reference's CaptureTargetMode: the foreground app, or System UI. */
   const [captureTarget, setCaptureTarget] = useState<LayoutCaptureTarget>('foregroundApp');
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -193,30 +196,48 @@ export function LayoutInspectorPanel({
     refresh();
   }, [refresh]);
 
+  const openDetail = useCallback((loaded: LayoutCaptureDetail): void => {
+    setDetail(loaded);
+    const windowId = effectiveDefaultWindowId(loaded.snapshot);
+    setCollapsed(new Set());
+    setHidden(clearHiddenLayers());
+    setHoveredNodeId(undefined);
+    setActiveWindowId(windowId);
+    setSelectedNodeId(windowOf(loaded.snapshot, windowId).root.id);
+    setScrollTop(0);
+  }, []);
+
+  const appendToTimeline = useCallback((loaded: LayoutCaptureDetail, captureId?: string): void => {
+    setTimelineFrames((current) => {
+      const appended = appendTimelineFrame(current, loaded, captureId);
+      setSelectedTimelineFrameIndex(appended.selectedIndex);
+      return appended.frames;
+    });
+  }, []);
+
   useEffect(() => {
     if (selectedId.length === 0) {
       setDetail(null);
+      setSelectedTimelineFrameIndex(null);
       return;
     }
     window.aps
       .loadLayoutCapture(selectedId)
       .then((loaded) => {
-        setDetail(loaded ?? null);
-        if (loaded === undefined) return;
-        // Collapsed layers, hidden layers and the open window are per-snapshot;
-        // a new capture starts fully expanded, exactly as the reference opens it.
-        const windowId = effectiveDefaultWindowId(loaded.snapshot);
-        setCollapsed(new Set());
-        setHidden(clearHiddenLayers());
-        setHoveredNodeId(undefined);
-        setActiveWindowId(windowId);
-        setSelectedNodeId(windowOf(loaded.snapshot, windowId).root.id);
-        setScrollTop(0);
+        if (loaded === undefined) {
+          setDetail(null);
+          return;
+        }
+        openDetail(loaded);
+        // A selected persisted capture is a timeline frame too. This makes the
+        // history visible after opening a saved record, not only after a fresh
+        // capture made during the current renderer session.
+        appendToTimeline(loaded, selectedId);
       })
-      .catch((reason: unknown) =>
-        setStatus({ tone: 'error', text: reason instanceof Error ? reason.message : String(reason) }),
-      );
-  }, [selectedId]);
+      .catch((reason: unknown) => {
+        setStatus({ tone: 'error', text: reason instanceof Error ? reason.message : String(reason) });
+      });
+  }, [appendToTimeline, openDetail, selectedId]);
 
   const capture = useCallback(() => {
     setBusy(true);
@@ -488,7 +509,8 @@ export function LayoutInspectorPanel({
       .captureLayout(serial, { archive: false, target: captureTarget })
       .then((outcome) => {
         if (outcome.ok && outcome.detail !== undefined) {
-          setDetail(outcome.detail);
+          openDetail(outcome.detail);
+          appendToTimeline(outcome.detail);
           return;
         }
         // A live rescan that fails says so in the header; the next tick tries
@@ -502,7 +524,7 @@ export function LayoutInspectorPanel({
       .finally(() => {
         autoScanInFlight.current = false;
       });
-  }, [captureTarget, serial]);
+  }, [appendToTimeline, captureTarget, language, openDetail, serial]);
 
   const autoCaptureRef = useRef(autoCapture);
   useEffect(() => {
@@ -510,7 +532,11 @@ export function LayoutInspectorPanel({
   }, [autoCapture]);
 
   useEffect(() => {
-    if (!autoScan || serial.length === 0) return;
+    if (!autoScan) return;
+    // An empty serial is the supported "Auto device" mode. Start immediately
+    // and keep sampling on the normal interval so enabling Auto Scan works
+    // without first selecting a concrete device.
+    void autoCaptureRef.current();
     const timer = setInterval(() => autoCaptureRef.current(), AUTO_SCAN_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [autoScan, serial]);
@@ -609,6 +635,37 @@ export function LayoutInspectorPanel({
     },
     [snapshot],
   );
+
+  const selectTimelineFrame = useCallback((frame: TimelineFrame): void => {
+    setSelectedTimelineFrameIndex(frame.index);
+    openDetail(frame.detail);
+  }, [openDetail]);
+
+  const closeTimelineFrame = useCallback((index: number): void => {
+    setTimelineFrames((current) => {
+      const removed = removeTimelineFrame(current, selectedTimelineFrameIndex, index);
+      setSelectedTimelineFrameIndex(removed.selectedIndex);
+      if (selectedTimelineFrameIndex === index && removed.selectedFrame !== null) {
+        openDetail(removed.selectedFrame.detail);
+      }
+      return removed.frames;
+    });
+  }, [openDetail, selectedTimelineFrameIndex]);
+
+  const timelineFrameSummary = useCallback((frame: TimelineFrame): string => {
+    const diff = frame.diffFromPrevious;
+    if (diff === null) return translate('layout.timelineBaseline', language);
+    const changed = diff.changes.filter((change) => change.type === 'changed');
+    const properties = [...new Set(changed.flatMap((change) => change.changedProperties))].sort();
+    const counts = translate('layout.timelineDiff', language)
+      .replace('{added}', String(diff.addedNodes))
+      .replace('{removed}', String(diff.removedNodes))
+      .replace('{bounds}', String(diff.boundsChangedNodes));
+    if (changed.length === 0) return counts;
+    return counts + ' · ' + translate('layout.timelineProperties', language)
+      .replace('{changed}', String(changed.length))
+      .replace('{properties}', properties.join(', '));
+  }, [language]);
 
   // The header's reading: what the last capture did, and otherwise what is on
   // screen. The reference shows its connection line in this position.
@@ -1032,6 +1089,48 @@ export function LayoutInspectorPanel({
             )}
           </section>
         </div>
+      )}
+
+      {timelineFrames.length === 0 ? null : (
+        <section className="layout-timeline" aria-label={translate('layout.timeline', language)}>
+          <div className="layout-timeline__track">
+            {timelineFrames.map((frame) => {
+              const selected = frame.index === selectedTimelineFrameIndex;
+              const summary = timelineFrameSummary(frame);
+              return (
+                <button
+                  type="button"
+                  key={frame.index}
+                  className={'layout-timeline__frame' + (selected ? ' layout-timeline__frame--selected' : '')}
+                  aria-pressed={selected}
+                  title={summary}
+                  onClick={() => selectTimelineFrame(frame)}
+                >
+                  <span className="layout-timeline__frame-text">#{frame.index} {summary}</span>
+                  <span
+                    className="layout-timeline__close"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={translate('layout.timelineRemove', language)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeTimelineFrame(frame.index);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        closeTimelineFrame(frame.index);
+                      }
+                    }}
+                  >
+                    ×
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {/* The findings pane is the workspace's sibling, not one of its panes: it

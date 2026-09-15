@@ -2268,3 +2268,68 @@ input:focus {
   font-size: 10px;
 }
 
+
+/* Layout Inspector capture history mirrors the bounded Kotlin timeline strip. */
+.layout-timeline {
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 42px;
+  border-top: 1px solid var(--separator);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.layout-timeline__track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 12px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.layout-timeline__frame {
+  display: flex;
+  flex: none;
+  align-items: center;
+  max-width: 420px;
+  padding: 3px 3px 3px 8px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font: 11px var(--font-ui);
+  cursor: default;
+}
+
+.layout-timeline__frame--selected {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.layout-timeline__frame-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.layout-timeline__close {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 5px;
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 14px;
+}
+
+.layout-timeline__close:hover {
+  background: var(--fill);
+  color: var(--text);
+}

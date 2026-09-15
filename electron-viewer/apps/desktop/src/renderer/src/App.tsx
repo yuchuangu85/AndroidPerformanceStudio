@@ -47,6 +47,22 @@ interface PanelProps {
 }
 
 /**
+ * The native menu accepts only its six display fields. Persisted Layout
+ * Inspector settings may grow independently, so never forward that object over
+ * the strict menu IPC boundary.
+ */
+function viewerMenuView(settings: ApplicationUiSettings['layoutInspector'] | undefined) {
+  return {
+    hideInvisibleHierarchyViews: settings?.hideInvisibleHierarchyViews ?? false,
+    hideInvisibleFindings: settings?.hideInvisibleFindings ?? false,
+    hideHierarchyIndices: settings?.hideHierarchyIndices ?? false,
+    showHierarchyLayerVisibilityButtons: settings?.showHierarchyLayerVisibilityButtons ?? false,
+    showVisibleViewBounds: settings?.showVisibleViewBounds ?? true,
+    showHierarchyIds: settings?.showHierarchyIds ?? true,
+  };
+}
+
+/**
  * The migrated destination pages. Kept as one switch so the shell stays a shell:
  * a destination that has no panel yet keeps the placeholder rather than an
  * empty frame.
@@ -175,14 +191,7 @@ export function App(): JSX.Element {
       hasSelection: false,
       autoScan: false,
       panels: { hierarchy: true, details: true, findings: true },
-      view: snapshot?.settings.layoutInspector ?? {
-        hideInvisibleHierarchyViews: false,
-        hideInvisibleFindings: false,
-        hideHierarchyIndices: false,
-        showHierarchyLayerVisibilityButtons: false,
-        showVisibleViewBounds: true,
-        showHierarchyIds: true,
-      },
+      view: viewerMenuView(snapshot?.settings.layoutInspector),
     });
   }, [current, language, snapshot]);
   const theme = resolvedTheme(snapshot?.settings.theme ?? 'system', systemDark);
