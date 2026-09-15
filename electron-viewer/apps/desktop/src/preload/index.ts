@@ -43,6 +43,7 @@ const api: ApsApi = {
   listFrameSessions: () => ipcRenderer.invoke(IPC_CHANNELS.frameList),
   loadFrameSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.frameLoad, id),
   captureStartup: (input: StartupCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.startupCapture, input),
+  importStartupSqlite: () => ipcRenderer.invoke(IPC_CHANNELS.startupSqliteImport),
   listStartupSessions: () => ipcRenderer.invoke(IPC_CHANNELS.startupList),
   loadStartupSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.startupLoad, id),
   captureBattery: (input: BatteryCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.batteryCapture, input),

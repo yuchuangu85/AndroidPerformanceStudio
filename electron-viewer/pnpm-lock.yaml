@@ -181,6 +181,9 @@ importers:
       '@aps/startup-profiler':
         specifier: workspace:*
         version: link:../../packages/startup-profiler
+      '@aps/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       react:
         specifier: ^19.2.8
         version: 19.2.8

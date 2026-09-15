@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
-import type { StartupSession, StartupType } from '@aps/startup-profiler';
+import type { MetricEvidence, StartupSession, StartupType } from '@aps/startup-profiler';
 import type { DeviceSummary, StartupSessionSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
 
@@ -16,6 +16,41 @@ function formatMs(value: number | undefined): string {
 
 function formatCount(value: number): string {
   return String(value);
+}
+
+function formatEvidence(evidence: MetricEvidence): string {
+  return [evidence.source ?? 'NO_SOURCE', evidence.confidence, evidence.unavailableReason]
+    .filter((value): value is string => value !== undefined)
+    .join(' · ');
+}
+
+export function StartupImportedEvidence({ session, language }: { readonly session: StartupSession; readonly language: UiLanguage }): JSX.Element | null {
+  if (session.origin !== 'IMPORTED') return null;
+  const warnings = [...new Set(session.runs.flatMap((run) => run.warnings))];
+  return (
+    <section className="card" data-testid="startup-imported-evidence">
+      <h3 className="card__title">{translate('startup.importedEvidence', language)}</h3>
+      <p className="card__muted"><strong>{translate('startup.sourceFile', language)}:</strong> {session.sourceFileName ?? '—'}</p>
+      <p className="card__muted"><strong>{translate('startup.sourceDevice', language)}:</strong> {session.sourceDeviceLocalId ?? '—'}</p>
+      {session.sourceDatabaseSha256 !== undefined ? (
+        <p className="card__muted"><strong>{translate('startup.sourceHash', language)}:</strong> <code>{session.sourceDatabaseSha256}</code></p>
+      ) : null}
+      <h4>{translate('startup.metricEvidence', language)}</h4>
+      <ul>
+        {session.runs.map((run) => (
+          <li key={run.id}>
+            #{run.iteration} · {translate('startup.ttid', language)}: {formatEvidence(run.ttidEvidence)} · {translate('startup.ttfd', language)}: {formatEvidence(run.ttfdEvidence)}
+          </li>
+        ))}
+      </ul>
+      {warnings.length > 0 ? (
+        <>
+          <h4>{translate('startup.importLimitations', language)}</h4>
+          <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        </>
+      ) : null}
+    </section>
+  );
 }
 
 export function StartupProfilerPanel({ language, devices }: StartupProfilerPanelProps): JSX.Element {
@@ -84,6 +119,21 @@ export function StartupProfilerPanel({ language, devices }: StartupProfilerPanel
       .finally(() => setBusy(false));
   }, [componentName, language, measuredRuns, packageName, refresh, requestedType, serial, timeoutSeconds, warmupRuns]);
 
+  const importSqlite = useCallback(() => {
+    setBusy(true);
+    setMessage(null);
+    window.aps
+      .importStartupSqlite()
+      .then((outcome) => {
+        if (outcome.cancelled) return;
+        setMessage(outcome.ok ? translate('startup.importedSqlite', language) : translate('startup.failed', language) + ': ' + String(outcome.error ?? ''));
+        if (outcome.ok && outcome.id !== undefined) setSelectedId(outcome.id);
+        refresh();
+      })
+      .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setBusy(false));
+  }, [language, refresh]);
+
   const statistics = session?.statistics;
   const runs = session?.runs ?? [];
 
@@ -150,14 +200,19 @@ export function StartupProfilerPanel({ language, devices }: StartupProfilerPanel
             </select>
           </label>
         </div>
-        <button
-          type="button"
-          className="button"
-          disabled={busy || serial.length === 0 || packageName.trim().length === 0}
-          onClick={capture}
-        >
-          {busy ? translate('frame.capturing', language) : translate('frame.captureAction', language)}
-        </button>
+        <div className="button-row">
+          <button
+            type="button"
+            className="button"
+            disabled={busy || serial.length === 0 || packageName.trim().length === 0}
+            onClick={capture}
+          >
+            {busy ? translate('frame.capturing', language) : translate('frame.captureAction', language)}
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={importSqlite}>
+            {translate('startup.importSqlite', language)}
+          </button>
+        </div>
       </section>
 
       {session === null || statistics === undefined ? (
@@ -194,6 +249,8 @@ export function StartupProfilerPanel({ language, devices }: StartupProfilerPanel
           {statistics.totalTimeMs.p90LowResolution ? (
             <p className="card__muted">{translate('startup.lowResolution', language)}</p>
           ) : null}
+
+          <StartupImportedEvidence session={session} language={language} />
 
           <section className="card">
             <h3 className="card__title">{translate('startup.runs', language)}</h3>

@@ -12,11 +12,25 @@ export interface StartupSessionStatistics {
   readonly modeMismatchRuns: number;
 }
 
+export type StartupSessionOrigin = 'CAPTURED' | 'IMPORTED';
+
 export interface StartupSession {
   readonly id: string;
+  /** Imported reports do not expose a live ADB serial. */
   readonly deviceSerial: string;
   readonly packageName: string;
   readonly componentName?: string;
+  readonly origin?: StartupSessionOrigin;
+  /** Kotlin's exported pseudonym; never treated as an ADB serial. */
+  readonly sourceDeviceLocalId?: string;
+  /** SHA-256 of a read-only imported Kotlin Startup SQLite source. */
+  readonly sourceDatabaseSha256?: string;
+  readonly sourceFileName?: string;
+  /**
+   * Schema-gated original Kotlin v1 report retained only for an imported session.
+   * Re-exporting it preserves Kotlin evidence that Electron does not model.
+   */
+  readonly kotlinJsonV1?: string;
   readonly config: StartupExperimentConfig;
   readonly createdAtEpochMillis: number;
   readonly runs: readonly StartupRun[];
@@ -60,6 +74,7 @@ export function createStartupSession(options: {
     id: options.id,
     deviceSerial: options.deviceSerial,
     packageName: options.packageName,
+    origin: 'CAPTURED',
     ...(options.componentName !== undefined ? { componentName: options.componentName } : {}),
     config: options.config,
     createdAtEpochMillis: options.createdAtEpochMillis,

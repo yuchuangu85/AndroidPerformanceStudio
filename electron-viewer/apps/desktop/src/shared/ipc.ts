@@ -203,6 +203,14 @@ export interface StartupCaptureOutcome {
   readonly error?: string;
 }
 
+export interface StartupSqliteOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly cancelled?: boolean;
+  readonly error?: string;
+  readonly importedSessions?: number;
+}
+
 export interface BatterySessionSummary {
   readonly id: string;
   readonly packageName: string;
@@ -560,6 +568,7 @@ export interface ApsApi {
   listFrameSessions(): Promise<readonly FrameSessionSummary[]>;
   loadFrameSession(id: string): Promise<FrameSession | undefined>;
   captureStartup(input: StartupCaptureInput): Promise<StartupCaptureOutcome>;
+  importStartupSqlite(): Promise<StartupSqliteOutcome>;
   listStartupSessions(): Promise<readonly StartupSessionSummary[]>;
   loadStartupSession(id: string): Promise<StartupSession | undefined>;
   captureBattery(input: BatteryCaptureInput): Promise<BatteryCaptureOutcome>;
@@ -691,6 +700,7 @@ export const IPC_CHANNELS = {
   frameList: 'frame:list',
   frameLoad: 'frame:load',
   startupCapture: 'startup:capture',
+  startupSqliteImport: 'startup:importSqlite',
   startupList: 'startup:list',
   startupLoad: 'startup:load',
   batteryCapture: 'battery:capture',

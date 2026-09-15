@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -75,6 +76,7 @@ import { importHarFile } from './network-import-service.js';
 import { NetworkSessionStore } from './network-session-store.js';
 import { runStartupExperiment } from './startup-capture-service.js';
 import { StartupSessionStore } from './startup-session-store.js';
+import { importKotlinStartupSqlite } from './startup-sqlite-import.js';
 import {
   buildFlameGraphPayload,
   samplesToCallStackTable,
@@ -692,6 +694,29 @@ function registerHandlers(): void {
     if (!result.ok) return { ok: false, error: result.error.code + ': ' + result.error.message };
     const summary = await startupStore().add(result.value);
     return { ok: true, id: summary.id };
+  });
+  ipcMain.handle(IPC_CHANNELS.startupSqliteImport, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: 'Import Kotlin Startup SQLite',
+      properties: ['openFile'],
+      filters: [{ name: 'Startup SQLite', extensions: ['db', 'sqlite'] }],
+    });
+    const filePath = selection.filePaths[0];
+    if (selection.canceled || filePath === undefined) return { ok: false, cancelled: true };
+    try {
+      const sessions = await importKotlinStartupSqlite(filePath, {
+        idForSourceSession: () => 'startup-sqlite-import-' + randomUUID(),
+        sourceFileName: basename(filePath),
+      });
+      let firstId: string | undefined;
+      for (const session of sessions) {
+        const summary = await startupStore().add(session);
+        firstId ??= summary.id;
+      }
+      return { ok: true, ...(firstId !== undefined ? { id: firstId } : {}), importedSessions: sessions.length };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Startup SQLite import failed' };
+    }
   });
   ipcMain.handle(IPC_CHANNELS.batteryCapture, async (_event, input: BatteryCaptureInput) => {
     const client = adbClientFor();

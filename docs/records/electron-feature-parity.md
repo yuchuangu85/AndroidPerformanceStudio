@@ -65,7 +65,7 @@
 | Native heap（heapprofd） | `NativeHeapTraceParser.kt` 等 830 行 | `native-heap-trace.ts` + `native-heap-adapter.ts` | 📝 | processor 优先、wire 兜底，结果记录来源与原因 | 无 Kotlin golden 对照；未接真实设备 |
 | Java heap trace（Perfetto `java_hprof`） | `JavaHeapTraceParser.kt` 等 887 行 | `java-heap-trace.ts` + `heap-graph-bridge.ts` + `java-heap-adapter.ts` | 📝 | 分块组装、id delta、描述符类名 | 无 Kotlin golden 对照 |
 | Frame Profiler | `frame-profiler` | `packages/frame-profiler` + 面板 | ✅ | `gfxinfo.test.ts`、`analysis.test.ts`、`session.test.ts` | 未接真实设备 |
-| Startup Profiler | `startup-profiler` | `packages/startup-profiler` + 面板 | ✅ | `parsers.test.ts`、`experiment.test.ts`、`session.test.ts` | 未接真实设备 |
+| Startup Profiler | `startup-profiler` + `SqliteStartupSessionStore` | `packages/startup-profiler` + 面板 + read-only SQLite import | 📝 | `parsers.test.ts`、`experiment.test.ts`、`session.test.ts`；`startup-sqlite-import.test.ts` 覆盖 source hash/identity、sidecar 拒绝、schema、pseudonym、nullable metrics、warmup/measure 和 confidence 降级；`StartupProfilerPanel.test.tsx` 覆盖 imported provenance/evidence/limitation 可见 | Electron 可只读导入关闭 Kotlin 后、无 WAL/journal sidecar 的 `.db` / `.sqlite`；不共享/写回数据库，rich evidence 保留在 source DB；尚无真实 Kotlin writer SQLite fixture、历史用户目录、并发、真机或 Kotlin UI 回开证据 |
 | Battery Profiler | `battery-profiler` | `packages/battery-profiler` + 面板 | ✅ | `parser.test.ts`、`analysis.test.ts`、`conditions.test.ts` | 未接真实设备 |
 | Network Profiler（默认拒绝的脱敏） | `network-profiler` | `packages/network-profiler` + 面板 | ✅ | `redactor.test.ts`、`har.test.ts` | 未接真实设备 |
 | Benchmark Regression | `benchmark-regression` | `packages/benchmark-regression` + 面板 | ✅ | `parser.test.ts`、`analyzer.test.ts` | – |

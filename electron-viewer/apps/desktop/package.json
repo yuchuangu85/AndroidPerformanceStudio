@@ -34,7 +34,8 @@
     "@aps/profile-analysis": "workspace:*",
     "@aps/art-trace": "workspace:*",
     "@aps/source-workspace": "workspace:*",
-    "@aps/ai-core": "workspace:*"
+    "@aps/ai-core": "workspace:*",
+    "@aps/storage": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
