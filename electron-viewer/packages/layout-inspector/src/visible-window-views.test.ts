@@ -44,6 +44,25 @@ describe('visible window views', () => {
     expect(windows).toHaveLength(1);
   });
 
+  it('drains a large deflated device entry while the writer is still open', async () => {
+    // Real device dumps can contain a nearly 1 MiB NotificationShade entry.
+    // Start with a highly compressible payload to force the decompressor to
+    // produce enough output to exercise stream backpressure.
+    const payload = new Uint8Array(1_048_576).fill(0x61);
+    const [entry] = await readZipEntries(
+      zipArchive([
+        {
+          name: 'window NotificationShade',
+          data: new Uint8Array(deflateRawSync(payload)),
+          method: 8,
+          uncompressedSize: payload.length,
+        },
+      ]),
+    );
+    expect(entry?.data.length).toBe(payload.length);
+    expect(entry?.data[0]).toBe(0x61);
+  }, 5_000);
+
   it('decodes actual runtime classes and screen bounds', async () => {
     const windows = await parseVisibleWindowViewsArchive(zipArchive(demoWindowEntries()), APP);
     const root = windows[0]?.root;

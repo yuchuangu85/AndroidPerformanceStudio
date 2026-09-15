@@ -665,9 +665,13 @@ async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
   // what both the Node and the DOM typings accept.
   const chunk = new Uint8Array(data.length);
   chunk.set(data);
+  // Begin draining before writing. Node's DecompressionStream applies output
+  // backpressure, so awaiting the write before a reader exists deadlocks on
+  // large device entries such as NotificationShade.
+  const output = new Response(stream.readable).arrayBuffer();
   await writer.write(chunk);
   await writer.close();
-  return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+  return new Uint8Array(await output);
 }
 
 /**
