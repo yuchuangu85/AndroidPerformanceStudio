@@ -8,6 +8,7 @@ import type {
   CpuTransformRequest,
   EventScope,
 } from '@aps/simpleperf-profiler';
+import { simpleperfEventChoices } from '@aps/simpleperf-profiler';
 import type { DeviceSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
 import type { SimpleperfSettings } from '../../shared/settings-contract';
@@ -23,7 +24,6 @@ export interface CpuProfilerPanelProps {
 const CALL_GRAPHS: readonly CallGraphMode[] = ['DWARF', 'FRAME_POINTER', 'NONE'];
 const SCOPES: readonly EventScope[] = ['BOTH', 'USER', 'KERNEL'];
 const IMPLEMENTATIONS: readonly ImplementationFilter[] = ['ALL', 'SCRIPT', 'NATIVE'];
-const EVENTS: readonly string[] = ['cpu-clock', 'cpu-cycles', 'task-clock'];
 
 function formatWeight(value: string): string {
   try {
@@ -89,7 +89,10 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
   const [packageName, setPackageName] = useState('');
   const [target, setTarget] = useState<'APP' | 'SYSTEM_WIDE'>(defaults.target);
   const [event, setEvent] = useState(defaults.event);
+  const [availableEvents, setAvailableEvents] = useState<readonly string[]>([]);
   const [frequencyHertz, setFrequencyHertz] = useState(defaults.frequencyHertz);
+  const [periodEvents, setPeriodEvents] = useState(defaults.periodEvents);
+  const [rateMode, setRateMode] = useState(defaults.rateMode);
   const [durationSeconds, setDurationSeconds] = useState(defaults.durationSeconds);
   const [callGraph, setCallGraph] = useState<CallGraphMode>(defaults.callGraph);
   const [scope, setScope] = useState<EventScope>(defaults.scope);
@@ -119,6 +122,15 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
     if (serial.length === 0 && devices.length > 0) setSerial(devices[0]?.serial ?? '');
   }, [devices, serial]);
 
+  useEffect(() => {
+    if (serial.length === 0) { setAvailableEvents([]); return; }
+    let active = true;
+    window.aps.listCpuEvents(serial).then((result) => {
+      if (active) setAvailableEvents(result.ok ? result.events : []);
+    }).catch(() => { if (active) setAvailableEvents([]); });
+    return () => { active = false; };
+  }, [serial]);
+
   // A template or a capture default saved in Settings fills this form. The
   // effect watches the values, not the object, so an unrelated settings write
   // never overwrites a capture the user is configuring here.
@@ -126,6 +138,8 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
     setTarget(defaults.target);
     setEvent(defaults.event);
     setFrequencyHertz(defaults.frequencyHertz);
+    setPeriodEvents(defaults.periodEvents);
+    setRateMode(defaults.rateMode);
     setDurationSeconds(defaults.durationSeconds);
     setCallGraph(defaults.callGraph);
     setScope(defaults.scope);
@@ -134,6 +148,8 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
     defaults.durationSeconds,
     defaults.event,
     defaults.frequencyHertz,
+    defaults.periodEvents,
+    defaults.rateMode,
     defaults.scope,
     defaults.target,
   ]);
@@ -173,6 +189,8 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
         target,
         event,
         frequencyHertz,
+        periodEvents,
+        rateMode,
         durationSeconds,
         callGraph,
         scope,
@@ -197,6 +215,8 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
     durationSeconds,
     event,
     frequencyHertz,
+    periodEvents,
+    rateMode,
     language,
     packageName,
     refresh,
@@ -226,6 +246,40 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setBusy(false));
   }, [language, refresh]);
+
+  const exportSessionPackage = useCallback(() => {
+    if (selectedId.length === 0) return;
+    setBusy(true);
+    setMessage(null);
+    window.aps
+      .exportCpuSessionPackage(selectedId)
+      .then((result) => {
+        setMessage(
+          result.ok
+            ? translate('cpu.exported', language)
+            : translate('cpu.exportFailed', language) + ': ' + String(result.error ?? ''),
+        );
+      })
+      .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setBusy(false));
+  }, [language, selectedId]);
+
+  const openProfile = useCallback(() => {
+    if (selectedId.length === 0) return;
+    setBusy(true);
+    setMessage(null);
+    window.aps
+      .openCpuProfile(selectedId)
+      .then((result) => {
+        setMessage(
+          result.ok
+            ? translate('cpu.opened', language)
+            : translate('cpu.openFailed', language) + ': ' + String(result.error ?? ''),
+        );
+      })
+      .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setBusy(false));
+  }, [language, selectedId]);
 
   const session = useMemo(
     () => sessions.find((record) => record.id === selectedId),
@@ -281,22 +335,30 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
           </label>
           <label className="field">
             <span>{translate('cpu.event', language)}</span>
-            <select value={event} onChange={(input) => setEvent(input.target.value)}>
-              {EVENTS.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
+            <input list="cpu-simpleperf-events" value={event} onChange={(input) => setEvent(input.target.value)} />
+            <datalist id="cpu-simpleperf-events">
+              {simpleperfEventChoices(availableEvents, event).map((value) => <option key={value} value={value} />)}
+            </datalist>
+          </label>
+          <label className="field">
+            <span>{translate('cpu.rateMode', language)}</span>
+            <select value={rateMode} onChange={(input) => setRateMode(input.target.value === 'PERIOD' ? 'PERIOD' : 'FREQUENCY')}>
+              <option value="FREQUENCY">{translate('cpu.rateFrequency', language)}</option>
+              <option value="PERIOD">{translate('cpu.ratePeriod', language)}</option>
             </select>
           </label>
           <label className="field">
-            <span>{translate('cpu.frequency', language)}</span>
+            <span>{rateMode === 'PERIOD' ? translate('cpu.period', language) : translate('cpu.frequency', language)}</span>
             <input
               type="number"
               min={1}
-              max={100000}
-              value={frequencyHertz}
-              onChange={(input) => setFrequencyHertz(Number(input.target.value))}
+              max={rateMode === 'PERIOD' ? 1000000000 : 100000}
+              value={rateMode === 'PERIOD' ? periodEvents : frequencyHertz}
+              onChange={(input) => {
+                const value = Number(input.target.value);
+                if (rateMode === 'PERIOD') setPeriodEvents(value);
+                else setFrequencyHertz(value);
+              }}
             />
           </label>
           <label className="field">
@@ -339,6 +401,14 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
           </button>
           <button type="button" className="button" disabled={busy} onClick={importProfile}>
             {translate('cpu.importAction', language)}
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={busy || selectedId.length === 0}
+            onClick={exportSessionPackage}
+          >
+            {translate('cpu.exportAction', language)}
           </button>
         </div>
         {message !== null ? <p className="card__muted">{message}</p> : null}
@@ -420,6 +490,9 @@ export function CpuProfilerPanel({ language, devices, settings }: CpuProfilerPan
               onClick={() => setTransforms([])}
             >
               {translate('cpu.reset', language)}
+            </button>
+            <button type="button" className="button" disabled={busy || selectedId.length === 0} onClick={openProfile}>
+              {translate('cpu.open', language)}
             </button>
           </div>
         )}

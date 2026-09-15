@@ -17,6 +17,17 @@ export interface MemoryCaptureAdb {
   pull(remote: string, local: string, options: { readonly timeoutMs: number }): Promise<void>;
 }
 
+export interface ParsedHeapDump {
+  readonly session: MemorySession;
+  /** Retained only in memory so the current session can expose instances after raw-file cleanup. */
+  readonly parsed: HprofParseResult;
+}
+
+export type HeapDumpParser = (
+  bytes: Uint8Array,
+  metadata: Parameters<typeof createMemorySession>[1],
+) => Promise<ParsedHeapDump>;
+
 export interface MemoryCaptureDependencies {
   readonly adb: MemoryCaptureAdb;
   readonly sizeOf: (path: string) => Promise<number>;
@@ -25,6 +36,12 @@ export interface MemoryCaptureDependencies {
   readonly temporaryPath: (name: string) => string;
   readonly now: () => number;
   readonly newId: () => string;
+  /** Defaults to direct parsing; Electron injects a fresh worker per capture. */
+  readonly parseHeapDump?: HeapDumpParser;
+  /** Persists the raw HPROF before a worker may transfer its backing buffer. */
+  readonly persistRawDump?: (id: string, bytes: Uint8Array) => Promise<void>;
+  /** Removes a staged raw HPROF when capture cannot produce a usable session. */
+  readonly discardPersistedRawDump?: (id: string) => Promise<void>;
 }
 
 export const MAX_HEAP_DUMP_BYTES = 2 * 1024 * 1024 * 1024;
@@ -34,8 +51,9 @@ const PULL_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * Captures a heap dump through am dumpheap, pulls it, and turns it into a
- * session holding the histogram and ranked leak suspects. The raw dump is not
- * persisted: it is reproducible evidence and can be gigabytes.
+ * session holding the histogram and ranked leak suspects. Electron's caller may
+ * retain the raw HPROF in its owned session directory before worker parsing, so
+ * historical sessions can restore instance browsing without trusting renderer IO.
  */
 export async function captureHeapDump(
   dependencies: MemoryCaptureDependencies,
@@ -79,26 +97,48 @@ export async function captureHeapDump(
         'Heap dump exceeds ' + MAX_HEAP_DUMP_BYTES + ' bytes',
       );
     }
-    let session: MemorySession;
+      let rawDumpStaged = false;
+    let captureSucceeded = false;
     try {
       const bytes = await dependencies.readFile(localPath);
-      const parsed = parseHprof(bytes);
-      session = createMemorySession(parsed, {
+      if (dependencies.persistRawDump !== undefined) {
+        rawDumpStaged = true;
+        try {
+          await dependencies.persistRawDump(id, bytes);
+        } catch (error) {
+          return fail('IO', 'MEMORY_RAW_PERSIST_FAILED', describe(error, options.serial));
+        }
+      }
+      const parsed = await (dependencies.parseHeapDump ?? parseHeapDumpDirect)(bytes, {
         id,
         capturedAtEpochMillis: dependencies.now(),
         deviceSerial: options.serial,
         packageName: options.packageName,
       });
-      options.onParsed?.(parsed);
+      options.onParsed?.(parsed.parsed);
+      captureSucceeded = true;
+      return ok(parsed.session);
     } catch (error) {
       return fail('DATA_VALIDATION', 'MEMORY_DUMP_MALFORMED', describe(error, options.serial));
+    } finally {
+      if (rawDumpStaged && !captureSucceeded) {
+        await dependencies.discardPersistedRawDump?.(id).catch(() => undefined);
+      }
     }
-    return ok(session);
   } finally {
     // Device storage is scarce, so the dump is removed even on failure.
     await dependencies.adb.shell(['rm', '-f', devicePath], { timeoutMs: 30_000 }).catch(() => undefined);
     await dependencies.removeFile(localPath).catch(() => undefined);
   }
+}
+
+/** Direct fallback used by unit tests and non-Electron callers. */
+export async function parseHeapDumpDirect(
+  bytes: Uint8Array,
+  metadata: Parameters<typeof createMemorySession>[1],
+): Promise<ParsedHeapDump> {
+  const parsed = parseHprof(bytes);
+  return { parsed, session: createMemorySession(parsed, metadata) };
 }
 
 function describe(error: unknown, serial: string): string {

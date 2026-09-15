@@ -5,6 +5,7 @@ import {
   parseForegroundPackage,
   parseUiAutomatorHierarchy,
   parseVisibleWindowViewsArchive,
+  renderVisibleWindowViewsText,
   selectDefaultWindow,
   type LayoutSnapshot,
   type UiNode,
@@ -32,10 +33,21 @@ export interface LayoutCaptureDependencies {
   readonly now: () => number;
 }
 
+export interface LayoutCaptureRawArtifacts {
+  readonly zip: Buffer;
+  readonly text: string;
+}
+
 export interface LayoutCaptureResult {
   readonly snapshot: LayoutSnapshot;
   readonly screenshotPng: Buffer;
   readonly display: DeviceDisplay;
+  readonly rawArtifacts?: LayoutCaptureRawArtifacts;
+}
+
+export interface LayoutCaptureRequestOptions {
+  /** Retains raw evidence only for captures that will be archived. */
+  readonly retainRawArtifacts?: boolean;
 }
 
 const SHELL_TIMEOUT_MS = 30_000;
@@ -55,6 +67,7 @@ interface CapturedHierarchy {
   readonly defaultWindowId: string;
   readonly root: UiNode;
   readonly composeSemantics: boolean;
+  readonly rawArtifacts?: LayoutCaptureRawArtifacts;
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -74,12 +87,15 @@ export async function captureLayoutSnapshot(
   dependencies: LayoutCaptureDependencies,
   serial: string,
   packageName?: string,
+  options: LayoutCaptureRequestOptions = {},
 ): Promise<StudioResult<LayoutCaptureResult>> {
   const { adb } = dependencies;
   const foreground = packageName ?? (await readForegroundPackage(adb));
 
   let captured =
-    foreground === undefined ? undefined : await captureVisibleWindowViews(adb, foreground);
+    foreground === undefined
+      ? undefined
+      : await captureVisibleWindowViews(adb, foreground, options.retainRawArtifacts === true);
   if (captured === undefined) {
     const fallback = await captureUiAutomatorHierarchy(adb, serial, foreground);
     if (!fallback.ok) return fallback;
@@ -106,7 +122,12 @@ export async function captureLayoutSnapshot(
     windows: captured.windows,
     defaultWindowId: captured.defaultWindowId,
   };
-  return ok({ snapshot, screenshotPng, display });
+  return ok({
+    snapshot,
+    screenshotPng,
+    display,
+    ...(captured.rawArtifacts !== undefined ? { rawArtifacts: captured.rawArtifacts } : {}),
+  });
 }
 
 async function readForegroundPackage(adb: LayoutCaptureAdb): Promise<string | undefined> {
@@ -121,6 +142,7 @@ async function readForegroundPackage(adb: LayoutCaptureAdb): Promise<string | un
 async function captureVisibleWindowViews(
   adb: LayoutCaptureAdb,
   packageName: string,
+  retainRawArtifacts: boolean,
 ): Promise<CapturedHierarchy | undefined> {
   for (let attempt = 0; attempt < VISIBLE_WINDOW_VIEW_ATTEMPTS; attempt += 1) {
     if (attempt > 0) await delay(VISIBLE_WINDOW_VIEW_RETRY_MS);
@@ -139,6 +161,7 @@ async function captureVisibleWindowViews(
         composeSemantics: windows.some(
           (window) => window.root.type === 'view' && containsComposeHost(window.root),
         ),
+        ...(retainRawArtifacts ? await rawArtifactsOf(bytes) : {}),
       };
     } catch {
       // Try again, then let the caller fall back to uiautomator.
@@ -191,6 +214,16 @@ async function captureUiAutomatorHierarchy(
     root,
     composeSemantics: containsComposeHostOnAnyNode(root),
   });
+}
+
+async function rawArtifactsOf(zip: Buffer): Promise<{ readonly rawArtifacts?: LayoutCaptureRawArtifacts }> {
+  if (zip.length > 32 * 1024 * 1024) return {};
+  try {
+    return { rawArtifacts: { zip: Buffer.from(zip), text: await renderVisibleWindowViewsText(zip) } };
+  } catch {
+    // A capture remains usable if diagnostics cannot be rendered within archive limits.
+    return {};
+  }
 }
 
 function containsComposeHostOnAnyNode(node: UiNode): boolean {

@@ -1,3 +1,4 @@
+import type { UiLanguage } from './i18n.js';
 import type { BatteryCaptureMode, BatteryExperimentResult } from '@aps/battery-profiler';
 import type { ViewerMenuCommand, ViewerMenuState } from './viewer-menu.js';
 
@@ -7,6 +8,8 @@ import type {
   BitmapDumpSession,
   InstanceQueryDetail,
   InstanceQueryRow,
+  HeapDiff,
+  HeapDiffMatchMode,
   MemorySession,
   NativeHeapAnalysis,
 } from '@aps/memory-profiler';
@@ -151,9 +154,26 @@ export interface LayoutCaptureOutcome {
   readonly detail?: LayoutCaptureDetail;
 }
 
+export interface LayoutArchiveOutcome {
+  readonly ok: boolean;
+  readonly id?: string;
+  readonly path?: string;
+  readonly archiveVersion?: number;
+  readonly detail?: LayoutCaptureDetail;
+  readonly error?: string;
+}
+
 export interface LayoutCaptureDetail {
   readonly snapshot: LayoutSnapshot;
   readonly screenshotBase64?: string;
+  /** Full Compose inspector frame JSON, present only for a verified Compose-agent capture. */
+  readonly composeInspectionJson?: string;
+  /** Kotlin-compatible static analysis report retained from an imported archive. */
+  readonly analysisReportJson?: string;
+  /** Kotlin-compatible AI analysis report and provenance retained from an imported archive. */
+  readonly aiAnalysisReportJson?: string;
+  /** Kotlin-compatible timeline summaries and diffs; they do not include historical snapshots. */
+  readonly timelineHistoryJson?: string;
 }
 
 export interface FrameSessionSummary {
@@ -179,7 +199,8 @@ export interface FrameCaptureOutcome {
 
 export interface StartupSessionSummary {
   readonly id: string;
-  readonly packageName: string;
+  /** Older Kotlin reports can lack a run context, so no package is inferred. */
+  readonly packageName?: string;
   readonly capturedAtEpochMillis: number;
   readonly measuredRuns: number;
   readonly medianTotalTimeMs?: number;
@@ -203,11 +224,17 @@ export interface StartupCaptureOutcome {
   readonly error?: string;
 }
 
-export interface StartupSqliteOutcome {
+/** Main-process-owned Kotlin StartupJson v1 import/export result. */
+export interface StartupJsonOutcome {
   readonly ok: boolean;
   readonly id?: string;
   readonly cancelled?: boolean;
   readonly error?: string;
+}
+
+/** Main-process-owned read-only Kotlin Startup SQLite import result. */
+export interface StartupSqliteOutcome extends StartupJsonOutcome {
+  /** Number of source sessions imported from the selected database. */
   readonly importedSessions?: number;
 }
 
@@ -351,6 +378,22 @@ export interface BitmapCaptureRequest {
   readonly packageName: string;
 }
 
+/** Opaque request for one persisted bitmap PNG; it never contains a host path. */
+export interface BitmapImageRequest {
+  readonly sessionId: string;
+  readonly recordIndex: number;
+}
+
+/** A bounded, one-image renderer payload returned only by the main process. */
+export interface BitmapImagePayload {
+  readonly recordIndex: number;
+  readonly width: number;
+  readonly height: number;
+  readonly pngBytes: number;
+  readonly sha256: string;
+  readonly dataUrl: string;
+}
+
 export interface BitmapSessionSummary {
   readonly id: string;
   readonly packageName: string;
@@ -404,15 +447,44 @@ export interface MemoryCaptureOutcome {
   readonly error?: string;
 }
 
+export interface MethodImportOutcome extends MemoryCaptureOutcome {
+  /** The native file picker was dismissed without selecting a trace. */
+  readonly cancelled?: boolean;
+}
+
+export interface MemoryDiffRequest {
+  /** The chronologically older capture (the diff's before side). */
+  readonly beforeSessionId: string;
+  /** The selected current capture (the diff's after side). */
+  readonly afterSessionId: string;
+  readonly matchMode?: HeapDiffMatchMode;
+}
+
+export interface MemoryDiffOutcome {
+  readonly ok: boolean;
+  readonly diff?: HeapDiff;
+  /** False only when at least one legacy session lacks its full histogram. */
+  readonly comparisonComplete?: boolean;
+  readonly error?: string;
+}
+
 export interface CpuCaptureRequest {
   readonly serial: string;
   readonly packageName?: string;
   readonly target: 'APP' | 'SYSTEM_WIDE';
   readonly event: string;
   readonly frequencyHertz: number;
+  readonly periodEvents: number;
+  readonly rateMode: 'FREQUENCY' | 'PERIOD';
   readonly durationSeconds: number;
   readonly callGraph: CallGraphMode;
   readonly scope: EventScope;
+}
+
+export interface CpuEventCapabilityOutcome {
+  readonly ok: boolean;
+  readonly events: readonly string[];
+  readonly error?: string;
 }
 
 export interface CpuSnapshotRequest {
@@ -437,14 +509,42 @@ export interface MethodCaptureRequest {
   readonly durationSeconds: number;
 }
 
+/** A debuggable/profileable live app process offered by Method Recording. */
+export interface MethodProcessOption {
+  readonly pid: number;
+  readonly name: string;
+  readonly packageName: string;
+}
+
+export interface MethodProcessDiscoveryOutcome {
+  readonly ok: boolean;
+  readonly processes: readonly MethodProcessOption[];
+  readonly error?: string;
+}
+
+/** Acknowledges a cooperative request to end the active method recording. */
+export interface MethodRecordingStopOutcome {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
+export type MethodSessionOrigin = 'CAPTURED' | 'IMPORTED';
+
+/**
+ * A captured session has Android target metadata. An imported session deliberately
+ * does not: a standalone ART trace cannot prove which device or process created it.
+ * `origin` remains optional so records saved before this distinction stay readable.
+ */
 export interface MethodSessionRecord {
   readonly id: string;
   readonly capturedAtEpochMillis: number;
-  readonly serial: string;
-  readonly packageName: string;
-  readonly pid: number;
-  readonly durationSeconds: number;
-  readonly deviceSdkApiLevel: number;
+  readonly origin?: MethodSessionOrigin;
+  readonly sourceFileName?: string;
+  readonly serial?: string;
+  readonly packageName?: string;
+  readonly pid?: number;
+  readonly durationSeconds?: number;
+  readonly deviceSdkApiLevel?: number;
   readonly traceVersion: number;
   readonly traceBytes: number;
   readonly eventCount: number;
@@ -517,6 +617,22 @@ export interface SourceSymbolSummary {
   readonly startLine: number;
 }
 
+export interface SourceSearchRequest {
+  readonly workspaceId: string;
+  readonly query: string;
+  readonly limit: number;
+}
+
+export interface SourceReadRequest {
+  readonly workspaceId: string;
+  readonly relativePath: string;
+}
+
+export interface SourceAiUploadRequest {
+  readonly workspaceId: string;
+  readonly allowed: boolean;
+}
+
 export interface SourceResolveRequest {
   readonly workspaceId: string;
   readonly evidence: readonly SourceResolutionEvidence[];
@@ -552,6 +668,8 @@ export interface ApsApi {
   chooseAndroidSdkDirectory(): Promise<string | undefined>;
   refreshDevices(): Promise<ShellSnapshot>;
   openDestination(destination: AppDestination): Promise<void>;
+  /** Opens the bundled user documentation in the system browser. */
+  openUserGuide(language: UiLanguage): Promise<void>;
   getTraceAnalyzer(): Promise<TraceAnalyzerSnapshot>;
   captureTrace(input: TraceCaptureInput): Promise<TraceCaptureOutcome>;
   openTraceInAnalyzer(id: string): Promise<TraceOpenOutcome>;
@@ -564,11 +682,17 @@ export interface ApsApi {
   captureLayout(serial: string, options?: LayoutCaptureOptions): Promise<LayoutCaptureOutcome>;
   listLayoutCaptures(): Promise<readonly LayoutCaptureSummary[]>;
   loadLayoutCapture(id: string): Promise<LayoutCaptureDetail | undefined>;
+  importLayoutCaptureArchive(): Promise<LayoutArchiveOutcome>;
+  /** Delivers the outcome of main-process-owned File > Open Recent. */
+  onLayoutArchiveOpened(handler: (outcome: LayoutArchiveOutcome) => void): () => void;
+  exportLayoutCaptureArchive(id: string): Promise<LayoutArchiveOutcome>;
   captureFrame(input: FrameCaptureInput): Promise<FrameCaptureOutcome>;
   listFrameSessions(): Promise<readonly FrameSessionSummary[]>;
   loadFrameSession(id: string): Promise<FrameSession | undefined>;
   captureStartup(input: StartupCaptureInput): Promise<StartupCaptureOutcome>;
+  importStartupJson(): Promise<StartupJsonOutcome>;
   importStartupSqlite(): Promise<StartupSqliteOutcome>;
+  exportStartupJson(id: string): Promise<StartupJsonOutcome>;
   listStartupSessions(): Promise<readonly StartupSessionSummary[]>;
   loadStartupSession(id: string): Promise<StartupSession | undefined>;
   captureBattery(input: BatteryCaptureInput): Promise<BatteryCaptureOutcome>;
@@ -592,28 +716,36 @@ export interface ApsApi {
   addSourceWorkspace(): Promise<MemoryCaptureOutcome>;
   removeSourceWorkspace(id: string): Promise<boolean>;
   reindexSourceWorkspace(id: string): Promise<MemoryCaptureOutcome>;
-  searchSourceSymbols(input: { readonly workspaceId: string; readonly query: string; readonly limit: number }): Promise<readonly SourceSymbolSummary[]>;
+  searchSourceSymbols(input: SourceSearchRequest): Promise<readonly SourceSymbolSummary[]>;
   resolveSourceEvidence(input: SourceResolveRequest): Promise<SourceResolveOutcome>;
-  readSourceFile(input: { readonly workspaceId: string; readonly relativePath: string }): Promise<SourceReadOutcome>;
-  setSourceAiUpload(input: { readonly workspaceId: string; readonly allowed: boolean }): Promise<boolean>;
+  readSourceFile(input: SourceReadRequest): Promise<SourceReadOutcome>;
+  setSourceAiUpload(input: SourceAiUploadRequest): Promise<boolean>;
   captureMethodRecording(input: MethodCaptureRequest): Promise<MemoryCaptureOutcome>;
+  stopMethodRecording(): Promise<MethodRecordingStopOutcome>;
+  listMethodRecordingProcesses(serial: string): Promise<MethodProcessDiscoveryOutcome>;
+  importMethodRecording(): Promise<MethodImportOutcome>;
   listMethodSessions(): Promise<readonly MethodSessionRecord[]>;
   methodSnapshot(input: MethodSnapshotRequest): Promise<MethodSnapshotOutcome>;
   removeMethodSession(id: string): Promise<boolean>;
   captureCpuProfile(input: CpuCaptureRequest): Promise<MemoryCaptureOutcome>;
   importCpuProfile(): Promise<MemoryCaptureOutcome>;
+  exportCpuSessionPackage(id: string): Promise<MemoryCaptureOutcome>;
+  listCpuEvents(serial: string): Promise<CpuEventCapabilityOutcome>;
   listCpuProfiles(): Promise<readonly CpuProfileSessionRecord[]>;
   cpuSnapshot(input: CpuSnapshotRequest): Promise<CpuSnapshotOutcome>;
   removeCpuProfile(id: string): Promise<boolean>;
+  openCpuProfile(id: string): Promise<MemoryCaptureOutcome>;
   captureMemory(input: MemoryCaptureInput): Promise<MemoryCaptureOutcome>;
   listMemorySessions(): Promise<readonly MemorySessionSummary[]>;
+  compareMemorySessions(input: MemoryDiffRequest): Promise<MemoryDiffOutcome>;
   loadMemorySession(id: string): Promise<MemorySession | undefined>;
-  /** Instance browsing needs the heap of this run; see the panel note. */
+  /** Instance browsing lazily reparses retained raw HPROF evidence when available. */
   queryMemoryInstances(input: MemoryInstanceRequest): Promise<readonly InstanceQueryRow[]>;
   memoryInstanceDetail(input: MemoryInstanceDetailRequest): Promise<InstanceQueryDetail | undefined>;
   captureBitmapDump(input: BitmapCaptureRequest): Promise<MemoryCaptureOutcome>;
   listBitmapSessions(): Promise<readonly BitmapSessionSummary[]>;
   loadBitmapSession(id: string): Promise<BitmapDumpSession | undefined>;
+  loadBitmapImage(input: BitmapImageRequest): Promise<BitmapImagePayload | undefined>;
   removeBitmapSession(id: string): Promise<boolean>;
   captureNativeHeap(input: NativeHeapCaptureRequest): Promise<MemoryCaptureOutcome>;
   listNativeHeapSessions(): Promise<readonly NativeHeapSessionSummary[]>;
@@ -627,6 +759,31 @@ export interface ApsApi {
   analyzeLayoutWithAi(input: AiAnalyzeRequest): Promise<AiAnalyzeOutcome>;
   listAiSessions(): Promise<readonly AiSessionSummary[]>;
   loadAiFindings(sessionId: string): Promise<readonly AnalysisFinding[]>;
+  openAiSourceCandidate(input: AiSourceCandidateOpenRequest): Promise<AiSourceCandidateOpenOutcome>;
+}
+
+/** Main-process-verified source content used to navigate within Source Workspace. */
+export interface SourceOpenRequest {
+  readonly workspaceId: string;
+  readonly relativePath: string;
+  readonly startLine?: number;
+  readonly text: string;
+  readonly language: SourceLanguage;
+  /** CURRENT matches the indexed candidate hash; STALE is explicitly historical text. */
+  readonly state: 'CURRENT' | 'STALE';
+}
+
+/** Selects one source candidate that an AI session actually cited. */
+export interface AiSourceCandidateOpenRequest {
+  readonly sessionId: string;
+  readonly candidateId: string;
+}
+
+/** Main-process resolution of an AI citation into a current Source Workspace location. */
+export interface AiSourceCandidateOpenOutcome {
+  readonly ok: boolean;
+  readonly location?: SourceOpenRequest;
+  readonly error?: string;
 }
 
 export interface AiSettingsSnapshot {
@@ -688,6 +845,7 @@ export const IPC_CHANNELS = {
   chooseAndroidSdkDirectory: 'shell:chooseAndroidSdkDirectory',
   refreshDevices: 'shell:refreshDevices',
   openDestination: 'shell:openDestination',
+  openUserGuide: 'shell:openUserGuide',
   traceAnalyzer: 'trace:getAnalyzer',
   traceCapture: 'trace:capture',
   traceOpen: 'trace:openInAnalyzer',
@@ -696,11 +854,16 @@ export const IPC_CHANNELS = {
   layoutCapture: 'layout:capture',
   layoutList: 'layout:list',
   layoutLoad: 'layout:load',
+  layoutArchiveImport: 'layout:archiveImport',
+  layoutArchiveOpened: 'layout:archiveOpened',
+  layoutArchiveExport: 'layout:archiveExport',
   frameCapture: 'frame:capture',
   frameList: 'frame:list',
   frameLoad: 'frame:load',
   startupCapture: 'startup:capture',
+  startupImport: 'startup:importJson',
   startupSqliteImport: 'startup:importSqlite',
+  startupExport: 'startup:exportJson',
   startupList: 'startup:list',
   startupLoad: 'startup:load',
   batteryCapture: 'battery:capture',
@@ -729,22 +892,30 @@ export const IPC_CHANNELS = {
   sourceRead: 'source:read',
   sourceSetAiUpload: 'source:setAiUpload',
   methodCapture: 'method:capture',
+  methodStop: 'method:stop',
+  methodProcesses: 'method:processes',
+  methodImport: 'method:import',
   methodList: 'method:list',
   methodSnapshot: 'method:snapshot',
   methodRemove: 'method:remove',
   cpuCapture: 'cpu:capture',
   cpuImport: 'cpu:import',
+  cpuExport: 'cpu:export',
+  cpuEvents: 'cpu:events',
   cpuList: 'cpu:list',
   cpuSnapshot: 'cpu:snapshot',
   cpuRemove: 'cpu:remove',
+  cpuOpen: 'cpu:open',
   memoryCapture: 'memory:capture',
   memoryList: 'memory:list',
+  memoryDiff: 'memory:diff',
   memoryLoad: 'memory:load',
   memoryInstances: 'memory:instances',
   memoryInstanceDetail: 'memory:instanceDetail',
   bitmapCapture: 'bitmap:capture',
   bitmapList: 'bitmap:list',
   bitmapLoad: 'bitmap:load',
+  bitmapImage: 'bitmap:image',
   bitmapRemove: 'bitmap:remove',
   nativeHeapCapture: 'nativeHeap:capture',
   nativeHeapList: 'nativeHeap:list',
@@ -758,6 +929,7 @@ export const IPC_CHANNELS = {
   aiAnalyze: 'ai:analyze',
   aiSessions: 'ai:sessions',
   aiFindings: 'ai:findings',
+  aiSourceCandidate: 'ai:sourceCandidate',
   /** The viewer menu bar: main sends a command, the renderer reports its state. */
   viewerMenuCommand: 'menu:command',
   viewerMenuState: 'menu:updateState',

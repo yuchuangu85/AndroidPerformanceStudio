@@ -11,6 +11,7 @@ import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class SessionPackageServiceTest {
@@ -35,6 +36,30 @@ class SessionPackageServiceTest {
         assertEquals("protobuf", imported.sessionDirectory.resolve("simpleperf.protobuf").readText())
         assertEquals("symbols", imported.sessionDirectory.resolve("symbols/libapp.so").readText())
         assertTrue(imported.verifiedFiles == 3)
+    }
+
+    @Test
+    fun `imports the fixture written by the Electron session package codec`() {
+        val archive = Files.createTempFile("electron-session-package", ".apsession.zip")
+        val fixture = assertNotNull(javaClass.getResourceAsStream("/electron-session-package.apsession.zip"))
+        fixture.use { Files.write(archive, it.readAllBytes()) }
+
+        val imported = SessionPackageService().import(archive, Files.createTempDirectory("electron-session-import-"))
+
+        assertEquals(3, imported.verifiedFiles)
+        assertEquals(
+            "{\"schema\":1,\"producer\":\"electron\"}\n",
+            imported.sessionDirectory.resolve("capture-artifact.json").readText(),
+        )
+        assertEquals(
+            "source=electron-cross-runtime-fixture\n",
+            imported.sessionDirectory.resolve("session.properties").readText(),
+        )
+        assertTrue(
+            imported.sessionDirectory.resolve("evidence/opaque.bin").toFile().readBytes().contentEquals(
+                byteArrayOf(0, -1, 3, 4, 5, 6),
+            ),
+        )
     }
 
     @Test

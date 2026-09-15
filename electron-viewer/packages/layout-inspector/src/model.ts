@@ -200,6 +200,9 @@ export interface ComposeNode {
   readonly semanticsRole?: string;
   readonly text?: string;
   readonly semanticProperties: Readonly<Record<string, string>>;
+  /** Agent observation counters, populated only by a verified Compose inspector frame. */
+  readonly recomposeCount?: number;
+  readonly skipCount?: number;
 }
 
 export type UiNode = ViewNode | ComposeNode;
@@ -220,6 +223,8 @@ export const rawUiNodeSchema = z.object({
   attributes: viewAttributesSchema.optional(),
   semanticsRole: z.string().optional(),
   semanticProperties: z.record(z.string(), z.string()).optional(),
+  recomposeCount: z.number().int().nonnegative().optional(),
+  skipCount: z.number().int().nonnegative().optional(),
 });
 
 export function parseUiNode(value: unknown): UiNode {
@@ -237,6 +242,8 @@ export function parseUiNode(value: unknown): UiNode {
       ...(raw.semanticsRole !== undefined ? { semanticsRole: raw.semanticsRole } : {}),
       ...(raw.text !== undefined ? { text: raw.text } : {}),
       semanticProperties: raw.semanticProperties ?? {},
+      ...(raw.recomposeCount !== undefined ? { recomposeCount: raw.recomposeCount } : {}),
+      ...(raw.skipCount !== undefined ? { skipCount: raw.skipCount } : {}),
     };
   }
   return {

@@ -13,6 +13,8 @@ import type { LayoutInspectorSettings } from './settings-contract.js';
 
 /** The nine actions of the reference's Actions menu, in its order. */
 export type ViewerMenuAction =
+  | 'IMPORT_ARCHIVE'
+  | 'EXPORT_ARCHIVE'
   | 'TOGGLE_AUTO_SCAN'
   | 'PREVIOUS_NODE'
   | 'NEXT_NODE'
@@ -47,6 +49,8 @@ export interface ViewerMenuState {
   readonly hasSnapshot: boolean;
   readonly hasSelection: boolean;
   readonly autoScan: boolean;
+  /** Disables only File-menu archive actions while an import/export is running. */
+  readonly archiveOperationInProgress: boolean;
   /** Pane visibility. The menu's checkboxes read the opposite: "hide left panel". */
   readonly panels: {
     readonly hierarchy: boolean;
@@ -99,6 +103,8 @@ export const VIEWER_MENU_VIEW_OPTIONS: readonly ViewOptionSpec[] = [
  */
 export function viewerActionEnabled(action: ViewerMenuAction, state: ViewerMenuState): boolean {
   if (action === 'OPEN_SETTINGS') return true;
+  if (action === 'IMPORT_ARCHIVE') return state.available;
+  if (action === 'EXPORT_ARCHIVE') return state.available && state.hasSnapshot;
   if (!state.available) return false;
   if (action === 'PREVIOUS_NODE' || action === 'NEXT_NODE' || action === 'TOGGLE_SELECTED_NODE') {
     return state.hasSelection;

@@ -1,4 +1,5 @@
 import { app, Menu, type MenuItemConstructorOptions } from 'electron';
+import { basename, resolve } from 'node:path';
 import { translate, type UiLanguage } from '../shared/i18n.js';
 import {
   viewerActionEntries,
@@ -30,6 +31,7 @@ export function idleViewerMenuState(language: UiLanguage): ViewerMenuState {
     hasSnapshot: false,
     hasSelection: false,
     autoScan: false,
+    archiveOperationInProgress: false,
     panels: { hierarchy: true, details: true, findings: true },
     view: {
       hideInvisibleHierarchyViews: false,
@@ -58,9 +60,40 @@ function toMenuItem(
   };
 }
 
+export interface ViewerMenuRecentOptions {
+  readonly recentEntries: readonly string[];
+  readonly openRecent: (path: string) => void;
+  readonly clearRecent: () => void;
+  /** False while main is importing a recent archive. */
+  readonly enabled?: boolean;
+}
+
+export interface RecentArchiveMenuItem {
+  readonly label: string;
+  readonly path: string;
+}
+
+/**
+ * Match Kotlin's NativeViewerMenuBar: show a concise basename unless multiple
+ * entries share it, in which case the full normalized path disambiguates them.
+ */
+export function recentArchiveMenuItems(paths: readonly string[]): readonly RecentArchiveMenuItem[] {
+  const normalized = [...new Set(paths.map((path) => resolve(path)))];
+  const names = new Map<string, number>();
+  for (const path of normalized) {
+    const name = basename(path);
+    names.set(name, (names.get(name) ?? 0) + 1);
+  }
+  return normalized.map((path) => {
+    const name = basename(path);
+    return { label: name.length > 0 && names.get(name) === 1 ? name : path, path };
+  });
+}
+
 export function buildViewerMenu(
   state: ViewerMenuState,
   dispatch: (command: ViewerMenuCommand) => void,
+  recent?: ViewerMenuRecentOptions,
 ): Menu {
   const titles = viewerMenuTitles(state.language);
   const actions = viewerActionEntries(state).map((entry) => toMenuItem(entry, dispatch));
@@ -90,8 +123,48 @@ export function buildViewerMenu(
         },
       ]
     : [];
+  const recentEntries = recentArchiveMenuItems(recent?.recentEntries ?? []);
+  const recentEnabled = state.available && !state.archiveOperationInProgress && (recent?.enabled ?? true);
+  const openRecentSubmenu: MenuItemConstructorOptions[] =
+    recentEntries.length === 0
+      ? [{ label: translate('menu.noRecentArchives', state.language), enabled: false }]
+      : [
+          ...recentEntries.map((item) => ({
+            label: item.label,
+            click: () => recent?.openRecent(item.path),
+          })),
+          { type: 'separator' },
+          {
+            label: translate('menu.clearRecent', state.language),
+            click: () => recent?.clearRecent(),
+          },
+        ];
+  const file: MenuItemConstructorOptions = {
+    label: translate('menu.file', state.language),
+    submenu: [
+      {
+        label: translate('menu.importArchive', state.language),
+        accelerator: 'CommandOrControl+I',
+        enabled: state.available && !state.archiveOperationInProgress,
+        click: () => dispatch({ kind: 'action', action: 'IMPORT_ARCHIVE' }),
+      },
+      {
+        label: translate('menu.openRecent', state.language),
+        enabled: recentEnabled,
+        submenu: openRecentSubmenu,
+      },
+      { type: 'separator' },
+      {
+        label: translate('menu.exportArchive', state.language),
+        accelerator: 'CommandOrControl+E',
+        enabled: state.available && state.hasSnapshot && !state.archiveOperationInProgress,
+        click: () => dispatch({ kind: 'action', action: 'EXPORT_ARCHIVE' }),
+      },
+    ],
+  };
   return Menu.buildFromTemplate([
     ...appMenu,
+    file,
     { label: titles.actions, submenu: actions },
     { label: titles.view, submenu: view },
     // The pages are full of text fields, so the standard editing roles stay.
@@ -103,6 +176,7 @@ export function buildViewerMenu(
 export function installViewerMenu(
   state: ViewerMenuState,
   dispatch: (command: ViewerMenuCommand) => void,
+  recent?: ViewerMenuRecentOptions,
 ): void {
-  Menu.setApplicationMenu(buildViewerMenu(state, dispatch));
+  Menu.setApplicationMenu(buildViewerMenu(state, dispatch, recent));
 }

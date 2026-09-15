@@ -71,6 +71,7 @@ describe('createMemorySession', () => {
       // Two instances at the class-declared four-byte instance size.
       shallowBytes: 2 * 4,
     });
+    expect(session.comparisonHistogram).toEqual(session.histogram);
     // 0x300 is reachable and not a root, so it is the only suspect.
     expect(session.suspects).toHaveLength(1);
     expect(session.suspects[0]).toMatchObject({
@@ -85,7 +86,11 @@ describe('createMemorySession', () => {
   it('stays JSON serializable despite 64-bit identifiers', () => {
     const session = createMemorySession(result(), { id: 's2', capturedAtEpochMillis: 1 });
     expect(() => JSON.stringify(session)).not.toThrow();
-    expect(JSON.parse(JSON.stringify(session)).suspects[0].objectId).toBe('0x300');
+    const persisted = JSON.parse(JSON.stringify(session));
+    expect(persisted.suspects[0].objectId).toBe('0x300');
+    expect(persisted.comparisonHistogram).toEqual([
+      { className: 'com.example.Node', instanceCount: 2, shallowBytes: 8 },
+    ]);
   });
 
   it('honours the histogram and suspect limits and keeps warnings', () => {
@@ -96,6 +101,11 @@ describe('createMemorySession', () => {
       suspectLimit: 0,
     });
     expect(session.histogram).toEqual([]);
+    // The presentation histogram can be intentionally empty while the persisted
+    // comparison histogram remains complete for future heap-diff sessions.
+    expect(session.comparisonHistogram).toEqual([
+      { className: 'com.example.Node', instanceCount: 2, shallowBytes: 8 },
+    ]);
     expect(session.suspects).toEqual([]);
     expect(session.warnings).toContain('a parser warning');
   });

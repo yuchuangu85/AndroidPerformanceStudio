@@ -122,7 +122,7 @@ public class StartupAnalyzer {
     public fun statistics(values: List<Double?>): StartupStatistics {
         val present = values.filterNotNull().sorted()
         if (present.isEmpty()) {
-            return StartupStatistics(values.size - present.size, values.size, null, null, null, null, null, null, null, null)
+            return StartupStatistics(0, values.size, null, null, null, null, null, null, null, null)
         }
         val mean = present.average()
         val median = percentile(present, 0.5)

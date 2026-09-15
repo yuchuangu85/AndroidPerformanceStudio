@@ -51,7 +51,7 @@ export function summarizeStartupSession(session: StartupSession): StartupSession
   const statistics = session.statistics.totalTimeMs;
   return {
     id: session.id,
-    packageName: session.packageName,
+    ...(session.packageName !== undefined ? { packageName: session.packageName } : {}),
     capturedAtEpochMillis: session.createdAtEpochMillis,
     measuredRuns: session.statistics.measuredRuns,
     ...(statistics.medianMs !== undefined ? { medianTotalTimeMs: statistics.medianMs } : {}),
@@ -65,7 +65,7 @@ function isSummary(value: unknown): value is StartupSessionSummary {
   const record = value as Record<string, unknown>;
   return (
     typeof record['id'] === 'string' &&
-    typeof record['packageName'] === 'string' &&
+    (record['packageName'] === undefined || typeof record['packageName'] === 'string') &&
     typeof record['capturedAtEpochMillis'] === 'number' &&
     typeof record['measuredRuns'] === 'number' &&
     typeof record['p90LowResolution'] === 'boolean'

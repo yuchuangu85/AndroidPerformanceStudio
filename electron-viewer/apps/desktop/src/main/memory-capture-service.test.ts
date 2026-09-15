@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { captureHeapDump, MAX_HEAP_DUMP_BYTES, type MemoryCaptureAdb } from './memory-capture-service.js';
+import { captureHeapDump, MAX_HEAP_DUMP_BYTES, parseHeapDumpDirect, type MemoryCaptureAdb } from './memory-capture-service.js';
 
 const directories: string[] = [];
 
@@ -177,6 +177,75 @@ describe('captureHeapDump', () => {
     expect(test.commands[0]).toEqual(['am', 'dumpheap', 'com.example.app', '/data/local/tmp/aps-session-1.hprof']);
     expect(test.pulled[0]?.remote).toBe('/data/local/tmp/aps-session-1.hprof');
     expect(test.commands).toContainEqual(['rm', '-f', '/data/local/tmp/aps-session-1.hprof']);
+  });
+
+  it('persists raw HPROF bytes before an asynchronous parser can transfer them to a worker', async () => {
+    const test = await harness();
+    let stagedId: string | undefined;
+    let stagedBytes: Uint8Array | undefined;
+    const result = await captureHeapDump(
+      {
+        ...test.dependencies,
+        persistRawDump: async (id, bytes) => {
+          stagedId = id;
+          stagedBytes = new Uint8Array(bytes);
+        },
+      },
+      { serial: 'emulator-5554', packageName: 'com.example.app' },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(stagedId).toBe('session-1');
+    expect(stagedBytes?.length).toBeGreaterThan(0);
+    expect(stagedBytes?.slice(0, 'JAVA PROFILE'.length)).toEqual(new Uint8Array(Buffer.from('JAVA PROFILE')));
+  });
+
+  it('discards staged raw HPROF evidence when parsing cannot produce a session', async () => {
+    const test = await harness();
+    const discarded: string[] = [];
+    const result = await captureHeapDump(
+      {
+        ...test.dependencies,
+        persistRawDump: async () => undefined,
+        discardPersistedRawDump: async (id) => {
+          discarded.push(id);
+        },
+        parseHeapDump: async () => {
+          throw new Error('malformed hprof');
+        },
+      },
+      { serial: 'emulator-5554', packageName: 'com.example.app' },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('MEMORY_DUMP_MALFORMED');
+    expect(discarded).toEqual(['session-1']);
+  });
+
+  it('uses an injected parser and retains its parsed heap for the caller before cleanup', async () => {
+    const test = await harness();
+    let parseCalls = 0;
+    let deliveredParsed = false;
+    const result = await captureHeapDump(
+      {
+        ...test.dependencies,
+        parseHeapDump: async (bytes, metadata) => {
+          parseCalls += 1;
+          const parsed = await parseHeapDumpDirect(bytes, metadata);
+          return parsed;
+        },
+      },
+      {
+        serial: 'emulator-5554',
+        packageName: 'com.example.app',
+        onParsed: (parsed) => {
+          deliveredParsed = parsed.instances.length > 0;
+        },
+      },
+    );
+    expect(result.ok).toBe(true);
+    expect(parseCalls).toBe(1);
+    expect(deliveredParsed).toBe(true);
   });
 
   it('reports each failure stage with a stable code and still cleans the device', async () => {

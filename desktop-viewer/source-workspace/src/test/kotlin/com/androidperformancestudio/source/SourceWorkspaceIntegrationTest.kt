@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.source
 
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.util.Base64
@@ -173,6 +174,72 @@ class SourceWorkspaceIntegrationTest {
 
         assertEquals(ResolutionConfidence.EXACT, candidates.single { it.evidenceId.value == "managed" }.confidence)
         assertEquals(ResolutionConfidence.PROBABLE, candidates.single { it.evidenceId.value == "native" }.confidence)
+    }
+
+    @Test
+    fun `opens Electron-created source-workspace fixture with indexes and nullable ranges`() = withTempDirectory { root ->
+        val databasePath = root.resolve("electron-source-workspace.db")
+        javaClass.getResourceAsStream("/electron-source-workspace.db").use { input ->
+            requireNotNull(input) { "Electron source-workspace fixture is missing from test resources" }
+            Files.copy(input, databasePath)
+        }
+
+        SqliteSourceWorkspaceRepository(databasePath).use { repository ->
+            val workspaceId = SourceWorkspaceId("electron-workspace")
+            val snapshotId = SourceSnapshotId("electron-snapshot")
+            assertEquals(
+                SourceWorkspace(
+                    workspaceId,
+                    "Electron-written source workspace",
+                    SourceProviderConfig.GitHub("android", "performance-studio", "refs/tags/electron-v1", "electron-fixture-credential"),
+                    snapshotId,
+                    SourceWorkspacePhase.READY,
+                    1f,
+                    "Written by the Electron fixture generator",
+                    true,
+                ),
+                repository.workspace(workspaceId),
+            )
+            assertEquals(
+                SourceSnapshot(snapshotId, workspaceId, "d".repeat(40), "electron-dirty-content-digest", "e".repeat(64), Instant.parse("2026-09-14T02:00:00Z"), 11, true),
+                repository.snapshot(snapshotId),
+            )
+            assertEquals(
+                listOf(SourceFile(snapshotId, "src/main/kotlin/com/example/Renderer.kt", SourceLanguage.KOTLIN, "f".repeat(64), 4321)),
+                repository.files(snapshotId),
+            )
+            assertEquals(
+                listOf(
+                    SourceSymbol(snapshotId, "src/main/kotlin/com/example/Renderer.kt", SourceSymbolKind.TYPE, "com.example.Renderer", null, 3, 48),
+                    SourceSymbol(snapshotId, "src/main/kotlin/com/example/Renderer.kt", SourceSymbolKind.FUNCTION, "com.example.Renderer.render", "frame: Frame", 31, 37),
+                ),
+                repository.symbols(snapshotId),
+            )
+            assertEquals(
+                ResolutionCandidate(
+                    ResolutionCandidateId("electron-candidate"),
+                    PerformanceEvidenceId("electron-evidence"),
+                    SourceLocation(workspaceId, snapshotId, "src/main/kotlin/com/example/Renderer.kt", SourceRange(31, 1, 37, 1), "f".repeat(64)),
+                    ResolutionConfidence.EXACT,
+                    listOf("Qualified type matched", "Build identity verified"),
+                    11,
+                    true,
+                ),
+                repository.candidate(ResolutionCandidateId("electron-candidate")),
+            )
+            assertEquals(
+                ResolutionCandidate(
+                    ResolutionCandidateId("electron-null-range-candidate"),
+                    PerformanceEvidenceId("electron-null-range-evidence"),
+                    SourceLocation(workspaceId, snapshotId, "src/main/kotlin/com/example/Fallback.kt", null, "f".repeat(64)),
+                    ResolutionConfidence.PROBABLE,
+                    listOf("No source range was available"),
+                    11,
+                    false,
+                ),
+                repository.candidate(ResolutionCandidateId("electron-null-range-candidate")),
+            )
+        }
     }
 
     @Test

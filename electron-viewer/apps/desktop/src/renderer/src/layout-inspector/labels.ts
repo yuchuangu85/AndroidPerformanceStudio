@@ -55,6 +55,7 @@ export const LAYOUT_STRINGS = {
   'section.drawing': { en: 'DRAWING', zh: '绘制' },
   'section.interaction': { en: 'INTERACTION', zh: '交互' },
   'section.rawProperties': { en: 'RAW PROPERTIES', zh: '原始属性' },
+  'section.compose': { en: 'COMPOSE', zh: 'COMPOSE' },
 
   'label.overdrawEstimate': { en: 'Overdraw estimate', zh: '过度绘制估算' },
   'label.subtreeComplexity': { en: 'Subtree complexity', zh: '子树复杂度' },
@@ -67,6 +68,8 @@ export const LAYOUT_STRINGS = {
   'label.text': { en: 'Text', zh: '文本' },
   'label.contentDescription': { en: 'Content description', zh: '内容描述' },
   'label.semanticsRole': { en: 'Semantics role', zh: '语义角色' },
+  'label.recomposeCount': { en: 'Recompose count', zh: '重组次数' },
+  'label.skipCount': { en: 'Skip count', zh: '跳过次数' },
   'label.bounds': { en: 'Bounds', zh: '边界' },
   'label.size': { en: 'Size', zh: '尺寸' },
   'label.localLayoutBounds': { en: 'Local layout bounds', zh: '本地布局边界' },

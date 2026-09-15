@@ -3,6 +3,7 @@ import type { SourceResolutionEvidence } from '@aps/source-workspace';
 import type {
   DeviceSummary,
   SourceCandidateSummary,
+  SourceOpenRequest,
   SourceReadOutcome,
   SourceSymbolSummary,
   SourceWorkspaceRecord,
@@ -12,6 +13,8 @@ import { translate, type UiLanguage } from '../../shared/i18n';
 export interface SourceWorkspacePanelProps {
   readonly language: UiLanguage;
   readonly devices: readonly DeviceSummary[];
+  /** A verified AI citation, supplied by App while switching destinations. */
+  readonly sourceOpenRequest?: SourceOpenRequest;
 }
 
 type EvidenceKind = SourceResolutionEvidence['kind'];
@@ -30,7 +33,7 @@ const CONFIDENCE_ORDER: Record<SourceCandidateSummary['confidence'], number> = {
   WEAK: 2,
 };
 
-export function SourceWorkspacePanel({ language }: SourceWorkspacePanelProps): JSX.Element {
+export function SourceWorkspacePanel({ language, sourceOpenRequest }: SourceWorkspacePanelProps): JSX.Element {
   const [workspaces, setWorkspaces] = useState<readonly SourceWorkspaceRecord[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [query, setQuery] = useState('');
@@ -68,10 +71,10 @@ export function SourceWorkspacePanel({ language }: SourceWorkspacePanelProps): J
     [selectedId, workspaces],
   );
 
-  const openFile = useCallback((relativePath: string, startLine?: number) => {
+  const openFile = useCallback((workspaceId: string, relativePath: string, startLine?: number) => {
     setTargetLine(startLine);
     window.aps
-      .readSourceFile({ workspaceId: selectedId, relativePath })
+      .readSourceFile({ workspaceId, relativePath })
       .then((outcome) => {
         if (!outcome.ok) {
           setMessage(outcome.error ?? 'read failed');
@@ -81,7 +84,20 @@ export function SourceWorkspacePanel({ language }: SourceWorkspacePanelProps): J
         setContent(outcome);
       })
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)));
-  }, [selectedId]);
+  }, []);
+
+  useEffect(() => {
+    if (sourceOpenRequest === undefined) return;
+    setSelectedId(sourceOpenRequest.workspaceId);
+    setTargetLine(sourceOpenRequest.startLine);
+    setContent({
+      ok: true,
+      relativePath: sourceOpenRequest.relativePath,
+      text: sourceOpenRequest.text,
+      language: sourceOpenRequest.language,
+      state: sourceOpenRequest.state,
+    });
+  }, [sourceOpenRequest]);
 
   const add = useCallback(() => {
     setBusy(true);
@@ -295,7 +311,7 @@ export function SourceWorkspacePanel({ language }: SourceWorkspacePanelProps): J
                     <button
                       type="button"
                       className="button button--inline"
-                      onClick={() => openFile(symbol.relativePath, symbol.startLine)}
+                      onClick={() => openFile(selectedId, symbol.relativePath, symbol.startLine)}
                     >
                       {symbol.relativePath.split('/').pop()}:{String(symbol.startLine)}
                     </button>
@@ -406,7 +422,7 @@ export function SourceWorkspacePanel({ language }: SourceWorkspacePanelProps): J
                     <button
                       type="button"
                       className="button button--inline"
-                      onClick={() => openFile(candidate.relativePath, candidate.startLine)}
+                      onClick={() => openFile(selectedId, candidate.relativePath, candidate.startLine)}
                     >
                       {candidate.relativePath.split('/').pop()}
                       {candidate.startLine !== undefined ? ':' + String(candidate.startLine) : ''}

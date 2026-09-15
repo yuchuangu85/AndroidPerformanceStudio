@@ -16,6 +16,7 @@ import {
   createAnalysisSessionId,
   fetchAiTransport,
   type AiHttpTransport,
+  type AnalysisCandidateSummary,
   type AnalysisFinding,
   type AnalysisResult,
   type AnalysisSession,
@@ -305,6 +306,17 @@ export class AiAnalysisService {
 
   findings(sessionId: string): readonly AnalysisFinding[] {
     return this.dependencies.repository.findings(sessionId);
+  }
+
+  /** Returns only candidate metadata persisted for the requested AI session. */
+  sourceCandidate(sessionId: string, candidateId: string):
+    | { readonly candidate: AnalysisCandidateSummary; readonly sourceSnapshotIds: readonly string[] }
+    | undefined {
+    const session = this.dependencies.repository.session(sessionId);
+    const candidate = this.dependencies.repository.candidates(sessionId).find((entry) => entry.id === candidateId);
+    return session === undefined || candidate === undefined
+      ? undefined
+      : { candidate, sourceSnapshotIds: session.sourceSnapshotIds };
   }
 
   private apiKey(): string | undefined {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 import type { FlameGraphPayloadNode } from '@aps/profile-analysis';
 import type {
   DeviceSummary,
+  MethodProcessOption,
   MethodRankBy,
   MethodSessionRecord,
   MethodSnapshotOutcome,
@@ -9,6 +10,7 @@ import type {
 } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
 import { FlameGraph, flamePathTo, nodesByIndex } from './FlameGraph';
+import { methodSessionLabel, methodSessionMetadata } from './method-session-presentation';
 
 export interface MethodRecordingPanelProps {
   readonly language: UiLanguage;
@@ -32,8 +34,11 @@ function formatMillis(micros: number): string {
 export function MethodRecordingPanel({ language, devices }: MethodRecordingPanelProps): JSX.Element {
   const [sessions, setSessions] = useState<readonly MethodSessionRecord[]>([]);
   const [serial, setSerial] = useState('');
-  const [packageName, setPackageName] = useState('');
-  const [pid, setPid] = useState(0);
+  const [processes, setProcesses] = useState<readonly MethodProcessOption[]>([]);
+  const [selectedProcessPid, setSelectedProcessPid] = useState('');
+  const [processesLoading, setProcessesLoading] = useState(false);
+  const [processDiscoveryError, setProcessDiscoveryError] = useState<string | null>(null);
+  const [processRefresh, setProcessRefresh] = useState(0);
   const [durationSeconds, setDurationSeconds] = useState(10);
   const [selectedId, setSelectedId] = useState('');
   const [threadKey, setThreadKey] = useState('');
@@ -43,6 +48,7 @@ export function MethodRecordingPanel({ language, devices }: MethodRecordingPanel
   const [focusPath, setFocusPath] = useState<readonly string[] | null>(null);
   const [outcome, setOutcome] = useState<MethodSnapshotOutcome | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stopRequested, setStopRequested] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -59,6 +65,42 @@ export function MethodRecordingPanel({ language, devices }: MethodRecordingPanel
   useEffect(() => {
     if (serial.length === 0 && devices.length > 0) setSerial(devices[0]?.serial ?? '');
   }, [devices, serial]);
+
+  useEffect(() => {
+    let active = true;
+    setProcesses([]);
+    setSelectedProcessPid('');
+    setProcessDiscoveryError(null);
+    if (serial.length === 0) {
+      setProcessesLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setProcessesLoading(true);
+    window.aps
+      .listMethodRecordingProcesses(serial)
+      .then((result) => {
+        if (!active) return;
+        if (result.ok) {
+          setProcesses(result.processes);
+          setSelectedProcessPid(result.processes[0]?.pid.toString() ?? '');
+        } else {
+          setProcessDiscoveryError(result.error ?? translate('method.processesFailed', language));
+        }
+      })
+      .catch((reason: unknown) => {
+        if (active) setProcessDiscoveryError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        if (active) setProcessesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [language, processRefresh, serial]);
 
   useEffect(() => {
     if (selectedId.length === 0) {
@@ -78,11 +120,23 @@ export function MethodRecordingPanel({ language, devices }: MethodRecordingPanel
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)));
   }, [direction, focusPath, rankBy, searchText, selectedId, threadKey]);
 
+  const selectedProcess = useMemo(
+    () => processes.find((process) => process.pid.toString() === selectedProcessPid),
+    [processes, selectedProcessPid],
+  );
+
   const capture = useCallback(() => {
+    if (selectedProcess === undefined) return;
     setBusy(true);
+    setStopRequested(false);
     setMessage(null);
     window.aps
-      .captureMethodRecording({ serial, packageName, pid, durationSeconds })
+      .captureMethodRecording({
+        serial,
+        packageName: selectedProcess.packageName,
+        pid: selectedProcess.pid,
+        durationSeconds,
+      })
       .then((result) => {
         setMessage(
           result.ok
@@ -97,8 +151,49 @@ export function MethodRecordingPanel({ language, devices }: MethodRecordingPanel
         refresh();
       })
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => {
+        setStopRequested(false);
+        setBusy(false);
+      });
+  }, [durationSeconds, language, refresh, selectedProcess, serial]);
+
+  const stopCapture = useCallback(() => {
+    setStopRequested(true);
+    window.aps
+      .stopMethodRecording()
+      .then((result) => {
+        if (!result.ok) {
+          setStopRequested(false);
+          setMessage(translate('method.stopFailed', language) + ': ' + String(result.error ?? ''));
+        }
+      })
+      .catch((reason: unknown) => {
+        setStopRequested(false);
+        setMessage(translate('method.stopFailed', language) + ': ' + (reason instanceof Error ? reason.message : String(reason)));
+      });
+  }, [language]);
+
+  const importTrace = useCallback(() => {
+    setBusy(true);
+    setMessage(null);
+    window.aps
+      .importMethodRecording()
+      .then((result) => {
+        if (result.ok) {
+          setMessage(translate('method.imported', language));
+        } else if (result.cancelled !== true) {
+          setMessage(translate('method.importFailed', language) + ': ' + String(result.error ?? ''));
+        }
+        if (result.ok && result.id !== undefined) {
+          setSelectedId(result.id);
+          setThreadKey('');
+          setFocusPath(null);
+        }
+        refresh();
+      })
+      .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setBusy(false));
-  }, [durationSeconds, language, packageName, pid, refresh, serial]);
+  }, [language, refresh]);
 
   const session = useMemo(() => sessions.find((record) => record.id === selectedId), [selectedId, sessions]);
   const graph = outcome?.ok === true ? outcome.graph : undefined;
@@ -129,29 +224,39 @@ export function MethodRecordingPanel({ language, devices }: MethodRecordingPanel
             </select>
           </label>
           <label className="field">
-            <span>{translate('frame.package', language)}</span>
-            <input
-              type="text"
-              value={packageName}
-              placeholder="com.example.app"
-              onChange={(input) => setPackageName(input.target.value)}
-            />
+            <span>{translate('method.process', language)}</span>
+            <select
+              value={selectedProcessPid}
+              disabled={busy || serial.length === 0 || processesLoading}
+              onChange={(input) => setSelectedProcessPid(input.target.value)}
+            >
+              <option value="">
+                {processesLoading
+                  ? translate('method.processesLoading', language)
+                  : translate('method.noProcesses', language)}
+              </option>
+              {processes.map((process) => (
+                <option key={process.pid} value={process.pid.toString()}>
+                  {process.name} · PID {String(process.pid)}
+                </option>
+              ))}
+            </select>
           </label>
-          <label className="field">
-            <span>{translate('method.pid', language)}</span>
-            <input
-              type="number"
-              min={1}
-              value={pid}
-              onChange={(input) => setPid(Number(input.target.value))}
-            />
-          </label>
+          <button
+            type="button"
+            className="button"
+            disabled={busy || serial.length === 0 || processesLoading}
+            onClick={() => setProcessRefresh((current) => current + 1)}
+          >
+            {translate('method.refreshProcesses', language)}
+          </button>
           <label className="field">
             <span>{translate('method.duration', language)}</span>
             <input
               type="number"
               min={1}
               max={120}
+              step={1}
               value={durationSeconds}
               onChange={(input) => setDurationSeconds(Number(input.target.value))}
             />
@@ -159,13 +264,25 @@ export function MethodRecordingPanel({ language, devices }: MethodRecordingPanel
           <button
             type="button"
             className="button"
-            disabled={busy || serial.length === 0 || packageName.trim().length === 0 || pid <= 0}
+            disabled={busy || serial.length === 0 || selectedProcess === undefined}
             onClick={capture}
           >
             {busy ? translate('method.capturing', language) : translate('method.captureAction', language)}
           </button>
+          <button type="button" className="button" disabled={!busy || stopRequested} onClick={stopCapture}>
+            {stopRequested ? translate('method.stopping', language) : translate('method.stopAction', language)}
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={importTrace}>
+            {translate('method.importAction', language)}
+          </button>
         </div>
+        {processDiscoveryError !== null ? (
+          <p className="card__error">
+            {translate('method.processesFailed', language)}: {processDiscoveryError}
+          </p>
+        ) : null}
         {message !== null ? <p className="card__muted">{message}</p> : null}
+        <p className="card__muted">{translate('method.importNote', language)}</p>
         <p className="card__muted">{translate('method.disclaimer', language)}</p>
       </section>
 
@@ -187,7 +304,7 @@ export function MethodRecordingPanel({ language, devices }: MethodRecordingPanel
               >
                 {sessions.map((record) => (
                   <option key={record.id} value={record.id}>
-                    {new Date(record.capturedAtEpochMillis).toLocaleString()} · {record.packageName} ·{' '}
+                    {new Date(record.capturedAtEpochMillis).toLocaleString()} · {methodSessionLabel(record, language)} ·{' '}
                     {String(record.eventCount)} events
                   </option>
                 ))}
@@ -234,12 +351,7 @@ export function MethodRecordingPanel({ language, devices }: MethodRecordingPanel
           </div>
         )}
         {session !== undefined ? (
-          <p className="card__muted">
-            {translate('method.traceVersion', language)}: {String(session.traceVersion)} ·{' '}
-            {translate('method.api', language)}: {String(session.deviceSdkApiLevel)} ·{' '}
-            {translate('method.methods', language)}: {String(session.methodCount)} ·{' '}
-            {translate('method.threads', language)}: {String(session.threadCount)}
-          </p>
+          <p className="card__muted">{methodSessionMetadata(session, language)}</p>
         ) : null}
         {outcome?.ok === false ? <p className="card__error">{outcome.error}</p> : null}
       </section>

@@ -69,6 +69,8 @@ export interface HeapGraphObject {
   readonly selfSize: number;
   readonly referenceFieldIds: readonly Identifier[];
   readonly referenceObjectIds: readonly Identifier[];
+  /** ART runtime-owned references that are not declared by the Java class layout. */
+  readonly runtimeInternalObjectIds: readonly Identifier[];
   readonly heapType: number;
   readonly nativeAllocationRegistrySize?: bigint;
   readonly bitmapId?: bigint;
@@ -104,6 +106,7 @@ interface RawObject {
   selfSize: number;
   referenceFieldIds: Identifier[];
   referenceObjectIds: Identifier[];
+  runtimeInternalObjectIds: Identifier[];
   referenceObjectIdBase: bigint;
   idDelta: bigint;
   heapType: number;
@@ -170,6 +173,7 @@ function parseObject(bytes: Uint8Array): RawObject {
     selfSize: 0,
     referenceFieldIds: [],
     referenceObjectIds: [],
+    runtimeInternalObjectIds: [],
     referenceObjectIdBase: 0n,
     idDelta: 0n,
     heapType: 0,
@@ -207,7 +211,7 @@ function parseObject(bytes: Uint8Array): RawObject {
         raw.heapType = Number(reader.readVarint());
         break;
       case OBJECT_RUNTIME_INTERNAL_ID:
-        readPackedVarints(reader, wireType, []);
+        readPackedVarints(reader, wireType, raw.runtimeInternalObjectIds);
         break;
       case OBJECT_BITMAP_ID:
         raw.bitmapId = reader.readVarint();
@@ -396,6 +400,7 @@ function acceptChunk(
       selfSize: raw.selfSize,
       referenceFieldIds: raw.referenceFieldIds,
       referenceObjectIds: raw.referenceObjectIds,
+      runtimeInternalObjectIds: raw.runtimeInternalObjectIds,
       heapType: state.lastHeapType,
       ...(raw.nativeAllocationRegistrySize !== undefined
         ? { nativeAllocationRegistrySize: raw.nativeAllocationRegistrySize }

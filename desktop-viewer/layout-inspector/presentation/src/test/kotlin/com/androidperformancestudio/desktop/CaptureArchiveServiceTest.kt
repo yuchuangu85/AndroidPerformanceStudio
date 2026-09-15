@@ -43,6 +43,32 @@ class CaptureArchiveServiceTest {
     )
 
     @Test
+    fun `imports Electron-created v2 archive fixture with all payloads`() {
+        val archivePath = tempDir.resolve("electron-capture.apinspect")
+        javaClass.getResourceAsStream("/electron-capture.apinspect").use { input ->
+            requireNotNull(input) { "Electron capture archive fixture is missing from test resources" }
+            Files.copy(input, archivePath)
+        }
+
+        val imported = service.import(archivePath)
+        assertEquals("com.example", imported.snapshot.packageName)
+        assertEquals(1_750_000_001_000, imported.snapshot.capturedAtEpochMillis)
+        assertEquals(1, imported.snapshot.display.widthPx)
+        assertEquals(1, imported.snapshot.display.heightPx)
+        assertArrayEquals(ONE_PIXEL_PNG, imported.screenshotPng)
+        assertArrayEquals(byteArrayOf(0x50, 0x4b, 0x03, 0x04), requireNotNull(imported.rawArtifacts).zip)
+        assertEquals("Electron visible-window hierarchy\n", requireNotNull(imported.rawArtifacts).text)
+        assertEquals(1, imported.analysis?.metrics?.nodeCount)
+        assertEquals("Electron archive finding", imported.analysis?.findings?.single()?.message)
+        assertEquals("electron-archive-model", imported.aiAnalysis?.model)
+        assertEquals("Electron archive AI finding", imported.aiAnalysis?.findings?.single()?.title)
+        assertEquals(1, imported.timelineFrames.size)
+        assertEquals(1, imported.timelineFrames.single().diffFromPrevious?.addedNodes)
+        assertEquals("com.example", imported.composeInspection?.packageName)
+        assertEquals(null, imported.composeInspectionWarning)
+    }
+
+    @Test
     fun `service export then import restores snapshot screenshot and raw files`() {
         val path = tempDir.resolve("round-trip.apinspect")
         val snapshot = SampleSnapshots.dashboard

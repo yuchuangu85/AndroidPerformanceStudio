@@ -1,5 +1,6 @@
 package com.androidperformancestudio.ai
 
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.io.path.createTempDirectory
@@ -98,6 +99,98 @@ class AiAnalysisGatewayTest {
 
         assertFailsWith<IllegalArgumentException> { gateway.analyze(request()) }
     }
+
+    @Test
+    fun `opens Electron-created analysis-session fixture with ordering nullable fields and payload hashes`() =
+        withTempDirectory { root ->
+            val databasePath = root.resolve("electron-analysis-sessions.db")
+            javaClass.getResourceAsStream("/electron-analysis-sessions.db").use { input ->
+                requireNotNull(input) { "Electron analysis-session fixture is missing from test resources" }
+                Files.copy(input, databasePath)
+            }
+
+            SqliteAnalysisSessionRepository(databasePath).use { repository ->
+                val sessionId = AnalysisSessionId("electron-ai-session")
+                assertEquals(
+                    AnalysisSession(
+                        id = sessionId,
+                        originProfiler = ProfilerKind.SIMPLEPERF,
+                        scope = AnalysisScope(AnalysisScopeKind.CURRENT_SELECTION, "Electron-created RenderThread sample"),
+                        model = "electron-fixture-model",
+                        promptVersion = "electron-fixture-prompt-v1",
+                        payloadPolicyVersion = "minimal-v1",
+                        sourceSnapshotIds = listOf("electron-source-snapshot-a", "electron-source-snapshot-b"),
+                        buildEvidenceBundleIds = listOf("electron-build-evidence-a", "electron-build-evidence-b"),
+                        status = AnalysisSessionStatus.SUCCEEDED,
+                        createdAt = Instant.parse("2026-09-14T01:00:00Z"),
+                        parentSessionId = AnalysisSessionId("electron-parent-session"),
+                        summary = "Electron-generated analysis summary",
+                        provider = "openai",
+                    ),
+                    repository.session(sessionId),
+                )
+                assertEquals(
+                    listOf(
+                        AnalysisFinding(
+                            id = AnalysisFindingId("electron-ai-finding"),
+                            severity = AnalysisSeverity.ERROR,
+                            title = "RenderThread regression",
+                            explanation = "The selected sample took 47 ms.",
+                            recommendation = "Avoid repeated render work.",
+                            analysisConfidence = 0.9f,
+                            performanceEvidenceIds = listOf("electron-ai-evidence"),
+                            sourceCandidateIds = listOf("electron-ai-candidate", "electron-ai-null-candidate"),
+                        ),
+                        AnalysisFinding(
+                            id = AnalysisFindingId("electron-ai-info-finding"),
+                            severity = AnalysisSeverity.INFO,
+                            title = "Source context retained",
+                            explanation = "The finding intentionally has no source candidate.",
+                            recommendation = "Use the retained trace context.",
+                            analysisConfidence = 0.25f,
+                            performanceEvidenceIds = listOf("electron-ai-evidence"),
+                            sourceCandidateIds = emptyList(),
+                        ),
+                    ),
+                    repository.findings(sessionId),
+                )
+                assertEquals(
+                    listOf(
+                        AnalysisEvidenceSummary(
+                            id = "electron-ai-evidence",
+                            kind = "simpleperf",
+                            summary = "The RenderThread sample exceeded the budget",
+                            payloadHash = "256e2de97081f63f0aac088ab505d44b40585a9f37625e19c51cec183b49a430",
+                        ),
+                    ),
+                    repository.evidence(sessionId),
+                )
+                assertEquals(
+                    listOf(
+                        AnalysisCandidateSummary(
+                            id = "electron-ai-candidate",
+                            relativePath = "src/main/kotlin/com/example/Renderer.kt",
+                            startLine = 31,
+                            endLine = 37,
+                            resolutionConfidence = "EXACT",
+                            contentHash = "a".repeat(64),
+                        ),
+                        AnalysisCandidateSummary(
+                            id = "electron-ai-null-candidate",
+                            relativePath = "src/main/kotlin/com/example/Fallback.kt",
+                            startLine = null,
+                            endLine = null,
+                            resolutionConfidence = "PROBABLE",
+                            contentHash = null,
+                        ),
+                    ),
+                    repository.candidates(sessionId),
+                )
+            }
+
+            val databaseBytes = databasePath.toFile().readBytes().decodeToString()
+            assertFalse("snapshot-sensitive-body" in databaseBytes)
+        }
 
     @Test
     fun `session repository versions and restores findings without credential data`() = withTempDirectory { root ->

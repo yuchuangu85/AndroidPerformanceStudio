@@ -35,6 +35,17 @@ function harness(overrides: { resetFails?: boolean; dumpFails?: boolean; output?
 }
 
 describe('captureFrameSession', () => {
+  it('rejects malformed targets before any ADB command', async () => {
+    const test = harness();
+    const result = await captureFrameSession(test.dependencies, {
+      serial: 'emulator-5554',
+      packageName: 'com/example.app',
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'FRAME_CAPTURE_INPUT_INVALID' } });
+    expect(test.commands).toEqual([]);
+  });
+
   it('resets counters, dumps framestats, and builds a session', async () => {
     const test = harness();
     const result = await captureFrameSession(test.dependencies, {

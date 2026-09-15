@@ -221,3 +221,15 @@ describe('node details sections', () => {
     expect(raw?.rows[0]?.value).toBe('8.0');
   });
 });
+
+it('renders verified Compose observation counters in a dedicated section', () => {
+  const compose: UiNode = {
+    type: 'compose', id: 'compose:10:7', className: 'Content', bounds: { left: 0, top: 0, right: 10, bottom: 10 },
+    visible: true, alpha: 1, children: [], semanticProperties: {}, recomposeCount: 7, skipCount: 3,
+  };
+  const section = nodeDetailSections(compose, 1, 'en').find((candidate) => candidate.title === 'COMPOSE');
+  expect(section?.rows).toEqual([
+    { label: 'Recompose count', value: '7', tone: 'normal' },
+    { label: 'Skip count', value: '3', tone: 'normal' },
+  ]);
+});

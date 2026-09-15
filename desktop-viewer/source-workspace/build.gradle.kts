@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.SourceSetContainer
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -31,4 +33,17 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+val sourceSets = extensions.getByType<SourceSetContainer>()
+
+tasks.register<JavaExec>("writeElectronInteropFixture") {
+    group = "verification"
+    description = "Writes a Kotlin-created source-workspace SQLite fixture for Electron interop tests."
+    classpath = sourceSets.named("test").get().runtimeClasspath
+    mainClass.set("com.androidperformancestudio.source.ElectronSourceWorkspaceFixtureWriter")
+    args(
+        providers.gradleProperty("fixturePath").orNull
+            ?: layout.buildDirectory.file("fixtures/kotlin-source-workspace.db").get().asFile.absolutePath,
+    )
 }

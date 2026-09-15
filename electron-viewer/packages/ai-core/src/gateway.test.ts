@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { InMemoryCredentialStore } from './credentials.js';
 import { OpenAiAnalysisGateway, MAX_TITLE_LENGTH, payloadText } from './gateway.js';
@@ -18,6 +19,408 @@ function temporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'ai-core-test-'));
   directories.push(directory);
   return directory;
+}
+
+const KOTLIN_ANALYSIS_SESSIONS_FIXTURE = fileURLToPath(
+  new URL('./fixtures/kotlin-analysis-sessions.db', import.meta.url),
+);
+
+/**
+ * The fixture is written by Kotlin's SqliteAnalysisSessionRepository, not by
+ * node:sqlite. Regenerate it with:
+ *   cd desktop-viewer/ai-core && ./gradlew writeElectronInteropFixture \
+ *     -PfixturePath=../../electron-viewer/packages/ai-core/src/fixtures/kotlin-analysis-sessions.db
+ */
+describe('Kotlin-created analysis-sessions SQLite fixture', () => {
+  it('opens Kotlin-written sessions, findings, evidence hashes, and nullable candidates without reanalysis', () => {
+    const path = join(temporaryDirectory(), 'analysis-sessions.db');
+    copyFileSync(KOTLIN_ANALYSIS_SESSIONS_FIXTURE, path);
+
+    const raw = new DatabaseSync(path);
+    try {
+      expect(
+        raw
+          .prepare(
+            'SELECT provider, source_snapshot_ids, build_evidence_ids, created_at, parent_session_id FROM analysis_session WHERE id = ?',
+          )
+          .get('kotlin-ai-session'),
+      ).toEqual({
+        provider: 'openai',
+        source_snapshot_ids: '["kotlin-source-snapshot-a","kotlin-source-snapshot-b"]',
+        build_evidence_ids: '["kotlin-build-evidence"]',
+        created_at: '2026-09-14T00:00:00Z',
+        parent_session_id: 'kotlin-parent-session',
+      });
+      expect(
+        raw
+          .prepare(
+            'SELECT id, start_line, end_line, resolution_confidence, content_hash FROM analysis_candidate WHERE session_id = ? ORDER BY rowid',
+          )
+          .all('kotlin-ai-session'),
+      ).toEqual([
+        {
+          id: 'kotlin-ai-candidate',
+          start_line: 17,
+          end_line: 22,
+          resolution_confidence: 'EXACT',
+          content_hash: 'd'.repeat(64),
+        },
+        {
+          id: 'kotlin-ai-null-candidate',
+          start_line: null,
+          end_line: null,
+          resolution_confidence: 'PROBABLE',
+          content_hash: null,
+        },
+      ]);
+      expect(
+        raw
+          .prepare('SELECT id, kind, summary, payload_hash FROM analysis_evidence WHERE session_id = ?')
+          .get('kotlin-ai-session'),
+      ).toEqual({
+        id: 'kotlin-ai-evidence',
+        kind: 'layout',
+        summary: 'Frame exceeded the expected budget',
+        payload_hash: 'e79709fcb558a0d8c48ba630a71b69a1bf75dab919e35146c56f2190bf44009a',
+      });
+      expect(
+        raw
+          .prepare('SELECT evidence_ids, candidate_ids FROM analysis_finding WHERE session_id = ?')
+          .get('kotlin-ai-session'),
+      ).toEqual({
+        evidence_ids: '["kotlin-ai-evidence"]',
+        candidate_ids: '["kotlin-ai-candidate","kotlin-ai-null-candidate"]',
+      });
+    } finally {
+      raw.close();
+    }
+    expect(readFileSync(path, 'latin1')).not.toContain('frameMillis');
+
+    const repository = new SqliteAnalysisSessionRepository(path);
+    try {
+      expect(repository.session('kotlin-ai-session')).toEqual({
+        id: 'kotlin-ai-session',
+        originProfiler: 'LAYOUT_INSPECTOR',
+        scope: { kind: 'REPORT_SUMMARY', description: 'Kotlin-created Layout Inspector report' },
+        model: 'kotlin-fixture-model',
+        promptVersion: 'kotlin-fixture-prompt-v1',
+        payloadPolicyVersion: 'minimal-v1',
+        sourceSnapshotIds: ['kotlin-source-snapshot-a', 'kotlin-source-snapshot-b'],
+        buildEvidenceBundleIds: ['kotlin-build-evidence'],
+        status: 'SUCCEEDED',
+        createdAt: '2026-09-14T00:00:00Z',
+        parentSessionId: 'kotlin-parent-session',
+        summary: 'Kotlin-generated analysis summary',
+        errorMessage: null,
+        provider: 'openai',
+      });
+      expect(repository.findings('kotlin-ai-session')).toEqual([
+        {
+          id: 'kotlin-ai-finding',
+          severity: 'WARNING',
+          title: 'Frame budget regression',
+          explanation: 'The captured frame took 42 ms.',
+          recommendation: 'Avoid repeated render work.',
+          analysisConfidence: 0.75,
+          performanceEvidenceIds: ['kotlin-ai-evidence'],
+          sourceCandidateIds: ['kotlin-ai-candidate', 'kotlin-ai-null-candidate'],
+        },
+      ]);
+      expect(repository.evidence('kotlin-ai-session')).toEqual([
+        {
+          id: 'kotlin-ai-evidence',
+          kind: 'layout',
+          summary: 'Frame exceeded the expected budget',
+          payloadHash: 'e79709fcb558a0d8c48ba630a71b69a1bf75dab919e35146c56f2190bf44009a',
+        },
+      ]);
+      expect(repository.candidates('kotlin-ai-session')).toEqual([
+        {
+          id: 'kotlin-ai-candidate',
+          relativePath: 'src/main/kotlin/com/example/Renderer.kt',
+          startLine: 17,
+          endLine: 22,
+          resolutionConfidence: 'EXACT',
+          contentHash: 'd'.repeat(64),
+        },
+        {
+          id: 'kotlin-ai-null-candidate',
+          relativePath: 'src/main/kotlin/com/example/Fallback.kt',
+          startLine: null,
+          endLine: null,
+          resolutionConfidence: 'PROBABLE',
+          contentHash: null,
+        },
+      ]);
+    } finally {
+      repository.close();
+    }
+  });
+});
+
+
+/**
+ * The fixture is written by Electron's SqliteAnalysisSessionRepository, not by
+ * node:sqlite. Regenerate it with:
+ *   APS_ELECTRON_ANALYSIS_SESSION_FIXTURE_PATH=../desktop-viewer/ai-core/src/test/resources/electron-analysis-sessions.db \
+ *     corepack pnpm@12.3.4 --dir electron-viewer exec vitest run \
+ *       packages/ai-core/src/gateway.test.ts -t "Electron-created analysis-sessions SQLite fixture"
+ */
+describe('Electron-created analysis-sessions SQLite fixture', () => {
+  it('writes an Electron session with ordered and nullable fields but no evidence payload body', () => {
+    const path = electronAnalysisSessionsFixturePath();
+    writeElectronAnalysisSessionFixture(path);
+
+    const raw = new DatabaseSync(path);
+    try {
+      expect(
+        raw
+          .prepare(
+            'SELECT provider, source_snapshot_ids, build_evidence_ids, created_at, parent_session_id FROM analysis_session WHERE id = ?',
+          )
+          .get('electron-ai-session'),
+      ).toEqual({
+        provider: 'openai',
+        source_snapshot_ids: '["electron-source-snapshot-a","electron-source-snapshot-b"]',
+        build_evidence_ids: '["electron-build-evidence-a","electron-build-evidence-b"]',
+        created_at: '2026-09-14T01:00:00Z',
+        parent_session_id: 'electron-parent-session',
+      });
+      expect(
+        raw
+          .prepare(
+            'SELECT id, start_line, end_line, resolution_confidence, content_hash FROM analysis_candidate WHERE session_id = ? ORDER BY rowid',
+          )
+          .all('electron-ai-session'),
+      ).toEqual([
+        {
+          id: 'electron-ai-candidate',
+          start_line: 31,
+          end_line: 37,
+          resolution_confidence: 'EXACT',
+          content_hash: 'a'.repeat(64),
+        },
+        {
+          id: 'electron-ai-null-candidate',
+          start_line: null,
+          end_line: null,
+          resolution_confidence: 'PROBABLE',
+          content_hash: null,
+        },
+      ]);
+      expect(
+        raw
+          .prepare('SELECT id, kind, summary, payload_hash FROM analysis_evidence WHERE session_id = ?')
+          .get('electron-ai-session'),
+      ).toEqual({
+        id: 'electron-ai-evidence',
+        kind: 'simpleperf',
+        summary: 'The RenderThread sample exceeded the budget',
+        payload_hash: '256e2de97081f63f0aac088ab505d44b40585a9f37625e19c51cec183b49a430',
+      });
+      expect(
+        raw
+          .prepare('SELECT id, evidence_ids, candidate_ids FROM analysis_finding WHERE session_id = ? ORDER BY rowid')
+          .all('electron-ai-session'),
+      ).toEqual([
+        {
+          id: 'electron-ai-finding',
+          evidence_ids: '["electron-ai-evidence"]',
+          candidate_ids: '["electron-ai-candidate","electron-ai-null-candidate"]',
+        },
+        {
+          id: 'electron-ai-info-finding',
+          evidence_ids: '["electron-ai-evidence"]',
+          candidate_ids: '[]',
+        },
+      ]);
+    } finally {
+      raw.close();
+    }
+    expect(readFileSync(path, 'latin1')).not.toContain('snapshot-sensitive-body');
+
+    const repository = new SqliteAnalysisSessionRepository(path);
+    try {
+      expect(repository.session('electron-ai-session')).toEqual({
+        id: 'electron-ai-session',
+        originProfiler: 'SIMPLEPERF',
+        scope: { kind: 'CURRENT_SELECTION', description: 'Electron-created RenderThread sample' },
+        model: 'electron-fixture-model',
+        promptVersion: 'electron-fixture-prompt-v1',
+        payloadPolicyVersion: 'minimal-v1',
+        sourceSnapshotIds: ['electron-source-snapshot-a', 'electron-source-snapshot-b'],
+        buildEvidenceBundleIds: ['electron-build-evidence-a', 'electron-build-evidence-b'],
+        status: 'SUCCEEDED',
+        createdAt: '2026-09-14T01:00:00Z',
+        parentSessionId: 'electron-parent-session',
+        summary: 'Electron-generated analysis summary',
+        errorMessage: null,
+        provider: 'openai',
+      });
+      expect(repository.findings('electron-ai-session')).toEqual([
+        {
+          id: 'electron-ai-finding',
+          severity: 'ERROR',
+          title: 'RenderThread regression',
+          explanation: 'The selected sample took 47 ms.',
+          recommendation: 'Avoid repeated render work.',
+          analysisConfidence: 0.9,
+          performanceEvidenceIds: ['electron-ai-evidence'],
+          sourceCandidateIds: ['electron-ai-candidate', 'electron-ai-null-candidate'],
+        },
+        {
+          id: 'electron-ai-info-finding',
+          severity: 'INFO',
+          title: 'Source context retained',
+          explanation: 'The finding intentionally has no source candidate.',
+          recommendation: 'Use the retained trace context.',
+          analysisConfidence: 0.25,
+          performanceEvidenceIds: ['electron-ai-evidence'],
+          sourceCandidateIds: [],
+        },
+      ]);
+      expect(repository.evidence('electron-ai-session')).toEqual([
+        {
+          id: 'electron-ai-evidence',
+          kind: 'simpleperf',
+          summary: 'The RenderThread sample exceeded the budget',
+          payloadHash: '256e2de97081f63f0aac088ab505d44b40585a9f37625e19c51cec183b49a430',
+        },
+      ]);
+      expect(repository.candidates('electron-ai-session')).toEqual([
+        {
+          id: 'electron-ai-candidate',
+          relativePath: 'src/main/kotlin/com/example/Renderer.kt',
+          startLine: 31,
+          endLine: 37,
+          resolutionConfidence: 'EXACT',
+          contentHash: 'a'.repeat(64),
+        },
+        {
+          id: 'electron-ai-null-candidate',
+          relativePath: 'src/main/kotlin/com/example/Fallback.kt',
+          startLine: null,
+          endLine: null,
+          resolutionConfidence: 'PROBABLE',
+          contentHash: null,
+        },
+      ]);
+    } finally {
+      repository.close();
+    }
+    checkpointStandaloneSqliteFixture(path);
+  });
+});
+
+function electronAnalysisSessionsFixturePath(): string {
+  const explicitPath = process.env['APS_ELECTRON_ANALYSIS_SESSION_FIXTURE_PATH'];
+  if (explicitPath !== undefined && explicitPath.trim().length > 0) return explicitPath;
+  return join(temporaryDirectory(), 'electron-analysis-sessions.db');
+}
+
+function writeElectronAnalysisSessionFixture(path: string): void {
+  for (const suffix of ['', '-wal', '-shm']) rmSync(path + suffix, { force: true });
+
+  const repository = new SqliteAnalysisSessionRepository(path);
+  try {
+    repository.saveSession({
+      id: 'electron-ai-session',
+      originProfiler: 'SIMPLEPERF',
+      scope: { kind: 'CURRENT_SELECTION', description: 'Electron-created RenderThread sample' },
+      model: null,
+      promptVersion: 'electron-fixture-prompt-v1',
+      payloadPolicyVersion: 'minimal-v1',
+      sourceSnapshotIds: ['electron-source-snapshot-a', 'electron-source-snapshot-b'],
+      buildEvidenceBundleIds: ['electron-build-evidence-a', 'electron-build-evidence-b'],
+      status: 'RUNNING',
+      createdAt: '2026-09-14T01:00:00Z',
+      parentSessionId: 'electron-parent-session',
+      provider: 'openai',
+    });
+    repository.saveRequest({
+      sessionId: 'electron-ai-session',
+      originProfiler: 'SIMPLEPERF',
+      scope: { kind: 'CURRENT_SELECTION', description: 'Electron-created RenderThread sample' },
+      evidence: [
+        {
+          id: 'electron-ai-evidence',
+          kind: 'simpleperf',
+          summary: 'The RenderThread sample exceeded the budget',
+          structuredPayload: '{"frameMillis":47,"source":"snapshot-sensitive-body"}',
+        },
+      ],
+      sourceCandidates: [
+        {
+          id: 'electron-ai-candidate',
+          relativePath: 'src/main/kotlin/com/example/Renderer.kt',
+          symbol: 'com.example.Renderer.render',
+          resolutionConfidence: 'EXACT',
+          reasons: ['Qualified type matched', 'Build identity verified'],
+          sourceSnippet: 'fun render() = Unit',
+          startLine: 31,
+          endLine: 37,
+          contentHash: 'a'.repeat(64),
+          indexVersion: 11,
+          indexComplete: true,
+        },
+        {
+          id: 'electron-ai-null-candidate',
+          relativePath: 'src/main/kotlin/com/example/Fallback.kt',
+          symbol: null,
+          resolutionConfidence: 'PROBABLE',
+          reasons: ['Filename matched'],
+          sourceSnippet: null,
+          startLine: null,
+          endLine: null,
+          contentHash: null,
+          indexVersion: null,
+          indexComplete: null,
+        },
+      ],
+      promptVersion: 'electron-fixture-prompt-v1',
+      payloadPolicyVersion: 'minimal-v1',
+    });
+    repository.saveResult({
+      sessionId: 'electron-ai-session',
+      model: 'electron-fixture-model',
+      summary: 'Electron-generated analysis summary',
+      findings: [
+        {
+          id: 'electron-ai-finding',
+          severity: 'ERROR',
+          title: 'RenderThread regression',
+          explanation: 'The selected sample took 47 ms.',
+          recommendation: 'Avoid repeated render work.',
+          analysisConfidence: 0.9,
+          performanceEvidenceIds: ['electron-ai-evidence'],
+          sourceCandidateIds: ['electron-ai-candidate', 'electron-ai-null-candidate'],
+        },
+        {
+          id: 'electron-ai-info-finding',
+          severity: 'INFO',
+          title: 'Source context retained',
+          explanation: 'The finding intentionally has no source candidate.',
+          recommendation: 'Use the retained trace context.',
+          analysisConfidence: 0.25,
+          performanceEvidenceIds: ['electron-ai-evidence'],
+          sourceCandidateIds: [],
+        },
+      ],
+    });
+  } finally {
+    repository.close();
+  }
+
+}
+
+function checkpointStandaloneSqliteFixture(path: string): void {
+  const database = new DatabaseSync(path);
+  try {
+    database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    database.exec('PRAGMA journal_mode=DELETE');
+  } finally {
+    database.close();
+  }
 }
 
 /** The Kotlin test builds the same envelope around the model output. */

@@ -1,5 +1,46 @@
-import type { HprofParseResult, Identifier } from './hprof.js';
+import type { HprofInstanceRecord, HprofParseResult, Identifier } from './hprof.js';
 import { primitiveSize } from './hprof.js';
+
+const REFERENCE_BASE_CLASS = 'java.lang.ref.Reference';
+const DIRECT_REFERENCE_CLASSES = new Set([
+  'java.lang.ref.WeakReference',
+  'java.lang.ref.SoftReference',
+  'java.lang.ref.PhantomReference',
+]);
+
+/**
+ * Builds the same Reference hierarchy filter as Kotlin's HeapGraph: a
+ * `referent` edge is not a strong edge, whether it comes from a framework
+ * reference class or an indirect subclass.
+ */
+export function createStrongInstanceReferencePredicate(
+  result: HprofParseResult,
+): (instance: HprofInstanceRecord, index: number) => boolean {
+  const holders = new Set<Identifier>();
+  const referenceBaseIds = new Set<Identifier>();
+  for (const klass of result.classes.values()) {
+    const className = result.strings.get(klass.nameId);
+    if (className === REFERENCE_BASE_CLASS) referenceBaseIds.add(klass.objectId);
+    if (className !== undefined && DIRECT_REFERENCE_CLASSES.has(className)) holders.add(klass.objectId);
+  }
+
+  for (const candidate of result.classes.values()) {
+    const visited = new Set<Identifier>();
+    let current: Identifier | undefined = candidate.objectId;
+    while (current !== undefined && current !== 0n && visited.add(current)) {
+      if (referenceBaseIds.has(current)) {
+        holders.add(candidate.objectId);
+        break;
+      }
+      current = result.classes.get(current)?.superClassId;
+    }
+  }
+
+  return (instance, index) => {
+    if (!holders.has(instance.classObjectId)) return true;
+    return result.strings.get(instance.referenceNameIds[index] ?? 0n) !== 'referent';
+  };
+}
 
 export interface GraphNode {
   readonly objectId: Identifier;
@@ -30,6 +71,7 @@ export function buildObjectGraph(result: HprofParseResult): ObjectGraph {
   };
 
   const rootIds = new Set(result.roots);
+  const isStrongInstanceReference = createStrongInstanceReferencePredicate(result);
   for (const instance of result.instances) {
     const layoutSize = (result.classes.get(instance.classObjectId)?.instanceFields ?? []).reduce(
       (total, field) => total + (field.type === 2 ? result.header.identifierSize : primitiveSize(field.type)),
@@ -51,7 +93,9 @@ export function buildObjectGraph(result: HprofParseResult): ObjectGraph {
       kind: 'instance',
       className: classNameOf(instance.classObjectId),
       shallowBytes: instance.shallowBytes,
-      references: instance.references,
+      references: instance.references.filter(
+        (target, index) => target !== 0n && isStrongInstanceReference(instance, index),
+      ),
       isRoot: rootIds.has(instance.objectId),
     });
   }
@@ -63,7 +107,7 @@ export function buildObjectGraph(result: HprofParseResult): ObjectGraph {
       className:
         array.className ?? (array.kind === 'object' ? '<object array>' : '<primitive array>'),
       shallowBytes: array.shallowBytes,
-      references: array.references,
+      references: array.references.filter((target) => target !== 0n),
       isRoot: rootIds.has(array.objectId),
     });
   }

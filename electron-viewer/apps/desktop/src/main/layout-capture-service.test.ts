@@ -105,6 +105,23 @@ describe('captureLayoutSnapshot', () => {
     expect(test.shellCommands.some((command) => command[0] === 'uiautomator')).toBe(false);
   });
 
+  it('retains the exact ZIP and rendered raw evidence for an archived capture', async () => {
+    const nativeBytes = Buffer.from(zipArchive(demoDeviceWindowEntries()));
+    const test = harness({ nativeBytes });
+    const result = await captureLayoutSnapshot(
+      { adb: test.adb, now: () => 1234 },
+      'emulator-5554',
+      undefined,
+      { retainRawArtifacts: true },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.rawArtifacts?.zip).toEqual(nativeBytes);
+    expect(result.value.rawArtifacts?.text).toContain('VISIBLE WINDOW VIEW DUMP');
+    expect(result.value.rawArtifacts?.text).toContain('SUMMARY: parsed 1 of 1 windows.');
+  });
+
   it('falls back to uiautomator when the device refuses the View dump', async () => {
     const test = harness({ nativeFails: true });
     const result = await captureLayoutSnapshot({ adb: test.adb, now: () => 1 }, 'SER');

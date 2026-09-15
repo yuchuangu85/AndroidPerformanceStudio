@@ -7,6 +7,8 @@ import {
   mergeApplicationUiSettings,
   normalizeApplicationUiSettings,
   parseArgbColor,
+  parseCaptureArchiveSnapshotSizeMultiplier,
+  parseSimpleperfEngine,
   type ApplicationUiSettings,
   type ApplicationUiSettingsPatch,
   type CanvasBorderColorsSettings,
@@ -57,6 +59,11 @@ function migratedFeaturePatch(node: PreferenceNode): ApplicationUiSettingsPatch 
   }
   const zOrder = legacyBoolean(node.get('view.canvasHitTestOrder.zOrder'));
   if (zOrder !== undefined) layoutInspector.canvasHitTestOrder = zOrder ? 'z-order' : 'smallest-area';
+  if (node.has('archive.snapshotSizeMultiplier')) {
+    layoutInspector.snapshotSizeMultiplier = parseCaptureArchiveSnapshotSizeMultiplier(
+      node.get('archive.snapshotSizeMultiplier'),
+    );
+  }
   const colorKeys = {
     normal: 'canvas.bounds.normal',
     hovered: 'canvas.bounds.hovered',
@@ -68,13 +75,21 @@ function migratedFeaturePatch(node: PreferenceNode): ApplicationUiSettingsPatch 
     if (parsed !== undefined) colors[field] = parsed;
   }
   const tooltipMode = node.get(SIMPLEPERF_KEYS.tooltipMode);
+  const engine = node.get(SIMPLEPERF_KEYS.engine);
   return {
     layoutInspector: {
       ...layoutInspector,
       ...(Object.keys(colors).length > 0 ? { canvasBorderColors: colors } : {}),
     },
-    ...(tooltipMode === 'FIXED' || tooltipMode === 'FOLLOW_MOUSE'
-      ? { simpleperf: { flameTooltipMode: tooltipMode === 'FIXED' ? 'fixed' : 'follow-mouse' } }
+    ...((tooltipMode === 'FIXED' || tooltipMode === 'FOLLOW_MOUSE') || engine !== undefined
+      ? {
+          simpleperf: {
+            ...(tooltipMode === 'FIXED' || tooltipMode === 'FOLLOW_MOUSE'
+              ? { flameTooltipMode: tooltipMode === 'FIXED' ? 'fixed' : 'follow-mouse' }
+              : {}),
+            ...(engine !== undefined ? { engine: parseSimpleperfEngine(engine) } : {}),
+          },
+        }
       : {}),
   };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { captureCpuProfile, samplingParametersFor, type CpuCaptureDependencies } from './cpu-capture-service.js';
+import { parseSimpleperfReportDirect } from '@aps/simpleperf-profiler';
 // The report builder is a test-only entry point: production code only reads
 // these streams.
 import {
@@ -32,7 +33,7 @@ interface Harness {
   readonly removed: string[];
 }
 
-function harness(options: { hostMissing?: boolean; convertFails?: boolean } = {}): Harness {
+function harness(options: { hostMissing?: boolean; convertFails?: boolean; retainPerfData?: boolean } = {}): Harness {
   const commands: string[][] = [];
   const conversions: string[][] = [];
   const removed: string[] = [];
@@ -69,6 +70,7 @@ function harness(options: { hostMissing?: boolean; convertFails?: boolean } = {}
       },
       now: () => 777,
       newId: () => 'cpu-9',
+      ...(options.retainPerfData === true ? { retainPerfData: true } : {}),
     },
   };
 }
@@ -79,6 +81,8 @@ const INPUT = {
   target: 'APP' as const,
   event: 'cpu-clock',
   frequencyHertz: 999,
+  periodEvents: 12345,
+  rateMode: 'FREQUENCY' as const,
   durationSeconds: 5,
   callGraph: 'DWARF' as const,
   scope: 'BOTH' as const,
@@ -92,6 +96,13 @@ describe('samplingParametersFor', () => {
     expect(parameters.durationSeconds).toBe(5);
     expect(parameters.callGraph).toBe('DWARF');
     expect(parameters.outputPath).toBe('/data/local/tmp/aps/perf.data');
+  });
+
+  it('maps a period-rate capture onto simpleperf -c parameters', () => {
+    expect(samplingParametersFor({ ...INPUT, rateMode: 'PERIOD', periodEvents: 12345 }).rate).toEqual({
+      kind: 'PERIOD',
+      events: 12345n,
+    });
   });
 
   it('falls back to system wide when no package is given', () => {
@@ -109,6 +120,16 @@ describe('samplingParametersFor', () => {
 });
 
 describe('captureCpuProfile', () => {
+  it('retains raw perf.data before normal temporary cleanup when requested', async () => {
+    const test = harness({ retainPerfData: true });
+    const result = await captureCpuProfile(test.dependencies, INPUT);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.perfDataPath).toBe('/tmp/aps-cpu-9.perf.data');
+    expect(test.removed).not.toContain('/tmp/aps-cpu-9.perf.data');
+  });
+
   it('runs the whole pipeline and reads the report back before cleanup', async () => {
     const test = harness();
     const result = await captureCpuProfile(test.dependencies, INPUT);
@@ -124,6 +145,25 @@ describe('captureCpuProfile', () => {
     expect(test.conversions).toEqual([['/bundle/simpleperf', '/tmp/aps-cpu-9.perf.data', '/tmp/aps-cpu-9.pb']]);
     expect(test.commands.some((args) => args[0] === 'stat')).toBe(true);
     expect(test.removed).toContain('/tmp/aps-cpu-9.perf.data');
+  });
+
+  it('uses an injected asynchronous parser for the converted protobuf', async () => {
+    const test = harness();
+    let parseCalls = 0;
+    const result = await captureCpuProfile(
+      {
+        ...test.dependencies,
+        parseReport: async (bytes) => {
+          parseCalls += 1;
+          return parseSimpleperfReportDirect(bytes);
+        },
+      },
+      INPUT,
+    );
+    expect(result.ok).toBe(true);
+    expect(parseCalls).toBe(1);
+    if (!result.ok) return;
+    expect(result.value.table.stacks).toHaveLength(1);
   });
 
   it('fails before touching the device when the host tool is missing', async () => {

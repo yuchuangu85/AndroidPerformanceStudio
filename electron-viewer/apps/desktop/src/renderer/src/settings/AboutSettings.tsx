@@ -27,6 +27,9 @@ export function AboutSettingsPage({ language, appInfo }: AboutSettingsPageProps)
             <dd className="settings__row-value">{appInfo.platform}</dd>
           </div>
         </dl>
+        <button type="button" className="button button--primary" onClick={() => void window.aps.openUserGuide(language)}>
+          {translate('settings.openUserGuide', language)}
+        </button>
       </div>
     </SettingsSection>
   );

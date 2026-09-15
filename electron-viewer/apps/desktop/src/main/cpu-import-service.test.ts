@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gzipSync } from 'node:zlib';
-import { formatOfFile, importCpuProfile } from './cpu-import-service.js';
+import { formatOfFile, importCpuProfile, importCpuProfileAsync, importOfflineCpuProfileDirect } from './cpu-import-service.js';
 import { fileEntry, fileRecord, metaInfoEntry, metaInfoRecord, sample, sampleRecord, stream, threadEntry, threadRecord } from '@aps/simpleperf-profiler/testing';
 
 function reportBytes(): Uint8Array {
@@ -50,6 +50,19 @@ describe('importCpuProfile', () => {
     expect(imported.value.table.stacks[0]?.threadKey).toBe('RenderThread (tid 42)');
     expect(imported.value.threadKeys).toEqual(['RenderThread (tid 42)']);
     expect(imported.value.metadata?.eventTypes).toEqual(['cpu-cycles']);
+  });
+
+  it('uses an injected asynchronous parser for offline profile bytes', async () => {
+    let parseCalls = 0;
+    const imported = await importCpuProfileAsync(
+      { fileName: 'simpleperf.protobuf', bytes: reportBytes() },
+      async (input) => {
+        parseCalls += 1;
+        return importOfflineCpuProfileDirect(input);
+      },
+    );
+    expect(imported.ok).toBe(true);
+    expect(parseCalls).toBe(1);
   });
 
   it('imports a decompressed gecko profile', () => {

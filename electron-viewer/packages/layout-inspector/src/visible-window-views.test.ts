@@ -12,6 +12,7 @@ import {
   parseVisibleWindowViews,
   parseVisibleWindowViewsArchive,
   readZipEntries,
+  renderVisibleWindowViewsText,
   selectDefaultWindow,
 } from './visible-window-views.js';
 
@@ -83,6 +84,16 @@ describe('visible window views', () => {
     expect(title.text).toBe('Title');
     expect(title.bounds).toEqual({ left: 50, top: 100, right: 610, bottom: 180 });
     expect(title.attributes.layoutBounds).toEqual({ left: 40, top: 80, right: 600, bottom: 160 });
+  });
+
+  it('renders every raw ZIP entry as archive diagnostic text', async () => {
+    const text = await renderVisibleWindowViewsText(zipArchive(demoTwoWindowEntries()));
+
+    expect(text).toContain('VISIBLE WINDOW VIEW DUMP');
+    expect(text).toContain('Window count: 3');
+    expect(text).toContain('MainActivity');
+    expect(text).toContain('ConfirmDialog');
+    expect(text).toContain('SUMMARY: parsed 3 of 3 windows.');
   });
 
   it('parses every decodable window for the target package', async () => {

@@ -12,4 +12,8 @@ export * from './fixtures/encoded-hierarchy.js';
 export * from './hidden-layers.js';
 export * from './hit-test.js';
 export * from './analysis.js';
+export * from './capture-archive-payloads.js';
 export * from './tree.js';
+export * from './compose-inspector-protocol.js';
+export * from './view-inspector-protocol.js';
+export * from './compose-tree-merge.js';

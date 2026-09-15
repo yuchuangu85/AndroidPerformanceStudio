@@ -9,7 +9,7 @@ import {
 } from '../../shared/destinations';
 import { resolveLanguage, translate, type UiLanguage } from '../../shared/i18n';
 import type { ViewerMenuCommand } from '../../shared/viewer-menu';
-import type { DeviceSummary, ShellSnapshot } from '../../shared/ipc';
+import type { DeviceSummary, ShellSnapshot, SourceOpenRequest } from '../../shared/ipc';
 import {
   mergeApplicationUiSettings,
   type ApplicationUiSettings,
@@ -44,6 +44,8 @@ interface PanelProps {
   readonly onOpenSettings: () => void;
   /** A command from the native menu bar, routed to the panel that owns its state. */
   readonly viewerCommand: ViewerMenuCommand | null;
+  readonly sourceOpenRequest: SourceOpenRequest | undefined;
+  readonly onOpenSourceLocation: (request: SourceOpenRequest) => void;
 }
 
 /**
@@ -76,6 +78,8 @@ function destinationPanel({
   onPatchSettings,
   onOpenSettings,
   viewerCommand,
+  sourceOpenRequest,
+  onOpenSourceLocation,
 }: PanelProps): JSX.Element {
   switch (destination) {
     case 'PERFETTO':
@@ -101,7 +105,7 @@ function destinationPanel({
     case 'BENCHMARK_REGRESSION':
       return <BenchmarkRegressionPanel language={language} devices={devices} />;
     case 'SOURCE_WORKSPACES':
-      return <SourceWorkspacePanel language={language} devices={devices} />;
+      return <SourceWorkspacePanel language={language} devices={devices} sourceOpenRequest={sourceOpenRequest} />;
     case 'METHOD_RECORDING':
       return <MethodRecordingPanel language={language} devices={devices} />;
     case 'SIMPLEPERF':
@@ -109,7 +113,7 @@ function destinationPanel({
     case 'MEMORY_PROFILER':
       return <MemoryProfilerPanel language={language} devices={devices} />;
     case 'AI_ANALYSIS':
-      return <AiAnalysisPanel language={language} onOpenSettings={onOpenSettings} />;
+      return <AiAnalysisPanel language={language} onOpenSettings={onOpenSettings} onOpenSourceLocation={onOpenSourceLocation} />;
     case 'GPU_INSPECTOR':
       return <GpuInspectorPanel language={language} devices={devices} />;
     default:
@@ -141,6 +145,7 @@ export function App(): JSX.Element {
   const [systemDark, setSystemDark] = useState<boolean>(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewerCommand, setViewerCommand] = useState<ViewerMenuCommand | null>(null);
+  const [sourceOpenRequest, setSourceOpenRequest] = useState<SourceOpenRequest | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -190,6 +195,7 @@ export function App(): JSX.Element {
       hasSnapshot: false,
       hasSelection: false,
       autoScan: false,
+      archiveOperationInProgress: false,
       panels: { hierarchy: true, details: true, findings: true },
       view: viewerMenuView(snapshot?.settings.layoutInspector),
     });
@@ -232,6 +238,11 @@ export function App(): JSX.Element {
     },
     [current, retained],
   );
+
+  const openSourceLocation = useCallback((request: SourceOpenRequest) => {
+    setSourceOpenRequest(request);
+    navigate('SOURCE_WORKSPACES');
+  }, [navigate]);
 
   /**
    * A settings change is applied to the rendered snapshot first and stored
@@ -381,6 +392,8 @@ export function App(): JSX.Element {
               onPatchSettings: patchSettings,
               onOpenSettings: () => setSettingsOpen(true),
               viewerCommand,
+              sourceOpenRequest,
+              onOpenSourceLocation: openSourceLocation,
             })
           )}
 

@@ -33,6 +33,15 @@ class StartupAnalyzerTest {
     }
 
     @Test
+    fun `counts no present values as missing rather than measurements`() {
+        val statistics = StartupAnalyzer().statistics(listOf(null, null))
+
+        assertEquals(0, statistics.count)
+        assertEquals(2, statistics.missingCount)
+        assertEquals(null, statistics.medianMs)
+    }
+
+    @Test
     fun `creates phases only from same-domain milestone timestamps`() {
         val run =
             StartupRun(

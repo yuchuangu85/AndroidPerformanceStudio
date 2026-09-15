@@ -33,7 +33,13 @@ export interface MemorySession {
   readonly packageName?: string;
   readonly capturedAtEpochMillis: number;
   readonly summary: MemorySummary;
+  /** The compact histogram shown in the single-session panel. */
   readonly histogram: readonly ClassHistogramEntry[];
+  /**
+   * Complete class histogram for persisted cross-session comparison. This is
+   * optional so sessions written before heap-diff support remain readable.
+   */
+  readonly comparisonHistogram?: readonly ClassHistogramEntry[];
   readonly suspects: readonly MemoryLeakSuspect[];
   readonly warnings: readonly string[];
   readonly deep?: MemoryDeepReports;
@@ -66,13 +72,17 @@ export function createMemorySession(
   const analysis = analyzeGraph(graph);
   const report = findLeakSuspects(graph, { top: options.suspectLimit ?? 20, analysis });
   const deep = options.deep === false ? undefined : analyzeHeapDeeply(result, graph, { analysis });
+  // Raw HPROF bytes are deliberately deleted after analysis. Retaining this
+  // compact derived data is what makes complete comparisons survive restarts.
+  const comparisonHistogram = classHistogram(result);
   return {
     id: options.id,
     ...(options.deviceSerial !== undefined ? { deviceSerial: options.deviceSerial } : {}),
     ...(options.packageName !== undefined ? { packageName: options.packageName } : {}),
     capturedAtEpochMillis: options.capturedAtEpochMillis,
     summary: summarizeMemory(result),
-    histogram: classHistogram(result).slice(0, options.histogramLimit ?? 50),
+    histogram: comparisonHistogram.slice(0, options.histogramLimit ?? 50),
+    comparisonHistogram,
     suspects: report.suspects.map((suspect) => ({
       className: suspect.className,
       objectId: toHex(suspect.objectId),

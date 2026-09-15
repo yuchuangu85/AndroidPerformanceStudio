@@ -1,12 +1,15 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { indexSourceFile } from './indexer.js';
 import { isIndexableSourcePath, javaAbsoluteHash, javaStringHash, sourceLanguage } from './language.js';
 import { resolveEvidence, type SourceIndexView } from './resolver.js';
 import type { SourceFile, SourceSnapshot, SourceSymbol } from './model.js';
 import { ContentAddressedSourceCache, readSourceFile, sha256Text, walkSourceFiles } from './node.js';
+import { SqliteSourceWorkspaceRepository } from './sqlite-repository.js';
 
 const directories: string[] = [];
 
@@ -50,6 +53,254 @@ function indexOf(entries: readonly { readonly file: SourceFile; readonly content
     files: () => entries.map((entry) => entry.file),
     symbols: () => symbols,
   };
+}
+
+const KOTLIN_SOURCE_WORKSPACE_FIXTURE = fileURLToPath(
+  new URL('./fixtures/kotlin-source-workspace.db', import.meta.url),
+);
+
+const ELECTRON_SOURCE_WORKSPACE_FIXTURE_PATH = process.env['APS_ELECTRON_SOURCE_WORKSPACE_FIXTURE_PATH'];
+
+/**
+ * The fixture is written by Kotlin's SqliteSourceWorkspaceRepository, not by
+ * node:sqlite. Regenerate it with:
+ *   cd desktop-viewer/source-workspace && ./gradlew writeElectronInteropFixture \
+ *     -PfixturePath=../../electron-viewer/packages/source-workspace/src/fixtures/kotlin-source-workspace.db
+ */
+describe('Kotlin-created source-workspace SQLite fixture', () => {
+  it('opens Kotlin-written workspace, snapshot, candidate, and nullable-range records without reindexing', () => {
+    const path = join(temporaryDirectory(), 'source-workspaces.db');
+    copyFileSync(KOTLIN_SOURCE_WORKSPACE_FIXTURE, path);
+
+    const raw = new DatabaseSync(path);
+    try {
+      const candidate = raw
+        .prepare(
+          'SELECT start_line, start_column, end_line, end_column, reasons, index_complete ' +
+            'FROM resolution_candidate WHERE id = ?',
+        )
+        .get('kotlin-candidate') as Record<string, unknown>;
+      expect(candidate).toEqual({
+        start_line: 17,
+        start_column: 4,
+        end_line: 22,
+        end_column: 19,
+        reasons: '["Qualified type matched","Build identity verified"]',
+        index_complete: 1,
+      });
+    } finally {
+      raw.close();
+    }
+
+    const repository = new SqliteSourceWorkspaceRepository(path);
+    try {
+      expect(repository.workspace('kotlin-workspace')).toEqual({
+        id: 'kotlin-workspace',
+        displayName: 'Kotlin-written source workspace',
+        config: {
+          kind: 'GITHUB',
+          owner: 'android',
+          repository: 'performance-studio',
+          ref: 'refs/tags/v1.0.0',
+          credentialKey: 'kotlin-fixture-credential',
+        },
+        activeSnapshotId: 'kotlin-snapshot',
+        phase: 'READY',
+        progress: 1,
+        message: 'Written by the Kotlin fixture generator',
+        allowAiSourceUpload: true,
+      });
+      expect(repository.snapshot('kotlin-snapshot')).toEqual({
+        id: 'kotlin-snapshot',
+        workspaceId: 'kotlin-workspace',
+        immutableRevision: 'a'.repeat(40),
+        dirtyContentDigest: 'dirty-content-digest',
+        manifestHash: 'b'.repeat(64),
+        createdAtEpochMillis: Date.parse('2026-09-14T00:00:00Z'),
+        indexVersion: 7,
+        indexComplete: true,
+      });
+      expect(repository.files('kotlin-snapshot')).toEqual([
+        {
+          snapshotId: 'kotlin-snapshot',
+          relativePath: 'src/main/kotlin/com/example/Renderer.kt',
+          language: 'KOTLIN',
+          contentHash: 'c'.repeat(64),
+          sizeBytes: 1234,
+        },
+      ]);
+      expect(repository.symbols('kotlin-snapshot')).toEqual([
+        {
+          snapshotId: 'kotlin-snapshot',
+          relativePath: 'src/main/kotlin/com/example/Renderer.kt',
+          kind: 'TYPE',
+          qualifiedName: 'com.example.Renderer',
+          startLine: 3,
+          endLine: 42,
+        },
+        {
+          snapshotId: 'kotlin-snapshot',
+          relativePath: 'src/main/kotlin/com/example/Renderer.kt',
+          kind: 'FUNCTION',
+          qualifiedName: 'com.example.Renderer.render',
+          signature: 'frame: Frame',
+          startLine: 17,
+          endLine: 22,
+        },
+      ]);
+      expect(repository.candidate('kotlin-candidate')).toEqual({
+        id: 'kotlin-candidate',
+        evidenceId: 'kotlin-evidence',
+        location: {
+          workspaceId: 'kotlin-workspace',
+          snapshotId: 'kotlin-snapshot',
+          relativePath: 'src/main/kotlin/com/example/Renderer.kt',
+          // The TypeScript model deliberately supports only Kotlin's line range.
+          range: { startLine: 17, endLine: 22 },
+          contentHash: 'c'.repeat(64),
+        },
+        confidence: 'EXACT',
+        reasons: ['Qualified type matched', 'Build identity verified'],
+        indexVersion: 7,
+        indexComplete: true,
+      });
+      expect(repository.candidate('kotlin-null-range-candidate')).toEqual({
+        id: 'kotlin-null-range-candidate',
+        evidenceId: 'kotlin-null-range-evidence',
+        location: {
+          workspaceId: 'kotlin-workspace',
+          snapshotId: 'kotlin-snapshot',
+          relativePath: 'src/main/kotlin/com/example/Renderer.kt',
+          contentHash: 'c'.repeat(64),
+        },
+        confidence: 'PROBABLE',
+        reasons: ['No source range was available'],
+        indexVersion: 7,
+        indexComplete: true,
+      });
+    } finally {
+      repository.close();
+    }
+  });
+});
+
+/**
+ * The fixture is written by Electron's SqliteSourceWorkspaceRepository, not by
+ * node:sqlite. Regenerate it with:
+ *   APS_ELECTRON_SOURCE_WORKSPACE_FIXTURE_PATH=../desktop-viewer/source-workspace/src/test/resources/electron-source-workspace.db \
+ *     corepack pnpm@12.3.4 --dir electron-viewer exec vitest run \
+ *       packages/source-workspace/src/source-workspace.test.ts -t "Electron-created source-workspace SQLite fixture"
+ */
+describe('Electron-created source-workspace SQLite fixture', () => {
+  it('writes provider metadata, source indexes, and nullable source ranges for Kotlin', () => {
+    const path = electronSourceWorkspaceFixturePath();
+    writeElectronSourceWorkspaceFixture(path);
+
+    const raw = new DatabaseSync(path);
+    try {
+      expect(raw.prepare(
+        'SELECT provider_kind, github_owner, github_repository, provider_ref, credential_key, active_snapshot_id, phase, progress, message, allow_ai_source_upload FROM source_workspace WHERE id = ?',
+      ).get('electron-workspace')).toEqual({
+        provider_kind: 'GITHUB', github_owner: 'android', github_repository: 'performance-studio',
+        provider_ref: 'refs/tags/electron-v1', credential_key: 'electron-fixture-credential',
+        active_snapshot_id: 'electron-snapshot', phase: 'READY', progress: 1,
+        message: 'Written by the Electron fixture generator', allow_ai_source_upload: 1,
+      });
+      expect(raw.prepare(
+        'SELECT immutable_revision, dirty_digest, manifest_hash, created_at, index_version, index_complete FROM source_snapshot WHERE id = ?',
+      ).get('electron-snapshot')).toEqual({
+        immutable_revision: 'd'.repeat(40), dirty_digest: 'electron-dirty-content-digest', manifest_hash: 'e'.repeat(64),
+        created_at: '2026-09-14T02:00:00.000Z', index_version: 11, index_complete: 1,
+      });
+      expect(raw.prepare(
+        'SELECT id, start_line, start_column, end_line, end_column, confidence, reasons, index_complete FROM resolution_candidate WHERE workspace_id = ? ORDER BY id',
+      ).all('electron-workspace')).toEqual([
+        { id: 'electron-candidate', start_line: 31, start_column: 1, end_line: 37, end_column: 1, confidence: 'EXACT', reasons: '["Qualified type matched","Build identity verified"]', index_complete: 1 },
+        { id: 'electron-null-range-candidate', start_line: null, start_column: null, end_line: null, end_column: null, confidence: 'PROBABLE', reasons: '["No source range was available"]', index_complete: 0 },
+      ]);
+    } finally { raw.close(); }
+
+    const repository = new SqliteSourceWorkspaceRepository(path);
+    try {
+      expect(repository.workspace('electron-workspace')).toEqual({
+        id: 'electron-workspace', displayName: 'Electron-written source workspace',
+        config: { kind: 'GITHUB', owner: 'android', repository: 'performance-studio', ref: 'refs/tags/electron-v1', credentialKey: 'electron-fixture-credential' },
+        activeSnapshotId: 'electron-snapshot', phase: 'READY', progress: 1,
+        message: 'Written by the Electron fixture generator', allowAiSourceUpload: true,
+      });
+      expect(repository.snapshot('electron-snapshot')).toEqual({
+        id: 'electron-snapshot', workspaceId: 'electron-workspace', immutableRevision: 'd'.repeat(40),
+        dirtyContentDigest: 'electron-dirty-content-digest', manifestHash: 'e'.repeat(64),
+        createdAtEpochMillis: 1_789_351_200_000, indexVersion: 11, indexComplete: true,
+      });
+      expect(repository.files('electron-snapshot')).toEqual([{
+        snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Renderer.kt', language: 'KOTLIN', contentHash: 'f'.repeat(64), sizeBytes: 4321,
+      }]);
+      expect(repository.symbols('electron-snapshot')).toEqual([
+        { snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Renderer.kt', kind: 'TYPE', qualifiedName: 'com.example.Renderer', startLine: 3, endLine: 48 },
+        { snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Renderer.kt', kind: 'FUNCTION', qualifiedName: 'com.example.Renderer.render', signature: 'frame: Frame', startLine: 31, endLine: 37 },
+      ]);
+      expect(repository.candidate('electron-candidate')).toEqual({
+        id: 'electron-candidate', evidenceId: 'electron-evidence',
+        location: { workspaceId: 'electron-workspace', snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Renderer.kt', range: { startLine: 31, endLine: 37 }, contentHash: 'f'.repeat(64) },
+        confidence: 'EXACT', reasons: ['Qualified type matched', 'Build identity verified'], indexVersion: 11, indexComplete: true,
+      });
+      expect(repository.candidate('electron-null-range-candidate')).toEqual({
+        id: 'electron-null-range-candidate', evidenceId: 'electron-null-range-evidence',
+        location: { workspaceId: 'electron-workspace', snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Fallback.kt', contentHash: 'f'.repeat(64) },
+        confidence: 'PROBABLE', reasons: ['No source range was available'], indexVersion: 11, indexComplete: false,
+      });
+    } finally { repository.close(); }
+    checkpointStandaloneSqliteFixture(path);
+  });
+});
+
+function electronSourceWorkspaceFixturePath(): string {
+  if (ELECTRON_SOURCE_WORKSPACE_FIXTURE_PATH !== undefined && ELECTRON_SOURCE_WORKSPACE_FIXTURE_PATH.trim().length > 0) return ELECTRON_SOURCE_WORKSPACE_FIXTURE_PATH;
+  return join(temporaryDirectory(), 'electron-source-workspace.db');
+}
+
+function writeElectronSourceWorkspaceFixture(path: string): void {
+  for (const suffix of ['', '-wal', '-shm']) rmSync(path + suffix, { force: true });
+  const repository = new SqliteSourceWorkspaceRepository(path);
+  try {
+    repository.saveWorkspace({
+      id: 'electron-workspace', displayName: 'Electron-written source workspace',
+      config: { kind: 'GITHUB', owner: 'android', repository: 'performance-studio', ref: 'refs/tags/electron-v1', credentialKey: 'electron-fixture-credential' },
+      activeSnapshotId: 'electron-snapshot', phase: 'READY', progress: 1,
+      message: 'Written by the Electron fixture generator', allowAiSourceUpload: true,
+    });
+    repository.saveSnapshot({
+      id: 'electron-snapshot', workspaceId: 'electron-workspace', immutableRevision: 'd'.repeat(40),
+      dirtyContentDigest: 'electron-dirty-content-digest', manifestHash: 'e'.repeat(64),
+      createdAtEpochMillis: 1_789_351_200_000, indexVersion: 11, indexComplete: true,
+    }, [{
+      snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Renderer.kt', language: 'KOTLIN', contentHash: 'f'.repeat(64), sizeBytes: 4321,
+    }], [
+      { snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Renderer.kt', kind: 'TYPE', qualifiedName: 'com.example.Renderer', startLine: 3, endLine: 48 },
+      { snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Renderer.kt', kind: 'FUNCTION', qualifiedName: 'com.example.Renderer.render', signature: 'frame: Frame', startLine: 31, endLine: 37 },
+    ]);
+    repository.saveCandidates([
+      {
+        id: 'electron-candidate', evidenceId: 'electron-evidence',
+        location: { workspaceId: 'electron-workspace', snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Renderer.kt', range: { startLine: 31, endLine: 37 }, contentHash: 'f'.repeat(64) },
+        confidence: 'EXACT', reasons: ['Qualified type matched', 'Build identity verified'], indexVersion: 11, indexComplete: true,
+      },
+      {
+        id: 'electron-null-range-candidate', evidenceId: 'electron-null-range-evidence',
+        location: { workspaceId: 'electron-workspace', snapshotId: 'electron-snapshot', relativePath: 'src/main/kotlin/com/example/Fallback.kt', contentHash: 'f'.repeat(64) },
+        confidence: 'PROBABLE', reasons: ['No source range was available'], indexVersion: 11, indexComplete: false,
+      },
+    ]);
+  } finally { repository.close(); }
+}
+
+function checkpointStandaloneSqliteFixture(path: string): void {
+  const database = new DatabaseSync(path);
+  try {
+    database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    database.exec('PRAGMA journal_mode=DELETE');
+  } finally { database.close(); }
 }
 
 describe('language detection', () => {

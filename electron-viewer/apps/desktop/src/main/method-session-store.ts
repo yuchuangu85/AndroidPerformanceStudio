@@ -97,10 +97,48 @@ export class MethodSessionStore {
 function isRecord(value: unknown): value is MethodSessionRecord {
   if (value === null || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
+  const origin = record['origin'];
+  if (origin !== undefined && origin !== 'CAPTURED' && origin !== 'IMPORTED') return false;
+  if (origin === 'IMPORTED' && typeof record['sourceFileName'] !== 'string') return false;
+  if (origin === 'CAPTURED' && !hasCaptureTarget(record)) return false;
+
   return (
     typeof record['id'] === 'string' &&
     typeof record['capturedAtEpochMillis'] === 'number' &&
-    typeof record['packageName'] === 'string' &&
-    typeof record['eventCount'] === 'number'
+    typeof record['traceVersion'] === 'number' &&
+    typeof record['traceBytes'] === 'number' &&
+    typeof record['eventCount'] === 'number' &&
+    typeof record['methodCount'] === 'number' &&
+    typeof record['threadCount'] === 'number' &&
+    isOptionalString(record['sourceFileName']) &&
+    isOptionalString(record['serial']) &&
+    isOptionalString(record['packageName']) &&
+    isOptionalNumber(record['pid']) &&
+    isOptionalNumber(record['durationSeconds']) &&
+    isOptionalNumber(record['deviceSdkApiLevel']) &&
+    isStringArray(record['threadKeys']) &&
+    isStringArray(record['warnings'])
   );
+}
+
+function hasCaptureTarget(record: Record<string, unknown>): boolean {
+  return (
+    typeof record['serial'] === 'string' &&
+    typeof record['packageName'] === 'string' &&
+    typeof record['pid'] === 'number' &&
+    typeof record['durationSeconds'] === 'number' &&
+    typeof record['deviceSdkApiLevel'] === 'number'
+  );
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalNumber(value: unknown): boolean {
+  return value === undefined || typeof value === 'number';
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }

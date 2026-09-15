@@ -1,0 +1,182 @@
+{
+    "schemaVersion": 1,
+    "summary": {
+        "totalTime": {
+            "count": 1,
+            "missingCount": 0,
+            "minimumMs": 470.0,
+            "maximumMs": 470.0,
+            "medianMs": 470.0,
+            "meanMs": 470.0,
+            "p90Ms": 470.0,
+            "p95Ms": 470.0,
+            "standardDeviationMs": 0.0,
+            "medianAbsoluteDeviationMs": 0.0,
+            "p90LowResolution": true,
+            "p95LowResolution": true
+        },
+        "firstFrame": {
+            "count": 1,
+            "missingCount": 0,
+            "minimumMs": 420.0,
+            "maximumMs": 420.0,
+            "medianMs": 420.0,
+            "meanMs": 420.0,
+            "p90Ms": 420.0,
+            "p95Ms": 420.0,
+            "standardDeviationMs": 0.0,
+            "medianAbsoluteDeviationMs": 0.0,
+            "p90LowResolution": true,
+            "p95LowResolution": true
+        },
+        "fullyDrawn": {
+            "count": 1,
+            "missingCount": 0,
+            "minimumMs": 760.0,
+            "maximumMs": 760.0,
+            "medianMs": 760.0,
+            "meanMs": 760.0,
+            "p90Ms": 760.0,
+            "p95Ms": 760.0,
+            "standardDeviationMs": 0.0,
+            "medianAbsoluteDeviationMs": 0.0,
+            "p90LowResolution": true,
+            "p95LowResolution": true
+        },
+        "agentFirstFrame": {
+            "count": 1,
+            "missingCount": 0,
+            "minimumMs": 420.0,
+            "maximumMs": 420.0,
+            "medianMs": 420.0,
+            "meanMs": 420.0,
+            "p90Ms": 420.0,
+            "p95Ms": 420.0,
+            "standardDeviationMs": 0.0,
+            "medianAbsoluteDeviationMs": 0.0,
+            "p90LowResolution": true,
+            "p95LowResolution": true
+        }
+    },
+    "warnings": [
+        "Requested cold launch was observed as warm."
+    ],
+    "runs": [
+        {
+            "iteration": 1,
+            "runId": "kotlin-startup-run-1",
+            "requestedType": "COLD",
+            "observedType": "WARM",
+            "totalTimeMs": 470,
+            "thisTimeMs": 430,
+            "waitTimeMs": 485,
+            "displayedTimeMs": 420,
+            "fullyDrawnTimeMs": 760,
+            "agentAvailable": true,
+            "diagnostics": [
+                "Startup Agent and platform timing sources agreed within the fixture."
+            ],
+            "context": {
+                "deviceLocalId": "3807b791afbee6cc59d4f452c76fe8e8e7e4e2c158a6ea40895d07e66ee164d1",
+                "packageName": "com.example.performance",
+                "componentName": "com.example.performance/.MainActivity"
+            },
+            "metricEvidence": {
+                "ttid": {
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "unavailableReason": null
+                },
+                "ttfd": {
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "unavailableReason": null
+                },
+                "agentFirstFrame": {
+                    "source": "AGENT",
+                    "confidence": "EXACT",
+                    "unavailableReason": null
+                }
+            },
+            "compilationEvidence": {
+                "requestedMode": "SPEED_PROFILE",
+                "compilerFilterBefore": "verify",
+                "compilerFilterAfter": "speed-profile",
+                "profileStateBefore": "No profile",
+                "profileStateAfter": "Profile-guided",
+                "preparationOutput": "Success",
+                "verified": true,
+                "failureReason": null,
+                "profileSource": "BASELINE_PROFILE_PLUGIN",
+                "profileSourceDeclared": true
+            },
+            "environmentEvidence": {
+                "deviceModel": "Kotlin Fixture Device",
+                "apiLevel": 36,
+                "emulator": true,
+                "batteryPercent": 87,
+                "charging": false,
+                "thermalStatus": 0,
+                "capturedAt": "2026-09-14T00:00:00Z",
+                "failures": []
+            },
+            "traceEvidence": {
+                "file": "kotlin-startup-run-1.perfetto-trace",
+                "captured": true,
+                "truncated": false,
+                "failureReason": null
+            },
+            "warnings": [
+                "Requested cold launch was observed as warm."
+            ],
+            "milestones": [
+                {
+                    "kind": "PROCESS_START",
+                    "elapsedRealtimeNs": 1000000000,
+                    "durationMs": null,
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "activity": null
+                },
+                {
+                    "kind": "ACTIVITY_PRE_CREATE",
+                    "elapsedRealtimeNs": 1090000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "EXACT",
+                    "activity": "com.example.performance.MainActivity"
+                },
+                {
+                    "kind": "FIRST_FRAME",
+                    "elapsedRealtimeNs": 1420000000,
+                    "durationMs": 420,
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "activity": "com.example.performance.MainActivity"
+                },
+                {
+                    "kind": "FULLY_DRAWN",
+                    "elapsedRealtimeNs": 1760000000,
+                    "durationMs": 760,
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "activity": "com.example.performance.MainActivity"
+                }
+            ],
+            "phases": [
+                {
+                    "name": "First frame to fully drawn",
+                    "start": "FIRST_FRAME",
+                    "end": "FULLY_DRAWN",
+                    "durationNs": 340000000,
+                    "confidence": "EXACT"
+                }
+            ],
+            "rawEvidence": {
+                "amStartOutput": "Status: ok\nLaunchState: WARM\nActivity: com.example.performance/.MainActivity\nTotalTime: 470",
+                "eventLogOutput": "Displayed com.example.performance/.MainActivity: +420ms\nFully drawn com.example.performance/.MainActivity: +760ms",
+                "compilationOutput": "Package compiled with speed-profile before capture."
+            }
+        }
+    ]
+}

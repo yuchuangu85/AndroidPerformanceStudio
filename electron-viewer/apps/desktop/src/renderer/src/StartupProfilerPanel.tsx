@@ -24,6 +24,7 @@ function formatEvidence(evidence: MetricEvidence): string {
     .join(' · ');
 }
 
+/** Makes imported provenance and evidence downgrades distinct from live capture data. */
 export function StartupImportedEvidence({ session, language }: { readonly session: StartupSession; readonly language: UiLanguage }): JSX.Element | null {
   if (session.origin !== 'IMPORTED') return null;
   const warnings = [...new Set(session.runs.flatMap((run) => run.warnings))];
@@ -119,6 +120,21 @@ export function StartupProfilerPanel({ language, devices }: StartupProfilerPanel
       .finally(() => setBusy(false));
   }, [componentName, language, measuredRuns, packageName, refresh, requestedType, serial, timeoutSeconds, warmupRuns]);
 
+  const importJson = useCallback(() => {
+    setBusy(true);
+    setMessage(null);
+    window.aps
+      .importStartupJson()
+      .then((outcome) => {
+        if (outcome.cancelled) return;
+        setMessage(outcome.ok ? translate('startup.imported', language) : translate('startup.failed', language) + ': ' + String(outcome.error ?? ''));
+        if (outcome.ok && outcome.id !== undefined) setSelectedId(outcome.id);
+        refresh();
+      })
+      .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setBusy(false));
+  }, [language, refresh]);
+
   const importSqlite = useCallback(() => {
     setBusy(true);
     setMessage(null);
@@ -133,6 +149,20 @@ export function StartupProfilerPanel({ language, devices }: StartupProfilerPanel
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setBusy(false));
   }, [language, refresh]);
+
+  const exportJson = useCallback(() => {
+    if (selectedId.length === 0) return;
+    setBusy(true);
+    setMessage(null);
+    window.aps
+      .exportStartupJson(selectedId)
+      .then((outcome) => {
+        if (outcome.cancelled) return;
+        setMessage(outcome.ok ? translate('startup.exported', language) : translate('startup.failed', language) + ': ' + String(outcome.error ?? ''));
+      })
+      .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setBusy(false));
+  }, [language, selectedId]);
 
   const statistics = session?.statistics;
   const runs = session?.runs ?? [];
@@ -178,15 +208,15 @@ export function StartupProfilerPanel({ language, devices }: StartupProfilerPanel
           </label>
           <label className="field">
             <span>{translate('startup.warmup', language)}</span>
-            <input type="number" min={0} value={warmupRuns} onChange={(event) => setWarmupRuns(Number(event.target.value))} />
+            <input type="number" min={0} max={100} step={1} value={warmupRuns} onChange={(event) => setWarmupRuns(Number(event.target.value))} />
           </label>
           <label className="field">
             <span>{translate('startup.measured', language)}</span>
-            <input type="number" min={1} value={measuredRuns} onChange={(event) => setMeasuredRuns(Number(event.target.value))} />
+            <input type="number" min={1} max={100} step={1} value={measuredRuns} onChange={(event) => setMeasuredRuns(Number(event.target.value))} />
           </label>
           <label className="field">
             <span>{translate('startup.timeout', language)}</span>
-            <input type="number" min={5} value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(Number(event.target.value))} />
+            <input type="number" min={5} max={300} step={1} value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(Number(event.target.value))} />
           </label>
           <label className="field">
             <span>{translate('startup.sessions', language)}</span>
@@ -194,7 +224,7 @@ export function StartupProfilerPanel({ language, devices }: StartupProfilerPanel
               <option value="">-</option>
               {sessions.map((record) => (
                 <option key={record.id} value={record.id}>
-                  {record.id} · {record.packageName} · {record.measuredRuns}
+                  {record.id} · {record.packageName ?? '—'} · {record.measuredRuns}
                 </option>
               ))}
             </select>
@@ -209,8 +239,14 @@ export function StartupProfilerPanel({ language, devices }: StartupProfilerPanel
           >
             {busy ? translate('frame.capturing', language) : translate('frame.captureAction', language)}
           </button>
+          <button type="button" className="button" disabled={busy} onClick={importJson}>
+            {translate('startup.import', language)}
+          </button>
           <button type="button" className="button" disabled={busy} onClick={importSqlite}>
             {translate('startup.importSqlite', language)}
+          </button>
+          <button type="button" className="button" disabled={busy || selectedId.length === 0} onClick={exportJson}>
+            {translate('startup.export', language)}
           </button>
         </div>
       </section>

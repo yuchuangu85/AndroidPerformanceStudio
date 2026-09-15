@@ -17,6 +17,7 @@ import com.androidperformancestudio.startup.model.StartupSource
 import com.androidperformancestudio.startup.model.StartupTraceEvidence
 import com.androidperformancestudio.startup.model.StartupType
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -48,6 +49,34 @@ class StartupExportersTest {
 
         assertContains(Files.readString(json), "\"schemaVersion\": 1")
         assertContains(Files.readString(csv), "123")
+    }
+
+    @Test
+    fun `imports the checked-in Electron StartupJson v1 fixture`() {
+        val report = Path.of(checkNotNull(javaClass.getResource("/electron-startup-report.json")).toURI())
+
+        val imported = StartupJsonImporter().import(report)
+
+        assertEquals(listOf("warning"), imported.warnings)
+        assertEquals(123.0, imported.totalTime.medianMs)
+        assertEquals(115.0, imported.firstFrame.medianMs)
+        assertEquals(0, imported.fullyDrawn.count)
+        assertEquals(1, imported.fullyDrawn.missingCount)
+        with(imported.runs.single()) {
+            assertEquals("run-1", id)
+            assertEquals(1, iteration)
+            assertEquals(StartupType.COLD, requestedType)
+            assertEquals(StartupType.COLD, observedType)
+            assertEquals(123, platform.totalTimeMs)
+            assertEquals(115, platform.displayedTimeMs)
+            assertEquals("Status: ok", rawEvidence.amStartOutput)
+            assertEquals("event", rawEvidence.eventLogOutput)
+            assertEquals(StartupSource.EVENT_LOG, ttidEvidence.source)
+            assertEquals(EvidenceConfidence.EXACT, ttidEvidence.confidence)
+            assertEquals(EvidenceConfidence.UNAVAILABLE, ttfdEvidence.confidence)
+            assertEquals("not reported", ttfdEvidence.unavailableReason)
+            assertEquals(null, context)
+        }
     }
 
     @Test

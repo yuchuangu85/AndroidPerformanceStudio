@@ -12,7 +12,7 @@
  */
 import type { GraphAnalysis } from './dominators.js';
 import { analyzeGraph } from './dominators.js';
-import type { ObjectGraph } from './graph.js';
+import { createStrongInstanceReferencePredicate, type ObjectGraph } from './graph.js';
 import type { HprofClassRecord, HprofInstanceRecord, HprofParseResult, Identifier } from './hprof.js';
 
 export const DEFAULT_BITMAP_THRESHOLD_BYTES = 10 * 1024 * 1024;
@@ -146,7 +146,8 @@ function hasNullReference(
   // A dump may declare the field without recording it, or record a zero target;
   // either way the field exists and holds nothing.
   if (!layout.some((field) => fieldNameOf(result, field.nameId) === name) && !observed) return false;
-  return referenceIdFor(result, instance, name) === undefined;
+  const target = referenceIdFor(result, instance, name);
+  return target === undefined || target === 0n;
 }
 
 /** Class object ids whose superclass chain reaches the named class. */
@@ -194,6 +195,7 @@ export function createReferenceChainFinder(
   graph: ObjectGraph,
 ): ReferenceChainFinder {
   const instancesById = new Map<Identifier, HprofInstanceRecord>();
+  const isStrongInstanceReference = createStrongInstanceReferencePredicate(result);
   for (const instance of result.instances) instancesById.set(instance.objectId, instance);
 
   const classNameById = new Map<Identifier, string>();
@@ -202,10 +204,16 @@ export function createReferenceChainFinder(
   const outgoing = (objectId: Identifier): readonly NamedReference[] => {
     const instance = instancesById.get(objectId);
     if (instance === undefined) return [];
-    return instance.references.map((targetObjectId, index) => ({
-      fieldName: fieldNameOf(result, instance.referenceNameIds[index] ?? 0n),
-      targetObjectId,
-    }));
+    const references: NamedReference[] = [];
+    for (let index = 0; index < instance.references.length; index += 1) {
+      const targetObjectId = instance.references[index];
+      if (targetObjectId === undefined || !isStrongInstanceReference(instance, index)) continue;
+      references.push({
+        fieldName: fieldNameOf(result, instance.referenceNameIds[index] ?? 0n),
+        targetObjectId,
+      });
+    }
+    return references;
   };
 
   const depths = new Map<Identifier, number>();
@@ -230,7 +238,7 @@ export function createReferenceChainFinder(
     if (current === undefined) continue;
     const depth = depths.get(current) ?? 0;
     for (const reference of outgoing(current)) {
-      if (depths.has(reference.targetObjectId)) continue;
+      if (reference.targetObjectId === 0n || !known.has(reference.targetObjectId) || depths.has(reference.targetObjectId)) continue;
       depths.set(reference.targetObjectId, depth + 1);
       predecessor.set(reference.targetObjectId, {
         source: current,

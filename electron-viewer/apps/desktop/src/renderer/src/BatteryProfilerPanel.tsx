@@ -118,7 +118,7 @@ export function BatteryProfilerPanel({ language, devices }: BatteryProfilerPanel
           </label>
           <label className="field">
             <span>{translate('battery.uid', language)}</span>
-            <input type="number" min={0} value={uid} onChange={(event) => setUid(Number(event.target.value))} />
+            <input type="number" min={0} max={2147483647} step={1} value={uid} onChange={(event) => setUid(Number(event.target.value))} />
           </label>
           <label className="field">
             <span>{translate('battery.mode', language)}</span>
@@ -132,19 +132,19 @@ export function BatteryProfilerPanel({ language, devices }: BatteryProfilerPanel
           </label>
           <label className="field">
             <span>{translate('battery.duration', language)}</span>
-            <input type="number" min={5} value={durationSeconds} onChange={(event) => setDurationSeconds(Number(event.target.value))} />
+            <input type="number" min={5} max={3600} step={1} value={durationSeconds} onChange={(event) => setDurationSeconds(Number(event.target.value))} />
           </label>
           <label className="field">
             <span>{translate('battery.polling', language)}</span>
-            <input type="number" min={5} value={pollingIntervalSeconds} onChange={(event) => setPollingIntervalSeconds(Number(event.target.value))} />
+            <input type="number" min={5} max={60} step={1} value={pollingIntervalSeconds} onChange={(event) => setPollingIntervalSeconds(Number(event.target.value))} />
           </label>
           <label className="field">
             <span>{translate('battery.runs', language)}</span>
-            <input type="number" min={1} value={measuredRuns} onChange={(event) => setMeasuredRuns(Number(event.target.value))} />
+            <input type="number" min={1} max={50} step={1} value={measuredRuns} onChange={(event) => setMeasuredRuns(Number(event.target.value))} />
           </label>
           <label className="field">
             <span>{translate('battery.cooldown', language)}</span>
-            <input type="number" min={0} value={cooldownSeconds} onChange={(event) => setCooldownSeconds(Number(event.target.value))} />
+            <input type="number" min={0} max={300} step={1} value={cooldownSeconds} onChange={(event) => setCooldownSeconds(Number(event.target.value))} />
           </label>
           <label className="field">
             <span>{translate('battery.sessions', language)}</span>

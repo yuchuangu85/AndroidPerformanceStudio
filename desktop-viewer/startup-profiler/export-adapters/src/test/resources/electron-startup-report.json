@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "summary": {
+    "totalTime": {
+      "count": 1,
+      "missingCount": 0,
+      "minimumMs": 123,
+      "maximumMs": 123,
+      "medianMs": 123,
+      "meanMs": 123,
+      "p90Ms": 123,
+      "p95Ms": 123,
+      "standardDeviationMs": 0,
+      "medianAbsoluteDeviationMs": 0,
+      "p90LowResolution": true,
+      "p95LowResolution": true
+    },
+    "firstFrame": {
+      "count": 1,
+      "missingCount": 0,
+      "minimumMs": 115,
+      "maximumMs": 115,
+      "medianMs": 115,
+      "meanMs": 115,
+      "p90Ms": 115,
+      "p95Ms": 115,
+      "standardDeviationMs": 0,
+      "medianAbsoluteDeviationMs": 0,
+      "p90LowResolution": true,
+      "p95LowResolution": true
+    },
+    "fullyDrawn": {
+      "count": 0,
+      "missingCount": 1,
+      "minimumMs": null,
+      "maximumMs": null,
+      "medianMs": null,
+      "meanMs": null,
+      "p90Ms": null,
+      "p95Ms": null,
+      "standardDeviationMs": null,
+      "medianAbsoluteDeviationMs": null,
+      "p90LowResolution": true,
+      "p95LowResolution": true
+    },
+    "agentFirstFrame": {
+      "count": 0,
+      "missingCount": 1,
+      "minimumMs": null,
+      "maximumMs": null,
+      "medianMs": null,
+      "meanMs": null,
+      "p90Ms": null,
+      "p95Ms": null,
+      "standardDeviationMs": null,
+      "medianAbsoluteDeviationMs": null,
+      "p90LowResolution": true,
+      "p95LowResolution": true
+    }
+  },
+  "warnings": [
+    "warning"
+  ],
+  "runs": [
+    {
+      "iteration": 1,
+      "runId": "run-1",
+      "requestedType": "COLD",
+      "observedType": "COLD",
+      "totalTimeMs": 123,
+      "thisTimeMs": null,
+      "waitTimeMs": null,
+      "displayedTimeMs": 115,
+      "fullyDrawnTimeMs": null,
+      "agentAvailable": false,
+      "diagnostics": [],
+      "metricEvidence": {
+        "ttid": {
+          "source": "EVENT_LOG",
+          "confidence": "EXACT",
+          "unavailableReason": null
+        },
+        "ttfd": {
+          "source": null,
+          "confidence": "UNAVAILABLE",
+          "unavailableReason": "not reported"
+        },
+        "agentFirstFrame": {
+          "source": null,
+          "confidence": "UNAVAILABLE",
+          "unavailableReason": null
+        }
+      },
+      "warnings": [
+        "warning"
+      ],
+      "milestones": [],
+      "phases": [],
+      "rawEvidence": {
+        "amStartOutput": "Status: ok",
+        "eventLogOutput": "event",
+        "compilationOutput": null
+      }
+    }
+  ]
+}

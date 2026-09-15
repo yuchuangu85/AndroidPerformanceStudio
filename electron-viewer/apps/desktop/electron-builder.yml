@@ -21,11 +21,10 @@ publish: null
 # of in front of a user.
 beforePack: ./scripts/check-build-freshness.mjs
 
-# The resource names the application looks for at runtime. Both paths are
-# checked in main: <resources>/perfetto-ui and <resources>/perfetto-tools.
-# Without them a package starts and then has no Trace Processor and no bundled
-# Perfetto UI, which the --dir smoke build never catches because a checkout
-# still has the repository copies.
+# The resource names the application looks for at runtime. The package carries
+# Perfetto UI, Trace Processor, and both offline user-documentation trees.
+# Without them a package can pass a --dir smoke build by falling back to copies
+# that only exist in a checkout.
 mac:
   target:
     - dmg
@@ -39,6 +38,14 @@ mac:
       to: perfetto-ui
     - from: ../../../build/perfetto-tools/trace_processor_shell
       to: perfetto-tools/trace_processor_shell
+    - from: ../../../docs-user
+      to: docs-user
+    - from: ../../../docs-user-zh
+      to: docs-user-zh
+    - from: ../../../build/compose-agent
+      to: compose-agent
+    - from: ../../../third_party/firefox-profiler/dist
+      to: firefox-profiler
 
 win:
   target:
@@ -52,6 +59,14 @@ win:
     # install-trace-processor.sh names the Windows download with its extension.
     - from: ../../../build/perfetto-tools/trace_processor_shell.exe
       to: perfetto-tools/trace_processor_shell.exe
+    - from: ../../../docs-user
+      to: docs-user
+    - from: ../../../docs-user-zh
+      to: docs-user-zh
+    - from: ../../../build/compose-agent
+      to: compose-agent
+    - from: ../../../third_party/firefox-profiler/dist
+      to: firefox-profiler
 
 linux:
   target:
@@ -65,3 +80,11 @@ linux:
       to: perfetto-ui
     - from: ../../../build/perfetto-tools/trace_processor_shell
       to: perfetto-tools/trace_processor_shell
+    - from: ../../../docs-user
+      to: docs-user
+    - from: ../../../docs-user-zh
+      to: docs-user-zh
+    - from: ../../../build/compose-agent
+      to: compose-agent
+    - from: ../../../third_party/firefox-profiler/dist
+      to: firefox-profiler

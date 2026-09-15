@@ -7,7 +7,7 @@
  * that looks like "no instances".
  */
 import { useCallback, useEffect, useState, type JSX } from 'react';
-import type { MemorySession } from '@aps/memory-profiler';
+import { compareBitmapDumps, type BitmapContentChange, type BitmapDumpImage, type MemorySession } from '@aps/memory-profiler';
 import type {
   BitmapDumpSession,
   BitmapSessionSummary,
@@ -18,6 +18,12 @@ import type {
   NativeHeapSessionSummary,
 } from '../../shared/ipc';
 import type { UiLanguage } from '../../shared/i18n';
+import {
+  bitmapGalleryPageCount,
+  defaultBitmapBaselineId,
+  signedNumber,
+  visibleBitmapImages,
+} from './bitmap-session-presentation';
 
 const STRINGS = {
   deep: { en: 'Deep analysis', zh: '深度分析' },
@@ -38,8 +44,8 @@ const STRINGS = {
   value: { en: 'Value', zh: '值' },
   query: { en: 'Find instances', zh: '查询实例' },
   instanceHint: {
-    en: 'Instance browsing works for the session captured in this run; the raw dump is not kept.',
-    zh: '实例浏览只对本次运行中抓取的会话有效，原始 dump 不会保留。',
+    en: 'Captured sessions retain their raw HPROF for historical instance browsing. Older sessions without raw evidence show no rows.',
+    zh: '新抓取的会话会保留原始 HPROF，支持历史实例浏览；缺少原始证据的旧会话不会显示实例。',
   },
   bitmapTitle: { en: 'Bitmap dump', zh: 'Bitmap 抓取' },
   bitmapHint: {
@@ -49,6 +55,21 @@ const STRINGS = {
   bitmapCapture: { en: 'Capture bitmaps', zh: '抓取 Bitmap' },
   noBitmaps: { en: 'No bitmap dump yet', zh: '还没有 Bitmap 抓取' },
   unique: { en: 'unique', zh: '去重后' },
+  gallery: { en: 'Bitmap dump gallery', zh: 'Bitmap 抓取图库' },
+  preview: { en: 'Load preview', zh: '加载预览' },
+  previewUnavailable: { en: 'Preview unavailable', zh: '预览不可用' },
+  comparison: { en: 'Bitmap dump comparison', zh: 'Bitmap 抓取对比' },
+  baseline: { en: 'Compare with', zh: '对比基线' },
+  noBaseline: { en: 'Select an earlier dump to compare content hashes.', zh: '选择更早的抓取以对比内容哈希。' },
+  images: { en: 'Images', zh: '图片' },
+  estimatedMemory: { en: 'Estimated memory', zh: '估算内存' },
+  added: { en: 'Added', zh: '新增' },
+  removed: { en: 'Removed', zh: '移除' },
+  duplicateChanges: { en: 'Duplicate-count changes', zh: '重复数量变化' },
+  noChanges: { en: 'No content-count changes', zh: '没有内容数量变化' },
+  previous: { en: 'Previous', zh: '上一页' },
+  next: { en: 'Next', zh: '下一页' },
+  page: { en: 'Page', zh: '页' },
   nativeTitle: { en: 'Native heap (heapprofd)', zh: 'Native 堆（heapprofd）' },
   nativeHint: {
     en: 'Requires Android 10+ and a debuggable build. The raw trace stays authoritative.',
@@ -73,6 +94,10 @@ function formatBytes(value: number): string {
   if (value < 1024) return String(value) + ' B';
   if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KB';
   return (value / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function formatSignedBytes(value: number): string {
+  return (value < 0 ? '-' : '+') + formatBytes(Math.abs(value));
 }
 
 function chainText(chain: readonly { readonly fieldName: string; readonly className: string }[]): string {
@@ -262,6 +287,95 @@ export function MemoryDeepPanel({ language, sessionId, session }: MemoryDeepPane
   );
 }
 
+interface BitmapGalleryImageProps {
+  readonly language: UiLanguage;
+  readonly sessionId: string;
+  readonly image: BitmapDumpImage;
+}
+
+/** Requests one bounded PNG only after the user asks to view that gallery card. */
+function BitmapGalleryImage({ language, sessionId, image }: BitmapGalleryImageProps): JSX.Element {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setDataUrl(null);
+    setUnavailable(false);
+    setLoading(false);
+  }, [image.recordIndex, sessionId]);
+
+  const loadPreview = (): void => {
+    setLoading(true);
+    setUnavailable(false);
+    void window.aps
+      .loadBitmapImage({ sessionId, recordIndex: image.recordIndex })
+      .then((payload) => {
+        if (payload === undefined) setUnavailable(true);
+        else setDataUrl(payload.dataUrl);
+      })
+      .catch(() => setUnavailable(true))
+      .finally(() => setLoading(false));
+  };
+
+  return (
+    <article className="bitmap-gallery__item">
+      {dataUrl === null ? (
+        <div className="bitmap-gallery__placeholder">
+          <button type="button" className="button" disabled={loading || unavailable} onClick={loadPreview}>
+            {unavailable ? t('previewUnavailable', language) : loading ? '…' : t('preview', language)}
+          </button>
+        </div>
+      ) : (
+        <img
+          className="bitmap-gallery__image"
+          src={dataUrl}
+          alt={'Bitmap #' + String(image.recordIndex)}
+          loading="lazy"
+        />
+      )}
+      <p className="bitmap-gallery__label">
+        {'#' + String(image.recordIndex) + ' · ' + String(image.width) + '×' + String(image.height) + ' · ' + formatBytes(image.estimatedMemoryBytes)}
+      </p>
+      <p className="bitmap-gallery__meta">
+        {'PNG ' + formatBytes(image.pngBytes) + ' · ×' + String(image.duplicateCount) + ' · ' + image.sha256.slice(0, 12)}
+      </p>
+    </article>
+  );
+}
+
+interface BitmapComparisonGroupProps {
+  readonly label: string;
+  readonly changes: readonly BitmapContentChange[];
+}
+
+function BitmapComparisonGroup({ label, changes }: BitmapComparisonGroupProps): JSX.Element | null {
+  if (changes.length === 0) return null;
+  return (
+    <section className="bitmap-comparison__group">
+      <h5>{label + ' (' + String(changes.length) + ')'}</h5>
+      <table className="runs">
+        <thead>
+          <tr>
+            <th>hash</th>
+            <th>dimensions</th>
+            <th>count</th>
+          </tr>
+        </thead>
+        <tbody>
+          {changes.slice(0, 12).map((change) => (
+            <tr key={change.sha256}>
+              <td>{change.sha256.slice(0, 12)}</td>
+              <td>{String(change.width) + '×' + String(change.height)}</td>
+              <td>{String(change.beforeCount) + ' → ' + String(change.afterCount) + ' (' + signedNumber(change.countDelta) + ')'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 export interface MemoryArtifactSectionsProps {
   readonly language: UiLanguage;
   readonly devices: readonly DeviceSummary[];
@@ -274,6 +388,9 @@ export function MemoryArtifactSections({ language, devices }: MemoryArtifactSect
   const [bitmaps, setBitmaps] = useState<readonly BitmapSessionSummary[]>([]);
   const [bitmapId, setBitmapId] = useState('');
   const [bitmap, setBitmap] = useState<BitmapDumpSession | null>(null);
+  const [bitmapBaselineId, setBitmapBaselineId] = useState('');
+  const [bitmapBaseline, setBitmapBaseline] = useState<BitmapDumpSession | null>(null);
+  const [bitmapPage, setBitmapPage] = useState(0);
   const [native, setNative] = useState<readonly NativeHeapSessionSummary[]>([]);
   const [nativeId, setNativeId] = useState('');
   const [nativeRecord, setNativeRecord] = useState<NativeHeapCaptureRecord | null>(null);
@@ -290,12 +407,38 @@ export function MemoryArtifactSections({ language, devices }: MemoryArtifactSect
     if (serial.length === 0 && devices.length > 0) setSerial(devices[0]?.serial ?? '');
   }, [devices, serial]);
   useEffect(() => {
+    let cancelled = false;
     if (bitmapId.length === 0) {
       setBitmap(null);
-      return;
+      return undefined;
     }
-    void window.aps.loadBitmapSession(bitmapId).then((loaded) => setBitmap(loaded ?? null));
+    void window.aps.loadBitmapSession(bitmapId).then((loaded) => {
+      if (!cancelled) setBitmap(loaded ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [bitmapId]);
+  useEffect(() => {
+    const defaultBaseline = defaultBitmapBaselineId(bitmaps, bitmapId) ?? '';
+    setBitmapPage(0);
+    setBitmapBaselineId((current) =>
+      current.length > 0 && current !== bitmapId && bitmaps.some((summary) => summary.id === current) ? current : defaultBaseline,
+    );
+  }, [bitmapId, bitmaps]);
+  useEffect(() => {
+    let cancelled = false;
+    if (bitmapBaselineId.length === 0) {
+      setBitmapBaseline(null);
+      return undefined;
+    }
+    void window.aps.loadBitmapSession(bitmapBaselineId).then((loaded) => {
+      if (!cancelled) setBitmapBaseline(loaded ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [bitmapBaselineId]);
   useEffect(() => {
     if (nativeId.length === 0) {
       setNativeRecord(null);
@@ -311,6 +454,10 @@ export function MemoryArtifactSections({ language, devices }: MemoryArtifactSect
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setBusy(false));
   };
+
+  const comparison = bitmap !== null && bitmapBaseline !== null ? compareBitmapDumps(bitmapBaseline, bitmap) : null;
+  const pageCount = bitmap === null ? 1 : bitmapGalleryPageCount(bitmap.images.length);
+  const visibleImages = bitmap === null ? [] : visibleBitmapImages(bitmap.images, bitmapPage);
 
   return (
     <>
@@ -340,6 +487,7 @@ export function MemoryArtifactSections({ language, devices }: MemoryArtifactSect
               run(async () => {
                 const result = await window.aps.captureBitmapDump({ serial, packageName });
                 if (!result.ok) setMessage(result.error ?? 'capture failed');
+                else if (result.id !== undefined) setBitmapId(result.id);
                 refresh();
               })
             }
@@ -374,9 +522,65 @@ export function MemoryArtifactSections({ language, devices }: MemoryArtifactSect
         </label>
         {bitmaps.length === 0 ? <p className="card__muted">{t('noBitmaps', language)}</p> : null}
         {bitmap !== null ? (
-          <p className="card__muted">
-            {String(bitmap.summary.exportedImageCount) + ' · ' + String(bitmap.summary.uniqueImageCount) + ' ' + t('unique', language) + ' · ' + formatBytes(bitmap.summary.estimatedBitmapBytes)}
-          </p>
+          <>
+            <p className="card__muted">
+              {String(bitmap.summary.exportedImageCount) + ' · ' + String(bitmap.summary.uniqueImageCount) + ' ' + t('unique', language) + ' · ' + formatBytes(bitmap.summary.estimatedBitmapBytes)}
+            </p>
+            <div className="bitmap-gallery__head">
+              <h4>{t('gallery', language)}</h4>
+              <div className="form">
+                <button type="button" className="button" disabled={bitmapPage === 0} onClick={() => setBitmapPage((page) => page - 1)}>
+                  {t('previous', language)}
+                </button>
+                <span className="card__muted">{t('page', language) + ' ' + String(bitmapPage + 1) + '/' + String(pageCount)}</span>
+                <button type="button" className="button" disabled={bitmapPage + 1 >= pageCount} onClick={() => setBitmapPage((page) => page + 1)}>
+                  {t('next', language)}
+                </button>
+              </div>
+            </div>
+            <div className="bitmap-gallery">
+              {visibleImages.map((image) => <BitmapGalleryImage key={image.recordIndex} language={language} sessionId={bitmap.id} image={image} />)}
+            </div>
+            <label className="field">
+              <span>{t('baseline', language)}</span>
+              <select value={bitmapBaselineId} onChange={(event) => setBitmapBaselineId(event.target.value)}>
+                <option value="">-</option>
+                {bitmaps.filter((summary) => summary.id !== bitmapId).map((summary) => (
+                  <option key={summary.id} value={summary.id}>
+                    {summary.id + ' · ' + String(summary.exportedImageCount) + ' ' + t('images', language)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {comparison === null ? (
+              <p className="card__muted">{t('noBaseline', language)}</p>
+            ) : (
+              <div className="bitmap-comparison">
+                <h4>{t('comparison', language)}</h4>
+                <p className="card__muted">
+                  {t('images', language) + ' ' + String(comparison.before.exportedImageCount) + ' → ' + String(comparison.after.exportedImageCount) + ' (' + signedNumber(comparison.after.exportedImageCount - comparison.before.exportedImageCount) + ') · ' + t('estimatedMemory', language) + ' ' + formatSignedBytes(comparison.after.estimatedBitmapBytes - comparison.before.estimatedBitmapBytes)}
+                </p>
+                {comparison.added.length === 0 && comparison.removed.length === 0 && comparison.changedDuplicateCounts.length === 0 ? <p className="card__muted">{t('noChanges', language)}</p> : null}
+                <BitmapComparisonGroup label={t('added', language)} changes={comparison.added} />
+                <BitmapComparisonGroup label={t('removed', language)} changes={comparison.removed} />
+                <BitmapComparisonGroup label={t('duplicateChanges', language)} changes={comparison.changedDuplicateCounts} />
+              </div>
+            )}
+            <button
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await window.aps.removeBitmapSession(bitmap.id);
+                  setBitmapId('');
+                  refresh();
+                })
+              }
+            >
+              {t('remove', language)}
+            </button>
+          </>
         ) : null}
         {message !== null ? <p className="card__error">{message}</p> : null}
       </section>

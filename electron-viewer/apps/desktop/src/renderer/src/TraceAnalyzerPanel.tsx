@@ -7,8 +7,8 @@ export interface TraceAnalyzerPanelProps {
   readonly devices: readonly DeviceSummary[];
 }
 
-const DEFAULT_DURATION_MS = 5000;
-const DEFAULT_BUFFER_KB = 8192;
+const DEFAULT_DURATION_MS = 10_000;
+const DEFAULT_BUFFER_KB = 32_768;
 
 export function TraceAnalyzerPanel({ language, devices }: TraceAnalyzerPanelProps): JSX.Element {
   const [snapshot, setSnapshot] = useState<TraceAnalyzerSnapshot | null>(null);
@@ -93,7 +93,9 @@ export function TraceAnalyzerPanel({ language, devices }: TraceAnalyzerPanelProp
             <span>{translate('trace.duration', language)}</span>
             <input
               type="number"
-              min={100}
+              min={1000}
+              max={600000}
+              step={1000}
               value={durationMillis}
               onChange={(event) => setDurationMillis(Number(event.target.value))}
             />
@@ -103,6 +105,8 @@ export function TraceAnalyzerPanel({ language, devices }: TraceAnalyzerPanelProp
             <input
               type="number"
               min={1024}
+              max={1048576}
+              step={1024}
               value={bufferSizeKb}
               onChange={(event) => setBufferSizeKb(Number(event.target.value))}
             />

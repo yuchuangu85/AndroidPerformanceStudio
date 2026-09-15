@@ -10,11 +10,14 @@ import {
   type CpuSnapshotRequest,
   type MethodCaptureRequest,
   type AiAnalyzeRequest,
+  type AiSourceCandidateOpenRequest,
   type MethodSnapshotRequest,
   type SourceResolveRequest,
   type FrameCaptureInput,
   type BitmapCaptureRequest,
+  type BitmapImageRequest,
   type MemoryCaptureInput,
+  type MemoryDiffRequest,
   type MemoryInstanceDetailRequest,
   type MemoryInstanceRequest,
   type NativeHeapCaptureRequest,
@@ -30,6 +33,7 @@ const api: ApsApi = {
   chooseAndroidSdkDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseAndroidSdkDirectory),
   refreshDevices: () => ipcRenderer.invoke(IPC_CHANNELS.refreshDevices),
   openDestination: (destination) => ipcRenderer.invoke(IPC_CHANNELS.openDestination, destination),
+  openUserGuide: (language) => ipcRenderer.invoke(IPC_CHANNELS.openUserGuide, language),
   getTraceAnalyzer: () => ipcRenderer.invoke(IPC_CHANNELS.traceAnalyzer),
   captureTrace: (input: TraceCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.traceCapture, input),
   openTraceInAnalyzer: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.traceOpen, id),
@@ -39,11 +43,22 @@ const api: ApsApi = {
     ipcRenderer.invoke(IPC_CHANNELS.layoutCapture, serial, options),
   listLayoutCaptures: () => ipcRenderer.invoke(IPC_CHANNELS.layoutList),
   loadLayoutCapture: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.layoutLoad, id),
+  importLayoutCaptureArchive: () => ipcRenderer.invoke(IPC_CHANNELS.layoutArchiveImport),
+  onLayoutArchiveOpened: (handler) => {
+    const listener = (_event: unknown, outcome: import('../shared/ipc.js').LayoutArchiveOutcome): void => handler(outcome);
+    ipcRenderer.on(IPC_CHANNELS.layoutArchiveOpened, listener);
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.layoutArchiveOpened, listener);
+    };
+  },
+  exportLayoutCaptureArchive: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.layoutArchiveExport, id),
   captureFrame: (input: FrameCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.frameCapture, input),
   listFrameSessions: () => ipcRenderer.invoke(IPC_CHANNELS.frameList),
   loadFrameSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.frameLoad, id),
   captureStartup: (input: StartupCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.startupCapture, input),
+  importStartupJson: () => ipcRenderer.invoke(IPC_CHANNELS.startupImport),
   importStartupSqlite: () => ipcRenderer.invoke(IPC_CHANNELS.startupSqliteImport),
+  exportStartupJson: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.startupExport, id),
   listStartupSessions: () => ipcRenderer.invoke(IPC_CHANNELS.startupList),
   loadStartupSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.startupLoad, id),
   captureBattery: (input: BatteryCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.batteryCapture, input),
@@ -75,16 +90,23 @@ const api: ApsApi = {
   setSourceAiUpload: (input: { workspaceId: string; allowed: boolean }) =>
     ipcRenderer.invoke(IPC_CHANNELS.sourceSetAiUpload, input),
   captureMethodRecording: (input: MethodCaptureRequest) => ipcRenderer.invoke(IPC_CHANNELS.methodCapture, input),
+  stopMethodRecording: () => ipcRenderer.invoke(IPC_CHANNELS.methodStop),
+  listMethodRecordingProcesses: (serial: string) => ipcRenderer.invoke(IPC_CHANNELS.methodProcesses, serial),
+  importMethodRecording: () => ipcRenderer.invoke(IPC_CHANNELS.methodImport),
   listMethodSessions: () => ipcRenderer.invoke(IPC_CHANNELS.methodList),
   methodSnapshot: (input: MethodSnapshotRequest) => ipcRenderer.invoke(IPC_CHANNELS.methodSnapshot, input),
   removeMethodSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.methodRemove, id),
   captureCpuProfile: (input: CpuCaptureRequest) => ipcRenderer.invoke(IPC_CHANNELS.cpuCapture, input),
   importCpuProfile: () => ipcRenderer.invoke(IPC_CHANNELS.cpuImport),
+  exportCpuSessionPackage: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.cpuExport, id),
+  listCpuEvents: (serial: string) => ipcRenderer.invoke(IPC_CHANNELS.cpuEvents, serial),
   listCpuProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.cpuList),
   cpuSnapshot: (input: CpuSnapshotRequest) => ipcRenderer.invoke(IPC_CHANNELS.cpuSnapshot, input),
   removeCpuProfile: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.cpuRemove, id),
+  openCpuProfile: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.cpuOpen, id),
   captureMemory: (input: MemoryCaptureInput) => ipcRenderer.invoke(IPC_CHANNELS.memoryCapture, input),
   listMemorySessions: () => ipcRenderer.invoke(IPC_CHANNELS.memoryList),
+  compareMemorySessions: (input: MemoryDiffRequest) => ipcRenderer.invoke(IPC_CHANNELS.memoryDiff, input),
   loadMemorySession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.memoryLoad, id),
   queryMemoryInstances: (input: MemoryInstanceRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.memoryInstances, input),
@@ -93,6 +115,8 @@ const api: ApsApi = {
   captureBitmapDump: (input: BitmapCaptureRequest) => ipcRenderer.invoke(IPC_CHANNELS.bitmapCapture, input),
   listBitmapSessions: () => ipcRenderer.invoke(IPC_CHANNELS.bitmapList),
   loadBitmapSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.bitmapLoad, id),
+  loadBitmapImage: (input: BitmapImageRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.bitmapImage, input),
   removeBitmapSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.bitmapRemove, id),
   captureNativeHeap: (input: NativeHeapCaptureRequest) => ipcRenderer.invoke(IPC_CHANNELS.nativeHeapCapture, input),
   listNativeHeapSessions: () => ipcRenderer.invoke(IPC_CHANNELS.nativeHeapList),
@@ -106,6 +130,8 @@ const api: ApsApi = {
   analyzeLayoutWithAi: (input: AiAnalyzeRequest) => ipcRenderer.invoke(IPC_CHANNELS.aiAnalyze, input),
   listAiSessions: () => ipcRenderer.invoke(IPC_CHANNELS.aiSessions),
   loadAiFindings: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.aiFindings, sessionId),
+  openAiSourceCandidate: (input: AiSourceCandidateOpenRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.aiSourceCandidate, input),
   onViewerMenuCommand: (handler) => {
     const listener = (_event: unknown, command: ViewerMenuCommand): void => handler(command);
     ipcRenderer.on(IPC_CHANNELS.viewerMenuCommand, listener);

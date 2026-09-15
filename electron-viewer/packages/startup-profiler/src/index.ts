@@ -4,3 +4,4 @@ export * from './event-log.js';
 export * from './statistics.js';
 export * from './experiment.js';
 export * from './session.js';
+export * from './kotlin-json.js';

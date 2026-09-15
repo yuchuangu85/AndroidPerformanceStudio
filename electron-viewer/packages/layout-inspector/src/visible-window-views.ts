@@ -1,4 +1,4 @@
-import type { Bounds, EdgeInsets, ViewAttributes, ViewNode } from './model.js';
+import type { Bounds, EdgeInsets, UiNode, ViewAttributes, ViewNode } from './model.js';
 import type { WindowSnapshot, WindowType } from './snapshot.js';
 
 /**
@@ -741,4 +741,56 @@ export function selectDefaultWindow(windows: readonly WindowSnapshot[]): WindowS
 export function containsComposeHost(root: ViewNode): boolean {
   if (root.className.endsWith('.ComposeView') || root.className.endsWith('.AndroidComposeView')) return true;
   return root.children.some((child) => child.type === 'view' && containsComposeHost(child));
+}
+
+const TEXT_SECTION_SEPARATOR =
+  '========================================================================================================================';
+const MAX_RAW_TEXT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Produces the portable raw evidence text stored alongside a Visible Window
+ * Views ZIP. It deliberately includes every ZIP entry, including empty and
+ * malformed entries, so the archive preserves diagnostic evidence rather than
+ * only the normalized windows selected for the canvas.
+ */
+export async function renderVisibleWindowViewsText(zipBytes: Uint8Array): Promise<string> {
+  const entries = await readZipEntries(zipBytes);
+  if (entries.length === 0) throw new Error('Visible window views ZIP has no window entries');
+
+  const lines = ['VISIBLE WINDOW VIEW DUMP', 'Window count: ' + String(entries.length), ''];
+  let parsed = 0;
+  for (const [index, entry] of entries.entries()) {
+    lines.push(TEXT_SECTION_SEPARATOR);
+    lines.push('WINDOW ' + String(index + 1) + '/' + String(entries.length) + ': ' + entry.name);
+    lines.push('Encoded bytes: ' + String(entry.data.length));
+    lines.push(TEXT_SECTION_SEPARATOR);
+    if (entry.data.length === 0) {
+      lines.push('No hierarchy payload was supplied for this window.', '');
+      continue;
+    }
+    try {
+      const root = decodeWindowEntry(entry.data);
+      parsed += 1;
+      lines.push('VIEW TREE AND PROPERTIES');
+      appendWindowText(lines, root, '');
+      lines.push('');
+    } catch (error) {
+      lines.push('Parse error: ' + (error instanceof Error ? error.message : 'Unknown error'), '');
+    }
+  }
+  lines.push(TEXT_SECTION_SEPARATOR, 'SUMMARY: parsed ' + String(parsed) + ' of ' + String(entries.length) + ' windows.');
+  const text = lines.join('\n') + '\n';
+  if (new TextEncoder().encode(text).length > MAX_RAW_TEXT_BYTES) {
+    throw new Error('Visible window views rendered text is too large');
+  }
+  return text;
+}
+
+function appendWindowText(lines: string[], node: UiNode, indent: string): void {
+  lines.push(indent + node.className + ' [' + node.id + ']');
+  const properties = node.type === 'view' ? node.attributes.rawProperties : node.semanticProperties;
+  for (const [name, value] of Object.entries(properties).sort(([left], [right]) => left.localeCompare(right))) {
+    lines.push(indent + '  ' + name + ': ' + value);
+  }
+  for (const child of node.children) appendWindowText(lines, child, indent + '  ');
 }

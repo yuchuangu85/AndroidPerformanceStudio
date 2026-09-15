@@ -18,7 +18,8 @@ export interface StartupSession {
   readonly id: string;
   /** Imported reports do not expose a live ADB serial. */
   readonly deviceSerial: string;
-  readonly packageName: string;
+  /** Kotlin's public JSON may omit run context, hence no package identity. */
+  readonly packageName?: string;
   readonly componentName?: string;
   readonly origin?: StartupSessionOrigin;
   /** Kotlin's exported pseudonym; never treated as an ADB serial. */
@@ -64,7 +65,7 @@ export function summarizeStartupSession(runs: readonly StartupRun[]): StartupSes
 export function createStartupSession(options: {
   readonly id: string;
   readonly deviceSerial: string;
-  readonly packageName: string;
+  readonly packageName?: string;
   readonly componentName?: string;
   readonly config: StartupExperimentConfig;
   readonly createdAtEpochMillis: number;
@@ -73,7 +74,7 @@ export function createStartupSession(options: {
   return {
     id: options.id,
     deviceSerial: options.deviceSerial,
-    packageName: options.packageName,
+    ...(options.packageName !== undefined ? { packageName: options.packageName } : {}),
     origin: 'CAPTURED',
     ...(options.componentName !== undefined ? { componentName: options.componentName } : {}),
     config: options.config,

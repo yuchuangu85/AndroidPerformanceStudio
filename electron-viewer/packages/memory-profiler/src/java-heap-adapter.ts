@@ -197,6 +197,7 @@ export function mapJavaHeapRows(
       selfSize: row.selfSize === undefined ? 0 : Number(row.selfSize),
       referenceFieldIds: owned.map((reference) => fieldId(reference.fieldName ?? '<unknown>')),
       referenceObjectIds: owned.map((reference) => reference.ownedId),
+      runtimeInternalObjectIds: [],
       heapType: heapTypeOf(row.heapType),
     };
   });

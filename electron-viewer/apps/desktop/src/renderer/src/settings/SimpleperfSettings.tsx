@@ -1,4 +1,5 @@
 import { useEffect, useState, type JSX } from 'react';
+import { DEFAULT_SIMPLEPERF_EVENT_NAMES } from '@aps/simpleperf-profiler';
 import { translate, type ShellStringKey, type UiLanguage } from '../../../shared/i18n';
 import {
   SAMPLING_TEMPLATES,
@@ -6,7 +7,9 @@ import {
   type ApplicationUiSettings,
   type ApplicationUiSettingsPatch,
   type SimpleperfCallGraphPreference,
+  type SimpleperfEnginePreference,
   type SimpleperfCaptureDefaults,
+  type SimpleperfRateModePreference,
   type SimpleperfScopePreference,
   type SimpleperfTargetPreference,
 } from '../../../shared/settings-contract';
@@ -54,9 +57,6 @@ const TEMPLATE_DESCRIPTION_KEYS: Record<SimpleperfCaptureDefaults['template'], S
   LOW_OVERHEAD: 'settings.template.LOW_OVERHEAD.description',
   SYSTEM_PROCESS: 'settings.template.SYSTEM_PROCESS.description',
 };
-
-/** The events the Simpleperf capture form offers by name. */
-const KNOWN_EVENTS: readonly string[] = ['cpu-clock', 'cpu-cycles', 'task-clock'];
 
 export interface SimpleperfSettingsPageProps {
   readonly language: UiLanguage;
@@ -119,22 +119,28 @@ export function SimpleperfSettingsPage({
             }
           />
           <SettingsField label={translate('cpu.event', language)}>
-            <select value={defaults.event} onChange={(event) => patchDefaults({ event: event.target.value })}>
-              {(KNOWN_EVENTS.includes(defaults.event) ? KNOWN_EVENTS : [...KNOWN_EVENTS, defaults.event]).map(
-                (event) => (
-                  <option key={event} value={event}>
-                    {event}
-                  </option>
-                ),
-              )}
-            </select>
+            <input list="settings-simpleperf-events" value={defaults.event} onChange={(event) => patchDefaults({ event: event.target.value })} />
+            <datalist id="settings-simpleperf-events">
+              {(DEFAULT_SIMPLEPERF_EVENT_NAMES.includes(defaults.event as (typeof DEFAULT_SIMPLEPERF_EVENT_NAMES)[number])
+                ? DEFAULT_SIMPLEPERF_EVENT_NAMES
+                : [...DEFAULT_SIMPLEPERF_EVENT_NAMES, defaults.event]).map((event) => <option key={event} value={event} />)}
+            </datalist>
           </SettingsField>
+          <SettingsChoice<SimpleperfRateModePreference>
+            label={translate('cpu.rateMode', language)}
+            value={defaults.rateMode}
+            options={[
+              { value: 'FREQUENCY', label: translate('cpu.rateFrequency', language) },
+              { value: 'PERIOD', label: translate('cpu.ratePeriod', language) },
+            ]}
+            onChange={(rateMode) => patchDefaults({ rateMode })}
+          />
           <NumberField
-            label={translate('cpu.frequency', language)}
-            value={defaults.frequencyHertz}
+            label={defaults.rateMode === 'PERIOD' ? translate('cpu.period', language) : translate('cpu.frequency', language)}
+            value={defaults.rateMode === 'PERIOD' ? defaults.periodEvents : defaults.frequencyHertz}
             minimum={1}
-            maximum={100000}
-            onCommit={(frequencyHertz) => patchDefaults({ frequencyHertz })}
+            maximum={defaults.rateMode === 'PERIOD' ? 1000000000 : 100000}
+            onCommit={(value) => patchDefaults(defaults.rateMode === 'PERIOD' ? { periodEvents: value } : { frequencyHertz: value })}
           />
           <NumberField
             label={translate('cpu.duration', language)}
@@ -181,7 +187,38 @@ export function SimpleperfSettingsPage({
     case 'ADVANCED_PARAMETERS':
       return (
         <SettingsSection title={translate('settings.advancedParameters', language)}>
-          <p className="settings__section-note">{translate('settings.advancedParametersUnavailable', language)}</p>
+          <SettingsChoice
+            label={translate('cpu.callGraph', language)}
+            value={defaults.callGraph}
+            options={(['DWARF', 'FRAME_POINTER', 'NONE'] as const).map((option) => ({
+              value: option,
+              label: translate(
+                option === 'DWARF'
+                  ? 'settings.callGraph.dwarf'
+                  : option === 'FRAME_POINTER'
+                    ? 'settings.callGraph.framePointer'
+                    : 'settings.callGraph.none',
+                language,
+              ),
+            }))}
+            onChange={(callGraph: SimpleperfCallGraphPreference) => patchDefaults({ callGraph })}
+          />
+          <SettingsChoice
+            label={translate('cpu.scope', language)}
+            value={defaults.scope}
+            options={(['BOTH', 'USER', 'KERNEL'] as const).map((option) => ({
+              value: option,
+              label: translate(
+                option === 'BOTH'
+                  ? 'settings.scope.both'
+                  : option === 'USER'
+                    ? 'settings.scope.user'
+                    : 'settings.scope.kernel',
+                language,
+              ),
+            }))}
+            onChange={(scope: SimpleperfScopePreference) => patchDefaults({ scope })}
+          />
         </SettingsSection>
       );
 
@@ -209,17 +246,15 @@ export function SimpleperfSettingsPage({
           title={translate('settings.simpleperfEngine', language)}
           description={translate('settings.engineDescription', language)}
         >
-          <SettingsChoice<'local' | 'firefox-local' | 'firefox'>
+          <SettingsChoice<SimpleperfEnginePreference>
             label={translate('settings.simpleperfEngine', language)}
-            value="local"
+            value={settings.simpleperf.engine}
             options={[
               { value: 'local', label: translate('settings.engineLocal', language) },
               { value: 'firefox-local', label: translate('settings.engineFirefoxLocal', language) },
               { value: 'firefox', label: translate('settings.engineFirefox', language) },
             ]}
-            unavailable={['firefox-local', 'firefox']}
-            unavailableNote={translate('settings.notMigrated', language)}
-            onChange={() => undefined}
+            onChange={(engine) => onPatch({ simpleperf: { engine } })}
           />
         </SettingsSection>
       );
@@ -227,7 +262,9 @@ export function SimpleperfSettingsPage({
     case 'USER_GUIDE':
       return (
         <SettingsSection title={translate('settings.userGuide', language)}>
-          <p className="settings__section-note">{translate('settings.userGuideUnavailable', language)}</p>
+          <button type="button" className="button button--primary" onClick={() => void window.aps.openUserGuide(language)}>
+            {translate('settings.openUserGuide', language)}
+          </button>
         </SettingsSection>
       );
   }

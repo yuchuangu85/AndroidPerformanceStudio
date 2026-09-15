@@ -111,7 +111,7 @@ function attributesOf(node: UiNode): ViewAttributes | undefined {
 
 export function nodeDetailSections(node: UiNode, treeDepth: number, language: UiLanguage): DetailSection[] {
   const viewNode = node.type === 'view' ? (node as ViewNode) : undefined;
-  const attributes = attributesOf(node) ?? ({} as ViewAttributes);
+  const attributes: ViewAttributes = attributesOf(node) ?? { rawProperties: {} };
   const complexity = complexityOf(node);
   const overlap = overlapStatsOf(node);
   const translate = (key: Parameters<typeof layoutText>[0], ...args: ReadonlyArray<string | number>): string =>
@@ -261,6 +261,13 @@ export function nodeDetailSections(node: UiNode, treeDepth: number, language: Ui
   const sections: DetailSection[] = [
     { title: translate('section.renderRisks'), rows: risks, highlightsRenderingRisk: true },
     { title: translate('section.identity'), rows: identity },
+    ...(node.type === 'compose' ? [{
+      title: translate('section.compose'),
+      rows: [
+        fact('label.recomposeCount', node.recomposeCount),
+        fact('label.skipCount', node.skipCount),
+      ],
+    }] : []),
     { title: translate('section.layout'), rows: layout },
     { title: translate('section.drawing'), rows: drawing },
     { title: translate('section.interaction'), rows: interaction },

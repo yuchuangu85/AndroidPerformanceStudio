@@ -7,9 +7,19 @@
  * so the remote perf.data is removed even when the capture fails.
  */
 import { fail, ok, type StudioResult } from '@aps/contracts';
+import type { CallStackTable } from '@aps/profile-analysis';
+import { samplesToCallStackTable } from './analysis/table.js';
 import type { NormalizedProfile } from './report.js';
 import { normalizeSimpleperfReport } from './report.js';
 import { recordShellArguments, type SamplingParameters } from './toolchain.js';
+
+export interface ParsedSimpleperfReport {
+  readonly profile: NormalizedProfile;
+  readonly table: CallStackTable;
+}
+
+/** Production can inject a worker-backed parser without coupling this package to Electron. */
+export type SimpleperfReportParser = (bytes: Uint8Array) => Promise<StudioResult<ParsedSimpleperfReport>>;
 
 export interface SimpleperfCaptureAdb {
   shell(
@@ -34,7 +44,11 @@ export interface SimpleperfCaptureDependencies {
   readonly removeFile: (path: string) => Promise<void>;
   readonly now: () => number;
   readonly newId: () => string;
+  /** Keeps pulled perf.data available to the caller until it owns cleanup. */
+  readonly retainPerfData?: boolean;
   readonly onStage?: (stage: SimpleperfCaptureStage) => void;
+  /** Defaults to direct parsing; the Electron shell supplies a worker-backed parser. */
+  readonly parseReport?: SimpleperfReportParser;
 }
 
 export const SIMPERF_CAPTURE_STAGES = [
@@ -63,8 +77,11 @@ export interface SimpleperfCaptureResult {
   readonly serial: string;
   readonly parameters: SamplingParameters;
   readonly profile: NormalizedProfile;
+  readonly table: CallStackTable;
   /** Local path of the retained protobuf report. */
   readonly protobufTrace: string;
+  /** Present only when the caller retained raw evidence before cleanup. */
+  readonly perfDataPath?: string;
   readonly perfDataBytes: number;
   readonly simpleperfVersion?: string;
   readonly devicePath: string;
@@ -167,7 +184,6 @@ export async function captureSimpleperfProfile(
     if (perfDataBytes <= 0) {
       return fail('DATA_VALIDATION', 'SIMPLEPERF_PERF_DATA_EMPTY', 'simpleperf recorded an empty perf.data');
     }
-
     stage('CONVERT');
     const converted = await dependencies.convert({
       perfData: localPerfData,
@@ -178,16 +194,20 @@ export async function captureSimpleperfProfile(
     if (!converted.ok) return converted;
 
     stage('PARSE');
-    let profile: NormalizedProfile;
+    let bytes: Uint8Array;
     try {
-      const bytes = await dependencies.readFile(protobufTrace);
-      const parsed = normalizeSimpleperfReport(bytes);
-      if (!parsed.ok) return parsed;
-      profile = parsed.value;
+      bytes = await dependencies.readFile(protobufTrace);
     } catch (error) {
       return fail('IO', 'SIMPLEPERF_REPORT_READ_FAILED', describe(error, request.serial));
     }
-    if (profile.samples.length === 0) {
+    let parsed: StudioResult<ParsedSimpleperfReport>;
+    try {
+      parsed = await (dependencies.parseReport ?? parseSimpleperfReportDirect)(bytes);
+    } catch (error) {
+      return fail('UNKNOWN', 'SIMPLEPERF_REPORT_PARSE_FAILED', describe(error, request.serial));
+    }
+    if (!parsed.ok) return parsed;
+    if (parsed.value.profile.samples.length === 0) {
       return fail(
         'DATA_VALIDATION',
         'SIMPLEPERF_NO_SAMPLES',
@@ -200,8 +220,10 @@ export async function captureSimpleperfProfile(
       capturedAtEpochMillis: dependencies.now(),
       serial: request.serial,
       parameters: request.parameters,
-      profile,
+      profile: parsed.value.profile,
+      table: parsed.value.table,
       protobufTrace,
+      ...(dependencies.retainPerfData === true ? { perfDataPath: localPerfData } : {}),
       perfDataBytes,
       ...(probe.value.version !== undefined ? { simpleperfVersion: probe.value.version } : {}),
       devicePath,
@@ -209,8 +231,17 @@ export async function captureSimpleperfProfile(
   } finally {
     stage('CLEANUP');
     await dependencies.adb.shell(['rm', '-f', devicePath], { timeoutMs: PROBE_TIMEOUT_MS }).catch(() => undefined);
-    await dependencies.removeFile(localPerfData).catch(() => undefined);
+    if (dependencies.retainPerfData !== true) {
+      await dependencies.removeFile(localPerfData).catch(() => undefined);
+    }
   }
+}
+
+/** Direct fallback used by package tests and non-Electron consumers. */
+export async function parseSimpleperfReportDirect(bytes: Uint8Array): Promise<StudioResult<ParsedSimpleperfReport>> {
+  const parsed = normalizeSimpleperfReport(bytes);
+  if (!parsed.ok) return parsed;
+  return ok({ profile: parsed.value, table: samplesToCallStackTable(parsed.value.samples) });
 }
 
 function describe(error: unknown, serial: string): string {

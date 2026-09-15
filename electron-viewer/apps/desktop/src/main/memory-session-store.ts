@@ -1,11 +1,12 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { MemorySession } from '@aps/memory-profiler';
 import type { MemorySessionSummary } from '../shared/ipc.js';
 
 const INDEX_FILE = 'index.json';
+const MAX_RETAINED_RAW_HEAP_BYTES = 2 * 1024 * 1024 * 1024;
 
-/** Stores heap-dump analysis sessions; the raw dump itself is never persisted. */
+/** Stores derived sessions and raw HPROF evidence needed for historical instance browsing. */
 export class MemorySessionStore {
   private readonly directory: string;
 
@@ -15,6 +16,53 @@ export class MemorySessionStore {
 
   pathFor(id: string): string {
     return join(this.directory, id + '.json');
+  }
+
+  rawPathFor(id: string): string {
+    return join(this.directory, id + '.hprof');
+  }
+
+  stagedRawPathFor(id: string): string {
+    return join(this.directory, '.' + id + '.hprof.pending');
+  }
+
+  /** Writes raw evidence before parsing transfers the source buffer to a worker. */
+  async stageRawHeap(id: string, bytes: Uint8Array): Promise<void> {
+    await mkdir(this.directory, { recursive: true });
+    await writeFile(this.stagedRawPathFor(id), bytes, { flag: 'wx' });
+  }
+
+  /** Removes a staged capture that failed before producing a valid session. */
+  async discardStagedRawHeap(id: string): Promise<void> {
+    await rm(this.stagedRawPathFor(id), { force: true });
+  }
+
+  /** Commits a session only after its staged raw HPROF is available for future reparse. */
+  async addCaptured(session: MemorySession): Promise<MemorySessionSummary> {
+    await mkdir(this.directory, { recursive: true });
+    const stagedRawPath = this.stagedRawPathFor(session.id);
+    const rawPath = this.rawPathFor(session.id);
+    await rename(stagedRawPath, rawPath);
+    try {
+      return await this.add(session);
+    } catch (error) {
+      await Promise.all([rm(rawPath, { force: true }), rm(this.pathFor(session.id), { force: true })]);
+      const records = (await this.list()).filter((existing) => existing.id !== session.id);
+      await writeFile(join(this.directory, INDEX_FILE), JSON.stringify(records, null, 2)).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Returns main-process-owned raw HPROF bytes, if the session retained them. */
+  async readRawHeap(id: string): Promise<Uint8Array | undefined> {
+    try {
+      const path = this.rawPathFor(id);
+      const details = await stat(path);
+      if (!details.isFile() || details.size > MAX_RETAINED_RAW_HEAP_BYTES) return undefined;
+      return new Uint8Array(await readFile(path));
+    } catch {
+      return undefined;
+    }
   }
 
   async add(session: MemorySession): Promise<MemorySessionSummary> {

@@ -42,6 +42,7 @@ describe('migrateApplicationSettings', () => {
       showHierarchyIds: true,
       showHierarchyLayerVisibilityButtons: false,
       showVisibleViewBounds: true,
+      snapshotSizeMultiplier: 1,
       canvasHitTestOrder: 'smallest-area',
       canvasBorderColors: { normal: '#FF7DD3FC', hovered: '#FFF59E0B', selected: '#FFEF4444' },
     });
@@ -70,6 +71,7 @@ describe('migrateApplicationSettings', () => {
           'view.canvasHitTestOrder.zOrder': 'true',
           'canvas.bounds.selected': '#FF00FF00',
           'simpleperf.tooltipMode': 'FIXED',
+          'simpleperf.engine': 'FIREFOX_PROFILER_LOCAL',
         },
       }),
     );
@@ -79,7 +81,8 @@ describe('migrateApplicationSettings', () => {
     expect(result.settings.layoutInspector.canvasBorderColors.selected).toBe('#FF00FF00');
     expect(result.settings.layoutInspector.canvasBorderColors.normal).toBe('#FF7DD3FC');
     expect(result.settings.simpleperf.flameTooltipMode).toBe('fixed');
-    expect(result.migratedKeys).toHaveLength(5);
+    expect(result.settings.simpleperf.engine).toBe('firefox-local');
+    expect(result.migratedKeys).toHaveLength(6);
   });
 });
 
@@ -92,5 +95,32 @@ describe('migrateKeys', () => {
     expect(layout.values['view.showHierarchyIds']).toBe('true');
     expect(layout.migratedKeys).toEqual(['view.showHierarchyIds']);
     expect(layout.missingKeys).toEqual(['view.hideHierarchyIndices']);
+  });
+});
+
+describe('archive snapshot-size migration', () => {
+  it('preserves Kotlin archive.snapshotSizeMultiplier and clamps the stored range', async () => {
+    const migrated = await migrateApplicationSettings(
+      source({
+        'com/androidperformancestudio/desktop': {
+          'archive.snapshotSizeMultiplier': '3',
+        },
+      }),
+    );
+    expect(migrated.settings.layoutInspector.snapshotSizeMultiplier).toBe(3);
+    expect(migrated.migratedKeys).toContain('archive.snapshotSizeMultiplier');
+
+    const minimum = await migrateApplicationSettings(
+      source({ 'com/androidperformancestudio/desktop': { 'archive.snapshotSizeMultiplier': '0' } }),
+    );
+    const maximum = await migrateApplicationSettings(
+      source({ 'com/androidperformancestudio/desktop': { 'archive.snapshotSizeMultiplier': '11' } }),
+    );
+    const malformed = await migrateApplicationSettings(
+      source({ 'com/androidperformancestudio/desktop': { 'archive.snapshotSizeMultiplier': 'not-a-number' } }),
+    );
+    expect(minimum.settings.layoutInspector.snapshotSizeMultiplier).toBe(1);
+    expect(maximum.settings.layoutInspector.snapshotSizeMultiplier).toBe(10);
+    expect(malformed.settings.layoutInspector.snapshotSizeMultiplier).toBe(1);
   });
 });

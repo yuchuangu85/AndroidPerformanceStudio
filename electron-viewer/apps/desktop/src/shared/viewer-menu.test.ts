@@ -17,6 +17,7 @@ function state(overrides: Partial<ViewerMenuState> = {}): ViewerMenuState {
     hasSnapshot: true,
     hasSelection: true,
     autoScan: false,
+    archiveOperationInProgress: false,
     panels: { hierarchy: true, details: true, findings: true },
     view: {
       hideInvisibleHierarchyViews: false,

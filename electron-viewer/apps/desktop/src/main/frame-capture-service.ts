@@ -1,5 +1,6 @@
 import { fail, ok, type StudioResult } from '@aps/contracts';
 import { createFrameSession, parseGfxInfoFrameStats, type FrameSession } from '@aps/frame-profiler';
+import { requireFrameCaptureInput } from '../shared/ipc-validation.js';
 
 export interface FrameCaptureAdb {
   shell(args: readonly string[], options: { readonly timeoutMs: number }): Promise<{ stdout: string }>;
@@ -22,24 +23,34 @@ export async function captureFrameSession(
   options: { readonly serial: string; readonly packageName: string; readonly resetDeviceStats?: boolean },
 ): Promise<StudioResult<FrameSession>> {
   const { adb } = dependencies;
-  if (options.packageName.trim().length === 0) {
+  if (typeof options.packageName !== 'string' || options.packageName.trim().length === 0) {
     return fail('DATA_VALIDATION', 'FRAME_PACKAGE_REQUIRED', 'A package name is required');
+  }
+  let target: { readonly serial: string; readonly packageName: string };
+  try {
+    target = requireFrameCaptureInput(options, 'frame:capture');
+  } catch (error) {
+    return fail(
+      'DATA_VALIDATION',
+      'FRAME_CAPTURE_INPUT_INVALID',
+      error instanceof Error ? error.message : 'Frame capture input is invalid',
+    );
   }
   if (options.resetDeviceStats !== false) {
     try {
-      await adb.shell(['dumpsys', 'gfxinfo', options.packageName, 'reset'], { timeoutMs: SHELL_TIMEOUT_MS });
+      await adb.shell(['dumpsys', 'gfxinfo', target.packageName, 'reset'], { timeoutMs: SHELL_TIMEOUT_MS });
     } catch (error) {
-      return fail('PROCESS_EXIT', 'FRAME_RESET_FAILED', describe(error, options.serial));
+      return fail('PROCESS_EXIT', 'FRAME_RESET_FAILED', describe(error, target.serial));
     }
   }
   let output: string;
   try {
-    output = (await adb.shell(['dumpsys', 'gfxinfo', options.packageName, 'framestats'], { timeoutMs: SHELL_TIMEOUT_MS }))
+    output = (await adb.shell(['dumpsys', 'gfxinfo', target.packageName, 'framestats'], { timeoutMs: SHELL_TIMEOUT_MS }))
       .stdout;
   } catch (error) {
-    return fail('PROCESS_EXIT', 'FRAME_DUMP_FAILED', describe(error, options.serial));
+    return fail('PROCESS_EXIT', 'FRAME_DUMP_FAILED', describe(error, target.serial));
   }
-  const parsed = parseGfxInfoFrameStats(output, dependencies.newSessionId(), options.packageName);
+  const parsed = parseGfxInfoFrameStats(output, dependencies.newSessionId(), target.packageName);
   if (parsed.frames.length === 0) {
     return fail(
       'DATA_VALIDATION',
@@ -50,7 +61,7 @@ export async function captureFrameSession(
   return ok(
     createFrameSession({
       id: dependencies.newSessionId(),
-      packageName: options.packageName,
+      packageName: target.packageName,
       capturedAtEpochMillis: dependencies.now(),
       frames: parsed.frames,
       warnings: parsed.warnings,

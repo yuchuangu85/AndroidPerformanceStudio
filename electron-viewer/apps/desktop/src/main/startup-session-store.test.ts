@@ -6,6 +6,8 @@ import {
   createStartupSession,
   DEFAULT_STARTUP_EXPERIMENT,
   UNAVAILABLE_EVIDENCE,
+  exportKotlinStartupJson,
+  importKotlinStartupJson,
   type StartupRun,
 } from '@aps/startup-profiler';
 import { StartupSessionStore } from './startup-session-store.js';
@@ -82,5 +84,87 @@ describe('StartupSessionStore', () => {
     expect(summary.medianTotalTimeMs).toBeUndefined();
     expect(summary.p90TotalTimeMs).toBeUndefined();
     expect(summary.measuredRuns).toBe(2);
+  });
+
+  it('persists an imported legacy report without inventing a package identity', async () => {
+    const directory = await temporaryDirectory();
+    const store = new StartupSessionStore(join(directory, 'startup'));
+    const report = JSON.stringify({
+      schemaVersion: 1,
+      warnings: [],
+      runs: [{
+        iteration: 1,
+        runId: 'legacy-run',
+        requestedType: 'COLD',
+        observedType: 'COLD',
+        displayedTimeMs: 120,
+        rawEvidence: { amStartOutput: 'Status: ok' },
+      }],
+    });
+    const imported = importKotlinStartupJson(report, {
+      id: 'legacy-import',
+      capturedAtEpochMillis: 123,
+      sourceFileName: 'legacy-startup.json',
+    });
+
+    const summary = await store.add(imported);
+    expect(summary).toEqual({
+      id: 'legacy-import',
+      capturedAtEpochMillis: 123,
+      measuredRuns: 1,
+      p90LowResolution: true,
+    });
+    expect(summary).not.toHaveProperty('packageName');
+    expect(summary).not.toHaveProperty('medianTotalTimeMs');
+    expect(summary).not.toHaveProperty('p90TotalTimeMs');
+
+    const loaded = await store.load('legacy-import');
+    expect(loaded).toMatchObject({
+      id: 'legacy-import',
+      origin: 'IMPORTED',
+      deviceSerial: 'IMPORTED',
+      sourceFileName: 'legacy-startup.json',
+    });
+    expect(loaded).not.toHaveProperty('packageName');
+    expect(loaded).not.toHaveProperty('sourceDeviceLocalId');
+    expect(loaded).toBeDefined();
+    expect(exportKotlinStartupJson(loaded!)).toBe(report);
+  });
+
+  it('retains an imported Kotlin device pseudonym as provenance rather than a device serial', async () => {
+    const directory = await temporaryDirectory();
+    const store = new StartupSessionStore(join(directory, 'startup'));
+    const imported = importKotlinStartupJson(
+      JSON.stringify({
+        schemaVersion: 1,
+        warnings: [],
+        runs: [{
+          iteration: 1,
+          runId: 'contextual-run',
+          requestedType: 'COLD',
+          observedType: 'COLD',
+          rawEvidence: { amStartOutput: 'Status: ok' },
+          context: {
+            deviceLocalId: 'pseudonymous-device',
+            packageName: 'com.example.app',
+            componentName: 'com.example.app/.MainActivity',
+          },
+        }],
+      }),
+      {
+        id: 'contextual-import',
+        capturedAtEpochMillis: 456,
+        sourceFileName: 'contextual-startup.json',
+      },
+    );
+
+    await store.add(imported);
+    expect(await store.load('contextual-import')).toMatchObject({
+      origin: 'IMPORTED',
+      deviceSerial: 'IMPORTED',
+      sourceDeviceLocalId: 'pseudonymous-device',
+      sourceFileName: 'contextual-startup.json',
+      packageName: 'com.example.app',
+    });
   });
 });

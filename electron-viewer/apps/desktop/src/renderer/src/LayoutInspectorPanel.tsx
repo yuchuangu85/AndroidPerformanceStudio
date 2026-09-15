@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import {
   analyzeLayout,
+  parseArchivedAiAnalysisReport,
+  parseArchivedAnalysisReport,
+  parseArchivedTimelineHistory,
+  type ArchivedTimelineHistory,
   clearHiddenLayers,
   computeHiddenSubtree,
   effectiveDefaultWindowId,
@@ -11,7 +15,7 @@ import {
   type LayoutSnapshot,
   type WindowSnapshot,
 } from '@aps/layout-inspector';
-import type { DeviceSummary, LayoutCaptureDetail, LayoutCaptureSummary } from '../../shared/ipc';
+import type { DeviceSummary, LayoutArchiveOutcome, LayoutCaptureDetail, LayoutCaptureSummary } from '../../shared/ipc';
 import { translate, type UiLanguage } from '../../shared/i18n';
 import type { ApplicationUiSettingsPatch, LayoutInspectorSettings } from '../../shared/settings-contract';
 import { argbToCss } from './layout-inspector/canvas';
@@ -144,6 +148,34 @@ function windowOf(snapshot: LayoutSnapshot, windowId: string): WindowSnapshot {
   return windows.find((window) => window.id === windowId) ?? (windows[0] as WindowSnapshot);
 }
 
+function decodeArchived<T>(encoded: string | undefined, decode: (payload: string) => T): T | undefined {
+  if (encoded === undefined) return undefined;
+  try {
+    return decode(encoded);
+  } catch {
+    // Older Electron state was allowed to persist arbitrary optional JSON. The
+    // main import boundary now rejects it; this keeps old local state readable.
+    return undefined;
+  }
+}
+
+function findingTone(severity: 'INFO' | 'WARNING' | 'ERROR'): 'info' | 'warning' | 'error' {
+  return severity === 'INFO' ? 'info' : severity === 'WARNING' ? 'warning' : 'error';
+}
+
+function archivedTimelineSummary(
+  frame: ArchivedTimelineHistory['frames'][number],
+  language: UiLanguage,
+): string {
+  const capturedAt = new Date(frame.capturedAtEpochMillis).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US');
+  const diff = frame.diffFromPrevious;
+  if (diff === undefined) return capturedAt + ' · ' + translate('layout.timelineBaseline', language);
+  return capturedAt + ' · ' + translate('layout.timelineDiff', language)
+    .replace('{added}', String(diff.addedNodes))
+    .replace('{removed}', String(diff.removedNodes))
+    .replace('{bounds}', String(diff.boundsChangedNodes));
+}
+
 export function LayoutInspectorPanel({
   language,
   devices,
@@ -251,7 +283,9 @@ export function LayoutInspectorPanel({
             ? translate('layout.complete', language)
             : translate('layout.failed', language) + ': ' + String(outcome.error ?? ''),
         });
-        if (outcome.ok && outcome.id !== undefined) setSelectedId(outcome.id);
+        if (outcome.ok && outcome.id !== undefined) {
+          setSelectedId(outcome.id);
+        }
         refresh();
       })
       .catch((reason: unknown) =>
@@ -260,6 +294,18 @@ export function LayoutInspectorPanel({
       .finally(() => setBusy(false));
   }, [captureTarget, language, refresh, serial]);
 
+  const archivedAnalysis = useMemo(
+    () => decodeArchived(detail?.analysisReportJson, parseArchivedAnalysisReport),
+    [detail?.analysisReportJson],
+  );
+  const archivedAiAnalysis = useMemo(
+    () => decodeArchived(detail?.aiAnalysisReportJson, parseArchivedAiAnalysisReport),
+    [detail?.aiAnalysisReportJson],
+  );
+  const archivedTimeline = useMemo(
+    () => decodeArchived(detail?.timelineHistoryJson, parseArchivedTimelineHistory),
+    [detail?.timelineHistoryJson],
+  );
   const snapshot: LayoutSnapshot | null = detail?.snapshot ?? null;
   const windows = useMemo(() => (snapshot === null ? [] : effectiveWindows(snapshot)), [snapshot]);
   const activeWindow = useMemo(
@@ -289,7 +335,12 @@ export function LayoutInspectorPanel({
     [activeWindow, isolation, rows],
   );
   // The analysis engine owns the metrics, the findings and the rule ordering.
-  const report = useMemo(() => (activeWindow === null ? null : analyzeLayout(activeWindow.root)), [activeWindow]);
+  // Kotlin restores an archived static report instead of silently recomputing it.
+  // Fall back only when the archive omitted the optional report entry.
+  const report = useMemo(
+    () => archivedAnalysis ?? (activeWindow === null ? null : analyzeLayout(activeWindow.root)),
+    [activeWindow, archivedAnalysis],
+  );
   const allFindings = useMemo(
     () => (report === null ? [] : findingRows(report, rows, language)),
     [language, report, rows],
@@ -549,9 +600,10 @@ export function LayoutInspectorPanel({
     window.aps.updateViewerMenuState({
       language,
       available: true,
-      hasSnapshot: snapshot !== null,
+      hasSnapshot: snapshot !== null && selectedId.length > 0,
       hasSelection: selectedNodeId.length > 0,
       autoScan,
+      archiveOperationInProgress: busy,
       panels: panes,
       view: {
         hideInvisibleHierarchyViews: settings.hideInvisibleHierarchyViews,
@@ -562,7 +614,7 @@ export function LayoutInspectorPanel({
         showHierarchyIds: settings.showHierarchyIds,
       },
     });
-  }, [autoScan, language, panes, selectedNodeId, settings, snapshot]);
+  }, [autoScan, language, panes, selectedId, selectedNodeId, settings, snapshot]);
 
   const toggleOption = useCallback(
     (key: keyof ViewOptions) => {
@@ -572,7 +624,50 @@ export function LayoutInspectorPanel({
     [onPatchSettings, options],
   );
 
+  const applyArchiveImportOutcome = useCallback((outcome: LayoutArchiveOutcome) => {
+    if (!outcome.ok || outcome.id === undefined || outcome.detail === undefined) {
+      if (outcome.error !== undefined) setStatus({ tone: 'error', text: outcome.error });
+      return;
+    }
+    setSelectedId(outcome.id);
+    openDetail(outcome.detail);
+    setSelectedTimelineFrameIndex(null);
+    setStatus({ tone: 'success', text: translate('layout.archiveImported', language) });
+    void window.aps.listLayoutCaptures().then(setCaptures);
+  }, [language, openDetail]);
+
   /** One menu command, dispatched to the state it moves. */
+  const importArchive = useCallback(() => {
+    setBusy(true);
+    window.aps.importLayoutCaptureArchive()
+      .then(applyArchiveImportOutcome)
+      .catch((error: unknown) => setStatus({ tone: 'error', text: error instanceof Error ? error.message : translate('layout.failed', language) }))
+      .finally(() => setBusy(false));
+  }, [applyArchiveImportOutcome, language]);
+
+  // File > Open Recent is main-process-owned so a compromised renderer never
+  // chooses arbitrary disk paths. It receives the same typed import outcome as
+  // the renderer-originated file chooser route above.
+  useEffect(
+    () => window.aps.onLayoutArchiveOpened((outcome) => {
+      applyArchiveImportOutcome(outcome);
+      setBusy(false);
+    }),
+    [applyArchiveImportOutcome],
+  );
+
+  const exportArchive = useCallback(() => {
+    if (selectedId.length === 0) return;
+    setBusy(true);
+    window.aps.exportLayoutCaptureArchive(selectedId)
+      .then((outcome) => {
+        if (outcome.ok) setStatus({ tone: 'success', text: translate('layout.archiveExported', language) });
+        else if (outcome.error !== undefined) setStatus({ tone: 'error', text: outcome.error });
+      })
+      .catch((error: unknown) => setStatus({ tone: 'error', text: error instanceof Error ? error.message : translate('layout.failed', language) }))
+      .finally(() => setBusy(false));
+  }, [language, selectedId]);
+
   const runViewerCommand = useCallback(
     (command: ViewerMenuCommand) => {
       if (command.kind === 'viewOption') {
@@ -583,6 +678,12 @@ export function LayoutInspectorPanel({
         return;
       }
       switch (command.action) {
+        case 'IMPORT_ARCHIVE':
+          importArchive();
+          break;
+        case 'EXPORT_ARCHIVE':
+          exportArchive();
+          break;
         case 'TOGGLE_AUTO_SCAN':
           setAutoScan((on) => !on);
           break;
@@ -611,7 +712,7 @@ export function LayoutInspectorPanel({
           break;
       }
     },
-    [moveSelection, onPatchSettings, selectedNodeId, settings, toggleCollapsed, toggleOption],
+    [exportArchive, importArchive, moveSelection, onPatchSettings, selectedNodeId, settings, toggleCollapsed, toggleOption],
   );
 
   // The command object is fresh on every menu click, so this runs exactly once
@@ -1133,6 +1234,19 @@ export function LayoutInspectorPanel({
         </section>
       )}
 
+      {archivedTimeline === undefined || archivedTimeline.frames.length === 0 ? null : (
+        <section className="layout-timeline layout-timeline--archived" aria-label={translate('layout.archivedTimeline', language)}>
+          <div className="layout-timeline__track">
+            <span className="layout-timeline__label">{translate('layout.archivedTimeline', language)}</span>
+            {archivedTimeline.frames.map((frame) => (
+              <span className="layout-timeline__frame layout-timeline__frame--archived" key={frame.index} title={archivedTimelineSummary(frame, language)}>
+                #{frame.index} {archivedTimelineSummary(frame, language)}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* The findings pane is the workspace's sibling, not one of its panes: it
           spans the window under the three columns, the way the reference's
           weight(1f) column puts it. */}
@@ -1160,6 +1274,23 @@ export function LayoutInspectorPanel({
             </button>
           </div>
         </div>
+        {archivedAnalysis === undefined ? null : (
+          <p className="findings__archive-note">{translate('layout.archivedAnalysis', language)}</p>
+        )}
+        {archivedAiAnalysis === undefined ? null : (
+          <details className="findings__archive-ai">
+            <summary>{translate('layout.archivedAiAnalysis', language) + ' · ' + archivedAiAnalysis.model + ' · ' + archivedAiAnalysis.summary}</summary>
+            <div className="findings__archive-ai-list">
+              {archivedAiAnalysis.findings.length === 0 ? (
+                <p className="card__muted">{translate('layout.archivedAiNone', language)}</p>
+              ) : archivedAiAnalysis.findings.map((finding, index) => (
+                <div className={'finding finding--' + findingTone(finding.severity)} key={finding.ruleId + ':' + finding.nodeId + ':' + String(index)}>
+                  {'AI · ' + finding.title + ' · ' + finding.message + ' · ' + translate('layout.archivedAiRecommendation', language) + ': ' + finding.recommendation}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
         {shownFindings.length === 0 ? (
           <p className="card__muted">{layoutText('findings.none', language)}</p>
         ) : (

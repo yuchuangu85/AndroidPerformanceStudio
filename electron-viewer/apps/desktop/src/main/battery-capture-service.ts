@@ -162,7 +162,11 @@ export async function runBatteryExperiment(
       samples,
       finalSnapshot,
     });
-    if (iteration < iterations.length && options.config.cooldownSeconds > 0) {
+    if (
+      options.config.mode === 'REPEATED' &&
+      iteration < iterations.length &&
+      options.config.cooldownSeconds > 0
+    ) {
       await dependencies.sleep(options.config.cooldownSeconds * 1000);
     }
   }

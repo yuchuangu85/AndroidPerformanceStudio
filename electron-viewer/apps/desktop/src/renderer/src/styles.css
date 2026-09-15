@@ -778,6 +778,13 @@ input:focus {
   margin-bottom: 14px;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .field {
   display: grid;
   grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
@@ -2332,4 +2339,158 @@ input:focus {
 .layout-timeline__close:hover {
   background: var(--fill);
   color: var(--text);
+}
+
+/* Bitmap dumps can carry hundreds of PNGs. Render bounded metadata pages and
+   scroll cards horizontally; the browser receives a PNG only after its card's
+   preview action asks the main process for one managed artifact. */
+.bitmap-gallery__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 8px;
+}
+
+.bitmap-gallery__head h4,
+.bitmap-comparison h4,
+.bitmap-comparison__group h5 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bitmap-gallery {
+  display: grid;
+  grid-auto-columns: minmax(190px, 240px);
+  grid-auto-flow: column;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.bitmap-gallery__item {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+}
+
+.bitmap-gallery__placeholder,
+.bitmap-gallery__image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 120px;
+  border-radius: 4px;
+  background: var(--surface);
+  object-fit: contain;
+}
+
+.bitmap-gallery__label,
+.bitmap-gallery__meta {
+  margin: 7px 0 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bitmap-gallery__meta {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.bitmap-comparison {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.bitmap-comparison__group {
+  display: grid;
+  gap: 4px;
+}
+
+/* Kotlin archives can carry historical reports and timeline diffs. Those
+   entries are explicitly archival: only the matching frame has a snapshot. */
+.layout-timeline--archived {
+  height: 38px;
+  border-top-style: dashed;
+}
+
+.layout-timeline__label {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.layout-timeline__frame--archived {
+  cursor: default;
+}
+
+.findings__archive-note {
+  flex: none;
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.findings__archive-ai {
+  flex: none;
+  max-height: 42%;
+  margin: 0 0 6px;
+  overflow: auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.findings__archive-ai > summary {
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.findings__archive-ai-list {
+  border-top: 1px solid var(--separator);
+}
+
+/* Multiple persisted AI citations are chosen explicitly, matching the Kotlin
+   candidate dialog rather than turning an ambiguous finding into many actions. */
+.ai-source-dialog-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.ai-source-dialog {
+  display: grid;
+  gap: 12px;
+  width: min(420px, 100%);
+  max-height: min(520px, 100%);
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--panel-shadow);
+}
+
+.ai-source-dialog h4 {
+  margin: 0;
+}
+
+.ai-source-dialog__choices {
+  display: grid;
+  gap: 8px;
 }

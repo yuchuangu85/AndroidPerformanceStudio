@@ -159,6 +159,27 @@ describe('runBatteryExperiment', () => {
     expect(test.commands.some((args) => args.includes('reset') || args.includes('--reset'))).toBe(false);
   });
 
+  it.each(['INTERACTIVE', 'TIMED', 'ONLINE'] as const)(
+    'does not apply repeated-mode cooldown during %s capture',
+    async (mode) => {
+      const test = harness();
+      const result = await runBatteryExperiment(test.dependencies, {
+        ...TARGET,
+        config: {
+          ...DEFAULT_BATTERY_EXPERIMENT,
+          mode,
+          measuredRuns: 2,
+          cooldownSeconds: 30,
+          durationSeconds: 5,
+          pollingIntervalSeconds: 5,
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(test.sleeps).not.toContain(30_000);
+    },
+  );
+
   it('rejects invalid configuration, a blank package, and a non-numeric uid', async () => {
     const invalid = await runBatteryExperiment(harness().dependencies, {
       ...TARGET,

@@ -52,6 +52,19 @@ describe('MemorySessionStore', () => {
     expect(summarizeMemorySession(session('b')).classCount).toBe(3);
   });
 
+  it('commits staged raw HPROF evidence with the captured session and can read it after cache loss', async () => {
+    const directory = await temporaryDirectory();
+    const store = new MemorySessionStore(join(directory, 'memory'));
+    const raw = new Uint8Array([0x4a, 0x41, 0x56, 0x41]);
+
+    await store.stageRawHeap('captured', raw);
+    const summary = await store.addCaptured(session('captured'));
+
+    expect(summary.id).toBe('captured');
+    expect(await store.readRawHeap('captured')).toEqual(raw);
+    await expect((await import('node:fs/promises')).readFile(store.stagedRawPathFor('captured'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('keeps the newest session first and returns undefined for an unknown id', async () => {
     const directory = await temporaryDirectory();
     const store = new MemorySessionStore(join(directory, 'memory'));

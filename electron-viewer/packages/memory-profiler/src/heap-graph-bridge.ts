@@ -213,7 +213,7 @@ export function heapGraphToHprofResult(graph: HeapGraphData): HprofParseResult {
           kind: 'object',
           length: object.referenceObjectIds.length,
           shallowBytes: object.selfSize,
-          references: object.referenceObjectIds.filter((target) => target !== 0n),
+          references: object.referenceObjectIds,
           className,
         });
       }
@@ -226,15 +226,16 @@ export function heapGraphToHprofResult(graph: HeapGraphData): HprofParseResult {
     const references: Identifier[] = [];
     const referenceNameIds: Identifier[] = [];
     object.referenceObjectIds.forEach((target, index) => {
-      // A null target is not recorded; the class layout still declares the
-      // field, which is how the Fragment heuristic tells "empty" from "absent".
-      if (target === 0n) return;
       const nameId = fieldIds[index] ?? internFieldName('[' + String(index) + ']');
       if (!strings.has(nameId)) {
         strings.set(nameId, graph.fieldNames.get(nameId) ?? '[' + String(index) + ']');
       }
       references.push(target);
       referenceNameIds.push(nameId);
+    });
+    object.runtimeInternalObjectIds.forEach((target, index) => {
+      references.push(target);
+      referenceNameIds.push(internFieldName('<runtime-internal-' + String(index) + '>'));
     });
     const primitiveNameIds: Identifier[] = [];
     const primitiveValues: bigint[] = [];

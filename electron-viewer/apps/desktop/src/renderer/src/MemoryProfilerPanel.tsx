@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import type { MemorySession } from '@aps/memory-profiler';
-import type { DeviceSummary, MemorySessionSummary } from '../../shared/ipc';
+import type { DeviceSummary, MemoryDiffOutcome, MemorySessionSummary } from '../../shared/ipc';
 import { MemoryArtifactSections, MemoryDeepPanel } from './MemoryDeepSections';
+import { defaultHeapDiffBaselineId, visibleHeapDiffEntries } from './memory-heap-diff';
 import { translate, type UiLanguage } from '../../shared/i18n';
 
 export interface MemoryProfilerPanelProps {
@@ -19,12 +20,23 @@ function formatTimestamp(value: number): string {
   return new Date(value).toLocaleString();
 }
 
+function formatSignedInteger(value: number): string {
+  return (value > 0 ? '+' : '') + String(value);
+}
+
+function formatSignedBytes(value: number): string {
+  return (value > 0 ? '+' : value < 0 ? '-' : '') + formatBytes(Math.abs(value));
+}
+
 export function MemoryProfilerPanel({ language, devices }: MemoryProfilerPanelProps): JSX.Element {
   const [sessions, setSessions] = useState<readonly MemorySessionSummary[]>([]);
   const [serial, setSerial] = useState('');
   const [packageName, setPackageName] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [session, setSession] = useState<MemorySession | null>(null);
+  const [baselineId, setBaselineId] = useState('');
+  const [diffOutcome, setDiffOutcome] = useState<MemoryDiffOutcome | null>(null);
+  const [diffBusy, setDiffBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -54,6 +66,11 @@ export function MemoryProfilerPanel({ language, devices }: MemoryProfilerPanelPr
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)));
   }, [selectedId]);
 
+  useEffect(() => {
+    setBaselineId(defaultHeapDiffBaselineId(sessions, selectedId) ?? '');
+    setDiffOutcome(null);
+  }, [selectedId, sessions]);
+
   const capture = useCallback(() => {
     setBusy(true);
     setMessage(null);
@@ -71,6 +88,22 @@ export function MemoryProfilerPanel({ language, devices }: MemoryProfilerPanelPr
       .catch((reason: unknown) => setMessage(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setBusy(false));
   }, [language, packageName, refresh, serial]);
+
+  const compare = useCallback(() => {
+    if (baselineId.length === 0 || selectedId.length === 0) return;
+    setDiffBusy(true);
+    setDiffOutcome(null);
+    window.aps
+      .compareMemorySessions({ beforeSessionId: baselineId, afterSessionId: selectedId })
+      .then((outcome) => setDiffOutcome(outcome))
+      .catch((reason: unknown) =>
+        setDiffOutcome({ ok: false, error: reason instanceof Error ? reason.message : String(reason) }),
+      )
+      .finally(() => setDiffBusy(false));
+  }, [baselineId, selectedId]);
+
+  const baseline = sessions.find((record) => record.id === baselineId);
+  const current = sessions.find((record) => record.id === selectedId);
 
   return (
     <>
@@ -210,6 +243,87 @@ export function MemoryProfilerPanel({ language, devices }: MemoryProfilerPanelPr
                 ))}
               </tbody>
             </table>
+          </section>
+
+          <section className="card">
+            <h3 className="card__title">{translate('memory.heapDiff', language)}</h3>
+            {sessions.length < 2 ? (
+              <p className="card__muted">{translate('memory.noBaseline', language)}</p>
+            ) : (
+              <>
+                <div className="form">
+                  <label className="field">
+                    <span>{translate('memory.diffBaseline', language)}</span>
+                    <select
+                      value={baselineId}
+                      onChange={(event) => {
+                        setBaselineId(event.target.value);
+                        setDiffOutcome(null);
+                      }}
+                    >
+                      <option value="">{translate('memory.selectBaseline', language)}</option>
+                      {sessions
+                        .filter((record) => record.id !== selectedId)
+                        .map((record) => (
+                          <option key={record.id} value={record.id}>
+                            {formatTimestamp(record.capturedAtEpochMillis)} · {formatBytes(record.shallowBytes)}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={diffBusy || baselineId.length === 0}
+                    onClick={compare}
+                  >
+                    {diffBusy ? translate('memory.comparing', language) : translate('memory.compareAction', language)}
+                  </button>
+                </div>
+                {diffOutcome === null ? null : !diffOutcome.ok || diffOutcome.diff === undefined ? (
+                  <p className="card__error">{diffOutcome.error ?? translate('memory.diffFailed', language)}</p>
+                ) : (
+                  <>
+                    <p className="card__muted">
+                      {translate('memory.diffBaseline', language)} {baseline === undefined ? baselineId : formatTimestamp(baseline.capturedAtEpochMillis)}
+                      {' · '}
+                      {translate('memory.diffCurrent', language)} {current === undefined ? selectedId : formatTimestamp(current.capturedAtEpochMillis)}
+                    </p>
+                    {diffOutcome.comparisonComplete === false ? (
+                      <p className="card__warning">{translate('memory.diffPartial', language)}</p>
+                    ) : null}
+                    {diffOutcome.diff.entries.length === 0 ? (
+                      <p className="card__muted">{translate('memory.noDiffChanges', language)}</p>
+                    ) : (
+                      <table className="runs">
+                        <thead>
+                          <tr>
+                            <th>{translate('memory.class', language)}</th>
+                            <th>{translate('memory.beforeCount', language)}</th>
+                            <th>{translate('memory.afterCount', language)}</th>
+                            <th>{translate('memory.countDelta', language)}</th>
+                            <th>{translate('memory.shallowDelta', language)}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleHeapDiffEntries(diffOutcome.diff.entries).map((entry) => (
+                            <tr key={entry.className + String(entry.hierarchyDepth ?? '')}>
+                              <td>
+                                <code>{entry.className}</code>
+                              </td>
+                              <td>{String(entry.beforeCount)}</td>
+                              <td>{String(entry.afterCount)}</td>
+                              <td>{formatSignedInteger(entry.countDelta)}</td>
+                              <td>{formatSignedBytes(entry.shallowBytesDelta)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </>
+                )}
+              </>
+            )}
           </section>
 
           {session.warnings.length > 0 ? (

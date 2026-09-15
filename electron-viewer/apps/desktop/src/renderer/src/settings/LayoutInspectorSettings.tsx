@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react';
 import { translate, type ShellStringKey, type UiLanguage } from '../../../shared/i18n';
 import {
   CANVAS_BORDER_COLOR_PRESETS,
+  CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIERS,
   DEFAULT_CANVAS_BORDER_COLORS,
   parseArgbColor,
   type ApplicationUiSettings,
@@ -94,6 +95,18 @@ export function LayoutInspectorSettingsPage({
 
       <SettingsSection title={translate('settings.captureArchive', language)}>
         <p className="settings__section-note">{translate('settings.captureArchiveUnavailable', language)}</p>
+        <p className="settings__section-note">
+          {translate('settings.captureArchiveLimit', language) + ': ' + String(view.snapshotSizeMultiplier * 108) + ' MiB'}
+        </p>
+        <SettingsChoice<string>
+          label={translate('settings.captureArchiveLimit', language)}
+          value={String(view.snapshotSizeMultiplier)}
+          options={CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIERS.map((multiplier) => ({
+            value: String(multiplier),
+            label: String(multiplier * 108) + ' MiB',
+          }))}
+          onChange={(value) => onPatch({ layoutInspector: { snapshotSizeMultiplier: Number(value) } })}
+        />
       </SettingsSection>
     </>
   );

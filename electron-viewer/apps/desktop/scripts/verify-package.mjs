@@ -4,7 +4,7 @@
  * A --dir smoke build passes even when they are missing, because the app falls
  * back to the repository copies that only exist in a checkout. This checks the
  * unpacked output instead: Perfetto UI, the pinned Trace Processor with its
- * SHA-256, and the application icon.
+ * SHA-256, and both offline user-documentation trees.
  *
  * Usage: node scripts/verify-package.mjs <unpacked-directory>
  */
@@ -73,6 +73,36 @@ function require(description, path) {
 
 const uiIndex = join(resources, 'perfetto-ui', 'index.html');
 require('the bundled Perfetto UI', uiIndex);
+
+const firefoxProfiler = join(resources, 'firefox-profiler');
+const firefoxIndex = join(firefoxProfiler, 'index.html');
+if (require('the bundled Firefox Profiler application', firefoxIndex)) {
+  const html = readFileSync(firefoxIndex, 'utf8');
+  const referencedAssets = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
+    .map((match) => match[1])
+    .filter((value) => value.startsWith('/') && !value.startsWith('//'));
+  for (const asset of referencedAssets) {
+    require('the Firefox Profiler asset referenced by index.html', join(firefoxProfiler, asset.slice(1)));
+  }
+  const hasWasm = directoriesUnder(firefoxProfiler, 3)
+    .flatMap((directory) => {
+      try { return readdirSync(directory); } catch { return []; }
+    })
+    .some((name) => name.endsWith('.wasm'));
+  if (!hasWasm) failures.push('the bundled Firefox Profiler has no WebAssembly assets');
+}
+
+require('the bundled English user documentation', join(resources, 'docs-user', 'index.html'));
+require('the bundled Chinese user documentation', join(resources, 'docs-user-zh', 'index.html'));
+
+const composeAgent = join(resources, 'compose-agent');
+require('the Compose agent manifest', join(composeAgent, 'manifest.properties'));
+for (const abi of ['armeabi-v7a', 'arm64-v8a', 'x86_64']) {
+  require('the Compose native agent for ' + abi, join(composeAgent, 'agent', abi, 'lib_ui_inspector_agent.so'));
+}
+for (const name of ['lib_ui_inspector_service.jar', 'lib_ui_inspector_payload.jar', 'view-inspector.jar']) {
+  require('the Compose agent artifact ' + name, join(composeAgent, name));
+}
 
 const binaryName = process.platform === 'win32' ? 'trace_processor_shell.exe' : 'trace_processor_shell';
 const binaryPath = join(resources, 'perfetto-tools', binaryName);

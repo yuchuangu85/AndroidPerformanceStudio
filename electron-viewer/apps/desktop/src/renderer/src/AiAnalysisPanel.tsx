@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import type { UiLanguage } from '../../shared/i18n';
+import { sourceCandidateChoice } from './source-candidate-choice';
 import type {
   AiAnalyzeOutcome,
   AiSessionSummary,
   AiSettingsSnapshot,
   AnalysisFinding,
   LayoutCaptureSummary,
+  SourceOpenRequest,
   SourceWorkspaceRecord,
 } from '../../shared/ipc';
 
@@ -26,6 +28,12 @@ const STRINGS = {
   empty: { en: 'No findings yet', zh: '还没有结果' },
   workspace: { en: 'Source workspace', zh: '源码工作区' },
   noWorkspace: { en: 'No source context', zh: '不使用源码上下文' },
+  sourceCandidates: { en: 'Source citations', zh: '源码引用' },
+  openSource: { en: 'Open source', zh: '打开源码' },
+  selectSource: { en: 'Select source', zh: '选择源码' },
+  selectSourceCandidate: { en: 'Select source candidate', zh: '选择源码候选项' },
+  sourceCandidate: { en: 'Source candidate', zh: '源码候选项' },
+  cancel: { en: 'Cancel', zh: '取消' },
   workspaceHint: {
     en: 'Findings cite a file and a line only when a workspace is selected and allows AI source upload.',
     zh: '只有在选中工作区且该工作区允许上传源码时，结论才会引用文件与行号。',
@@ -47,13 +55,14 @@ const SEVERITY_CLASS: Record<AnalysisFinding['severity'], string> = {
 export interface AiAnalysisPanelProps {
   readonly language: UiLanguage;
   readonly onOpenSettings: () => void;
+  readonly onOpenSourceLocation: (request: SourceOpenRequest) => void;
 }
 
 /**
  * The analysis workflow. Configuration lives in Settings › AI Settings, so this
  * panel only reports which model the stored settings will use.
  */
-export function AiAnalysisPanel({ language, onOpenSettings }: AiAnalysisPanelProps): JSX.Element {
+export function AiAnalysisPanel({ language, onOpenSettings, onOpenSourceLocation }: AiAnalysisPanelProps): JSX.Element {
   const [settings, setSettings] = useState<AiSettingsSnapshot | null>(null);
   const [captures, setCaptures] = useState<readonly LayoutCaptureSummary[]>([]);
   const [captureId, setCaptureId] = useState('');
@@ -62,8 +71,10 @@ export function AiAnalysisPanel({ language, onOpenSettings }: AiAnalysisPanelPro
   const [outcome, setOutcome] = useState<AiAnalyzeOutcome | null>(null);
   const [sessions, setSessions] = useState<readonly AiSessionSummary[]>([]);
   const [findings, setFindings] = useState<readonly AnalysisFinding[]>([]);
+  const [findingSessionId, setFindingSessionId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sourceCandidateChoices, setSourceCandidateChoices] = useState<readonly string[]>([]);
 
   const reload = useCallback(() => {
     void window.aps.getAiSettings().then(setSettings);
@@ -76,6 +87,29 @@ export function AiAnalysisPanel({ language, onOpenSettings }: AiAnalysisPanelPro
   }, []);
 
   useEffect(reload, [reload]);
+
+  const openSourceCandidate = (candidateId: string): void => {
+    if (findingSessionId.length === 0) {
+      setError('The selected findings have no persisted AI session.');
+      return;
+    }
+    void window.aps.openAiSourceCandidate({ sessionId: findingSessionId, candidateId }).then((result) => {
+      if (!result.ok || result.location === undefined) {
+        setError(result.error ?? 'Unable to open the cited source.');
+        return;
+      }
+      onOpenSourceLocation(result.location);
+    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
+  };
+
+  const requestSourceCandidate = (candidateIds: readonly string[]): void => {
+    const choice = sourceCandidateChoice(candidateIds);
+    if (choice.kind === 'open') {
+      openSourceCandidate(choice.candidateId);
+    } else if (choice.kind === 'choose') {
+      setSourceCandidateChoices(choice.candidateIds);
+    }
+  };
 
   const run = (body: () => Promise<void>): void => {
     setBusy(true);
@@ -142,6 +176,7 @@ export function AiAnalysisPanel({ language, onOpenSettings }: AiAnalysisPanelPro
             });
             setOutcome(result);
             setFindings(result.findings ?? []);
+            setFindingSessionId(result.sessionId);
             setSessions(await window.aps.listAiSessions());
           })
         }
@@ -164,6 +199,18 @@ export function AiAnalysisPanel({ language, onOpenSettings }: AiAnalysisPanelPro
               }
               <p className={SEVERITY_CLASS[finding.severity]}>{finding.explanation}</p>
               <p className="card__muted">{finding.recommendation}</p>
+              {finding.sourceCandidateIds.length > 0 ? (
+                <div className="form">
+                  <span className="card__muted">{t('sourceCandidates', language)}</span>
+                  <button
+                    type="button"
+                    className="button button--inline"
+                    onClick={() => requestSourceCandidate(finding.sourceCandidateIds)}
+                  >
+                    {finding.sourceCandidateIds.length === 1 ? t('openSource', language) : t('selectSource', language)}
+                  </button>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -176,7 +223,7 @@ export function AiAnalysisPanel({ language, onOpenSettings }: AiAnalysisPanelPro
             <button
               type="button"
               className="button"
-              onClick={() => void window.aps.loadAiFindings(session.id).then(setFindings)}
+              onClick={() => void window.aps.loadAiFindings(session.id).then((loaded) => { setFindings(loaded); setFindingSessionId(session.id); })}
             >
               {session.createdAt + ' · ' + session.status + (session.model === null ? '' : ' · ' + session.model)}
             </button>
@@ -186,6 +233,32 @@ export function AiAnalysisPanel({ language, onOpenSettings }: AiAnalysisPanelPro
       </ul>
 
       {error !== null ? <p className="card__error">{error}</p> : null}
+
+      {sourceCandidateChoices.length === 0 ? null : (
+        <div className="ai-source-dialog-backdrop" role="presentation">
+          <section className="ai-source-dialog" role="dialog" aria-modal="true" aria-label={t('selectSourceCandidate', language)}>
+            <h4>{t('selectSourceCandidate', language)}</h4>
+            <div className="ai-source-dialog__choices">
+              {sourceCandidateChoices.map((candidateId, index) => (
+                <button
+                  key={candidateId}
+                  type="button"
+                  className="button"
+                  onClick={() => {
+                    setSourceCandidateChoices([]);
+                    openSourceCandidate(candidateId);
+                  }}
+                >
+                  {t('sourceCandidate', language) + ' ' + String(index + 1) + ' · ' + candidateId.slice(0, 12)}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="button button--inline" onClick={() => setSourceCandidateChoices([])}>
+              {t('cancel', language)}
+            </button>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

@@ -69,6 +69,7 @@ function captureResult(): SimpleperfCaptureResult {
     serial: 'emulator-5554',
     parameters: samplingParameters({ target: { kind: 'APP', packageName: 'com.example.app' } }),
     profile: profile(),
+    table: samplesToCallStackTable(profile().samples),
     protobufTrace: '/tmp/aps-cpu-1.pb',
     perfDataBytes: 4096,
     simpleperfVersion: 'simpleperf 35.0.0',

@@ -38,6 +38,9 @@ export type SamplingTemplatePreference =
 export type SimpleperfTargetPreference = 'APP' | 'SYSTEM_WIDE';
 export type SimpleperfCallGraphPreference = 'DWARF' | 'FRAME_POINTER' | 'NONE';
 export type SimpleperfScopePreference = 'BOTH' | 'USER' | 'KERNEL';
+export type SimpleperfRateModePreference = 'FREQUENCY' | 'PERIOD';
+/** Runtime target for opening a completed Simpleperf session. */
+export type SimpleperfEnginePreference = 'local' | 'firefox-local' | 'firefox';
 
 /** Stored as #AARRGGBB, the format CanvasArgb.toHex writes. */
 export interface CanvasBorderColorsSettings {
@@ -53,6 +56,8 @@ export interface LayoutInspectorSettings {
   readonly showHierarchyIds: boolean;
   readonly showHierarchyLayerVisibilityButtons: boolean;
   readonly showVisibleViewBounds: boolean;
+  /** Kotlin's archive.snapshotSizeMultiplier; scales compatible .apinspect limits. */
+  readonly snapshotSizeMultiplier: number;
   readonly canvasHitTestOrder: CanvasHitTestOrderPreference;
   readonly canvasBorderColors: CanvasBorderColorsSettings;
 }
@@ -62,6 +67,9 @@ export interface SimpleperfCaptureDefaults {
   readonly target: SimpleperfTargetPreference;
   readonly event: string;
   readonly frequencyHertz: number;
+  /** Number of events for simpleperf -c period mode. */
+  readonly periodEvents: number;
+  readonly rateMode: SimpleperfRateModePreference;
   readonly durationSeconds: number;
   readonly callGraph: SimpleperfCallGraphPreference;
   readonly scope: SimpleperfScopePreference;
@@ -69,6 +77,7 @@ export interface SimpleperfCaptureDefaults {
 
 export interface SimpleperfSettings {
   readonly flameTooltipMode: FlameTooltipModePreference;
+  readonly engine: SimpleperfEnginePreference;
   readonly captureDefaults: SimpleperfCaptureDefaults;
 }
 
@@ -106,6 +115,14 @@ export const DEFAULT_DISPLAY_SCALE_PERCENT = 100;
 const DISPLAY_SCALE_MIN_PERCENT = 75;
 const DISPLAY_SCALE_MAX_PERCENT = 200;
 
+/** Kotlin CaptureArchiveLimits bounds, persisted as archive.snapshotSizeMultiplier. */
+export const MIN_CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIER = 1;
+export const MAX_CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIER = 10;
+export const DEFAULT_CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIER = 1;
+export const CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIERS: readonly number[] = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+];
+
 /**
  * A display size outside the range would leave the shell unusable rather than
  * merely wrong, so a stored value is clamped instead of rejected.
@@ -113,6 +130,16 @@ const DISPLAY_SCALE_MAX_PERCENT = 200;
 export function parseDisplayScalePercent(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_DISPLAY_SCALE_PERCENT;
   return Math.min(DISPLAY_SCALE_MAX_PERCENT, Math.max(DISPLAY_SCALE_MIN_PERCENT, Math.round(value)));
+}
+
+/** Mirrors CaptureArchiveLimits.fromStoredMultiplier() in the Kotlin desktop app. */
+export function parseCaptureArchiveSnapshotSizeMultiplier(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIER;
+  return Math.min(
+    MAX_CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIER,
+    Math.max(MIN_CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIER, Math.round(parsed)),
+  );
 }
 
 export const DEFAULT_CANVAS_BORDER_COLORS: CanvasBorderColorsSettings = {
@@ -139,6 +166,7 @@ export const DEFAULT_LAYOUT_INSPECTOR_SETTINGS: LayoutInspectorSettings = {
   showHierarchyIds: true,
   showHierarchyLayerVisibilityButtons: false,
   showVisibleViewBounds: true,
+  snapshotSizeMultiplier: DEFAULT_CAPTURE_ARCHIVE_SNAPSHOT_SIZE_MULTIPLIER,
   canvasHitTestOrder: 'smallest-area',
   canvasBorderColors: DEFAULT_CANVAS_BORDER_COLORS,
 };
@@ -156,6 +184,8 @@ export const DEFAULT_SIMPLEPERF_CAPTURE_DEFAULTS: SimpleperfCaptureDefaults = {
   target: 'APP',
   event: 'cpu-clock',
   frequencyHertz: 1000,
+  periodEvents: 1000,
+  rateMode: 'FREQUENCY',
   durationSeconds: 10,
   callGraph: 'DWARF',
   scope: 'USER',
@@ -163,6 +193,7 @@ export const DEFAULT_SIMPLEPERF_CAPTURE_DEFAULTS: SimpleperfCaptureDefaults = {
 
 export const DEFAULT_SIMPLEPERF_SETTINGS: SimpleperfSettings = {
   flameTooltipMode: 'follow-mouse',
+  engine: 'local',
   captureDefaults: DEFAULT_SIMPLEPERF_CAPTURE_DEFAULTS,
 };
 
@@ -238,12 +269,23 @@ export function parseFlameTooltipMode(value: unknown): FlameTooltipModePreferenc
   return value === 'fixed' ? 'fixed' : 'follow-mouse';
 }
 
+/** Kotlin's LOCAL, FIREFOX_PROFILER_LOCAL and FIREFOX_PROFILER values map here. */
+export function parseSimpleperfEngine(value: unknown): SimpleperfEnginePreference {
+  if (value === 'firefox-local' || value === 'FIREFOX_PROFILER_LOCAL') return 'firefox-local';
+  if (value === 'firefox' || value === 'FIREFOX_PROFILER') return 'firefox';
+  return 'local';
+}
+
 export function parseSamplingTemplate(value: unknown): SamplingTemplatePreference {
   return SAMPLING_TEMPLATES.find((template) => template === value) ?? 'APP_CPU_BASIC';
 }
 
 export function parseSimpleperfTarget(value: unknown): SimpleperfTargetPreference {
   return value === 'SYSTEM_WIDE' ? 'SYSTEM_WIDE' : 'APP';
+}
+
+export function parseSimpleperfRateMode(value: unknown): SimpleperfRateModePreference {
+  return value === 'PERIOD' ? 'PERIOD' : 'FREQUENCY';
 }
 
 export function parseSimpleperfCallGraph(value: unknown): SimpleperfCallGraphPreference {
@@ -305,6 +347,7 @@ export function normalizeLayoutInspectorSettings(value: unknown): LayoutInspecto
       defaults.showHierarchyLayerVisibilityButtons,
     ),
     showVisibleViewBounds: parseBoolean(source['showVisibleViewBounds'], defaults.showVisibleViewBounds),
+    snapshotSizeMultiplier: parseCaptureArchiveSnapshotSizeMultiplier(source['snapshotSizeMultiplier']),
     canvasHitTestOrder: parseCanvasHitTestOrder(source['canvasHitTestOrder']),
     canvasBorderColors: {
       normal: parseArgbColor(colors['normal']) ?? defaults.canvasBorderColors.normal,
@@ -323,6 +366,7 @@ export function normalizeSimpleperfSettings(value: unknown): SimpleperfSettings 
     : defaults.captureDefaults.event;
   return {
     flameTooltipMode: parseFlameTooltipMode(source['flameTooltipMode']),
+    engine: parseSimpleperfEngine(source['engine']),
     captureDefaults: {
       template: parseSamplingTemplate(capture['template']),
       target: parseSimpleperfTarget(capture['target']),
@@ -333,6 +377,13 @@ export function normalizeSimpleperfSettings(value: unknown): SimpleperfSettings 
         1,
         100000,
       ),
+      periodEvents: parseClampedNumber(
+        capture['periodEvents'],
+        defaults.captureDefaults.periodEvents,
+        1,
+        1000000000,
+      ),
+      rateMode: parseSimpleperfRateMode(capture['rateMode']),
       durationSeconds: parseClampedNumber(
         capture['durationSeconds'],
         defaults.captureDefaults.durationSeconds,
@@ -413,6 +464,8 @@ export function samplingTemplateDefaults(
     target,
     event: 'cpu-clock',
     frequencyHertz: 1000,
+    periodEvents: DEFAULT_SIMPLEPERF_CAPTURE_DEFAULTS.periodEvents,
+    rateMode: 'FREQUENCY',
     durationSeconds: DEFAULT_SIMPLEPERF_CAPTURE_DEFAULTS.durationSeconds,
     callGraph: 'DWARF',
     scope,
