@@ -34,6 +34,15 @@ class InspectorScrollbarWiringTest {
     }
 
     @Test
+    fun `timeline height matches the findings header`() {
+        val timeline = source
+            .substringAfter("private fun TimelineStrip(")
+            .substringBefore("@Composable\nprivate fun TimelineScrollButton(")
+
+        assertTrue(timeline.contains("height(PanelHeaderLayout.HEIGHT_DP.dp)"))
+    }
+
+    @Test
     fun `preview exposes horizontal and vertical pan positions`() {
         val preview = source
             .substringAfter("private fun PreviewPane(")

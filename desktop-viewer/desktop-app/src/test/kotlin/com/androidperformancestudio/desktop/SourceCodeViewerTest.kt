@@ -1,5 +1,6 @@
 package com.androidperformancestudio.desktop
 
+import androidx.compose.ui.graphics.Color
 import com.androidperformancestudio.source.SourceLanguage
 import com.androidperformancestudio.source.SourceRange
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -63,6 +64,24 @@ class SourceCodeViewerTest {
         assertHasToken(cppLine, SourceTokenKind.KEYWORD, "int")
         assertHasToken(cppLine, SourceTokenKind.NUMBER, "42")
         assertHasToken(cppLine, SourceTokenKind.COMMENT, "// immutable")
+    }
+
+    @Test
+    fun `One Dark source palette maps editor and syntax colors consistently`() {
+        assertEquals(Color(0xFF282C34), OneDarkSourceTheme.editorBackground)
+        assertEquals(Color(0xFFABB2BF), OneDarkSourceTheme.foreground)
+        assertEquals(Color(0xFF495162), OneDarkSourceTheme.lineNumber)
+        assertEquals(Color(0xFF2C313C), OneDarkSourceTheme.currentLine)
+        assertEquals(Color(0xFF404859), OneDarkSourceTheme.selection)
+        assertEquals(Color(0xFFC678DD), OneDarkSourceTheme.colorFor(SourceTokenKind.KEYWORD))
+        assertEquals(Color(0xFFC678DD), OneDarkSourceTheme.colorFor(SourceTokenKind.PREPROCESSOR))
+        assertEquals(Color(0xFF98C379), OneDarkSourceTheme.colorFor(SourceTokenKind.STRING))
+        assertEquals(Color(0xFF98C379), OneDarkSourceTheme.colorFor(SourceTokenKind.VALUE))
+        assertEquals(Color(0xFFD19A66), OneDarkSourceTheme.colorFor(SourceTokenKind.NUMBER))
+        assertEquals(Color(0xFFD19A66), OneDarkSourceTheme.colorFor(SourceTokenKind.ATTRIBUTE))
+        assertEquals(Color(0xFF5C6370), OneDarkSourceTheme.colorFor(SourceTokenKind.COMMENT))
+        assertEquals(Color(0xFFE5C07B), OneDarkSourceTheme.colorFor(SourceTokenKind.ANNOTATION))
+        assertEquals(Color(0xFFE06C75), OneDarkSourceTheme.colorFor(SourceTokenKind.TAG))
     }
 
     @Test

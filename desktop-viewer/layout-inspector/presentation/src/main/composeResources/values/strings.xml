@@ -48,7 +48,6 @@
     <string name="package_name">Package</string>
     <string name="metrics">Metrics</string>
     <string name="timeline">Timeline</string>
-    <string name="panels">Panels</string>
     <string name="auto_device">Auto device</string>
     <string name="capture_target">Target</string>
     <string name="window">Window</string>

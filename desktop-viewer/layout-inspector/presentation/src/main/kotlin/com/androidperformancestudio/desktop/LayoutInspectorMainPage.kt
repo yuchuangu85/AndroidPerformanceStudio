@@ -985,6 +985,29 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         }
                     },
                 )
+                HeaderSpacer()
+                HeaderDivider()
+                HeaderSpacer()
+                PanelToggleButton(
+                    position = PanelPosition.LEFT,
+                    visible = panelVisibility.showHierarchy,
+                    contentDescription = localizedStringResource(Res.string.toggle_hierarchy, language),
+                    onClick = { performAction(ViewerAction.TOGGLE_HIERARCHY) },
+                )
+                HeaderSpacer()
+                PanelToggleButton(
+                    position = PanelPosition.BOTTOM,
+                    visible = panelVisibility.showFindings,
+                    contentDescription = localizedStringResource(Res.string.toggle_findings, language),
+                    onClick = { performAction(ViewerAction.TOGGLE_FINDINGS) },
+                )
+                HeaderSpacer()
+                PanelToggleButton(
+                    position = PanelPosition.RIGHT,
+                    visible = panelVisibility.showDetails,
+                    contentDescription = localizedStringResource(Res.string.toggle_details, language),
+                    onClick = { performAction(ViewerAction.TOGGLE_DETAILS) },
+                )
             }
             correlationHint?.let { hint ->
                 CorrelationBanner(
@@ -1172,7 +1195,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 hideSystemComposables = hideSystemComposables,
                 recompositionActive = recompositionActive,
                 recompositionControlsEnabled = composeSession != null,
-                panelVisibility = panelVisibility,
                 onToggleSystemComposables = { hideSystemComposables = !hideSystemComposables },
                 onToggleRecomposition = {
                     coroutineScope.launch {
@@ -1192,7 +1214,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         recompositionActive = true
                     }
                 },
-                onAction = performAction,
             )
         }
         }
@@ -1633,11 +1654,9 @@ private fun LayoutInspectorStatusBar(
     hideSystemComposables: Boolean,
     recompositionActive: Boolean,
     recompositionControlsEnabled: Boolean,
-    panelVisibility: PanelVisibility,
     onToggleSystemComposables: () -> Unit,
     onToggleRecomposition: () -> Unit,
     onResetRecomposition: () -> Unit,
-    onAction: (ViewerAction) -> Unit,
 ) {
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
@@ -1698,31 +1717,6 @@ private fun LayoutInspectorStatusBar(
                 valueColor = colors.subtleText,
             )
         }
-        StatusBarDivider()
-        Text(
-            text = localizedStringResource(Res.string.panels, language),
-            color = colors.mutedText,
-            fontSize = ViewerTypography.label.fontSize,
-            maxLines = 1,
-        )
-        PanelToggleButton(
-            position = PanelPosition.LEFT,
-            visible = panelVisibility.showHierarchy,
-            contentDescription = localizedStringResource(Res.string.toggle_hierarchy, language),
-            onClick = { onAction(ViewerAction.TOGGLE_HIERARCHY) },
-        )
-        PanelToggleButton(
-            position = PanelPosition.BOTTOM,
-            visible = panelVisibility.showFindings,
-            contentDescription = localizedStringResource(Res.string.toggle_findings, language),
-            onClick = { onAction(ViewerAction.TOGGLE_FINDINGS) },
-        )
-        PanelToggleButton(
-            position = PanelPosition.RIGHT,
-            visible = panelVisibility.showDetails,
-            contentDescription = localizedStringResource(Res.string.toggle_details, language),
-            onClick = { onAction(ViewerAction.TOGGLE_DETAILS) },
-        )
     }
 }
 
@@ -2714,7 +2708,9 @@ private fun IntSize.asDestination(): FloatRect? =
         FloatRect(0f, 0f, it.width.toFloat(), it.height.toFloat())
     }
 
-internal fun canvasCornerRadiusDp(appOnly: Boolean): Int = if (appOnly) 24 else 4
+/** Returns the Canvas preview radius as a whole number of density-independent pixels. */
+internal fun canvasCornerRadiusDp(appOnly: Boolean): Int =
+    (if (appOnly) 24 else 4) / 2
 
 @Composable
 private fun LayerVisibilityButton(
@@ -3075,25 +3071,24 @@ private fun FindingsPane(
                     Text(aiStatus, color = colors.mutedText, fontSize = ViewerTypography.secondary.fontSize, maxLines = 1)
                     Spacer(Modifier.width(12.dp))
                 }
-                TextButton(
+            }
+            Text(localizedStringResource(Res.string.timeline_live_capture, language), color = colors.mutedText, fontSize = ViewerTypography.secondary.fontSize)
+            if (AI_ANALYSIS_ENTRY_VISIBLE) {
+                Spacer(Modifier.width(12.dp))
+                ProfilerCompactButton(
+                    text = localizedStringResource(
+                        if (aiAnalysisUiState is AiAnalysisUiState.Working) Res.string.cancel else Res.string.run_ai_analysis,
+                        language,
+                    ),
+                    selected = aiAnalysisUiState is AiAnalysisUiState.Working,
                     onClick = if (aiAnalysisUiState is AiAnalysisUiState.Working) {
                         onCancelAiAnalysis
                     } else {
                         onRunAiAnalysis
                     },
                     enabled = state.snapshot != null,
-                ) {
-                    Text(
-                        localizedStringResource(
-                            if (aiAnalysisUiState is AiAnalysisUiState.Working) Res.string.cancel else Res.string.run_ai_analysis,
-                            language,
-                        ),
-                        fontSize = ViewerTypography.secondary.fontSize,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
+                )
             }
-            Text(localizedStringResource(Res.string.timeline_live_capture, language), color = colors.mutedText, fontSize = ViewerTypography.secondary.fontSize)
         }
         if (model.timelineFrames.isNotEmpty()) {
             HorizontalDivider(color = colors.border)
@@ -3206,7 +3201,7 @@ private fun TimelineStrip(
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth().height(42.dp)) {
+    Box(modifier = Modifier.fillMaxWidth().height(PanelHeaderLayout.HEIGHT_DP.dp)) {
         LazyRow(
             state = listState,
             modifier = Modifier

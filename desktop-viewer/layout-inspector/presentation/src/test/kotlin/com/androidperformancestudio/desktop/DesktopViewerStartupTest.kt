@@ -14,8 +14,8 @@ class DesktopViewerStartupTest {
     }
 
     @Test
-    fun `full device canvas uses a small corner radius without changing app only mode`() {
-        assertEquals(24, canvasCornerRadiusDp(appOnly = true))
-        assertEquals(4, canvasCornerRadiusDp(appOnly = false))
+    fun `canvas preview corner radius is halved as whole dp values`() {
+        assertEquals(12, canvasCornerRadiusDp(appOnly = true))
+        assertEquals(2, canvasCornerRadiusDp(appOnly = false))
     }
 }

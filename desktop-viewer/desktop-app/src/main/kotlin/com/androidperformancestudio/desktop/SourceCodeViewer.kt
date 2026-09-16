@@ -1,22 +1,30 @@
 package com.androidperformancestudio.desktop
 
+import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.LocalScrollbarStyle
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -30,7 +38,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.source.SourceLanguage
 import com.androidperformancestudio.source.SourceRange
-import com.androidperformancestudio.ui.LocalViewerColors
 
 /**
  * A read-only source viewer modeled after Compose Multiplatform's codeviewer example:
@@ -46,7 +53,10 @@ internal fun SourceCodeViewer(
     val highlightedLines = remember(sourceText, language) { highlightSource(sourceText, language) }
     val listState = rememberLazyListState()
     val horizontalScrollState = rememberScrollState()
-    val colors = LocalViewerColors.current
+    val scrollbarStyle = LocalScrollbarStyle.current.copy(
+        unhoverColor = OneDarkSourceTheme.scrollbar,
+        hoverColor = OneDarkSourceTheme.scrollbarHover,
+    )
     val targetLineIndex = sourceLineIndex(highlightedRange, highlightedLines.size)
 
     LaunchedEffect(sourceText, highlightedRange?.startLine) {
@@ -54,26 +64,39 @@ internal fun SourceCodeViewer(
     }
 
     Box(
-        modifier = modifier.background(colors.field),
+        modifier = modifier.background(OneDarkSourceTheme.editorBackground),
     ) {
-        SelectionContainer {
-            LazyColumn(
-                state = listState,
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .horizontalScroll(horizontalScrollState),
-            ) {
-                itemsIndexed(highlightedLines, key = { index, _ -> index }) { index, line ->
-                    SourceCodeLine(
-                        lineNumber = index + 1,
-                        lineNumberDigits = highlightedLines.size.toString().length,
-                        line = line,
-                        selected = sourceLineIsHighlighted(index + 1, highlightedRange),
-                    )
+        CompositionLocalProvider(LocalTextSelectionColors provides OneDarkSourceTheme.textSelectionColors) {
+            SelectionContainer {
+                LazyColumn(
+                    state = listState,
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(end = 12.dp, bottom = 12.dp)
+                            .horizontalScroll(horizontalScrollState),
+                ) {
+                    itemsIndexed(highlightedLines, key = { index, _ -> index }) { index, line ->
+                        SourceCodeLine(
+                            lineNumber = index + 1,
+                            lineNumberDigits = highlightedLines.size.toString().length,
+                            line = line,
+                            selected = sourceLineIsHighlighted(index + 1, highlightedRange),
+                        )
+                    }
                 }
             }
         }
+        HorizontalScrollbar(
+            adapter = rememberScrollbarAdapter(horizontalScrollState),
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(end = 12.dp),
+            style = scrollbarStyle,
+        )
+        VerticalScrollbar(
+            adapter = rememberScrollbarAdapter(listState),
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(bottom = 12.dp),
+            style = scrollbarStyle,
+        )
     }
 }
 
@@ -84,8 +107,7 @@ private fun SourceCodeLine(
     line: HighlightedSourceLine,
     selected: Boolean,
 ) {
-    val colors = LocalViewerColors.current
-    val lineBackground = if (selected) colors.accent.copy(alpha = 0.16f) else Color.Transparent
+    val lineBackground = if (selected) OneDarkSourceTheme.currentLine else Color.Transparent
     Row(
         modifier =
             Modifier
@@ -96,7 +118,7 @@ private fun SourceCodeLine(
         DisableSelection {
             Text(
                 text = lineNumber.toString().padStart(lineNumberDigits),
-                color = colors.subtleText,
+                color = OneDarkSourceTheme.lineNumber,
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.End,
@@ -104,8 +126,8 @@ private fun SourceCodeLine(
             )
         }
         Text(
-            text = line.asAnnotatedString(colors),
-            color = colors.primaryText,
+            text = line.asAnnotatedString(),
+            color = OneDarkSourceTheme.foreground,
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall,
             softWrap = false,
@@ -402,30 +424,14 @@ private fun keywordsFor(language: SourceLanguage): Set<String> =
         -> emptySet()
     }
 
-private fun HighlightedSourceLine.asAnnotatedString(colors: com.androidperformancestudio.ui.ViewerColors): AnnotatedString =
+private fun HighlightedSourceLine.asAnnotatedString(): AnnotatedString =
     buildAnnotatedString {
         append(text)
         // Retain a logical line separator when copying multiple selected source rows.
         append('\n')
         tokens.forEach { token ->
-            addStyle(SpanStyle(color = token.kind.color(colors)), token.start, token.end)
+            addStyle(SpanStyle(color = OneDarkSourceTheme.colorFor(token.kind)), token.start, token.end)
         }
-    }
-
-private fun SourceTokenKind.color(colors: com.androidperformancestudio.ui.ViewerColors): Color =
-    when (this) {
-        SourceTokenKind.KEYWORD,
-        SourceTokenKind.TAG,
-        -> colors.accent
-        SourceTokenKind.STRING,
-        SourceTokenKind.VALUE,
-        -> colors.success
-        SourceTokenKind.NUMBER -> colors.info
-        SourceTokenKind.COMMENT -> colors.mutedText
-        SourceTokenKind.ANNOTATION,
-        SourceTokenKind.PREPROCESSOR,
-        -> colors.warning
-        SourceTokenKind.ATTRIBUTE -> colors.secondaryText
     }
 
 private fun quotedEnd(text: String, start: Int): Int {

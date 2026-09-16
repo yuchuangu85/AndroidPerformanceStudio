@@ -42,15 +42,13 @@ class HeaderControlTest {
     }
 
     @Test
-    fun `bottom status bar owns the package and post scan controls with named status values`() {
+    fun `bottom status bar omits panels while header restores ordered panel controls`() {
         assertEquals("Package", localizedStringResource(Res.string.package_name, UiLanguage.ENGLISH))
         assertEquals("包名", localizedStringResource(Res.string.package_name, UiLanguage.SIMPLIFIED_CHINESE))
         assertEquals("Metrics", localizedStringResource(Res.string.metrics, UiLanguage.ENGLISH))
         assertEquals("指标", localizedStringResource(Res.string.metrics, UiLanguage.SIMPLIFIED_CHINESE))
         assertEquals("Timeline", localizedStringResource(Res.string.timeline, UiLanguage.ENGLISH))
         assertEquals("时间线", localizedStringResource(Res.string.timeline, UiLanguage.SIMPLIFIED_CHINESE))
-        assertEquals("Panels", localizedStringResource(Res.string.panels, UiLanguage.ENGLISH))
-        assertEquals("面板", localizedStringResource(Res.string.panels, UiLanguage.SIMPLIFIED_CHINESE))
 
         val source = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
@@ -64,14 +62,43 @@ class HeaderControlTest {
 
         assertTrue(header.contains("ScanModeButtons("))
         assertFalse(header.contains("model.metricsText"))
-        assertFalse(header.contains("PanelToggleButton("))
         assertTrue(statusBar.contains(".height(ViewerDimensions.footerHeight)"))
         assertTrue(statusBar.contains("localizedStringResource(Res.string.package_name, language)"))
         assertTrue(statusBar.contains("localizedStringResource(Res.string.metrics, language)"))
         assertTrue(statusBar.contains("localizedStringResource(Res.string.timeline, language)"))
-        assertTrue(statusBar.contains("localizedStringResource(Res.string.panels, language)"))
+        assertFalse(statusBar.contains("Res.string.panels"))
+        assertFalse(statusBar.contains("PanelToggleButton("))
         assertTrue(statusBar.contains("ProfilerCompactButton("))
-        assertTrue(statusBar.contains("contentDescription = localizedStringResource(Res.string.toggle_hierarchy, language)"))
+        assertEquals(3, header.split("PanelToggleButton(").size - 1)
+        assertTrue(header.indexOf("ScanModeButtons(") < header.indexOf("position = PanelPosition.LEFT"))
+        assertTrue(
+            header.indexOf("position = PanelPosition.LEFT") <
+                header.indexOf("position = PanelPosition.BOTTOM"),
+        )
+        assertTrue(
+            header.indexOf("position = PanelPosition.BOTTOM") <
+                header.indexOf("position = PanelPosition.RIGHT"),
+        )
+        assertTrue(header.contains("contentDescription = localizedStringResource(Res.string.toggle_hierarchy, language)"))
+    }
+
+    @Test
+    fun `findings ends its vertically centered header with the Refresh button shape`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
+        )
+        val findingsHeader = source
+            .substringAfter("private fun FindingsPane(")
+            .substringAfter("Column(modifier.background(colors.panel)) {")
+            .substringBefore("if (model.timelineFrames.isNotEmpty())")
+
+        assertTrue(findingsHeader.contains("verticalAlignment = Alignment.CenterVertically"))
+        assertFalse(findingsHeader.contains("TextButton("))
+        assertTrue(findingsHeader.contains("ProfilerCompactButton("))
+        assertTrue(findingsHeader.contains("selected = aiAnalysisUiState is AiAnalysisUiState.Working"))
+        assertTrue(
+            findingsHeader.indexOf("Res.string.timeline_live_capture") < findingsHeader.indexOf("ProfilerCompactButton("),
+        )
     }
 
     @Test
