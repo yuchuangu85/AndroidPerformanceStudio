@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization) apply false
 }
 
-val defaultAppVersion = "0.4.6"
+val defaultAppVersion = "0.5.0"
 val appVersion = providers.gradleProperty("appVersion").getOrElse(defaultAppVersion)
 
 allprojects {
