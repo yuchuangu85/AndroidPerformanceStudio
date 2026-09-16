@@ -28,6 +28,7 @@ output-metadata.json
 .worktrees/
 misc.xml
 deploymentTargetDropDown.xml
+.pnpm-store/
 render.experimental.xml
 
 # Keystore files
