@@ -73,6 +73,8 @@ class SourceCodeViewerTest {
         assertEquals(Color(0xFF495162), OneDarkSourceTheme.lineNumber)
         assertEquals(Color(0xFF2C313C), OneDarkSourceTheme.currentLine)
         assertEquals(Color(0xFF404859), OneDarkSourceTheme.selection)
+        assertEquals(Color(0xFF5C4E20), OneDarkSourceTheme.searchMatch)
+        assertEquals(Color(0xFF3E638C), OneDarkSourceTheme.currentSearchMatch)
         assertEquals(Color(0xFFC678DD), OneDarkSourceTheme.colorFor(SourceTokenKind.KEYWORD))
         assertEquals(Color(0xFFC678DD), OneDarkSourceTheme.colorFor(SourceTokenKind.PREPROCESSOR))
         assertEquals(Color(0xFF98C379), OneDarkSourceTheme.colorFor(SourceTokenKind.STRING))
@@ -90,6 +92,41 @@ class SourceCodeViewerTest {
 
         assertEquals("plain <text> // untouched", line.text)
         assertTrue(line.tokens.isEmpty())
+    }
+
+    @Test
+    fun `code search is case insensitive and returns ordered non-overlapping match ranges`() {
+        val matches =
+            sourceSearchMatches(
+                listOf(
+                    HighlightedSourceLine("fun alpha()", emptyList()),
+                    HighlightedSourceLine("value = FUN", emptyList()),
+                    HighlightedSourceLine("banana", emptyList()),
+                ),
+                "fun",
+            )
+
+        assertEquals(
+            listOf(
+                SourceSearchMatch(lineIndex = 0, start = 0, end = 3),
+                SourceSearchMatch(lineIndex = 1, start = 8, end = 11),
+            ),
+            matches,
+        )
+        assertEquals(emptyList<SourceSearchMatch>(), sourceSearchMatches(listOf(HighlightedSourceLine("fun", emptyList())), "   "))
+        assertEquals(
+            listOf(SourceSearchMatch(lineIndex = 0, start = 1, end = 4)),
+            sourceSearchMatches(listOf(HighlightedSourceLine("banana", emptyList())), "ana"),
+        )
+    }
+
+    @Test
+    fun `code search navigation wraps and does nothing without matches`() {
+        assertEquals(1, nextSourceSearchMatchIndex(selectedMatchIndex = 0, matchCount = 3))
+        assertEquals(0, nextSourceSearchMatchIndex(selectedMatchIndex = 2, matchCount = 3))
+        assertEquals(2, previousSourceSearchMatchIndex(selectedMatchIndex = 0, matchCount = 3))
+        assertEquals(null, nextSourceSearchMatchIndex(selectedMatchIndex = 0, matchCount = 0))
+        assertEquals(null, previousSourceSearchMatchIndex(selectedMatchIndex = 0, matchCount = 0))
     }
 
     @Test

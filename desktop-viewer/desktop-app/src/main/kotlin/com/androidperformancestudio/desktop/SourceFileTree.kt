@@ -43,6 +43,23 @@ internal object SourceFileTree {
         return root.visibleRows(depth = 0, collapsedDirectories = collapsedDirectories)
     }
 
+    /** Returns every directory path so a newly shown source tree starts fully collapsed. */
+    fun defaultCollapsedDirectories(files: List<SourceFile>): Set<String> =
+        rows(files)
+            .filterIsInstance<SourceFileTreeRow.Directory>()
+            .mapTo(linkedSetOf()) { it.path }
+
+    /** Matches file names and containing directories by their normalized relative path. */
+    fun matchingFiles(
+        files: List<SourceFile>,
+        query: String,
+    ): List<SourceFile> =
+        if (query.isBlank()) {
+            files
+        } else {
+            files.filter { file -> file.relativePath.contains(query, ignoreCase = true) }
+        }
+
     fun ancestorDirectories(relativePath: String): Set<String> {
         val segments = pathSegments(relativePath)
         return segments.dropLast(1)

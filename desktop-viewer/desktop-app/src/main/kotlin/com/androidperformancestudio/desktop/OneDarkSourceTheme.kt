@@ -15,6 +15,8 @@ internal object OneDarkSourceTheme {
     val lineNumber = Color(0xFF495162)
     val currentLine = Color(0xFF2C313C)
     val selection = Color(0xFF404859)
+    val searchMatch = Color(0xFF5C4E20)
+    val currentSearchMatch = Color(0xFF3E638C)
     val scrollbar = Color(0xFF4B575F)
     val scrollbarHover = Color(0xFF606368)
 

@@ -361,65 +361,100 @@ private fun WorkspaceListPane(
 
 @Composable
 private fun SourceFileListPane(
+    language: UiLanguage,
     files: List<com.androidperformancestudio.source.SourceFile>,
     selectedFile: String?,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var collapsedDirectories by remember(files) { mutableStateOf(emptySet<String>()) }
-    LaunchedEffect(selectedFile) {
+    var fileSearchQuery by remember(files) { mutableStateOf("") }
+    val matchingFiles = remember(files, fileSearchQuery) {
+        SourceFileTree.matchingFiles(files, fileSearchQuery)
+    }
+    val defaultCollapsedDirectories = remember(files) {
+        SourceFileTree.defaultCollapsedDirectories(files)
+    }
+    var collapsedDirectories by remember(files) { mutableStateOf(defaultCollapsedDirectories) }
+    LaunchedEffect(files, selectedFile) {
         collapsedDirectories -= SourceFileTree.ancestorDirectories(selectedFile.orEmpty())
     }
-    val treeRows = remember(files, collapsedDirectories) {
-        SourceFileTree.rows(files, collapsedDirectories)
+    val searchResultDirectories = remember(matchingFiles, fileSearchQuery) {
+        if (fileSearchQuery.isBlank()) {
+            emptySet()
+        } else {
+            matchingFiles.flatMapTo(linkedSetOf()) { file ->
+                SourceFileTree.ancestorDirectories(file.relativePath)
+            }
+        }
+    }
+    val effectiveCollapsedDirectories = remember(collapsedDirectories, searchResultDirectories) {
+        collapsedDirectories - searchResultDirectories
+    }
+    val treeRows = remember(matchingFiles, effectiveCollapsedDirectories) {
+        SourceFileTree.rows(matchingFiles, effectiveCollapsedDirectories)
     }
     val listState = rememberLazyListState()
     val horizontalScrollState = rememberScrollState()
-    BoxWithConstraints(modifier) {
-        val contentWidthDp = maxOf(
-            maxWidth.value,
-            treeRows.maxOfOrNull { row ->
-                row.name.length * 8f +
-                    8f +
-                    row.depth * SourceFileTreeRowLayout.INDENT_DP +
-                    12f +
-                    4f +
-                    8f
-            } ?: 0f,
+    LaunchedEffect(fileSearchQuery) {
+        listState.scrollToItem(0)
+    }
+    Column(modifier) {
+        OutlinedTextField(
+            value = fileSearchQuery,
+            onValueChange = { fileSearchQuery = it },
+            label = { Text(localizedStringResource(Res.string.source_search_files, language)) },
+            singleLine = true,
+            colors = viewerOutlinedTextFieldColors(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
         )
-        Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) {
-                LazyColumn(
-                    state = listState,
-                    modifier =
-                        Modifier
-                            .width(contentWidthDp.dp)
-                            .fillMaxHeight()
-                            .padding(top = 6.dp, end = 12.dp, bottom = 12.dp),
-                ) {
-                    items(treeRows, key = { it.key }) { row ->
-                        when (row) {
-                            is SourceFileTreeRow.Directory -> {
-                                SourceDirectoryTreeRow(
-                                    row = row,
-                                    onToggle = {
-                                        collapsedDirectories =
-                                            if (row.expanded) collapsedDirectories + row.path else collapsedDirectories - row.path
-                                    },
-                                )
-                            }
-                            is SourceFileTreeRow.File -> {
-                                SourceFileTreeFileRow(
-                                    row = row,
-                                    selected = selectedFile == row.sourceFile.relativePath,
-                                    onOpen = { onOpen(row.sourceFile.relativePath) },
-                                )
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val contentWidthDp = maxOf(
+                maxWidth.value,
+                treeRows.maxOfOrNull { row ->
+                    row.name.length * 8f +
+                        8f +
+                        row.depth * SourceFileTreeRowLayout.INDENT_DP +
+                        12f +
+                        4f +
+                        14f +
+                        5f +
+                        8f
+                } ?: 0f,
+            )
+            Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) {
+                    LazyColumn(
+                        state = listState,
+                        modifier =
+                            Modifier
+                                .width(contentWidthDp.dp)
+                                .fillMaxHeight()
+                                .padding(top = 6.dp, end = 12.dp, bottom = 12.dp),
+                    ) {
+                        items(treeRows, key = { it.key }) { row ->
+                            when (row) {
+                                is SourceFileTreeRow.Directory -> {
+                                    SourceDirectoryTreeRow(
+                                        row = row,
+                                        onToggle = {
+                                            collapsedDirectories =
+                                                if (row.expanded) collapsedDirectories + row.path else collapsedDirectories - row.path
+                                        },
+                                    )
+                                }
+                                is SourceFileTreeRow.File -> {
+                                    SourceFileTreeFileRow(
+                                        row = row,
+                                        selected = selectedFile == row.sourceFile.relativePath,
+                                        onOpen = { onOpen(row.sourceFile.relativePath) },
+                                    )
+                                }
                             }
                         }
                     }
                 }
+                SourceWorkspacePaneScrollbars(listState, horizontalScrollState)
             }
-            SourceWorkspacePaneScrollbars(listState, horizontalScrollState)
         }
     }
 }
@@ -440,6 +475,8 @@ private fun SourceDirectoryTreeRow(
             onToggle = onToggle,
         )
         Spacer(Modifier.width(4.dp))
+        SourceFileTreeFolderIcon(expanded = row.expanded)
+        Spacer(Modifier.width(5.dp))
         SourceFileTreeLabel(row.name)
     }
 }
@@ -461,6 +498,8 @@ private fun SourceFileTreeFileRow(
             onToggle = {},
         )
         Spacer(Modifier.width(4.dp))
+        SourceFileTreeFileIcon(row.sourceFile.language.sourceFileTreeIconKind())
+        Spacer(Modifier.width(5.dp))
         SourceFileTreeLabel(row.name)
     }
 }
@@ -667,6 +706,7 @@ private fun SourceBrowser(
     val files = remember(snapshotId) { runtime.repository.files(snapshotId) }
     Row(modifier) {
         SourceFileListPane(
+            language = language,
             files = files,
             selectedFile = selectedFile,
             onOpen = onOpen,
@@ -740,6 +780,7 @@ private fun SourceBrowser(
                     SourceCodeViewer(
                         sourceText = requireNotNull(sourceText),
                         language = selectedSourceFile?.language ?: SourceLanguage.OTHER,
+                        uiLanguage = language,
                         highlightedRange = selectedLocation?.range,
                         modifier = Modifier.fillMaxSize(),
                     )

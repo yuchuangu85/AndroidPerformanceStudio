@@ -48,6 +48,46 @@ class SourceFileTreeTest {
     }
 
     @Test
+    fun `file search matches relative paths without case sensitivity`() {
+        val files = listOf(
+            sourceFile("app/src/main/kotlin/MainViewModel.kt"),
+            sourceFile("app/src/test/kotlin/MainViewModelTest.kt"),
+            sourceFile("README.md"),
+        )
+
+        assertEquals(
+            listOf("app/src/main/kotlin/MainViewModel.kt", "app/src/test/kotlin/MainViewModelTest.kt"),
+            SourceFileTree.matchingFiles(files, "MAIN").map { it.relativePath },
+        )
+        assertEquals(files, SourceFileTree.matchingFiles(files, "   "))
+    }
+
+    @Test
+    fun `new source trees collapse every directory while retaining root files`() {
+        val files = listOf(
+            sourceFile("README.md"),
+            sourceFile("app/src/main/kotlin/Alpha.kt"),
+            sourceFile("app/src/main/res/layout/screen.xml", SourceLanguage.XML),
+        )
+
+        assertEquals(
+            setOf(
+                "app",
+                "app/src",
+                "app/src/main",
+                "app/src/main/kotlin",
+                "app/src/main/res",
+                "app/src/main/res/layout",
+            ),
+            SourceFileTree.defaultCollapsedDirectories(files),
+        )
+        assertEquals(
+            listOf("directory:app", "file:README.md"),
+            SourceFileTree.rows(files, SourceFileTree.defaultCollapsedDirectories(files)).map { it.key },
+        )
+    }
+
+    @Test
     fun `collapsing a directory hides only its descendants`() {
         val rows = SourceFileTree.rows(
             files = listOf(

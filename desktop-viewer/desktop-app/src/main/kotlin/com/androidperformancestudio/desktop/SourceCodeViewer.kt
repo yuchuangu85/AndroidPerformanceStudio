@@ -6,6 +6,7 @@ import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -22,11 +23,16 @@ import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,8 +42,13 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.desktop_app.generated.resources.*
+import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.source.SourceLanguage
 import com.androidperformancestudio.source.SourceRange
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 
 /**
  * A read-only source viewer modeled after Compose Multiplatform's codeviewer example:
@@ -47,56 +58,125 @@ import com.androidperformancestudio.source.SourceRange
 internal fun SourceCodeViewer(
     sourceText: String,
     language: SourceLanguage,
+    uiLanguage: UiLanguage,
     highlightedRange: SourceRange?,
     modifier: Modifier = Modifier,
 ) {
     val highlightedLines = remember(sourceText, language) { highlightSource(sourceText, language) }
+    var codeSearchQuery by remember(sourceText) { mutableStateOf("") }
+    val codeSearchMatches = remember(highlightedLines, codeSearchQuery) {
+        sourceSearchMatches(highlightedLines, codeSearchQuery)
+    }
+    var selectedSearchMatchIndex by remember(sourceText, codeSearchQuery) { mutableStateOf(0) }
+    val selectedSearchMatch = codeSearchMatches.getOrNull(selectedSearchMatchIndex)
+    val searchMatchesByLine = remember(codeSearchMatches) { codeSearchMatches.groupBy(SourceSearchMatch::lineIndex) }
     val listState = rememberLazyListState()
     val horizontalScrollState = rememberScrollState()
     val scrollbarStyle = LocalScrollbarStyle.current.copy(
         unhoverColor = OneDarkSourceTheme.scrollbar,
         hoverColor = OneDarkSourceTheme.scrollbarHover,
     )
-    val targetLineIndex = sourceLineIndex(highlightedRange, highlightedLines.size)
+    val sourceLocationLineIndex = sourceLineIndex(highlightedRange, highlightedLines.size)
 
     LaunchedEffect(sourceText, highlightedRange?.startLine) {
-        targetLineIndex?.let { lineIndex -> listState.scrollToItem(lineIndex) }
+        sourceLocationLineIndex?.let { lineIndex -> listState.scrollToItem(lineIndex) }
+    }
+    LaunchedEffect(selectedSearchMatch) {
+        selectedSearchMatch?.let { match -> listState.scrollToItem(match.lineIndex) }
     }
 
-    Box(
+    Column(
         modifier = modifier.background(OneDarkSourceTheme.editorBackground),
     ) {
-        CompositionLocalProvider(LocalTextSelectionColors provides OneDarkSourceTheme.textSelectionColors) {
-            SelectionContainer {
-                LazyColumn(
-                    state = listState,
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .padding(end = 12.dp, bottom = 12.dp)
-                            .horizontalScroll(horizontalScrollState),
-                ) {
-                    itemsIndexed(highlightedLines, key = { index, _ -> index }) { index, line ->
-                        SourceCodeLine(
-                            lineNumber = index + 1,
-                            lineNumberDigits = highlightedLines.size.toString().length,
-                            line = line,
-                            selected = sourceLineIsHighlighted(index + 1, highlightedRange),
-                        )
+        SourceCodeSearchBar(
+            query = codeSearchQuery,
+            matchCount = codeSearchMatches.size,
+            selectedMatchIndex = selectedSearchMatchIndex,
+            language = uiLanguage,
+            onQueryChange = { codeSearchQuery = it },
+            onPrevious = {
+                previousSourceSearchMatchIndex(selectedSearchMatchIndex, codeSearchMatches.size)?.let {
+                    selectedSearchMatchIndex = it
+                }
+            },
+            onNext = {
+                nextSourceSearchMatchIndex(selectedSearchMatchIndex, codeSearchMatches.size)?.let {
+                    selectedSearchMatchIndex = it
+                }
+            },
+        )
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            CompositionLocalProvider(LocalTextSelectionColors provides OneDarkSourceTheme.textSelectionColors) {
+                SelectionContainer {
+                    LazyColumn(
+                        state = listState,
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(end = 12.dp, bottom = 12.dp)
+                                .horizontalScroll(horizontalScrollState),
+                    ) {
+                        itemsIndexed(highlightedLines, key = { index, _ -> index }) { index, line ->
+                            SourceCodeLine(
+                                lineNumber = index + 1,
+                                lineNumberDigits = highlightedLines.size.toString().length,
+                                line = line,
+                                selected = sourceLineIsHighlighted(index + 1, highlightedRange),
+                                searchMatches = searchMatchesByLine[index].orEmpty(),
+                                selectedSearchMatch = selectedSearchMatch,
+                            )
+                        }
                     }
                 }
             }
+            HorizontalScrollbar(
+                adapter = rememberScrollbarAdapter(horizontalScrollState),
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(end = 12.dp),
+                style = scrollbarStyle,
+            )
+            VerticalScrollbar(
+                adapter = rememberScrollbarAdapter(listState),
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(bottom = 12.dp),
+                style = scrollbarStyle,
+            )
         }
-        HorizontalScrollbar(
-            adapter = rememberScrollbarAdapter(horizontalScrollState),
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(end = 12.dp),
-            style = scrollbarStyle,
+    }
+}
+
+@Composable
+private fun SourceCodeSearchBar(
+    query: String,
+    matchCount: Int,
+    selectedMatchIndex: Int,
+    language: UiLanguage,
+    onQueryChange: (String) -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            label = { Text(localizedStringResource(Res.string.source_search_code, language)) },
+            singleLine = true,
+            colors = viewerOutlinedTextFieldColors(),
+            modifier = Modifier.weight(1f),
         )
-        VerticalScrollbar(
-            adapter = rememberScrollbarAdapter(listState),
-            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(bottom = 12.dp),
-            style = scrollbarStyle,
+        Text(
+            text = if (matchCount == 0) "0/0" else "${selectedMatchIndex + 1}/$matchCount",
+            color = OneDarkSourceTheme.lineNumber,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(start = 8.dp),
         )
+        TextButton(onClick = onPrevious, enabled = matchCount > 0) {
+            Text(localizedStringResource(Res.string.source_search_previous, language))
+        }
+        TextButton(onClick = onNext, enabled = matchCount > 0) {
+            Text(localizedStringResource(Res.string.source_search_next, language))
+        }
     }
 }
 
@@ -106,6 +186,8 @@ private fun SourceCodeLine(
     lineNumberDigits: Int,
     line: HighlightedSourceLine,
     selected: Boolean,
+    searchMatches: List<SourceSearchMatch>,
+    selectedSearchMatch: SourceSearchMatch?,
 ) {
     val lineBackground = if (selected) OneDarkSourceTheme.currentLine else Color.Transparent
     Row(
@@ -126,7 +208,7 @@ private fun SourceCodeLine(
             )
         }
         Text(
-            text = line.asAnnotatedString(),
+            text = line.asAnnotatedString(searchMatches, selectedSearchMatch),
             color = OneDarkSourceTheme.foreground,
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall,
@@ -205,6 +287,52 @@ internal fun sourceLineIsHighlighted(
 ): Boolean {
     val range = highlightedRange ?: return false
     return lineNumber in minOf(range.startLine, range.endLine)..maxOf(range.startLine, range.endLine)
+}
+
+internal data class SourceSearchMatch(
+    val lineIndex: Int,
+    val start: Int,
+    val end: Int,
+)
+
+internal fun sourceSearchMatches(
+    lines: List<HighlightedSourceLine>,
+    query: String,
+): List<SourceSearchMatch> {
+    if (query.isBlank()) return emptyList()
+
+    return buildList {
+        lines.forEachIndexed { lineIndex, line ->
+            var startIndex = 0
+            while (startIndex <= line.text.length - query.length) {
+                val matchStart = line.text.indexOf(query, startIndex, ignoreCase = true)
+                if (matchStart == -1) break
+                add(SourceSearchMatch(lineIndex, matchStart, matchStart + query.length))
+                startIndex = matchStart + query.length
+            }
+        }
+    }
+}
+
+internal fun previousSourceSearchMatchIndex(
+    selectedMatchIndex: Int,
+    matchCount: Int,
+): Int? =
+    sourceSearchMatchIndex(selectedMatchIndex, matchCount, offset = -1)
+
+internal fun nextSourceSearchMatchIndex(
+    selectedMatchIndex: Int,
+    matchCount: Int,
+): Int? =
+    sourceSearchMatchIndex(selectedMatchIndex, matchCount, offset = 1)
+
+private fun sourceSearchMatchIndex(
+    selectedMatchIndex: Int,
+    matchCount: Int,
+    offset: Int,
+): Int? {
+    if (matchCount == 0) return null
+    return Math.floorMod(selectedMatchIndex + offset, matchCount)
 }
 
 private data class LineHighlightResult(
@@ -424,13 +552,30 @@ private fun keywordsFor(language: SourceLanguage): Set<String> =
         -> emptySet()
     }
 
-private fun HighlightedSourceLine.asAnnotatedString(): AnnotatedString =
+private fun HighlightedSourceLine.asAnnotatedString(
+    searchMatches: List<SourceSearchMatch>,
+    selectedSearchMatch: SourceSearchMatch?,
+): AnnotatedString =
     buildAnnotatedString {
         append(text)
         // Retain a logical line separator when copying multiple selected source rows.
         append('\n')
         tokens.forEach { token ->
             addStyle(SpanStyle(color = OneDarkSourceTheme.colorFor(token.kind)), token.start, token.end)
+        }
+        searchMatches.forEach { match ->
+            addStyle(
+                SpanStyle(
+                    background =
+                        if (match == selectedSearchMatch) {
+                            OneDarkSourceTheme.currentSearchMatch
+                        } else {
+                            OneDarkSourceTheme.searchMatch
+                        },
+                ),
+                match.start,
+                match.end,
+            )
         }
     }
 

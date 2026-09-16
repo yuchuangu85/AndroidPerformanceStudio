@@ -15,6 +15,7 @@ class SourceWorkspaceLocalizationTest {
                 Path.of("src/main/kotlin/com/androidperformancestudio/desktop/SourceWorkspacesPage.kt"),
             )
         val home = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
+        val codeViewer = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/SourceCodeViewer.kt"))
         val english = Files.readString(Path.of("src/main/composeResources/values/strings.xml"))
         val chinese = Files.readString(Path.of("src/main/composeResources/values-zh/strings.xml"))
         val resourceName = Regex("""<string name="(source_[^"]+)">""")
@@ -31,6 +32,10 @@ class SourceWorkspaceLocalizationTest {
         assertTrue(source.contains("SourceCodeViewer("))
         assertTrue(source.contains("language = selectedSourceFile?.language ?: SourceLanguage.OTHER"))
         assertTrue(source.contains("highlightedRange = selectedLocation?.range"))
+        assertTrue(source.contains("Res.string.source_search_files"))
+        assertTrue(codeViewer.contains("Res.string.source_search_code"))
+        assertTrue(codeViewer.contains("Res.string.source_search_previous"))
+        assertTrue(codeViewer.contains("Res.string.source_search_next"))
         assertFalse(source.contains("fontFamily = FontFamily.Monospace"))
         assertTrue(home.contains("localizedStringResource(Res.string.source_home_subtitle, language)"))
         assertTrue(home.contains("localizedStringResource(Res.string.source_home_description, language)"))

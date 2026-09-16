@@ -108,6 +108,10 @@
     <string name="source_ai_upload_allowed">AI source: allowed</string>
     <string name="source_ai_upload_blocked">AI source: blocked</string>
     <string name="source_remove">Remove</string>
+    <string name="source_search_files">Search files</string>
+    <string name="source_search_code">Search code</string>
+    <string name="source_search_previous">Previous</string>
+    <string name="source_search_next">Next</string>
     <string name="source_select_file">Select a source file</string>
     <string name="source_copy_location">Copy location</string>
     <string name="source_open_in_ide">Open in IDE</string>

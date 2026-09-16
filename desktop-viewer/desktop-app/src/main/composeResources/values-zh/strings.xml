@@ -108,6 +108,10 @@
     <string name="source_ai_upload_allowed">AI 源码上传：已允许</string>
     <string name="source_ai_upload_blocked">AI 源码上传：已禁止</string>
     <string name="source_remove">移除</string>
+    <string name="source_search_files">搜索文件</string>
+    <string name="source_search_code">搜索代码</string>
+    <string name="source_search_previous">上一个</string>
+    <string name="source_search_next">下一个</string>
     <string name="source_select_file">请选择源码文件</string>
     <string name="source_copy_location">复制位置</string>
     <string name="source_open_in_ide">在 IDE 中打开</string>
