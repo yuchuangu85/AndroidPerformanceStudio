@@ -36,8 +36,9 @@ fun HomeButton(
 ) {
     val shape = RoundedCornerShape(ViewerDimensions.controlRadius)
     val background = colors?.panel ?: MaterialTheme.colorScheme.surface
-    val outline = colors?.strongBorder ?: MaterialTheme.colorScheme.outline
-    val iconColor = colors?.accent ?: LocalViewerColors.current.accent
+    val accent = colors?.accent ?: LocalViewerColors.current.accent
+    val outline = accent
+    val iconColor = accent
     Box(
         modifier =
             modifier

@@ -78,8 +78,10 @@ class ApplicationSettingsDialogTest {
     @Test
     fun `settings window applies the selected display scale in its own composition`() {
         assertTrue(unifiedDialog.contains("displayScale: Float"))
-        assertTrue(unifiedDialog.contains("scaledViewerDensity(density, displayScale)"))
-        assertTrue(unifiedDialog.contains("CompositionLocalProvider(LocalDensity provides scaledDensity)"))
+        assertTrue(unifiedDialog.contains("ViewerTheme("))
+        assertTrue(unifiedDialog.contains("displayScale = displayScale"))
+        assertTrue(unifiedDialog.contains("accentColor = applicationSettings.themeColor.color"))
+        assertTrue(unifiedDialog.contains("viewerOutlinedTextFieldColors()"))
 
         val mainPage =
             Files.readString(

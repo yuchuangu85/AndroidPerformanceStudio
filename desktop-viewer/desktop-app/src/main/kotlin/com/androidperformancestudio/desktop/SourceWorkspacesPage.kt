@@ -58,6 +58,7 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -470,13 +471,14 @@ private fun AddRemoteWorkspaceDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
-                    name,
-                    { name = it },
+                    value = name,
+                    onValueChange = { name = it },
                     label = { Text(localizedStringResource(Res.string.source_name, language)) },
+                    colors = viewerOutlinedTextFieldColors(),
                 )
                 OutlinedTextField(
-                    first,
-                    { first = it },
+                    value = first,
+                    onValueChange = { first = it },
                     label = {
                         Text(
                             localizedStringResource(
@@ -489,24 +491,28 @@ private fun AddRemoteWorkspaceDialog(
                             ),
                         )
                     },
+                    colors = viewerOutlinedTextFieldColors(),
                 )
                 if (kind == RemoteWorkspaceDialog.GITHUB) {
                     OutlinedTextField(
-                        second,
-                        { second = it },
+                        value = second,
+                        onValueChange = { second = it },
                         label = { Text(localizedStringResource(Res.string.source_repository, language)) },
+                        colors = viewerOutlinedTextFieldColors(),
                     )
                     OutlinedTextField(
-                        token,
-                        { token = it },
+                        value = token,
+                        onValueChange = { token = it },
                         label = { Text(localizedStringResource(Res.string.source_token_optional, language)) },
                         visualTransformation = PasswordVisualTransformation(),
+                        colors = viewerOutlinedTextFieldColors(),
                     )
                 }
                 OutlinedTextField(
-                    ref,
-                    { ref = it },
+                    value = ref,
+                    onValueChange = { ref = it },
                     label = { Text(localizedStringResource(Res.string.source_revision_hint, language)) },
+                    colors = viewerOutlinedTextFieldColors(),
                 )
             }
         },

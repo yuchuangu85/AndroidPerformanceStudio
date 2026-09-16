@@ -40,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
@@ -49,7 +48,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
@@ -60,7 +58,8 @@ import javax.swing.JFileChooser
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.scaledViewerDensity
+import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui_components.generated.resources.icon_collapse
@@ -121,9 +120,13 @@ internal fun DesktopAppSettingsDialog(
             ),
         resizable = true,
     ) {
-        val density = LocalDensity.current
-        val scaledDensity = remember(density, displayScale) { scaledViewerDensity(density, displayScale) }
-        CompositionLocalProvider(LocalDensity provides scaledDensity) {
+        ViewerTheme(
+            darkTheme = darkTheme,
+            displayScale = displayScale,
+            accentColor = applicationSettings.themeColor.color,
+            typography = compactDesktopTypography(),
+            shapes = compactDesktopShapes(),
+        ) {
             LaunchedEffect(selectedPage) {
                 window.toFront()
                 window.requestFocus()
@@ -344,6 +347,7 @@ private fun AiSettingsContent(
             ),
         )
         OutlinedTextField(
+            colors = viewerOutlinedTextFieldColors(),
             value = apiKey,
             onValueChange = { apiKey = it },
             modifier = Modifier.fillMaxWidth(),
@@ -401,6 +405,7 @@ private fun AiSettingsContent(
             )
         }
         OutlinedTextField(
+            colors = viewerOutlinedTextFieldColors(),
             value = model,
             onValueChange = { model = it },
             modifier = Modifier.fillMaxWidth(),
@@ -408,6 +413,7 @@ private fun AiSettingsContent(
             singleLine = true,
         )
         OutlinedTextField(
+            colors = viewerOutlinedTextFieldColors(),
             value = endpoint,
             onValueChange = { endpoint = it },
             modifier = Modifier.fillMaxWidth(),
@@ -666,6 +672,7 @@ private fun AndroidSdkPathSetting(
     var draftPath by remember(settings.androidSdkPath) { mutableStateOf(settings.androidSdkPath.orEmpty()) }
     Column(modifier = Modifier.padding(8.dp, 0.dp, 8.dp, 0.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
+            colors = viewerOutlinedTextFieldColors(),
             value = draftPath,
             onValueChange = { draftPath = it },
             modifier = Modifier.fillMaxWidth(),

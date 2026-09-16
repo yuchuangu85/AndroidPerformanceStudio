@@ -276,11 +276,11 @@ private fun PerfettoTemplateOption(
                 .clip(shape)
                 .background(
                     if (selected) {
-                        MaterialTheme.colorScheme.primaryContainer
+                        MaterialTheme.colorScheme.primary
                     } else {
                         MaterialTheme.colorScheme.surfaceVariant
                     },
-                ).border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                ).border(1.dp, MaterialTheme.colorScheme.primary, shape)
                 .clickable(onClick = onClick)
                 .padding(horizontal = 8.dp, vertical = 7.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -289,9 +289,9 @@ private fun PerfettoTemplateOption(
             text = template.displayName(language),
             color =
                 if (selected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
+                    MaterialTheme.colorScheme.onPrimary
                 } else {
-                    MaterialTheme.colorScheme.onSurface
+                    MaterialTheme.colorScheme.primary
                 },
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
@@ -302,9 +302,9 @@ private fun PerfettoTemplateOption(
             text = template.description(language),
             color =
                 if (selected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
+                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f)
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.78f)
                 },
             fontSize = 10.sp,
             lineHeight = 13.sp,

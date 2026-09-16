@@ -1,8 +1,10 @@
 package com.androidperformancestudio.ui
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -15,6 +17,23 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class DropdownSelectorTest {
+    @Test
+    fun `nested viewer theme inherits the enclosing selected accent`() =
+        runDesktopComposeUiTest {
+            val accent = Color(0xFFD4042D)
+            var nestedPrimary = Color.Unspecified
+
+            setContent {
+                ViewerTheme(darkTheme = false, accentColor = accent) {
+                    ViewerTheme(darkTheme = false) {
+                        nestedPrimary = MaterialTheme.colorScheme.primary
+                    }
+                }
+            }
+
+            assertEquals(accent, nestedPrimary)
+        }
+
     @Test
     fun `selects regular and placeholder items`() =
         runDesktopComposeUiTest {

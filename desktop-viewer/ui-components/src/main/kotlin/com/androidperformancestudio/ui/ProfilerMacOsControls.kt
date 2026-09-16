@@ -50,15 +50,15 @@ public fun ProfilerCompactButton(
     val shape = RoundedCornerShape(4.dp)
     val containerColor =
         if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
+            MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.surface
         }
     val contentColor =
         if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
+            MaterialTheme.colorScheme.onPrimary
         } else {
-            MaterialTheme.colorScheme.onSurface
+            MaterialTheme.colorScheme.primary
         }
     val disabledAlpha = if (enabled) 1f else DISABLED_CONTENT_ALPHA
 
@@ -68,7 +68,7 @@ public fun ProfilerCompactButton(
                 .height(24.dp)
                 .clip(shape)
                 .background(containerColor.copy(alpha = disabledAlpha))
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                .border(1.dp, MaterialTheme.colorScheme.primary, shape)
                 .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 8.dp),
         contentAlignment = Alignment.Center,
@@ -115,7 +115,7 @@ public fun ProfilerCompactTextField(
                     .weight(1f)
                     .height(24.dp)
                     .background(MaterialTheme.colorScheme.surface, shape)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                    .border(1.dp, MaterialTheme.colorScheme.primary, shape)
                     .padding(horizontal = 6.dp),
             enabled = enabled,
             singleLine = true,
@@ -174,7 +174,7 @@ public fun MacOSInlineTextField(
                     .background(style.field, RoundedCornerShape(ViewerDimensions.controlRadius))
                     .border(
                         ViewerDimensions.hairline,
-                        style.strongBorder,
+                        style.accent,
                         RoundedCornerShape(ViewerDimensions.controlRadius),
                     ).semantics { contentDescription = label }
                     .padding(horizontal = 8.dp, vertical = 2.dp),

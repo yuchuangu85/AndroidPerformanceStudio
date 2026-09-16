@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.ui.switch.MacOSSwitch
 import kotlin.math.roundToInt
@@ -254,6 +255,7 @@ private fun CanvasColorField(
             Text(label, modifier = Modifier.width(82.dp), style = MaterialTheme.typography.bodyMedium)
             Box(Modifier.size(20.dp).background(color.toComposeColor(), RoundedCornerShape(10.dp)))
             OutlinedTextField(
+                colors = viewerOutlinedTextFieldColors(),
                 value = value,
                 onValueChange = { updated ->
                     value = updated

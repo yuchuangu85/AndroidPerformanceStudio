@@ -105,6 +105,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.unre
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 
 /**
  * Android Studio-style heap class list, rendered as a stacked layout:
@@ -226,6 +227,7 @@ private fun FilterBar(
             selectorDescription = localizedStringResource(Res.string.arrange_by, language),
         )
         OutlinedTextField(
+            colors = viewerOutlinedTextFieldColors(),
             value = state.searchText,
             onValueChange = actions.onSearchChange,
             placeholder = { Text(localizedStringResource(Res.string.filter_classes, language), fontSize = 12.sp) },

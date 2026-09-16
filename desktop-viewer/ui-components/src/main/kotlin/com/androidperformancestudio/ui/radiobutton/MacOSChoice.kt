@@ -32,7 +32,7 @@ fun MacOSChoiceChip(
     onClick: () -> Unit,
 ) {
     val background = if (selected) style.accent else style.field
-    val content = if (selected) style.accentText else style.text
+    val content = if (selected) style.accentText else style.accent
     Row(
         modifier = Modifier.padding(start = 4.dp, top = 0.dp, end = 4.dp, bottom = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -53,7 +53,7 @@ fun MacOSChoiceChip(
                     RoundedCornerShape(6.dp),
                 ).border(
                     ViewerDimensions.hairline,
-                    if (selected) style.accent else style.strongBorder,
+                    style.accent,
                     RoundedCornerShape(6.dp),
                 ).clickable(enabled = enabled, onClick = onClick)
                 .padding(start = 6.dp, top = 0.dp, end = 6.dp, bottom = 0.dp),

@@ -94,7 +94,7 @@ fun PerfettoCompactTextField(
                 .height(height)
                 .clip(shape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                .border(1.dp, MaterialTheme.colorScheme.primary, shape)
                 .padding(horizontal = 7.dp, vertical = if (singleLine) 4.dp else 6.dp),
         enabled = enabled,
         singleLine = singleLine,
@@ -137,7 +137,7 @@ fun PerfettoCompactButton(
     val shape = RoundedCornerShape(4.dp)
     val background =
         if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
+            MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.surfaceVariant
         }
@@ -148,7 +148,7 @@ fun PerfettoCompactButton(
                 .height(24.dp)
                 .clip(shape)
                 .background(background)
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                .border(1.dp, MaterialTheme.colorScheme.primary, shape)
                 .clickable(
                     enabled = enabled,
                     interactionSource = interactionSource,
@@ -162,8 +162,8 @@ fun PerfettoCompactButton(
             color =
                 when {
                     !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    selected -> MaterialTheme.colorScheme.onPrimaryContainer
-                    else -> MaterialTheme.colorScheme.onSurface
+                    selected -> MaterialTheme.colorScheme.onPrimary
+                    else -> MaterialTheme.colorScheme.primary
                 },
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,

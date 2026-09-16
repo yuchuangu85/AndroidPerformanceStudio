@@ -59,6 +59,25 @@ class HeaderControlTest {
     }
 
     @Test
+    fun `layout inspector custom action buttons use the active theme color`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
+        )
+
+        listOf(
+            "private fun PreviewZoomButton(",
+            "private fun LayerVisibilityButton(",
+            "private fun HitTestOrderToggle(",
+            "private fun CanvasModeToggle(",
+            "private fun TimelineScrollButton(",
+            "private fun SearchNavButton(",
+        ).forEach { function ->
+            val control = source.substringAfter(function)
+            assertTrue(control.contains("colors.accent"), "$function should use the active accent")
+        }
+    }
+
+    @Test
     fun `manual refresh control is a labeled text button without an icon`() {
         assertEquals("Refresh", localizedStringResource(Res.string.refresh, UiLanguage.ENGLISH))
         assertEquals("刷新", localizedStringResource(Res.string.refresh, UiLanguage.SIMPLIFIED_CHINESE))

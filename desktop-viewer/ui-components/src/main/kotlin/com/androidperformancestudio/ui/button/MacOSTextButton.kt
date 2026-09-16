@@ -34,7 +34,7 @@ fun MacOSTextButton(
     modifier: Modifier = Modifier,
 ) {
     val container = if (primary) style.accent else style.panel
-    val content = if (primary) style.accentText else style.text
+    val content = if (primary) style.accentText else style.accent
     Box(
         modifier =
             modifier
@@ -43,7 +43,7 @@ fun MacOSTextButton(
                 .background(container.copy(alpha = if (enabled) 1f else DISABLED_CONTAINER_ALPHA))
                 .border(
                     ViewerDimensions.hairline,
-                    if (primary) style.accent else style.strongBorder,
+                    style.accent,
                     RoundedCornerShape(ViewerDimensions.controlRadius),
                 ).clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 10.dp),

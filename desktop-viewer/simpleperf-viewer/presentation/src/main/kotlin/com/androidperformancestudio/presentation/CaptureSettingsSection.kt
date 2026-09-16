@@ -697,7 +697,7 @@ internal fun MacOsTextField(
                     .background(style.field, RoundedCornerShape(ViewerDimensions.controlRadius))
                     .border(
                         ViewerDimensions.hairline,
-                        style.strongBorder,
+                        style.accent,
                         RoundedCornerShape(ViewerDimensions.controlRadius),
                     ).semantics { contentDescription = label }
                     .padding(horizontal = 8.dp, vertical = 7.dp),

@@ -25,6 +25,36 @@ class UnifiedUiComponentsSourceTest {
     }
 
     @Test
+    fun `shared custom buttons derive visible action styling from the active accent`() {
+        val textButton = Files.readString(sourceRoot.resolve("button/MacOSTextButton.kt"))
+        val homeButton = Files.readString(sourceRoot.resolve("button/HomeButton.kt"))
+        val settingsButton = Files.readString(sourceRoot.resolve("button/SettingButton.kt"))
+        val choiceChip = Files.readString(sourceRoot.resolve("radiobutton/MacOSChoice.kt"))
+        val selector = Files.readString(sourceRoot.resolve("DropdownSelector.kt"))
+        val controls = Files.readString(sourceRoot.resolve("ProfilerMacOsControls.kt"))
+
+        assertTrue(textButton.contains("val content = if (primary) style.accentText else style.accent"))
+        assertTrue(textButton.contains("style.accent,"))
+        assertTrue(homeButton.contains("val outline = accent"))
+        assertTrue(settingsButton.contains("colors?.accent ?: LocalViewerColors.current.accent"))
+        assertTrue(choiceChip.contains("val content = if (selected) style.accentText else style.accent"))
+        assertTrue(selector.contains(".border(1.dp, colors.accent, shape)"))
+        assertTrue(selector.contains("tint = colors.accent"))
+        assertTrue(controls.contains(".border(1.dp, MaterialTheme.colorScheme.primary, shape)"))
+        assertTrue(controls.contains("style.accent,"))
+    }
+
+    @Test
+    fun `nested viewer themes and outlined fields inherit the active accent`() {
+        val source = Files.readString(sourceRoot.resolve("ViewerTheme.kt"))
+
+        assertTrue(source.contains("accentColor: Color = LocalViewerColors.current.accent"))
+        assertTrue(source.contains("public fun viewerOutlinedTextFieldColors(): TextFieldColors"))
+        assertTrue(source.contains("focusedBorderColor = accent"))
+        assertTrue(source.contains("unfocusedBorderColor = accent"))
+    }
+
+    @Test
     fun `shared theme uses the macOS light and dark palettes`() {
         val light = viewerColors(darkTheme = false)
         val dark = viewerColors(darkTheme = true)

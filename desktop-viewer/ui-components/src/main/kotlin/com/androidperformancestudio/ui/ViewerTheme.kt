@@ -4,7 +4,9 @@ package com.androidperformancestudio.ui
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -177,7 +179,7 @@ val LocalViewerColors = staticCompositionLocalOf {
 public fun ViewerTheme(
     darkTheme: Boolean,
     displayScale: Float = 1f,
-    accentColor: Color = DefaultViewerAccent,
+    accentColor: Color = LocalViewerColors.current.accent,
     typography: Typography = MaterialTheme.typography,
     shapes: Shapes = MaterialTheme.shapes,
     content: @Composable () -> Unit,
@@ -194,6 +196,16 @@ public fun ViewerTheme(
             content = content,
         )
     }
+}
+
+@Composable
+public fun viewerOutlinedTextFieldColors(): TextFieldColors {
+    val accent = LocalViewerColors.current.accent
+    return OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = accent,
+        unfocusedBorderColor = accent,
+        disabledBorderColor = accent.copy(alpha = 0.45f),
+    )
 }
 
 public fun scaledViewerDensity(density: Density, displayScale: Float): Density =

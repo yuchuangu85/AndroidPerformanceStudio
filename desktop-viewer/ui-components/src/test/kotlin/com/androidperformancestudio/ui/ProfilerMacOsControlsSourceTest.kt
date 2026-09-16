@@ -19,8 +19,17 @@ class ProfilerMacOsControlsSourceTest {
     fun `shared controls lock the approved compact dimensions`() {
         assertTrue(source.contains(".height(24.dp)"))
         assertTrue(source.contains("RoundedCornerShape(4.dp)"))
-        assertTrue(source.contains(".border(1.dp, MaterialTheme.colorScheme.outline"))
+        assertTrue(source.contains(".border(1.dp, MaterialTheme.colorScheme.primary, shape)"))
         assertTrue(source.contains("fontSize = 11.sp"))
+    }
+
+    @Test
+    fun `compact button colors follow the Material primary theme color`() {
+        assertTrue(source.contains("MaterialTheme.colorScheme.primary"))
+        assertTrue(source.contains("MaterialTheme.colorScheme.onPrimary"))
+        assertTrue(source.contains("""else {
+            MaterialTheme.colorScheme.primary
+        }"""))
     }
 
     @Test

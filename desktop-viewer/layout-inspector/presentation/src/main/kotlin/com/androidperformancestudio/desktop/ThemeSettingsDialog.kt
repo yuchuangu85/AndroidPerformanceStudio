@@ -2,6 +2,7 @@ package com.androidperformancestudio.desktop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -308,6 +309,7 @@ private fun CanvasColorSetting(
                 .padding(start = 8.dp)
                 .width(86.dp)
                 .background(colors.sectionBackground, RoundedCornerShape(4.dp))
+                .border(1.dp, colors.accent, RoundedCornerShape(4.dp))
                 .padding(4.dp),
         )
         Text(
@@ -336,13 +338,13 @@ private fun SettingsCloseButton(onClick: () -> Unit) {
         Canvas(Modifier.size(10.dp)) {
             val strokeWidth = 1.4.dp.toPx()
             drawLine(
-                color = colors.mutedText,
+                color = colors.accent,
                 start = Offset.Zero,
                 end = Offset(size.width, size.height),
                 strokeWidth = strokeWidth,
             )
             drawLine(
-                color = colors.mutedText,
+                color = colors.accent,
                 start = Offset(size.width, 0f),
                 end = Offset(0f, size.height),
                 strokeWidth = strokeWidth,

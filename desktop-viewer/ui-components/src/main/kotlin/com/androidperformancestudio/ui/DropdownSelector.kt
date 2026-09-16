@@ -72,7 +72,7 @@ public fun <T> DropdownSelector(
                 Modifier
                     .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
                     .background(colors.sectionBackground, shape)
-                    .border(1.dp, colors.border, shape)
+                    .border(1.dp, colors.accent, shape)
                     .semantics {
                         selectorDescription?.let { contentDescription = it }
                         stateDescription = displayText
@@ -85,7 +85,7 @@ public fun <T> DropdownSelector(
         ) {
             Text(
                 text = displayText,
-                color = colors.secondaryText,
+                color = colors.accent,
                 fontSize = controlFontSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -98,7 +98,7 @@ public fun <T> DropdownSelector(
                     Modifier
                         .size(12.dp)
                         .testTag("dropdown-selector-expand-icon"),
-                tint = colors.secondaryText,
+                tint = colors.accent,
             )
         }
         DropdownMenu(

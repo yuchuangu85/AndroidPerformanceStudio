@@ -52,7 +52,7 @@ public fun SettingsButton(
                 .clickable(enabled = enabled, onClick = onClick)
                 .border(
                     ViewerDimensions.hairline,
-                    MaterialTheme.colorScheme.outline,
+                    colors?.accent ?: LocalViewerColors.current.accent,
                     RoundedCornerShape(ViewerDimensions.controlRadius),
                 ),
         contentAlignment = Alignment.Center,

@@ -2517,7 +2517,7 @@ private fun PreviewZoomButton(
     ) {
         Text(
             text = label,
-            color = if (enabled) colors.primaryText else colors.mutedText.copy(alpha = 0.45f),
+            color = if (enabled) colors.accent else colors.mutedText.copy(alpha = 0.45f),
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
         )
@@ -2685,7 +2685,7 @@ private fun LayerVisibilityButton(
             .width(LayerVisibilityButtonStyle.WIDTH_DP.dp)
             .height(LayerVisibilityButtonStyle.HEIGHT_DP.dp)
             .background(
-                color = if (hidden) colors.accent.copy(alpha = 0.14f) else Color.Transparent,
+                color = colors.accent.copy(alpha = if (hidden) 0.14f else 0.06f),
                 shape = RoundedCornerShape(3.dp),
             )
             .semantics { contentDescription = localizedStringResource(Res.string.toggle_layer_visibility, language) }
@@ -2694,7 +2694,7 @@ private fun LayerVisibilityButton(
     ) {
         Text(
             text = label,
-            color = if (hidden) colors.accent else colors.mutedText,
+            color = colors.accent,
             fontSize = LayerVisibilityButtonStyle.FONT_SIZE_SP.sp,
             lineHeight = LayerVisibilityButtonStyle.LINE_HEIGHT_SP.sp,
             maxLines = 1,
@@ -2715,11 +2715,11 @@ private fun HitTestOrderToggle(
     }
     Text(
         text = label,
-        color = colors.secondaryText,
+        color = colors.accent,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
         modifier = Modifier
-            .background(colors.sectionBackground, RoundedCornerShape(4.dp))
+            .background(colors.accent.copy(alpha = 0.14f), RoundedCornerShape(4.dp))
             .clickable(onClick = onToggle)
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
@@ -2751,14 +2751,14 @@ private fun CanvasModeToggle(
 ) {
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
-    val color = if (appOnly) colors.accent else colors.mutedText
+    val color = colors.accent
     Text(
         text = if (appOnly) localizedStringResource(Res.string.app_only_on, language) else localizedStringResource(Res.string.app_only_off, language),
         color = color,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
         modifier = Modifier
-            .background(color.copy(alpha = 0.14f), RoundedCornerShape(4.dp))
+            .background(color.copy(alpha = if (appOnly) 0.18f else 0.08f), RoundedCornerShape(4.dp))
             .clickable(onClick = onToggle)
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
@@ -2802,14 +2802,14 @@ private fun DetailsPane(
                 val shape = RoundedCornerShape(4.dp)
                 Box(
                     modifier = Modifier
-                        .border(1.dp, colors.border, shape)
+                        .border(1.dp, colors.accent, shape)
                         .clickable(onClick = {
                             onOpenMemoryProfiler(className)
                         })
                 ) {
                     Text(
                         text = localizedStringResource(Res.string.find_in_memory_profiler, language),
-                        color = colors.secondaryText,
+                        color = colors.accent,
                         fontSize = 11.sp,
                         maxLines = 1,
                         modifier = Modifier
@@ -3180,11 +3180,11 @@ private fun TimelineStrip(
                     if (frame.selected) colors.selectedRow
                     else if (colors.isDark) colors.detailRowDeep
                     else colors.sectionBackground
-                val textColor = if (frame.selected) colors.primaryText else colors.secondaryText
+                val textColor = if (frame.selected) colors.primaryText else colors.accent
                 Row(
                     modifier = Modifier
                         .background(background, RoundedCornerShape(4.dp))
-                        .border(1.dp, if (frame.selected) colors.accent.copy(alpha = 0.7f) else colors.border, RoundedCornerShape(4.dp))
+                        .border(1.dp, colors.accent.copy(alpha = if (frame.selected) 0.7f else 0.45f), RoundedCornerShape(4.dp))
                         .clickable { onSelectTimelineFrame(frame.index) }
                         .padding(start = 8.dp, end = 3.dp, top = 3.dp, bottom = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3207,7 +3207,7 @@ private fun TimelineStrip(
                                 .clickable { onCloseTimelineFrame(frame.index) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("×", color = colors.mutedText, fontSize = 14.sp, lineHeight = 14.sp)
+                        Text("×", color = colors.accent, fontSize = 14.sp, lineHeight = 14.sp)
                     }
                 }
             }
@@ -3249,14 +3249,14 @@ private fun TimelineScrollButton(
         modifier = modifier
             .width(28.dp)
             .fillMaxHeight()
-            .background(colors.panel)
-            .border(1.dp, colors.border)
+            .background(colors.accent.copy(alpha = 0.08f))
+            .border(1.dp, colors.accent)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = if (direction == TimelineScrollDirection.LEFT) "‹" else "›",
-            color = if (enabled) colors.primaryText else colors.subtleText,
+            color = if (enabled) colors.accent else colors.subtleText,
             fontSize = 18.sp,
         )
     }
@@ -3422,7 +3422,7 @@ private fun HierarchySearchBar(
             modifier = Modifier
                 .weight(1f)
                 .height(22.dp)
-                .border(1.dp, colors.border, RoundedCornerShape(3.dp))
+                .border(1.dp, colors.accent, RoundedCornerShape(3.dp))
                 .background(colors.sectionBackground.copy(alpha = 0.3f), RoundedCornerShape(3.dp))
                 .padding(horizontal = 6.dp),
             contentAlignment = Alignment.CenterStart,
@@ -3505,7 +3505,7 @@ private fun SearchNavButton(
             .width(20.dp)
             .height(20.dp)
             .background(
-                color = if (enabled) colors.sectionBackground else Color.Transparent,
+                color = if (enabled) colors.accent.copy(alpha = 0.10f) else Color.Transparent,
                 shape = RoundedCornerShape(3.dp),
             )
             .let { base -> if (enabled) base.clickable(onClick = onClick) else base }
@@ -3514,7 +3514,7 @@ private fun SearchNavButton(
     ) {
         Text(
             label,
-            color = if (enabled) colors.primaryText else colors.mutedText.copy(alpha = 0.4f),
+            color = if (enabled) colors.accent else colors.mutedText.copy(alpha = 0.4f),
             fontSize = 9.sp,
             maxLines = 1,
         )
