@@ -52,7 +52,7 @@ class UnifiedDesktopShellTest {
         assertTrue(perfettoRoute.contains("onNavigateHome = { navigator.open(AppDestination.HOME) }"))
         assertTrue(shell.contains("MemoryProfilerMainPage("))
         assertTrue(shell.contains("onOpenUserGuide"))
-        assertTrue(shell.contains("commonThemePreference = applicationSettings.theme.storageValue"))
+        assertTrue(shell.contains("val viewerThemeContext = rememberViewerThemeContext()"))
         assertTrue(shell.contains("commonLanguagePreference = applicationSettings.language.storageValue"))
         assertFalse(shell.contains("返回主页"))
         assertFalse(shell.contains("RetainedFeatureLayer"))
