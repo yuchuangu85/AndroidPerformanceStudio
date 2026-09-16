@@ -12,7 +12,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 
 @Immutable
@@ -141,8 +144,30 @@ internal object ViewerPalettes {
             strongBorder = Color(0xFF636366),
         )
 
-    fun forDark(darkTheme: Boolean): ViewerColors = if (darkTheme) dark else light
+    fun forDark(darkTheme: Boolean, accentColor: Color): ViewerColors =
+        (if (darkTheme) dark else light).withAccent(accentColor)
 }
+
+private fun ViewerColors.withAccent(accentColor: Color): ViewerColors =
+    copy(
+        accent = accentColor,
+        accentText = accentColor.contentColor(),
+        visibleViewBounds = accentColor,
+        info = accentColor,
+        selectedRow = accentColor.copy(alpha = if (isDark) 0.32f else 0.20f),
+        searchMatchRow = accentColor.copy(alpha = 0.20f),
+        searchCurrentMatchRow = accentColor.copy(alpha = 0.40f),
+        searchHighlightText = accentColor,
+    )
+
+private fun Color.contentColor(): Color =
+    if (red * 0.299f + green * 0.587f + blue * 0.114f > 0.55f) {
+        Color(0xFF1D1D1F)
+    } else {
+        Color.White
+    }
+
+private val DefaultViewerAccent = Color(0xFF0A84FF)
 
 val LocalViewerColors = staticCompositionLocalOf {
     viewerColors(darkTheme = true)
@@ -151,13 +176,17 @@ val LocalViewerColors = staticCompositionLocalOf {
 @Composable
 public fun ViewerTheme(
     darkTheme: Boolean,
+    displayScale: Float = 1f,
+    accentColor: Color = DefaultViewerAccent,
     typography: Typography = MaterialTheme.typography,
     shapes: Shapes = MaterialTheme.shapes,
     content: @Composable () -> Unit,
 ) {
-    val colors = viewerColors(darkTheme)
-    val colorScheme = viewerMaterialColorScheme(darkTheme)
-    CompositionLocalProvider(LocalViewerColors provides colors) {
+    val colors = viewerColors(darkTheme, accentColor)
+    val colorScheme = viewerMaterialColorScheme(darkTheme, accentColor)
+    val density = LocalDensity.current
+    val scaledDensity = remember(density, displayScale) { scaledViewerDensity(density, displayScale) }
+    CompositionLocalProvider(LocalViewerColors provides colors, LocalDensity provides scaledDensity) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = typography,
@@ -167,17 +196,28 @@ public fun ViewerTheme(
     }
 }
 
-public fun viewerColors(darkTheme: Boolean): ViewerColors = ViewerPalettes.forDark(darkTheme)
+public fun scaledViewerDensity(density: Density, displayScale: Float): Density =
+    Density(density = density.density * displayScale, fontScale = density.fontScale)
 
-public fun viewerMaterialColorScheme(darkTheme: Boolean): ColorScheme {
-    val colors = viewerColors(darkTheme)
+public fun viewerColors(
+    darkTheme: Boolean,
+    accentColor: Color = DefaultViewerAccent,
+): ViewerColors = ViewerPalettes.forDark(darkTheme, accentColor)
+
+public fun viewerMaterialColorScheme(
+    darkTheme: Boolean,
+    accentColor: Color = DefaultViewerAccent,
+): ColorScheme {
+    val colors = viewerColors(darkTheme, accentColor)
     return if (darkTheme) {
         darkColorScheme(
             primary = colors.accent,
+            onPrimary = colors.accentText,
             background = colors.canvasBackground,
             surface = colors.panel,
             surfaceVariant = colors.detailRowDeep,
             primaryContainer = colors.selectedRow,
+            onPrimaryContainer = colors.primaryText,
             secondaryContainer = colors.sectionBackground,
             outline = colors.border,
             onBackground = colors.primaryText,
@@ -188,10 +228,12 @@ public fun viewerMaterialColorScheme(darkTheme: Boolean): ColorScheme {
     } else {
         lightColorScheme(
             primary = colors.accent,
+            onPrimary = colors.accentText,
             background = colors.canvasBackground,
             surface = colors.panel,
             surfaceVariant = colors.detailRowDeep,
             primaryContainer = colors.selectedRow,
+            onPrimaryContainer = colors.primaryText,
             secondaryContainer = colors.sectionBackground,
             outline = colors.border,
             onBackground = colors.primaryText,

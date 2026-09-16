@@ -135,6 +135,8 @@ public fun FrameWindowScope.DesktopAppMainPage(
 
     ViewerTheme(
         darkTheme = darkTheme,
+        displayScale = applicationSettings.displayScale.multiplier,
+        accentColor = applicationSettings.themeColor.color,
         typography = compactDesktopTypography(),
         shapes = compactDesktopShapes(),
     ) {
@@ -446,6 +448,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                         simpleperfCaptureSettingsContext = simpleperfCaptureSettingsContext,
                         simpleperfInitialSection = simpleperfSettingsSection,
                         darkTheme = darkTheme,
+                        displayScale = applicationSettings.displayScale.multiplier,
                         language = language,
                         simpleperfLocale = if (language == UiLanguage.SIMPLIFIED_CHINESE) java.util.Locale.SIMPLIFIED_CHINESE else java.util.Locale.ENGLISH,
                         sourceWorkspaceRuntime = sourceWorkspaceRuntime,

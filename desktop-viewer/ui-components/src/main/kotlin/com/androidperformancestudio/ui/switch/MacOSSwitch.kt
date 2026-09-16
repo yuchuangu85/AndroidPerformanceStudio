@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.ui.LocalViewerColors
 
 @Composable
 fun MacOSSwitch(
@@ -29,10 +30,14 @@ fun MacOSSwitch(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    checkedTrackColor: Color = Color(0xFF34C759),
-    uncheckedTrackColor: Color = Color(0xFFE5E5EA),
-    thumbColor: Color = Color.White,
+    checkedTrackColor: Color? = null,
+    uncheckedTrackColor: Color? = null,
+    thumbColor: Color? = null,
 ) {
+    val colors = LocalViewerColors.current
+    val selectedTrackColor = checkedTrackColor ?: colors.accent
+    val unselectedTrackColor = uncheckedTrackColor ?: colors.switchTrackOff
+    val resolvedThumbColor = thumbColor ?: if (checked) colors.accentText else colors.switchThumbOff
     val trackWidth = 36.dp
     val trackHeight = 22.dp
     val thumbSize = 20.dp
@@ -52,7 +57,7 @@ fun MacOSSwitch(
         },
         label = "IosSwitchTrackColor"
     ) { isChecked ->
-        if (isChecked) checkedTrackColor else uncheckedTrackColor
+        if (isChecked) selectedTrackColor else unselectedTrackColor
     }
 
     val thumbOffsetX by transition.animateDp(
@@ -114,7 +119,7 @@ fun MacOSSwitch(
                         clip = false
                     )
                     .background(
-                        color = thumbColor,
+                        color = resolvedThumbColor,
                         shape = CircleShape
                     )
             )

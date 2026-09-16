@@ -44,4 +44,48 @@ class ApplicationSettingsDialogTest {
             )
         assertTrue(mainPage.contains("onOpenAiSettings = { openSettings(SettingsPage.AI) }"))
     }
+    @Test
+    fun `general settings applies the selected display percentage through application settings`() {
+        assertTrue(unifiedDialog.contains("Res.string.display_size"))
+        assertTrue(unifiedDialog.contains("ApplicationDisplayScale.entries"))
+        assertTrue(unifiedDialog.contains("onSettingsChanged(settings.copy(displayScale = it))"))
+    }
+
+    @Test
+    fun `general settings keeps theme color directly below theme selection`() {
+        assertFalse(unifiedDialog.contains("THEME_COLOR"))
+        assertTrue(unifiedDialog.contains("ThemeColorSettingsContent("))
+        assertTrue(unifiedDialog.contains("ApplicationThemeColor.entries"))
+        assertTrue(unifiedDialog.contains("onSettingsChanged(settings.copy(themeColor = color))"))
+        assertTrue(
+            unifiedDialog.indexOf("label = localizedStringResource(Res.string.theme, language)") <
+                unifiedDialog.indexOf("ThemeColorSettingsContent("),
+        )
+    }
+
+    @Test
+    fun `configuration page owns the Android SDK path setting`() {
+        assertTrue(SettingsPage.entries.indexOf(SettingsPage.CONFIGURATION) > SettingsPage.entries.indexOf(SettingsPage.GENERAL))
+        assertTrue(unifiedDialog.contains("SettingsPage.CONFIGURATION ->"))
+        assertTrue(unifiedDialog.contains("ConfigurationSettingsContent("))
+        assertTrue(unifiedDialog.contains("AndroidSdkPathSetting("))
+        assertTrue(
+            unifiedDialog.indexOf("SettingsPage.CONFIGURATION ->") <
+                unifiedDialog.indexOf("AndroidSdkPathSetting("),
+        )
+    }
+
+    @Test
+    fun `settings window applies the selected display scale in its own composition`() {
+        assertTrue(unifiedDialog.contains("displayScale: Float"))
+        assertTrue(unifiedDialog.contains("scaledViewerDensity(density, displayScale)"))
+        assertTrue(unifiedDialog.contains("CompositionLocalProvider(LocalDensity provides scaledDensity)"))
+
+        val mainPage =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"),
+            )
+        assertTrue(mainPage.contains("displayScale = applicationSettings.displayScale.multiplier"))
+    }
+
 }

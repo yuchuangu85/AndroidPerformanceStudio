@@ -33,6 +33,16 @@
     <string name="general_settings">通用设置</string>
     <string name="language">语言</string>
     <string name="theme">主题</string>
+    <string name="display_size">显示大小</string>
+    <string name="theme_color">主题色</string>
+    <string name="theme_color_banana_red">蕉红</string>
+    <string name="theme_color_warm_sun_orange">暖阳橙</string>
+    <string name="theme_color_cornflower_blue">矢车菊蓝</string>
+    <string name="theme_color_jade_green">翠微</string>
+    <string name="theme_color_merlot_pink">梅洛粉</string>
+    <string name="theme_color_azure">碧青</string>
+    <string name="theme_color_lemon_yellow">柠檬黄</string>
+    <string name="theme_color_royal_purple">皇家紫</string>
     <string name="done">完成</string>
     <string name="system">跟随系统</string>
     <string name="simplified_chinese">简体中文</string>
@@ -47,6 +57,7 @@
     <string name="capture_parameters_connect_to_the_current_device_and_target_after">采集参数会在打开 CPU Profiler 后连接到当前设备和目标；Flame 图与分析引擎设置仍可立即修改。</string>
     <string name="settings">设置</string>
     <string name="general">通用</string>
+    <string name="configuration">配置</string>
     <string name="about">关于</string>
     <string name="application_version">版本号：%1$s</string>
     <string name="sdk_path">Android SDK路径</string>

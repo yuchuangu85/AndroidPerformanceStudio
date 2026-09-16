@@ -41,6 +41,24 @@ class HeaderControlTest {
     }
 
     @Test
+    fun `header and panel toggle icons use the active theme color`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
+        )
+        val sharedHeader = Files.readString(
+            Path.of("../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/HeaderToolbar.kt"),
+        )
+        val panelToggle = source
+            .substringAfter("private fun PanelToggleButton(")
+            .substringBefore("private fun HierarchyPane(")
+
+        assertTrue(sharedHeader.contains("val colors = LocalViewerColors.current"))
+        assertTrue(sharedHeader.contains("colors = colors"))
+        assertTrue(panelToggle.contains("val iconColor = colors.accent"))
+        assertFalse(panelToggle.contains("colors.mutedText"))
+    }
+
+    @Test
     fun `manual refresh control is a labeled text button without an icon`() {
         assertEquals("Refresh", localizedStringResource(Res.string.refresh, UiLanguage.ENGLISH))
         assertEquals("刷新", localizedStringResource(Res.string.refresh, UiLanguage.SIMPLIFIED_CHINESE))

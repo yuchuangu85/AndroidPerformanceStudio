@@ -1726,7 +1726,7 @@ private fun PanelToggleButton(
     onClick: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    val iconColor = if (visible) colors.accent else colors.mutedText
+    val iconColor = colors.accent
     Box(
         modifier =
             Modifier

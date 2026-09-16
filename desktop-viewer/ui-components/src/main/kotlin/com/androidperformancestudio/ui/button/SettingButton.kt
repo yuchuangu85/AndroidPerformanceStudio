@@ -36,7 +36,7 @@ public fun SettingsButton(
     onClick: () -> Unit,
 ) {
     val iconColor =
-        (colors?.secondaryText ?: LocalViewerColors.current.mutedText)
+        (colors?.accent ?: LocalViewerColors.current.accent)
             .copy(alpha = if (enabled) 1f else DISABLED_SETTINGS_CONTENT_ALPHA)
     val accessibilityModifier =
         if (contentDescription == null) {

@@ -29,9 +29,10 @@ fun HeaderToolbar(
     onNavigateSettings: (() -> Unit)?,
     content: @Composable RowScope.() -> Unit,
 ) {
+    val colors = LocalViewerColors.current
     Row(
         modifier = modifier.height(HEADER_TOOL_BAR_HEIGHT).fillMaxWidth()
-            .background(LocalViewerColors.current.panel)
+            .background(colors.panel)
             .padding(start = 10.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -39,6 +40,7 @@ fun HeaderToolbar(
             HomeButton(
                 contentDescription = localizedStringResource(Res.string.back_to_home, language),
                 onClick = onNavigateHome,
+                colors = colors,
             )
             HeaderSpacer()
             HeaderDivider()
@@ -58,6 +60,7 @@ fun HeaderToolbar(
                 SettingsButton(
                     modifier = Modifier.align(Alignment.Center),
                     contentDescription = localizedStringResource(Res.string.settings, language),
+                    colors = colors,
                 ) { onNavigateSettings() }
             }
         }
