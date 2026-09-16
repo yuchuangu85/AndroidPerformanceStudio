@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,7 +36,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -47,6 +44,7 @@ import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.source.ResolutionConfidence
 import com.androidperformancestudio.source.SourceContentState
 import com.androidperformancestudio.source.SourceProviderConfig
+import com.androidperformancestudio.source.SourceLanguage
 import com.androidperformancestudio.source.SourceLocation
 import com.androidperformancestudio.source.SourceProviderKind
 import com.androidperformancestudio.source.SourceSnapshotId
@@ -405,11 +403,15 @@ private fun SourceBrowser(
             when {
                 selectedFile == null -> Unit
                 sourceText == null -> CircularProgressIndicator()
-                else -> Text(
-                    sourceText,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-                )
+                else -> {
+                    val selectedSourceFile = files.firstOrNull { it.relativePath == selectedFile }
+                    SourceCodeViewer(
+                        sourceText = requireNotNull(sourceText),
+                        language = selectedSourceFile?.language ?: SourceLanguage.OTHER,
+                        highlightedRange = selectedLocation?.range,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
     }
