@@ -32,6 +32,17 @@ class AppHomePageLayoutTest {
     }
 
     @Test
+    fun `home header text is horizontally centered`() {
+        val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
+        val header =
+            source
+                .substringAfter("text = localizedStringResource(Res.string.android_performance_studio, language)")
+                .substringBefore("BoxWithConstraints")
+
+        assertEquals(2, Regex("textAlign = TextAlign.Center").findAll(header).count())
+    }
+
+    @Test
     fun `source workspace is the last home entry`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
         val entries = source.substringAfter("val entries =").substringBefore("val colors =")

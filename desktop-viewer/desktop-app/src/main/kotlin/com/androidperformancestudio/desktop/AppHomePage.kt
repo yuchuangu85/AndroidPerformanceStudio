@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ui.LocalViewerColors
@@ -188,17 +189,21 @@ fun AppHomePage(
             ) {
                 Text(
                     text = localizedStringResource(Res.string.android_performance_studio, language),
+                    modifier = Modifier.fillMaxWidth(),
                     color = colors.primaryText,
                     fontSize = 30.sp,
                     lineHeight = 36.sp,
                     fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(5.dp))
                 Text(
                     text = localizedStringResource(Res.string.choose_a_performance_analysis_tool, language),
+                    modifier = Modifier.fillMaxWidth(),
                     color = colors.secondaryText,
                     fontSize = 14.sp,
                     lineHeight = 19.sp,
+                    textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(24.dp))
 
