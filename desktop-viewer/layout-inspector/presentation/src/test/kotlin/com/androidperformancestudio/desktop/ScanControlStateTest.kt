@@ -1,14 +1,22 @@
 package com.androidperformancestudio.desktop
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ScanControlStateTest {
     @Test
-    fun `manual refresh is visible only while automatic scanning is off`() {
-        assertTrue(ScanControlState(autoScanEnabled = false).showManualRefresh)
-        assertFalse(ScanControlState(autoScanEnabled = true).showManualRefresh)
+    fun `automatic and manual scan controls are mutually exclusive`() {
+        val automatic = ScanControlState(autoScanEnabled = true)
+        val manual = ScanControlState(autoScanEnabled = false)
+
+        assertEquals(ScanMode.AUTOMATIC, automatic.selectedMode)
+        assertTrue(automatic.autoScanSelected)
+        assertFalse(automatic.manualRefreshSelected)
+        assertEquals(ScanMode.MANUAL, manual.selectedMode)
+        assertFalse(manual.autoScanSelected)
+        assertTrue(manual.manualRefreshSelected)
     }
 
     @Test

@@ -45,6 +45,10 @@
     <string name="compose_export_full_fidelity">Include full runtime values (sensitive)</string>
     <string name="open_compose_source">Open source</string>
     <string name="auto_scan">Auto scan</string>
+    <string name="package_name">Package</string>
+    <string name="metrics">Metrics</string>
+    <string name="timeline">Timeline</string>
+    <string name="panels">Panels</string>
     <string name="auto_device">Auto device</string>
     <string name="capture_target">Target</string>
     <string name="window">Window</string>

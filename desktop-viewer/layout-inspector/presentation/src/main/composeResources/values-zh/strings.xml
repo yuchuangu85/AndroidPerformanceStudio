@@ -45,6 +45,10 @@
     <string name="compose_export_full_fidelity">包含完整运行时值（敏感）</string>
     <string name="open_compose_source">打开源码</string>
     <string name="auto_scan">自动扫描</string>
+    <string name="package_name">包名</string>
+    <string name="metrics">指标</string>
+    <string name="timeline">时间线</string>
+    <string name="panels">面板</string>
     <string name="auto_device">自动设备</string>
     <string name="capture_target">目标</string>
     <string name="window">窗口</string>

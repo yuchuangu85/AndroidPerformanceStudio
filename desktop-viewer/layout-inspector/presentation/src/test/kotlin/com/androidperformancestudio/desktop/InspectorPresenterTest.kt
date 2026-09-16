@@ -399,7 +399,7 @@ class InspectorPresenterTest {
     }
 
     @Test
-    fun `header starts with package name then separates connection status with a vertical bar`() {
+    fun `status bar package uses the captured app and a localized empty state`() {
         val model = InspectorPresenter.present(
             InspectorState(
                 snapshot = SampleSnapshots.dashboard,
@@ -407,9 +407,10 @@ class InspectorPresenterTest {
             ),
         )
 
+        assertEquals("com.androidperformancestudio.sample", statusBarPackageName(model))
         assertEquals(
-            listOf("com.androidperformancestudio.sample", "|", "Live"),
-            headerTextSegments(model),
+            "无应用",
+            statusBarPackageName(InspectorPresenter.present(InspectorState()), UiLanguage.SIMPLIFIED_CHINESE),
         )
     }
 

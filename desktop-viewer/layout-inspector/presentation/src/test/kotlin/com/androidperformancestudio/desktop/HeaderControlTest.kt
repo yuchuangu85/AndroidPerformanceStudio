@@ -24,7 +24,8 @@ class HeaderControlTest {
             Path.of("../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/HeaderToolbar.kt"),
         )
 
-        assertTrue(source.indexOf("HeaderToolbar(") < source.indexOf("Text(packageName"))
+        assertTrue(source.indexOf("HeaderToolbar(") < source.indexOf("DeviceSelector("))
+        assertFalse(header.contains("Text(packageName"))
         assertTrue(header.contains("onNavigateHome = onNavigateHome"))
         assertTrue(sharedHeader.contains("if (onNavigateHome != null)"))
         assertTrue(sharedHeader.contains("HomeButton("))
@@ -38,6 +39,39 @@ class HeaderControlTest {
             "返回主页",
             localizedStringResource(Res.string.back_to_home, UiLanguage.SIMPLIFIED_CHINESE),
         )
+    }
+
+    @Test
+    fun `bottom status bar owns the package and post scan controls with named status values`() {
+        assertEquals("Package", localizedStringResource(Res.string.package_name, UiLanguage.ENGLISH))
+        assertEquals("包名", localizedStringResource(Res.string.package_name, UiLanguage.SIMPLIFIED_CHINESE))
+        assertEquals("Metrics", localizedStringResource(Res.string.metrics, UiLanguage.ENGLISH))
+        assertEquals("指标", localizedStringResource(Res.string.metrics, UiLanguage.SIMPLIFIED_CHINESE))
+        assertEquals("Timeline", localizedStringResource(Res.string.timeline, UiLanguage.ENGLISH))
+        assertEquals("时间线", localizedStringResource(Res.string.timeline, UiLanguage.SIMPLIFIED_CHINESE))
+        assertEquals("Panels", localizedStringResource(Res.string.panels, UiLanguage.ENGLISH))
+        assertEquals("面板", localizedStringResource(Res.string.panels, UiLanguage.SIMPLIFIED_CHINESE))
+
+        val source = Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
+        )
+        val header = source
+            .substringAfter("HeaderToolbar(")
+            .substringBefore("correlationHint?.let")
+        val statusBar = source
+            .substringAfter("private fun LayoutInspectorStatusBar(")
+            .substringBefore("private enum class PanelPosition")
+
+        assertTrue(header.contains("ScanModeButtons("))
+        assertFalse(header.contains("model.metricsText"))
+        assertFalse(header.contains("PanelToggleButton("))
+        assertTrue(statusBar.contains(".height(ViewerDimensions.footerHeight)"))
+        assertTrue(statusBar.contains("localizedStringResource(Res.string.package_name, language)"))
+        assertTrue(statusBar.contains("localizedStringResource(Res.string.metrics, language)"))
+        assertTrue(statusBar.contains("localizedStringResource(Res.string.timeline, language)"))
+        assertTrue(statusBar.contains("localizedStringResource(Res.string.panels, language)"))
+        assertTrue(statusBar.contains("ProfilerCompactButton("))
+        assertTrue(statusBar.contains("contentDescription = localizedStringResource(Res.string.toggle_hierarchy, language)"))
     }
 
     @Test
@@ -78,25 +112,36 @@ class HeaderControlTest {
     }
 
     @Test
-    fun `manual refresh control is a labeled text button without an icon`() {
+    fun `scan controls use adjacent mutually exclusive buttons`() {
+        assertEquals("Auto scan", localizedStringResource(Res.string.auto_scan, UiLanguage.ENGLISH))
+        assertEquals("自动扫描", localizedStringResource(Res.string.auto_scan, UiLanguage.SIMPLIFIED_CHINESE))
         assertEquals("Refresh", localizedStringResource(Res.string.refresh, UiLanguage.ENGLISH))
         assertEquals("刷新", localizedStringResource(Res.string.refresh, UiLanguage.SIMPLIFIED_CHINESE))
 
         val source = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
         )
-        val manualRefreshButton = source
-            .substringAfter("private fun ManualRefreshButton(")
-            .substringBefore("private enum class PanelPosition")
+        val scanControls = source
+            .substringAfter("private fun ScanModeButtons(")
+            .substringBefore("private fun LayoutInspectorStatusBar(")
 
-        assertTrue(manualRefreshButton.contains("ProfilerCompactButton("))
-        assertTrue(manualRefreshButton.contains(".width(56.dp)"))
-        assertFalse(manualRefreshButton.contains("RefreshGlyph("))
-        assertFalse(manualRefreshButton.contains("Canvas("))
+        assertEquals(2, Regex("ProfilerCompactButton\\(").findAll(scanControls).count())
+        assertFalse(scanControls.contains("horizontalArrangement ="))
+        assertTrue(
+            scanControls.indexOf("text = localizedStringResource(Res.string.refresh, language)") <
+                scanControls.indexOf("text = localizedStringResource(Res.string.auto_scan, language)"),
+        )
+        assertTrue(scanControls.contains("selected = scanControlState.autoScanSelected"))
+        assertTrue(scanControls.contains("selected = scanControlState.manualRefreshSelected"))
+        assertTrue(scanControls.contains("onClick = onAutoScanSelected"))
+        assertTrue(scanControls.contains("onClick = onManualRefreshSelected"))
+        assertFalse(source.contains("MacOSChoiceChip("))
+        assertFalse(source.contains("private fun AutoScanSwitch("))
+        assertFalse(source.contains("private fun ManualRefreshButton("))
     }
 
     @Test
-    fun `manual refresh appears before auto scan in the header`() {
+    fun `manual refresh button disables automatic scanning before it requests a refresh`() {
         val source = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
         )
@@ -104,10 +149,12 @@ class HeaderControlTest {
             .substringAfter("private fun Header(")
             .substringBefore("private fun WindowSelector(")
 
-        assertTrue(
-            header.indexOf("ManualRefreshButton(") < header.indexOf("AutoScanSwitch("),
-            "ManualRefreshButton should be rendered before AutoScanSwitch",
-        )
+        assertTrue(header.contains("ScanModeButtons("))
+        assertTrue(header.contains("if (!autoScanEnabled && archiveUiState !is CaptureArchiveUiState.Working)"))
+        assertTrue(header.contains("!fullComposeEnabled"))
+        assertTrue(header.contains("!manualRefreshInProgress"))
+        assertTrue(header.contains("if (autoScanEnabled) performAction(ViewerAction.TOGGLE_AUTO_SCAN)"))
+        assertTrue(header.contains("manualRefreshRequest += 1"))
     }
 
     @Test

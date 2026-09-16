@@ -1,5 +1,6 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 
 import androidx.compose.foundation.Canvas
@@ -109,6 +110,7 @@ import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.application.ConnectionStatus
@@ -135,7 +137,6 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
-import com.androidperformancestudio.ui.ProfilerCompactButton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -877,6 +878,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
 
     CompositionLocalProvider(LocalLayoutInspectorLanguage provides uiLanguage) {
         val colors = LocalViewerColors.current
+        val model = InspectorPresenter.present(state, uiLanguage)
         Surface(
         color = colors.canvasBackground,
         modifier = Modifier
@@ -906,12 +908,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             ) {
                 val colors = LocalViewerColors.current
                 val language = LocalLayoutInspectorLanguage.current
-                val model = InspectorPresenter.present(state, language)
-                val (packageName, separator, connectionLabel) = headerTextSegments(model, language)
-
-
-                Text(packageName, color = colors.primaryText, fontFamily = FontFamily.Monospace)
-                HeaderSpacer()
                 DeviceSelector(
                     devices = deviceChoices(availableDevices),
                     selectedSerial = selectedDeviceSerial,
@@ -955,7 +951,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     )
                 }
                 HeaderSpacer()
-                Text(separator, color = colors.mutedText)
+                HeaderDivider()
                 HeaderSpacer()
                 val connectionColor = when (model.connectionTone) {
                     ConnectionTone.NEUTRAL -> colors.warning
@@ -964,102 +960,31 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 }
                 StatusDot(connectionColor)
                 HeaderSpacer()
-                Text(connectionLabel, color = connectionColor, fontSize = ViewerTypography.bodyCompact.fontSize)
+                Text(model.connectionLabel, color = connectionColor, fontSize = ViewerTypography.bodyCompact.fontSize)
                 Spacer(Modifier.weight(1f))
                 val scanControlState = ScanControlState(
                     autoScanEnabled = autoScanEnabled,
                     manualRefreshInProgress = manualRefreshInProgress,
                 )
-                if (scanControlState.showManualRefresh && !fullComposeEnabled) {
-                    ManualRefreshButton(
-                        enabled = scanControlState.manualRefreshEnabled,
-                        onClick = {
-                            if (!autoScanEnabled &&
-                                !manualRefreshInProgress &&
-                                archiveUiState !is CaptureArchiveUiState.Working
-                            ) {
-                                manualRefreshRequest += 1
-                            }
-                        },
-                    )
-                    HeaderSpacer()
-                }
-                AutoScanSwitch(autoScanEnabled) {
-                    performAction(ViewerAction.TOGGLE_AUTO_SCAN)
-                }
-                if (fullComposeEnabled) {
-                    HeaderSpacer()
-                    Row(
-                        modifier = Modifier.clickable { hideSystemComposables = !hideSystemComposables },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = !hideSystemComposables,
-                            onCheckedChange = { hideSystemComposables = !it },
-                        )
-                        Text(
-                            localizedStringResource(Res.string.system_composables, language),
-                            fontSize = ViewerTypography.label.fontSize,
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                withContext(Dispatchers.IO) {
-                                    if (recompositionActive) {
-                                        composeSession?.stopRecompositionObservation()
-                                    } else {
-                                        composeSession?.startRecompositionObservation()
-                                    }
-                                }
-                                recompositionActive = !recompositionActive
-                            }
-                        },
-                        enabled = composeSession != null,
-                    ) {
-                        Text(
-                            localizedStringResource(
-                                if (recompositionActive) Res.string.stop_recomposition else Res.string.start_recomposition,
-                                language,
-                            ),
-                            fontSize = ViewerTypography.label.fontSize,
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                withContext(Dispatchers.IO) { composeSession?.resetRecompositionCounts() }
-                                recompositionActive = true
-                            }
-                        },
-                        enabled = composeSession != null,
-                    ) {
-                        Text(localizedStringResource(Res.string.reset_recomposition, language), fontSize = ViewerTypography.label.fontSize)
-                    }
-                }
-                HeaderSpacer()
-                HeaderDivider()
-                HeaderSpacer()
-                Text(model.metricsText, color = colors.subtleText, fontSize = ViewerTypography.bodyCompact.fontSize)
-                model.timelineText?.let { timelineText ->
-                    Spacer(Modifier.width(10.dp))
-                    Text(timelineText, color = colors.subtleText, fontSize = ViewerTypography.bodyCompact.fontSize)
-                }
-                HeaderSpacer()
-                HeaderDivider()
-                HeaderSpacer()
-                PanelToggleButton(PanelPosition.LEFT, panelVisibility.showHierarchy) {
-                    performAction(ViewerAction.TOGGLE_HIERARCHY)
-                }
-                HeaderSpacer()
-                PanelToggleButton(PanelPosition.BOTTOM, panelVisibility.showFindings) {
-                    performAction(ViewerAction.TOGGLE_FINDINGS)
-                }
-                HeaderSpacer()
-                PanelToggleButton(PanelPosition.RIGHT, panelVisibility.showDetails) {
-                    performAction(ViewerAction.TOGGLE_DETAILS)
-                }
-
+                ScanModeButtons(
+                    scanControlState = scanControlState,
+                    controlsEnabled = archiveUiState !is CaptureArchiveUiState.Working,
+                    manualRefreshAvailable = !fullComposeEnabled,
+                    onAutoScanSelected = {
+                        if (!autoScanEnabled && archiveUiState !is CaptureArchiveUiState.Working) {
+                            performAction(ViewerAction.TOGGLE_AUTO_SCAN)
+                        }
+                    },
+                    onManualRefreshSelected = {
+                        if (!fullComposeEnabled &&
+                            !manualRefreshInProgress &&
+                            archiveUiState !is CaptureArchiveUiState.Working
+                        ) {
+                            if (autoScanEnabled) performAction(ViewerAction.TOGGLE_AUTO_SCAN)
+                            manualRefreshRequest += 1
+                        }
+                    },
+                )
             }
             correlationHint?.let { hint ->
                 CorrelationBanner(
@@ -1241,6 +1166,34 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     }
                 }
             }
+            LayoutInspectorStatusBar(
+                model = model,
+                fullComposeEnabled = fullComposeEnabled,
+                hideSystemComposables = hideSystemComposables,
+                recompositionActive = recompositionActive,
+                recompositionControlsEnabled = composeSession != null,
+                panelVisibility = panelVisibility,
+                onToggleSystemComposables = { hideSystemComposables = !hideSystemComposables },
+                onToggleRecomposition = {
+                    coroutineScope.launch {
+                        withContext(Dispatchers.IO) {
+                            if (recompositionActive) {
+                                composeSession?.stopRecompositionObservation()
+                            } else {
+                                composeSession?.startRecompositionObservation()
+                            }
+                        }
+                        recompositionActive = !recompositionActive
+                    }
+                },
+                onResetRecomposition = {
+                    coroutineScope.launch {
+                        withContext(Dispatchers.IO) { composeSession?.resetRecompositionCounts() }
+                        recompositionActive = true
+                    }
+                },
+                onAction = performAction,
+            )
         }
         }
         if (settingsVisible) {
@@ -1641,68 +1594,169 @@ private fun ExportResultDialog(
     )
 }
 
-internal fun headerTextSegments(
+internal fun statusBarPackageName(
     model: InspectorScreenModel,
     language: UiLanguage = UiLanguage.ENGLISH,
-): List<String> =
-    listOf(model.packageName ?: localizedStringResource(Res.string.no_app, language), "|", model.connectionLabel)
+): String = model.packageName ?: localizedStringResource(Res.string.no_app, language)
 
 @Composable
-private fun AutoScanSwitch(
-    enabled: Boolean,
-    onToggle: () -> Unit,
+private fun ScanModeButtons(
+    scanControlState: ScanControlState,
+    controlsEnabled: Boolean,
+    manualRefreshAvailable: Boolean,
+    onAutoScanSelected: () -> Unit,
+    onManualRefreshSelected: () -> Unit,
 ) {
-    val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
     Row(
-        modifier = Modifier.clickable(onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = localizedStringResource(Res.string.auto_scan, language),
-            color = if (enabled) colors.primaryText else colors.mutedText,
-            fontSize = ViewerTypography.secondary.fontSize,
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.refresh, language),
+            selected = scanControlState.manualRefreshSelected,
+            enabled = controlsEnabled && manualRefreshAvailable && scanControlState.manualRefreshEnabled,
+            onClick = onManualRefreshSelected,
         )
-        Spacer(Modifier.width(6.dp))
-        Box(
-            modifier =
-                Modifier
-                    .width(30.dp)
-                    .height(16.dp)
-                    .background(
-                        color = if (enabled) colors.accent.copy(alpha = 0.55f) else colors.switchTrackOff,
-                        shape = RoundedCornerShape(8.dp),
-                    ).padding(2.dp),
-            contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
-        ) {
-            Box(
-                Modifier
-                    .size(12.dp)
-                    .background(
-                        color = if (enabled) colors.accentText else colors.switchThumbOff,
-                        shape = RoundedCornerShape(50),
-                    ),
-            )
-        }
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.auto_scan, language),
+            selected = scanControlState.autoScanSelected,
+            enabled = controlsEnabled,
+            onClick = onAutoScanSelected,
+        )
     }
 }
 
 @Composable
-private fun ManualRefreshButton(
-    enabled: Boolean,
-    onClick: () -> Unit,
+private fun LayoutInspectorStatusBar(
+    model: InspectorScreenModel,
+    fullComposeEnabled: Boolean,
+    hideSystemComposables: Boolean,
+    recompositionActive: Boolean,
+    recompositionControlsEnabled: Boolean,
+    panelVisibility: PanelVisibility,
+    onToggleSystemComposables: () -> Unit,
+    onToggleRecomposition: () -> Unit,
+    onResetRecomposition: () -> Unit,
+    onAction: (ViewerAction) -> Unit,
 ) {
+    val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
-    ProfilerCompactButton(
-        text = localizedStringResource(Res.string.refresh, language),
-        enabled = enabled,
-        onClick = onClick,
+    Row(
         modifier =
             Modifier
-                .width(56.dp)
-                .semantics {
-                    contentDescription = localizedStringResource(Res.string.refresh_once, language)
-                },
+                .fillMaxWidth()
+                .height(ViewerDimensions.footerHeight)
+                .background(colors.toolbar)
+                .border(
+                    ViewerDimensions.hairline,
+                    colors.border,
+                    RoundedCornerShape(0.dp),
+                )
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusBarValue(
+            label = localizedStringResource(Res.string.package_name, language),
+            value = statusBarPackageName(model, language),
+            valueColor = colors.primaryText,
+            monospace = true,
+        )
+        StatusBarDivider()
+        if (fullComposeEnabled) {
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.system_composables, language),
+                selected = !hideSystemComposables,
+                onClick = onToggleSystemComposables,
+            )
+            ProfilerCompactButton(
+                text = localizedStringResource(
+                    if (recompositionActive) Res.string.stop_recomposition else Res.string.start_recomposition,
+                    language,
+                ),
+                selected = recompositionActive,
+                enabled = recompositionControlsEnabled,
+                onClick = onToggleRecomposition,
+            )
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.reset_recomposition, language),
+                enabled = recompositionControlsEnabled,
+                onClick = onResetRecomposition,
+            )
+            StatusBarDivider()
+        }
+        StatusBarValue(
+            label = localizedStringResource(Res.string.metrics, language),
+            value = model.metricsText,
+            valueColor = colors.subtleText,
+        )
+        model.timelineText?.let { timelineText ->
+            StatusBarValue(
+                label = localizedStringResource(Res.string.timeline, language),
+                value = timelineText,
+                valueColor = colors.subtleText,
+            )
+        }
+        StatusBarDivider()
+        Text(
+            text = localizedStringResource(Res.string.panels, language),
+            color = colors.mutedText,
+            fontSize = ViewerTypography.label.fontSize,
+            maxLines = 1,
+        )
+        PanelToggleButton(
+            position = PanelPosition.LEFT,
+            visible = panelVisibility.showHierarchy,
+            contentDescription = localizedStringResource(Res.string.toggle_hierarchy, language),
+            onClick = { onAction(ViewerAction.TOGGLE_HIERARCHY) },
+        )
+        PanelToggleButton(
+            position = PanelPosition.BOTTOM,
+            visible = panelVisibility.showFindings,
+            contentDescription = localizedStringResource(Res.string.toggle_findings, language),
+            onClick = { onAction(ViewerAction.TOGGLE_FINDINGS) },
+        )
+        PanelToggleButton(
+            position = PanelPosition.RIGHT,
+            visible = panelVisibility.showDetails,
+            contentDescription = localizedStringResource(Res.string.toggle_details, language),
+            onClick = { onAction(ViewerAction.TOGGLE_DETAILS) },
+        )
+    }
+}
+
+@Composable
+private fun StatusBarValue(
+    label: String,
+    value: String,
+    valueColor: Color,
+    monospace: Boolean = false,
+) {
+    val colors = LocalViewerColors.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "$label:",
+            color = colors.mutedText,
+            fontSize = ViewerTypography.label.fontSize,
+            maxLines = 1,
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = value,
+            color = valueColor,
+            fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
+            fontSize = ViewerTypography.secondary.fontSize,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun StatusBarDivider() {
+    VerticalDivider(
+        modifier = Modifier.height(14.dp),
+        color = LocalViewerColors.current.border,
     )
 }
 
@@ -1716,6 +1770,7 @@ private enum class PanelPosition {
 private fun PanelToggleButton(
     position: PanelPosition,
     visible: Boolean,
+    contentDescription: String,
     onClick: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -1729,7 +1784,8 @@ private fun PanelToggleButton(
                     color = if (visible) colors.accent.copy(alpha = 0.18f) else colors.transparent,
                     shape = RoundedCornerShape(3.dp),
                 )
-                .clickable(onClick = onClick),
+                .clickable(onClick = onClick)
+                .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(15.dp)) {
