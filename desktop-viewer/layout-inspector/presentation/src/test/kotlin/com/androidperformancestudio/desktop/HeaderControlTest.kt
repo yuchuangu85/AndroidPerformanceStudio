@@ -168,6 +168,33 @@ class HeaderControlTest {
     }
 
     @Test
+    fun `scan control group keeps only its outer corners rounded`() {
+        val source = Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
+        )
+        val scanControls = source
+            .substringAfter("private fun ScanModeButtons(")
+            .substringBefore("private fun LayoutInspectorStatusBar(")
+        val refreshShape = source
+            .substringAfter("private val ScanModeRefreshButtonShape")
+            .substringBefore("private val ScanModeAutoScanButtonShape")
+        val autoScanShape = source
+            .substringAfter("private val ScanModeAutoScanButtonShape")
+            .substringBefore("internal const val AI_ANALYSIS_ENTRY_VISIBLE")
+
+        assertTrue(scanControls.contains("shape = ScanModeRefreshButtonShape"))
+        assertTrue(scanControls.contains("shape = ScanModeAutoScanButtonShape"))
+        assertTrue(refreshShape.contains("topStart = 4.dp"))
+        assertTrue(refreshShape.contains("topEnd = 0.dp"))
+        assertTrue(refreshShape.contains("bottomEnd = 0.dp"))
+        assertTrue(refreshShape.contains("bottomStart = 4.dp"))
+        assertTrue(autoScanShape.contains("topStart = 0.dp"))
+        assertTrue(autoScanShape.contains("topEnd = 4.dp"))
+        assertTrue(autoScanShape.contains("bottomEnd = 4.dp"))
+        assertTrue(autoScanShape.contains("bottomStart = 0.dp"))
+    }
+
+    @Test
     fun `manual refresh button disables automatic scanning before it requests a refresh`() {
         val source = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),

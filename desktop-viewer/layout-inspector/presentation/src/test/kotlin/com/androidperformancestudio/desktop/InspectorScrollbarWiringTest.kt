@@ -2,6 +2,7 @@ package com.androidperformancestudio.desktop
 
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -31,6 +32,19 @@ class InspectorScrollbarWiringTest {
         assertTrue(timeline.contains("onCloseTimelineFrame"))
         assertTrue(timeline.contains("Res.string.remove_timeline_frame"))
         assertTrue(timeline.contains("colors.detailRowDeep"))
+    }
+
+    @Test
+    fun `timeline frame content is vertically centered in the full strip`() {
+        val timeline = source
+            .substringAfter("private fun TimelineStrip(")
+            .substringBefore("@Composable\nprivate fun TimelineScrollButton(")
+        val frames = timeline
+            .substringAfter("LazyRow(")
+            .substringBefore(") {")
+
+        assertTrue(frames.contains("verticalAlignment = Alignment.CenterVertically"))
+        assertFalse(frames.contains("bottom = 8.dp"))
     }
 
     @Test

@@ -10,6 +10,12 @@ import org.junit.jupiter.api.Test
 
 class SourceFileTreeTest {
     @Test
+    fun `source tree row geometry matches the inspector hierarchy`() {
+        assertEquals(20, SourceFileTreeRowLayout.HEIGHT_DP)
+        assertEquals(14, SourceFileTreeRowLayout.INDENT_DP)
+    }
+
+    @Test
     fun `source file rows build an alphabetical directory-first tree`() {
         val rows = SourceFileTree.rows(
             listOf(

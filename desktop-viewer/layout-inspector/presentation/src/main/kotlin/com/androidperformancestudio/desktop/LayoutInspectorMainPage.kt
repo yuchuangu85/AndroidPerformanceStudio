@@ -157,6 +157,18 @@ import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
+private val ScanModeRefreshButtonShape = RoundedCornerShape(
+    topStart = 4.dp,
+    topEnd = 0.dp,
+    bottomEnd = 0.dp,
+    bottomStart = 4.dp,
+)
+private val ScanModeAutoScanButtonShape = RoundedCornerShape(
+    topStart = 0.dp,
+    topEnd = 4.dp,
+    bottomEnd = 4.dp,
+    bottomStart = 0.dp,
+)
 // Source-aware payload preflight is complete; keep the user-facing analysis entry available.
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
@@ -1636,12 +1648,14 @@ private fun ScanModeButtons(
             text = localizedStringResource(Res.string.refresh, language),
             selected = scanControlState.manualRefreshSelected,
             enabled = controlsEnabled && manualRefreshAvailable && scanControlState.manualRefreshEnabled,
+            shape = ScanModeRefreshButtonShape,
             onClick = onManualRefreshSelected,
         )
         ProfilerCompactButton(
             text = localizedStringResource(Res.string.auto_scan, language),
             selected = scanControlState.autoScanSelected,
             enabled = controlsEnabled,
+            shape = ScanModeAutoScanButtonShape,
             onClick = onAutoScanSelected,
         )
     }
@@ -3209,7 +3223,6 @@ private fun TimelineStrip(
                 .padding(
                     start = if (buttons.visible) 32.dp else 12.dp,
                     end = if (buttons.visible) 32.dp else 12.dp,
-                    bottom = 8.dp,
                 ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),

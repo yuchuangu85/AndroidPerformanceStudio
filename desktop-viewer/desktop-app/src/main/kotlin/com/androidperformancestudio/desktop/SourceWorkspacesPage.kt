@@ -1,10 +1,12 @@
 package com.androidperformancestudio.desktop
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -49,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -72,6 +76,7 @@ import com.androidperformancestudio.source.SourceWorkspacePhase
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
@@ -373,7 +378,14 @@ private fun SourceFileListPane(
     BoxWithConstraints(modifier) {
         val contentWidthDp = maxOf(
             maxWidth.value,
-            treeRows.maxOfOrNull { row -> row.name.length * 8f + (row.depth + 1) * 20f + 48f } ?: 0f,
+            treeRows.maxOfOrNull { row ->
+                row.name.length * 8f +
+                    8f +
+                    row.depth * SourceFileTreeRowLayout.INDENT_DP +
+                    12f +
+                    4f +
+                    8f
+            } ?: 0f,
         )
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) {
@@ -383,8 +395,7 @@ private fun SourceFileListPane(
                         Modifier
                             .width(contentWidthDp.dp)
                             .fillMaxHeight()
-                            .padding(end = 12.dp, bottom = 12.dp)
-                            .padding(8.dp),
+                            .padding(top = 6.dp, end = 12.dp, bottom = 12.dp),
                 ) {
                     items(treeRows, key = { it.key }) { row ->
                         when (row) {
@@ -418,14 +429,18 @@ private fun SourceDirectoryTreeRow(
     row: SourceFileTreeRow.Directory,
     onToggle: () -> Unit,
 ) {
-    TextButton(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = (row.depth * 16).dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(if (row.expanded) "▾" else "▸", modifier = Modifier.width(16.dp))
-            Text(row.name, maxLines = 1, softWrap = false)
-        }
+    SourceFileTreeRowContainer(
+        depth = row.depth,
+        selected = false,
+        onClick = onToggle,
+    ) {
+        SourceFileTreeDisclosure(
+            hasChildren = true,
+            expanded = row.expanded,
+            onToggle = onToggle,
+        )
+        Spacer(Modifier.width(4.dp))
+        SourceFileTreeLabel(row.name)
     }
 }
 
@@ -435,22 +450,107 @@ private fun SourceFileTreeFileRow(
     selected: Boolean,
     onOpen: () -> Unit,
 ) {
-    val colors = LocalViewerColors.current
-    TextButton(
+    SourceFileTreeRowContainer(
+        depth = row.depth,
+        selected = selected,
         onClick = onOpen,
+    ) {
+        SourceFileTreeDisclosure(
+            hasChildren = false,
+            expanded = false,
+            onToggle = {},
+        )
+        Spacer(Modifier.width(4.dp))
+        SourceFileTreeLabel(row.name)
+    }
+}
+
+@Composable
+private fun SourceFileTreeRowContainer(
+    depth: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(if (selected) colors.accent.copy(alpha = 0.16f) else colors.transparent),
+                .height(SourceFileTreeRowLayout.HEIGHT_DP.dp)
+                .background(if (selected) colors.selectedRow else colors.transparent)
+                .clickable(onClick = onClick)
+                .padding(
+                    start = (8 + depth * SourceFileTreeRowLayout.INDENT_DP).dp,
+                    end = 8.dp,
+                ),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = (row.depth * 16 + 16).dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("·", modifier = Modifier.width(16.dp))
-            Text(row.name, modifier = Modifier.fillMaxWidth(), maxLines = 1, softWrap = false)
+        content()
+    }
+}
+
+@Composable
+private fun SourceFileTreeDisclosure(
+    hasChildren: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    Box(
+        modifier =
+            Modifier
+                .width(12.dp)
+                .fillMaxHeight()
+                .let { base -> if (hasChildren) base.clickable(onClick = onToggle) else base },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (hasChildren) {
+            Canvas(Modifier.size(8.dp)) {
+                val strokeWidth = 1.2.dp.toPx()
+                if (expanded) {
+                    drawLine(
+                        color = colors.accent,
+                        start = Offset(0.5.dp.toPx(), 2.dp.toPx()),
+                        end = Offset(4.dp.toPx(), 5.5.dp.toPx()),
+                        strokeWidth = strokeWidth,
+                    )
+                    drawLine(
+                        color = colors.accent,
+                        start = Offset(4.dp.toPx(), 5.5.dp.toPx()),
+                        end = Offset(7.5.dp.toPx(), 2.dp.toPx()),
+                        strokeWidth = strokeWidth,
+                    )
+                } else {
+                    drawLine(
+                        color = colors.accent,
+                        start = Offset(2.dp.toPx(), 0.5.dp.toPx()),
+                        end = Offset(5.5.dp.toPx(), 4.dp.toPx()),
+                        strokeWidth = strokeWidth,
+                    )
+                    drawLine(
+                        color = colors.accent,
+                        start = Offset(5.5.dp.toPx(), 4.dp.toPx()),
+                        end = Offset(2.dp.toPx(), 7.5.dp.toPx()),
+                        strokeWidth = strokeWidth,
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun SourceFileTreeLabel(name: String) {
+    val colors = LocalViewerColors.current
+    Text(
+        text = name,
+        color = colors.rowText,
+        fontSize = ViewerTypography.secondary.fontSize,
+        lineHeight = ViewerTypography.dense.lineHeight,
+        maxLines = 1,
+        softWrap = false,
+    )
 }
 
 @Composable

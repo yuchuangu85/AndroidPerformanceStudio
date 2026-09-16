@@ -3,6 +3,12 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.source.SourceFile
 import java.util.Locale
 
+/** Visual metrics intentionally aligned with the Layout Inspector hierarchy tree. */
+internal object SourceFileTreeRowLayout {
+    const val HEIGHT_DP = 20
+    const val INDENT_DP = 14
+}
+
 internal sealed interface SourceFileTreeRow {
     val key: String
     val name: String

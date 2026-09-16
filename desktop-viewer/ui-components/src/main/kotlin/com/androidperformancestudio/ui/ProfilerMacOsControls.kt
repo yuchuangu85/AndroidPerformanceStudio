@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -45,8 +46,8 @@ public fun ProfilerCompactButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     selected: Boolean = false,
+    shape: Shape = RoundedCornerShape(4.dp),
 ) {
-    val shape = RoundedCornerShape(4.dp)
     val containerColor =
         if (selected) {
             MaterialTheme.colorScheme.primary
