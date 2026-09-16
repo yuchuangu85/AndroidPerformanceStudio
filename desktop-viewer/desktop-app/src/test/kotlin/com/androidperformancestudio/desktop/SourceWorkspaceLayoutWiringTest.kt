@@ -16,6 +16,9 @@ class SourceWorkspaceLayoutWiringTest {
         val codeViewer = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/SourceCodeViewer.kt"),
         )
+        val searchField = Files.readString(
+            Path.of("../ui-components/src/main/kotlin/com/androidperformancestudio/ui/search/CompactSearchField.kt"),
+        )
         val workspacePane = page
             .substringAfter("private fun WorkspaceListPane(")
             .substringBefore("private fun SourceFileListPane(")
@@ -44,6 +47,8 @@ class SourceWorkspaceLayoutWiringTest {
         assertTrue(browser.contains("modifier = Modifier.width(filesPaneWidth.dp).fillMaxHeight()"))
         assertTrue(browser.contains("SourceWorkspaceResizeSeparator(onResizeFilesPane)"))
         assertTrue(filePane.contains("fileSearchQuery"))
+        assertTrue(filePane.contains("CompactSearchField("))
+        assertTrue(filePane.contains(".height(28.dp)"))
         assertTrue(filePane.contains("SourceFileTree.matchingFiles(files, fileSearchQuery)"))
         assertTrue(filePane.contains("Res.string.source_search_files"))
         assertTrue(filePane.contains("SourceFileTree.defaultCollapsedDirectories(files)"))
@@ -66,8 +71,16 @@ class SourceWorkspaceLayoutWiringTest {
         assertFalse(filePane.contains("\"▸\""))
 
         assertTrue(codeViewer.contains("SourceCodeSearchBar("))
+        assertTrue(codeViewer.contains("CompactSearchField("))
+        assertTrue(codeViewer.contains("CompactSearchNavigationButton("))
         assertTrue(codeViewer.contains("sourceSearchMatches(highlightedLines, codeSearchQuery)"))
         assertTrue(codeViewer.contains("Res.string.source_search_code"))
+        assertFalse(codeViewer.contains("OutlinedTextField("))
+        assertTrue(searchField.contains("BasicTextField("))
+        assertTrue(searchField.contains(".height(22.dp)"))
+        assertTrue(searchField.contains("RoundedCornerShape(3.dp)"))
+        assertTrue(searchField.contains("colors.sectionBackground.copy(alpha = 0.3f)"))
+        assertTrue(searchField.contains("KeyboardOptions(imeAction = ImeAction.Search)"))
         assertTrue(codeViewer.contains("HorizontalScrollbar("))
         assertTrue(codeViewer.contains("VerticalScrollbar("))
         assertTrue(codeViewer.contains("rememberScrollbarAdapter(horizontalScrollState)"))

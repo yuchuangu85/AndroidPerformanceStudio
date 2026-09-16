@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -23,9 +26,7 @@ import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -46,9 +47,12 @@ import com.androidperformancestudio.desktop_app.generated.resources.*
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.source.SourceLanguage
 import com.androidperformancestudio.source.SourceRange
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
+import com.androidperformancestudio.ui.search.CompactSearchField
+import com.androidperformancestudio.ui.search.CompactSearchNavigationButton
 
 /**
  * A read-only source viewer modeled after Compose Multiplatform's codeviewer example:
@@ -153,29 +157,42 @@ private fun SourceCodeSearchBar(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
 ) {
+    val colors = LocalViewerColors.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        OutlinedTextField(
+        CompactSearchField(
             value = query,
+            placeholder = localizedStringResource(Res.string.source_search_code, language),
             onValueChange = onQueryChange,
-            label = { Text(localizedStringResource(Res.string.source_search_code, language)) },
-            singleLine = true,
-            colors = viewerOutlinedTextFieldColors(),
+            onSearch = onNext,
             modifier = Modifier.weight(1f),
         )
-        Text(
-            text = if (matchCount == 0) "0/0" else "${selectedMatchIndex + 1}/$matchCount",
-            color = OneDarkSourceTheme.lineNumber,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(start = 8.dp),
-        )
-        TextButton(onClick = onPrevious, enabled = matchCount > 0) {
-            Text(localizedStringResource(Res.string.source_search_previous, language))
-        }
-        TextButton(onClick = onNext, enabled = matchCount > 0) {
-            Text(localizedStringResource(Res.string.source_search_next, language))
+        if (query.isNotBlank()) {
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = if (matchCount == 0) "0/0" else "${selectedMatchIndex + 1}/$matchCount",
+                color = if (matchCount == 0) colors.error else colors.mutedText,
+                fontSize = ViewerTypography.dense.fontSize,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                modifier = Modifier.widthIn(min = 32.dp),
+            )
+            Spacer(Modifier.width(2.dp))
+            CompactSearchNavigationButton(
+                label = "◀",
+                contentDescription = localizedStringResource(Res.string.source_search_previous, language),
+                enabled = matchCount > 0,
+                onClick = onPrevious,
+            )
+            Spacer(Modifier.width(2.dp))
+            CompactSearchNavigationButton(
+                label = "▶",
+                contentDescription = localizedStringResource(Res.string.source_search_next, language),
+                enabled = matchCount > 0,
+                onClick = onNext,
+            )
         }
     }
 }

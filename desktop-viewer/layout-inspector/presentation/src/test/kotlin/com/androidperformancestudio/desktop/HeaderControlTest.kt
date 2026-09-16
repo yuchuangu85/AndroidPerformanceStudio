@@ -109,6 +109,9 @@ class HeaderControlTest {
         val sharedHeader = Files.readString(
             Path.of("../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/HeaderToolbar.kt"),
         )
+        val sharedSearch = Files.readString(
+            Path.of("../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/search/CompactSearchField.kt"),
+        )
         val panelToggle = source
             .substringAfter("private fun PanelToggleButton(")
             .substringBefore("private fun HierarchyPane(")
@@ -117,6 +120,8 @@ class HeaderControlTest {
         assertTrue(sharedHeader.contains("colors = colors"))
         assertTrue(panelToggle.contains("val iconColor = colors.accent"))
         assertFalse(panelToggle.contains("colors.mutedText"))
+        assertTrue(sharedSearch.contains("colors.accent"))
+        assertTrue(sharedSearch.contains("CompactSearchNavigationButton"))
     }
 
     @Test
@@ -131,7 +136,6 @@ class HeaderControlTest {
             "private fun HitTestOrderToggle(",
             "private fun CanvasModeToggle(",
             "private fun TimelineScrollButton(",
-            "private fun SearchNavButton(",
         ).forEach { function ->
             val control = source.substringAfter(function)
             assertTrue(control.contains("colors.accent"), "$function should use the active accent")

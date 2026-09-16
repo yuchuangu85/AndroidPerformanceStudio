@@ -80,6 +80,7 @@ import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.search.CompactSearchField
 import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 import java.awt.Cursor
 import java.awt.Desktop
@@ -399,14 +400,17 @@ private fun SourceFileListPane(
         listState.scrollToItem(0)
     }
     Column(modifier) {
-        OutlinedTextField(
-            value = fileSearchQuery,
-            onValueChange = { fileSearchQuery = it },
-            label = { Text(localizedStringResource(Res.string.source_search_files, language)) },
-            singleLine = true,
-            colors = viewerOutlinedTextFieldColors(),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CompactSearchField(
+                value = fileSearchQuery,
+                placeholder = localizedStringResource(Res.string.source_search_files, language),
+                onValueChange = { fileSearchQuery = it },
+                modifier = Modifier.weight(1f),
+            )
+        }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val contentWidthDp = maxOf(
                 maxWidth.value,

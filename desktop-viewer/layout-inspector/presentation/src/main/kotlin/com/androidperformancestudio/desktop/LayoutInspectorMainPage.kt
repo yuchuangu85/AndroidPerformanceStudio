@@ -40,9 +40,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.v2.ScrollbarAdapter
 import androidx.compose.material3.HorizontalDivider
@@ -99,7 +96,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -110,6 +106,8 @@ import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.search.CompactSearchField
+import com.androidperformancestudio.ui.search.CompactSearchNavigationButton
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
@@ -3470,52 +3468,13 @@ private fun HierarchySearchBar(
             .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(22.dp)
-                .border(1.dp, colors.accent, RoundedCornerShape(3.dp))
-                .background(colors.sectionBackground.copy(alpha = 0.3f), RoundedCornerShape(3.dp))
-                .padding(horizontal = 6.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            BasicTextField(
-                value = searchState.query,
-                onValueChange = onQueryChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = if (searchState.query.isNotEmpty()) 14.dp else 0.dp),
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    color = colors.primaryText,
-                    fontSize = ViewerTypography.label.fontSize,
-                    fontFamily = FontFamily.Monospace,
-                ),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onNavigateNext() }),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.accent),
-            )
-            if (searchState.query.isEmpty()) {
-                Text(
-                    localizedStringResource(Res.string.search_hierarchy, language),
-                    color = colors.mutedText,
-                    fontSize = ViewerTypography.label.fontSize,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                )
-            }
-            if (searchState.query.isNotEmpty()) {
-                Text(
-                    text = "✕",
-                    color = colors.mutedText,
-                    fontSize = ViewerTypography.label.fontSize,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .clickable { onQueryChange("") }
-                )
-            }
-        }
+        CompactSearchField(
+            value = searchState.query,
+            placeholder = localizedStringResource(Res.string.search_hierarchy, language),
+            onValueChange = onQueryChange,
+            onSearch = onNavigateNext,
+            modifier = Modifier.weight(1f),
+        )
         if (searchState.isSearching) {
             Spacer(Modifier.width(4.dp))
             Text(
@@ -3527,49 +3486,20 @@ private fun HierarchySearchBar(
                 modifier = Modifier.widthIn(min = 32.dp),
             )
             Spacer(Modifier.width(2.dp))
-            SearchNavButton(
+            CompactSearchNavigationButton(
                 label = "◀",
                 contentDescription = localizedStringResource(Res.string.search_previous, language),
                 enabled = matchedNodeIds.isNotEmpty(),
                 onClick = onNavigatePrevious,
             )
             Spacer(Modifier.width(2.dp))
-            SearchNavButton(
+            CompactSearchNavigationButton(
                 label = "▶",
                 contentDescription = localizedStringResource(Res.string.search_next, language),
                 enabled = matchedNodeIds.isNotEmpty(),
                 onClick = onNavigateNext,
             )
         }
-    }
-}
-
-@Composable
-private fun SearchNavButton(
-    label: String,
-    contentDescription: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val colors = LocalViewerColors.current
-    Box(
-        modifier = Modifier
-            .width(20.dp)
-            .height(20.dp)
-            .background(
-                color = if (enabled) colors.accent.copy(alpha = 0.10f) else colors.transparent,
-                shape = RoundedCornerShape(3.dp),
-            )
-            .let { base -> if (enabled) base.clickable(onClick = onClick) else base }
-            .semantics { this.contentDescription = contentDescription },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            color = if (enabled) colors.accent else colors.mutedText.copy(alpha = 0.4f),
-            fontSize = ViewerTypography.dense.fontSize,
-            maxLines = 1,
-        )
     }
 }
 
