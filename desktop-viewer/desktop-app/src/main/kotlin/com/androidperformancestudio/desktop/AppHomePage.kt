@@ -1,5 +1,7 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.desktop_app.generated.resources.Res
@@ -39,11 +41,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ui.LocalViewerColors
 
 internal const val HOME_CARD_HEIGHT_DP = 184
-internal const val HOME_ITEM_TITLE_FONT_SIZE_SP = 17
 internal const val HOME_CARD_CORNER_RADIUS_DP = 14
 internal const val HOME_MAX_CONTENT_WIDTH_DP = 1180
 
@@ -191,8 +191,8 @@ fun AppHomePage(
                     text = localizedStringResource(Res.string.android_performance_studio, language),
                     modifier = Modifier.fillMaxWidth(),
                     color = colors.primaryText,
-                    fontSize = 30.sp,
-                    lineHeight = 36.sp,
+                    fontSize = ViewerTypography.homeHero.fontSize,
+                    lineHeight = ViewerTypography.homeHero.lineHeight,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
                 )
@@ -201,8 +201,8 @@ fun AppHomePage(
                     text = localizedStringResource(Res.string.choose_a_performance_analysis_tool, language),
                     modifier = Modifier.fillMaxWidth(),
                     color = colors.secondaryText,
-                    fontSize = 14.sp,
-                    lineHeight = 19.sp,
+                    fontSize = ViewerTypography.lead.fontSize,
+                    lineHeight = ViewerTypography.cardTitle.lineHeight,
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(24.dp))
@@ -299,8 +299,8 @@ private fun FeatureEntryCard(
                     Text(
                         text = entry.title.take(1),
                         color = colors.accent,
-                        fontSize = 15.sp,
-                        lineHeight = 18.sp,
+                        fontSize = ViewerTypography.cardTitle.fontSize,
+                        lineHeight = ViewerTypography.body.lineHeight,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -309,15 +309,15 @@ private fun FeatureEntryCard(
                     Text(
                         text = entry.title,
                         color = colors.primaryText,
-                        fontSize = HOME_ITEM_TITLE_FONT_SIZE_SP.sp,
-                        lineHeight = 21.sp,
+                        fontSize = ViewerTypography.metric.fontSize,
+                        lineHeight = ViewerTypography.metric.lineHeight,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         text = entry.subtitle,
                         color = colors.secondaryText,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
+                        fontSize = ViewerTypography.secondary.fontSize,
+                        lineHeight = ViewerTypography.label.lineHeight,
                         fontWeight = FontWeight.Medium,
                     )
                 }
@@ -325,8 +325,8 @@ private fun FeatureEntryCard(
             Text(
                 text = entry.description,
                 color = colors.secondaryText,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
+                lineHeight = ViewerTypography.bodyCompact.lineHeight,
             )
         }
         Row(
@@ -337,15 +337,15 @@ private fun FeatureEntryCard(
             Text(
                 text = entry.actionLabel,
                 color = colors.accent,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
+                lineHeight = ViewerTypography.bodyCompact.lineHeight,
                 fontWeight = FontWeight.Medium,
             )
             Text(
                 text = "›",
                 color = colors.accent,
-                fontSize = 20.sp,
-                lineHeight = 20.sp,
+                fontSize = ViewerTypography.icon.fontSize,
+                lineHeight = ViewerTypography.sectionTitle.lineHeight,
                 fontWeight = FontWeight.Medium,
             )
         }

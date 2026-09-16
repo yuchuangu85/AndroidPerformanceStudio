@@ -1,5 +1,7 @@
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.ui.localizedStringResource
@@ -47,14 +48,14 @@ internal fun FirefoxTransformNavigator(
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_flame_transforms, language),
             color = style.mutedForeground.toComposeColor(),
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
         transforms.forEachIndexed { index, transform ->
-            if (index > 0) Text("›", color = style.mutedForeground.toComposeColor(), fontSize = 10.sp)
+            if (index > 0) Text("›", color = style.mutedForeground.toComposeColor(), fontSize = ViewerTypography.label.fontSize)
             Text(
                 transform.navigatorLabel(currentSimpleperfLanguage()),
                 color = style.canvasForeground.toComposeColor(),
-                fontSize = 10.sp,
+                fontSize = ViewerTypography.label.fontSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -63,13 +64,13 @@ internal fun FirefoxTransformNavigator(
             localizedStringResource(SimpleperfViewerRes.sp_flame_undo, language),
             modifier = Modifier.clickable(onClick = onUndo).padding(horizontal = 5.dp, vertical = 2.dp),
             color = style.canvasForeground.toComposeColor(),
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_details_clear, language),
             modifier = Modifier.clickable(onClick = onClear).padding(horizontal = 5.dp, vertical = 2.dp),
             color = style.canvasForeground.toComposeColor(),
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
     }
 }

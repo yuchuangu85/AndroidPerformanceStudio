@@ -1,5 +1,7 @@
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -32,7 +34,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
@@ -128,7 +129,7 @@ internal fun FirefoxReportWorkspace(
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_diagnostics_sample_weight_duration_disclaimer, language),
             color = style.secondaryText,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
     }
 }

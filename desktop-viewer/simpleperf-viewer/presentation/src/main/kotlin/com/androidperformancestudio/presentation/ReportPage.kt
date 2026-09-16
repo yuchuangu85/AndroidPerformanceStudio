@@ -3,6 +3,8 @@
 
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -49,7 +51,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.analysis.DiagnosticFinding
 import com.androidperformancestudio.analysis.DiagnosticSeverity
 import com.androidperformancestudio.analysis.DiagnosticTarget
@@ -172,7 +173,7 @@ private fun ReportStatus(
         Modifier.fillMaxSize().background(style.panel, RoundedCornerShape(10.dp)).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(message, color = style.text, fontSize = 13.sp)
+        Text(message, color = style.text, fontSize = ViewerTypography.body.fontSize)
         onClose?.let {
             MacOSTextButton(
                 localizedStringResource(
@@ -246,7 +247,7 @@ internal fun OverviewReport(
                 Text(
                     localizedStringResource(SimpleperfViewerRes.sp_report_data_quality, language),
                     color = style.text,
-                    fontSize = 12.sp,
+                    fontSize = ViewerTypography.bodyCompact.fontSize,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
@@ -256,7 +257,7 @@ internal fun OverviewReport(
                         report.quality.lostSampleCount,
                     ),
                     color = style.text,
-                    fontSize = 10.sp,
+                    fontSize = ViewerTypography.label.fontSize,
                 )
                 Text(
                     localizedStringResource(
@@ -265,7 +266,7 @@ internal fun OverviewReport(
                         report.quality.unwindErrorSamples,
                     ),
                     color = style.text,
-                    fontSize = 10.sp,
+                    fontSize = ViewerTypography.label.fontSize,
                 )
                 Text(
                     localizedStringResource(
@@ -274,7 +275,7 @@ internal fun OverviewReport(
                         report.quality.unknownSymbolSamples,
                     ),
                     color = style.text,
-                    fontSize = 10.sp,
+                    fontSize = ViewerTypography.label.fontSize,
                 )
                 Text(
                     localizedStringResource(
@@ -283,7 +284,7 @@ internal fun OverviewReport(
                         report.quality.emptyStackSamples,
                     ),
                     color = style.text,
-                    fontSize = 10.sp,
+                    fontSize = ViewerTypography.label.fontSize,
                 )
             }
         }
@@ -292,7 +293,7 @@ internal fun OverviewReport(
             Text(
                 "${thread.name} · TID ${thread.threadId} · weight ${thread.totalEventCount}",
                 color = style.text,
-                fontSize = 10.sp,
+                fontSize = ViewerTypography.label.fontSize,
             )
         }
         item { SectionTitle(SimpleperfViewerRes.sp_report_top_functions, style) }
@@ -307,7 +308,7 @@ internal fun OverviewReport(
                         .clickable { actions.onFocusFunction(function.symbolName) }
                         .padding(6.dp),
             ) {
-                Text(function.symbolName, modifier = Modifier.weight(1f), color = style.text, fontSize = 10.sp)
+                Text(function.symbolName, modifier = Modifier.weight(1f), color = style.text, fontSize = ViewerTypography.label.fontSize)
                 Text(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_report_inclusive_exclusive_summary_format,
@@ -316,7 +317,7 @@ internal fun OverviewReport(
                         function.exclusiveWeight,
                     ),
                     color = style.secondaryText,
-                    fontSize = 9.sp,
+                    fontSize = ViewerTypography.dense.fontSize,
                 )
             }
         }
@@ -325,7 +326,7 @@ internal fun OverviewReport(
             Text(
                 "${if (artifact.exists) "✓" else "–"} ${artifact.name} · ${artifact.path}",
                 color = style.text,
-                fontSize = 10.sp,
+                fontSize = ViewerTypography.label.fontSize,
             )
         }
         item { SectionTitle(SimpleperfViewerRes.sp_diagnostics_diagnostics, style) }
@@ -334,7 +335,7 @@ internal fun OverviewReport(
                 Text(
                     localizedStringResource(SimpleperfViewerRes.sp_diagnostics_no_findings_empty_state, language),
                     color = style.secondaryText,
-                    fontSize = 10.sp,
+                    fontSize = ViewerTypography.label.fontSize,
                 )
             }
         } else {
@@ -357,9 +358,9 @@ private fun MetricCard(
         Text(
             localizedStringResource(title, currentSimpleperfLanguage()),
             color = style.secondaryText,
-            fontSize = 9.sp,
+            fontSize = ViewerTypography.dense.fontSize,
         )
-        Text(value, color = style.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, color = style.text, fontSize = ViewerTypography.metric.fontSize, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -476,13 +477,13 @@ private fun TopFunctionRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(function.symbolName, color = style.text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-            Text(function.filePath, color = style.secondaryText, fontSize = 8.sp)
+            Text(function.symbolName, color = style.text, fontSize = ViewerTypography.label.fontSize, fontWeight = FontWeight.SemiBold)
+            Text(function.filePath, color = style.secondaryText, fontSize = ViewerTypography.micro.fontSize)
         }
-        Text(function.inclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = 10.sp)
-        Text(function.exclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = 10.sp)
-        Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
-        Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = 10.sp)
+        Text(function.inclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Text(function.exclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = ViewerTypography.label.fontSize)
         Row(modifier = Modifier.width(180.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             MacOSTextButton(
                 localizedStringResource(SimpleperfViewerRes.sp_calltree_path, currentSimpleperfLanguage()),
@@ -628,7 +629,7 @@ private fun FirefoxCallTreeHeaderCell(
         text = label,
         modifier = Modifier.width(width).padding(horizontal = 5.dp),
         color = style.text,
-        fontSize = 9.sp,
+        fontSize = ViewerTypography.dense.fontSize,
         textAlign = TextAlign.End,
         maxLines = 1,
     )
@@ -738,8 +739,8 @@ private fun FirefoxCallTreeValue(
         text = value,
         modifier = Modifier.width(width).padding(horizontal = 5.dp),
         color = color,
-        fontSize = 9.sp,
-        lineHeight = FIREFOX_CALL_TREE_ROW_HEIGHT.value.sp,
+        fontSize = ViewerTypography.dense.fontSize,
+        lineHeight = ViewerTypography.dense.lineHeight,
         textAlign = TextAlign.End,
         maxLines = 1,
     )
@@ -764,8 +765,8 @@ private fun FirefoxHighlightedText(
         text = text.firefoxHighlight(search, style),
         modifier = modifier,
         color = color,
-        fontSize = 10.sp,
-        lineHeight = FIREFOX_CALL_TREE_ROW_HEIGHT.value.sp,
+        fontSize = ViewerTypography.label.fontSize,
+        lineHeight = ViewerTypography.dense.lineHeight,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         softWrap = false,
@@ -835,35 +836,35 @@ private fun DiagnosticCard(
                 finding.title,
                 modifier = Modifier.weight(1f),
                 color = style.text,
-                fontSize = 12.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 localizedStringResource(finding.severity.resource(), language),
                 color = accent,
-                fontSize = 9.sp,
+                fontSize = ViewerTypography.dense.fontSize,
                 fontWeight = FontWeight.Bold,
             )
         }
-        Text(finding.conclusion, color = style.text, fontSize = 10.sp)
+        Text(finding.conclusion, color = style.text, fontSize = ViewerTypography.label.fontSize)
         finding.evidence.forEach { evidence ->
             Row(Modifier.fillMaxWidth()) {
-                Text(evidence.label, modifier = Modifier.weight(1f), color = style.secondaryText, fontSize = 9.sp)
-                Text(evidence.value, color = style.text, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                Text(evidence.label, modifier = Modifier.weight(1f), color = style.secondaryText, fontSize = ViewerTypography.dense.fontSize)
+                Text(evidence.value, color = style.text, fontSize = ViewerTypography.dense.fontSize, fontWeight = FontWeight.SemiBold)
             }
         }
         if (finding.recommendations.isNotEmpty()) {
             Text(
                 localizedStringResource(SimpleperfViewerRes.sp_finding_recommendations, language),
                 color = style.text,
-                fontSize = 10.sp,
+                fontSize = ViewerTypography.label.fontSize,
                 fontWeight = FontWeight.Bold,
             )
             finding.recommendations.forEach {
                 Text(
                     localizedStringResource(SimpleperfViewerRes.sp_common_bullet_format, language, it),
                     color = style.secondaryText,
-                    fontSize = 9.sp,
+                    fontSize = ViewerTypography.dense.fontSize,
                 )
             }
         }
@@ -871,7 +872,7 @@ private fun DiagnosticCard(
             Text(
                 localizedStringResource(SimpleperfViewerRes.sp_finding_inspect_evidence_action, language),
                 color = accent,
-                fontSize = 9.sp,
+                fontSize = ViewerTypography.dense.fontSize,
             )
         }
     }
@@ -901,7 +902,7 @@ private fun SectionTitle(
     Text(
         localizedStringResource(title, currentSimpleperfLanguage()),
         color = style.text,
-        fontSize = 12.sp,
+        fontSize = ViewerTypography.bodyCompact.fontSize,
         fontWeight = FontWeight.SemiBold,
     )
 }

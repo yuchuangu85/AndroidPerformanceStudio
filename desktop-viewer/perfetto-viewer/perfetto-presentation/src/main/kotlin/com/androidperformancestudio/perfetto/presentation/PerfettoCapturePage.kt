@@ -1,5 +1,7 @@
 package com.androidperformancestudio.perfetto.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,7 +33,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureConfig
 import com.androidperformancestudio.perfetto.model.PerfettoCaptureState
 import com.androidperformancestudio.perfetto.model.PerfettoDeviceCapabilities
@@ -169,8 +170,8 @@ private fun PerfettoDataSourcesPanel(
                 Text(
                     text = localizedStringResource(Res.string.capability_query_failed, language, error),
                     color = MaterialTheme.colorScheme.error,
-                    fontSize = 9.sp,
-                    lineHeight = 11.sp,
+                    fontSize = ViewerTypography.dense.fontSize,
+                    lineHeight = ViewerTypography.dense.lineHeight,
                 )
             }
             if (selectedTemplate != PerfettoTraceTemplate.CUSTOM) {
@@ -179,7 +180,7 @@ private fun PerfettoDataSourcesPanel(
                     Text(
                         text = group.displayName.uppercase(),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 9.sp,
+                        fontSize = ViewerTypography.dense.fontSize,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -208,15 +209,15 @@ private fun PerfettoDataSourcesPanel(
                                         } else {
                                             MaterialTheme.colorScheme.onSurfaceVariant
                                         },
-                                    fontSize = 10.sp,
-                                    lineHeight = 12.sp,
+                                    fontSize = ViewerTypography.label.fontSize,
+                                    lineHeight = ViewerTypography.label.lineHeight,
                                 )
                                 reason?.let {
                                     Text(
                                         text = it,
                                         color = MaterialTheme.colorScheme.error,
-                                        fontSize = 8.sp,
-                                        lineHeight = 10.sp,
+                                        fontSize = ViewerTypography.micro.fontSize,
+                                        lineHeight = ViewerTypography.micro.lineHeight,
                                     )
                                 }
                             }
@@ -293,7 +294,7 @@ private fun PerfettoTemplateOption(
                 } else {
                     MaterialTheme.colorScheme.primary
                 },
-            fontSize = 11.sp,
+            fontSize = ViewerTypography.secondary.fontSize,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -306,8 +307,8 @@ private fun PerfettoTemplateOption(
                 } else {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.78f)
                 },
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
+            fontSize = ViewerTypography.label.fontSize,
+            lineHeight = ViewerTypography.secondary.lineHeight,
         )
     }
 }
@@ -471,7 +472,7 @@ private fun CompactFieldLabel(text: String) {
     Text(
         text = text,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
         fontWeight = FontWeight.Medium,
     )
 }
@@ -506,7 +507,7 @@ private fun CaptureStatus(
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
-        fontSize = 11.sp,
+        fontSize = ViewerTypography.secondary.fontSize,
     )
 }
 

@@ -3,6 +3,7 @@ package com.androidperformancestudio.memory.export
 import com.androidperformancestudio.memory.model.BitmapDumpImage
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapDumpSummary
+import com.androidperformancestudio.ui.ViewerDocumentTheme
 import java.nio.file.Files
 import java.time.Instant
 import java.util.zip.ZipFile
@@ -30,7 +31,12 @@ class BitmapDumpExportAdaptersTest {
 
         assertContains(Files.readString(root.resolve("summary.json")), "\"image_count\": 1")
         assertContains(Files.readString(root.resolve("manifest.json")), "\"sha256\":\"abc\"")
-        assertContains(Files.readString(root.resolve("gallery.html")), "alt=\"Bitmap 1\"")
+        val gallery = Files.readString(root.resolve("gallery.html"))
+        assertContains(gallery, "alt=\"Bitmap 1\"")
+        assertContains(gallery, "background:${ViewerDocumentTheme.darkCanvas}")
+        assertContains(gallery, "color:${ViewerDocumentTheme.primaryText}")
+        assertContains(gallery, "background:${ViewerDocumentTheme.raisedSurface}")
+        assertContains(gallery, "background:${ViewerDocumentTheme.imageSurface}")
         ZipFile(zip.toFile()).use { archive ->
             assertTrue(archive.getEntry("bitmap.raw.hprof") != null)
             assertTrue(archive.getEntry("images/0001_1x1.png") != null)

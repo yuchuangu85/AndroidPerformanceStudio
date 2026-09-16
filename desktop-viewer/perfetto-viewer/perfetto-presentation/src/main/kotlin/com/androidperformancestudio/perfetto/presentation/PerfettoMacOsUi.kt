@@ -1,5 +1,7 @@
 package com.androidperformancestudio.perfetto.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 @Composable
 @Suppress("ktlint:standard:function-naming")
@@ -63,7 +64,7 @@ fun PerfettoWorkspacePanel(
                 text = title,
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
+                fontSize = ViewerTypography.secondary.fontSize,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -106,7 +107,7 @@ fun PerfettoCompactTextField(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                fontSize = 11.sp,
+                fontSize = ViewerTypography.secondary.fontSize,
             ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         decorationBox = { innerTextField ->
@@ -115,7 +116,7 @@ fun PerfettoCompactTextField(
                     Text(
                         text = placeholder,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
+                        fontSize = ViewerTypography.secondary.fontSize,
                         maxLines = if (singleLine) 1 else Int.MAX_VALUE,
                     )
                 }
@@ -165,7 +166,7 @@ fun PerfettoCompactButton(
                     selected -> MaterialTheme.colorScheme.onPrimary
                     else -> MaterialTheme.colorScheme.primary
                 },
-            fontSize = 11.sp,
+            fontSize = ViewerTypography.secondary.fontSize,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

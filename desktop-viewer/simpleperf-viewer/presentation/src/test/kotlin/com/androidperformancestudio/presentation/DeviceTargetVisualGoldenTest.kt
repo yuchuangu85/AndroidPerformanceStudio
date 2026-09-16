@@ -24,6 +24,7 @@ import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.capture.SimpleperfTarget
+import com.androidperformancestudio.ui.ViewerTheme
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.nio.file.Files
 import java.nio.file.Path
@@ -64,15 +65,17 @@ class DeviceTargetVisualGoldenTest {
         assumeMacOsGoldenHost()
         runDesktopComposeUiTest(width = GOLDEN_WIDTH, height = GOLDEN_HEIGHT) {
             setContent {
-                Box(Modifier.fillMaxSize().testTag(GOLDEN_TAG)) {
-                    HomeScreen(
-                        state = macOsGoldenState(),
-                        captureState = CaptureState.Idle,
-                        reportState = reportState,
-                        actions = visualDeviceActions(),
-                        reportActions = goldenActions(),
-                        darkTheme = dark,
-                    )
+                ViewerTheme(darkTheme = dark) {
+                    Box(Modifier.fillMaxSize().testTag(GOLDEN_TAG)) {
+                        HomeScreen(
+                            state = macOsGoldenState(),
+                            captureState = CaptureState.Idle,
+                            reportState = reportState,
+                            actions = visualDeviceActions(),
+                            reportActions = goldenActions(),
+                            darkTheme = dark,
+                        )
+                    }
                 }
             }
             waitForIdle()

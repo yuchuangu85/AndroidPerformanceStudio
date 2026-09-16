@@ -1,5 +1,7 @@
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.StackChartEmptyReason
@@ -70,7 +71,7 @@ private fun StackChartMessage(
     onRetry: () -> Unit,
 ) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(message, color = style.secondaryText, fontSize = 11.sp)
+        Text(message, color = style.secondaryText, fontSize = ViewerTypography.secondary.fontSize)
         MacOSTextButton("Retry", onRetry, style)
     }
 }

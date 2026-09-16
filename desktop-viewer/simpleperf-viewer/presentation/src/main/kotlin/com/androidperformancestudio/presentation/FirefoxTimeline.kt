@@ -3,6 +3,8 @@
 
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -44,7 +46,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
@@ -192,7 +193,7 @@ private fun FirefoxMarkerTimelineLanes(
                 lane.label,
                 modifier = Modifier.width(FIREFOX_TIMELINE_LABEL_WIDTH).padding(horizontal = 8.dp),
                 color = style.secondaryText,
-                fontSize = 9.sp,
+                fontSize = ViewerTypography.dense.fontSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -264,11 +265,11 @@ private fun FirefoxTimelineHeader(
                 visibleTracksDescription,
                 modifier = Modifier.weight(1f),
                 color = style.text,
-                fontSize = 9.sp,
+                fontSize = ViewerTypography.dense.fontSize,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
-            Text("▾", color = style.secondaryText, fontSize = 9.sp)
+            Text("▾", color = style.secondaryText, fontSize = ViewerTypography.dense.fontSize)
         }
         FirefoxTimelineRuler(viewport, zeroAtNanos, style, Modifier.weight(1f))
     }
@@ -307,7 +308,7 @@ private fun FirefoxTimelineRuler(
                     formatFirefoxTimelineTime(timestamp - zeroAtNanos),
                     modifier = Modifier.padding(end = 5.dp),
                     color = style.secondaryText,
-                    fontSize = 9.sp,
+                    fontSize = ViewerTypography.dense.fontSize,
                     maxLines = 1,
                 )
             }
@@ -333,7 +334,7 @@ private fun FirefoxThreadTrack(
             track.name,
             track.threadId,
         )
-    val rowBackground = if (selected) style.accent.copy(alpha = 0.10f) else Color.Transparent
+    val rowBackground = if (selected) style.accent.copy(alpha = 0.10f) else style.transparent
     Row(
         Modifier
             .fillMaxWidth()
@@ -383,14 +384,14 @@ private fun FirefoxTrackLabel(
             track.name,
             modifier = Modifier.weight(1f),
             color = style.text,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
             if (local) "(${track.threadId})" else "(${track.processId})",
             color = style.secondaryText,
-            fontSize = 9.sp,
+            fontSize = ViewerTypography.dense.fontSize,
             maxLines = 1,
         )
     }
@@ -543,9 +544,9 @@ private fun formatTimelineUnit(
     return String.format(Locale.US, "%.${precision}f %s", value, unit)
 }
 
-private fun firefoxActivityColor(style: ViewerColors): Color = if (style.panel.red < 0.5f) Color(0xFF75A7D4) else Color(0xFF5B8DB8)
+private fun firefoxActivityColor(style: ViewerColors): Color = style.firefoxActivity
 
-private fun firefoxLocalTrackBackground(style: ViewerColors): Color = if (style.panel.red < 0.5f) Color(0xFF202124) else Color(0xFFF0F0F4)
+private fun firefoxLocalTrackBackground(style: ViewerColors): Color = style.firefoxLocalTrack
 
 private fun Long.safeTimelineIncrement(): Long = if (this == Long.MAX_VALUE) this else this + 1
 

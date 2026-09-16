@@ -5,6 +5,7 @@ import com.androidperformancestudio.presentation.FlameTooltipMode
 import com.androidperformancestudio.presentation.SimpleperfEngine
 import com.androidperformancestudio.ui.UiLanguage
 import androidx.compose.ui.graphics.Color
+import com.androidperformancestudio.ui.ViewerAccentPalette
 import java.util.Locale
 import java.util.prefs.Preferences
 
@@ -49,14 +50,14 @@ internal enum class ApplicationThemeColor(
     val storageValue: String,
     val color: Color,
 ) {
-    BANANA_RED("banana_red", Color(0xFFD4042D)),
-    WARM_SUN_ORANGE("warm_sun_orange", Color(0xFFDB7A0E)),
-    CORNFLOWER_BLUE("cornflower_blue", Color(0xFF5A92E5)),
-    JADE_GREEN("jade_green", Color(0xFF5E8034)),
-    MERLOT_PINK("merlot_pink", Color(0xFFEB6D98)),
-    AZURE("azure", Color(0xFF41B5C2)),
-    LEMON_YELLOW("lemon_yellow", Color(0xFFFACA2E)),
-    ROYAL_PURPLE("royal_purple", Color(0xFF722169)),
+    BANANA_RED("banana_red", ViewerAccentPalette.bananaRed),
+    WARM_SUN_ORANGE("warm_sun_orange", ViewerAccentPalette.warmSunOrange),
+    CORNFLOWER_BLUE("cornflower_blue", ViewerAccentPalette.cornflowerBlue),
+    JADE_GREEN("jade_green", ViewerAccentPalette.jadeGreen),
+    MERLOT_PINK("merlot_pink", ViewerAccentPalette.merlotPink),
+    AZURE("azure", ViewerAccentPalette.azure),
+    LEMON_YELLOW("lemon_yellow", ViewerAccentPalette.lemonYellow),
+    ROYAL_PURPLE("royal_purple", ViewerAccentPalette.royalPurple),
     ;
 
     companion object {

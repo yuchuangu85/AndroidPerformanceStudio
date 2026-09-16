@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -33,7 +35,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.CapabilityStatus
 import com.androidperformancestudio.application.CaptureTarget
 import com.androidperformancestudio.application.DeviceOption
@@ -369,16 +370,16 @@ private fun CapabilityPopup(
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_target_device_capability, language),
             color = style.text,
-            fontSize = 13.sp,
-            lineHeight = 16.sp,
+            fontSize = ViewerTypography.body.fontSize,
+            lineHeight = ViewerTypography.bodyCompact.lineHeight,
             fontWeight = FontWeight.SemiBold,
         )
         if (selection == null) {
             Text(
                 localizedStringResource(SimpleperfViewerRes.sp_target_capability_selection_hint, language),
                 color = style.secondaryText,
-                fontSize = 11.sp,
-                lineHeight = 14.sp,
+                fontSize = ViewerTypography.secondary.fontSize,
+                lineHeight = ViewerTypography.label.lineHeight,
             )
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -386,11 +387,11 @@ private fun CapabilityPopup(
                     Text(
                         selection.model,
                         color = style.text,
-                        fontSize = 14.sp,
-                        lineHeight = 17.sp,
+                        fontSize = ViewerTypography.lead.fontSize,
+                        lineHeight = ViewerTypography.body.lineHeight,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(selection.serial, color = style.secondaryText, fontSize = 10.sp, lineHeight = 12.sp)
+                    Text(selection.serial, color = style.secondaryText, fontSize = ViewerTypography.label.fontSize, lineHeight = ViewerTypography.label.lineHeight)
                 }
                 CapabilityStatusBadge(selection.capabilities.status, style)
             }
@@ -465,15 +466,15 @@ private fun CapabilityPopupFact(
             label,
             modifier = Modifier.width(72.dp),
             color = style.secondaryText,
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
+            fontSize = ViewerTypography.label.fontSize,
+            lineHeight = ViewerTypography.secondary.lineHeight,
         )
         Text(
             value,
             modifier = Modifier.weight(1f),
             color = if (warning) style.warning else style.text,
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
+            fontSize = ViewerTypography.label.fontSize,
+            lineHeight = ViewerTypography.secondary.lineHeight,
         )
     }
 }
@@ -509,8 +510,8 @@ private fun CapabilityStatusBadge(
                 language,
             ),
             color = color,
-            fontSize = 10.sp,
-            lineHeight = 12.sp,
+            fontSize = ViewerTypography.label.fontSize,
+            lineHeight = ViewerTypography.label.lineHeight,
             fontWeight = FontWeight.Bold,
         )
     }
@@ -578,8 +579,8 @@ private fun CaptureStatus(
             } ?: captureState.statusText(currentSimpleperfLanguage()),
             modifier = if (fileInfo == null) Modifier.weight(1f) else Modifier.widthIn(max = 240.dp),
             color = color,
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
+            fontSize = ViewerTypography.label.fontSize,
+            lineHeight = ViewerTypography.secondary.lineHeight,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -590,8 +591,8 @@ private fun CaptureStatus(
             Text(
                 info.name,
                 color = style.text,
-                fontSize = 10.sp,
-                lineHeight = 13.sp,
+                fontSize = ViewerTypography.label.fontSize,
+                lineHeight = ViewerTypography.secondary.lineHeight,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -602,8 +603,8 @@ private fun CaptureStatus(
                     Text(
                         info.path,
                         color = style.secondaryText,
-                        fontSize = 9.sp,
-                        lineHeight = 12.sp,
+                        fontSize = ViewerTypography.dense.fontSize,
+                        lineHeight = ViewerTypography.label.lineHeight,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

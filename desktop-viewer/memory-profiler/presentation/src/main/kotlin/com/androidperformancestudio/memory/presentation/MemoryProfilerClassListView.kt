@@ -10,6 +10,10 @@
 
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.ui.LocalViewerColors
+
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -46,7 +50,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.memory.model.ObjectReference
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.activity_fragment_leak
@@ -230,9 +233,9 @@ private fun FilterBar(
             colors = viewerOutlinedTextFieldColors(),
             value = state.searchText,
             onValueChange = actions.onSearchChange,
-            placeholder = { Text(localizedStringResource(Res.string.filter_classes, language), fontSize = 12.sp) },
+            placeholder = { Text(localizedStringResource(Res.string.filter_classes, language), fontSize = ViewerTypography.bodyCompact.fontSize) },
             singleLine = true,
-            textStyle = TextStyle(fontSize = 12.sp),
+            textStyle = TextStyle(fontSize = ViewerTypography.bodyCompact.fontSize),
             modifier = Modifier.weight(1f).height(36.dp),
         )
         FilterCheckbox(
@@ -263,7 +266,7 @@ private fun FilterCheckbox(
             onCheckedChange = onChecked,
             modifier = Modifier.size(18.dp),
         )
-        Text(label, fontSize = 12.sp)
+        Text(label, fontSize = ViewerTypography.bodyCompact.fontSize)
     }
 }
 
@@ -290,7 +293,7 @@ private fun SummaryBar(
 
 @Composable
 private fun SummaryMetric(text: String) {
-    Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+    Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = ViewerTypography.bodyCompact.fontSize)
 }
 
 @Composable
@@ -309,7 +312,7 @@ private fun ClassTableHeader(
             headerTitle(firstColumnLabel(arrangeBy, language), MemoryClassifierColumn.NAME, sortColumn, sortDirection),
             Modifier.weight(1f).clickable { onSort(MemoryClassifierColumn.NAME) },
             fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
         )
         listOf(
             MemoryClassifierColumn.MODULE_NAME to localizedStringResource(Res.string.module_name, language),
@@ -329,7 +332,7 @@ private fun ClassTableHeader(
                     onSort(column)
                 },
                 fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
             )
         }
     }
@@ -394,7 +397,7 @@ private fun ClassifierTableRow(
             selected -> MaterialTheme.colorScheme.primaryContainer
             isLeak -> MaterialTheme.colorScheme.errorContainer.copy(alpha = .45f)
             isDuplicateBitmap -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = .45f)
-            else -> Color.Transparent
+            else -> LocalViewerColors.current.transparent
         }
     Row(
         Modifier
@@ -422,9 +425,9 @@ private fun ClassifierTableRow(
                 "▸"
             },
             Modifier.width(14.dp).clickable(enabled = !row.isLeaf, onClick = onToggle),
-            fontSize = 12.sp,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
         )
-        Text(row.label, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+        Text(row.label, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = ViewerTypography.bodyCompact.fontSize)
         classifierCell(row.moduleName)
         classifierCell(row.allocations?.let(::integer))
         classifierCell(row.deallocations?.let(::integer))
@@ -440,7 +443,7 @@ private fun ClassifierTableRow(
 
 @Composable
 private fun RowScope.classifierCell(value: String?) {
-    Text(value ?: "—", Modifier.width(96.dp), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(value ?: "—", Modifier.width(96.dp), fontSize = ViewerTypography.bodyCompact.fontSize, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
@@ -466,16 +469,16 @@ private fun InstanceTableHeader(language: UiLanguage) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(localizedStringResource(Res.string.instance, language), Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        Text(localizedStringResource(Res.string.depth, language), Modifier.width(52.dp), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text(localizedStringResource(Res.string.instance, language), Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = ViewerTypography.bodyCompact.fontSize)
+        Text(localizedStringResource(Res.string.depth, language), Modifier.width(52.dp), fontWeight = FontWeight.Bold, fontSize = ViewerTypography.bodyCompact.fontSize)
         Text(
             localizedStringResource(Res.string.native_size, language),
             Modifier.width(96.dp),
             fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
         )
-        Text(localizedStringResource(Res.string.shallow, language), Modifier.width(88.dp), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        Text(localizedStringResource(Res.string.retained, language), Modifier.width(112.dp), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text(localizedStringResource(Res.string.shallow, language), Modifier.width(88.dp), fontWeight = FontWeight.Bold, fontSize = ViewerTypography.bodyCompact.fontSize)
+        Text(localizedStringResource(Res.string.retained, language), Modifier.width(112.dp), fontWeight = FontWeight.Bold, fontSize = ViewerTypography.bodyCompact.fontSize)
     }
 }
 
@@ -523,7 +526,7 @@ private fun InstanceTableRow(
                 .fillMaxWidth()
                 .height(28.dp)
                 .background(
-                    if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                    if (selected) MaterialTheme.colorScheme.primaryContainer else LocalViewerColors.current.transparent,
                     RoundedCornerShape(3.dp),
                 ).clickable(onClick = onClick)
                 .padding(horizontal = 8.dp),
@@ -533,21 +536,21 @@ private fun InstanceTableRow(
             Text(
                 text = "${if (selected) "▾" else "▸"} #${row.index}",
                 modifier = Modifier.weight(1f),
-                fontSize = 12.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = row.depth?.toString() ?: localizedStringResource(Res.string.unreachable, language),
                 Modifier.width(52.dp),
-                fontSize = 12.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
             )
-            Text(row.nativeSize?.let(::formatBytes) ?: "—", Modifier.width(96.dp), fontSize = 12.sp)
-            Text(formatBytes(row.shallowSize), Modifier.width(88.dp), fontSize = 12.sp)
+            Text(row.nativeSize?.let(::formatBytes) ?: "—", Modifier.width(96.dp), fontSize = ViewerTypography.bodyCompact.fontSize)
+            Text(formatBytes(row.shallowSize), Modifier.width(88.dp), fontSize = ViewerTypography.bodyCompact.fontSize)
             Text(
                 text = row.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unreachable, language),
                 modifier = Modifier.width(112.dp),
-                fontSize = 12.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
             )
         }
         if (selected && !chain.isNullOrEmpty()) {
@@ -563,7 +566,7 @@ private fun InstanceTableRow(
                                     append(reference.targetClassName)
                                 }
                             },
-                        fontSize = 11.sp,
+                        fontSize = ViewerTypography.secondary.fontSize,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -584,7 +587,7 @@ private fun InstanceDetailPane(
         Text(
             text = "${localizedStringResource(Res.string.instance_details, language)} — ${detail.className}",
             fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
+            fontSize = ViewerTypography.body.fontSize,
         )
         Text(
             text =
@@ -593,20 +596,20 @@ private fun InstanceDetailPane(
                     detail.depth?.let { append(" · ${localizedStringResource(Res.string.depth, language)} $it") }
                     detail.retainedSize?.let { append(" · ${localizedStringResource(Res.string.retained, language)} ${formatBytes(it)}") }
                 },
-            fontSize = 11.sp,
+            fontSize = ViewerTypography.secondary.fontSize,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
         Row(Modifier.fillMaxWidth().weight(1f)) {
             Column(Modifier.weight(1f)) {
-                Text(localizedStringResource(Res.string.fields, language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(localizedStringResource(Res.string.fields, language), fontWeight = FontWeight.Bold, fontSize = ViewerTypography.bodyCompact.fontSize)
                 if (detail.fields.isEmpty()) {
                     Text(
                         text =
                             detail.elementCount?.let { localizedStringResource(Res.string.array_elements, language, integer(it)) }
                                 ?: localizedStringResource(Res.string.unreachable, language),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
+                        fontSize = ViewerTypography.secondary.fontSize,
                     )
                 } else {
                     LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(top = 2.dp)) {
@@ -615,7 +618,7 @@ private fun InstanceDetailPane(
                                 Text(
                                     text = field.name,
                                     modifier = Modifier.width(110.dp),
-                                    fontSize = 11.sp,
+                                    fontSize = ViewerTypography.secondary.fontSize,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -623,7 +626,7 @@ private fun InstanceDetailPane(
                                 Text(
                                     text = field.displayValue,
                                     modifier = Modifier.weight(1f),
-                                    fontSize = 11.sp,
+                                    fontSize = ViewerTypography.secondary.fontSize,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -634,19 +637,19 @@ private fun InstanceDetailPane(
             }
             VerticalDivider(Modifier.padding(horizontal = 6.dp))
             Column(Modifier.weight(1f)) {
-                Text(localizedStringResource(Res.string.references, language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(localizedStringResource(Res.string.references, language), fontWeight = FontWeight.Bold, fontSize = ViewerTypography.bodyCompact.fontSize)
                 if (detail.references.isEmpty()) {
                     Text(
                         text = localizedStringResource(Res.string.no_references, language),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
+                        fontSize = ViewerTypography.secondary.fontSize,
                     )
                 } else {
                     LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(top = 2.dp)) {
                         items(detail.references) { reference ->
                             Text(
                                 text = "${reference.name} ← ${reference.displayValue}",
-                                fontSize = 11.sp,
+                                fontSize = ViewerTypography.secondary.fontSize,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -654,9 +657,9 @@ private fun InstanceDetailPane(
                         }
                     }
                 }
-                Text(localizedStringResource(Res.string.reference_chain, language), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(localizedStringResource(Res.string.reference_chain, language), fontWeight = FontWeight.Bold, fontSize = ViewerTypography.bodyCompact.fontSize)
                 detail.referenceChain.forEach { reference ->
-                    Text("↳ ${reference.fieldName} → ${reference.targetClassName}", fontSize = 11.sp, maxLines = 1)
+                    Text("↳ ${reference.fieldName} → ${reference.targetClassName}", fontSize = ViewerTypography.secondary.fontSize, maxLines = 1)
                 }
             }
         }
@@ -672,7 +675,7 @@ private fun EmptyPaneHint(
         modifier = modifier.padding(8.dp),
         contentAlignment = Alignment.TopStart,
     ) {
-        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = ViewerTypography.bodyCompact.fontSize)
     }
 }
 

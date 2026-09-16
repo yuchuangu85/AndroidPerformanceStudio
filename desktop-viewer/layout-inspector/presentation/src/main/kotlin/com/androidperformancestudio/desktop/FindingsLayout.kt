@@ -1,8 +1,6 @@
 package com.androidperformancestudio.desktop
 
-internal object FindingsTypography {
-    const val TEXT_SIZE_SP = 10f
-    const val LINE_HEIGHT_SP = 12f
+internal object FindingsLayoutTokens {
     const val VERTICAL_PADDING_DP = 2f
 }
 

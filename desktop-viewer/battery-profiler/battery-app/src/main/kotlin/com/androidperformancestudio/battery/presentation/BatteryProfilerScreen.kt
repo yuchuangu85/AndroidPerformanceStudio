@@ -11,6 +11,8 @@
 
 package com.androidperformancestudio.battery.presentation
 
+import com.androidperformancestudio.ui.LocalViewerColors
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -263,7 +265,7 @@ private fun RunRow(
 ) {
     Row(
         Modifier
-            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else LocalViewerColors.current.transparent)
             .clickable {
                 onSelect(run.runId)
             }.padding(vertical = 6.dp, horizontal = 8.dp),

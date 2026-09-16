@@ -114,4 +114,54 @@ class UnifiedUiComponentsSourceTest {
         assertTrue(source.contains("colors?.accent ?: LocalViewerColors.current.accent"))
         assertFalse(Files.exists(sourceRoot.resolve("MacOsSettingsButton.kt")))
     }
+
+    @Test
+    fun `production viewer UI keeps font sizes and color literals in root theme`() {
+        val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val rootTheme =
+            desktopViewer.resolve(
+                "ui-components/src/main/kotlin/com/androidperformancestudio/ui/ViewerTheme.kt",
+            )
+        val sourceFiles =
+            Files.walk(desktopViewer).use { paths ->
+                paths
+                    .filter { path ->
+                        path.toString().endsWith(".kt") &&
+                            "/src/main/" in path.toString() &&
+                            "/build/" !in path.toString() &&
+                            path != rootTheme
+                    }
+                    .toList()
+            }
+        val rawFontSizes =
+            sourceFiles.filter { source ->
+                Regex("""\b(?:\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_.]*)\.sp\b|\b(?:FONT_SIZE_SP|TEXT_SIZE_SP|LINE_HEIGHT_SP)\s*=\s*\d""")
+                    .containsMatchIn(Files.readString(source))
+            }
+        val rawDocumentFontSizes =
+            sourceFiles.filter { source ->
+                Regex("""font(?:-size)?\s*:\s*\d+(?:\.\d+)?(?:px|pt|em|rem)""")
+                    .containsMatchIn(Files.readString(source))
+            }
+        val rawColors =
+            sourceFiles.filter { source ->
+                Regex(
+                    """Color\((?:0x|[0-9])|Color\.(?:White|Black|Red|Green|Blue|Yellow|Gray|Transparent)|CanvasArgb\(0x|argb\(0x|style\(0x|DEFAULT_TIMELINE_COLOR_ARGB\s*=\s*0x|#[0-9A-Fa-f]{3,8}\b""",
+                ).containsMatchIn(Files.readString(source))
+            }
+
+        assertTrue(
+            rawFontSizes.isEmpty(),
+            "Raw .sp values must be defined only by ViewerTheme.kt: $rawFontSizes",
+        )
+        assertTrue(
+            rawDocumentFontSizes.isEmpty(),
+            "Raw document font sizes must be defined only by ViewerTheme.kt: $rawDocumentFontSizes",
+        )
+        assertTrue(
+            rawColors.isEmpty(),
+            "Raw UI colors must be defined only by ViewerTheme.kt: $rawColors",
+        )
+    }
+
 }

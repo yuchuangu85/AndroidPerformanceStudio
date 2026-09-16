@@ -2,7 +2,6 @@
 
 package com.androidperformancestudio.benchmark.app
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,7 +28,6 @@ import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -39,7 +37,6 @@ import java.nio.file.Path
 @Composable
 public fun FrameWindowScope.BenchmarkRegressionMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
-    darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
     onOpenTrace: (Path) -> Unit = {},
 ) {
@@ -59,53 +56,51 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
         }.onFailure { state = state.copy(error = it.message ?: localizedStringResource(Res.string.import_failed, language)) }
     }
 
-    ViewerTheme(darkTheme = darkTheme) {
-        Column(Modifier.fillMaxSize()) {
-            HeaderToolbar(
-                language = language,
-                onNavigateHome = onBack,
-                onNavigateSettings = null,
-            ) {
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.import_current, language),
-                    onClick = { chooseBenchmarkJson(window, language)?.let { import(it, false) } },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.import_baseline, language),
-                    onClick = { chooseBenchmarkJson(window, language)?.let { import(it, true) } },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.export_report, language),
-                    enabled = state.report != null,
-                    onClick = {
-                        chooseSaveFile(
-                            window,
-                            localizedStringResource(Res.string.export_report, language),
-                            "benchmark-regression.json",
-                        )
-                            ?.let { exporter.writeJson(requireNotNull(state.report), it.toPath()) }
-                    },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
-                    enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
-                    onClick = {
-                        state.current
-                            ?.cases
-                            ?.flatMap { it.traceArtifacts }
-                            ?.firstOrNull()
-                            ?.let(onOpenTrace)
-                    },
-                )
-                Spacer(Modifier.weight(1f))
-                ProfilerToolbarStatus(state.message, state.error)
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-            BenchmarkRegressionScreen(state, language, Modifier.weight(1f))
+    Column(Modifier.fillMaxSize()) {
+        HeaderToolbar(
+            language = language,
+            onNavigateHome = onBack,
+            onNavigateSettings = null,
+        ) {
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.import_current, language),
+                onClick = { chooseBenchmarkJson(window, language)?.let { import(it, false) } },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.import_baseline, language),
+                onClick = { chooseBenchmarkJson(window, language)?.let { import(it, true) } },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.export_report, language),
+                enabled = state.report != null,
+                onClick = {
+                    chooseSaveFile(
+                        window,
+                        localizedStringResource(Res.string.export_report, language),
+                        "benchmark-regression.json",
+                    )
+                        ?.let { exporter.writeJson(requireNotNull(state.report), it.toPath()) }
+                },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
+                enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
+                onClick = {
+                    state.current
+                        ?.cases
+                        ?.flatMap { it.traceArtifacts }
+                        ?.firstOrNull()
+                        ?.let(onOpenTrace)
+                },
+            )
+            Spacer(Modifier.weight(1f))
+            ProfilerToolbarStatus(state.message, state.error)
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        BenchmarkRegressionScreen(state, language, Modifier.weight(1f))
     }
 }
 

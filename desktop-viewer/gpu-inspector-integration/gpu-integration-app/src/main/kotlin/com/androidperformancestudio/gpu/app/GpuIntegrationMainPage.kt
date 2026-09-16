@@ -2,7 +2,6 @@
 
 package com.androidperformancestudio.gpu.app
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,7 +47,6 @@ import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -62,7 +60,6 @@ import javax.swing.JFileChooser
 @Composable
 public fun FrameWindowScope.GpuIntegrationMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
-    darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
     onOpenTrace: (Path) -> Unit = {},
 ) {
@@ -157,136 +154,134 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
         }
     }
 
-    ViewerTheme(darkTheme = darkTheme) {
-        Column(Modifier.fillMaxSize()) {
-            HeaderToolbar(
-                language = language,
-                onNavigateHome = onBack,
-                onNavigateSettings = null,
-            ) {
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.refresh_agi, language),
-                    enabled = !state.isBusy,
-                    onClick = {
+    Column(Modifier.fillMaxSize()) {
+        HeaderToolbar(
+            language = language,
+            onNavigateHome = onBack,
+            onNavigateSettings = null,
+        ) {
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.refresh_agi, language),
+                enabled = !state.isBusy,
+                onClick = {
+                    state =
+                        withAvailability(
+                            state.copy(
+                                capability = locator.locate(),
+                                message = localizedStringResource(Res.string.agi_capability_refreshed, language),
+                                error = null,
+                            ),
+                            indexer,
+                        )
+                },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.configure_agi, language),
+                enabled = !state.isBusy,
+                onClick = {
+                    chooseExecutable(window, language)?.let { file ->
                         state =
                             withAvailability(
                                 state.copy(
-                                    capability = locator.locate(),
-                                    message = localizedStringResource(Res.string.agi_capability_refreshed, language),
+                                    capability = locator.locate(file.toPath()),
+                                    message = localizedStringResource(Res.string.configured_file, language, file.name),
                                     error = null,
                                 ),
                                 indexer,
                             )
-                    },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.configure_agi, language),
-                    enabled = !state.isBusy,
-                    onClick = {
-                        chooseExecutable(window, language)?.let { file ->
-                            state =
-                                withAvailability(
-                                    state.copy(
-                                        capability = locator.locate(file.toPath()),
-                                        message = localizedStringResource(Res.string.configured_file, language, file.name),
-                                        error = null,
-                                    ),
-                                    indexer,
-                                )
-                        }
-                    },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.launch_agi, language),
-                    enabled = !state.isBusy && state.capability?.launchSupported == true,
-                    onClick = {
-                        runCatching { locator.launch(requireNotNull(state.capability)) }
-                            .onFailure { state = state.copy(error = it.message) }
-                    },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.import_artifact, language),
-                    enabled = !state.isBusy,
-                    onClick = {
-                        chooseArtifact(window, language)?.let { file ->
-                            val agiVersion = state.capability?.version
-                            val artifacts = state.artifacts
-                            state =
-                                state.copy(
-                                    isBusy = true,
-                                    message = localizedStringResource(Res.string.artifact_indexing, language),
-                                    error = null,
-                                )
-                            scope.launch {
-                                runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        val artifact = indexer.import(file.toPath(), agiVersion = agiVersion)
-                                        val updated = indexer.mergeLocation(artifacts, artifact)
-                                        store.save(updated)
-                                        updated
-                                    }
-                                }.onSuccess { updated ->
-                                    state =
-                                        withAvailability(
-                                            state.copy(
-                                                artifacts = updated,
-                                                isBusy = false,
-                                                message = localizedStringResource(Res.string.imported_file, language, file.name),
-                                                error = null,
-                                            ),
-                                            indexer,
-                                        )
-                                }.onFailure {
-                                    state = state.copy(isBusy = false, error = it.message)
+                    }
+                },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.launch_agi, language),
+                enabled = !state.isBusy && state.capability?.launchSupported == true,
+                onClick = {
+                    runCatching { locator.launch(requireNotNull(state.capability)) }
+                        .onFailure { state = state.copy(error = it.message) }
+                },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.import_artifact, language),
+                enabled = !state.isBusy,
+                onClick = {
+                    chooseArtifact(window, language)?.let { file ->
+                        val agiVersion = state.capability?.version
+                        val artifacts = state.artifacts
+                        state =
+                            state.copy(
+                                isBusy = true,
+                                message = localizedStringResource(Res.string.artifact_indexing, language),
+                                error = null,
+                            )
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    val artifact = indexer.import(file.toPath(), agiVersion = agiVersion)
+                                    val updated = indexer.mergeLocation(artifacts, artifact)
+                                    store.save(updated)
+                                    updated
                                 }
+                            }.onSuccess { updated ->
+                                state =
+                                    withAvailability(
+                                        state.copy(
+                                            artifacts = updated,
+                                            isBusy = false,
+                                            message = localizedStringResource(Res.string.imported_file, language, file.name),
+                                            error = null,
+                                        ),
+                                        indexer,
+                                    )
+                            }.onFailure {
+                                state = state.copy(isBusy = false, error = it.message)
                             }
                         }
-                    },
-                )
-                Spacer(Modifier.weight(1f))
-                ProfilerToolbarStatus(state.message, state.error)
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-            GpuIntegrationScreen(
-                state,
-                GpuIntegrationActions(
-                    onOpenArtifact = ::open,
-                    onVerifyArtifact = { artifact ->
-                        state = state.copy(isBusy = true)
-                        scope.launch {
-                            runCatching { withContext(Dispatchers.IO) { indexer.verify(artifact) } }
-                                .onSuccess { verified ->
-                                    state =
-                                        withAvailability(
-                                            state.copy(
-                                                isBusy = false,
-                                                message =
-                                                    localizedStringResource(
-                                                        if (verified) {
-                                                            Res.string.artifact_hash_verified
-                                                        } else {
-                                                            Res.string.artifact_missing_or_changed
-                                                        },
-                                                        language,
-                                                    ),
-                                            ),
-                                            indexer,
-                                        )
-                                }.onFailure {
-                                    state = state.copy(isBusy = false, error = it.message)
-                                }
-                        }
-                    },
-                    onRevealArtifact = ::reveal,
-                    onRelocateArtifact = ::relocate,
-                ),
-                language,
-                Modifier.weight(1f),
+                    }
+                },
             )
+            Spacer(Modifier.weight(1f))
+            ProfilerToolbarStatus(state.message, state.error)
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        GpuIntegrationScreen(
+            state,
+            GpuIntegrationActions(
+                onOpenArtifact = ::open,
+                onVerifyArtifact = { artifact ->
+                    state = state.copy(isBusy = true)
+                    scope.launch {
+                        runCatching { withContext(Dispatchers.IO) { indexer.verify(artifact) } }
+                            .onSuccess { verified ->
+                                state =
+                                    withAvailability(
+                                        state.copy(
+                                            isBusy = false,
+                                            message =
+                                                localizedStringResource(
+                                                    if (verified) {
+                                                        Res.string.artifact_hash_verified
+                                                    } else {
+                                                        Res.string.artifact_missing_or_changed
+                                                    },
+                                                    language,
+                                                ),
+                                        ),
+                                        indexer,
+                                    )
+                            }.onFailure {
+                                state = state.copy(isBusy = false, error = it.message)
+                            }
+                    }
+                },
+                onRevealArtifact = ::reveal,
+                onRelocateArtifact = ::relocate,
+            ),
+            language,
+            Modifier.weight(1f),
+        )
     }
 }
 

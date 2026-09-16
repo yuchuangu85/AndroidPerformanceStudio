@@ -20,7 +20,7 @@ class ProfilerMacOsControlsSourceTest {
         assertTrue(source.contains(".height(24.dp)"))
         assertTrue(source.contains("RoundedCornerShape(4.dp)"))
         assertTrue(source.contains(".border(1.dp, MaterialTheme.colorScheme.primary, shape)"))
-        assertTrue(source.contains("fontSize = 11.sp"))
+        assertTrue(source.contains("fontSize = ViewerTypography.secondary.fontSize"))
     }
 
     @Test

@@ -2,6 +2,13 @@
 
 package com.androidperformancestudio.visualization
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import com.androidperformancestudio.ui.ViewerFlameGraphCategoryColors
+import com.androidperformancestudio.ui.ViewerFlameGraphColors
+import com.androidperformancestudio.ui.ViewerTypography
+import com.androidperformancestudio.ui.ViewerVisualizationColors
+
 data class FirefoxFlameGraphStyle(
     val theme: FlameTheme,
     val canvasBackground: FlameGraphColor,
@@ -54,10 +61,16 @@ data class FirefoxFlameGraphStyle(
             devicePixelRatio: Float = 1f,
         ): FirefoxFlameGraphStyle {
             require(devicePixelRatio.isFinite() && devicePixelRatio > 0f)
-            return when (theme) {
-                FlameTheme.LIGHT -> light(devicePixelRatio)
-                FlameTheme.DARK -> dark(devicePixelRatio)
-            }
+            return flameGraphStyle(
+                theme = theme,
+                colors =
+                    if (theme == FlameTheme.DARK) {
+                        ViewerVisualizationColors.flameDark
+                    } else {
+                        ViewerVisualizationColors.flameLight
+                    },
+                devicePixelRatio = devicePixelRatio,
+            )
         }
     }
 }
@@ -68,64 +81,45 @@ data class FirefoxFlameCategoryStyle(
     val selectedText: FlameGraphColor,
 )
 
-private fun light(devicePixelRatio: Float) =
+private fun flameGraphStyle(
+    theme: FlameTheme,
+    colors: ViewerFlameGraphColors,
+    devicePixelRatio: Float,
+): FirefoxFlameGraphStyle =
     FirefoxFlameGraphStyle(
-        theme = FlameTheme.LIGHT,
-        canvasBackground = argb(0xFFFFFFFF),
-        canvasForeground = argb(0xFF000000),
-        viewportBorder = argb(0xFFD7D7DB),
-        panelSurface = argb(0xFFF9F9FA),
-        raisedSurface = argb(0xFFF9F9FA),
-        surfaceBorder = argb(0xFFCCCCCC),
-        mutedForeground = argb(0xFF737373),
-        controlSelectedSurface = argb(0xFFEDEDF0),
-        focusOutline = argb(0xFF000000),
-        selectedLineSurface = argb(0xFFEDEDF0),
+        theme = theme,
+        canvasBackground = argb(colors.canvasBackground),
+        canvasForeground = argb(colors.canvasForeground),
+        viewportBorder = argb(colors.viewportBorder),
+        panelSurface = argb(colors.panelSurface),
+        raisedSurface = argb(colors.raisedSurface),
+        surfaceBorder = argb(colors.surfaceBorder),
+        mutedForeground = argb(colors.mutedForeground),
+        controlSelectedSurface = argb(colors.controlSelectedSurface),
+        focusOutline = argb(colors.focusOutline),
+        selectedLineSurface = argb(colors.selectedLineSurface),
         rowHeightPx = cssPixels(16f, devicePixelRatio),
-        labelFontSizePx = cssPixels(10f, devicePixelRatio),
+        labelFontSizePx = cssPixels(ViewerTypography.flameGraphLabelPixels, devicePixelRatio),
         labelStartOffsetPx = cssPixels(3f, devicePixelRatio),
         labelBaselineOffsetPx = cssPixels(11f, devicePixelRatio),
         categoryStyles =
             categoryStyles(
-                system = style(0xFFFFE129, 0x70FFE900, 0xFF000000),
-                kernel = style(0xFFFF9400, 0x60FF9400, 0xFFFFFFFF),
-                native = style(0xFFED00B5, 0x60ED00B5, 0xFFFFFFFF),
-                managed = style(0xFF12BC00, 0x6012BC00, 0xFFFFFFFF),
-                graphics = style(0xFF12BC00, 0x6012BC00, 0xFFFFFFFF),
-                io = style(0xFFFFE129, 0x70FFE900, 0xFF000000),
-                network = style(0xFF45A1FF, 0x6045A1FF, 0xFF000000),
-                other = style(0xFFB1B1B3, 0x60B1B1B3, 0xFF000000),
+                system = colors.system.toFirefoxCategoryStyle(),
+                kernel = colors.kernel.toFirefoxCategoryStyle(),
+                native = colors.native.toFirefoxCategoryStyle(),
+                managed = colors.managed.toFirefoxCategoryStyle(),
+                graphics = colors.graphics.toFirefoxCategoryStyle(),
+                io = colors.io.toFirefoxCategoryStyle(),
+                network = colors.network.toFirefoxCategoryStyle(),
+                other = colors.other.toFirefoxCategoryStyle(),
             ),
     )
 
-private fun dark(devicePixelRatio: Float) =
-    FirefoxFlameGraphStyle(
-        theme = FlameTheme.DARK,
-        canvasBackground = argb(0xFF18181A),
-        canvasForeground = argb(0xFFEDEDF0),
-        viewportBorder = argb(0xFF38383D),
-        panelSurface = argb(0xFF232327),
-        raisedSurface = argb(0xFF232327),
-        surfaceBorder = argb(0xFF4A4A4F),
-        mutedForeground = argb(0xFFB1B1B3),
-        controlSelectedSurface = argb(0xFF2A2A2E),
-        focusOutline = argb(0xFFFFFFFF),
-        selectedLineSurface = argb(0xFF38383D),
-        rowHeightPx = cssPixels(16f, devicePixelRatio),
-        labelFontSizePx = cssPixels(10f, devicePixelRatio),
-        labelStartOffsetPx = cssPixels(3f, devicePixelRatio),
-        labelBaselineOffsetPx = cssPixels(11f, devicePixelRatio),
-        categoryStyles =
-            categoryStyles(
-                system = style(0xFFBE9B00, 0x85BE9B00, 0xFFEDEDF0),
-                kernel = style(0xFFD76E00, 0x60D76E00, 0xFFFFFFFF),
-                native = style(0xFFB5007F, 0x60B5007F, 0xFFFFFFFF),
-                managed = style(0xFF058B00, 0x60058B00, 0xFFFFFFFF),
-                graphics = style(0xFF058B00, 0x60058B00, 0xFFFFFFFF),
-                io = style(0xFFBE9B00, 0x85BE9B00, 0xFFEDEDF0),
-                network = style(0xFF45A1FF, 0x6045A1FF, 0xFFEDEDF0),
-                other = style(0xFF737373, 0x60737373, 0xFFEDEDF0),
-            ),
+private fun ViewerFlameGraphCategoryColors.toFirefoxCategoryStyle(): FirefoxFlameCategoryStyle =
+    FirefoxFlameCategoryStyle(
+        selectedFill = argb(selectedFill),
+        unselectedFill = argb(unselectedFill),
+        selectedText = argb(selectedText),
     )
 
 private fun categoryStyles(
@@ -139,13 +133,7 @@ private fun categoryStyles(
     other: FirefoxFlameCategoryStyle,
 ): List<FirefoxFlameCategoryStyle> = listOf(system, kernel, native, managed, graphics, io, network, other)
 
-private fun style(
-    selectedFill: Long,
-    unselectedFill: Long,
-    selectedText: Long,
-) = FirefoxFlameCategoryStyle(argb(selectedFill), argb(unselectedFill), argb(selectedText))
-
-private fun argb(value: Long) = FlameGraphColor(value.toInt())
+private fun argb(value: Color): FlameGraphColor = FlameGraphColor(value.toArgb())
 
 private fun cssPixels(
     value: Float,

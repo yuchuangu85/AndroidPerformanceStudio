@@ -1,8 +1,9 @@
 package com.androidperformancestudio.perfetto.app
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
@@ -104,7 +104,6 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -148,7 +147,6 @@ internal fun exportRawTraceFile(
 @Suppress("ktlint:standard:function-naming")
 fun FrameWindowScope.PerfettoMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
-    darkTheme: Boolean = isSystemInDarkTheme(),
     isActive: Boolean = true,
     onNavigateHome: (() -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,
@@ -335,126 +333,124 @@ fun FrameWindowScope.PerfettoMainPage(
         onClearRecent = { recentFiles = emptyList() },
     )
 
-    ViewerTheme(darkTheme = darkTheme) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                HeaderToolbar(
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            HeaderToolbar(
+                language = language,
+                onNavigateHome = onNavigateHome,
+                onNavigateSettings = null,
+            ) {
+                PerfettoToolbarContent(
                     language = language,
-                    onNavigateHome = onNavigateHome,
-                    onNavigateSettings = null,
+                    adbPath = adbPath,
+                    onAdbPathChange = { adbPath = it },
+                    devices = devices,
+                    selectedDeviceSerial = selectedDeviceSerial,
+                    onSelectDevice = { selectedDeviceSerial = it },
+                    onRefreshDevices = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val refreshed = discoverPerfettoDevices(adbPath)
+                            devices = refreshed
+                            selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, refreshed)
+                            capabilityRefreshKey++
+                        }
+                    },
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            if (initialTraceFile != null && initialTraceNotice != null) {
+                InitialTraceNotice(
+                    traceFile = initialTraceFile,
+                    notice = initialTraceNotice,
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 8.dp, end = 8.dp),
+                )
+            }
+            Column(
+                modifier = Modifier.fillMaxSize().padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().weight(if (activeTraceFile == null) 1f else 0.62f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PerfettoToolbarContent(
+                    PerfettoCapturePage(
+                        captureState = captureState,
                         language = language,
-                        adbPath = adbPath,
-                        onAdbPathChange = { adbPath = it },
-                        devices = devices,
                         selectedDeviceSerial = selectedDeviceSerial,
-                        onSelectDevice = { selectedDeviceSerial = it },
-                        onRefreshDevices = {
-                            coroutineScope.launch(Dispatchers.IO) {
-                                val refreshed = discoverPerfettoDevices(adbPath)
-                                devices = refreshed
-                                selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, refreshed)
-                                capabilityRefreshKey++
+                        deviceCapabilities = deviceCapabilities,
+                        onStartCapture = { config, deviceSerial ->
+                            coroutineScope.launch {
+                                captureSession.startCapture(adbPath, deviceSerial, config)
                             }
                         },
+                        onStopCapture = { coroutineScope.launch { captureSession.stopCapture() } },
+                        onOpenTrace = { traceFile ->
+                            openTrace(traceFile, sessions.firstOrNull { it.traceFile == traceFile }?.artifact, null)
+                        },
+                        modifier = Modifier.weight(1f),
                     )
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                if (initialTraceFile != null && initialTraceNotice != null) {
-                    InitialTraceNotice(
-                        traceFile = initialTraceFile,
-                        notice = initialTraceNotice,
-                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 8.dp, end = 8.dp),
-                    )
-                }
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().weight(if (activeTraceFile == null) 1f else 0.62f),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        PerfettoCapturePage(
-                            captureState = captureState,
-                            language = language,
-                            selectedDeviceSerial = selectedDeviceSerial,
-                            deviceCapabilities = deviceCapabilities,
-                            onStartCapture = { config, deviceSerial ->
-                                coroutineScope.launch {
-                                    captureSession.startCapture(adbPath, deviceSerial, config)
+                    RecentSessionsPanel(
+                        language = language,
+                        sessions = sessions,
+                        onOpen = { session ->
+                            openTrace(session.traceFile, session.artifact, null)
+                        },
+                        onDelete = { session ->
+                            coroutineScope.launch {
+                                when (val deleted = sessionStore.delete(session.id)) {
+                                    is StudioResult.Success -> sessions = sessions.filter { it.id != session.id }
+                                    is StudioResult.Failure -> diagnosticError = deleted.error.message
                                 }
-                            },
-                            onStopCapture = { coroutineScope.launch { captureSession.stopCapture() } },
-                            onOpenTrace = { traceFile ->
-                                openTrace(traceFile, sessions.firstOrNull { it.traceFile == traceFile }?.artifact, null)
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        RecentSessionsPanel(
-                            language = language,
-                            sessions = sessions,
-                            onOpen = { session ->
-                                openTrace(session.traceFile, session.artifact, null)
-                            },
-                            onDelete = { session ->
-                                coroutineScope.launch {
-                                    when (val deleted = sessionStore.delete(session.id)) {
-                                        is StudioResult.Success -> sessions = sessions.filter { it.id != session.id }
-                                        is StudioResult.Failure -> diagnosticError = deleted.error.message
+                            }
+                        },
+                        onExport = { session -> exportRawTrace(session.traceFile) },
+                        modifier = Modifier.width(320.dp).fillMaxHeight(),
+                    )
+                }
+                activeTraceFile?.let { traceFile ->
+                    TraceDiagnosticsWorkspacePanel(
+                        language = language,
+                        traceFile = traceFile,
+                        selectedQuery = diagnosticQuery,
+                        result = diagnosticResult,
+                        error = diagnosticError,
+                        onRun = { query ->
+                            diagnosticQuery = query
+                            diagnosticResult = null
+                            diagnosticError = null
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val artifact =
+                                    activeArtifact ?: run {
+                                        diagnosticError = "Trace evidence was not registered"
+                                        return@launch
                                     }
-                                }
-                            },
-                            onExport = { session -> exportRawTrace(session.traceFile) },
-                            modifier = Modifier.width(320.dp).fillMaxHeight(),
-                        )
-                    }
-                    activeTraceFile?.let { traceFile ->
-                        TraceDiagnosticsWorkspacePanel(
-                            language = language,
-                            traceFile = traceFile,
-                            selectedQuery = diagnosticQuery,
-                            result = diagnosticResult,
-                            error = diagnosticError,
-                            onRun = { query ->
-                                diagnosticQuery = query
-                                diagnosticResult = null
-                                diagnosticError = null
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    val artifact =
-                                        activeArtifact ?: run {
-                                            diagnosticError = "Trace evidence was not registered"
+                                val context =
+                                    analysisContext ?: when (val located = TraceProcessorToolResolver().resolve()) {
+                                        is StudioResult.Failure -> {
+                                            diagnosticError = located.error.message
                                             return@launch
                                         }
-                                    val context =
-                                        analysisContext ?: when (val located = TraceProcessorToolResolver().resolve()) {
-                                            is StudioResult.Failure -> {
-                                                diagnosticError = located.error.message
-                                                return@launch
-                                            }
-                                            is StudioResult.Success -> {
-                                                val registry =
-                                                    analysisContexts ?: TraceAnalysisContexts(located.value).also { analysisContexts = it }
-                                                when (val opened = registry.open(artifact, traceFile)) {
-                                                    is StudioResult.Failure -> {
-                                                        diagnosticError = opened.error.message
-                                                        return@launch
-                                                    }
-                                                    is StudioResult.Success -> opened.value.also { analysisContext = it }
+                                        is StudioResult.Success -> {
+                                            val registry =
+                                                analysisContexts ?: TraceAnalysisContexts(located.value).also { analysisContexts = it }
+                                            when (val opened = registry.open(artifact, traceFile)) {
+                                                is StudioResult.Failure -> {
+                                                    diagnosticError = opened.error.message
+                                                    return@launch
                                                 }
+                                                is StudioResult.Success -> opened.value.also { analysisContext = it }
                                             }
                                         }
-                                    when (val queryResult = context.query(query.typedQuery())) {
-                                        is StudioResult.Success ->
-                                            diagnosticResult = DiagnosticResult(query.columns, queryResult.value).toPlainText()
-                                        is StudioResult.Failure -> diagnosticError = queryResult.error.message
                                     }
+                                when (val queryResult = context.query(query.typedQuery())) {
+                                    is StudioResult.Success ->
+                                        diagnosticResult = DiagnosticResult(query.columns, queryResult.value).toPlainText()
+                                    is StudioResult.Failure -> diagnosticError = queryResult.error.message
                                 }
-                            },
-                            modifier = Modifier.fillMaxWidth().weight(0.38f),
-                        )
-                    }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().weight(0.38f),
+                    )
                 }
             }
         }
@@ -499,7 +495,7 @@ private fun RowScope.PerfettoToolbarContent(
     Text(
         text = localizedStringResource(Res.string.adb_path, language),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
     )
     HeaderSpacer()
     PerfettoCompactTextField(
@@ -532,7 +528,7 @@ private fun RowScope.PerfettoToolbarContent(
             selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.model) }
                 ?: localizedStringResource(Res.string.no_online_device, language),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
         maxLines = 1,
     )
 }
@@ -582,12 +578,12 @@ private fun InitialTraceNotice(
         Text(
             text = traceFile.fileName.toString(),
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 11.sp,
+            fontSize = ViewerTypography.secondary.fontSize,
         )
         Text(
             text = notice,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
             maxLines = 1,
         )
     }
@@ -619,7 +615,7 @@ private fun RecentSessionsPanel(
                 Text(
                     text = localizedStringResource(Res.string.captured_traces_will_appear_here, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
+                    fontSize = ViewerTypography.secondary.fontSize,
                 )
             }
             sessions.take(10).forEach { session ->
@@ -658,15 +654,15 @@ private fun RecentSessionRow(
         Text(
             text = session.captureConfig.template.displayName,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 11.sp,
+            fontSize = ViewerTypography.secondary.fontSize,
         )
         Text(
             text =
                 localizedStringResource(Res.string.mb_n, language, session.deviceModel, session.fileSizeBytes / 1024 / 1024) +
                     formatRecentSessionTimestamp(session.capturedAt),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
+            fontSize = ViewerTypography.label.fontSize,
+            lineHeight = ViewerTypography.secondary.lineHeight,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             PerfettoCompactButton(text = localizedStringResource(Res.string.open, language), onClick = onOpen)
@@ -789,39 +785,39 @@ private fun TraceDiagnosticContent(
             Text(
                 text = localizedStringResource(Res.string.select_a_diagnostic_on_the_left_to_view_its_result, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
+                fontSize = ViewerTypography.secondary.fontSize,
             )
             return@Column
         }
         Text(
             text = selectedQuery.localizedTitle(language),
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
         )
         Text(
             text = selectedQuery.localizedDescription(language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
         when {
             error != null ->
                 Text(
                     text = error,
                     color = MaterialTheme.colorScheme.error,
-                    fontSize = 11.sp,
+                    fontSize = ViewerTypography.secondary.fontSize,
                 )
             result != null ->
                 Text(
                     text = result.take(8_000),
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 10.sp,
-                    lineHeight = 13.sp,
+                    fontSize = ViewerTypography.label.fontSize,
+                    lineHeight = ViewerTypography.secondary.lineHeight,
                 )
             else ->
                 Text(
                     text = localizedStringResource(Res.string.running_diagnostic, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp,
+                    fontSize = ViewerTypography.label.fontSize,
                 )
         }
     }

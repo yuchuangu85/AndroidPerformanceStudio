@@ -58,7 +58,8 @@ import javax.swing.JFileChooser
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.ProvideViewerThemeContext
+import com.androidperformancestudio.ui.ViewerThemeContext
 import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.button.MacOSTextButton
@@ -86,8 +87,7 @@ internal fun DesktopAppSettingsDialog(
     simpleperfSettings: SimpleperfUiSettings,
     simpleperfCaptureSettingsContext: SimpleperfCaptureSettingsContext?,
     simpleperfInitialSection: CaptureSettingsSection,
-    darkTheme: Boolean,
-    displayScale: Float,
+    viewerThemeContext: ViewerThemeContext,
     language: UiLanguage,
     simpleperfLocale: Locale,
     sourceWorkspaceRuntime: SourceWorkspaceRuntime,
@@ -120,13 +120,7 @@ internal fun DesktopAppSettingsDialog(
             ),
         resizable = true,
     ) {
-        ViewerTheme(
-            darkTheme = darkTheme,
-            displayScale = displayScale,
-            accentColor = applicationSettings.themeColor.color,
-            typography = compactDesktopTypography(),
-            shapes = compactDesktopShapes(),
-        ) {
+        ProvideViewerThemeContext(viewerThemeContext) {
             LaunchedEffect(selectedPage) {
                 window.toFront()
                 window.requestFocus()
@@ -193,7 +187,7 @@ internal fun DesktopAppSettingsDialog(
                                         settings = simpleperfSettings,
                                         context = simpleperfCaptureSettingsContext,
                                         section = activeSimpleperfSection,
-                                        darkTheme = darkTheme,
+                                        darkTheme = viewerThemeContext.colors.isDark,
                                         language = language,
                                         locale = simpleperfLocale,
                                         onSettingsChanged = onSimpleperfSettingsChanged,

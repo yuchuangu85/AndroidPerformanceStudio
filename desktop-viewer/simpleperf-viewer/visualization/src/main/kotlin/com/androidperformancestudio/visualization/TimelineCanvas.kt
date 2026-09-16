@@ -10,21 +10,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-
-private const val DEFAULT_TIMELINE_COLOR_ARGB = 0xFF4FC3F7
-private val DefaultTimelineColor = Color(DEFAULT_TIMELINE_COLOR_ARGB)
+import com.androidperformancestudio.ui.LocalViewerColors
 
 @Composable
 @Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 fun TimelineCanvas(
     frame: TimelineFrame,
     modifier: Modifier = Modifier,
-    color: Color = DefaultTimelineColor,
+    color: Color? = null,
     viewport: TimeViewport? = null,
     onRangePreview: (TimeViewport) -> Unit = {},
     onRangeCommit: (TimeViewport) -> Unit = {},
     onRangeCancel: () -> Unit = {},
 ) {
+    val timelineColor = color ?: LocalViewerColors.current.timeline
     val currentRangePreview by rememberUpdatedState(onRangePreview)
     val currentRangeCommit by rememberUpdatedState(onRangeCommit)
     val currentRangeCancel by rememberUpdatedState(onRangeCancel)
@@ -67,7 +66,7 @@ fun TimelineCanvas(
         frame.columns.forEachIndexed { index, column ->
             val height = size.height * column.weight / frame.maximumWeight
             drawRect(
-                color = color,
+                color = timelineColor,
                 topLeft = Offset(index * columnWidth, size.height - height),
                 size = Size(columnWidth.coerceAtLeast(1f), height),
             )

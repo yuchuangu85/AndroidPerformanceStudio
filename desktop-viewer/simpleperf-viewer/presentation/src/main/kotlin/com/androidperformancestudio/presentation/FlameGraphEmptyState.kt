@@ -1,5 +1,7 @@
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,7 +16,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
@@ -134,9 +135,9 @@ internal fun FirefoxFlameGraphEmptyState(
         modifier = modifier.fillMaxWidth().background(style.canvasBackground.toComposeColor()).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(content.message, color = style.canvasForeground.toComposeColor(), fontSize = 13.sp)
+        Text(content.message, color = style.canvasForeground.toComposeColor(), fontSize = ViewerTypography.body.fontSize)
         content.diagnosticDetails?.takeIf(String::isNotBlank)?.let { details ->
-            Text(details, color = style.mutedForeground.toComposeColor(), fontSize = 11.sp)
+            Text(details, color = style.mutedForeground.toComposeColor(), fontSize = ViewerTypography.secondary.fontSize)
         }
         Box(
             modifier =
@@ -147,7 +148,7 @@ internal fun FirefoxFlameGraphEmptyState(
                     .padding(horizontal = 9.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(content.recoveryLabel, color = style.canvasForeground.toComposeColor(), fontSize = 11.sp)
+            Text(content.recoveryLabel, color = style.canvasForeground.toComposeColor(), fontSize = ViewerTypography.secondary.fontSize)
         }
     }
 }

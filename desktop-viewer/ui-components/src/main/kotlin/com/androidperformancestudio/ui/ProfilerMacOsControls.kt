@@ -34,7 +34,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 private const val DISABLED_CONTENT_ALPHA: Float = 0.38f
 
@@ -76,8 +75,8 @@ public fun ProfilerCompactButton(
         Text(
             text = text,
             color = contentColor.copy(alpha = disabledAlpha),
-            fontSize = 11.sp,
-            lineHeight = 13.sp,
+            fontSize = ViewerTypography.secondary.fontSize,
+            lineHeight = ViewerTypography.secondary.lineHeight,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -104,7 +103,7 @@ public fun ProfilerCompactTextField(
         Text(
             text = label,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
             maxLines = 1,
         )
         BasicTextField(
@@ -122,8 +121,8 @@ public fun ProfilerCompactTextField(
             textStyle =
                 TextStyle(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
-                    fontSize = 11.sp,
-                    lineHeight = 13.sp,
+                    fontSize = ViewerTypography.secondary.fontSize,
+                    lineHeight = ViewerTypography.secondary.lineHeight,
                 ),
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             decorationBox = { innerTextField ->
@@ -132,7 +131,7 @@ public fun ProfilerCompactTextField(
                         Text(
                             text = placeholder,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            fontSize = 11.sp,
+                            fontSize = ViewerTypography.secondary.fontSize,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -166,7 +165,7 @@ public fun MacOSInlineTextField(
             onValueChange = onValueChange,
             enabled = enabled,
             singleLine = true,
-            textStyle = TextStyle(color = style.text, fontSize = 11.sp, lineHeight = 14.sp),
+            textStyle = TextStyle(color = style.text, fontSize = ViewerTypography.secondary.fontSize, lineHeight = ViewerTypography.label.lineHeight),
             cursorBrush = SolidColor(style.accent),
             modifier =
                 (if (fieldWidth == null) Modifier.weight(1f) else Modifier.requiredWidth(fieldWidth))
@@ -194,8 +193,8 @@ public fun ProfilerToolbarStatus(
         text = status,
         modifier = modifier,
         color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 11.sp,
-        lineHeight = 13.sp,
+        fontSize = ViewerTypography.secondary.fontSize,
+        lineHeight = ViewerTypography.secondary.lineHeight,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )

@@ -1,7 +1,9 @@
 package com.androidperformancestudio.perfetto.uiserver
 
+import com.androidperformancestudio.ui.ViewerDocumentTheme
 import java.nio.file.Files
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
@@ -19,6 +21,17 @@ class PerfettoUiServerTest {
         } finally {
             uiServer.stop()
         }
+    }
+
+    @Test
+    fun `fallback embed page preserves the root document theme values`() {
+        val page = PerfettoUiServer(port = 8090).embedPage()
+
+        assertContains(page, "background:${ViewerDocumentTheme.darkCanvas}")
+        assertContains(page, "color:${ViewerDocumentTheme.errorText}")
+        assertContains(page, "font-size:${ViewerDocumentTheme.errorFontSize}")
+        assertContains(page, "font-family:${ViewerDocumentTheme.systemFontFamily},sans-serif")
+        assertContains(page, "color:${ViewerDocumentTheme.externalLink}")
     }
 
     @Test
@@ -59,4 +72,10 @@ private fun PerfettoUiServer.runningServer(): Any? =
     javaClass.getDeclaredField("server").run {
         isAccessible = true
         get(this@runningServer)
+    }
+
+private fun PerfettoUiServer.embedPage(): String =
+    javaClass.getDeclaredMethod("buildEmbedPage").run {
+        isAccessible = true
+        invoke(this@embedPage) as String
     }

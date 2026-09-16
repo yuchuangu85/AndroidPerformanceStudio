@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 
 class CommonSettingsBoundaryTest {
     @Test
-    fun `viewer accepts common settings without exposing them in feature dialog`() {
+    fun `viewer inherits the root theme while accepting common language settings`() {
         val viewer = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
         )
@@ -16,7 +16,8 @@ class CommonSettingsBoundaryTest {
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/ThemeSettingsDialog.kt"),
         )
 
-        assertTrue(viewer.contains("commonThemePreference: String? = null"))
+        assertFalse(viewer.contains("commonThemePreference"))
+        assertFalse(viewer.contains("ViewerTheme("))
         assertTrue(viewer.contains("commonLanguagePreference: String? = null"))
         assertTrue(dialog.contains("viewDisplayOptions: ViewDisplayOptions"))
         assertTrue(dialog.contains("archiveLimits: CaptureArchiveLimits"))

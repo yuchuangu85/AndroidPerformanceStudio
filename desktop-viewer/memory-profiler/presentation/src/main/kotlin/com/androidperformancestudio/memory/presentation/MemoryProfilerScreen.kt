@@ -9,6 +9,10 @@
 
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.ui.LocalViewerColors
+
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,7 +51,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.memory.model.ActivityLeakEntry
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpSession
@@ -134,7 +137,7 @@ public fun MemoryProfilerScreen(
                         "Evidence: ${artifact.kind.value} · ${artifact.completeness} · " +
                             "${artifact.availableCapabilities.size} capabilities",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                        fontSize = ViewerTypography.bodyCompact.fontSize,
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
                 }
@@ -142,7 +145,7 @@ public fun MemoryProfilerScreen(
                     Text(
                         localizedStringResource(Res.string.mapping_loaded_note, language),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                        fontSize = ViewerTypography.bodyCompact.fontSize,
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
                 }
@@ -250,7 +253,7 @@ private fun BitmapDumpGallery(
                         ),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        fontSize = 12.sp,
+                        fontSize = ViewerTypography.bodyCompact.fontSize,
                     )
                 }
             }
@@ -502,7 +505,7 @@ private fun HistogramRow(
             .fillMaxWidth()
             .height(32.dp)
             .background(
-                if (highlighted) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                if (highlighted) MaterialTheme.colorScheme.primaryContainer else LocalViewerColors.current.transparent,
                 RoundedCornerShape(3.dp),
             ).clickable(onClick = onClick)
             .padding(horizontal = 4.dp),
@@ -668,13 +671,13 @@ private fun NativeHeapSection(
                 "Source: ${trace.evidenceSource}; completeness: ${artifact.completeness}; " +
                     "capabilities: ${artifact.availableCapabilities.joinToString { it.value }}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
             )
             trace.fallbackReason?.let { reason ->
                 Text(
                     "Best-effort fallback: $reason",
                     color = MaterialTheme.colorScheme.error,
-                    fontSize = 12.sp,
+                    fontSize = ViewerTypography.bodyCompact.fontSize,
                 )
             }
         }
@@ -788,7 +791,7 @@ private fun NativeHeapHeaderCell(
         text = if (active) "$text ${if (descending) "↓" else "↑"}" else text,
         modifier = modifier.clickable { onSort(column) },
         fontWeight = FontWeight.Bold,
-        fontSize = 12.sp,
+        fontSize = ViewerTypography.bodyCompact.fontSize,
         color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
     )
@@ -804,14 +807,14 @@ private fun NativeHeapTableRow(sample: NativeHeapSample) {
         Text(
             sample.functionName,
             Modifier.weight(1f),
-            fontSize = 12.sp,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(formatBytes(sample.allocatedBytes), Modifier.width(88.dp), fontSize = 12.sp, textAlign = TextAlign.End)
-        Text(formatBytes(sample.freedBytes), Modifier.width(80.dp), fontSize = 12.sp, textAlign = TextAlign.End)
-        Text(integer(sample.allocCount.toInt()), Modifier.width(56.dp), fontSize = 12.sp, textAlign = TextAlign.End)
-        Text(integer(sample.freeCount.toInt()), Modifier.width(56.dp), fontSize = 12.sp, textAlign = TextAlign.End)
+        Text(formatBytes(sample.allocatedBytes), Modifier.width(88.dp), fontSize = ViewerTypography.bodyCompact.fontSize, textAlign = TextAlign.End)
+        Text(formatBytes(sample.freedBytes), Modifier.width(80.dp), fontSize = ViewerTypography.bodyCompact.fontSize, textAlign = TextAlign.End)
+        Text(integer(sample.allocCount.toInt()), Modifier.width(56.dp), fontSize = ViewerTypography.bodyCompact.fontSize, textAlign = TextAlign.End)
+        Text(integer(sample.freeCount.toInt()), Modifier.width(56.dp), fontSize = ViewerTypography.bodyCompact.fontSize, textAlign = TextAlign.End)
     }
 }
 
@@ -873,7 +876,7 @@ private fun BitmapSection(
                 Text(
                     localizedStringResource(Res.string.bitmap_estimated_pixel_memory, language, formatBytes(estimated)),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    fontSize = ViewerTypography.bodyCompact.fontSize,
                 )
                 val nativeSize = bitmap.nativeSizeBytes
                 if (bitmap.javaSizeBytes > 0L && nativeSize != null) {
@@ -885,7 +888,7 @@ private fun BitmapSection(
                             formatBytes(nativeSize),
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                        fontSize = ViewerTypography.bodyCompact.fontSize,
                     )
                 }
             }

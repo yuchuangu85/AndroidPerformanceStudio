@@ -6,6 +6,7 @@ import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import com.androidperformancestudio.memory.model.BitmapDumpComparison
 import com.androidperformancestudio.memory.model.BitmapDumpImage
 import com.androidperformancestudio.memory.model.BitmapDumpSession
+import com.androidperformancestudio.ui.ViewerDocumentTheme
 import java.io.BufferedWriter
 import java.nio.file.Files
 import java.nio.file.Path
@@ -152,7 +153,7 @@ class BitmapDumpExportAdapters {
             output,
             """
             <!doctype html><html><head><meta charset="utf-8"><title>Bitmap dump</title>
-            <style>body{font-family:system-ui;margin:20px;background:#111;color:#eee}.toolbar{display:flex;gap:8px;position:sticky;top:0;background:#111;padding:8px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.item{background:#222;padding:10px;border-radius:8px}.item img{width:100%;height:180px;object-fit:contain;background:#333}</style></head>
+            <style>body{font-family:${ViewerDocumentTheme.systemFontFamily};margin:20px;background:${ViewerDocumentTheme.darkCanvas};color:${ViewerDocumentTheme.primaryText}}.toolbar{display:flex;gap:8px;position:sticky;top:0;background:${ViewerDocumentTheme.darkCanvas};padding:8px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.item{background:${ViewerDocumentTheme.raisedSurface};padding:10px;border-radius:8px}.item img{width:100%;height:180px;object-fit:contain;background:${ViewerDocumentTheme.imageSurface}}</style></head>
             <body><h1>${html(
                 session.packageName,
             )} Bitmap dump</h1><p>${session.summary.exportedImageCount} images · ${session.summary.uniqueImageCount} unique · ${session.summary.estimatedBitmapBytes} estimated bytes</p>

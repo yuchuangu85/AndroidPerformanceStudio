@@ -3,6 +3,7 @@ package com.androidperformancestudio.perfetto.uiserver
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.ui.ViewerDocumentTheme
 import com.sun.net.httpserver.HttpServer
 import com.sun.net.httpserver.SimpleFileServer
 import java.awt.Desktop
@@ -145,7 +146,7 @@ class PerfettoUiServer(
             }.orEmpty()
         return """<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Perfetto Trace</title>
-<style>body{margin:0;background:#111}iframe{width:100vw;height:100vh;border:none}</style></head>
+<style>body{margin:0;background:${ViewerDocumentTheme.darkCanvas}}iframe{width:100vw;height:100vh;border:none}</style></head>
 <body><iframe id="pf" src="https://ui.perfetto.dev/#!/?mode=embedded"></iframe>
 <script>
 var url="http://localhost:$p/trace";
@@ -156,7 +157,7 @@ document.getElementById("pf").onload=function(){
   },"*");
 $zoom
  }).catch(function(e){
-  document.body.innerHTML='<div style="color:#fff;text-align:center;padding-top:40vh;font:18px sans-serif"><p>Failed: '+e.message+'</p><p><a href="https://ui.perfetto.dev" style="color:#5af">Open Perfetto UI</a></p></div>';
+  document.body.innerHTML='<div style="color:${ViewerDocumentTheme.errorText};text-align:center;padding-top:40vh;font-size:${ViewerDocumentTheme.errorFontSize};font-family:${ViewerDocumentTheme.systemFontFamily},sans-serif"><p>Failed: '+e.message+'</p><p><a href="https://ui.perfetto.dev" style="color:${ViewerDocumentTheme.externalLink}">Open Perfetto UI</a></p></div>';
  });
 };
 </script></body></html>"""

@@ -1,5 +1,7 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -7,8 +9,8 @@ import org.junit.jupiter.api.Test
 class SettingsDialogStyleTest {
     @Test
     fun `settings typography creates clear hierarchy`() {
-        assertTrue(SettingsDialogStyle.TITLE_FONT_SIZE_SP >= SettingsDialogStyle.SECTION_TITLE_FONT_SIZE_SP + 5)
-        assertTrue(SettingsDialogStyle.SECTION_TITLE_FONT_SIZE_SP >= SettingsDialogStyle.CONTENT_FONT_SIZE_SP + 2)
+        assertTrue(ViewerTypography.pageTitle.fontSize > ViewerTypography.sectionTitle.fontSize)
+        assertTrue(ViewerTypography.sectionTitle.fontSize > ViewerTypography.bodyCompact.fontSize)
     }
 
     @Test

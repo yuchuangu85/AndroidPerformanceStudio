@@ -2,7 +2,6 @@
 
 package com.androidperformancestudio.memory.app
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,7 +35,6 @@ import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
@@ -46,7 +44,6 @@ import java.nio.file.Path
 @Suppress("LongParameterList")
 fun FrameWindowScope.MemoryProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
-    darkTheme: Boolean = isSystemInDarkTheme(),
     onBack: () -> Unit = {},
     highlightClassName: String? = null,
     initialImportFile: Path? = null,
@@ -134,68 +131,66 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         },
     )
 
-    ViewerTheme(darkTheme = darkTheme) {
-        Column(Modifier.fillMaxSize()) {
-            HeaderToolbar(
-                language = language,
-                onNavigateHome = onBack,
-                onNavigateSettings = null,
-            ) {
-                MemoryProfilerToolbarSelectors(
-                    state = state,
-                    onSelectDevice = { serial -> scope.launch { controller.selectDevice(serial) } },
-                    onSelectProcess = controller::selectProcess,
-                    language = language,
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.refresh_devices, language),
-                    onClick = { scope.launch { controller.refreshDevices() } },
-                )
-                Spacer(Modifier.weight(1f))
-                MemoryProfilerDumpHeapButton(
-                    state = state,
-                    onDumpHeap = { scope.launch { controller.dumpHeap() } },
-                    language = language,
-                )
-                HeaderSpacer()
-                MemoryProfilerDumpBitmapsButton(
-                    state = state,
-                    onDumpBitmaps = { scope.launch { controller.dumpBitmaps() } },
-                    language = language,
-                )
-                HeaderSpacer()
-                MemoryProfilerCaptureNativeHeapButton(
-                    state = state,
-                    onCaptureNativeHeap = { scope.launch { controller.captureNativeHeap() } },
-                    language = language,
-                )
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-            MemoryProfilerScreen(
+    Column(Modifier.fillMaxSize()) {
+        HeaderToolbar(
+            language = language,
+            onNavigateHome = onBack,
+            onNavigateSettings = null,
+        ) {
+            MemoryProfilerToolbarSelectors(
                 state = state,
-                actions =
-                    MemoryProfilerActions(
-                        onSortHistogram = controller::sort,
-                        onRetry = { scope.launch { controller.refreshDevices() } },
-                        onHighlightClass = controller::highlightClass,
-                        onChangeViewMode = controller::changeViewMode,
-                        onSelectClass = controller::selectClass,
-                        onSelectInstance = controller::selectInstance,
-                        onHeapFilterChange = controller::changeHeapFilter,
-                        onClassScopeChange = controller::changeClassScope,
-                        onLeakFilterChange = controller::changeLeakFilter,
-                        onArrangeByChange = controller::changeArrangeBy,
-                        onSearchChange = controller::changeSearchText,
-                        onMatchCaseChange = controller::changeMatchCase,
-                        onUseRegexChange = controller::changeUseRegex,
-                        onClassifierSort = controller::sortClassifier,
-                        onSelectClassifier = controller::selectClassifier,
-                    ),
+                onSelectDevice = { serial -> scope.launch { controller.selectDevice(serial) } },
+                onSelectProcess = controller::selectProcess,
                 language = language,
-                modifier = Modifier.weight(1f),
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.refresh_devices, language),
+                onClick = { scope.launch { controller.refreshDevices() } },
+            )
+            Spacer(Modifier.weight(1f))
+            MemoryProfilerDumpHeapButton(
+                state = state,
+                onDumpHeap = { scope.launch { controller.dumpHeap() } },
+                language = language,
+            )
+            HeaderSpacer()
+            MemoryProfilerDumpBitmapsButton(
+                state = state,
+                onDumpBitmaps = { scope.launch { controller.dumpBitmaps() } },
+                language = language,
+            )
+            HeaderSpacer()
+            MemoryProfilerCaptureNativeHeapButton(
+                state = state,
+                onCaptureNativeHeap = { scope.launch { controller.captureNativeHeap() } },
+                language = language,
             )
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        MemoryProfilerScreen(
+            state = state,
+            actions =
+                MemoryProfilerActions(
+                    onSortHistogram = controller::sort,
+                    onRetry = { scope.launch { controller.refreshDevices() } },
+                    onHighlightClass = controller::highlightClass,
+                    onChangeViewMode = controller::changeViewMode,
+                    onSelectClass = controller::selectClass,
+                    onSelectInstance = controller::selectInstance,
+                    onHeapFilterChange = controller::changeHeapFilter,
+                    onClassScopeChange = controller::changeClassScope,
+                    onLeakFilterChange = controller::changeLeakFilter,
+                    onArrangeByChange = controller::changeArrangeBy,
+                    onSearchChange = controller::changeSearchText,
+                    onMatchCaseChange = controller::changeMatchCase,
+                    onUseRegexChange = controller::changeUseRegex,
+                    onClassifierSort = controller::sortClassifier,
+                    onSelectClassifier = controller::selectClassifier,
+                ),
+            language = language,
+            modifier = Modifier.weight(1f),
+        )
     }
 
     if (showHprofFileDialog) {

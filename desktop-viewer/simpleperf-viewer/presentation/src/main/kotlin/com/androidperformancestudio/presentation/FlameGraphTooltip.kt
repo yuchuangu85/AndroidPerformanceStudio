@@ -2,6 +2,10 @@
 
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.viewerColors
+
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -32,7 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.ui.UiLanguage
@@ -90,14 +93,14 @@ internal fun FirefoxFlameGraphTooltip(
                 Text(
                     durationText,
                     color = style.mutedForeground.toComposeColor(),
-                    fontSize = 12.sp,
+                    fontSize = ViewerTypography.bodyCompact.fontSize,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     facts.function,
                     color = foreground,
-                    fontSize = 12.sp,
+                    fontSize = ViewerTypography.bodyCompact.fontSize,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -132,7 +135,7 @@ private fun FirefoxTooltipDetail(
             value,
             modifier = Modifier.widthIn(max = TOOLTIP_DETAIL_VALUE_WIDTH_DP.dp),
             color = style.canvasForeground.toComposeColor(),
-            fontSize = 11.sp,
+            fontSize = ViewerTypography.secondary.fontSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -160,7 +163,7 @@ private fun FirefoxTooltipCategoryDetail(
                 category.localizedFirefoxCategory(language),
                 modifier = Modifier.widthIn(max = TOOLTIP_DETAIL_VALUE_WIDTH_DP.dp),
                 color = style.canvasForeground.toComposeColor(),
-                fontSize = 11.sp,
+                fontSize = ViewerTypography.secondary.fontSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -178,7 +181,7 @@ private fun FirefoxTooltipLabel(
         localizedStringResource(label, currentSimpleperfLanguage(), "").trimEnd(),
         modifier = Modifier.width(TOOLTIP_DETAIL_LABEL_WIDTH_DP.dp),
         color = style.mutedForeground.toComposeColor(),
-        fontSize = 11.sp,
+        fontSize = ViewerTypography.secondary.fontSize,
         textAlign = TextAlign.End,
         maxLines = 1,
     )
@@ -235,7 +238,7 @@ private fun FirefoxTooltipTimingHeader(
         localizedStringResource(label, currentSimpleperfLanguage()),
         modifier = Modifier.width(width.dp),
         color = style.mutedForeground.toComposeColor(),
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
         textAlign = TextAlign.End,
         maxLines = 1,
     )
@@ -264,7 +267,7 @@ private fun FirefoxTooltipTimingRow(
             label,
             modifier = Modifier.width(TOOLTIP_TIMING_LABEL_WIDTH_DP.dp),
             color = style.canvasForeground.toComposeColor(),
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -352,7 +355,7 @@ private fun FirefoxTooltipTimingValue(
         value,
         modifier = Modifier.width(width.dp),
         color = style.canvasForeground.toComposeColor(),
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
         textAlign = TextAlign.End,
         maxLines = 1,
     )
@@ -451,16 +454,10 @@ private fun firefoxCategoryColor(
 ): Color = style.categoryStyle(FlameGraphPalette.categoryRole(category)).selectedFill.toComposeColor()
 
 private fun firefoxOverallMeterColor(theme: FlameTheme): Color =
-    when (theme) {
-        FlameTheme.LIGHT -> Color(0xFF45A1FF)
-        FlameTheme.DARK -> Color(0xFF0A84FF)
-    }
+    viewerColors(darkTheme = theme == FlameTheme.DARK).flameTooltipMeter
 
 private fun firefoxMeterTrackColor(theme: FlameTheme): Color =
-    when (theme) {
-        FlameTheme.LIGHT -> Color.Black.copy(alpha = 0.1f)
-        FlameTheme.DARK -> Color.White.copy(alpha = 0.1f)
-    }
+    viewerColors(darkTheme = theme == FlameTheme.DARK).flameTooltipTrack
 
 private const val TOOLTIP_MAX_WIDTH_DP = 600
 private const val TOOLTIP_PADDING_DP = 8

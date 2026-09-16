@@ -1,5 +1,7 @@
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,7 +25,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphFrameDetails
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
@@ -129,7 +130,7 @@ internal fun FirefoxFrameDetailsBottomBox(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(content.title, color = style.canvasForeground.toComposeColor(), fontSize = 12.sp)
+                Text(content.title, color = style.canvasForeground.toComposeColor(), fontSize = ViewerTypography.bodyCompact.fontSize)
                 Text(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_details_close,
@@ -137,7 +138,7 @@ internal fun FirefoxFrameDetailsBottomBox(
                     ),
                     modifier = Modifier.clickable(onClick = onClose).padding(horizontal = 5.dp, vertical = 2.dp),
                     color = style.canvasForeground.toComposeColor(),
-                    fontSize = 10.sp,
+                    fontSize = ViewerTypography.label.fontSize,
                 )
             }
             Column(
@@ -158,7 +159,7 @@ internal fun FirefoxFrameDetailsBottomBox(
                         text = line,
                         modifier = lineModifier.padding(horizontal = 4.dp, vertical = 1.dp),
                         color = style.canvasForeground.toComposeColor(),
-                        fontSize = 10.sp,
+                        fontSize = ViewerTypography.label.fontSize,
                         fontFamily = if (content.monospace) FontFamily.Monospace else null,
                     )
                 }

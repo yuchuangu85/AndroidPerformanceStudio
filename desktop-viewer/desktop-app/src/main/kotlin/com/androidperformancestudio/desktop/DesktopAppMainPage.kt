@@ -3,6 +3,7 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.rememberViewerThemeContext
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
@@ -137,9 +138,8 @@ public fun FrameWindowScope.DesktopAppMainPage(
         darkTheme = darkTheme,
         displayScale = applicationSettings.displayScale.multiplier,
         accentColor = applicationSettings.themeColor.color,
-        typography = compactDesktopTypography(),
-        shapes = compactDesktopShapes(),
     ) {
+        val viewerThemeContext = rememberViewerThemeContext()
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 32.dp) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
@@ -186,7 +186,6 @@ public fun FrameWindowScope.DesktopAppMainPage(
                         )
                     AppDestination.LAYOUT_INSPECTOR ->
                         LayoutInspectorMainPage(
-                            commonThemePreference = applicationSettings.theme.storageValue,
                             commonLanguagePreference = applicationSettings.language.storageValue,
                             settingsRevision = layoutInspectorSettingsRevision,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
@@ -255,7 +254,6 @@ public fun FrameWindowScope.DesktopAppMainPage(
                     AppDestination.PERFETTO ->
                         PerfettoMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             isActive = active,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
@@ -270,7 +268,6 @@ public fun FrameWindowScope.DesktopAppMainPage(
                     AppDestination.MEMORY_PROFILER ->
                         MemoryProfilerMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             highlightClassName = memoryHighlightClassName,
                             initialImportFile = navigator.memoryImportFile,
                             initialImportIsJavaHeap = navigator.memoryImportIsJavaHeap,
@@ -279,7 +276,6 @@ public fun FrameWindowScope.DesktopAppMainPage(
                     AppDestination.FRAME_PROFILER ->
                         FrameProfilerMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenLayoutInspector = { request ->
                                 val activity =
@@ -315,25 +311,21 @@ public fun FrameWindowScope.DesktopAppMainPage(
                     AppDestination.STARTUP_PROFILER ->
                         StartupProfilerMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.BATTERY_PROFILER ->
                         BatteryProfilerMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.NETWORK_PROFILER ->
                         NetworkProfilerMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
                     AppDestination.GPU_INSPECTOR ->
                         GpuIntegrationMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenTrace = { path ->
                                 navigator.openPerfettoTrace(
@@ -349,7 +341,6 @@ public fun FrameWindowScope.DesktopAppMainPage(
                     AppDestination.BENCHMARK_REGRESSION ->
                         BenchmarkRegressionMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             onBack = { navigator.open(AppDestination.HOME) },
                             onOpenTrace = { path ->
                                 navigator.openPerfettoTrace(
@@ -365,7 +356,6 @@ public fun FrameWindowScope.DesktopAppMainPage(
                     AppDestination.METHOD_RECORDING ->
                         MethodRecordingMainPage(
                             language = language,
-                            darkTheme = darkTheme,
                             androidSdkPath = applicationSettings.androidSdkPath?.let { path -> runCatching { java.nio.file.Path.of(path) }.getOrNull() },
                             initialTraceFile = navigator.methodRecordingTraceFile,
                             onBack = { navigator.open(AppDestination.HOME) },
@@ -447,8 +437,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                         simpleperfSettings = simpleperfSettings,
                         simpleperfCaptureSettingsContext = simpleperfCaptureSettingsContext,
                         simpleperfInitialSection = simpleperfSettingsSection,
-                        darkTheme = darkTheme,
-                        displayScale = applicationSettings.displayScale.multiplier,
+                        viewerThemeContext = viewerThemeContext,
                         language = language,
                         simpleperfLocale = if (language == UiLanguage.SIMPLIFIED_CHINESE) java.util.Locale.SIMPLIFIED_CHINESE else java.util.Locale.ENGLISH,
                         sourceWorkspaceRuntime = sourceWorkspaceRuntime,

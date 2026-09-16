@@ -10,6 +10,8 @@
 
 package com.androidperformancestudio.startup.presentation
 
+import com.androidperformancestudio.ui.LocalViewerColors
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -315,7 +317,7 @@ private fun RunRow(
     onSelect: (String) -> Unit,
     language: UiLanguage,
 ) {
-    val background = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+    val background = if (selected) MaterialTheme.colorScheme.primaryContainer else LocalViewerColors.current.transparent
     Row(Modifier.background(background).clickable { onSelect(run.id) }.padding(vertical = 6.dp, horizontal = 8.dp)) {
         TableCell(run.iteration.toString(), 70)
         TableCell(run.observedType.localizedLabel(language), 100)

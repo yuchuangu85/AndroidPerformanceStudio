@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
@@ -70,8 +71,8 @@ private fun OverviewDetails(
         DetailsPrompt(SimpleperfViewerRes.sp_finding_select_finding_hint, style)
     } else {
         DetailsHeading(SimpleperfViewerRes.sp_finding_finding_details, style)
-        Text(finding.title, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text(finding.conclusion, color = style.secondaryText, fontSize = 10.sp)
+        Text(finding.title, color = style.text, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.SemiBold)
+        Text(finding.conclusion, color = style.secondaryText, fontSize = ViewerTypography.label.fontSize)
         finding.recommendations.forEach {
             Text(
                 localizedStringResource(
@@ -80,7 +81,7 @@ private fun OverviewDetails(
                     it,
                 ),
                 color = style.text,
-                fontSize = 9.sp,
+                fontSize = ViewerTypography.dense.fontSize,
             )
         }
     }
@@ -97,8 +98,8 @@ private fun TopFunctionDetails(
         DetailsPrompt(SimpleperfViewerRes.sp_function_select_function_hint, style)
     } else {
         DetailsHeading(SimpleperfViewerRes.sp_function_function_details, style)
-        Text(function.symbolName, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text(function.filePath, color = style.secondaryText, fontSize = 9.sp)
+        Text(function.symbolName, color = style.text, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.SemiBold)
+        Text(function.filePath, color = style.secondaryText, fontSize = ViewerTypography.dense.fontSize)
         Text(
             localizedStringResource(
                 SimpleperfViewerRes.sp_report_inclusive_value_format,
@@ -106,7 +107,7 @@ private fun TopFunctionDetails(
                 function.inclusiveWeight,
             ),
             color = style.text,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
         Text(
             localizedStringResource(
@@ -115,7 +116,7 @@ private fun TopFunctionDetails(
                 function.exclusiveWeight,
             ),
             color = style.text,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
     }
 }
@@ -134,8 +135,8 @@ private fun CallStackDetails(
         DetailsPrompt(SimpleperfViewerRes.sp_calltree_select_call_stack_frame_hint, style)
     } else {
         DetailsHeading(SimpleperfViewerRes.sp_function_function_details, style)
-        Text(symbol, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text(treeNode?.filePath ?: flameFrame?.resource.orEmpty(), color = style.secondaryText, fontSize = 9.sp)
+        Text(symbol, color = style.text, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.SemiBold)
+        Text(treeNode?.filePath ?: flameFrame?.resource.orEmpty(), color = style.secondaryText, fontSize = ViewerTypography.dense.fontSize)
     }
 }
 
@@ -152,17 +153,17 @@ private fun StackBlockDetails(
         DetailsPrompt(SimpleperfViewerRes.sp_stack_select_stack_block_hint, style)
     } else {
         DetailsHeading(SimpleperfViewerRes.sp_stack_stack_block_details, style)
-        Text(frame.symbolName, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text(frame.resource, color = style.secondaryText, fontSize = 9.sp)
+        Text(frame.symbolName, color = style.text, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.SemiBold)
+        Text(frame.resource, color = style.secondaryText, fontSize = ViewerTypography.dense.fontSize)
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_marker_start_value_format, currentSimpleperfLanguage(), block.startNanos),
             color = style.text,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_marker_end_value_format, currentSimpleperfLanguage(), block.endNanosExclusive),
             color = style.text,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
     }
 }
@@ -192,16 +193,16 @@ private fun MarkerDetailsContent(
 ) {
     val language = currentSimpleperfLanguage()
     DetailsHeading(SimpleperfViewerRes.sp_marker_marker_details, style)
-    Text(marker.name, color = style.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    Text(marker.name, color = style.text, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.SemiBold)
     Text(
         localizedStringResource(SimpleperfViewerRes.sp_marker_start_value_format, language, marker.startNanos),
         color = style.secondaryText,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
     )
     Text(
         localizedStringResource(SimpleperfViewerRes.sp_marker_end_value_format, language, marker.endNanosExclusive),
         color = style.secondaryText,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
     )
     Text(
         localizedStringResource(
@@ -210,12 +211,12 @@ private fun MarkerDetailsContent(
             marker.endNanosExclusive - marker.startNanos,
         ),
         color = style.secondaryText,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
     )
     Text(
         localizedStringResource(SimpleperfViewerRes.sp_details_process_value_format, language, marker.processId ?: "Global"),
         color = style.secondaryText,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
     )
     Text(
         localizedStringResource(
@@ -224,20 +225,20 @@ private fun MarkerDetailsContent(
             marker.threadName ?: marker.threadId ?: "Global",
         ),
         color = style.secondaryText,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
     )
     Text(
         localizedStringResource(SimpleperfViewerRes.sp_marker_schema_value_format, language, marker.schema),
         color = style.secondaryText,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
     )
     val formattedPayload = marker.payloadJson.prettyJsonOrNull()
-    Text(formattedPayload ?: marker.payloadJson, color = style.text, fontSize = 9.sp)
+    Text(formattedPayload ?: marker.payloadJson, color = style.text, fontSize = ViewerTypography.dense.fontSize)
     if (formattedPayload == null && marker.payloadJson.isNotBlank()) {
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_diagnostics_invalid_json_raw_fallback_message, language),
             color = style.warning,
-            fontSize = 9.sp,
+            fontSize = ViewerTypography.dense.fontSize,
         )
     }
 }
@@ -250,7 +251,7 @@ private fun DetailsHeading(
     Text(
         localizedStringResource(title, currentSimpleperfLanguage()),
         color = style.text,
-        fontSize = 12.sp,
+        fontSize = ViewerTypography.bodyCompact.fontSize,
         fontWeight = FontWeight.SemiBold,
     )
 }
@@ -264,7 +265,7 @@ private fun DetailsPrompt(
     Text(
         localizedStringResource(prompt, currentSimpleperfLanguage()),
         color = style.secondaryText,
-        fontSize = 10.sp,
+        fontSize = ViewerTypography.label.fontSize,
     )
 }
 

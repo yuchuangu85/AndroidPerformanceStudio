@@ -1,5 +1,7 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,7 +35,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.presentation.generated.resources.Res
 import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.LocalViewerColors
@@ -41,9 +42,6 @@ import com.androidperformancestudio.ui.localizedStringResource
 import kotlin.math.roundToInt
 
 internal object SettingsDialogStyle {
-    const val TITLE_FONT_SIZE_SP = 20
-    const val SECTION_TITLE_FONT_SIZE_SP = 13
-    const val CONTENT_FONT_SIZE_SP = 11
     const val SECTION_SEPARATOR_COUNT = 2
     const val SEPARATOR_HEIGHT_DP = 1
     const val SEPARATOR_VERTICAL_PADDING_DP = 12
@@ -73,7 +71,7 @@ internal fun SettingsDialog(
             ) {
                 Text(
                     text = localizedStringResource(Res.string.layout_inspector_settings, language),
-                    fontSize = SettingsDialogStyle.TITLE_FONT_SIZE_SP.sp,
+                    fontSize = ViewerTypography.pageTitle.fontSize,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.weight(1f))
@@ -149,7 +147,7 @@ private fun ArchiveSnapshotLimitSetting(
             Text(
                 text = localizedStringResource(Res.string.layout_snapshot_archive_limit, language),
                 color = colors.primaryText,
-                fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
             )
             Spacer(Modifier.weight(1f))
             Text(
@@ -160,7 +158,7 @@ private fun ArchiveSnapshotLimitSetting(
                     limits.snapshotSizeMultiplier,
                 ),
                 color = colors.accent,
-                fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
                 fontWeight = FontWeight.Bold,
             )
         }
@@ -187,7 +185,7 @@ private fun ArchiveSnapshotLimitSetting(
         Text(
             text = localizedStringResource(Res.string.layout_snapshot_archive_limit_hint, language),
             color = colors.mutedText,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
         )
     }
 }
@@ -210,7 +208,7 @@ private fun SettingsToggleRow(
         Text(
             text = label,
             color = colors.primaryText,
-            fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
         )
         Spacer(Modifier.weight(1f))
         SettingsToggleSwitch(enabled)
@@ -235,7 +233,7 @@ private fun SettingsToggleSwitch(enabled: Boolean) {
             Modifier
                 .size(12.dp)
                 .background(
-                    color = if (enabled) Color.White else colors.switchThumbOff,
+                    color = if (enabled) colors.accentText else colors.switchThumbOff,
                     shape = RoundedCornerShape(50),
                 ),
         )
@@ -248,7 +246,7 @@ private fun SettingsSectionTitle(text: String) {
     Text(
         text = text,
         color = colors.secondaryText,
-        fontSize = SettingsDialogStyle.SECTION_TITLE_FONT_SIZE_SP.sp,
+        fontSize = ViewerTypography.sectionTitle.fontSize,
         fontWeight = FontWeight.Bold,
     )
 }
@@ -279,7 +277,7 @@ private fun CanvasColorSetting(
         Text(
             label,
             color = colors.primaryText,
-            fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
             modifier = Modifier.width(120.dp),
         )
         canvasColorPresets.forEach { preset ->
@@ -303,7 +301,7 @@ private fun CanvasColorSetting(
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(
                 color = colors.primaryText,
-                fontSize = SettingsDialogStyle.CONTENT_FONT_SIZE_SP.sp,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
             ),
             modifier = Modifier
                 .padding(start = 8.dp)
@@ -315,7 +313,7 @@ private fun CanvasColorSetting(
         Text(
             localizedStringResource(Res.string.reset, language),
             color = colors.accent,
-            fontSize = 10.sp,
+            fontSize = ViewerTypography.label.fontSize,
             modifier = Modifier
                 .padding(start = 6.dp)
                 .clickable {

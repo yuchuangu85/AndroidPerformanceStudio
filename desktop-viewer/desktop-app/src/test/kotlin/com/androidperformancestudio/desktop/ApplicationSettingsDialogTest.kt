@@ -77,10 +77,9 @@ class ApplicationSettingsDialogTest {
 
     @Test
     fun `settings window applies the selected display scale in its own composition`() {
-        assertTrue(unifiedDialog.contains("displayScale: Float"))
-        assertTrue(unifiedDialog.contains("ViewerTheme("))
-        assertTrue(unifiedDialog.contains("displayScale = displayScale"))
-        assertTrue(unifiedDialog.contains("accentColor = applicationSettings.themeColor.color"))
+        assertTrue(unifiedDialog.contains("viewerThemeContext: ViewerThemeContext"))
+        assertTrue(unifiedDialog.contains("ProvideViewerThemeContext(viewerThemeContext)"))
+        assertFalse(unifiedDialog.contains("ViewerTheme("))
         assertTrue(unifiedDialog.contains("viewerOutlinedTextFieldColors()"))
 
         val mainPage =
@@ -88,6 +87,8 @@ class ApplicationSettingsDialogTest {
                 Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"),
             )
         assertTrue(mainPage.contains("displayScale = applicationSettings.displayScale.multiplier"))
+        assertTrue(mainPage.contains("rememberViewerThemeContext()"))
+        assertTrue(mainPage.contains("viewerThemeContext = viewerThemeContext"))
     }
 
 }

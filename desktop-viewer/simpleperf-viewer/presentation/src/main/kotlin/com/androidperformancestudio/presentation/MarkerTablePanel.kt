@@ -2,6 +2,8 @@
 
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,7 +27,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
@@ -92,7 +93,7 @@ private fun MarkerTableHeader(
                 }}",
                 modifier = Modifier.weight(if (option == MarkerSort.NAME) 1f else 0.7f).clickable { onSort(option) },
                 color = style.text,
-                fontSize = 9.sp,
+                fontSize = ViewerTypography.dense.fontSize,
             )
         }
     }
@@ -117,11 +118,11 @@ private fun MarkerTableRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(marker.name, Modifier.weight(1f), color = style.text, fontSize = 10.sp)
-        Text(marker.startNanos.toString(), Modifier.width(110.dp), color = style.text, fontSize = 9.sp)
-        Text((marker.endNanosExclusive - marker.startNanos).toString(), Modifier.width(90.dp), color = style.text, fontSize = 9.sp)
-        Text(marker.threadName ?: "Global", Modifier.width(110.dp), color = style.text, fontSize = 9.sp)
-        Text(marker.schema, Modifier.width(100.dp), color = style.text, fontSize = 9.sp)
+        Text(marker.name, Modifier.weight(1f), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Text(marker.startNanos.toString(), Modifier.width(110.dp), color = style.text, fontSize = ViewerTypography.dense.fontSize)
+        Text((marker.endNanosExclusive - marker.startNanos).toString(), Modifier.width(90.dp), color = style.text, fontSize = ViewerTypography.dense.fontSize)
+        Text(marker.threadName ?: "Global", Modifier.width(110.dp), color = style.text, fontSize = ViewerTypography.dense.fontSize)
+        Text(marker.schema, Modifier.width(100.dp), color = style.text, fontSize = ViewerTypography.dense.fontSize)
     }
 }
 

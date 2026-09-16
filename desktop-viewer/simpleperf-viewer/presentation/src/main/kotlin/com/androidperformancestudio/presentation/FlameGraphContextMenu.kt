@@ -1,5 +1,7 @@
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.ui.ViewerTypography
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +19,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
@@ -255,10 +256,10 @@ internal fun FirefoxFlameGraphContextMenu(
                                 entry.label
                             },
                             modifier = Modifier.weight(1f),
-                            fontSize = 11.sp,
+                            fontSize = ViewerTypography.secondary.fontSize,
                         )
                         entry.shortcut?.let { shortcut ->
-                            Text(shortcut, color = style.mutedForeground.toComposeColor(), fontSize = 10.sp)
+                            Text(shortcut, color = style.mutedForeground.toComposeColor(), fontSize = ViewerTypography.label.fontSize)
                         }
                     }
                 }

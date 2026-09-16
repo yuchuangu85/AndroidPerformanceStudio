@@ -18,7 +18,7 @@ class PerfettoMacOsUiTest {
         assertTrue(source.contains("RoundedCornerShape(4.dp)"))
         assertTrue(source.contains(".border(1.dp, MaterialTheme.colorScheme.outline"))
         assertTrue(source.contains(".height(24.dp)"))
-        assertTrue(source.contains("fontSize = 11.sp"))
+        assertTrue(source.contains("fontSize = ViewerTypography.secondary.fontSize"))
         assertTrue(source.contains("MaterialTheme.colorScheme.primary"))
         assertTrue(source.contains("MaterialTheme.colorScheme.onPrimary"))
     }

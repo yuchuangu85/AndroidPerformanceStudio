@@ -32,7 +32,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ui_components.generated.resources.Res
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
 import org.jetbrains.compose.resources.painterResource
@@ -58,12 +57,14 @@ public fun <T> DropdownSelector(
     fillWidth: Boolean = false,
     menuModifier: Modifier = Modifier,
     menuItemHeight: Dp = 32.dp,
-    controlFontSize: TextUnit = 11.sp,
-    menuFontSize: TextUnit = 12.sp,
+    controlFontSize: TextUnit? = null,
+    menuFontSize: TextUnit? = null,
     onControlClick: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val displayText = selectedItem?.let(selectedItemLabel) ?: placeholder
+    val controlTextSize = controlFontSize ?: ViewerTypography.secondary.fontSize
+    val menuTextSize = menuFontSize ?: ViewerTypography.bodyCompact.fontSize
     val canExpand = enabled && (items.isNotEmpty() || onPlaceholderSelected != null || onControlClick != null)
     val shape = RoundedCornerShape(4.dp)
     Box(modifier = modifier) {
@@ -86,7 +87,7 @@ public fun <T> DropdownSelector(
             Text(
                 text = displayText,
                 color = colors.accent,
-                fontSize = controlFontSize,
+                fontSize = controlTextSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = if (fillWidth) Modifier.weight(1f) else Modifier,
@@ -118,7 +119,7 @@ public fun <T> DropdownSelector(
                     },
                     colors = colors,
                     itemHeight = menuItemHeight,
-                    fontSize = menuFontSize,
+                    fontSize = menuTextSize,
                 )
             }
             items.forEach { item ->
@@ -133,7 +134,7 @@ public fun <T> DropdownSelector(
                     },
                     colors = colors,
                     itemHeight = menuItemHeight,
-                    fontSize = menuFontSize,
+                    fontSize = menuTextSize,
                 )
             }
         }
@@ -166,8 +167,8 @@ private fun DropdownSelectorMenuItem(
                     Text(
                         text = it,
                         color = colors.secondaryText,
-                        fontSize = 9.sp,
-                        lineHeight = 11.sp,
+                        fontSize = ViewerTypography.dense.fontSize,
+                        lineHeight = ViewerTypography.dense.lineHeight,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

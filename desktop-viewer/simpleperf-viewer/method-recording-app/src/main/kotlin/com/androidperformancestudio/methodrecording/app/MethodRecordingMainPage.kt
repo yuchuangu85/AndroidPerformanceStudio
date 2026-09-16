@@ -1,6 +1,5 @@
 package com.androidperformancestudio.methodrecording.app
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,7 +36,6 @@ import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
 import java.nio.file.Path
@@ -47,7 +45,6 @@ import java.nio.file.Path
 @Composable
 fun FrameWindowScope.MethodRecordingMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
-    darkTheme: Boolean = isSystemInDarkTheme(),
     androidSdkPath: Path? = null,
     initialTraceFile: Path? = null,
     onBack: () -> Unit = {},
@@ -63,63 +60,61 @@ fun FrameWindowScope.MethodRecordingMainPage(
         initialTraceFile?.let { file -> controller.importTrace(file) }
     }
 
-    ViewerTheme(darkTheme = darkTheme) {
-        Column(Modifier.fillMaxSize()) {
-            HeaderToolbar(
-                language = language,
-                onNavigateHome = onBack,
-                onNavigateSettings = null,
-            ) {
-                DropdownSelector(
-                    items = state.devices,
-                    selectedItem = state.devices.firstOrNull { it.serial == state.selectedSerial },
-                    onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
-                    itemLabel = { device -> device.name },
-                    placeholder = localizedStringResource(Res.string.select_device, language),
-                    selectorDescription = localizedStringResource(Res.string.device_selector, language),
-                    enabled = !state.isLoading,
-                )
-                HeaderSpacer()
-                DropdownSelector(
-                    items = state.processes,
-                    selectedItem = state.processes.firstOrNull { it.pid == state.selectedPid },
-                    onItemSelected = { process -> controller.selectProcess(process.pid) },
-                    itemLabel = { process -> process.name },
-                    placeholder = localizedStringResource(Res.string.select_process, language),
-                    selectorDescription = localizedStringResource(Res.string.process_selector, language),
-                    enabled = !state.isLoading,
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.refresh_devices, language),
-                    onClick = { scope.launch { controller.refreshDevices() } },
-                )
-                Spacer(Modifier.weight(1f))
-                val isRecording = state.capturePhase is MethodTraceCapturePhase.Recording
-                ProfilerCompactButton(
-                    text =
-                        if (isRecording) {
-                            localizedStringResource(Res.string.stop, language)
-                        } else {
-                            localizedStringResource(Res.string.capture, language)
-                        },
-                    onClick = {
-                        if (isRecording) {
-                            controller.requestStop()
-                        } else {
-                            scope.launch { controller.startCapture() }
-                        }
+    Column(Modifier.fillMaxSize()) {
+        HeaderToolbar(
+            language = language,
+            onNavigateHome = onBack,
+            onNavigateSettings = null,
+        ) {
+            DropdownSelector(
+                items = state.devices,
+                selectedItem = state.devices.firstOrNull { it.serial == state.selectedSerial },
+                onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
+                itemLabel = { device -> device.name },
+                placeholder = localizedStringResource(Res.string.select_device, language),
+                selectorDescription = localizedStringResource(Res.string.device_selector, language),
+                enabled = !state.isLoading,
+            )
+            HeaderSpacer()
+            DropdownSelector(
+                items = state.processes,
+                selectedItem = state.processes.firstOrNull { it.pid == state.selectedPid },
+                onItemSelected = { process -> controller.selectProcess(process.pid) },
+                itemLabel = { process -> process.name },
+                placeholder = localizedStringResource(Res.string.select_process, language),
+                selectorDescription = localizedStringResource(Res.string.process_selector, language),
+                enabled = !state.isLoading,
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.refresh_devices, language),
+                onClick = { scope.launch { controller.refreshDevices() } },
+            )
+            Spacer(Modifier.weight(1f))
+            val isRecording = state.capturePhase is MethodTraceCapturePhase.Recording
+            ProfilerCompactButton(
+                text =
+                    if (isRecording) {
+                        localizedStringResource(Res.string.stop, language)
+                    } else {
+                        localizedStringResource(Res.string.capture, language)
                     },
-                    enabled = state.selectedPid != null && !state.isLoading,
-                )
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-            MethodRecordingScreen(
-                state = state,
-                language = language,
-                modifier = Modifier.weight(1f),
+                onClick = {
+                    if (isRecording) {
+                        controller.requestStop()
+                    } else {
+                        scope.launch { controller.startCapture() }
+                    }
+                },
+                enabled = state.selectedPid != null && !state.isLoading,
             )
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        MethodRecordingScreen(
+            state = state,
+            language = language,
+            modifier = Modifier.weight(1f),
+        )
     }
 
     ActiveWindowMenuBar {

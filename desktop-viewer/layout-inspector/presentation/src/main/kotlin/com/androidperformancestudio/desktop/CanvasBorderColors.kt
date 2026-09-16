@@ -1,6 +1,8 @@
 package com.androidperformancestudio.desktop
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import com.androidperformancestudio.ui.ViewerVisualizationColors
 import java.util.Locale
 import java.util.prefs.Preferences
 
@@ -24,19 +26,22 @@ internal value class CanvasArgb(val value: Long) {
 }
 
 internal data class CanvasBorderColors(
-    val normal: CanvasArgb = CanvasArgb(0xFF7DD3FC),
-    val hovered: CanvasArgb = CanvasArgb(0xFFF59E0B),
-    val selected: CanvasArgb = CanvasArgb(0xFFEF4444),
+    val normal: CanvasArgb = ViewerVisualizationColors.layoutInspectorBorderNormal.toCanvasArgb(),
+    val hovered: CanvasArgb = ViewerVisualizationColors.layoutInspectorBorderHovered.toCanvasArgb(),
+    val selected: CanvasArgb = ViewerVisualizationColors.layoutInspectorBorderSelected.toCanvasArgb(),
 )
 
-internal val canvasColorPresets = listOf(
-    CanvasArgb(0xFF7DD3FC),
-    CanvasArgb(0xFFF59E0B),
-    CanvasArgb(0xFFEF4444),
-    CanvasArgb(0xFF22C55E),
-    CanvasArgb(0xFFA855F7),
-    CanvasArgb(0xFFFFFFFF),
-)
+internal val canvasColorPresets =
+    listOf(
+        ViewerVisualizationColors.layoutInspectorBorderNormal,
+        ViewerVisualizationColors.layoutInspectorBorderHovered,
+        ViewerVisualizationColors.layoutInspectorBorderSelected,
+        ViewerVisualizationColors.layoutInspectorBorderGreen,
+        ViewerVisualizationColors.layoutInspectorBorderPurple,
+        ViewerVisualizationColors.layoutInspectorBorderWhite,
+    ).map(Color::toCanvasArgb)
+
+private fun Color.toCanvasArgb(): CanvasArgb = CanvasArgb(toArgb().toLong() and 0xFFFF_FFFFL)
 
 internal class CanvasBorderColorStore(
     private val read: (String) -> String?,

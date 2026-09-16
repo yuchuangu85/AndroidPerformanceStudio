@@ -2,7 +2,6 @@
 
 package com.androidperformancestudio.network.app
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,7 +36,6 @@ import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
-import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -54,7 +52,10 @@ import java.nio.file.Path
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
-public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLanguage.ENGLISH, darkTheme: Boolean = isSystemInDarkTheme(), onBack: () -> Unit = {}) {
+public fun FrameWindowScope.NetworkProfilerMainPage(
+    language: UiLanguage = UiLanguage.ENGLISH,
+    onBack: () -> Unit = {},
+) {
     val analyzer = remember { NetworkAnalyzer() }
     val exporter = remember { NetworkExporter() }
     val capture = remember { NetworkAgentCapture() }
@@ -98,118 +99,116 @@ public fun FrameWindowScope.NetworkProfilerMainPage(language: UiLanguage = UiLan
             withContext(Dispatchers.Main) { active = null }
         }
     }
-    ViewerTheme(darkTheme = darkTheme) {
-        Column(Modifier.fillMaxSize()) {
-            HeaderToolbar(
-                language = language,
-                onNavigateHome = {
-                    if (state.capturing) stop()
-                    onBack()
+    Column(Modifier.fillMaxSize()) {
+        HeaderToolbar(
+            language = language,
+            onNavigateHome = {
+                if (state.capturing) stop()
+                onBack()
+            },
+            onNavigateSettings = null,
+        ) {
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.import_har, language),
+                enabled = !state.capturing,
+                onClick = {
+                    chooseOpenFile(
+                        window,
+                        localizedStringResource(Res.string.import_har, language),
+                        localizedStringResource(Res.string.http_archive, language),
+                        "har",
+                        "json",
+                    )?.let { file ->
+                        runCatching { HarParser().parse(file.toPath()) }
+                            .onSuccess { result ->
+                                complete(
+                                    result,
+                                    localizedStringResource(Res.string.imported_redacted, language, file.name),
+                                    NetworkArtifactFactory().har(file.toPath(), result),
+                                )
+                            }.onFailure { state = state.copy(error = it.message) }
+                    }
                 },
-                onNavigateSettings = null,
-            ) {
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.import_har, language),
-                    enabled = !state.capturing,
-                    onClick = {
-                        chooseOpenFile(
-                            window,
-                            localizedStringResource(Res.string.import_har, language),
-                            localizedStringResource(Res.string.http_archive, language),
-                            "har",
-                            "json",
-                        )?.let { file ->
-                            runCatching { HarParser().parse(file.toPath()) }
-                                .onSuccess { result ->
-                                    complete(
-                                        result,
-                                        localizedStringResource(Res.string.imported_redacted, language, file.name),
-                                        NetworkArtifactFactory().har(file.toPath(), result),
-                                    )
-                                }.onFailure { state = state.copy(error = it.message) }
-                        }
+            )
+            HeaderSpacer()
+            ProfilerCompactTextField(
+                label = localizedStringResource(Res.string.device_serial, language),
+                value = state.deviceSerial,
+                onValueChange = { state = state.copy(deviceSerial = it) },
+                enabled = !state.capturing,
+                modifier = Modifier.width(180.dp),
+            )
+            HeaderSpacer()
+            ProfilerCompactTextField(
+                label = localizedStringResource(Res.string.`package`, language),
+                value = state.packageName,
+                onValueChange = { state = state.copy(packageName = it) },
+                enabled = !state.capturing,
+                modifier = Modifier.width(240.dp),
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text =
+                    if (state.capturing) {
+                        localizedStringResource(Res.string.stop_capture, language)
+                    } else {
+                        localizedStringResource(Res.string.live_capture, language)
                     },
-                )
-                HeaderSpacer()
-                ProfilerCompactTextField(
-                    label = localizedStringResource(Res.string.device_serial, language),
-                    value = state.deviceSerial,
-                    onValueChange = { state = state.copy(deviceSerial = it) },
-                    enabled = !state.capturing,
-                    modifier = Modifier.width(180.dp),
-                )
-                HeaderSpacer()
-                ProfilerCompactTextField(
-                    label = localizedStringResource(Res.string.`package`, language),
-                    value = state.packageName,
-                    onValueChange = { state = state.copy(packageName = it) },
-                    enabled = !state.capturing,
-                    modifier = Modifier.width(240.dp),
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text =
-                        if (state.capturing) {
-                            localizedStringResource(Res.string.stop_capture, language)
-                        } else {
-                            localizedStringResource(Res.string.live_capture, language)
-                        },
-                    enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(),
-                    onClick = { if (state.capturing) stop() else start() },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.json, language),
-                    enabled = state.result != null,
-                    onClick = {
-                        chooseSaveFile(window, localizedStringResource(Res.string.json, language), "network-session.json")?.let {
-                            exporter.writeJson(
-                                requireNotNull(state.result),
-                                requireNotNull(state.summary),
-                                it.toPath(),
-                            )
-                        }
-                    },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.har, language),
-                    enabled = state.result != null,
-                    onClick = {
-                        chooseSaveFile(window, localizedStringResource(Res.string.har, language), "network-session.har")?.let {
-                            exporter.writePartialHar(requireNotNull(state.result), it.toPath())
-                        }
-                    },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.csv, language),
-                    enabled = state.result != null,
-                    onClick = {
-                        chooseSaveFile(window, localizedStringResource(Res.string.csv, language), "network-session.csv")?.let {
-                            exporter.writeCsv(requireNotNull(state.result), it.toPath())
-                        }
-                    },
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.raw_bundle, language),
-                    enabled = state.result != null,
-                    onClick = {
-                        chooseSaveFile(window, localizedStringResource(Res.string.raw_bundle, language), "network-raw-bundle.zip")?.let {
-                            exporter.writeRawBundle(
-                                requireNotNull(state.result),
-                                requireNotNull(state.summary),
-                                it.toPath(),
-                            )
-                        }
-                    },
-                )
-                Spacer(Modifier.weight(1f))
-                ProfilerToolbarStatus(state.message, state.error)
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-            NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
+                enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(),
+                onClick = { if (state.capturing) stop() else start() },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.json, language),
+                enabled = state.result != null,
+                onClick = {
+                    chooseSaveFile(window, localizedStringResource(Res.string.json, language), "network-session.json")?.let {
+                        exporter.writeJson(
+                            requireNotNull(state.result),
+                            requireNotNull(state.summary),
+                            it.toPath(),
+                        )
+                    }
+                },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.har, language),
+                enabled = state.result != null,
+                onClick = {
+                    chooseSaveFile(window, localizedStringResource(Res.string.har, language), "network-session.har")?.let {
+                        exporter.writePartialHar(requireNotNull(state.result), it.toPath())
+                    }
+                },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.csv, language),
+                enabled = state.result != null,
+                onClick = {
+                    chooseSaveFile(window, localizedStringResource(Res.string.csv, language), "network-session.csv")?.let {
+                        exporter.writeCsv(requireNotNull(state.result), it.toPath())
+                    }
+                },
+            )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.raw_bundle, language),
+                enabled = state.result != null,
+                onClick = {
+                    chooseSaveFile(window, localizedStringResource(Res.string.raw_bundle, language), "network-raw-bundle.zip")?.let {
+                        exporter.writeRawBundle(
+                            requireNotNull(state.result),
+                            requireNotNull(state.summary),
+                            it.toPath(),
+                        )
+                    }
+                },
+            )
+            Spacer(Modifier.weight(1f))
+            ProfilerToolbarStatus(state.message, state.error)
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
     }
 }
