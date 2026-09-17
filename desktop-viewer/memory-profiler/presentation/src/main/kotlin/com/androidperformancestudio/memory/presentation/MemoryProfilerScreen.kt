@@ -10,10 +10,13 @@
 package com.androidperformancestudio.memory.presentation
 
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.ViewerDimensions
 
 import com.androidperformancestudio.ui.ViewerTypography
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -47,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -127,27 +132,28 @@ public fun MemoryProfilerScreen(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background),
         ) {
-            Column(
-                modifier = Modifier.padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                ErrorAndWarnings(presentedState, actions, language)
-                presentedState.artifact?.let { artifact ->
-                    Text(
-                        "Evidence: ${artifact.kind.value} · ${artifact.completeness} · " +
-                            "${artifact.availableCapabilities.size} capabilities",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = ViewerTypography.bodyCompact.fontSize,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                }
-                if (presentedState.mappingLoaded) {
-                    Text(
-                        localizedStringResource(Res.string.mapping_loaded_note, language),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = ViewerTypography.bodyCompact.fontSize,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
+            if (presentedState.artifact != null || presentedState.mappingLoaded) {
+                Column(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    presentedState.artifact?.let { artifact ->
+                        Text(
+                            "Evidence: ${artifact.kind.value} · ${artifact.completeness} · " +
+                                "${artifact.availableCapabilities.size} capabilities",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = ViewerTypography.bodyCompact.fontSize,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        )
+                    }
+                    if (presentedState.mappingLoaded) {
+                        Text(
+                            localizedStringResource(Res.string.mapping_loaded_note, language),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = ViewerTypography.bodyCompact.fontSize,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        )
+                    }
                 }
             }
             if (presentedState.viewMode == MemoryProfilerViewMode.ClassList) {
@@ -155,13 +161,14 @@ public fun MemoryProfilerScreen(
                     state = presentedState,
                     actions = actions,
                     language = language,
-                    modifier = Modifier.fillMaxSize().weight(1f),
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                 )
             } else {
                 Column(
                     modifier =
                         Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
+                            .weight(1f)
                             .padding(8.dp)
                             .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -182,6 +189,11 @@ public fun MemoryProfilerScreen(
                     BitmapDumpGallery(presentedState.bitmapDumpSession, presentedState.bitmapDumpComparison, language)
                 }
             }
+            MemoryProfilerStatusBar(
+                state = presentedState,
+                actions = actions,
+                language = language,
+            )
         }
     }
 }
@@ -275,98 +287,110 @@ private fun BitmapDumpGallery(
 }
 
 @Composable
-private fun ErrorAndWarnings(
+private fun MemoryProfilerStatusBar(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
     language: UiLanguage,
 ) {
-    state.operationMessage?.let { message ->
-        MessageCard(
-            title = localizedStringResource(Res.string.in_progress, language),
-            body = message,
-            tone = MessageTone.INFO,
-        ) {
-            CircularProgressIndicator(Modifier.width(24.dp).height(24.dp))
+    val colors = LocalViewerColors.current
+    var hasStatus = false
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(ViewerDimensions.footerHeight)
+                .background(colors.toolbar)
+                .border(
+                    ViewerDimensions.hairline,
+                    colors.border,
+                    RoundedCornerShape(0.dp),
+                ).horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .testTag("memory-profiler-status-bar"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        state.operationMessage?.let { message ->
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+            )
+            MemoryProfilerStatusMessage(
+                label = localizedStringResource(Res.string.in_progress, language),
+                message = message,
+                messageColor = colors.secondaryText,
+            )
+            hasStatus = true
+        }
+        state.error?.let { error ->
+            if (hasStatus) MemoryProfilerStatusDivider()
+            MemoryProfilerStatusMessage(
+                label = error.title,
+                message = error.detail,
+                messageColor = MaterialTheme.colorScheme.error,
+            )
+            ProfilerCompactButton(
+                text = error.retryLabel,
+                onClick = actions.onRetry,
+            )
+            hasStatus = true
+        }
+        state.cleanupWarning?.let { warning ->
+            if (hasStatus) MemoryProfilerStatusDivider()
+            MemoryProfilerStatusMessage(
+                label = localizedStringResource(Res.string.cleanup_warning, language),
+                message = warning,
+                messageColor = MaterialTheme.colorScheme.tertiary,
+            )
+            hasStatus = true
+        }
+        state.warning?.let { warning ->
+            if (hasStatus) MemoryProfilerStatusDivider()
+            MemoryProfilerStatusMessage(
+                label = localizedStringResource(Res.string.warning, language),
+                message = warning,
+                messageColor = MaterialTheme.colorScheme.tertiary,
+            )
         }
     }
-    state.error?.let { error ->
-        MessageCard(
-            title = error.title,
-            body = error.detail,
-            tone = MessageTone.ERROR,
-        ) {
-            Button(onClick = actions.onRetry) { Text(error.retryLabel) }
-        }
-    }
-    state.cleanupWarning?.let { warning ->
-        MessageCard(
-            title = localizedStringResource(Res.string.cleanup_warning, language),
-            body = warning,
-            tone = MessageTone.WARNING,
+}
+
+@Composable
+private fun MemoryProfilerStatusMessage(
+    label: String,
+    message: String,
+    messageColor: Color,
+) {
+    val colors = LocalViewerColors.current
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "$label:",
+            color = colors.mutedText,
+            fontSize = ViewerTypography.label.fontSize,
+            maxLines = 1,
         )
-    }
-    state.warning?.let { warning ->
-        MessageCard(
-            title = localizedStringResource(Res.string.warning, language),
-            body = warning,
-            tone = MessageTone.WARNING,
+        Text(
+            text = message,
+            color = messageColor,
+            fontSize = ViewerTypography.secondary.fontSize,
+            lineHeight = ViewerTypography.secondary.lineHeight,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
 @Composable
-private fun MessageCard(
-    title: String,
-    body: String,
-    tone: MessageTone,
-    trailing: @Composable (() -> Unit)? = null,
-) {
-    val palette =
-        when (tone) {
-            MessageTone.INFO ->
-                MessageCardPalette(
-                    MaterialTheme.colorScheme.primaryContainer,
-                    MaterialTheme.colorScheme.onPrimaryContainer,
-                    MaterialTheme.colorScheme.primary,
-                )
-            MessageTone.ERROR ->
-                MessageCardPalette(
-                    MaterialTheme.colorScheme.errorContainer,
-                    MaterialTheme.colorScheme.onErrorContainer,
-                    MaterialTheme.colorScheme.error,
-                )
-            MessageTone.WARNING ->
-                MessageCardPalette(
-                    MaterialTheme.colorScheme.tertiaryContainer,
-                    MaterialTheme.colorScheme.onTertiaryContainer,
-                    MaterialTheme.colorScheme.tertiary,
-                )
-        }
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(palette.container, RoundedCornerShape(4.dp))
-                .border(1.dp, palette.border, RoundedCornerShape(4.dp))
-                .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = palette.content, fontWeight = FontWeight.Bold)
-            Text(body, color = palette.content)
-        }
-        trailing?.invoke()
-    }
+private fun MemoryProfilerStatusDivider() {
+    Text(
+        text = "•",
+        color = LocalViewerColors.current.mutedText,
+        fontSize = ViewerTypography.label.fontSize,
+    )
 }
-
-private enum class MessageTone { INFO, ERROR, WARNING }
-
-private data class MessageCardPalette(
-    val container: Color,
-    val content: Color,
-    val border: Color,
-)
 
 @Composable
 private fun Overview(
@@ -424,7 +448,7 @@ private fun Histogram(
                 .fillMaxWidth()
                 .height(300.dp)
                 .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
-                .padding(8.dp),
+                .testTag("memory-profiler-class-histogram"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(localizedStringResource(Res.string.class_histogram, language), fontWeight = FontWeight.Bold)

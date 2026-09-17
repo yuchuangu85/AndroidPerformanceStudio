@@ -5,6 +5,7 @@ package com.androidperformancestudio.memory.presentation
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
@@ -13,6 +14,7 @@ import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class MemoryProfilerScreenTest {
@@ -31,6 +33,7 @@ class MemoryProfilerScreenTest {
             onNodeWithText("Dump Heap").assertDoesNotExist()
             onNodeWithText("Import hprof").assertDoesNotExist()
             onNodeWithText("Class List").assertDoesNotExist()
+            onNodeWithTag("memory-profiler-status-bar").assertExists()
         }
 
     @Test
@@ -53,6 +56,12 @@ class MemoryProfilerScreenTest {
             onAllNodesWithText("Unavailable")[0].assertExists()
             onNodeWithText("Leak Suspects").assertExists()
             onNodeWithText("No leak suspects detected.").assertExists()
+
+            val histogramBounds = onNodeWithTag("memory-profiler-class-histogram").fetchSemanticsNode().boundsInRoot
+            val histogramTitleBounds =
+                onNodeWithText("Class histogram", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertEquals(histogramBounds.left, histogramTitleBounds.left)
+            assertEquals(histogramBounds.top, histogramTitleBounds.top)
         }
 
     @Test
@@ -80,7 +89,7 @@ class MemoryProfilerScreenTest {
         }
 
     @Test
-    fun `busy state shows progress feedback without an import button`() =
+    fun `busy state shows progress in the compact bottom status bar`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
             setContent {
                 MemoryProfilerScreen(
@@ -94,8 +103,11 @@ class MemoryProfilerScreenTest {
             }
 
             onNodeWithText("Working…").assertDoesNotExist()
-            onNodeWithText("In progress").assertExists()
-            onNodeWithText("Importing sample.hprof…").assertExists()
+            onNodeWithText("In progress:", useUnmergedTree = true).assertExists()
+            onNodeWithText("Importing sample.hprof…", useUnmergedTree = true).assertExists()
+            val statusBar = onNodeWithTag("memory-profiler-status-bar").fetchSemanticsNode().boundsInRoot
+            assertTrue(statusBar.height <= 32f, "Status bar must remain a compact footer: $statusBar")
+            assertTrue(statusBar.bottom >= 699f, "Status bar must remain anchored to the bottom: $statusBar")
         }
 
     @Test
@@ -122,7 +134,7 @@ class MemoryProfilerScreenTest {
         }
 
     @Test
-    fun `error and cleanup warning are rendered with retry action`() =
+    fun `status bar renders error and warnings with retry action`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
             var retryCount = 0
             setContent {
@@ -141,13 +153,17 @@ class MemoryProfilerScreenTest {
                 )
             }
 
-            onNodeWithText("Capture failed").assertExists()
-            onNodeWithText("Target app may not be debuggable or permission was denied.").assertExists()
-            onNodeWithText("Cleanup warning").assertExists()
-            onNodeWithText("Warning").assertExists()
-            onNodeWithText("Install SDK Platform Tools to enable standard HPROF conversion.").assertExists()
-            onNodeWithText("Could not remove /data/local/tmp/heap-1.hprof; local analysis is still available.").assertExists()
-            onNodeWithText("Retry").performClick()
+            onNodeWithTag("memory-profiler-status-bar").assertExists()
+            onNodeWithText("Capture failed:", useUnmergedTree = true).assertExists()
+            onNodeWithText("Target app may not be debuggable or permission was denied.", useUnmergedTree = true).assertExists()
+            onNodeWithText("Cleanup warning:", useUnmergedTree = true).assertExists()
+            onNodeWithText("Warning:", useUnmergedTree = true).assertExists()
+            onNodeWithText("Install SDK Platform Tools to enable standard HPROF conversion.", useUnmergedTree = true).assertExists()
+            onNodeWithText(
+                "Could not remove /data/local/tmp/heap-1.hprof; local analysis is still available.",
+                useUnmergedTree = true,
+            ).assertExists()
+            onNodeWithText("Retry", useUnmergedTree = true).performClick()
             assertEquals(1, retryCount)
         }
 
