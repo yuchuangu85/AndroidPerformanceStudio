@@ -1,5 +1,7 @@
 package com.androidperformancestudio.desktop
 
+import java.nio.file.Files
+import java.nio.file.Path
 import com.androidperformancestudio.ui.ViewerTypography
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -7,6 +9,19 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class SettingsDialogStyleTest {
+    private val settingsContent =
+        Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorSettingsContent.kt"),
+        )
+
+    @Test
+    fun `layout inspector settings sections use active viewer theme tokens`() {
+        assertTrue(settingsContent.contains("val colors = LocalViewerColors.current"))
+        assertTrue(settingsContent.contains(".background(colors.sectionBackground, shape)"))
+        assertTrue(settingsContent.contains("colors.accent.copy(alpha = SETTINGS_SECTION_ACCENT_ALPHA)"))
+        assertTrue(settingsContent.contains("color = colors.accent"))
+    }
+
     @Test
     fun `settings typography creates clear hierarchy`() {
         assertTrue(ViewerTypography.pageTitle.fontSize > ViewerTypography.sectionTitle.fontSize)

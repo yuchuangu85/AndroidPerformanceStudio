@@ -5,6 +5,7 @@
     <string name="process">进程</string>
     <string name="refresh">刷新</string>
     <string name="stop_capture">停止采集</string>
+    <string name="status">状态</string>
     <string name="start_capture">开始采集</string>
     <string name="capture_frametimeline">捕获 FrameTimeline</string>
     <string name="associate_perfetto_trace">关联 Perfetto Trace…</string>

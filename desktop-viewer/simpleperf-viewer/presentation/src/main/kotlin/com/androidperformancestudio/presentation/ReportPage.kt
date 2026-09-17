@@ -70,7 +70,6 @@ import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
-import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.visualization.NavigationAction
 import org.jetbrains.compose.resources.StringResource
 import androidx.compose.material3.Text as MaterialText
@@ -87,7 +86,7 @@ fun ReportPage(
     ReportWorkspace(
         state,
         actions,
-        viewerColors(darkTheme),
+        currentSimpleperfViewerColors(darkTheme),
         Modifier.fillMaxSize(),
         flameTooltipMode,
         onRunAiAnalysis,

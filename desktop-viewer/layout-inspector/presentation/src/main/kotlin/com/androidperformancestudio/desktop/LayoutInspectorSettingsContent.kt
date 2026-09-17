@@ -7,6 +7,7 @@ import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,6 +55,7 @@ public fun LayoutInspectorSettingsContent(
     var archiveLimits by remember { mutableStateOf(archiveLimitsStore.load()) }
     var borderColors by remember { mutableStateOf(borderColorStore.load()) }
     var persistenceError by remember { mutableStateOf(false) }
+    val colors = LocalViewerColors.current
 
     fun notifySaved(saved: Boolean) {
         persistenceError = !saved
@@ -74,7 +76,11 @@ public fun LayoutInspectorSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()).padding(end = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(localizedStringResource(Res.string.layout_inspector, language), style = MaterialTheme.typography.titleLarge)
+        Text(
+            text = localizedStringResource(Res.string.layout_inspector, language),
+            color = colors.accent,
+            style = MaterialTheme.typography.titleLarge,
+        )
         if (persistenceError) {
             Text(
                 localizedStringResource(Res.string.settings_save_failed, language),
@@ -181,15 +187,22 @@ private fun SettingsSection(
     title: String,
     content: @Composable () -> Unit,
 ) {
+    val colors = LocalViewerColors.current
+    val shape = RoundedCornerShape(7.dp)
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(7.dp))
+                .background(colors.sectionBackground, shape)
+                .border(1.dp, colors.accent.copy(alpha = SETTINGS_SECTION_ACCENT_ALPHA), shape)
                 .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = title,
+            color = colors.accent,
+            style = MaterialTheme.typography.titleMedium,
+        )
         content()
     }
 }
@@ -291,3 +304,5 @@ private fun CanvasColorField(
         }
     }
 }
+
+private const val SETTINGS_SECTION_ACCENT_ALPHA = 0.28f

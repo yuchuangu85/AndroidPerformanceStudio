@@ -2,11 +2,23 @@
 
 package com.androidperformancestudio.frame.app
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -15,7 +27,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
 import com.androidperformancestudio.frame.frame_app.generated.resources.associate_perfetto_trace
@@ -36,6 +50,7 @@ import com.androidperformancestudio.frame.frame_app.generated.resources.process_
 import com.androidperformancestudio.frame.frame_app.generated.resources.refresh
 import com.androidperformancestudio.frame.frame_app.generated.resources.select_perfetto_trace
 import com.androidperformancestudio.frame.frame_app.generated.resources.start_capture
+import com.androidperformancestudio.frame.frame_app.generated.resources.status
 import com.androidperformancestudio.frame.frame_app.generated.resources.stop_capture
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
@@ -44,9 +59,11 @@ import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -227,10 +244,6 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                 },
             )
             Spacer(Modifier.weight(1f))
-            ProfilerToolbarStatus(
-                message = operationMessage,
-                error = state.errorMessage,
-            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         FrameProfilerScreen(
@@ -259,6 +272,11 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             operationMessage = operationMessage,
             modifier = Modifier.weight(1f),
         )
+        FrameProfilerStatusBar(
+            language = language,
+            operationMessage = operationMessage,
+            errorMessage = state.errorMessage,
+        )
     }
 
     if (showImportDialog) {
@@ -273,6 +291,48 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                 selected?.let { file -> scope.launch { controller.importFrameStats(file.toPath()) } }
             },
         )
+    }
+}
+
+@Composable
+private fun FrameProfilerStatusBar(
+    language: UiLanguage,
+    operationMessage: String?,
+    errorMessage: String?,
+) {
+    val colors = LocalViewerColors.current
+    val status = errorMessage ?: operationMessage
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(ViewerDimensions.footerHeight)
+                .background(colors.toolbar)
+                .border(
+                    ViewerDimensions.hairline,
+                    colors.border,
+                    RoundedCornerShape(0.dp),
+                ).horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        status?.let {
+            Text(
+                text = "${localizedStringResource(Res.string.status, language)}:",
+                color = colors.mutedText,
+                fontSize = ViewerTypography.label.fontSize,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = it,
+                color = if (errorMessage != null) MaterialTheme.colorScheme.error else colors.secondaryText,
+                fontSize = ViewerTypography.secondary.fontSize,
+                lineHeight = ViewerTypography.secondary.lineHeight,
+                maxLines = 1,
+            )
+        }
     }
 }
 

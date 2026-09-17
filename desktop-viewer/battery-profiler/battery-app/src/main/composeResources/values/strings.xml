@@ -4,6 +4,7 @@
     <string name="device">Device</string>
     <string name="app_uid">App / UID</string>
     <string name="refresh">Refresh</string>
+    <string name="status">Status</string>
     <string name="stop_analyze">Stop &amp; Analyze</string>
     <string name="cancel_experiment">Cancel Experiment</string>
     <string name="run_experiment">Run Experiment</string>

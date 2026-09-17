@@ -23,6 +23,7 @@
     <string name="failed_to_export_trace">Failed to export trace</string>
     <string name="refresh">Refresh</string>
     <string name="device_connected">%1$s connected</string>
+    <string name="device_refresh_failed">Unable to refresh devices. Check the ADB path, connection, and USB debugging authorization.</string>
     <string name="no_online_device">No online device</string>
     <string name="select_device">Select device</string>
     <string name="open">Open</string>

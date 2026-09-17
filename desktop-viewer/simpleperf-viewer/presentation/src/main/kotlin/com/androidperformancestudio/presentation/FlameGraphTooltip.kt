@@ -2,10 +2,6 @@
 
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.viewerColors
-
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +35,8 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameGraphPalette
@@ -117,7 +115,11 @@ internal fun FirefoxFlameGraphTooltip(
                     FirefoxTooltipDetail(SimpleperfViewerRes.sp_details_resource_value_format, resource, style)
                 }
             }
-            FirefoxTooltipTimings(facts, style)
+            FirefoxTooltipTimings(
+                facts = facts,
+                style = style,
+                themeColors = currentSimpleperfViewerColors(style.theme == FlameTheme.DARK),
+            )
         }
     }
 }
@@ -192,6 +194,7 @@ private fun FirefoxTooltipLabel(
 private fun FirefoxTooltipTimings(
     facts: FlameGraphTooltipFacts,
     style: FirefoxFlameGraphStyle,
+    themeColors: ViewerColors,
 ) {
     FirefoxTooltipDivider(style)
     Row(
@@ -209,8 +212,9 @@ private fun FirefoxTooltipTimings(
         running = facts.sampleCount,
         self = facts.selfSampleCount,
         maximum = facts.sampleCount,
-        color = firefoxOverallMeterColor(style.theme),
+        color = themeColors.flameTooltipMeter,
         style = style,
+        meterTrackColor = themeColors.flameTooltipTrack,
         tag = "overall",
     )
     facts.categorySamples.forEachIndexed { index, samples ->
@@ -221,6 +225,7 @@ private fun FirefoxTooltipTimings(
             maximum = facts.sampleCount,
             color = firefoxCategoryColor(samples.category, style),
             style = style,
+            meterTrackColor = themeColors.flameTooltipTrack,
             tag = "category-$index",
         )
     }
@@ -253,6 +258,7 @@ private fun FirefoxTooltipTimingRow(
     maximum: Long,
     color: Color,
     style: FirefoxFlameGraphStyle,
+    meterTrackColor: Color,
     tag: String,
 ) {
     Row(
@@ -272,7 +278,7 @@ private fun FirefoxTooltipTimingRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        FirefoxTooltipTotalSelfMeters(running, self, maximum, color, style, tag)
+        FirefoxTooltipTotalSelfMeters(running, self, maximum, color, meterTrackColor, tag)
         FirefoxTooltipTimingValue(
             firefoxTooltipSamples(running, zeroAsDash = false, currentSimpleperfLanguage()),
             TOOLTIP_RUNNING_WIDTH_DP,
@@ -293,15 +299,15 @@ private fun FirefoxTooltipTotalSelfMeters(
     self: Long,
     maximum: Long,
     color: Color,
-    style: FirefoxFlameGraphStyle,
+    meterTrackColor: Color,
     tag: String,
 ) {
     Column(
         modifier = Modifier.width(TOOLTIP_METER_WIDTH_DP.dp).height(10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        FirefoxTooltipMeter(running, maximum, color, style, "$tag-running")
-        FirefoxTooltipMeter(self, maximum, color, style, "$tag-self")
+        FirefoxTooltipMeter(running, maximum, color, meterTrackColor, "$tag-running")
+        FirefoxTooltipMeter(self, maximum, color, meterTrackColor, "$tag-self")
     }
 }
 
@@ -311,7 +317,7 @@ private fun FirefoxTooltipMeter(
     value: Long,
     maximum: Long,
     color: Color,
-    style: FirefoxFlameGraphStyle,
+    meterTrackColor: Color,
     tag: String,
 ) {
     val safeMaximum = maximum.coerceAtLeast(1L)
@@ -323,7 +329,7 @@ private fun FirefoxTooltipMeter(
                 .fillMaxWidth()
                 .height(4.dp)
                 .testTag("firefox-tooltip-$tag-meter")
-                .background(firefoxMeterTrackColor(style.theme))
+                .background(meterTrackColor)
                 .semantics {
                     progressBarRangeInfo =
                         ProgressBarRangeInfo(
@@ -452,12 +458,6 @@ private fun firefoxCategoryColor(
     category: String,
     style: FirefoxFlameGraphStyle,
 ): Color = style.categoryStyle(FlameGraphPalette.categoryRole(category)).selectedFill.toComposeColor()
-
-private fun firefoxOverallMeterColor(theme: FlameTheme): Color =
-    viewerColors(darkTheme = theme == FlameTheme.DARK).flameTooltipMeter
-
-private fun firefoxMeterTrackColor(theme: FlameTheme): Color =
-    viewerColors(darkTheme = theme == FlameTheme.DARK).flameTooltipTrack
 
 private const val TOOLTIP_MAX_WIDTH_DP = 600
 private const val TOOLTIP_PADDING_DP = 8

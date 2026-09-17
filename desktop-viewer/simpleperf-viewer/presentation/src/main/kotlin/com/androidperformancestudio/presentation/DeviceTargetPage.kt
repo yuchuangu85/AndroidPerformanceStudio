@@ -54,7 +54,6 @@ import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.viewerColors
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
@@ -75,7 +74,7 @@ internal fun DeviceTargetPage(
     onNavigateHome: (() -> Unit)? = null,
     onRunAiAnalysis: (() -> Unit)? = null,
 ) {
-    val style = viewerColors(darkTheme)
+    val style = currentSimpleperfViewerColors(darkTheme)
     val captureActive = captureState.isCaptureActive()
     val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
     val selectedThreadId = (state.selectedTarget as? CaptureTarget.Thread)?.tid

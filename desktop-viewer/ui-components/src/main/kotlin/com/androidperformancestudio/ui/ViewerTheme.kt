@@ -332,6 +332,8 @@ private fun ViewerColors.withAccent(accentColor: Color): ViewerColors =
         searchMatchRow = accentColor.copy(alpha = 0.20f),
         searchCurrentMatchRow = accentColor.copy(alpha = 0.40f),
         searchHighlightText = accentColor,
+        flameTooltipMeter = accentColor,
+        firefoxActivity = accentColor,
     )
 
 private fun Color.contentColor(): Color =

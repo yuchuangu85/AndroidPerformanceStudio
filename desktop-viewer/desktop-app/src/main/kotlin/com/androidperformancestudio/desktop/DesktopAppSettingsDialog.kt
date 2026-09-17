@@ -48,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
@@ -219,6 +220,18 @@ internal fun DesktopAppSettingsDialog(
 }
 
 @Composable
+private fun SettingsPageTitle(
+    text: String,
+    style: TextStyle = MaterialTheme.typography.titleMedium,
+) {
+    Text(
+        text = text,
+        color = LocalViewerColors.current.accent,
+        style = style,
+    )
+}
+
+@Composable
 private fun SettingsFooter(language: UiLanguage, onDismiss: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -333,7 +346,10 @@ private fun AiSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(localizedStringResource(Res.string.source_ai_settings, language), style = MaterialTheme.typography.titleLarge)
+        SettingsPageTitle(
+            text = localizedStringResource(Res.string.source_ai_settings, language),
+            style = MaterialTheme.typography.titleLarge,
+        )
         Text(
             localizedStringResource(
                 if (configured) Res.string.source_ai_key_configured else Res.string.source_ai_key_storage_notice,
@@ -503,7 +519,7 @@ private fun GeneralSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(localizedStringResource(Res.string.general, language), style = MaterialTheme.typography.titleMedium)
+        SettingsPageTitle(localizedStringResource(Res.string.general, language))
         SettingsChoice(
             language = language,
             label = localizedStringResource(Res.string.language, language),
@@ -547,12 +563,9 @@ private fun ConfigurationSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            localizedStringResource(Res.string.configuration, language),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            localizedStringResource(Res.string.sdk_path, language),
+        SettingsPageTitle(localizedStringResource(Res.string.configuration, language))
+        SettingsPageTitle(
+            text = localizedStringResource(Res.string.sdk_path, language),
             style = MaterialTheme.typography.titleLarge,
         )
         AndroidSdkPathSetting(
@@ -570,7 +583,7 @@ private fun ThemeColorSettingsContent(
     onSettingsChanged: (ApplicationUiSettings) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(localizedStringResource(Res.string.theme_color, language), style = MaterialTheme.typography.titleMedium)
+        SettingsPageTitle(localizedStringResource(Res.string.theme_color, language))
         ApplicationThemeColor.entries.chunked(2).forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -645,7 +658,10 @@ private fun AboutSettingsContent(
         modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(localizedStringResource(Res.string.about, language), style = MaterialTheme.typography.titleLarge)
+        SettingsPageTitle(
+            text = localizedStringResource(Res.string.about, language),
+            style = MaterialTheme.typography.titleLarge,
+        )
         Text(
             localizedStringResource(Res.string.android_performance_studio, language),
             style = MaterialTheme.typography.titleMedium,

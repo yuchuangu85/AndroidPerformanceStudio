@@ -20,7 +20,7 @@ class BatteryProfilerWorkspaceSourceTest {
         assertTrue(source.contains("DropdownSelector"))
         assertFalse(source.contains("ProfilerCompactSelector"))
         assertTrue(source.contains("ProfilerCompactButton"))
-        assertTrue(source.contains("ProfilerToolbarStatus"))
+        assertTrue(source.contains("BatteryProfilerStatusBar("))
         assertFalse(source.contains("private fun Selector("))
         val workspaceChrome = source.substringBefore("if (confirmReset)")
         assertFalse(workspaceChrome.contains("\n                OutlinedButton("))
@@ -37,6 +37,22 @@ class BatteryProfilerWorkspaceSourceTest {
         assertFalse(primaryToolbar.contains("Res.string.export_csv"))
         assertFalse(primaryToolbar.contains("Res.string.export_raw_bundle"))
         assertFalse(primaryToolbar.contains("Res.string.advanced_reset_stats"))
+    }
+
+    @Test
+    fun `operation status moves from the toolbar into a Layout Inspector style footer`() {
+        val toolbar = source.headerToolbar()
+        assertFalse(toolbar.contains("ProfilerToolbarStatus("))
+
+        val contentStart = source.indexOf("BatteryProfilerScreen(")
+        val footerStart = source.indexOf("BatteryProfilerStatusBar(", contentStart)
+        assertTrue(footerStart > contentStart, "The footer must render below the workspace content")
+
+        val footer = source.substring(source.indexOf("private fun BatteryProfilerStatusBar("))
+        assertTrue(footer.contains(".height(ViewerDimensions.footerHeight)"))
+        assertTrue(footer.contains(".background(colors.toolbar)"))
+        assertTrue(footer.contains(".horizontalScroll(rememberScrollState())"))
+        assertTrue(footer.contains("errorMessage ?: operationMessage"))
     }
 
     @Test

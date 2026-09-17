@@ -4,6 +4,7 @@
     <string name="device">设备</string>
     <string name="app_uid">应用 / UID</string>
     <string name="refresh">刷新</string>
+    <string name="status">状态</string>
     <string name="stop_analyze">停止并分析</string>
     <string name="cancel_experiment">取消实验</string>
     <string name="run_experiment">开始实验</string>

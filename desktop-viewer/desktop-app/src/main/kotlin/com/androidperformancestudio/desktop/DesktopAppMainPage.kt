@@ -255,6 +255,9 @@ public fun FrameWindowScope.DesktopAppMainPage(
                         PerfettoMainPage(
                             language = language,
                             isActive = active,
+                            androidSdkPath = applicationSettings.androidSdkPath?.let { path ->
+                                runCatching { java.nio.file.Path.of(path) }.getOrNull()
+                            },
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
                             initialTraceNotice = navigator.perfettoTraceNotice,

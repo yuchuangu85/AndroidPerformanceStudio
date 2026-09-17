@@ -69,7 +69,6 @@ import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
-import com.androidperformancestudio.ui.viewerColors
 
 enum class CaptureSettingsSection {
     SAMPLING_TEMPLATE,
@@ -99,7 +98,7 @@ fun SimpleperfSettingsContent(
     modifier: Modifier = Modifier,
 ) {
     val locale = currentSimpleperfLanguage().locale
-    val style = viewerColors(darkTheme)
+    val style = currentSimpleperfViewerColors(darkTheme)
     var section by remember(initialSection) { mutableStateOf(initialSection) }
     Row(
         modifier =
@@ -157,7 +156,7 @@ fun SimpleperfSettingsSectionContent(
         section = section,
         setup = setup,
         availableEvents = availableEvents,
-        style = viewerColors(darkTheme),
+        style = currentSimpleperfViewerColors(darkTheme),
         enabled = enabled,
         onSelectTemplate = onSelectTemplate,
         onUpdate = onUpdate,

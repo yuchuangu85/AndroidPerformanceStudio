@@ -5,6 +5,7 @@
     <string name="process">Process</string>
     <string name="refresh">Refresh</string>
     <string name="stop_capture">Stop Capture</string>
+    <string name="status">Status</string>
     <string name="start_capture">Start Capture</string>
     <string name="capture_frametimeline">Capture FrameTimeline</string>
     <string name="associate_perfetto_trace">Associate Perfetto Trace…</string>

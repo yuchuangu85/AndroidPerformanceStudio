@@ -46,6 +46,14 @@ class PerfettoWorkspaceLayoutTest {
     }
 
     @Test
+    fun `device refresh exposes progress and discovery failures instead of silently clearing the list`() {
+        assertFalse(source.contains("getOrDefault(emptyList())"))
+        assertTrue(source.contains("deviceRefreshInProgress"))
+        assertTrue(source.contains("deviceRefreshError"))
+        assertTrue(source.contains("onRefreshDevices = { coroutineScope.launch { refreshDevices() }"))
+    }
+
+    @Test
     fun `trace diagnostics uses vertical navigation and a separate content pane`() {
         assertTrue(source.contains("private fun TraceDiagnosticNavigation("))
         assertTrue(source.contains("private fun TraceDiagnosticContent("))

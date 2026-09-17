@@ -19,11 +19,31 @@ class FrameProfilerWorkspaceSourceTest {
         assertTrue(source.contains("FrameProfilerFileMenuBar("))
         assertTrue(source.contains("DropdownSelector"))
         assertFalse(source.contains("ProfilerCompactSelector"))
-        assertTrue(source.contains("ProfilerToolbarStatus"))
+        assertTrue(source.contains("FrameProfilerStatusBar("))
         assertFalse(source.contains("private fun TargetSelector("))
         assertFalse(source.contains("import androidx.compose.material3.OutlinedButton"))
         assertFalse(source.contains("import androidx.compose.material3.Button"))
         assertTrue(source.contains("FrameProfilerScreen("))
+    }
+
+    @Test
+    fun `capture status moves from the toolbar into a Layout Inspector style footer`() {
+        val toolbar =
+            source.substring(
+                source.indexOf("HeaderToolbar("),
+                source.indexOf("HorizontalDivider(", source.indexOf("HeaderToolbar(")),
+            )
+        assertFalse(toolbar.contains("ProfilerToolbarStatus("))
+
+        val contentStart = source.indexOf("FrameProfilerScreen(")
+        val footerStart = source.indexOf("FrameProfilerStatusBar(", contentStart)
+        assertTrue(footerStart > contentStart, "The footer must render below the workspace content")
+
+        val footer = source.substring(source.indexOf("private fun FrameProfilerStatusBar("))
+        assertTrue(footer.contains(".height(ViewerDimensions.footerHeight)"))
+        assertTrue(footer.contains(".background(colors.toolbar)"))
+        assertTrue(footer.contains(".horizontalScroll(rememberScrollState())"))
+        assertTrue(footer.contains("errorMessage ?: operationMessage"))
     }
 
     @Test

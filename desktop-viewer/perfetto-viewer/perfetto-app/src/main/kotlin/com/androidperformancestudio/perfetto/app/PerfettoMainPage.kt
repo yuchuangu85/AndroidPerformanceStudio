@@ -1,7 +1,5 @@
 package com.androidperformancestudio.perfetto.app
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -64,6 +62,7 @@ import com.androidperformancestudio.perfetto_app.generated.resources.adb_path
 import com.androidperformancestudio.perfetto_app.generated.resources.captured_traces_will_appear_here
 import com.androidperformancestudio.perfetto_app.generated.resources.delete
 import com.androidperformancestudio.perfetto_app.generated.resources.device_connected
+import com.androidperformancestudio.perfetto_app.generated.resources.device_refresh_failed
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_latency_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_latency_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_cpu_frequency_description
@@ -95,7 +94,12 @@ import com.androidperformancestudio.perfetto_app.generated.resources.select_a_di
 import com.androidperformancestudio.perfetto_app.generated.resources.select_device
 import com.androidperformancestudio.perfetto_app.generated.resources.text
 import com.androidperformancestudio.perfetto_app.generated.resources.trace_diagnostics
+import com.androidperformancestudio.platform.adb.AdbCommandFailedException
+import com.androidperformancestudio.platform.adb.AdbCommandTimeoutException
+import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AdbException
+import com.androidperformancestudio.platform.adb.AdbProcessStartException
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContext
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContexts
@@ -104,9 +108,11 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -114,6 +120,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
@@ -148,6 +156,7 @@ internal fun exportRawTraceFile(
 fun FrameWindowScope.PerfettoMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     isActive: Boolean = true,
+    androidSdkPath: Path? = null,
     onNavigateHome: (() -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,
     initialTraceFile: Path? = null,
@@ -166,11 +175,14 @@ fun FrameWindowScope.PerfettoMainPage(
     var recentFiles by remember { mutableStateOf<List<Path>>(emptyList()) }
     var activeTraceFile by remember { mutableStateOf<Path?>(null) }
     var activeArtifact by remember { mutableStateOf<com.androidperformancestudio.contracts.CaptureArtifact?>(null) }
-    var adbPath by remember { mutableStateOf("adb") }
+    var adbPath by remember(androidSdkPath) { mutableStateOf(defaultPerfettoAdbPath(androidSdkPath)) }
     var devices by remember { mutableStateOf<List<PerfettoDevice>>(emptyList()) }
     var selectedDeviceSerial by remember { mutableStateOf<String?>(null) }
     var deviceCapabilities by remember { mutableStateOf<PerfettoDeviceCapabilities?>(null) }
     var capabilityRefreshKey by remember { mutableStateOf(0) }
+    var deviceRefreshInProgress by remember { mutableStateOf(false) }
+    var deviceRefreshError by remember { mutableStateOf<StudioError?>(null) }
+    var deviceRefreshRequest by remember { mutableStateOf(0L) }
     var analysisContext by remember { mutableStateOf<TraceAnalysisContext?>(null) }
     var analysisContexts by remember { mutableStateOf<TraceAnalysisContexts?>(null) }
     var diagnosticQuery by remember { mutableStateOf<DiagnosticQuery?>(null) }
@@ -223,11 +235,31 @@ fun FrameWindowScope.PerfettoMainPage(
         }
     }
 
-    LaunchedEffect(Unit) { captureSession.state.collect { captureState = it } }
-    LaunchedEffect(adbPath) {
-        devices = discoverPerfettoDevices(adbPath)
-        selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, devices)
+    val refreshDevices: suspend () -> Unit = {
+        val request = ++deviceRefreshRequest
+        deviceRefreshInProgress = true
+        when (val result = withContext(Dispatchers.IO) { discoverPerfettoDevices(adbPath) }) {
+            is StudioResult.Success -> {
+                if (request == deviceRefreshRequest) {
+                    devices = result.value
+                    selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, result.value)
+                    deviceRefreshError = null
+                    capabilityRefreshKey++
+                    deviceRefreshInProgress = false
+                }
+            }
+
+            is StudioResult.Failure -> {
+                if (request == deviceRefreshRequest) {
+                    deviceRefreshError = result.error
+                    deviceRefreshInProgress = false
+                }
+            }
+        }
     }
+
+    LaunchedEffect(Unit) { captureSession.state.collect { captureState = it } }
+    LaunchedEffect(adbPath) { refreshDevices() }
     LaunchedEffect(adbPath, selectedDeviceSerial, devices, capabilityRefreshKey) {
         deviceCapabilities = null
         val device = devices.firstOrNull { it.serial == selectedDeviceSerial } ?: return@LaunchedEffect
@@ -347,17 +379,19 @@ fun FrameWindowScope.PerfettoMainPage(
                     devices = devices,
                     selectedDeviceSerial = selectedDeviceSerial,
                     onSelectDevice = { selectedDeviceSerial = it },
-                    onRefreshDevices = {
-                        coroutineScope.launch(Dispatchers.IO) {
-                            val refreshed = discoverPerfettoDevices(adbPath)
-                            devices = refreshed
-                            selectedDeviceSerial = preferredDeviceSerial(selectedDeviceSerial, refreshed)
-                            capabilityRefreshKey++
-                        }
-                    },
+                    deviceRefreshInProgress = deviceRefreshInProgress,
+                    onRefreshDevices = { coroutineScope.launch { refreshDevices() } },
                 )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            deviceRefreshError?.let {
+                Text(
+                    text = localizedStringResource(Res.string.device_refresh_failed, language),
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = ViewerTypography.label.fontSize,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                )
+            }
             if (initialTraceFile != null && initialTraceNotice != null) {
                 InitialTraceNotice(
                     traceFile = initialTraceFile,
@@ -489,6 +523,7 @@ private fun RowScope.PerfettoToolbarContent(
     devices: List<PerfettoDevice>,
     selectedDeviceSerial: String?,
     onSelectDevice: (String) -> Unit,
+    deviceRefreshInProgress: Boolean,
     onRefreshDevices: () -> Unit,
 ) {
     val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
@@ -512,7 +547,11 @@ private fun RowScope.PerfettoToolbarContent(
         language = language,
     )
     HeaderSpacer()
-    PerfettoCompactButton(text = localizedStringResource(Res.string.refresh, language), onClick = onRefreshDevices)
+    PerfettoCompactButton(
+        text = localizedStringResource(Res.string.refresh, language),
+        onClick = onRefreshDevices,
+        enabled = !deviceRefreshInProgress,
+    )
     Spacer(Modifier.weight(1f))
     PerfettoStatusDot(
         color =
@@ -672,19 +711,88 @@ private fun RecentSessionRow(
     }
 }
 
-private suspend fun discoverPerfettoDevices(adbPath: String): List<PerfettoDevice> {
-    if (adbPath.isBlank()) return emptyList()
-    return runCatching {
-        DefaultAdbClient(Path.of(adbPath))
-            .listDevices()
-            .filter { it.state == AdbDeviceState.ONLINE }
-            .map { device ->
+internal suspend fun discoverPerfettoDevices(
+    adbPath: String,
+    deviceLister: suspend (Path) -> List<AdbDevice> = { executable ->
+        DefaultAdbClient(executable).listDevices()
+    },
+): StudioResult<List<PerfettoDevice>> {
+    if (adbPath.isBlank()) {
+        return StudioResult.Failure(
+            StudioError(
+                category = ErrorCategory.CONFIGURATION,
+                code = "PERFETTO_ADB_PATH_EMPTY",
+                message = "ADB path is empty.",
+            ),
+        )
+    }
+    return try {
+        val executable = Path.of(adbPath)
+        StudioResult.Success(
+            deviceLister(executable).map { device ->
                 PerfettoDevice(
                     serial = device.serial,
                     model = device.model?.replace('_', ' ') ?: device.serial,
+                    online = device.state == AdbDeviceState.ONLINE,
                 )
-            }
-    }.getOrDefault(emptyList())
+            },
+        )
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: InvalidPathException) {
+        deviceDiscoveryFailure(
+            category = ErrorCategory.CONFIGURATION,
+            code = "PERFETTO_ADB_PATH_INVALID",
+            error = error,
+        )
+    } catch (error: AdbProcessStartException) {
+        deviceDiscoveryFailure(
+            category = ErrorCategory.PROCESS_START,
+            code = "PERFETTO_ADB_PROCESS_START_FAILED",
+            error = error,
+        )
+    } catch (error: AdbCommandTimeoutException) {
+        deviceDiscoveryFailure(
+            category = ErrorCategory.PROCESS_TIMEOUT,
+            code = "PERFETTO_ADB_COMMAND_TIMEOUT",
+            error = error,
+        )
+    } catch (error: AdbCommandFailedException) {
+        deviceDiscoveryFailure(
+            category = ErrorCategory.PROCESS_EXIT,
+            code = "PERFETTO_ADB_COMMAND_FAILED",
+            error = error,
+        )
+    } catch (error: AdbException) {
+        deviceDiscoveryFailure(
+            category = ErrorCategory.UNKNOWN,
+            code = "PERFETTO_DEVICE_DISCOVERY_FAILED",
+            error = error,
+        )
+    }
+}
+
+private fun deviceDiscoveryFailure(
+    category: ErrorCategory,
+    code: String,
+    error: Throwable,
+): StudioResult.Failure =
+    StudioResult.Failure(
+        StudioError(
+            category = category,
+            code = code,
+            message = error.message ?: "Unable to refresh ADB devices.",
+            cause = error,
+        ),
+    )
+
+internal fun defaultPerfettoAdbPath(
+    androidSdkPath: Path?,
+    isWindows: Boolean = System.getProperty("os.name").contains("windows", ignoreCase = true),
+): String {
+    val executableName = if (isWindows) "adb.exe" else "adb"
+    val configuredExecutable = androidSdkPath?.resolve("platform-tools")?.resolve(executableName)
+    return configuredExecutable?.takeIf(Files::isRegularFile)?.toString() ?: "adb"
 }
 
 internal fun preferredDeviceSerial(

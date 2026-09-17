@@ -64,6 +64,13 @@ class ApplicationSettingsDialogTest {
     }
 
     @Test
+    fun `settings page headings use the active viewer accent`() {
+        assertTrue(unifiedDialog.contains("private fun SettingsPageTitle("))
+        assertTrue(unifiedDialog.contains("color = LocalViewerColors.current.accent"))
+        assertTrue(Regex("SettingsPageTitle\\(").findAll(unifiedDialog).count() >= 7)
+    }
+
+    @Test
     fun `configuration page owns the Android SDK path setting`() {
         assertTrue(SettingsPage.entries.indexOf(SettingsPage.CONFIGURATION) > SettingsPage.entries.indexOf(SettingsPage.GENERAL))
         assertTrue(unifiedDialog.contains("SettingsPage.CONFIGURATION ->"))
@@ -73,6 +80,16 @@ class ApplicationSettingsDialogTest {
             unifiedDialog.indexOf("SettingsPage.CONFIGURATION ->") <
                 unifiedDialog.indexOf("AndroidSdkPathSetting("),
         )
+    }
+
+    @Test
+    fun `trace analyzer receives the configured Android SDK path`() {
+        val mainPage =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"),
+            )
+        assertTrue(mainPage.contains("androidSdkPath = applicationSettings.androidSdkPath?.let"))
+        assertTrue(mainPage.contains("PerfettoMainPage("))
     }
 
     @Test
