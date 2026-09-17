@@ -50,6 +50,18 @@ class StartupProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `toolbar controls remain reachable in narrow windows`() {
+        val toolbarStart = source.indexOf("HeaderToolbar(")
+        val toolbar = source.substring(toolbarStart, source.indexOf("HorizontalDivider(", toolbarStart))
+        val scrollingControlRow =
+            Regex(
+                """Row\(\s*modifier\s*=\s*Modifier\s*\.fillMaxWidth\(\)\s*\.horizontalScroll\(rememberScrollState\(\)\),\s*verticalAlignment\s*=\s*Alignment\.CenterVertically,""",
+            )
+
+        assertTrue(scrollingControlRow.containsMatchIn(toolbar))
+    }
+
+    @Test
     fun `stacked toolbar rows have ordered one dp outline separators before progress and content`() {
         val toolbar = source.indexOf("HeaderToolbar(")
         val progressCondition = source.indexOf("if (state.isRunning && state.totalRuns > 0)")
