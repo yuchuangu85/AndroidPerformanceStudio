@@ -16,6 +16,7 @@
 - [`../DESIGN.md`](../DESIGN.md) — 仓库级设计入口。
 - [`../CONTEXT.md`](../CONTEXT.md) — AI 分析与源码定位领域语言。
 - [`design/layoutinspectorv2-pro-comparison.md`](design/layoutinspectorv2-pro-comparison.md) — Layout Inspector 方案比较和设计依据。
+- [`design/2026-09-17-memory-profiler-hprof-viewer-design.md`](design/2026-09-17-memory-profiler-hprof-viewer-design.md) — Android Studio 风格离线 HPROF Viewer 的能力边界、交互、实现阶段与验收设计。
 - [`../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md) — AI 分析、源码工作区与可信源码定位总体设计。
 - [`../desktop-viewer/docs/design/`](../desktop-viewer/docs/design/) — Desktop Viewer、Layout Inspector 和架构变更设计。
 - [`../desktop-viewer/simpleperf-viewer/docs/design/`](../desktop-viewer/simpleperf-viewer/docs/design/) — Simpleperf 产品、技术栈和 UI 设计。
