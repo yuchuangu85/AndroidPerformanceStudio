@@ -4,6 +4,7 @@
     <string name="device">Device</string>
     <string name="app_activity">App / Activity</string>
     <string name="refresh">Refresh</string>
+    <string name="status">Status</string>
     <string name="stop_experiment">Stop Experiment</string>
     <string name="run_experiment">Run Experiment</string>
     <string name="file">File</string>

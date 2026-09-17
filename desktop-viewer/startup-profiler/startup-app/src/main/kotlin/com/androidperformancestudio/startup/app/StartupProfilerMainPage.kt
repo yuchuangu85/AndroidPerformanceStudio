@@ -9,9 +9,20 @@
 
 package com.androidperformancestudio.startup.app
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -27,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
@@ -65,6 +77,7 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.seco
 import com.androidperformancestudio.startup.startup_app.generated.resources.speed
 import com.androidperformancestudio.startup.startup_app.generated.resources.speed_profile
 import com.androidperformancestudio.startup.startup_app.generated.resources.startup_type
+import com.androidperformancestudio.startup.startup_app.generated.resources.status
 import com.androidperformancestudio.startup.startup_app.generated.resources.stop_experiment
 import com.androidperformancestudio.startup.startup_app.generated.resources.timeout
 import com.androidperformancestudio.startup.startup_app.generated.resources.unknown
@@ -75,9 +88,11 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
-import com.androidperformancestudio.ui.ProfilerToolbarStatus
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -218,11 +233,6 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                     }
                 },
             )
-            HeaderSpacer()
-            ProfilerToolbarStatus(
-                message = state.operationMessage,
-                error = state.errorMessage,
-            )
             HeaderDivider()
             HeaderSpacer()
             DropdownSelector(
@@ -323,6 +333,53 @@ public fun FrameWindowScope.StartupProfilerMainPage(
             language = language,
             modifier = Modifier.weight(1f),
         )
+        StartupProfilerStatusBar(
+            language = language,
+            operationMessage = state.operationMessage,
+            errorMessage = state.errorMessage,
+        )
+    }
+}
+
+@Composable
+private fun StartupProfilerStatusBar(
+    language: UiLanguage,
+    operationMessage: String?,
+    errorMessage: String?,
+) {
+    val colors = LocalViewerColors.current
+    val status = errorMessage ?: operationMessage
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(ViewerDimensions.footerHeight)
+                .background(colors.toolbar)
+                .border(
+                    ViewerDimensions.hairline,
+                    colors.border,
+                    RoundedCornerShape(0.dp),
+                ).horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        status?.let {
+            Text(
+                text = "${localizedStringResource(Res.string.status, language)}:",
+                color = colors.mutedText,
+                fontSize = ViewerTypography.label.fontSize,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = it,
+                color = if (errorMessage != null) MaterialTheme.colorScheme.error else colors.secondaryText,
+                fontSize = ViewerTypography.secondary.fontSize,
+                lineHeight = ViewerTypography.secondary.lineHeight,
+                maxLines = 1,
+            )
+        }
     }
 }
 

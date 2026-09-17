@@ -22,7 +22,7 @@ class StartupProfilerWorkspaceSourceTest {
         assertTrue(source.contains("HeaderDivider"))
         assertTrue(source.contains("DropdownSelector"))
         assertFalse(source.contains("ProfilerCompactSelector"))
-        assertTrue(source.contains("ProfilerToolbarStatus"))
+        assertTrue(source.contains("StartupProfilerStatusBar("))
         assertFalse(source.contains("text = localizedStringResource(Res.string.export_csv"))
         assertFalse(source.contains("text = localizedStringResource(Res.string.export_json"))
         assertFalse(source.contains("private fun Selector("))
@@ -30,6 +30,23 @@ class StartupProfilerWorkspaceSourceTest {
         assertFalse(source.contains("import androidx.compose.material3.Button"))
         assertTrue(source.contains("StartupProfilerScreen("))
         assertTrue(source.contains("controller.runExperiment()"))
+    }
+
+    @Test
+    fun `operation status moves from the toolbar into a Layout Inspector style footer`() {
+        val toolbarStart = source.indexOf("HeaderToolbar(")
+        val toolbar = source.substring(toolbarStart, source.indexOf("HorizontalDivider(", toolbarStart))
+        assertFalse(toolbar.contains("ProfilerToolbarStatus("))
+
+        val contentStart = source.indexOf("StartupProfilerScreen(")
+        val footerStart = source.indexOf("StartupProfilerStatusBar(", contentStart)
+        assertTrue(footerStart > contentStart, "The footer must render below the workspace content")
+
+        val footer = source.substring(source.indexOf("private fun StartupProfilerStatusBar("))
+        assertTrue(footer.contains(".height(ViewerDimensions.footerHeight)"))
+        assertTrue(footer.contains(".background(colors.toolbar)"))
+        assertTrue(footer.contains(".horizontalScroll(rememberScrollState())"))
+        assertTrue(footer.contains("errorMessage ?: operationMessage"))
     }
 
     @Test

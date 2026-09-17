@@ -4,6 +4,7 @@
     <string name="device">设备</string>
     <string name="app_activity">应用 / Activity</string>
     <string name="refresh">刷新</string>
+    <string name="status">状态</string>
     <string name="stop_experiment">停止实验</string>
     <string name="run_experiment">开始实验</string>
     <string name="file">文件</string>
