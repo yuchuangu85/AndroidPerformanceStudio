@@ -1,13 +1,18 @@
 package com.androidperformancestudio.memory.export
 
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.HeapDiff
+import com.androidperformancestudio.memory.model.HeapDiffEntry
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
+import com.androidperformancestudio.memory.model.HeapObjectFieldEvidence
+import com.androidperformancestudio.memory.model.HeapObjectInvestigation
 import java.nio.file.Files
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class MemoryExportAdaptersTest {
     private val adapters = MemoryExportAdapters()
@@ -42,6 +47,76 @@ class MemoryExportAdaptersTest {
         assertFailsWith<MissingMemoryExportSourceException> {
             adapters.copyConvertedHprof(HeapDump(), createTempDirectory("memory-export").resolve("converted.hprof"))
         }
+    }
+
+    @Test
+    fun `exports class diff csv atomically`() {
+        val directory = createTempDirectory("memory-diff-export")
+        val output = directory.resolve("reports/diff.csv")
+
+        adapters.exportHeapDiffCsv(
+            HeapDiff(
+                entries =
+                    listOf(
+                        HeapDiffEntry("com.example.Item", 1, 3, 2, 16, 48, 32),
+                    ),
+            ),
+            output,
+        )
+
+        assertEquals(
+            listOf(
+                "className,beforeCount,afterCount,countDelta," +
+                    "beforeShallowSizeBytes,afterShallowSizeBytes,shallowSizeDeltaBytes",
+                "com.example.Item,1,3,2,16,48,32",
+            ),
+            Files.readAllLines(output),
+        )
+    }
+
+    @Test
+    fun `exports selected object investigation json`() {
+        val output = createTempDirectory("memory-object-export").resolve("object.json")
+
+        adapters.exportObjectInvestigationJson(
+            HeapObjectInvestigation(
+                objectId = 42L,
+                className = "com.example.Root",
+                shallowSize = 24L,
+                retainedSize = 96L,
+                fields = listOf(HeapObjectFieldEvidence("child", "0x2a · com.example.Child", 42L, "com.example.Child")),
+            ),
+            output,
+        )
+
+        val text = Files.readString(output)
+        assertTrue(text.contains("\"objectId\": 42"))
+        assertTrue(text.contains("\"className\": \"com.example.Root\""))
+        assertTrue(text.contains("\"fields\""))
+    }
+
+    @Test
+    fun `exports snapshot json and evidence report with limitations`() {
+        val directory = createTempDirectory("memory-report-export")
+        val json = directory.resolve("reports/snapshot.json")
+        val report = directory.resolve("reports/investigation.md")
+        val heap = HeapDump(format = "JAVA PROFILE 1.0.3", idSize = 4, timestampMillis = 1234L)
+        val histogram =
+            HeapHistogram(
+                summary =
+                    com.androidperformancestudio.memory.model
+                        .HeapSummary(objectCount = 2, classCount = 1, shallowSize = 24),
+            )
+
+        adapters.exportHeapSnapshotJson(heap, histogram, json)
+        adapters.exportInvestigationReportMarkdown(heap, histogram, null, report)
+
+        val jsonText = Files.readString(json)
+        val reportText = Files.readString(report)
+        assertTrue(jsonText.contains("\"format\": \"JAVA PROFILE 1.0.3\""))
+        assertTrue(jsonText.contains("\"objectCount\": 2"))
+        assertTrue(reportText.contains("## Evidence limitations"))
+        assertTrue(reportText.contains("Object IDs are not stable across snapshots"))
     }
 
     @Test

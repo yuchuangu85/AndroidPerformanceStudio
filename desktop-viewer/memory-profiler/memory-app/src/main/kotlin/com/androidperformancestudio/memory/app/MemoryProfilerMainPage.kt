@@ -2,9 +2,15 @@
 
 package com.androidperformancestudio.memory.app
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -15,9 +21,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
+import com.androidperformancestudio.memory.memory_app.generated.resources.class_list_view
+import com.androidperformancestudio.memory.memory_app.generated.resources.dashboard_view
+import com.androidperformancestudio.memory.memory_app.generated.resources.diff_view
+import com.androidperformancestudio.memory.memory_app.generated.resources.dominators_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_memory_profiler_data
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_java_heap
@@ -30,6 +42,7 @@ import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpBitmap
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerScreen
 import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSelectors
+import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
@@ -38,10 +51,12 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import java.nio.file.Path
 
 @Composable
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "CyclomaticComplexMethod")
 fun FrameWindowScope.MemoryProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
@@ -84,6 +99,11 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 rawHprofExportEnabled = loaded?.heapDump?.rawHprofFile != null,
                 standardHprofExportEnabled = loaded?.heapDump?.convertedHprofFile != null,
                 csvExportEnabled = loaded != null,
+                exportClassInstancesEnabled = loaded != null && state.selectedClassName != null,
+                exportObjectInvestigationEnabled = state.selectedInstanceDetail != null,
+                exportDiffEnabled = state.heapDiff != null,
+                exportSnapshotJsonEnabled = loaded != null,
+                exportInvestigationReportEnabled = loaded != null,
                 bitmapDumpExportEnabled = controller.loadedBitmapDump != null,
                 bitmapComparisonExportEnabled = state.bitmapDumpComparison != null,
                 recentSessions = controller.recentSessions,
@@ -115,6 +135,31 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "class-histogram.csv")
                 ?.toPath()
                 ?.let(controller::exportHistogram)
+        },
+        onExportClassInstances = {
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "class-instances.csv")
+                ?.toPath()
+                ?.let(controller::exportSelectedClassInstances)
+        },
+        onExportObjectInvestigation = {
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "object-investigation.json")
+                ?.toPath()
+                ?.let(controller::exportObjectInvestigation)
+        },
+        onExportDiff = {
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "class-diff.csv")
+                ?.toPath()
+                ?.let(controller::exportHeapDiff)
+        },
+        onExportSnapshotJson = {
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "heap-snapshot.json")
+                ?.toPath()
+                ?.let(controller::exportHeapSnapshotJson)
+        },
+        onExportInvestigationReport = {
+            chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "memory-investigation.md")
+                ?.toPath()
+                ?.let(controller::exportInvestigationReport)
         },
         onExportBitmapDump = {
             chooseSaveFile(window, localizedStringResource(Res.string.export_memory_profiler_data, language), "bitmap-dump.zip")
@@ -148,6 +193,28 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 text = localizedStringResource(Res.string.refresh_devices, language),
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
+            HeaderSpacer()
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.dashboard_view, language),
+                selected = state.viewMode == MemoryProfilerViewMode.Dashboard,
+                onClick = { controller.changeViewMode(MemoryProfilerViewMode.Dashboard) },
+            )
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.class_list_view, language),
+                selected = state.viewMode == MemoryProfilerViewMode.ClassList,
+                onClick = { controller.changeViewMode(MemoryProfilerViewMode.ClassList) },
+            )
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.dominators_view, language),
+                selected = state.viewMode == MemoryProfilerViewMode.Dominators,
+                onClick = { controller.changeViewMode(MemoryProfilerViewMode.Dominators) },
+            )
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.diff_view, language),
+                selected = state.viewMode == MemoryProfilerViewMode.Diff,
+                enabled = state.heapDiff != null,
+                onClick = { controller.changeViewMode(MemoryProfilerViewMode.Diff) },
+            )
             Spacer(Modifier.weight(1f))
             MemoryProfilerDumpHeapButton(
                 state = state,
@@ -168,16 +235,33 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        MemoryProfilerSnapshotTabs(
+            state = state,
+            onSelectSnapshot = controller::selectSnapshot,
+            onCloseSnapshot = controller::closeSnapshot,
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         MemoryProfilerScreen(
             state = state,
             actions =
                 MemoryProfilerActions(
                     onSortHistogram = controller::sort,
                     onRetry = { scope.launch { controller.refreshDevices() } },
+                    onCancelOperation = controller::cancelActiveOperation,
                     onHighlightClass = controller::highlightClass,
                     onChangeViewMode = controller::changeViewMode,
                     onSelectClass = controller::selectClass,
                     onSelectInstance = controller::selectInstance,
+                    onCopyObjectId = { objectId ->
+                        Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                            StringSelection("0x${java.lang.Long.toHexString(objectId)}"),
+                            null,
+                        )
+                    },
+                    onLoadArrayRange = controller::loadArrayRange,
+                    onNavigateInstanceBack = controller::navigateInstanceBack,
+                    onNavigateInstanceForward = controller::navigateInstanceForward,
+                    onTogglePinnedInstance = controller::togglePinnedInstance,
                     onHeapFilterChange = controller::changeHeapFilter,
                     onClassScopeChange = controller::changeClassScope,
                     onLeakFilterChange = controller::changeLeakFilter,
@@ -185,6 +269,10 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     onSearchChange = controller::changeSearchText,
                     onMatchCaseChange = controller::changeMatchCase,
                     onUseRegexChange = controller::changeUseRegex,
+                    onSaveFilterPreset = controller::saveFilterPreset,
+                    onApplyFilterPreset = controller::applyFilterPreset,
+                    onDeleteFilterPreset = controller::deleteActiveFilterPreset,
+                    onToggleClassifierColumn = controller::toggleClassifierColumn,
                     onClassifierSort = controller::sortClassifier,
                     onSelectClassifier = controller::selectClassifier,
                 ),
@@ -257,5 +345,32 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun MemoryProfilerSnapshotTabs(
+    state: com.androidperformancestudio.memory.presentation.MemoryProfilerState,
+    onSelectSnapshot: (String) -> Unit,
+    onCloseSnapshot: (String) -> Unit,
+) {
+    if (state.snapshotSummaries.isEmpty()) return
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.Text("Snapshots", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        state.snapshotSummaries.forEach { snapshot ->
+            ProfilerCompactButton(
+                text = "${snapshot.id} · ${snapshot.objectCount} obj · ${snapshot.warningCount} warn",
+                selected = snapshot.id == state.activeSnapshotId,
+                onClick = { onSelectSnapshot(snapshot.id) },
+            )
+            ProfilerCompactButton(
+                text = "×",
+                onClick = { onCloseSnapshot(snapshot.id) },
+            )
+        }
     }
 }

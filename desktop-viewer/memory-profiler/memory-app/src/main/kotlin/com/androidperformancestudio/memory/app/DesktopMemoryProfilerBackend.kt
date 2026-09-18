@@ -28,8 +28,10 @@ import com.androidperformancestudio.memory.export.BitmapDumpExportAdapters
 import com.androidperformancestudio.memory.export.MemoryExportAdapters
 import com.androidperformancestudio.memory.hprof.BitmapDumpParseException
 import com.androidperformancestudio.memory.hprof.BitmapDumpParser
+import com.androidperformancestudio.memory.hprof.HprofInputProbe
 import com.androidperformancestudio.memory.hprof.HprofParseException
 import com.androidperformancestudio.memory.hprof.HprofParser
+import com.androidperformancestudio.memory.hprof.HprofRecordIndexer
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.android_sdk_platform_tools_not_found
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
@@ -58,6 +60,7 @@ import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
+import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
 import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
@@ -87,6 +90,8 @@ internal class DesktopMemoryProfilerBackend(
     private val javaHeapArtifactAnalyzer: JavaHeapArtifactAnalyzer = PerfettoJavaHeapArtifactAnalyzer(),
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
+    private val inputProbe = HprofInputProbe()
+    private val recordIndexer = HprofRecordIndexer()
     private val analyzer = MemoryDeepAnalyzer()
     private val exports = MemoryExportAdapters()
     private val bitmapParser = BitmapDumpParser()
@@ -96,6 +101,8 @@ internal class DesktopMemoryProfilerBackend(
     private val artifactStore = MemoryArtifactStore(dataRoot.resolve("capture-artifacts"))
 
     private var mapping: ProguardMapping? = null
+    private var mappingFile: Path? = null
+    private var mappingDigest: String? = null
     private var lastLoadRequest: HeapLoadRequest? = null
 
     override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
@@ -513,6 +520,8 @@ internal class DesktopMemoryProfilerBackend(
                     )
                 }
             mapping = parsedMapping
+            mappingFile = file
+            mappingDigest = digestFile(file)
             val last = lastLoadRequest
             if (last == null) {
                 MemoryBackendResult.Success<LoadedHeap?>(null)
@@ -538,8 +547,28 @@ internal class DesktopMemoryProfilerBackend(
             }
         }
 
+    override fun loadWorkspaceSettings(sessionId: String): MemorySessionUiSettings =
+        SqliteMemorySessionStore.open(dataRoot.resolve("memory-sessions.db")).use { store ->
+            store.loadUiSettings(sessionId)
+        }
+
+    override fun saveWorkspaceSettings(
+        sessionId: String,
+        settings: MemorySessionUiSettings,
+    ) {
+        SqliteMemorySessionStore.open(dataRoot.resolve("memory-sessions.db")).use { store ->
+            store.saveUiSettings(sessionId, settings)
+        }
+    }
+
     override suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedHeap> =
         withContext(Dispatchers.IO) {
+            mappingFile = metadata.mappingFile?.takeIf(Files::isRegularFile)
+            mapping =
+                mappingFile?.let { path ->
+                    runCatching { ProguardMappingParser.parse(path) }.getOrNull()
+                }
+            mappingDigest = metadata.mappingDigest
             val file = metadata.convertedHprofFile ?: metadata.rawHprofFile
             if (!Files.isRegularFile(file)) {
                 return@withContext MemoryBackendResult.Failure(
@@ -584,6 +613,49 @@ internal class DesktopMemoryProfilerBackend(
         exports.exportClassHistogramCsv(histogram, output)
     }
 
+    override fun exportClassInstances(
+        heapDump: HeapDump,
+        className: String,
+        output: Path,
+    ) {
+        exports.exportClassInstancesCsv(heapDump, className, output)
+    }
+
+    override fun exportHeapDiff(
+        diff: com.androidperformancestudio.memory.model.HeapDiff,
+        output: Path,
+    ) {
+        exports.exportHeapDiffCsv(diff, output)
+    }
+
+    override fun exportHeapSnapshotJson(
+        heapDump: HeapDump,
+        histogram: HeapHistogram,
+        output: Path,
+        snapshotSummary: com.androidperformancestudio.memory.model.HeapSnapshotSummary?,
+        exportContext: com.androidperformancestudio.memory.model.HeapExportContext?,
+    ) {
+        exports.exportHeapSnapshotJson(heapDump, histogram, output, snapshotSummary, exportContext)
+    }
+
+    override fun exportInvestigationReport(
+        heapDump: HeapDump,
+        histogram: HeapHistogram,
+        diff: com.androidperformancestudio.memory.model.HeapDiff?,
+        output: Path,
+        snapshotSummary: com.androidperformancestudio.memory.model.HeapSnapshotSummary?,
+        exportContext: com.androidperformancestudio.memory.model.HeapExportContext?,
+    ) {
+        exports.exportInvestigationReportMarkdown(heapDump, histogram, diff, output, snapshotSummary, exportContext)
+    }
+
+    override fun exportObjectInvestigation(
+        investigation: com.androidperformancestudio.memory.model.HeapObjectInvestigation,
+        output: Path,
+    ) {
+        exports.exportObjectInvestigationJson(investigation, output)
+    }
+
     override fun exportBitmapSession(
         session: BitmapDumpSession,
         output: Path,
@@ -604,12 +676,22 @@ internal class DesktopMemoryProfilerBackend(
     ): MemoryBackendResult<LoadedHeap> {
         lastLoadRequest = request
         return try {
+            val probe = inputProbe.inspect(request.file)
+            val probeWarning = probe.warnings.joinToString(separator = "\n").ifBlank { null }
+            val indexFile = ensureLargeFileIndex(request.file, probe.fileSizeBytes)
             val parsedFile =
                 parser.parse(request.file) { parserProgress -> onProgress(parserProgress / 2) }.copy(
                     rawHprofFile = request.rawFile,
                     convertedHprofFile = request.convertedFile,
                 )
-            val deobfuscated = mapping?.let { parsedFile.withDeobfuscation(it) } ?: parsedFile
+            val mappingForLoad = validatedMapping()
+            val mappingWarning =
+                if (mapping != null && mappingForLoad == null) {
+                    "mapping.txt digest changed or the file is unavailable; mapping was ignored until re-imported"
+                } else {
+                    null
+                }
+            val deobfuscated = mappingForLoad?.let { parsedFile.withDeobfuscation(it) } ?: parsedFile
             val parserWarning =
                 parsedFile.warnings
                     .joinToString(separator = "\n", transform = { it.message })
@@ -623,14 +705,34 @@ internal class DesktopMemoryProfilerBackend(
                     pid = request.sessionMetadata?.pid ?: 0,
                     capturedAt = capturedAt,
                     emptyWarningFileName = request.file.fileName.toString(),
-                    extraWarning = listOfNotNull(request.warning, parserWarning).joinToString("\n").ifBlank { null },
+                    extraWarning =
+                        listOfNotNull(request.warning, probeWarning, mappingWarning, parserWarning)
+                            .joinToString("\n")
+                            .ifBlank { null },
                     cleanupWarning = request.cleanupWarning,
                     onAnalysisProgress = { onProgress(50 + it / 2) },
+                    deobfuscator = mappingForLoad,
                 )
             request.sessionMetadata?.let { metadata ->
-                persistSession(metadata, capturedAt, request.rawFile, request.convertedFile, loaded.histogram.summary)
+                persistSession(
+                    metadata,
+                    capturedAt,
+                    request.rawFile,
+                    request.convertedFile,
+                    loaded.histogram.summary,
+                    mappingFile,
+                    mappingDigest,
+                )
             }
-            MemoryBackendResult.Success(loaded)
+            val uiSettings = request.sessionMetadata?.sessionId?.let(::loadWorkspaceSettings) ?: MemorySessionUiSettings()
+            MemoryBackendResult.Success(
+                loaded.copy(
+                    uiSettings = uiSettings,
+                    sourceFileDigest = digestFile(request.rawFile),
+                    mappingDigest = mappingDigest,
+                    indexFile = indexFile,
+                ),
+            )
         } catch (exception: HprofParseException) {
             analysisFailure(exception)
         } catch (exception: IOException) {
@@ -640,6 +742,51 @@ internal class DesktopMemoryProfilerBackend(
         } catch (exception: SQLException) {
             analysisFailure(exception)
         }
+    }
+
+    private fun validatedMapping(): ProguardMapping? {
+        val current = mapping
+        return if (current == null) {
+            null
+        } else {
+            val file = mappingFile
+            val expectedDigest = mappingDigest
+            if (file == null || expectedDigest == null) {
+                current
+            } else if (Files.isRegularFile(file)) {
+                current.takeIf { digestFile(file) == expectedDigest }
+            } else {
+                null
+            }
+        }
+    }
+
+    private fun ensureLargeFileIndex(
+        file: Path,
+        fileSizeBytes: Long,
+    ): Path? {
+        if (fileSizeBytes <= HprofInputProbe.RECOMMENDED_MATERIALIZED_BYTES) return null
+        val sourceDigest = digestFile(file)
+        val indexFile = dataRoot.resolve("hprof-index").resolve("$sourceDigest.idx")
+        if (!Files.isRegularFile(indexFile)) {
+            recordIndexer.build(file, indexFile)
+        } else {
+            recordIndexer.read(indexFile)
+        }
+        return indexFile
+    }
+
+    private fun digestFile(file: Path): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        Files.newInputStream(file).use { input ->
+            val buffer = ByteArray(DEFAULT_DIGEST_BUFFER_BYTES)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count > 0) digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
 
     /**
@@ -658,8 +805,9 @@ internal class DesktopMemoryProfilerBackend(
         extraWarning: String? = null,
         cleanupWarning: String? = null,
         onAnalysisProgress: (Int) -> Unit = {},
+        deobfuscator: ProguardMapping? = mapping,
     ): LoadedHeap {
-        val deepAnalysis = analyzer.analyze(heapDump, deobfuscator = mapping, onProgress = onAnalysisProgress)
+        val deepAnalysis = analyzer.analyze(heapDump, deobfuscator = deobfuscator, onProgress = onAnalysisProgress)
         val histogram = deepAnalysis.histogram
         val emptyHeapWarning =
             if (emptyWarningFileName != null && histogram.summary.objectCount == 0) {
@@ -668,7 +816,7 @@ internal class DesktopMemoryProfilerBackend(
                 null
             }
         val noMappingWarning =
-            if (mapping == null && histogram.classes.any { isLikelyObfuscatedClassName(it.className) }) {
+            if (deobfuscator == null && histogram.classes.any { isLikelyObfuscatedClassName(it.className) }) {
                 localizedStringResource(Res.string.mapping_not_loaded_hint, language)
             } else {
                 null
@@ -683,7 +831,7 @@ internal class DesktopMemoryProfilerBackend(
                         heapName = heapName,
                         retainedSizes = deepAnalysis.dominatorTree.retainedSizes,
                         immediateDominators = deepAnalysis.dominatorTree.immediateDominators,
-                        deobfuscator = mapping,
+                        deobfuscator = deobfuscator,
                     ).classes
             }
         val parsed =
@@ -703,7 +851,7 @@ internal class DesktopMemoryProfilerBackend(
         return LoadedHeap(
             heapDump = parsed,
             histogram = histogram,
-            mapping = mapping,
+            mapping = deobfuscator,
             availableHeaps = availableHeaps,
             perHeapClasses = perHeapClasses,
             warning =
@@ -720,6 +868,8 @@ internal class DesktopMemoryProfilerBackend(
         rawFile: Path,
         convertedFile: Path?,
         summary: HeapSummary,
+        mappingFile: Path?,
+        mappingDigest: String?,
     ) {
         SqliteMemorySessionStore.open(dataRoot.resolve("memory-sessions.db")).use { store ->
             store.upsert(
@@ -730,6 +880,8 @@ internal class DesktopMemoryProfilerBackend(
                     capturedAt = capturedAt,
                     rawHprofFile = rawFile,
                     convertedHprofFile = convertedFile,
+                    mappingFile = mappingFile,
+                    mappingDigest = mappingDigest,
                     classCount = summary.classCount,
                     objectCount = summary.objectCount,
                     shallowSizeBytes = summary.shallowSize,
@@ -843,6 +995,7 @@ internal class DesktopMemoryProfilerBackend(
         private const val CAPTURE_PROGRESS_WEIGHT = 60
         private const val PARSER_PROGRESS_WEIGHT = 40
         private const val PERCENT_COMPLETE = 100
+        private const val DEFAULT_DIGEST_BUFFER_BYTES = 64 * 1024
         private val SESSION_ID_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").withZone(ZoneOffset.UTC)
 
         private fun defaultDataRoot(): Path =

@@ -172,6 +172,21 @@ class DesktopMemoryProfilerBackendTest {
         }
 
     @Test
+    fun `import exposes structural preflight warnings before heap analysis`() =
+        kotlinx.coroutines.test.runTest {
+            val root = createTempDirectory("memory-probe-warning-import")
+            val hprof = root.resolve("without-heap-dump.hprof")
+            Files.write(hprof, hprofWithoutHeapDump())
+            val backend = DesktopMemoryProfilerBackend(root)
+
+            val result = backend.importHprof(hprof)
+
+            val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(result).value
+            assertContains(loaded.warning.orEmpty(), "No heap dump record was found")
+            assertContains(loaded.warning.orEmpty(), "No heap objects were parsed")
+        }
+
+    @Test
     fun `fake capture writes converted hprof that backend parses into histogram`() =
         kotlinx.coroutines.test.runTest {
             val root = createTempDirectory("memory-capture-backend")
@@ -338,6 +353,17 @@ class DesktopMemoryProfilerBackendTest {
                             writeInt(0)
                         },
                     )
+                }
+            }.toByteArray()
+
+    private fun hprofWithoutHeapDump(): ByteArray =
+        ByteArrayOutputStream()
+            .also { bytes ->
+                DataOutputStream(bytes).use { output ->
+                    output.write("JAVA PROFILE 1.0.3".encodeToByteArray())
+                    output.writeByte(0)
+                    output.writeInt(Int.SIZE_BYTES)
+                    output.writeLong(0L)
                 }
             }.toByteArray()
 

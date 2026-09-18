@@ -1,4 +1,4 @@
-@file:Suppress("CyclomaticComplexMethod", "LongMethod", "MagicNumber", "TooManyFunctions", "MaxLineLength")
+@file:Suppress("CyclomaticComplexMethod", "LongMethod", "MagicNumber", "TooManyFunctions", "MaxLineLength", "ThrowsCount")
 
 package com.androidperformancestudio.memory.hprof
 
@@ -32,11 +32,7 @@ class HprofParser {
         onProgress: (Int) -> Unit = {},
     ): HeapDump =
         FileChannel.open(path, StandardOpenOption.READ).use { channel ->
-            val size = channel.size()
-            if (size > Int.MAX_VALUE) {
-                throw HprofParseException("HPROF is too large to map: $size bytes")
-            }
-            parse(channel.map(FileChannel.MapMode.READ_ONLY, 0L, size), path, onProgress)
+            parseStreaming(channel, path, onProgress)
         }
 
     fun parse(
@@ -73,6 +69,94 @@ class HprofParser {
         }
         onProgress(100)
 
+        return finishParse(header, idSize, timestamp, state, rawHprofFile)
+    }
+
+    private fun parseStreaming(
+        channel: FileChannel,
+        rawHprofFile: Path,
+        onProgress: (Int) -> Unit,
+    ): HeapDump {
+        val fileSize = channel.size()
+        val header = readStreamHeader(channel)
+        val idSize = readStreamInt(channel)
+        if (idSize != ID_SIZE_4 && idSize != ID_SIZE_8) {
+            throw HprofParseException("Unsupported HPROF id size $idSize")
+        }
+        val timestamp = readStreamLong(channel)
+        val state = ParserState(idSize = idSize)
+        onProgress(0)
+        while (channel.position() < fileSize) {
+            val recordOffset = channel.position()
+            if (fileSize - recordOffset < RECORD_HEADER_BYTES) {
+                throw HprofParseException("Truncated HPROF record header at offset $recordOffset")
+            }
+            val tag = readStreamByte(channel)
+            readStreamInt(channel)
+            val length = readStreamInt(channel)
+            if (length < 0 || length.toLong() > fileSize - channel.position()) {
+                throw HprofParseException("Truncated HPROF record at offset $recordOffset")
+            }
+            val payloadStart = channel.position()
+            val payload =
+                if (length == 0) {
+                    ByteBuffer.allocate(0)
+                } else {
+                    channel.map(FileChannel.MapMode.READ_ONLY, payloadStart, length.toLong())
+                }
+            parseRecord(tag, HprofReader(payload, state.idSize), state, recordOffset)
+            channel.position(payloadStart + length)
+            onProgress(((channel.position().toDouble() / fileSize) * 100.0).toInt().coerceIn(0, 100))
+        }
+        onProgress(100)
+        return finishParse(header, idSize, timestamp, state, rawHprofFile)
+    }
+
+    private fun readStreamHeader(channel: FileChannel): String {
+        val bytes = ByteArrayOutputStream()
+        while (true) {
+            val value = readStreamByte(channel)
+            if (value == 0) return bytes.toByteArray().decodeToString()
+            if (bytes.size() > MAX_HEADER_BYTES) throw HprofParseException("HPROF header is too large")
+            bytes.write(value)
+        }
+    }
+
+    private fun readStreamByte(channel: FileChannel): Int {
+        val buffer = ByteBuffer.allocate(1)
+        readStreamFully(channel, buffer)
+        return buffer.flip().get().toInt() and 0xff
+    }
+
+    private fun readStreamInt(channel: FileChannel): Int {
+        val buffer = ByteBuffer.allocate(Int.SIZE_BYTES)
+        readStreamFully(channel, buffer)
+        return buffer.flip().int
+    }
+
+    private fun readStreamLong(channel: FileChannel): Long {
+        val buffer = ByteBuffer.allocate(Long.SIZE_BYTES)
+        readStreamFully(channel, buffer)
+        return buffer.flip().long
+    }
+
+    private fun readStreamFully(
+        channel: FileChannel,
+        buffer: ByteBuffer,
+    ) {
+        while (buffer.hasRemaining()) {
+            if (channel.read(buffer) < 0) throw HprofParseException("Unexpected end of HPROF")
+        }
+    }
+
+    @Suppress("LongMethod")
+    private fun finishParse(
+        header: String,
+        idSize: Int,
+        timestamp: Long,
+        state: ParserState,
+        rawHprofFile: Path?,
+    ): HeapDump {
         val classes =
             state.classesById.values
                 .map { heapClass ->
@@ -477,6 +561,8 @@ class HprofParser {
 
         private const val ID_SIZE_4 = 4
         private const val ID_SIZE_8 = 8
+        private const val RECORD_HEADER_BYTES = 1 + Int.SIZE_BYTES + Int.SIZE_BYTES
+        private const val MAX_HEADER_BYTES = 256
         private const val STRING_IN_UTF8 = 0x01
         private const val LOAD_CLASS = 0x02
         private const val STACK_FRAME = 0x04

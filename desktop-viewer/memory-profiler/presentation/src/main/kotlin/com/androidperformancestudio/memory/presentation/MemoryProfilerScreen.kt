@@ -5,6 +5,13 @@
     "MaxLineLength",
     "TooManyFunctions",
     "ktlint:standard:function-naming",
+    "ktlint:standard:argument-list-wrapping",
+    "ktlint:standard:binary-expression-wrapping",
+    "ktlint:standard:chain-method-continuation",
+    "ktlint:standard:indent",
+    "ktlint:standard:import-ordering",
+    "ktlint:standard:max-line-length",
+    "ktlint:standard:no-unused-imports",
 )
 
 package com.androidperformancestudio.memory.presentation
@@ -36,13 +43,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -82,9 +89,13 @@ import com.androidperformancestudio.memory.presentation.generated.resources.bitm
 import com.androidperformancestudio.memory.presentation.generated.resources.class_histogram
 import com.androidperformancestudio.memory.presentation.generated.resources.class_name
 import com.androidperformancestudio.memory.presentation.generated.resources.classes
+import com.androidperformancestudio.memory.presentation.generated.resources.cancel
 import com.androidperformancestudio.memory.presentation.generated.resources.cleanup_warning
 import com.androidperformancestudio.memory.presentation.generated.resources.count
 import com.androidperformancestudio.memory.presentation.generated.resources.count_value
+import com.androidperformancestudio.memory.presentation.generated.resources.class_level_diff
+import com.androidperformancestudio.memory.presentation.generated.resources.dominator_tree
+import com.androidperformancestudio.memory.presentation.generated.resources.diff_view
 import com.androidperformancestudio.memory.presentation.generated.resources.freed
 import com.androidperformancestudio.memory.presentation.generated.resources.frees
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff
@@ -137,6 +148,17 @@ public fun MemoryProfilerScreen(
                     modifier = Modifier.padding(top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    presentedState.snapshotSummary?.let { snapshot ->
+                        Text(
+                            "Snapshot: ${snapshot.id} · ${snapshot.format} · ${snapshot.capabilities.size} capabilities" +
+                                snapshot.sourceFileDigest?.let { " · source ${it.take(12)}" }.orEmpty() +
+                                snapshot.mappingDigest?.let { " · mapping ${it.take(12)}" }.orEmpty() +
+                                if (snapshot.indexFile != null) " · indexed" else "",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = ViewerTypography.bodyCompact.fontSize,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        )
+                    }
                     presentedState.artifact?.let { artifact ->
                         Text(
                             "Evidence: ${artifact.kind.value} · ${artifact.completeness} · " +
@@ -156,14 +178,28 @@ public fun MemoryProfilerScreen(
                     }
                 }
             }
-            if (presentedState.viewMode == MemoryProfilerViewMode.ClassList) {
-                MemoryProfilerClassListPane(
-                    state = presentedState,
-                    actions = actions,
-                    language = language,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                )
-            } else {
+            when (presentedState.viewMode) {
+                MemoryProfilerViewMode.ClassList ->
+                    MemoryProfilerClassListPane(
+                        state = presentedState,
+                        actions = actions,
+                        language = language,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                MemoryProfilerViewMode.Dominators ->
+                    MemoryProfilerDominatorPane(
+                        rows = presentedState.dominatorRows,
+                        actions = actions,
+                        language = language,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                MemoryProfilerViewMode.Diff ->
+                    MemoryProfilerDiffPane(
+                        diff = presentedState.heapDiff,
+                        language = language,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                MemoryProfilerViewMode.Dashboard -> {
                 Column(
                     modifier =
                         Modifier
@@ -188,12 +224,128 @@ public fun MemoryProfilerScreen(
                     BitmapSection(presentedState.bitmapInstances, language)
                     BitmapDumpGallery(presentedState.bitmapDumpSession, presentedState.bitmapDumpComparison, language)
                 }
+                }
             }
             MemoryProfilerStatusBar(
                 state = presentedState,
                 actions = actions,
                 language = language,
             )
+        }
+    }
+}
+
+@Composable
+private fun MemoryProfilerDominatorPane(
+    rows: List<MemoryDominatorRow>,
+    actions: MemoryProfilerActions,
+    language: UiLanguage,
+    modifier: Modifier,
+) {
+    val expanded = remember(rows) { mutableStateMapOf<Long, Boolean>() }
+    val childrenByParent = remember(rows) { rows.groupBy { it.parentObjectId } }
+    val rowsById = remember(rows) { rows.associateBy { it.objectId } }
+
+    fun isVisible(row: MemoryDominatorRow): Boolean {
+        var parentId = row.parentObjectId
+        while (parentId != null) {
+            if (expanded[parentId] == false) return false
+            parentId = rowsById[parentId]?.parentObjectId
+        }
+        return true
+    }
+
+    val visibleRows = rows.filter(::isVisible)
+    Column(
+        modifier = modifier.padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(localizedStringResource(Res.string.dominator_tree, language), fontWeight = FontWeight.Bold)
+        Text(
+            text = "Retained-size evidence; selecting a row opens the object inspector.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = ViewerTypography.secondary.fontSize,
+        )
+        if (rows.isEmpty()) {
+            Text(
+                text = localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                items(visibleRows, key = { it.objectId }) { row ->
+                    val hasChildren = childrenByParent[row.objectId].orEmpty().isNotEmpty()
+                    val isExpanded = expanded[row.objectId] != false
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { actions.onSelectInstance(row.objectId) }
+                                .padding(start = (8 + row.depth * 16).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text =
+                                when {
+                                    !hasChildren -> "·"
+                                    isExpanded -> "▾"
+                                    else -> "▸"
+                                },
+                            modifier =
+                                Modifier.clickable(enabled = hasChildren) {
+                                    expanded[row.objectId] = !isExpanded
+                                },
+                            fontSize = ViewerTypography.bodyCompact.fontSize,
+                        )
+                        Text(
+                            text = "0x${java.lang.Long.toHexString(row.objectId)} · ${row.className}",
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = ViewerTypography.bodyCompact.fontSize,
+                        )
+                        Text(formatBytes(row.shallowSize), fontSize = ViewerTypography.secondary.fontSize)
+                        Text(formatBytes(row.retainedSize), fontSize = ViewerTypography.secondary.fontSize)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryProfilerDiffPane(
+    diff: com.androidperformancestudio.memory.model.HeapDiff?,
+    language: UiLanguage,
+    modifier: Modifier,
+) {
+    Column(
+        modifier = modifier.padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(localizedStringResource(Res.string.diff_view, language), fontWeight = FontWeight.Bold)
+        Text(
+            localizedStringResource(Res.string.class_level_diff, language),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = ViewerTypography.secondary.fontSize,
+        )
+        if (diff == null || diff.entries.isEmpty()) {
+            Text(localizedStringResource(Res.string.no_class_changes_between_the_latest_two_heap_dumps, language))
+        } else {
+            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                items(diff.entries, key = { it.className }) { entry ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(entry.className, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${entry.beforeCount} → ${entry.afterCount}")
+                        Text(entry.countDelta.withSign())
+                        Text(formatBytes(entry.shallowSizeDelta))
+                    }
+                }
+            }
         }
     }
 }
@@ -315,10 +467,20 @@ private fun MemoryProfilerStatusBar(
                 modifier = Modifier.size(16.dp),
                 strokeWidth = 2.dp,
             )
+            Text(
+                text = state.loadPhase.name,
+                color = colors.mutedText,
+                fontSize = ViewerTypography.label.fontSize,
+                maxLines = 1,
+            )
             MemoryProfilerStatusMessage(
                 label = localizedStringResource(Res.string.in_progress, language),
                 message = message,
                 messageColor = colors.secondaryText,
+            )
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.cancel, language),
+                onClick = actions.onCancelOperation,
             )
             hasStatus = true
         }

@@ -21,6 +21,8 @@ class SqliteMemorySessionStoreTest {
                 capturedAt = Instant.ofEpochMilli(1234L),
                 rawHprofFile = Path("raw.hprof"),
                 convertedHprofFile = Path("converted.hprof"),
+                mappingFile = Path("mapping.txt"),
+                mappingDigest = "abc123",
                 classCount = 3,
                 objectCount = 10,
                 shallowSizeBytes = 2048L,
@@ -40,6 +42,37 @@ class SqliteMemorySessionStoreTest {
         metadata.copy(
             deviceSerial = DeviceIdentityPseudonymizer().localId(requireNotNull(metadata.deviceSerial)).value,
         )
+
+    @Test
+    fun `stores and reloads workspace filter presets and visible columns`() {
+        val database = createTempDirectory("memory-db").resolve("sessions.db")
+        val settings =
+            MemorySessionUiSettings(
+                visibleColumns = setOf("NAME", "RETAINED_SIZE"),
+                filterPresets =
+                    listOf(
+                        MemorySessionFilterPreset(
+                            id = "filter-1",
+                            label = "Project widgets",
+                            heapFilter = "App",
+                            classScope = "PROJECT",
+                            leakFilter = "ALL_ISSUE",
+                            arrangeBy = "PACKAGE",
+                            searchText = "Widget",
+                            matchCase = true,
+                            useRegex = false,
+                        ),
+                    ),
+            )
+
+        SqliteMemorySessionStore.open(database).use { store ->
+            store.saveUiSettings("session-1", settings)
+            assertEquals(settings, store.loadUiSettings("session-1"))
+        }
+        SqliteMemorySessionStore.open(database).use { reopened ->
+            assertEquals(settings, reopened.loadUiSettings("session-1"))
+        }
+    }
 
     @Test
     fun `indexes sessions by newest capture first`() {

@@ -3,15 +3,18 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
+import com.androidperformancestudio.memory.model.ObjectReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -165,6 +168,149 @@ class MemoryProfilerScreenTest {
             ).assertExists()
             onNodeWithText("Retry", useUnmergedTree = true).performClick()
             assertEquals(1, retryCount)
+        }
+
+    @Test
+    fun `loaded profiler workspace renders a desktop screenshot with footer and analysis content`() =
+        runDesktopComposeUiTest(width = 1200, height = 800) {
+            setContent {
+                MemoryProfilerScreen(
+                    state = loadedState(),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            val screenshot = onRoot().captureToImage()
+            assertEquals(1200, screenshot.width)
+            assertEquals(800, screenshot.height)
+            onNodeWithTag("memory-profiler-status-bar").assertExists()
+            onNodeWithText("Overview").assertExists()
+            onNodeWithText("Class histogram").assertExists()
+        }
+
+    @Test
+    fun `dominator view renders retained rows and opens selected objects`() =
+        runDesktopComposeUiTest(width = 1000, height = 700) {
+            val selected = mutableListOf<Long>()
+            setContent {
+                MemoryProfilerScreen(
+                    state =
+                        MemoryProfilerState(
+                            viewMode = MemoryProfilerViewMode.Dominators,
+                            dominatorRows =
+                                listOf(
+                                    MemoryDominatorRow(
+                                        objectId = 42L,
+                                        className = "com.example.Root",
+                                        shallowSize = 24L,
+                                        retainedSize = 96L,
+                                        depth = 0,
+                                        parentObjectId = null,
+                                    ),
+                                    MemoryDominatorRow(
+                                        objectId = 43L,
+                                        className = "com.example.Child",
+                                        shallowSize = 16L,
+                                        retainedSize = 32L,
+                                        depth = 1,
+                                        parentObjectId = 42L,
+                                    ),
+                                ),
+                        ),
+                    actions = MemoryProfilerActions(onSelectInstance = { selected += it }),
+                )
+            }
+
+            onNodeWithText("Dominator tree").assertExists()
+            onNodeWithText("0x2a · com.example.Root").performClick()
+            onNodeWithText("0x2b · com.example.Child").assertExists()
+            onNodeWithText("▾").performClick()
+            onNodeWithText("0x2b · com.example.Child").assertDoesNotExist()
+            assertEquals(listOf(42L), selected)
+        }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `class list follows clickable references and exposes instance navigation controls`() =
+        runDesktopComposeUiTest(width = 1200, height = 800) {
+            val followed = mutableListOf<Long>()
+            var pinCount = 0
+            setContent {
+                MemoryProfilerScreen(
+                    state =
+                        loadedState().copy(
+                            viewMode = MemoryProfilerViewMode.ClassList,
+                            classifierRows =
+                                listOf(
+                                    MemoryClassifierRow(
+                                        id = "class:com.example.Root",
+                                        label = "com.example.Root",
+                                        className = "com.example.Root",
+                                        totalCount = 1,
+                                    ),
+                                ),
+                            selectedClassifierId = "class:com.example.Root",
+                            selectedClassifierLabel = "com.example.Root",
+                            selectedClassName = "com.example.Root",
+                            selectedClassInstances =
+                                listOf(
+                                    MemoryInstanceRow(
+                                        objectId = 1L,
+                                        index = 0,
+                                        shallowSize = 24L,
+                                        retainedSize = 64L,
+                                        depth = 1,
+                                        reachable = true,
+                                    ),
+                                ),
+                            selectedInstanceDetail =
+                                MemoryInstanceDetail(
+                                    objectId = 1L,
+                                    className = "com.example.Root",
+                                    shallowSize = 24L,
+                                    retainedSize = 64L,
+                                    depth = 1,
+                                    isArray = false,
+                                    elementCount = null,
+                                    fields =
+                                        listOf(
+                                            MemoryInstanceField(
+                                                name = "child",
+                                                displayValue = "com.example.Child #2",
+                                                targetObjectId = 2L,
+                                                targetClassName = "com.example.Child",
+                                            ),
+                                        ),
+                                    references =
+                                        listOf(
+                                            MemoryInstanceField(
+                                                name = "owner",
+                                                displayValue = "com.example.Owner #3",
+                                                targetObjectId = 3L,
+                                                targetClassName = "com.example.Owner",
+                                            ),
+                                        ),
+                                    referenceChain =
+                                        listOf(ObjectReference("root", 4L, "com.example.RootKeeper")),
+                                ),
+                        ),
+                    actions =
+                        MemoryProfilerActions(
+                            onSelectInstance = { followed += it },
+                            onTogglePinnedInstance = { pinCount++ },
+                        ),
+                )
+            }
+
+            onNodeWithText("com.example.Child #2", useUnmergedTree = true).performClick()
+            onNodeWithText("owner ← com.example.Owner #3", useUnmergedTree = true).performClick()
+            onAllNodesWithText("↳ root → com.example.RootKeeper", useUnmergedTree = true)[1].performClick()
+            onNodeWithText("Back").assertExists()
+            onNodeWithText("Forward").assertExists()
+            onNodeWithText("Pin object").performClick()
+
+            assertEquals(listOf(2L, 3L, 4L), followed)
+            assertEquals(1, pinCount)
         }
 
     private fun loadedState(): MemoryProfilerState =

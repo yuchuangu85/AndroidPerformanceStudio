@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="diff_view">差异</string>
+    <string name="dashboard_view">概览</string>
+    <string name="class_list_view">类列表</string>
+    <string name="dominators_view">支配树</string>
     <string name="file">文件</string>
     <string name="export">导出</string>
     <string name="back_to_home">返回主页</string>
     <string name="refresh_devices">刷新设备</string>
     <string name="export_raw_hprof">导出原始 HPROF</string>
     <string name="export_standard_hprof">导出标准 HPROF</string>
+    <string name="export_object_investigation">导出对象调查 JSON</string>
+    <string name="export_class_instances">导出选中类实例 CSV</string>
+    <string name="export_diff">导出类差异 CSV</string>
+    <string name="export_snapshot_json">导出快照 JSON</string>
+    <string name="export_investigation_report">导出调查报告</string>
     <string name="export_csv">导出 CSV</string>
     <string name="unable_to_analyze_hprof">无法分析 HPROF</string>
     <string name="android_sdk_platform_tools_not_found">未找到 Android SDK Platform Tools</string>

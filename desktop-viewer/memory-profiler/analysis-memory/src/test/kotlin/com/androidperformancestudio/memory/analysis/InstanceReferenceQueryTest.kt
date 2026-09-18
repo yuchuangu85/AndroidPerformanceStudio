@@ -121,6 +121,15 @@ class InstanceReferenceQueryTest {
     }
 
     @Test
+    fun `array detail supports bounded page ranges`() {
+        val detail = assertNotNull(query.detailOf(5, arrayStart = 1, arrayLimit = 1))
+
+        assertEquals(2, detail.elementCount)
+        assertEquals("[0]", detail.fields.single().name)
+        assertEquals(3L, detail.fields.single().targetObjectId)
+    }
+
+    @Test
     fun `unknown object id returns null detail`() {
         assertNull(query.detailOf(999L))
     }

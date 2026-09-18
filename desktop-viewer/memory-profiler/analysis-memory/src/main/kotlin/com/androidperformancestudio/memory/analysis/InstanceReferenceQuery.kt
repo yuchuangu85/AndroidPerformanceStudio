@@ -130,7 +130,11 @@ class InstanceReferenceQuery(
     }
 
     /** Detailed view of a single object, or null when [objectId] is unknown. */
-    fun detailOf(objectId: Long): InstanceQueryDetail? {
+    fun detailOf(
+        objectId: Long,
+        arrayStart: Int = 0,
+        arrayLimit: Int = MAX_ARRAY_ELEMENT_FIELDS,
+    ): InstanceQueryDetail? {
         val obj = objectById[objectId] ?: return classDetailOf(objectId)
         val elementCount =
             when (obj) {
@@ -143,7 +147,8 @@ class InstanceReferenceQuery(
                 is HeapInstance -> instanceFields(obj)
                 is HeapObjectArray ->
                     obj.elementIds
-                        .take(MAX_ARRAY_ELEMENT_FIELDS)
+                        .drop(arrayStart.coerceAtLeast(0))
+                        .take(arrayLimit.coerceIn(1, MAX_ARRAY_ELEMENT_FIELDS))
                         .mapIndexed { index, id ->
                             FieldValue(
                                 name = "[$index]",

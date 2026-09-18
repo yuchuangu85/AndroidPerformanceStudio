@@ -7,6 +7,58 @@ import com.androidperformancestudio.contracts.CaptureArtifact
 import java.nio.file.Path
 import java.time.Instant
 
+/** Stages surfaced while a heap snapshot is being loaded or exported. */
+enum class HeapLoadPhase {
+    IDLE,
+    PROBE,
+    CONVERT,
+    PARSE,
+    INDEX,
+    ANALYZE,
+    PERSIST,
+    EXPORT,
+    CANCELLED,
+    FAILED,
+}
+
+/** Capabilities that are actually evidenced by a loaded snapshot. */
+enum class HeapCapability {
+    HEAP_GRAPH,
+    GC_ROOTS,
+    NATIVE_SIZE,
+    ALLOCATION_TRACE,
+    MAPPING,
+    BITMAP_PAYLOAD,
+    NATIVE_TRACE,
+}
+
+data class HeapSnapshotSummary(
+    val id: String,
+    val sourceFile: Path? = null,
+    val fileSizeBytes: Long? = null,
+    val sourceFileDigest: String? = null,
+    val mappingDigest: String? = null,
+    val indexFile: Path? = null,
+    val capturedAt: Instant = Instant.EPOCH,
+    val format: String = "",
+    val idSize: Int = 0,
+    val classCount: Int = 0,
+    val objectCount: Int = 0,
+    val warningCount: Int = 0,
+    val analysisVersion: String = "offline-hprof-viewer-v1",
+    val capabilities: Set<HeapCapability> = emptySet(),
+)
+
+data class HeapExportContext(
+    val snapshotId: String? = null,
+    val sourceFileDigest: String? = null,
+    val mappingDigest: String? = null,
+    val filters: Map<String, String> = emptyMap(),
+    val visibleColumns: Set<String> = emptySet(),
+    val selectedObjectIds: List<Long> = emptyList(),
+    val exportedAt: Instant = Instant.EPOCH,
+)
+
 /** Heap dump metadata, parsed object graph, and derived analysis results. */
 data class HeapDump(
     val id: String = "",
@@ -104,6 +156,25 @@ data class ObjectReference(
     val targetObjectId: Long,
     val targetClassName: String = HeapClass.UNKNOWN_CLASS_NAME,
 )
+
+data class HeapObjectFieldEvidence(
+    val name: String,
+    val displayValue: String,
+    val targetObjectId: Long? = null,
+    val targetClassName: String? = null,
+)
+
+data class HeapObjectInvestigation(
+    val objectId: Long,
+    val className: String,
+    val shallowSize: Long,
+    val retainedSize: Long? = null,
+    val depth: Int? = null,
+    val fields: List<HeapObjectFieldEvidence> = emptyList(),
+    val references: List<HeapObjectFieldEvidence> = emptyList(),
+    val referenceChain: List<ObjectReference> = emptyList(),
+)
+
 
 data class HeapInstance(
     override val objectId: Long,

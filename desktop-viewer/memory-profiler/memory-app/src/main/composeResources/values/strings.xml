@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="diff_view">Diff</string>
+    <string name="dashboard_view">Dashboard</string>
+    <string name="class_list_view">Classes</string>
+    <string name="dominators_view">Dominators</string>
     <string name="file">File</string>
     <string name="export">Export</string>
     <string name="back_to_home">Back to home</string>
     <string name="refresh_devices">Refresh Devices</string>
     <string name="export_raw_hprof">Export Raw HPROF</string>
     <string name="export_standard_hprof">Export Standard HPROF</string>
+    <string name="export_object_investigation">Export Object Investigation JSON</string>
+    <string name="export_class_instances">Export Selected Class Instances CSV</string>
+    <string name="export_diff">Export Class Diff CSV</string>
+    <string name="export_snapshot_json">Export Snapshot JSON</string>
+    <string name="export_investigation_report">Export Investigation Report</string>
     <string name="export_csv">Export CSV</string>
     <string name="unable_to_analyze_hprof">Unable to analyze HPROF</string>
     <string name="android_sdk_platform_tools_not_found">Android SDK Platform Tools not found</string>

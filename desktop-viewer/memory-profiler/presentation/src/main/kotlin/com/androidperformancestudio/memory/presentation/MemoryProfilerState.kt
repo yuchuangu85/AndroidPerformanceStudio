@@ -7,6 +7,8 @@ import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapInstanceStats
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapDiff
+import com.androidperformancestudio.memory.model.HeapLoadPhase
+import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
@@ -19,6 +21,12 @@ public enum class MemoryProfilerViewMode {
 
     /** Android Studio-style class list → instance → reference drill-down. */
     ClassList,
+
+    /** Retained-size tree derived from the current heap snapshot's dominator analysis. */
+    Dominators,
+
+    /** Class-level comparison between the latest two snapshots. */
+    Diff,
 }
 
 /** Class-list scope filter: every class, or only application/project vs framework/system classes. */
@@ -93,12 +101,33 @@ public data class MemoryInstanceRow(
     val nativeSize: Long? = null,
 )
 
+public data class MemoryDominatorRow(
+    val objectId: Long,
+    val className: String,
+    val shallowSize: Long,
+    val retainedSize: Long,
+    val depth: Int,
+    val parentObjectId: Long?,
+)
+
 /** A single field value of an instance, either a primitive or an object reference. */
 public data class MemoryInstanceField(
     val name: String,
     val displayValue: String,
     val targetObjectId: Long?,
     val targetClassName: String?,
+)
+
+public data class MemoryFilterPreset(
+    val id: String,
+    val label: String,
+    val heapFilter: String?,
+    val classScope: MemoryClassScope,
+    val leakFilter: MemoryLeakFilter,
+    val arrangeBy: MemoryArrangeBy,
+    val searchText: String,
+    val matchCase: Boolean,
+    val useRegex: Boolean,
 )
 
 /** Aggregate metrics shown in the summary bar above the class list. */
@@ -121,6 +150,8 @@ public data class MemoryInstanceDetail(
     val depth: Int?,
     val isArray: Boolean,
     val elementCount: Int?,
+    val arrayStart: Int = 0,
+    val arrayPageSize: Int = 200,
     val fields: List<MemoryInstanceField>,
     val referenceChain: List<ObjectReference>,
     val references: List<MemoryInstanceField> = emptyList(),
@@ -138,6 +169,11 @@ public data class MemoryProfilerState(
     val sort: MemoryHistogramSort = MemoryHistogramSort.Count,
     val isDumping: Boolean = false,
     val operationMessage: String? = null,
+    val loadPhase: HeapLoadPhase = HeapLoadPhase.IDLE,
+    val loadProgress: Int? = null,
+    val snapshotSummary: HeapSnapshotSummary? = null,
+    val snapshotSummaries: List<HeapSnapshotSummary> = emptyList(),
+    val activeSnapshotId: String? = null,
     val error: MemoryProfilerError? = null,
     val warning: String? = null,
     val cleanupWarning: String? = null,
@@ -157,6 +193,11 @@ public data class MemoryProfilerState(
     val selectedClassifierLabel: String? = null,
     val selectedClassInstances: List<MemoryInstanceRow> = emptyList(),
     val selectedInstanceDetail: MemoryInstanceDetail? = null,
+    val dominatorRows: List<MemoryDominatorRow> = emptyList(),
+    /** Object IDs visited in the active snapshot; IDs never cross snapshot boundaries. */
+    val instanceHistory: List<Long> = emptyList(),
+    val instanceHistoryIndex: Int = -1,
+    val pinnedInstanceIds: Set<Long> = emptySet(),
     val availableHeaps: List<String> = emptyList(),
     val heapFilter: String? = null,
     val classScope: MemoryClassScope = MemoryClassScope.ALL,
@@ -168,6 +209,8 @@ public data class MemoryProfilerState(
     val searchText: String = "",
     val matchCase: Boolean = false,
     val useRegex: Boolean = false,
+    val savedFilterPresets: List<MemoryFilterPreset> = emptyList(),
+    val activeFilterPresetId: String? = null,
     /** Base class table for the current [heapFilter] (null = all heaps), before scope/leak/search filters. */
     val heapBaseClasses: List<ClassStats> = emptyList(),
     /** Class rows shown in the class-list table after all filters are applied. */
@@ -178,6 +221,7 @@ public data class MemoryProfilerState(
     val classifierRows: List<MemoryClassifierRow> = emptyList(),
     val classifierSortColumn: MemoryClassifierColumn = MemoryClassifierColumn.NAME,
     val classifierSortDirection: MemorySortDirection = MemorySortDirection.ASCENDING,
+    val visibleClassifierColumns: Set<MemoryClassifierColumn> = MemoryClassifierColumn.entries.toSet(),
 )
 
 public data class MemoryDeviceOption(
@@ -208,10 +252,16 @@ public enum class MemoryHistogramSort {
 public data class MemoryProfilerActions(
     val onSortHistogram: (MemoryHistogramSort) -> Unit = {},
     val onRetry: () -> Unit = {},
+    val onCancelOperation: () -> Unit = {},
     val onHighlightClass: (String) -> Unit = {},
     val onChangeViewMode: (MemoryProfilerViewMode) -> Unit = {},
     val onSelectClass: (String) -> Unit = {},
     val onSelectInstance: (Long) -> Unit = {},
+    val onCopyObjectId: (Long) -> Unit = {},
+    val onLoadArrayRange: (Long, Int) -> Unit = { _, _ -> },
+    val onNavigateInstanceBack: () -> Unit = {},
+    val onNavigateInstanceForward: () -> Unit = {},
+    val onTogglePinnedInstance: (Long) -> Unit = {},
     val onHeapFilterChange: (String?) -> Unit = {},
     val onClassScopeChange: (MemoryClassScope) -> Unit = {},
     val onLeakFilterChange: (MemoryLeakFilter) -> Unit = {},
@@ -219,6 +269,10 @@ public data class MemoryProfilerActions(
     val onSearchChange: (String) -> Unit = {},
     val onMatchCaseChange: (Boolean) -> Unit = {},
     val onUseRegexChange: (Boolean) -> Unit = {},
+    val onSaveFilterPreset: () -> Unit = {},
+    val onApplyFilterPreset: (MemoryFilterPreset) -> Unit = {},
+    val onDeleteFilterPreset: () -> Unit = {},
+    val onToggleClassifierColumn: (MemoryClassifierColumn) -> Unit = {},
     val onClassifierSort: (MemoryClassifierColumn) -> Unit = {},
     val onSelectClassifier: (MemoryClassifierRow) -> Unit = {},
 )
