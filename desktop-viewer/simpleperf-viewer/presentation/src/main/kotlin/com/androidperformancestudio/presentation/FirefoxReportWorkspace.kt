@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Divider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,8 +61,8 @@ internal fun FirefoxReportWorkspace(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(style.panel, RoundedCornerShape(10.dp))
-                .border(ViewerDimensions.hairline, style.border, RoundedCornerShape(10.dp))
+                .background(style.panel)
+                .border(ViewerDimensions.hairline, style.border)
                 .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {

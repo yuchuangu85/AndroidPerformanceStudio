@@ -123,7 +123,7 @@ private fun ReportResultPane(
     flameTooltipMode: FlameTooltipMode,
     onRunAiAnalysis: (() -> Unit)?,
 ) {
-    Box(modifier.fillMaxHeight().padding(14.dp)) {
+    Box(modifier.fillMaxHeight()) {
         when (val loadState = state.loadState) {
             ReportLoadState.Closed ->
                 ReportStatus(
