@@ -66,7 +66,11 @@ class MemoryProfilerWorkspaceSourceTest {
         assertTrue(dumpHeap > spacer)
         assertTrue(toolbar.contains("onSelectDevice = { serial ->"))
         assertTrue(toolbar.contains("onSelectProcess = controller::selectProcess"))
-        assertTrue(toolbar.contains("onDumpHeap = { scope.launch { controller.dumpHeap() } }"))
+        assertTrue(toolbar.contains("onDumpHeap = {"))
+        assertTrue(toolbar.contains("controller.changeViewMode(MemoryProfilerViewMode.Dashboard)"))
+        assertTrue(toolbar.contains("onDumpBitmaps = {"))
+        assertTrue(toolbar.contains("controller.changeViewMode(MemoryProfilerViewMode.BitmapDump)"))
+        assertTrue(toolbar.contains("onCaptureNativeHeap = {"))
     }
 
     @Test

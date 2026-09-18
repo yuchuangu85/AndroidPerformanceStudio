@@ -11,10 +11,15 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
+import com.androidperformancestudio.memory.model.BitmapDumpImage
+import com.androidperformancestudio.memory.model.BitmapDumpSession
+import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
 import com.androidperformancestudio.memory.model.ObjectReference
+import java.nio.file.Path
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -65,6 +70,48 @@ class MemoryProfilerScreenTest {
                 onNodeWithText("Class histogram", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
             assertEquals(histogramBounds.left, histogramTitleBounds.left)
             assertEquals(histogramBounds.top, histogramTitleBounds.top)
+        }
+
+    @Test
+    fun `bitmap dump view has a dedicated page while capture is in progress`() =
+        runDesktopComposeUiTest(width = 1000, height = 700) {
+            setContent {
+                MemoryProfilerScreen(
+                    state =
+                        MemoryProfilerState(
+                            viewMode = MemoryProfilerViewMode.BitmapDump,
+                            isDumping = true,
+                        ),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            onNodeWithTag("memory-profiler-bitmap-dump-page").assertExists()
+            onNodeWithText("Bitmap dump gallery").assertExists()
+            onNodeWithText("Capturing bitmaps…").assertExists()
+        }
+
+    @Test
+    fun `bitmap grid renders unavailable image cards`() =
+        runDesktopComposeUiTest(width = 1000, height = 700) {
+            setContent {
+                MemoryProfilerScreen(
+                    state = missingBitmapGridState(),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            onNodeWithText("com.example · pid 42 · API 35").assertExists()
+            onNodeWithTag("memory-profiler-bitmap-grid").assertExists()
+            onNodeWithTag("memory-profiler-bitmap-summary-metrics").assertExists()
+            onNodeWithText("Total content").assertExists()
+            onNodeWithText("832 B").assertExists()
+            onNodeWithText("Image unavailable: missing.png").assertExists()
+            onNodeWithText("Image unavailable: missing-2.png").assertExists()
+            val firstCard = onNodeWithTag("bitmap-dump-image-card-1").fetchSemanticsNode().boundsInRoot
+            val secondCard = onNodeWithTag("bitmap-dump-image-card-2").fetchSemanticsNode().boundsInRoot
+            assertEquals(firstCard.top, secondCard.top)
+            assertTrue(secondCard.left > firstCard.left)
         }
 
     @Test
@@ -312,6 +359,55 @@ class MemoryProfilerScreenTest {
             assertEquals(listOf(2L, 3L, 4L), followed)
             assertEquals(1, pinCount)
         }
+
+    private fun missingBitmapGridState(): MemoryProfilerState =
+        MemoryProfilerState(
+            viewMode = MemoryProfilerViewMode.BitmapDump,
+            bitmapDumpSession =
+                BitmapDumpSession(
+                    id = "bitmap-1",
+                    packageName = "com.example",
+                    pid = 42,
+                    deviceSerial = "emulator-5554",
+                    sdkLevel = 35,
+                    capturedAt = Instant.EPOCH,
+                    hprofFile = Path.of("bitmap.hprof"),
+                    imagesDirectory = Path.of("images"),
+                    images =
+                        listOf(
+                            missingBitmapImage(1, "missing.png", 8, 8, 256L),
+                            missingBitmapImage(2, "missing-2.png", 12, 12, 576L),
+                        ),
+                    summary =
+                        BitmapDumpSummary(
+                            recordedBitmapCount = 2,
+                            discoveredBitmapCount = 2,
+                            exportedImageCount = 2,
+                            uniqueImageCount = 2,
+                            duplicateGroupCount = 0,
+                            totalPngBytes = 40L,
+                            estimatedBitmapBytes = 832L,
+                        ),
+                ),
+        )
+
+    private fun missingBitmapImage(
+        index: Int,
+        fileName: String,
+        width: Int,
+        height: Int,
+        estimatedBytes: Long,
+    ): BitmapDumpImage =
+        BitmapDumpImage(
+            recordIndex = index,
+            arrayObjectId = index.toLong() + 6L,
+            file = Path.of(fileName),
+            width = width,
+            height = height,
+            pngBytes = estimatedBytes / 16L,
+            estimatedMemoryBytes = estimatedBytes,
+            sha256 = "sha-$index",
+        )
 
     private fun loadedState(): MemoryProfilerState =
         MemoryProfilerState(

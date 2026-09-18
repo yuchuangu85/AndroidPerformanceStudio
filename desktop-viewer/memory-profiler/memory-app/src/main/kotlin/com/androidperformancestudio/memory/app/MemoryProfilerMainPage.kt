@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
+import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.class_list_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.dashboard_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.diff_view
@@ -215,22 +216,37 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 enabled = state.heapDiff != null,
                 onClick = { controller.changeViewMode(MemoryProfilerViewMode.Diff) },
             )
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.bitmap_dump_view, language),
+                selected = state.viewMode == MemoryProfilerViewMode.BitmapDump,
+                enabled = state.bitmapDumpSession != null || state.isDumping,
+                onClick = { controller.changeViewMode(MemoryProfilerViewMode.BitmapDump) },
+            )
             Spacer(Modifier.weight(1f))
             MemoryProfilerDumpHeapButton(
                 state = state,
-                onDumpHeap = { scope.launch { controller.dumpHeap() } },
+                onDumpHeap = {
+                    controller.changeViewMode(MemoryProfilerViewMode.Dashboard)
+                    scope.launch { controller.dumpHeap() }
+                },
                 language = language,
             )
             HeaderSpacer()
             MemoryProfilerDumpBitmapsButton(
                 state = state,
-                onDumpBitmaps = { scope.launch { controller.dumpBitmaps() } },
+                onDumpBitmaps = {
+                    controller.changeViewMode(MemoryProfilerViewMode.BitmapDump)
+                    scope.launch { controller.dumpBitmaps() }
+                },
                 language = language,
             )
             HeaderSpacer()
             MemoryProfilerCaptureNativeHeapButton(
                 state = state,
-                onCaptureNativeHeap = { scope.launch { controller.captureNativeHeap() } },
+                onCaptureNativeHeap = {
+                    controller.changeViewMode(MemoryProfilerViewMode.Dashboard)
+                    scope.launch { controller.captureNativeHeap() }
+                },
                 language = language,
             )
         }

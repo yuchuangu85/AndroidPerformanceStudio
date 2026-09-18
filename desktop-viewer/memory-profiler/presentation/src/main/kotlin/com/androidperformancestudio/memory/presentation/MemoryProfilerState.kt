@@ -27,6 +27,9 @@ public enum class MemoryProfilerViewMode {
 
     /** Class-level comparison between the latest two snapshots. */
     Diff,
+
+    /** Dedicated page for captured bitmap images and bitmap-dump comparisons. */
+    BitmapDump,
 }
 
 /** Class-list scope filter: every class, or only application/project vs framework/system classes. */

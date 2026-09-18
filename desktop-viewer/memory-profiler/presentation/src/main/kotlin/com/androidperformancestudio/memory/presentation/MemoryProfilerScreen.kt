@@ -22,7 +22,6 @@ import com.androidperformancestudio.ui.ViewerDimensions
 
 import com.androidperformancestudio.ui.ViewerTypography
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,7 +37,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,16 +54,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toComposeImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.memory.model.ActivityLeakEntry
-import com.androidperformancestudio.memory.model.BitmapDumpComparison
-import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
@@ -78,11 +72,6 @@ import com.androidperformancestudio.memory.presentation.generated.resources.acti
 import com.androidperformancestudio.memory.presentation.generated.resources.allocated
 import com.androidperformancestudio.memory.presentation.generated.resources.allocs
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_analysis
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_comparison
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_comparison_summary
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_gallery
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_image
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_dump_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_estimated_pixel_memory
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_java_native_memory
@@ -125,8 +114,6 @@ import com.androidperformancestudio.memory.presentation.generated.resources.unav
 import com.androidperformancestudio.memory.presentation.generated.resources.warning
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
-import java.nio.file.Files
-import org.jetbrains.skia.Image as SkiaImage
 
 @Composable
 public fun MemoryProfilerScreen(
@@ -199,6 +186,14 @@ public fun MemoryProfilerScreen(
                         language = language,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
+                MemoryProfilerViewMode.BitmapDump ->
+                    MemoryProfilerBitmapDumpPage(
+                        session = presentedState.bitmapDumpSession,
+                        comparison = presentedState.bitmapDumpComparison,
+                        isLoading = presentedState.isDumping,
+                        language = language,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
                 MemoryProfilerViewMode.Dashboard -> {
                 Column(
                     modifier =
@@ -222,7 +217,6 @@ public fun MemoryProfilerScreen(
                     NativeHeapSection(presentedState.nativeHeapTrace, presentedState.nativeHeapAnalysis, language)
                     HeapDiffSection(presentedState.heapDiff, language)
                     BitmapSection(presentedState.bitmapInstances, language)
-                    BitmapDumpGallery(presentedState.bitmapDumpSession, presentedState.bitmapDumpComparison, language)
                 }
                 }
             }
@@ -346,94 +340,6 @@ private fun MemoryProfilerDiffPane(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun BitmapDumpGallery(
-    session: BitmapDumpSession?,
-    comparison: BitmapDumpComparison?,
-    language: UiLanguage,
-) {
-    if (session == null) return
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
-                .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(localizedStringResource(Res.string.bitmap_dump_gallery, language), fontWeight = FontWeight.Bold)
-        Text(
-            localizedStringResource(
-                Res.string.bitmap_dump_summary,
-                language,
-                session.summary.exportedImageCount,
-                session.summary.uniqueImageCount,
-                session.summary.duplicateGroupCount,
-                formatBytes(session.summary.estimatedBitmapBytes),
-            ),
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(session.images, key = { it.recordIndex }) { bitmap ->
-                Column(
-                    modifier =
-                        Modifier
-                            .width(180.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
-                            .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    val image =
-                        remember(bitmap.file) {
-                            runCatching {
-                                SkiaImage.makeFromEncoded(Files.readAllBytes(bitmap.file)).toComposeImageBitmap()
-                            }.getOrNull()
-                        }
-                    if (image != null) {
-                        Image(
-                            bitmap = image,
-                            contentDescription = "Bitmap ${bitmap.recordIndex}",
-                            modifier = Modifier.fillMaxWidth().height(120.dp),
-                            contentScale = ContentScale.Fit,
-                        )
-                    } else {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth().height(120.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                        ) {}
-                    }
-                    Text(
-                        localizedStringResource(
-                            Res.string.bitmap_dump_image,
-                            language,
-                            bitmap.recordIndex,
-                            bitmap.width,
-                            bitmap.height,
-                            formatBytes(bitmap.estimatedMemoryBytes),
-                            bitmap.duplicateCount,
-                        ),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = ViewerTypography.bodyCompact.fontSize,
-                    )
-                }
-            }
-        }
-        comparison?.let { diff ->
-            Text(localizedStringResource(Res.string.bitmap_dump_comparison, language), fontWeight = FontWeight.Bold)
-            Text(
-                localizedStringResource(
-                    Res.string.bitmap_dump_comparison_summary,
-                    language,
-                    diff.before.exportedImageCount,
-                    diff.after.exportedImageCount,
-                    (diff.after.exportedImageCount - diff.before.exportedImageCount).withSign(),
-                    (diff.after.estimatedBitmapBytes - diff.before.estimatedBitmapBytes).withSign(),
-                ),
-            )
         }
     }
 }

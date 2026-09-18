@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="diff_view">差异</string>
+    <string name="bitmap_dump_view">Bitmap</string>
     <string name="dashboard_view">概览</string>
     <string name="class_list_view">类列表</string>
     <string name="dominators_view">支配树</string>
