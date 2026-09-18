@@ -17,9 +17,11 @@
 
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerTypography
 
 import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -166,41 +168,66 @@ public fun MemoryProfilerClassListPane(
                 ) {
                     val classifierHorizontalScrollState = rememberScrollState()
                     val classifierListState = rememberLazyListState()
+                    val scrollbarStyle =
+                        LocalScrollbarStyle.current.copy(
+                            unhoverColor = LocalViewerColors.current.accent.copy(alpha = 0.65f),
+                            hoverColor = LocalViewerColors.current.accent,
+                        )
+                    val scrollbarThickness = scrollbarStyle.thickness
                     Box(Modifier.fillMaxWidth().weight(1f)) {
-                        Column(
+                        Box(
                             Modifier
                                 .fillMaxSize()
-                                .horizontalScroll(classifierHorizontalScrollState),
+                                .padding(end = scrollbarThickness, bottom = scrollbarThickness),
                         ) {
-                            Column(Modifier.requiredWidth(CLASSIFIER_TABLE_WIDTH).fillMaxHeight()) {
-                                ClassTableHeader(
-                                    language,
-                                    state.arrangeBy,
-                                    state.classifierSortColumn,
-                                    state.classifierSortDirection,
-                                    state.visibleClassifierColumns,
-                                    actions.onClassifierSort,
-                                )
-                                ClassTable(
-                                    rows = state.classifierRows,
-                                    selectedClassifierId = state.selectedClassifierId,
-                                    leakClasses = leakClasses,
-                                    duplicateClasses = duplicateClasses,
-                                    visibleColumns = state.visibleClassifierColumns,
-                                    onSelectClassifier = actions.onSelectClassifier,
-                                    language = language,
-                                    listState = classifierListState,
-                                    modifier = Modifier.fillMaxWidth().weight(1f),
-                                )
+                            Column(
+                                Modifier
+                                    .fillMaxSize()
+                                    .horizontalScroll(classifierHorizontalScrollState),
+                            ) {
+                                Column(Modifier.requiredWidth(CLASSIFIER_TABLE_WIDTH).fillMaxHeight()) {
+                                    ClassTableHeader(
+                                        language,
+                                        state.arrangeBy,
+                                        state.classifierSortColumn,
+                                        state.classifierSortDirection,
+                                        state.visibleClassifierColumns,
+                                        actions.onClassifierSort,
+                                        modifier = Modifier.height(CLASSIFIER_HEADER_HEIGHT),
+                                    )
+                                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                                        ClassTable(
+                                            rows = state.classifierRows,
+                                            selectedClassifierId = state.selectedClassifierId,
+                                            leakClasses = leakClasses,
+                                            duplicateClasses = duplicateClasses,
+                                            visibleColumns = state.visibleClassifierColumns,
+                                            onSelectClassifier = actions.onSelectClassifier,
+                                            language = language,
+                                            listState = classifierListState,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+                                }
                             }
                         }
                         HorizontalScrollbar(
                             adapter = rememberScrollbarAdapter(classifierHorizontalScrollState),
-                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                            modifier =
+                                Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .padding(end = scrollbarThickness),
+                            style = scrollbarStyle,
                         )
                         VerticalScrollbar(
                             adapter = rememberScrollbarAdapter(classifierListState),
-                            modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight(),
+                            modifier =
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .fillMaxHeight()
+                                    .padding(top = CLASSIFIER_HEADER_HEIGHT, bottom = scrollbarThickness),
+                            style = scrollbarStyle,
                         )
                     }
                 }
@@ -449,9 +476,10 @@ private fun ClassTableHeader(
     sortDirection: MemorySortDirection,
     visibleColumns: Set<MemoryClassifierColumn>,
     onSort: (MemoryClassifierColumn) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
@@ -1012,6 +1040,7 @@ private fun firstColumnLabel(
         MemoryArrangeBy.ALLOCATION_METHOD -> localizedStringResource(Res.string.allocation_method, language)
     }
 
+private val CLASSIFIER_HEADER_HEIGHT = 24.dp
 private val CLASSIFIER_TABLE_WIDTH = 1_580.dp
 
 private const val INITIAL_LEFT_PANE_FRACTION = 0.535f
