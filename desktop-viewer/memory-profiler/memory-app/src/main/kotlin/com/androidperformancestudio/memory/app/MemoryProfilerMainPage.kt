@@ -238,6 +238,15 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 language = language,
             )
             HeaderSpacer()
+            MemoryProfilerCaptureNativeHeapButton(
+                state = state,
+                onCaptureNativeHeap = {
+                    controller.changeViewMode(MemoryProfilerViewMode.Dashboard)
+                    scope.launch { controller.captureNativeHeap() }
+                },
+                language = language,
+            )
+            HeaderSpacer()
             MemoryProfilerDumpBitmapsButton(
                 state = state,
                 onDumpBitmaps = {
@@ -247,14 +256,6 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 language = language,
             )
             HeaderSpacer()
-            MemoryProfilerCaptureNativeHeapButton(
-                state = state,
-                onCaptureNativeHeap = {
-                    controller.changeViewMode(MemoryProfilerViewMode.Dashboard)
-                    scope.launch { controller.captureNativeHeap() }
-                },
-                language = language,
-            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         MemoryProfilerSnapshotTabs(

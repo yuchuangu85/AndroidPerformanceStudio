@@ -39,8 +39,14 @@ class NativeHeapCaptureSessionTest {
                 listOf("getprop", "push", "perfetto", "pull", "rm"),
                 runner.commandKinds,
             )
-            val configPath = Path.of(runner.requests.first { it.arguments.contains("push") }.arguments[3])
-            assertTrue(Files.readString(configPath).contains("name: \"android.heapprofd\""))
+            val pushRequest = runner.requests.first { it.arguments.contains("push") }
+            val localConfigPath = Path.of(pushRequest.arguments[3])
+            val remoteConfigPath = pushRequest.arguments[4]
+            assertTrue(remoteConfigPath.startsWith("/data/misc/perfetto-configs/"))
+            val perfettoRequest = runner.requests.first { it.arguments.contains("perfetto") }
+            val remoteTracePath = perfettoRequest.arguments.last()
+            assertTrue(remoteTracePath.startsWith("/data/misc/perfetto-traces/"))
+            assertTrue(Files.readString(localConfigPath).contains("name: \"android.heapprofd\""))
             assertTrue(runner.requests.any { it.arguments.contains("heapprofd") || it.arguments.contains("perfetto") })
         }
 

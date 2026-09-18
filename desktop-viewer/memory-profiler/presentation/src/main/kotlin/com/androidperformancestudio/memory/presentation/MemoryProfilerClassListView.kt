@@ -21,6 +21,7 @@ import com.androidperformancestudio.ui.ViewerTypography
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,15 +36,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -122,7 +124,6 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 
 /**
  * Android Studio-style heap class list, rendered as a stacked layout:
@@ -262,19 +263,34 @@ private fun FilterBar(
             placeholder = localizedStringResource(Res.string.class_option, language),
             selectorDescription = localizedStringResource(Res.string.arrange_by, language),
         )
-        OutlinedTextField(
-            colors = viewerOutlinedTextFieldColors(),
+        BasicTextField(
             value = state.searchText,
             onValueChange = actions.onSearchChange,
-            placeholder = {
-                Text(
-                    localizedStringResource(Res.string.filter_classes, language),
-                    fontSize = ViewerTypography.bodyCompact.fontSize,
-                )
-            },
             singleLine = true,
-            textStyle = TextStyle(fontSize = ViewerTypography.bodyCompact.fontSize),
-            modifier = Modifier.weight(1f).height(36.dp),
+            textStyle =
+                TextStyle(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = ViewerTypography.bodyCompact.fontSize,
+                ),
+            modifier =
+                Modifier
+                    .widthIn(min = 160.dp, max = 220.dp)
+                    .height(32.dp)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (state.searchText.isEmpty()) {
+                        Text(
+                            localizedStringResource(Res.string.filter_classes, language),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = ViewerTypography.bodyCompact.fontSize,
+                        )
+                    }
+                    innerTextField()
+                }
+            },
         )
         FilterCheckbox(
             label = localizedStringResource(Res.string.match_case, language),
@@ -329,6 +345,7 @@ private fun FilterCheckbox(
     onChecked: (Boolean) -> Unit,
 ) {
     Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.clickable { onChecked(!checked) },
     ) {
