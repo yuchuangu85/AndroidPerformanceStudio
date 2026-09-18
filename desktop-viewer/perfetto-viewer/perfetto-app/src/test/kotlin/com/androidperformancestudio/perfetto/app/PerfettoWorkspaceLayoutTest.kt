@@ -29,7 +29,9 @@ class PerfettoWorkspaceLayoutTest {
         assertTrue(source.contains("TraceDiagnosticsWorkspacePanel("))
         assertTrue(source.contains("PerfettoWorkspacePanel("))
         assertTrue(source.contains("PerfettoCapturePage("))
-        assertTrue(source.contains("Modifier.width(320.dp)"))
+        assertTrue(source.contains("VerticalDivider("))
+        assertTrue(source.contains("HorizontalDivider(color = MaterialTheme.colorScheme.outline)"))
+        assertTrue(source.contains("modifier = Modifier.width(240.dp).fillMaxHeight()"))
         assertTrue(source.contains("onExport = { session -> exportRawTrace(session.traceFile) }"))
         assertTrue(
             source.contains(

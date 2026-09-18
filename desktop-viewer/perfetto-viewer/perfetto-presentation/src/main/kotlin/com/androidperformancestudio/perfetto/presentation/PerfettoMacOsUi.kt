@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,13 +41,8 @@ fun PerfettoWorkspacePanel(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(4.dp)
     Column(
-        modifier =
-            modifier
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape),
+        modifier = modifier.background(MaterialTheme.colorScheme.surface),
     ) {
         Row(
             modifier =
@@ -54,10 +50,7 @@ fun PerfettoWorkspacePanel(
                     .fillMaxWidth()
                     .height(28.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                    ).padding(horizontal = 8.dp),
+                    .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -71,6 +64,7 @@ fun PerfettoWorkspacePanel(
             )
             actions()
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         content()
     }
 }

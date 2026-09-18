@@ -20,6 +20,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -400,12 +401,10 @@ fun FrameWindowScope.PerfettoMainPage(
                 )
             }
             Column(
-                modifier = Modifier.fillMaxSize().padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().weight(if (activeTraceFile == null) 1f else 0.62f),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     PerfettoCapturePage(
                         captureState = captureState,
@@ -423,6 +422,10 @@ fun FrameWindowScope.PerfettoMainPage(
                         },
                         modifier = Modifier.weight(1f),
                     )
+                    VerticalDivider(
+                        modifier = Modifier.fillMaxHeight(),
+                        color = MaterialTheme.colorScheme.outline,
+                    )
                     RecentSessionsPanel(
                         language = language,
                         sessions = sessions,
@@ -438,10 +441,11 @@ fun FrameWindowScope.PerfettoMainPage(
                             }
                         },
                         onExport = { session -> exportRawTrace(session.traceFile) },
-                        modifier = Modifier.width(320.dp).fillMaxHeight(),
+                        modifier = Modifier.width(240.dp).fillMaxHeight(),
                     )
                 }
                 activeTraceFile?.let { traceFile ->
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     TraceDiagnosticsWorkspacePanel(
                         language = language,
                         traceFile = traceFile,
