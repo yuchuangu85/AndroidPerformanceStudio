@@ -31,6 +31,8 @@ import com.androidperformancestudio.ui.localizedStringResource
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+private const val MAX_RECENT_SESSIONS_IN_MENU = 12
+
 internal data class MemoryProfilerFileMenuModel(
     val fileTitle: String,
     val importLabel: String,
@@ -125,7 +127,9 @@ internal fun memoryProfilerFileMenuModel(
         bitmapComparisonExportEnabled = bitmapComparisonExportEnabled,
         recentSessionsTitle = localizedStringResource(Res.string.recent_sessions, language),
         noRecentSessionsLabel = localizedStringResource(Res.string.no_recent_sessions, language),
-        recentSessions = recentSessions,
+        // Native desktop menus become noticeably slower when a large recent-session list is
+        // materialized at once. Keep the store history intact and only render the menu slice.
+        recentSessions = recentSessions.take(MAX_RECENT_SESSIONS_IN_MENU),
         recentSessionsEnabled = importEnabled && recentSessions.isNotEmpty(),
     )
 

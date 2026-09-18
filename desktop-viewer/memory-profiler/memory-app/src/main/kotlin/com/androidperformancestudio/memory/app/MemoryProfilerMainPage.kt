@@ -92,8 +92,21 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         }
     }
 
-    MemoryProfilerFileMenuBar(
-        model =
+    val memoryProfilerMenuModel =
+        remember(
+            language,
+            state.isDumping,
+            loaded?.heapDump?.rawHprofFile,
+            loaded?.heapDump?.convertedHprofFile,
+            loaded != null,
+            state.selectedClassName != null,
+            state.selectedInstanceDetail != null,
+            state.heapDiff != null,
+            state.bitmapDumpComparison != null,
+            controller.loadedBitmapDump != null,
+            state.nativeHeapTrace != null,
+            controller.recentSessions,
+        ) {
             memoryProfilerFileMenuModel(
                 language = language,
                 importEnabled = !state.isDumping,
@@ -112,7 +125,11 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 importNativeHeapEnabled = !state.isDumping,
                 importJavaHeapEnabled = !state.isDumping,
                 exportNativeHeapEnabled = state.nativeHeapTrace != null,
-            ),
+            )
+        }
+
+    MemoryProfilerFileMenuBar(
+        model = memoryProfilerMenuModel,
         onImportHprof = { showHprofFileDialog = true },
         onImportMapping = { showMappingFileDialog = true },
         onImportNativeHeap = { showNativeHeapFileDialog = true },
