@@ -19,16 +19,21 @@ package com.androidperformancestudio.memory.presentation
 
 import com.androidperformancestudio.ui.ViewerTypography
 
+import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,9 +43,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Checkbox
@@ -50,9 +58,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -139,75 +150,121 @@ public fun MemoryProfilerClassListPane(
 ) {
     val leakClasses = MemoryProfilerPresenter.leakClassNames(state)
     val duplicateClasses = MemoryProfilerPresenter.duplicateBitmapClasses(state)
+    val leftPaneFraction = remember { mutableStateOf(INITIAL_LEFT_PANE_FRACTION) }
     Column(modifier.fillMaxSize()) {
         FilterBar(state, actions, language)
         HorizontalDivider()
         SummaryBar(summary = state.classListSummary, language = language)
         HorizontalDivider()
-        Row(Modifier.fillMaxWidth().weight(1f)) {
-            Column(Modifier.weight(1.15f)) {
-                Box(Modifier.fillMaxWidth().weight(1f).horizontalScroll(rememberScrollState())) {
-                    Column(Modifier.requiredWidth(CLASSIFIER_TABLE_WIDTH).fillMaxSize()) {
-                        ClassTableHeader(
-                            language,
-                            state.arrangeBy,
-                            state.classifierSortColumn,
-                            state.classifierSortDirection,
-                            state.visibleClassifierColumns,
-                            actions.onClassifierSort,
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val availableWidth = maxWidth
+            val totalWidthPx = with(density) { availableWidth.toPx() }
+            Row(Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier.width(availableWidth * leftPaneFraction.value).fillMaxHeight(),
+                ) {
+                    val classifierHorizontalScrollState = rememberScrollState()
+                    val classifierListState = rememberLazyListState()
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .horizontalScroll(classifierHorizontalScrollState),
+                        ) {
+                            Column(Modifier.requiredWidth(CLASSIFIER_TABLE_WIDTH).fillMaxHeight()) {
+                                ClassTableHeader(
+                                    language,
+                                    state.arrangeBy,
+                                    state.classifierSortColumn,
+                                    state.classifierSortDirection,
+                                    state.visibleClassifierColumns,
+                                    actions.onClassifierSort,
+                                )
+                                ClassTable(
+                                    rows = state.classifierRows,
+                                    selectedClassifierId = state.selectedClassifierId,
+                                    leakClasses = leakClasses,
+                                    duplicateClasses = duplicateClasses,
+                                    visibleColumns = state.visibleClassifierColumns,
+                                    onSelectClassifier = actions.onSelectClassifier,
+                                    language = language,
+                                    listState = classifierListState,
+                                    modifier = Modifier.fillMaxWidth().weight(1f),
+                                )
+                            }
+                        }
+                        HorizontalScrollbar(
+                            adapter = rememberScrollbarAdapter(classifierHorizontalScrollState),
+                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
                         )
-                        ClassTable(
-                            rows = state.classifierRows,
-                            selectedClassifierId = state.selectedClassifierId,
-                            leakClasses = leakClasses,
-                            duplicateClasses = duplicateClasses,
-                            visibleColumns = state.visibleClassifierColumns,
-                            onSelectClassifier = actions.onSelectClassifier,
-                            language = language,
-                            modifier = Modifier.fillMaxWidth().weight(1f),
+                        VerticalScrollbar(
+                            adapter = rememberScrollbarAdapter(classifierListState),
+                            modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight(),
                         )
                     }
                 }
-            }
-            VerticalDivider()
-            Column(Modifier.weight(1f)) {
-                InstanceListTitle(className = state.selectedClassifierLabel ?: state.selectedClassName, language = language)
-                HorizontalDivider()
-                Row(Modifier.fillMaxWidth().weight(1f)) {
-                    Column(Modifier.weight(1f)) {
-                        InstanceTableHeader(language)
-                        InstanceTable(
-                            className = state.selectedClassifierLabel ?: state.selectedClassName,
-                            instances = state.selectedClassInstances,
-                            selectedDetail = state.selectedInstanceDetail,
-                            onSelectInstance = actions.onSelectInstance,
-                            language = language,
-                            modifier = Modifier.fillMaxWidth().weight(1f),
-                        )
-                    }
-                    VerticalDivider()
-                    val detail = state.selectedInstanceDetail
-                    if (detail != null) {
-                        InstanceDetailPane(
-                            detail = detail,
-                            language = language,
-                            modifier = Modifier.weight(1.2f),
-                            canNavigateBack = state.instanceHistoryIndex > 0,
-                            canNavigateForward = state.instanceHistoryIndex in 0 until (state.instanceHistory.lastIndex),
-                            isPinned = detail.objectId in state.pinnedInstanceIds,
-                            pinnedInstanceIds = state.pinnedInstanceIds.toList(),
-                            onNavigateBack = actions.onNavigateInstanceBack,
-                            onNavigateForward = actions.onNavigateInstanceForward,
-                            onTogglePinned = { actions.onTogglePinnedInstance(detail.objectId) },
-                            onCopyObjectId = actions.onCopyObjectId,
-                            onFollowObject = actions.onSelectInstance,
-                            onLoadArrayRange = actions.onLoadArrayRange,
-                        )
-                    } else {
-                        EmptyPaneHint(
-                            text = localizedStringResource(Res.string.select_an_instance_to_view_details, language),
-                            modifier = Modifier.weight(1.2f),
-                        )
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxHeight()
+                            .width(8.dp)
+                            .testTag("memory-profiler-class-list-resizer")
+                            .pointerInput(totalWidthPx) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    if (totalWidthPx > 0f) {
+                                        leftPaneFraction.value =
+                                            (leftPaneFraction.value + dragAmount.x / totalWidthPx)
+                                                .coerceIn(MIN_LEFT_PANE_FRACTION, MAX_LEFT_PANE_FRACTION)
+                                    }
+                                }
+                            },
+                ) {
+                    VerticalDivider(Modifier.align(Alignment.Center))
+                }
+                Column(Modifier.weight(1f)) {
+                    InstanceListTitle(
+                        className = state.selectedClassifierLabel ?: state.selectedClassName,
+                        language = language,
+                    )
+                    HorizontalDivider()
+                    Row(Modifier.fillMaxWidth().weight(1f)) {
+                        Column(Modifier.weight(1f)) {
+                            InstanceTableHeader(language)
+                            InstanceTable(
+                                className = state.selectedClassifierLabel ?: state.selectedClassName,
+                                instances = state.selectedClassInstances,
+                                selectedDetail = state.selectedInstanceDetail,
+                                onSelectInstance = actions.onSelectInstance,
+                                language = language,
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                            )
+                        }
+                        VerticalDivider()
+                        val detail = state.selectedInstanceDetail
+                        if (detail != null) {
+                            InstanceDetailPane(
+                                detail = detail,
+                                language = language,
+                                modifier = Modifier.weight(1.2f),
+                                canNavigateBack = state.instanceHistoryIndex > 0,
+                                canNavigateForward = state.instanceHistoryIndex in 0 until (state.instanceHistory.lastIndex),
+                                isPinned = detail.objectId in state.pinnedInstanceIds,
+                                pinnedInstanceIds = state.pinnedInstanceIds.toList(),
+                                onNavigateBack = actions.onNavigateInstanceBack,
+                                onNavigateForward = actions.onNavigateInstanceForward,
+                                onTogglePinned = { actions.onTogglePinnedInstance(detail.objectId) },
+                                onCopyObjectId = actions.onCopyObjectId,
+                                onFollowObject = actions.onSelectInstance,
+                                onLoadArrayRange = actions.onLoadArrayRange,
+                            )
+                        } else {
+                            EmptyPaneHint(
+                                text = localizedStringResource(Res.string.select_an_instance_to_view_details, language),
+                                modifier = Modifier.weight(1.2f),
+                            )
+                        }
                     }
                 }
             }
@@ -443,6 +500,7 @@ private fun ClassTable(
     visibleColumns: Set<MemoryClassifierColumn>,
     onSelectClassifier: (MemoryClassifierRow) -> Unit,
     language: UiLanguage,
+    listState: LazyListState,
     modifier: Modifier,
 ) {
     if (rows.isEmpty()) {
@@ -459,7 +517,7 @@ private fun ClassTable(
                 }
                 appendRows(rows)
             }
-        LazyColumn(modifier) {
+        LazyColumn(state = listState, modifier = modifier) {
             itemsIndexed(visibleRows, key = { _, row -> row.id }) { index, row ->
                 ClassifierTableRow(
                     row = row,
@@ -955,3 +1013,7 @@ private fun firstColumnLabel(
     }
 
 private val CLASSIFIER_TABLE_WIDTH = 1_580.dp
+
+private const val INITIAL_LEFT_PANE_FRACTION = 0.535f
+private const val MIN_LEFT_PANE_FRACTION = 0.25f
+private const val MAX_LEFT_PANE_FRACTION = 0.72f
