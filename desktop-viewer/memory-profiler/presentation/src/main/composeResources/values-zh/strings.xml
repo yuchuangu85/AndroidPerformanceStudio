@@ -66,6 +66,10 @@
     <string name="bitmap_estimated_pixel_memory">预估像素内存 %1$s（宽×高×4B）</string>
     <string name="bitmap_java_native_memory">java %1$s · native %2$s</string>
     <string name="native_heap">Native 堆</string>
+    <string name="native_heap_view">Native 堆</string>
+    <string name="open_native_heap">查看 Native 堆</string>
+    <string name="native_heap_capture_loading">正在抓取 Native 堆…</string>
+    <string name="native_heap_no_allocations">未解析到 Native 分配记录。</string>
     <string name="no_native_heap_trace">尚未抓取 Native 堆 trace。</string>
     <string name="native_heap_trace_summary">%1$s · %2$s · API %3$s — 可用 Perfetto 或 Android Studio 打开分析</string>
     <string name="capture_native_heap">抓取 Native 堆</string>

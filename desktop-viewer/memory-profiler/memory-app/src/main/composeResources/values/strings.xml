@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="diff_view">Diff</string>
+    <string name="native_heap_view">Native Heap</string>
     <string name="bitmap_dump_view">Bitmaps</string>
     <string name="dashboard_view">Dashboard</string>
     <string name="class_list_view">Classes</string>

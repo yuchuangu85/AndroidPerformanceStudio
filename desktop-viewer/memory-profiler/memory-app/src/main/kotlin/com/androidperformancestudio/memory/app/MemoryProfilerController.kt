@@ -697,6 +697,7 @@ internal class MemoryProfilerController(
 
     @Suppress("TooGenericExceptionCaught")
     suspend fun captureNativeHeap() {
+        mutableState.value = mutableState.value.copy(viewMode = MemoryProfilerViewMode.NativeHeap)
         activeOperationJob = currentCoroutineContext()[Job]
         val snapshot = mutableState.value
         val serial = snapshot.selectedDeviceSerial ?: return
@@ -828,6 +829,7 @@ internal class MemoryProfilerController(
 
     @Suppress("TooGenericExceptionCaught")
     suspend fun importNativeHeap(file: Path) {
+        mutableState.value = mutableState.value.copy(viewMode = MemoryProfilerViewMode.NativeHeap)
         activeOperationJob = currentCoroutineContext()[Job]
         mutableState.value =
             mutableState.value.copy(

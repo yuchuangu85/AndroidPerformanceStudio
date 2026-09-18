@@ -35,6 +35,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_java_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.native_heap_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
 import com.androidperformancestudio.memory.presentation.MemoryProfilerCaptureNativeHeapButton
@@ -228,6 +229,12 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     enabled = state.bitmapDumpSession != null || state.isDumping,
                     onClick = { controller.changeViewMode(MemoryProfilerViewMode.BitmapDump) },
                 )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.native_heap_view, language),
+                    selected = state.viewMode == MemoryProfilerViewMode.NativeHeap,
+                    enabled = state.nativeHeapTrace != null || state.isDumping,
+                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.NativeHeap) },
+                )
             }
             MemoryProfilerDumpHeapButton(
                 state = state,
@@ -241,7 +248,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             MemoryProfilerCaptureNativeHeapButton(
                 state = state,
                 onCaptureNativeHeap = {
-                    controller.changeViewMode(MemoryProfilerViewMode.Dashboard)
+                    controller.changeViewMode(MemoryProfilerViewMode.NativeHeap)
                     scope.launch { controller.captureNativeHeap() }
                 },
                 language = language,

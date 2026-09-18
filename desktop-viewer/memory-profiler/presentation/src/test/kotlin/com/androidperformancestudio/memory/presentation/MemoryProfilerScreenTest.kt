@@ -17,6 +17,9 @@ import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
+import com.androidperformancestudio.memory.model.NativeHeapAnalysis
+import com.androidperformancestudio.memory.model.NativeHeapSample
+import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.model.ObjectReference
 import java.nio.file.Path
 import java.time.Instant
@@ -71,6 +74,64 @@ class MemoryProfilerScreenTest {
             assertEquals(histogramBounds.left, histogramTitleBounds.left)
             assertEquals(histogramBounds.top, histogramTitleBounds.top)
         }
+
+    @Test
+    fun `native heap view is a dedicated page with loading and allocation details`() {
+        runDesktopComposeUiTest(width = 1000, height = 700) {
+            setContent {
+                MemoryProfilerScreen(
+                    state =
+                        MemoryProfilerState(
+                            viewMode = MemoryProfilerViewMode.NativeHeap,
+                            isDumping = true,
+                        ),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            onNodeWithTag("memory-profiler-native-heap-page").assertExists()
+            onNodeWithText("Capturing native heap…").assertExists()
+        }
+        runDesktopComposeUiTest(width = 1000, height = 700) {
+            setContent {
+                MemoryProfilerScreen(
+                    state =
+                        MemoryProfilerState(
+                            viewMode = MemoryProfilerViewMode.NativeHeap,
+                            nativeHeapTrace =
+                                NativeHeapTrace(
+                                    traceFile = "native.pb",
+                                    fileName = "native.pb",
+                                    fileSizeBytes = 4096L,
+                                    deviceSdkApiLevel = 37,
+                                ),
+                            nativeHeapAnalysis =
+                                NativeHeapAnalysis(
+                                    totalAllocatedBytes = 4096L,
+                                    totalFreedBytes = 1024L,
+                                    sampleCount = 1,
+                                    topAllocations =
+                                        listOf(
+                                            NativeHeapSample(
+                                                functionName = "libsample.so!allocate",
+                                                allocatedBytes = 4096L,
+                                                freedBytes = 1024L,
+                                                allocCount = 3L,
+                                                freeCount = 1L,
+                                            ),
+                                        ),
+                                ),
+                        ),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            onNodeWithTag("memory-profiler-native-heap-page").assertExists()
+            onNodeWithText("native.pb · 4.0 KB · API 37 — open/analyze in Perfetto or Android Studio").assertExists()
+            onNodeWithText("libsample.so!allocate").assertExists()
+            onNodeWithText("4.0 KB").assertExists()
+        }
+    }
 
     @Test
     fun `bitmap dump view has a dedicated page while capture is in progress`() =

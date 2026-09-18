@@ -66,6 +66,10 @@
     <string name="bitmap_estimated_pixel_memory">estimated pixel memory %1$s (W×H×4B)</string>
     <string name="bitmap_java_native_memory">java %1$s · native %2$s</string>
     <string name="native_heap">Native heap</string>
+    <string name="native_heap_view">Native Heap</string>
+    <string name="open_native_heap">Open Native Heap</string>
+    <string name="native_heap_capture_loading">Capturing native heap…</string>
+    <string name="native_heap_no_allocations">No native allocations were parsed.</string>
     <string name="no_native_heap_trace">No native heap trace captured yet.</string>
     <string name="native_heap_trace_summary">%1$s · %2$s · API %3$s — open/analyze in Perfetto or Android Studio</string>
     <string name="capture_native_heap">Capture Native Heap</string>

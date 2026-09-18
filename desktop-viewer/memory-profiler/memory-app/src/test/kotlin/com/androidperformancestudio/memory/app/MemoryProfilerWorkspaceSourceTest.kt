@@ -71,6 +71,8 @@ class MemoryProfilerWorkspaceSourceTest {
         assertTrue(toolbar.contains("onDumpBitmaps = {"))
         assertTrue(toolbar.contains("controller.changeViewMode(MemoryProfilerViewMode.BitmapDump)"))
         assertTrue(toolbar.contains("onCaptureNativeHeap = {"))
+        assertTrue(toolbar.contains("controller.changeViewMode(MemoryProfilerViewMode.NativeHeap)"))
+        assertTrue(toolbar.contains("Res.string.native_heap_view"))
     }
 
     @Test

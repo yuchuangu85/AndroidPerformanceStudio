@@ -16,7 +16,7 @@ import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.model.ObjectReference
 
 public enum class MemoryProfilerViewMode {
-    /** Current one-page dashboard: overview cards + leak suspects + native heap + bitmaps. */
+    /** Current dashboard: overview cards, leak suspects, native summary, and bitmaps. */
     Dashboard,
 
     /** Android Studio-style class list → instance → reference drill-down. */
@@ -30,6 +30,9 @@ public enum class MemoryProfilerViewMode {
 
     /** Dedicated page for captured bitmap images and bitmap-dump comparisons. */
     BitmapDump,
+
+    /** Android Studio-style native allocation trace workspace. */
+    NativeHeap,
 }
 
 /** Class-list scope filter: every class, or only application/project vs framework/system classes. */

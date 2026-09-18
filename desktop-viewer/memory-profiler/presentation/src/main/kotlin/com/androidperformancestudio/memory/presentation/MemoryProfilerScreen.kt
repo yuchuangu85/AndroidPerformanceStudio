@@ -4,6 +4,7 @@
     "MagicNumber",
     "MaxLineLength",
     "TooManyFunctions",
+    "CyclomaticComplexMethod",
     "ktlint:standard:function-naming",
     "ktlint:standard:argument-list-wrapping",
     "ktlint:standard:binary-expression-wrapping",
@@ -32,7 +33,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,21 +56,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.memory.model.ActivityLeakEntry
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
-import com.androidperformancestudio.memory.model.NativeHeapSample
 import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.activity
 import com.androidperformancestudio.memory.presentation.generated.resources.activity_leak_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.activity_leaks
-import com.androidperformancestudio.memory.presentation.generated.resources.allocated
-import com.androidperformancestudio.memory.presentation.generated.resources.allocs
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_analysis
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_estimated_pixel_memory
@@ -85,8 +81,6 @@ import com.androidperformancestudio.memory.presentation.generated.resources.coun
 import com.androidperformancestudio.memory.presentation.generated.resources.class_level_diff
 import com.androidperformancestudio.memory.presentation.generated.resources.dominator_tree
 import com.androidperformancestudio.memory.presentation.generated.resources.diff_view
-import com.androidperformancestudio.memory.presentation.generated.resources.freed
-import com.androidperformancestudio.memory.presentation.generated.resources.frees
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_size
@@ -97,8 +91,8 @@ import com.androidperformancestudio.memory.presentation.generated.resources.leak
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspects
 import com.androidperformancestudio.memory.presentation.generated.resources.manual_verification
 import com.androidperformancestudio.memory.presentation.generated.resources.mapping_loaded_note
-import com.androidperformancestudio.memory.presentation.generated.resources.native_function
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap
+import com.androidperformancestudio.memory.presentation.generated.resources.open_native_heap
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_total
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_trace_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.no_activity_leaks_detected
@@ -194,6 +188,14 @@ public fun MemoryProfilerScreen(
                         language = language,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
+                MemoryProfilerViewMode.NativeHeap ->
+                    MemoryProfilerNativeHeapPage(
+                        trace = presentedState.nativeHeapTrace,
+                        analysis = presentedState.nativeHeapAnalysis,
+                        isLoading = presentedState.isDumping,
+                        language = language,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
                 MemoryProfilerViewMode.Dashboard -> {
                 Column(
                     modifier =
@@ -214,7 +216,12 @@ public fun MemoryProfilerScreen(
                     )
                     LeakSuspectsPhaseTwo(presentedState, language)
                     ActivityLeakSection(presentedState.activityLeaks, language)
-                    NativeHeapSection(presentedState.nativeHeapTrace, presentedState.nativeHeapAnalysis, language)
+                    NativeHeapSummarySection(
+                        trace = presentedState.nativeHeapTrace,
+                        analysis = presentedState.nativeHeapAnalysis,
+                        language = language,
+                        onOpen = { actions.onChangeViewMode(MemoryProfilerViewMode.NativeHeap) },
+                    )
                     HeapDiffSection(presentedState.heapDiff, language)
                     BitmapSection(presentedState.bitmapInstances, language)
                 }
@@ -745,50 +752,37 @@ private fun ActivityLeakSection(
 }
 
 @Composable
-private fun NativeHeapSection(
+private fun NativeHeapSummarySection(
     trace: NativeHeapTrace?,
     analysis: NativeHeapAnalysis,
     language: UiLanguage,
+    onOpen: () -> Unit,
 ) {
     Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
-                .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp)).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(localizedStringResource(Res.string.native_heap, language), fontWeight = FontWeight.Bold)
-        if (trace == null) {
-            Text(localizedStringResource(Res.string.no_native_heap_trace, language))
-            return@Column
-        }
-        Text(
-            localizedStringResource(
-                Res.string.native_heap_trace_summary,
-                language,
-                trace.fileName,
-                formatBytes(trace.fileSizeBytes),
-                trace.deviceSdkApiLevel?.toString() ?: "?",
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        trace.artifact?.let { artifact ->
-            Text(
-                "Source: ${trace.evidenceSource}; completeness: ${artifact.completeness}; " +
-                    "capabilities: ${artifact.availableCapabilities.joinToString { it.value }}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = ViewerTypography.bodyCompact.fontSize,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(localizedStringResource(Res.string.native_heap, language), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.open_native_heap, language),
+                enabled = trace != null,
+                onClick = onOpen,
             )
-            trace.fallbackReason?.let { reason ->
-                Text(
-                    "Best-effort fallback: $reason",
-                    color = MaterialTheme.colorScheme.error,
-                    fontSize = ViewerTypography.bodyCompact.fontSize,
-                )
-            }
         }
-        if (analysis.topAllocations.isNotEmpty()) {
+        if (trace == null) {
+            Text(localizedStringResource(Res.string.no_native_heap_trace, language), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Text(
+                localizedStringResource(
+                    Res.string.native_heap_trace_summary,
+                    language,
+                    trace.fileName,
+                    formatBytes(trace.fileSizeBytes),
+                    trace.deviceSdkApiLevel?.toString() ?: "?",
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text(
                 localizedStringResource(
                     Res.string.native_heap_total,
@@ -799,139 +793,7 @@ private fun NativeHeapSection(
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            var sortColumn by remember { mutableStateOf(NativeHeapSortColumn.ALLOCATED) }
-            var descending by remember { mutableStateOf(true) }
-            val rows =
-                remember(analysis, sortColumn, descending) {
-                    val comparator =
-                        when (sortColumn) {
-                            NativeHeapSortColumn.FUNCTION -> compareBy<NativeHeapSample> { it.functionName }
-                            NativeHeapSortColumn.ALLOCATED -> compareBy { it.allocatedBytes }
-                            NativeHeapSortColumn.FREED -> compareBy { it.freedBytes }
-                            NativeHeapSortColumn.ALLOCS -> compareBy { it.allocCount }
-                            NativeHeapSortColumn.FREES -> compareBy { it.freeCount }
-                        }
-                    analysis.topAllocations.sortedWith(if (descending) comparator.reversed() else comparator)
-                }
-            NativeHeapTableHeader(language, sortColumn, descending) { column ->
-                if (sortColumn == column) {
-                    descending = !descending
-                } else {
-                    sortColumn = column
-                    descending = true
-                }
-            }
-            LazyColumn(Modifier.heightIn(max = 240.dp)) {
-                itemsIndexed(rows) { index, sample -> NativeHeapTableRow(sample, index) }
-            }
         }
-    }
-}
-
-private enum class NativeHeapSortColumn { FUNCTION, ALLOCATED, FREED, ALLOCS, FREES }
-
-@Composable
-private fun NativeHeapTableHeader(
-    language: UiLanguage,
-    sortColumn: NativeHeapSortColumn,
-    descending: Boolean,
-    onSort: (NativeHeapSortColumn) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        NativeHeapHeaderCell(
-            localizedStringResource(Res.string.native_function, language),
-            Modifier.weight(1f),
-            sortColumn == NativeHeapSortColumn.FUNCTION,
-            descending,
-            onSort,
-            NativeHeapSortColumn.FUNCTION,
-        )
-        NativeHeapHeaderCell(
-            localizedStringResource(Res.string.allocated, language),
-            Modifier.width(88.dp),
-            sortColumn == NativeHeapSortColumn.ALLOCATED,
-            descending,
-            onSort,
-            NativeHeapSortColumn.ALLOCATED,
-        )
-        NativeHeapHeaderCell(
-            localizedStringResource(Res.string.freed, language),
-            Modifier.width(80.dp),
-            sortColumn == NativeHeapSortColumn.FREED,
-            descending,
-            onSort,
-            NativeHeapSortColumn.FREED,
-        )
-        NativeHeapHeaderCell(
-            localizedStringResource(Res.string.allocs, language),
-            Modifier.width(56.dp),
-            sortColumn == NativeHeapSortColumn.ALLOCS,
-            descending,
-            onSort,
-            NativeHeapSortColumn.ALLOCS,
-        )
-        NativeHeapHeaderCell(
-            localizedStringResource(Res.string.frees, language),
-            Modifier.width(56.dp),
-            sortColumn == NativeHeapSortColumn.FREES,
-            descending,
-            onSort,
-            NativeHeapSortColumn.FREES,
-        )
-    }
-}
-
-@Composable
-@Suppress("LongParameterList")
-private fun NativeHeapHeaderCell(
-    text: String,
-    modifier: Modifier,
-    active: Boolean,
-    descending: Boolean,
-    onSort: (NativeHeapSortColumn) -> Unit,
-    column: NativeHeapSortColumn,
-) {
-    Text(
-        text = if (active) "$text ${if (descending) "↓" else "↑"}" else text,
-        modifier = modifier.clickable { onSort(column) },
-        fontWeight = FontWeight.Bold,
-        fontSize = ViewerTypography.bodyCompact.fontSize,
-        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-    )
-}
-
-@Composable
-private fun NativeHeapTableRow(
-    sample: NativeHeapSample,
-    rowIndex: Int,
-) {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(26.dp)
-                .background(
-                    if (rowIndex % 2 == 0) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
-                    RoundedCornerShape(3.dp),
-                ),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            sample.functionName,
-            Modifier.weight(1f),
-            fontSize = ViewerTypography.bodyCompact.fontSize,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(formatBytes(sample.allocatedBytes), Modifier.width(88.dp), fontSize = ViewerTypography.bodyCompact.fontSize, textAlign = TextAlign.End)
-        Text(formatBytes(sample.freedBytes), Modifier.width(80.dp), fontSize = ViewerTypography.bodyCompact.fontSize, textAlign = TextAlign.End)
-        Text(integer(sample.allocCount.toInt()), Modifier.width(56.dp), fontSize = ViewerTypography.bodyCompact.fontSize, textAlign = TextAlign.End)
-        Text(integer(sample.freeCount.toInt()), Modifier.width(56.dp), fontSize = ViewerTypography.bodyCompact.fontSize, textAlign = TextAlign.End)
     }
 }
 
