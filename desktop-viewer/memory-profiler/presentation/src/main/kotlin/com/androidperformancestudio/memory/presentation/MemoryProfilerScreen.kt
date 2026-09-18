@@ -37,7 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -267,13 +267,17 @@ private fun MemoryProfilerDominatorPane(
             )
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
-                items(visibleRows, key = { it.objectId }) { row ->
+                itemsIndexed(visibleRows, key = { _, row -> row.objectId }) { index, row ->
                     val hasChildren = childrenByParent[row.objectId].orEmpty().isNotEmpty()
                     val isExpanded = expanded[row.objectId] != false
                     Row(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
+                                .background(
+                                    if (index % 2 == 0) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
+                                    RoundedCornerShape(3.dp),
+                                )
                                 .clickable { actions.onSelectInstance(row.objectId) }
                                 .padding(start = (8 + row.depth * 16).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -328,9 +332,14 @@ private fun MemoryProfilerDiffPane(
             Text(localizedStringResource(Res.string.no_class_changes_between_the_latest_two_heap_dumps, language))
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
-                items(diff.entries, key = { it.className }) { entry ->
+                itemsIndexed(diff.entries, key = { _, entry -> entry.className }) { index, entry ->
                     Row(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (index % 2 == 0) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
+                                RoundedCornerShape(3.dp),
+                            ).padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(entry.className, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -525,9 +534,10 @@ private fun Histogram(
             Text(localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language))
         } else {
             LazyColumn(Modifier.fillMaxWidth()) {
-                items(classes, key = { it.className }) { stats ->
+                itemsIndexed(classes, key = { _, stats -> stats.className }) { index, stats ->
                     HistogramRow(
                         stats = stats,
+                        rowIndex = index,
                         highlighted = stats.className == highlightedClassName,
                         onClick = { actions.onHighlightClass(stats.className) },
                         language = language,
@@ -588,6 +598,7 @@ private fun SortHeader(
 @Composable
 private fun HistogramRow(
     stats: ClassStats,
+    rowIndex: Int,
     highlighted: Boolean,
     onClick: () -> Unit,
     language: UiLanguage,
@@ -597,7 +608,11 @@ private fun HistogramRow(
             .fillMaxWidth()
             .height(32.dp)
             .background(
-                if (highlighted) MaterialTheme.colorScheme.primaryContainer else LocalViewerColors.current.transparent,
+                when {
+                    highlighted -> MaterialTheme.colorScheme.primaryContainer
+                    rowIndex % 2 == 0 -> MaterialTheme.colorScheme.surfaceContainerLow
+                    else -> MaterialTheme.colorScheme.surface
+                },
                 RoundedCornerShape(3.dp),
             ).clickable(onClick = onClick)
             .padding(horizontal = 4.dp),
@@ -807,7 +822,7 @@ private fun NativeHeapSection(
                 }
             }
             LazyColumn(Modifier.heightIn(max = 240.dp)) {
-                items(rows) { sample -> NativeHeapTableRow(sample) }
+                itemsIndexed(rows) { index, sample -> NativeHeapTableRow(sample, index) }
             }
         }
     }
@@ -890,9 +905,19 @@ private fun NativeHeapHeaderCell(
 }
 
 @Composable
-private fun NativeHeapTableRow(sample: NativeHeapSample) {
+private fun NativeHeapTableRow(
+    sample: NativeHeapSample,
+    rowIndex: Int,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(26.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(26.dp)
+                .background(
+                    if (rowIndex % 2 == 0) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
+                    RoundedCornerShape(3.dp),
+                ),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

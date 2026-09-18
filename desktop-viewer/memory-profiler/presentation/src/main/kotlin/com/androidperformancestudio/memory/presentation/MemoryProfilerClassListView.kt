@@ -17,8 +17,6 @@
 
 package com.androidperformancestudio.memory.presentation
 
-import com.androidperformancestudio.ui.LocalViewerColors
-
 import com.androidperformancestudio.ui.ViewerTypography
 
 import androidx.compose.foundation.background
@@ -39,6 +37,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
@@ -433,25 +432,31 @@ private fun ClassTable(
         EmptyPaneHint(localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language), modifier)
     } else {
         val expanded = remember { mutableStateMapOf<String, Boolean>() }
-        LazyColumn(modifier) {
-            fun emitRows(nodes: List<MemoryClassifierRow>) {
-                nodes.forEach { row ->
-                    item(key = row.id) {
-                        ClassifierTableRow(
-                            row,
-                            row.id == selectedClassifierId,
-                            row.className?.let { it in leakClasses } == true,
-                            row.className?.let { it in duplicateClasses } == true,
-                            row.depth,
-                            visibleColumns,
-                            onSelectClassifier,
-                            expanded[row.id] != false,
-                        ) { expanded[row.id] = !(expanded[row.id] ?: true) }
+        val visibleRows =
+            buildList {
+                fun appendRows(nodes: List<MemoryClassifierRow>) {
+                    nodes.forEach { row ->
+                        add(row)
+                        if (row.children.isNotEmpty() && expanded[row.id] != false) appendRows(row.children)
                     }
-                    if (row.children.isNotEmpty() && expanded[row.id] != false) emitRows(row.children)
                 }
+                appendRows(rows)
             }
-            emitRows(rows)
+        LazyColumn(modifier) {
+            itemsIndexed(visibleRows, key = { _, row -> row.id }) { index, row ->
+                ClassifierTableRow(
+                    row = row,
+                    selected = row.id == selectedClassifierId,
+                    isLeak = row.className?.let { it in leakClasses } == true,
+                    isDuplicateBitmap = row.className?.let { it in duplicateClasses } == true,
+                    depth = row.depth,
+                    rowIndex = index,
+                    visibleColumns = visibleColumns,
+                    onSelectClassifier = onSelectClassifier,
+                    expanded = expanded[row.id] != false,
+                    onToggle = { expanded[row.id] = !(expanded[row.id] ?: true) },
+                )
+            }
         }
     }
 }
@@ -464,6 +469,7 @@ private fun ClassifierTableRow(
     isLeak: Boolean,
     isDuplicateBitmap: Boolean,
     depth: Int,
+    rowIndex: Int,
     visibleColumns: Set<MemoryClassifierColumn>,
     onSelectClassifier: (MemoryClassifierRow) -> Unit,
     expanded: Boolean,
@@ -474,7 +480,8 @@ private fun ClassifierTableRow(
             selected -> MaterialTheme.colorScheme.primaryContainer
             isLeak -> MaterialTheme.colorScheme.errorContainer.copy(alpha = .45f)
             isDuplicateBitmap -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = .45f)
-            else -> LocalViewerColors.current.transparent
+            rowIndex % 2 == 0 -> MaterialTheme.colorScheme.surfaceContainerLow
+            else -> MaterialTheme.colorScheme.surface
         }
     Row(
         Modifier
@@ -607,10 +614,11 @@ private fun InstanceTable(
             EmptyPaneHint(localizedStringResource(Res.string.no_instances_for_class, language), modifier)
         else ->
             LazyColumn(modifier) {
-                items(instances, key = { it.objectId }) { row ->
+                itemsIndexed(instances, key = { _, row -> row.objectId }) { index, row ->
                     val selected = row.objectId == selectedDetail?.objectId
                     InstanceTableRow(
                         row = row,
+                        rowIndex = index,
                         selected = selected,
                         chain = selectedDetail?.takeIf { it.objectId == row.objectId }?.referenceChain,
                         onClick = { onSelectInstance(row.objectId) },
@@ -624,6 +632,7 @@ private fun InstanceTable(
 @Composable
 private fun InstanceTableRow(
     row: MemoryInstanceRow,
+    rowIndex: Int,
     selected: Boolean,
     chain: List<ObjectReference>?,
     onClick: () -> Unit,
@@ -635,7 +644,11 @@ private fun InstanceTableRow(
                 .fillMaxWidth()
                 .height(28.dp)
                 .background(
-                    if (selected) MaterialTheme.colorScheme.primaryContainer else LocalViewerColors.current.transparent,
+                    when {
+                        selected -> MaterialTheme.colorScheme.primaryContainer
+                        rowIndex % 2 == 0 -> MaterialTheme.colorScheme.surfaceContainerLow
+                        else -> MaterialTheme.colorScheme.surface
+                    },
                     RoundedCornerShape(3.dp),
                 ).clickable(onClick = onClick)
                 .padding(horizontal = 8.dp),

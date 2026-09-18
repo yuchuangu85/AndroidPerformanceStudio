@@ -6,7 +6,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -195,34 +194,41 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 onClick = { scope.launch { controller.refreshDevices() } },
             )
             HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.dashboard_view, language),
-                selected = state.viewMode == MemoryProfilerViewMode.Dashboard,
-                onClick = { controller.changeViewMode(MemoryProfilerViewMode.Dashboard) },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.class_list_view, language),
-                selected = state.viewMode == MemoryProfilerViewMode.ClassList,
-                onClick = { controller.changeViewMode(MemoryProfilerViewMode.ClassList) },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.dominators_view, language),
-                selected = state.viewMode == MemoryProfilerViewMode.Dominators,
-                onClick = { controller.changeViewMode(MemoryProfilerViewMode.Dominators) },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.diff_view, language),
-                selected = state.viewMode == MemoryProfilerViewMode.Diff,
-                enabled = state.heapDiff != null,
-                onClick = { controller.changeViewMode(MemoryProfilerViewMode.Diff) },
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.bitmap_dump_view, language),
-                selected = state.viewMode == MemoryProfilerViewMode.BitmapDump,
-                enabled = state.bitmapDumpSession != null || state.isDumping,
-                onClick = { controller.changeViewMode(MemoryProfilerViewMode.BitmapDump) },
-            )
-            Spacer(Modifier.weight(1f))
+            Row(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.dashboard_view, language),
+                    selected = state.viewMode == MemoryProfilerViewMode.Dashboard,
+                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.Dashboard) },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.class_list_view, language),
+                    selected = state.viewMode == MemoryProfilerViewMode.ClassList,
+                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.ClassList) },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.dominators_view, language),
+                    selected = state.viewMode == MemoryProfilerViewMode.Dominators,
+                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.Dominators) },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.diff_view, language),
+                    selected = state.viewMode == MemoryProfilerViewMode.Diff,
+                    enabled = state.heapDiff != null,
+                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.Diff) },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.bitmap_dump_view, language),
+                    selected = state.viewMode == MemoryProfilerViewMode.BitmapDump,
+                    enabled = state.bitmapDumpSession != null || state.isDumping,
+                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.BitmapDump) },
+                )
+            }
             MemoryProfilerDumpHeapButton(
                 state = state,
                 onDumpHeap = {
