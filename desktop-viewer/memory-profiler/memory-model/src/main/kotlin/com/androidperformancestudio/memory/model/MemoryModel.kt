@@ -425,6 +425,38 @@ data class LeakCanaryReport(
         get() = applicationLeaks.size + libraryLeaks.size
 }
 
+data class LeakCanaryLiveSession(
+    val status: LeakCanaryLiveStatus = LeakCanaryLiveStatus.DISCONNECTED,
+    val packageName: String? = null,
+    val processName: String? = null,
+    val sessionId: String? = null,
+    val cursor: Long = 0L,
+    val droppedEvents: Long = 0L,
+    val leakCanaryAvailable: Boolean = false,
+    val events: List<LeakCanaryLiveEvent> = emptyList(),
+    val message: String? = null,
+)
+
+enum class LeakCanaryLiveStatus {
+    DISCONNECTED,
+    CONNECTING,
+    RUNNING,
+    STOPPING,
+    STOPPED,
+    FAILED,
+}
+
+data class LeakCanaryLiveEvent(
+    val sequence: Long,
+    val kind: String,
+    val monotonicNs: Long,
+    val className: String? = null,
+    val description: String? = null,
+    val watchId: String? = null,
+    val retained: Boolean? = null,
+    val source: String = "aps-bridge",
+)
+
 enum class LeakCanaryStatus {
     NOT_RUN,
     ANALYZING,

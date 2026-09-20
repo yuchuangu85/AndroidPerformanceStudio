@@ -69,6 +69,7 @@ public data class FrameAnalysisResult(
     val frames: List<AnalyzedFrame>,
     val summary: FrameSummary,
     val clusters: List<DeadlineMissCluster>,
+    val attributions: List<FrameAttribution> = emptyList(),
 )
 
 public class FrameJankAnalyzer(
@@ -84,6 +85,7 @@ public class FrameJankAnalyzer(
             frames = analyzed,
             summary = summarize(analyzed),
             clusters = cluster(analyzed),
+            attributions = FrameAttributionAnalyzer().analyze(analyzed.map(AnalyzedFrame::sample)),
         )
     }
 

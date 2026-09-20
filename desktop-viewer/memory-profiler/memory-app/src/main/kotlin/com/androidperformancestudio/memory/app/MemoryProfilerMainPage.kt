@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_view
+import com.androidperformancestudio.memory.memory_app.generated.resources.choose_android_project
 import com.androidperformancestudio.memory.memory_app.generated.resources.class_list_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.dashboard_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.diff_view
@@ -35,6 +36,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_java_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.inject_leak_canary_agent
 import com.androidperformancestudio.memory.memory_app.generated.resources.memory_leaks_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.native_heap_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
@@ -50,6 +52,7 @@ import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.chooseDirectory
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
@@ -256,10 +259,22 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.memory_leaks_view, language),
                     selected = state.viewMode == MemoryProfilerViewMode.LeakCanary,
-                    enabled = loaded != null && !state.isDumping,
+                    enabled =
+                        state.selectedDeviceSerial != null &&
+                            state.selectedProcessId != null &&
+                            !state.isDumping,
                     onClick = {
                         controller.changeViewMode(MemoryProfilerViewMode.LeakCanary)
-                        scope.launch { controller.analyzeLeaks() }
+                        scope.launch { controller.monitorLiveLeakCanary() }
+                    },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.inject_leak_canary_agent, language),
+                    enabled = !state.isDumping,
+                    onClick = {
+                        chooseDirectory(window, localizedStringResource(Res.string.choose_android_project, language))
+                            ?.toPath()
+                            ?.let { projectRoot -> scope.launch { controller.injectLeakCanaryAgent(projectRoot) } }
                     },
                 )
             }

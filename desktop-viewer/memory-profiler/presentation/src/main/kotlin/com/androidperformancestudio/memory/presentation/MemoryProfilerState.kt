@@ -10,6 +10,7 @@ import com.androidperformancestudio.memory.model.HeapDiff
 import com.androidperformancestudio.memory.model.HeapLoadPhase
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakSuspect
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
@@ -195,6 +196,7 @@ public data class MemoryProfilerState(
     val mappingLoaded: Boolean = false,
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
     val leakCanaryReport: LeakCanaryReport = LeakCanaryReport(),
+    val leakCanaryLiveSession: LeakCanaryLiveSession = LeakCanaryLiveSession(),
     val nativeHeapTrace: NativeHeapTrace? = null,
     val nativeHeapAnalysis: NativeHeapAnalysis = NativeHeapAnalysis(),
     val artifact: CaptureArtifact? = null,

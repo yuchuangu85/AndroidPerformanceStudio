@@ -15,8 +15,12 @@ class PerfettoDiagnosticsTest {
             setOf(
                 "cpu_hotspots",
                 "cpu_freq_dist",
+                "cpu_contention",
                 "binder_latency",
+                "binder_server_saturation",
+                "binder_wait_chain",
                 "frame_jank",
+                "frame_surface_correlation",
                 "mem_counters",
                 "input_latency",
                 "thread_states",
@@ -35,6 +39,10 @@ class PerfettoDiagnosticsTest {
         assertTrue(byId.getValue("frame_jank").sql.contains("INCLUDE PERFETTO MODULE android.frames.per_frame_metrics;"))
         assertTrue(byId.getValue("mem_counters").sql.contains("INCLUDE PERFETTO MODULE linux.memory.process;"))
         assertTrue(byId.getValue("wakeup_latency").sql.contains("INCLUDE PERFETTO MODULE sched.runnable;"))
+        assertTrue(byId.getValue("cpu_contention").sql.contains("sched_previous_runnable_on_thread"))
+        assertTrue(byId.getValue("binder_server_saturation").sql.contains("server_dur"))
+        assertTrue(byId.getValue("binder_wait_chain").sql.contains("android_sync_binder_thread_state_by_txn"))
+        assertTrue(byId.getValue("frame_surface_correlation").sql.contains("actual_frame_timeline_slice"))
         PerfettoDiagnostics.all.forEach { query ->
             assertFalse(Regex("\\bLIKE\\b", RegexOption.IGNORE_CASE).containsMatchIn(query.sql), query.id)
         }

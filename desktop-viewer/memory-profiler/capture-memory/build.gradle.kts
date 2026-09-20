@@ -1,5 +1,6 @@
 dependencies {
     implementation(project(":memory-model"))
+    implementation(project(":leakcanary-agent-protocol"))
     implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
     implementation("com.androidperformancestudio:host-toolchain:0.1.0-SNAPSHOT")

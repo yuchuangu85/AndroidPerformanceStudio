@@ -4,10 +4,13 @@
 
 ## 保留范围
 
+### 功能介绍
+
+- [`features/README.md`](features/README.md) — 当前各性能工具的功能介绍、设计、实现、使用和证据边界。
+
 ### 需求记录
 
 - [`TODO.md`](TODO.md) — 当前未完成的规划、延期能力、开放决策与发布门禁。
-- [`requirements/layout-complexity-inspector-three-solutions-plan.md`](requirements/layout-complexity-inspector-three-solutions-plan.md) — 三种产品形态、共享能力和阶段规划。
 - [`../desktop-viewer/docs/requirements/`](../desktop-viewer/docs/requirements/) — Desktop Viewer 延后需求和路线记录。
 - [`../desktop-viewer/simpleperf-viewer/docs/requirements/`](../desktop-viewer/simpleperf-viewer/docs/requirements/) — Simpleperf 产品需求、开发计划、兼容矩阵和跟踪表。
 

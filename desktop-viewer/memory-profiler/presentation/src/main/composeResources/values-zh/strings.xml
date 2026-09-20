@@ -168,4 +168,11 @@
     <string name="shark_status_not_run">Shark 分析不可用</string>
     <string name="shark_status_failed">Shark 分析失败</string>
     <string name="analyzing_memory_leaks">正在分析内存泄漏…</string>
+    <string name="live_monitoring">实时监听</string>
+    <string name="live_monitoring_not_available">实时监听需要目标 debug App 集成 LeakCanary bridge AAR。</string>
+    <string name="live_events">实时事件</string>
+    <string name="no_live_events">尚未收到生命周期或对象保留事件。</string>
+    <string name="live_event_summary">%1$s · %2$s</string>
+    <string name="agent_connected">Agent 已连接</string>
+    <string name="agent_not_connected">Agent 未连接</string>
 </resources>

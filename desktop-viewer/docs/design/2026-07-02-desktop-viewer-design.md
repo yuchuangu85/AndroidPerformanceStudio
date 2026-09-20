@@ -85,7 +85,7 @@ desktop-viewer/
   docs/
 ```
 
-这些 `layout-inspector/shared-kernel` 模块目前只服务 Layout Inspector；待 Android Studio 插件或 Web 方案产生真实依赖后，再评估提升为仓库级共享构建。
+这些 `layout-inspector/shared-kernel` 模块目前只服务 Layout Inspector；保持 Layout Inspector 内部边界，只有出现明确的仓库级共享需求时才重新评估。
 
 ### 3.1 Shared Kernel
 

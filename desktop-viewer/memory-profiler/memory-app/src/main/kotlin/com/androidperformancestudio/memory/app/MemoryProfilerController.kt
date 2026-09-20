@@ -1,4 +1,4 @@
-@file:Suppress("MaxLineLength")
+@file:Suppress("MaxLineLength", "LongMethod", "ReturnCount", "MagicNumber")
 
 package com.androidperformancestudio.memory.app
 
@@ -11,6 +11,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.analyzing_memory_leaks
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
 import com.androidperformancestudio.memory.memory_app.generated.resources.capturing_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.connecting_leak_canary_agent
 import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_bitmaps_for
 import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_heap_for
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_parser_out_of_memory
@@ -20,6 +21,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.loading_session
 import com.androidperformancestudio.memory.memory_app.generated.resources.mapping_imported
 import com.androidperformancestudio.memory.memory_app.generated.resources.memory_leaks_analysis_failed
+import com.androidperformancestudio.memory.memory_app.generated.resources.monitoring_leak_canary
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_capture_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_java_heap
@@ -37,6 +39,8 @@ import com.androidperformancestudio.memory.model.HeapLoadPhase
 import com.androidperformancestudio.memory.model.HeapObjectFieldEvidence
 import com.androidperformancestudio.memory.model.HeapObjectInvestigation
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
+import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
+import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
 import com.androidperformancestudio.memory.model.NativeHeapTrace
@@ -68,6 +72,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -142,6 +147,20 @@ internal interface MemoryProfilerBackend {
 
     suspend fun analyzeLeaks(): MemoryBackendResult<LeakCanaryReport> =
         MemoryBackendResult.Failure("Leak analysis unavailable", "The selected backend does not support LeakCanary analysis.")
+
+    suspend fun injectLeakCanaryAgent(projectRoot: Path): MemoryBackendResult<String> =
+        MemoryBackendResult.Failure("LeakCanary Agent unavailable", "The selected backend does not support source-project injection.")
+
+    suspend fun openLeakCanaryAgent(
+        serial: String,
+        process: MemoryProcessOption,
+    ): MemoryBackendResult<LeakCanaryLiveSession> =
+        MemoryBackendResult.Failure("LeakCanary Agent unavailable", "The selected backend does not support live LeakCanary monitoring.")
+
+    suspend fun pollLeakCanaryAgent(): MemoryBackendResult<LeakCanaryLiveSession> =
+        MemoryBackendResult.Failure("LeakCanary Agent unavailable", "The selected backend does not support live LeakCanary monitoring.")
+
+    fun closeLeakCanaryAgent() = Unit
 
     suspend fun listSessions(): MemoryBackendResult<List<MemorySessionMetadata>> = MemoryBackendResult.Success(emptyList())
 
@@ -665,6 +684,107 @@ internal class MemoryProfilerController(
                 throw exception
             }
         applyLoadedResult(result)
+    }
+
+    suspend fun injectLeakCanaryAgent(projectRoot: Path) {
+        when (val result = backend.injectLeakCanaryAgent(projectRoot)) {
+            is MemoryBackendResult.Failure ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        error = MemoryProfilerError(result.title, result.detail),
+                    )
+            is MemoryBackendResult.Success ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        operationMessage = result.value,
+                        error = null,
+                    )
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun monitorLiveLeakCanary() {
+        activeOperationJob = currentCoroutineContext()[Job]
+        val snapshot = mutableState.value
+        val serial = snapshot.selectedDeviceSerial ?: return
+        val process = snapshot.processes.firstOrNull { it.pid == snapshot.selectedProcessId } ?: return
+        mutableState.value =
+            snapshot.copy(
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.connecting_leak_canary_agent, language),
+                loadPhase = HeapLoadPhase.ANALYZE,
+                loadProgress = null,
+                error = null,
+                warning = null,
+                leakCanaryLiveSession = snapshot.leakCanaryLiveSession.copy(status = LeakCanaryLiveStatus.CONNECTING),
+            )
+        when (val opened = backend.openLeakCanaryAgent(serial, process)) {
+            is MemoryBackendResult.Failure -> {
+                showFailure(opened)
+                mutableState.value =
+                    mutableState.value.copy(
+                        leakCanaryLiveSession = LeakCanaryLiveSession(status = LeakCanaryLiveStatus.FAILED, message = opened.detail),
+                    )
+                return
+            }
+            is MemoryBackendResult.Success ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        leakCanaryLiveSession = opened.value.copy(status = LeakCanaryLiveStatus.RUNNING),
+                        operationMessage = localizedStringResource(Res.string.monitoring_leak_canary, language),
+                        error = null,
+                    )
+        }
+        try {
+            while (currentCoroutineContext().isActive) {
+                kotlinx.coroutines.delay(500L)
+                when (val polled = backend.pollLeakCanaryAgent()) {
+                    is MemoryBackendResult.Failure -> {
+                        mutableState.value =
+                            mutableState.value.copy(
+                                isDumping = false,
+                                operationMessage = null,
+                                loadPhase = HeapLoadPhase.FAILED,
+                                leakCanaryLiveSession =
+                                    mutableState.value.leakCanaryLiveSession.copy(
+                                        status = LeakCanaryLiveStatus.FAILED,
+                                        message = polled.detail,
+                                    ),
+                                error = MemoryProfilerError(polled.title, polled.detail),
+                            )
+                        return
+                    }
+                    is MemoryBackendResult.Success ->
+                        mutableState.value =
+                            mutableState.value.copy(
+                                leakCanaryLiveSession = polled.value.copy(status = LeakCanaryLiveStatus.RUNNING),
+                                error = null,
+                            )
+                }
+            }
+        } finally {
+            backend.closeLeakCanaryAgent()
+            activeOperationJob = null
+            mutableState.value =
+                mutableState.value.copy(
+                    isDumping = false,
+                    operationMessage = null,
+                    loadPhase = HeapLoadPhase.IDLE,
+                    leakCanaryLiveSession = mutableState.value.leakCanaryLiveSession.copy(status = LeakCanaryLiveStatus.STOPPED),
+                )
+        }
+    }
+
+    fun stopLiveLeakCanary() {
+        backend.closeLeakCanaryAgent()
+        activeOperationJob?.cancel()
+        mutableState.value =
+            mutableState.value.copy(
+                isDumping = false,
+                operationMessage = null,
+                loadPhase = HeapLoadPhase.IDLE,
+                leakCanaryLiveSession = mutableState.value.leakCanaryLiveSession.copy(status = LeakCanaryLiveStatus.STOPPED),
+            )
     }
 
     @Suppress("TooGenericExceptionCaught")

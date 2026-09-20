@@ -61,4 +61,8 @@
     <string name="memory_leaks_view">Memory Leaks</string>
     <string name="analyzing_memory_leaks">Analyzing memory leaks…</string>
     <string name="memory_leaks_analysis_failed">Memory leak analysis failed</string>
+    <string name="connecting_leak_canary_agent">Connecting to LeakCanary Agent…</string>
+    <string name="monitoring_leak_canary">Monitoring LeakCanary events…</string>
+    <string name="inject_leak_canary_agent">Inject Agent</string>
+    <string name="choose_android_project">Choose Android project</string>
 </resources>

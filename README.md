@@ -122,8 +122,6 @@ Windows x86 (32-bit) packages are not generated. Compose Desktop's Skiko runtime
 ## Project layout
 
 ```text
-android-studio-plugin/   Planned Android Studio plugin integration
-web-ui-http-server/      Planned web UI and in-app HTTP server integration
 desktop-viewer/          Compose Desktop application and feature modules
   desktop-app/           Application shell, settings, resources, and packaging
   layout-inspector/      View hierarchy capture and analysis
@@ -149,7 +147,6 @@ docs/                    Architecture, requirements, and design records
 - `desktop-viewer/desktop-app/` owns only the unified shell, settings, and native packaging. Each analyzer owns its own implementation and does not depend on other feature implementations.
 - Layout Inspector uses a debug-only agent for high-fidelity capture; it does not require root, hidden APIs, system signing, or a network permission. Its fallback has the visibility and speed limits of UI Automator.
 - Analysis-tool handoffs are correlation aids, not proof of causality.
-- The Android Studio plugin and Web UI directories are intentionally planning placeholders; the implemented product is the desktop application.
 
 ## More documentation
 
@@ -157,4 +154,5 @@ docs/                    Architecture, requirements, and design records
 - [Layout Inspector protocol](desktop-viewer/docs/architecture/PROTOCOL.md)
 - [Desktop design](desktop-viewer/docs/design/2026-07-02-desktop-viewer-design.md)
 - [Documentation index](docs/README.md)
+- [Feature documentation](docs/features/README.md)
 - [Third-party asset build instructions](third_party/README.md)

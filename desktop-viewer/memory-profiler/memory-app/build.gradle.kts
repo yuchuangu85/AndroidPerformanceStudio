@@ -6,6 +6,7 @@ plugins {
 dependencies {
     implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
     implementation(project(":memory-model"))
+    implementation(project(":leakcanary-agent-protocol"))
     implementation(project(":capture-memory"))
     implementation(project(":parser-hprof"))
     implementation(project(":analysis-memory"))

@@ -19,8 +19,10 @@ import com.androidperformancestudio.memory.analysis.ProguardMappingParser
 import com.androidperformancestudio.memory.analysis.SharkLeakAnalyzer
 import com.androidperformancestudio.memory.analysis.isLikelyObfuscatedClassName
 import com.androidperformancestudio.memory.analysis.withDeobfuscation
+import com.androidperformancestudio.memory.capture.AndroidProjectLeakCanaryInjector
 import com.androidperformancestudio.memory.capture.BitmapCaptureRequest
 import com.androidperformancestudio.memory.capture.BitmapHeapDumpCaptureSession
+import com.androidperformancestudio.memory.capture.LeakCanaryAgentConnection
 import com.androidperformancestudio.memory.capture.MemoryCaptureRequest
 import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
 import com.androidperformancestudio.memory.capture.NativeHeapCaptureRequest
@@ -33,6 +35,7 @@ import com.androidperformancestudio.memory.hprof.HprofInputProbe
 import com.androidperformancestudio.memory.hprof.HprofParseException
 import com.androidperformancestudio.memory.hprof.HprofParser
 import com.androidperformancestudio.memory.hprof.HprofRecordIndexer
+import com.androidperformancestudio.memory.leak.protocol.LeakCanaryAgentResponse
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.android_sdk_platform_tools_not_found
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
@@ -56,6 +59,9 @@ import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.LeakCanaryLiveEvent
+import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
+import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.NativeHeapEvidenceSource
@@ -67,6 +73,7 @@ import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
 import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -109,6 +116,9 @@ internal class DesktopMemoryProfilerBackend(
     private var mappingDigest: String? = null
     private var lastLoadRequest: HeapLoadRequest? = null
     private var lastLoadedHeap: LoadedHeap? = null
+    private var leakCanaryConnection: LeakCanaryAgentConnection? = null
+    private var leakCanaryCursor: Long = 0L
+    private var leakCanaryEvents: List<LeakCanaryLiveEvent> = emptyList()
 
     override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
         val adb = adbLocator() ?: return missingAdb()
@@ -509,6 +519,78 @@ internal class DesktopMemoryProfilerBackend(
                         sessionMetadata = importedSessionIdentity(file),
                     ),
                     onProgress,
+                )
+            }
+        }
+
+    override suspend fun openLeakCanaryAgent(
+        serial: String,
+        process: MemoryProcessOption,
+    ): MemoryBackendResult<LeakCanaryLiveSession> =
+        withContext(Dispatchers.IO) {
+            closeLeakCanaryAgent()
+            val adb = adbLocator() ?: return@withContext missingAdb()
+            val connection = LeakCanaryAgentConnection(DefaultAdbClient(adb), serial, process.packageName)
+            runCatching {
+                connection.open()
+                val response = connection.startSession()
+                leakCanaryConnection = connection
+                leakCanaryCursor = response.latestSequence
+                leakCanaryEvents = emptyList()
+                MemoryBackendResult.Success(
+                    response.toLiveSession(LeakCanaryLiveStatus.RUNNING),
+                )
+            }.getOrElse { error ->
+                connection.close()
+                MemoryBackendResult.Failure(
+                    "LeakCanary Agent unavailable",
+                    error.message ?: error::class.simpleName.orEmpty(),
+                )
+            }
+        }
+
+    override suspend fun pollLeakCanaryAgent(): MemoryBackendResult<LeakCanaryLiveSession> =
+        withContext(Dispatchers.IO) {
+            val connection =
+                leakCanaryConnection
+                    ?: return@withContext MemoryBackendResult.Failure(
+                        "LeakCanary Agent unavailable",
+                        "The LeakCanary Agent connection is not open.",
+                    )
+            runCatching {
+                val response = connection.poll(leakCanaryCursor)
+                leakCanaryCursor = response.latestSequence
+                MemoryBackendResult.Success(response.toLiveSession(LeakCanaryLiveStatus.RUNNING))
+            }.getOrElse { error ->
+                MemoryBackendResult.Failure(
+                    "LeakCanary Agent polling failed",
+                    error.message ?: error::class.simpleName.orEmpty(),
+                )
+            }
+        }
+
+    override fun closeLeakCanaryAgent() {
+        leakCanaryConnection?.close()
+        leakCanaryConnection = null
+        leakCanaryCursor = 0L
+        leakCanaryEvents = emptyList()
+    }
+
+    override suspend fun injectLeakCanaryAgent(projectRoot: Path): MemoryBackendResult<String> =
+        withContext(Dispatchers.IO) {
+            val bundle =
+                findLeakCanaryAgentBundle()
+                    ?: return@withContext MemoryBackendResult.Failure(
+                        "LeakCanary Agent bundle unavailable",
+                        "Build :android-agent-leakcanary:bundleLeakCanaryAgent before injection.",
+                    )
+            runCatching {
+                val result = AndroidProjectLeakCanaryInjector().inject(projectRoot, bundle.first, bundle.second)
+                MemoryBackendResult.Success(result.message)
+            }.getOrElse { error ->
+                MemoryBackendResult.Failure(
+                    "LeakCanary Agent injection failed",
+                    error.message ?: error::class.simpleName.orEmpty(),
                 )
             }
         }
@@ -933,6 +1015,54 @@ internal class DesktopMemoryProfilerBackend(
         }
     }
 
+    private fun LeakCanaryAgentResponse.toLiveSession(status: LeakCanaryLiveStatus): LeakCanaryLiveSession {
+        val newEvents =
+            events.map { event ->
+                LeakCanaryLiveEvent(
+                    sequence = event.sequence,
+                    kind = event.kind,
+                    monotonicNs = event.monotonicNs,
+                    className = event.className,
+                    description = event.description,
+                    watchId = event.watchId,
+                    retained = event.retained,
+                    source = event.source,
+                )
+            }
+        leakCanaryEvents = (leakCanaryEvents + newEvents).takeLast(MAX_LIVE_EVENTS)
+        return LeakCanaryLiveSession(
+            status = status,
+            packageName = packageName,
+            processName = events.lastOrNull()?.processName,
+            sessionId = sessionId,
+            cursor = latestSequence,
+            droppedEvents = droppedEvents,
+            leakCanaryAvailable = leakCanaryAvailable,
+            events = leakCanaryEvents,
+            message = message,
+        )
+    }
+
+    private fun findLeakCanaryAgentBundle(): Pair<Path, Path>? {
+        val names =
+            listOf(
+                "android-agent-leakcanary-debug.aar" to "leakcanary-agent-protocol-0.1.0-SNAPSHOT.jar",
+            )
+        val roots =
+            generateSequence(Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()) { it.parent }
+                .flatMap { root ->
+                    sequenceOf(
+                        root.resolve("memory-profiler/build/leakcanary-agent-bundle"),
+                        root.resolve("desktop-viewer/memory-profiler/build/leakcanary-agent-bundle"),
+                    )
+                }.toList()
+        return roots
+            .asSequence()
+            .flatMap { directory ->
+                names.asSequence().map { (aarName, jarName) -> directory.resolve(aarName) to directory.resolve(jarName) }
+            }.firstOrNull { (aar, jar) -> Files.isRegularFile(aar) && Files.isRegularFile(jar) }
+    }
+
     private fun analysisFailure(exception: Exception): MemoryBackendResult.Failure =
         MemoryBackendResult.Failure(
             title = localizedStringResource(Res.string.unable_to_analyze_hprof, language),
@@ -1040,6 +1170,7 @@ internal class DesktopMemoryProfilerBackend(
         private const val PERCENT_COMPLETE = 100
         private const val DEFAULT_DIGEST_BUFFER_BYTES = 64 * 1024
         private val SESSION_ID_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").withZone(ZoneOffset.UTC)
+        private const val MAX_LIVE_EVENTS = 1_000
 
         private fun defaultDataRoot(): Path =
             Path.of(

@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.frame.analysis.AnalyzedFrame
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
+import com.androidperformancestudio.frame.analysis.FrameAttribution
 import com.androidperformancestudio.frame.analysis.JankSeverity
 import com.androidperformancestudio.frame.presentation.generated.resources.Res
 import com.androidperformancestudio.frame.presentation.generated.resources.activity
@@ -52,6 +53,8 @@ import com.androidperformancestudio.frame.presentation.generated.resources.corre
 import com.androidperformancestudio.frame.presentation.generated.resources.deadline_miss_rate
 import com.androidperformancestudio.frame.presentation.generated.resources.duration
 import com.androidperformancestudio.frame.presentation.generated.resources.frame
+import com.androidperformancestudio.frame.presentation.generated.resources.frame_attribution
+import com.androidperformancestudio.frame.presentation.generated.resources.frame_attribution_entry
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_detail
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline_vsync_id
@@ -170,6 +173,7 @@ private fun AnalysisContent(
             )
         }
         SummaryCards(analysis, language)
+        FrameAttributionSection(analysis.attributions, language)
         state.warnings.forEach { warning ->
             Text(warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
@@ -221,6 +225,38 @@ private fun SummaryCards(
         ProfilerMetricCard(localizedStringResource(Res.string.p50, language), summary.p50DurationNs.formatMillis(), Modifier.weight(1f))
         ProfilerMetricCard(localizedStringResource(Res.string.p95, language), summary.p95DurationNs.formatMillis(), Modifier.weight(1f))
         ProfilerMetricCard(localizedStringResource(Res.string.worst, language), summary.worstDurationNs.formatMillis(), Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun FrameAttributionSection(
+    attributions: List<FrameAttribution>,
+    language: UiLanguage,
+) {
+    if (attributions.isEmpty()) return
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                localizedStringResource(Res.string.frame_attribution, language),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            attributions.take(5).forEach { attribution ->
+                Text(
+                    localizedStringResource(
+                        Res.string.frame_attribution_entry,
+                        language,
+                        attribution.activityName,
+                        attribution.uiState,
+                        attribution.platformJankFrames,
+                        attribution.totalFrames,
+                        attribution.p95DurationNs.formatMillis(),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

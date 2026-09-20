@@ -33,4 +33,6 @@
     <string name="state_detail">State · %1$s</string>
     <string name="jank_cluster_summary">%1$s misses · largest reported: %2$s</string>
     <string name="unknown_stage">unknown stage</string>
+    <string name="frame_attribution">Jank attribution</string>
+    <string name="frame_attribution_entry">%1$s · %2$s · %3$s jank / %4$s frames · p95 %5$s</string>
 </resources>

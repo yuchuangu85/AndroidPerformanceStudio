@@ -168,4 +168,11 @@
     <string name="shark_status_not_run">Shark analysis unavailable</string>
     <string name="shark_status_failed">Shark analysis failed</string>
     <string name="analyzing_memory_leaks">Analyzing memory leaks…</string>
+    <string name="live_monitoring">Live monitoring</string>
+    <string name="live_monitoring_not_available">Live monitoring requires the LeakCanary bridge AAR in the target debug app.</string>
+    <string name="live_events">Live events</string>
+    <string name="no_live_events">No lifecycle or retention events have been received.</string>
+    <string name="live_event_summary">%1$s · %2$s</string>
+    <string name="agent_connected">Agent connected</string>
+    <string name="agent_not_connected">Agent not connected</string>
 </resources>

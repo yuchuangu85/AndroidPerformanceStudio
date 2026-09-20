@@ -33,4 +33,6 @@
     <string name="state_detail">状态 · %1$s</string>
     <string name="jank_cluster_summary">%1$s 次未命中 · 最大已报告：%2$s</string>
     <string name="unknown_stage">未知阶段</string>
+    <string name="frame_attribution">卡顿归因</string>
+    <string name="frame_attribution_entry">%1$s · %2$s · %3$s 次卡顿 / %4$s 帧 · p95 %5$s</string>
 </resources>

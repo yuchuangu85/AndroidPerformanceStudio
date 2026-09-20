@@ -39,5 +39,6 @@ class FrameJsonExporterTest {
         assertTrue(json.contains("\"platformJankRuleVersion\": \"1.2.3\""))
         assertTrue(json.contains("\"screen\": \"feed\\\"list\""))
         assertTrue(json.contains("\"clusters\": ["))
+        assertTrue(json.contains("\"attributions\": ["))
     }
 }

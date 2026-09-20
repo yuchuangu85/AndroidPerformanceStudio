@@ -61,4 +61,8 @@
     <string name="memory_leaks_view">内存泄漏</string>
     <string name="analyzing_memory_leaks">正在分析内存泄漏…</string>
     <string name="memory_leaks_analysis_failed">内存泄漏分析失败</string>
+    <string name="connecting_leak_canary_agent">正在连接 LeakCanary Agent…</string>
+    <string name="monitoring_leak_canary">正在监听 LeakCanary 事件…</string>
+    <string name="inject_leak_canary_agent">注入 Agent</string>
+    <string name="choose_android_project">选择 Android 工程</string>
 </resources>

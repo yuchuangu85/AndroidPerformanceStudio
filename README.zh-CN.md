@@ -122,8 +122,6 @@ cd desktop-viewer
 ## 项目结构
 
 ```text
-android-studio-plugin/   规划中的 Android Studio 插件集成
-web-ui-http-server/      规划中的 Web UI 与应用内 HTTP Server 集成
 desktop-viewer/          Compose Desktop 应用和功能模块
   desktop-app/           应用外壳、设置、资源与原生打包
   layout-inspector/      View 层级采集与分析
@@ -149,7 +147,6 @@ docs/                    架构、需求与设计记录
 - `desktop-viewer/desktop-app/` 只负责统一应用外壳、设置和原生打包；每个分析器拥有各自的实现，功能实现之间不互相依赖。
 - Layout Inspector 在调试构建中使用 Android Agent 获得高保真采集；不需要 root、隐藏 API、系统签名或网络权限。回退路径受 UI Automator 的可见性和性能限制。
 - 跨分析工具的跳转仅用于关联排查，不能作为因果关系证明。
-- Android Studio 插件和 Web UI 目录目前是规划占位；已经实现的产品形态是桌面应用。
 
 ## 更多文档
 
@@ -157,4 +154,5 @@ docs/                    架构、需求与设计记录
 - [Layout Inspector 协议](desktop-viewer/docs/architecture/PROTOCOL.md)
 - [桌面端设计](desktop-viewer/docs/design/2026-07-02-desktop-viewer-design.md)
 - [文档索引](docs/README.md)
+- [功能介绍目录](docs/features/README.md)
 - [第三方资源构建说明](third_party/README.md)

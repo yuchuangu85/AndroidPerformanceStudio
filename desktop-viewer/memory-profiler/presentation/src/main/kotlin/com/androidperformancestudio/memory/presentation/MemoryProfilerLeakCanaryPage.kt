@@ -1,4 +1,12 @@
-@file:Suppress("FunctionNaming", "MagicNumber", "LongMethod", "MaxLineLength", "ktlint:standard:function-naming")
+@file:Suppress(
+    "FunctionNaming",
+    "MagicNumber",
+    "LongMethod",
+    "MaxLineLength",
+    "LongParameterList",
+    "TooManyFunctions",
+    "ktlint:standard:function-naming",
+)
 
 package com.androidperformancestudio.memory.presentation
 
@@ -29,10 +37,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.memory.model.LeakCanaryLeak
+import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
+import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.LeakCanaryTraceElement
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
+import com.androidperformancestudio.memory.presentation.generated.resources.agent_connected
+import com.androidperformancestudio.memory.presentation.generated.resources.agent_not_connected
 import com.androidperformancestudio.memory.presentation.generated.resources.analyzed_classes
 import com.androidperformancestudio.memory.presentation.generated.resources.analyzed_objects
 import com.androidperformancestudio.memory.presentation.generated.resources.analyzing_memory_leaks
@@ -41,6 +53,8 @@ import com.androidperformancestudio.memory.presentation.generated.resources.gc_r
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_trace
 import com.androidperformancestudio.memory.presentation.generated.resources.leaking
 import com.androidperformancestudio.memory.presentation.generated.resources.library_leaks
+import com.androidperformancestudio.memory.presentation.generated.resources.live_event_summary
+import com.androidperformancestudio.memory.presentation.generated.resources.live_events
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_leaks
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_leaks_detail
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_leaks_failed
@@ -48,6 +62,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.memo
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_leaks_no_findings
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_leaks_no_heap
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_leaks_not_run
+import com.androidperformancestudio.memory.presentation.generated.resources.no_live_events
 import com.androidperformancestudio.memory.presentation.generated.resources.not_leaking
 import com.androidperformancestudio.memory.presentation.generated.resources.retained_bytes
 import com.androidperformancestudio.memory.presentation.generated.resources.retained_objects
@@ -68,6 +83,7 @@ public fun MemoryProfilerLeakCanaryPage(
     report: LeakCanaryReport,
     hasHeap: Boolean,
     isLoading: Boolean = false,
+    liveSession: LeakCanaryLiveSession = LeakCanaryLiveSession(),
     language: UiLanguage,
     modifier: Modifier = Modifier,
 ) {
@@ -97,16 +113,22 @@ public fun MemoryProfilerLeakCanaryPage(
                     )
                 }
                 LeakCanaryStatusChip(report.status, language)
+                Spacer(Modifier.width(8.dp))
+                LiveAgentStatusChip(liveSession, language)
             }
 
-            if (!hasHeap) {
+            val hasLiveSession =
+                liveSession.status == LeakCanaryLiveStatus.RUNNING ||
+                    liveSession.events.isNotEmpty()
+            if (!hasHeap && !hasLiveSession) {
                 EmptyLeakCanaryState(
                     text = localizedStringResource(Res.string.memory_leaks_no_heap, language),
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
-            } else if (isLoading) {
+            } else if (isLoading && liveSession.status != LeakCanaryLiveStatus.RUNNING) {
                 LeakCanaryLoadingState(language, Modifier.fillMaxWidth().weight(1f))
             } else {
+                LiveEventsSection(liveSession, language)
                 LeakCanarySummary(report, language)
                 when (report.status) {
                     LeakCanaryStatus.ANALYZING ->
@@ -146,6 +168,95 @@ public fun MemoryProfilerLeakCanaryPage(
                                 }
                             }
                         }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveAgentStatusChip(
+    session: LeakCanaryLiveSession,
+    language: UiLanguage,
+) {
+    val colors = LocalViewerColors.current
+    val connected = session.status == LeakCanaryLiveStatus.RUNNING
+    Text(
+        text =
+            localizedStringResource(
+                if (connected) Res.string.agent_connected else Res.string.agent_not_connected,
+                language,
+            ),
+        style = ViewerTypography.secondary,
+        color = if (connected) colors.success else colors.mutedText,
+        modifier =
+            Modifier
+                .background(
+                    (if (connected) colors.success else colors.mutedText).copy(alpha = 0.12f),
+                    RoundedCornerShape(ViewerDimensions.controlRadius),
+                ).padding(horizontal = 8.dp, vertical = 5.dp),
+    )
+}
+
+@Composable
+private fun LiveEventsSection(
+    session: LeakCanaryLiveSession,
+    language: UiLanguage,
+) {
+    val colors = LocalViewerColors.current
+    if (session.status == LeakCanaryLiveStatus.DISCONNECTED && session.events.isEmpty()) return
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("memory-profiler-live-events"),
+        color = colors.panel,
+        shape = RoundedCornerShape(ViewerDimensions.controlRadius),
+        tonalElevation = 1.dp,
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    localizedStringResource(Res.string.live_events, language),
+                    style = ViewerTypography.subsectionTitle,
+                    color = colors.primaryText,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    localizedStringResource(
+                        Res.string.live_event_summary,
+                        language,
+                        session.events.size,
+                        session.droppedEvents,
+                    ),
+                    style = ViewerTypography.label,
+                    color = colors.secondaryText,
+                )
+            }
+            if (session.events.isEmpty()) {
+                Text(
+                    if (session.message.isNullOrBlank()) {
+                        localizedStringResource(Res.string.no_live_events, language)
+                    } else {
+                        session.message.orEmpty()
+                    },
+                    style = ViewerTypography.secondary,
+                    color = colors.secondaryText,
+                )
+            } else {
+                session.events.takeLast(12).asReversed().forEach { event ->
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text(
+                            text = event.kind,
+                            style = ViewerTypography.label,
+                            color = if (event.retained == true) colors.error else colors.accent,
+                            modifier = Modifier.width(150.dp),
+                        )
+                        Text(
+                            text = event.className ?: event.description.orEmpty(),
+                            style = ViewerTypography.secondary,
+                            color = colors.primaryText,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }

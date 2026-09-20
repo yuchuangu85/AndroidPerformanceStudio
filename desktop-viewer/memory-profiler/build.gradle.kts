@@ -6,6 +6,8 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
     kotlin("jvm") version "2.4.0" apply false
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.4.0" apply false
+    id("com.android.library") version "9.2.0" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.0" apply false
     id("org.jetbrains.compose") version "1.11.1" apply false
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
@@ -18,6 +20,7 @@ allprojects {
 }
 
 subprojects {
+    if (name == "android-agent-leakcanary") return@subprojects
     apply(plugin = "org.jetbrains.kotlin.jvm")
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
     apply(plugin = "io.gitlab.arturbosch.detekt")

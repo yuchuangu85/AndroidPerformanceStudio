@@ -201,6 +201,7 @@ public fun MemoryProfilerScreen(
                         report = presentedState.leakCanaryReport,
                         hasHeap = presentedState.snapshotSummary != null,
                         isLoading = presentedState.isDumping,
+                        liveSession = presentedState.leakCanaryLiveSession,
                         language = language,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )

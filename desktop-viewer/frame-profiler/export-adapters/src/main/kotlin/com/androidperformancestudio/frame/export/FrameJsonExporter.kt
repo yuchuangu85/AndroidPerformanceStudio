@@ -83,6 +83,23 @@ public class FrameJsonExporter {
                 writer.append("    }")
                 writer.appendLine(if (index == result.clusters.lastIndex) "" else ",")
             }
+            writer.appendLine("  ],")
+            writer.appendLine("  \"attributions\": [")
+            result.attributions.forEachIndexed { index, attribution ->
+                writer.appendLine("    {")
+                writer.appendLine("      \"activityName\": ${attribution.activityName.jsonString()},")
+                writer.appendLine("      \"windowId\": ${attribution.windowId.jsonString()},")
+                writer.appendLine("      \"uiState\": ${attribution.uiState.jsonString()},")
+                writer.appendLine("      \"totalFrames\": ${attribution.totalFrames},")
+                writer.appendLine("      \"deadlineMissFrames\": ${attribution.deadlineMissFrames},")
+                writer.appendLine("      \"platformJankFrames\": ${attribution.platformJankFrames},")
+                writer.appendLine("      \"averageDurationNs\": ${attribution.averageDurationNs.jsonValue()},")
+                writer.appendLine("      \"p95DurationNs\": ${attribution.p95DurationNs.jsonValue()},")
+                writer.appendLine("      \"worstDurationNs\": ${attribution.worstDurationNs.jsonValue()},")
+                writer.appendLine("      \"jankTypes\": ${attribution.jankTypes.toList().sorted().jsonArray()}")
+                writer.append("    }")
+                writer.appendLine(if (index == result.attributions.lastIndex) "" else ",")
+            }
             writer.appendLine("  ]")
             writer.appendLine("}")
         }

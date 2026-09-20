@@ -92,8 +92,6 @@
 
 | 功能/模块 | 状态 | 记录时间 | Commit/来源 | 说明 |
 | --- | --- | --- | --- | --- |
-| Android Studio 插件方案 | ⏳ 未开始 | 2026-07-02 22:00:39 +0800 | `3a59003` / `README.md` | 仓库中为规划占位，尚未开发。 |
-| Web UI + App 内 HTTP Server 方案 | ⏳ 未开始 | 2026-07-02 22:00:39 +0800 | `3a59003` / `README.md` | 仓库中为规划占位，尚未开发。 |
 | Compose semantics 支持 | ⏳ 未开始 | README 当前 scope | `desktop-viewer/README.md` | 当前 scope 标注为 future work。 |
 | Report persistence | ⏳ 未开始 | README 当前 scope | `desktop-viewer/README.md` | 当前 scope 标注为 future work。 |
 | Timeline diff | ⏳ 未开始 | README 当前 scope | `desktop-viewer/README.md` | 当前 scope 标注为 future work。 |

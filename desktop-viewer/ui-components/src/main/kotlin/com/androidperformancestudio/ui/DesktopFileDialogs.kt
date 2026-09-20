@@ -23,6 +23,16 @@ public fun chooseSaveFile(
         if (showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
     }
 
+public fun chooseDirectory(
+    parent: Component?,
+    title: String,
+): File? =
+    JFileChooser().run {
+        dialogTitle = title
+        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
+    }
+
 public fun chooseOpenFile(
     parent: Component?,
     title: String,

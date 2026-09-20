@@ -94,6 +94,76 @@ object PerfettoDiagnostics {
                     """.trimIndent(),
             ),
             DiagnosticQuery(
+                id = "cpu_contention",
+                category = DiagnosticCategory.CPU,
+                title = "CPU Contention",
+                description = "Threads delayed between wakeup and actual execution",
+                columns = listOf("thread_name", "process_name", "contention_count", "avg_wait_ms", "max_wait_ms"),
+                sql =
+                    """
+                    INCLUDE PERFETTO MODULE sched.runnable;
+
+                    SELECT thread.name AS thread_name,
+                           process.name AS process_name,
+                           COUNT(*) AS contention_count,
+                           ROUND(AVG(running.ts - runnable.ts) / 1e6, 3) AS avg_wait_ms,
+                           ROUND(MAX(running.ts - runnable.ts) / 1e6, 3) AS max_wait_ms
+                    FROM sched_previous_runnable_on_thread AS previous
+                    JOIN thread_state AS running ON running.id = previous.id
+                    JOIN thread_state AS runnable ON runnable.id = previous.prev_wakeup_runnable_id
+                    JOIN thread ON thread.utid = running.utid
+                    LEFT JOIN process ON process.upid = thread.upid
+                    WHERE running.ts > runnable.ts
+                    GROUP BY running.utid
+                    ORDER BY max_wait_ms DESC
+                    LIMIT 30
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
+                id = "binder_server_saturation",
+                category = DiagnosticCategory.BINDER,
+                title = "Binder Server Saturation",
+                description = "Server-side Binder time grouped by service process",
+                columns = listOf("server", "txn_count", "total_server_ms", "avg_server_ms", "max_server_ms"),
+                sql =
+                    """
+                    INCLUDE PERFETTO MODULE android.binder;
+
+                    SELECT binder.server_process AS server,
+                           COUNT(*) AS txn_count,
+                           ROUND(SUM(binder.server_dur) / 1e6, 3) AS total_server_ms,
+                           ROUND(AVG(binder.server_dur) / 1e6, 3) AS avg_server_ms,
+                           ROUND(MAX(binder.server_dur) / 1e6, 3) AS max_server_ms
+                    FROM android_binder_txns AS binder
+                    WHERE binder.server_dur > 0
+                    GROUP BY binder.server_upid, binder.server_process
+                    ORDER BY total_server_ms DESC
+                    LIMIT 20
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
+                id = "binder_wait_chain",
+                category = DiagnosticCategory.BINDER,
+                title = "Binder Wait Chain",
+                description = "Thread states observed while serving or waiting for Binder transactions",
+                columns = listOf("thread_state_type", "state", "txn_count", "total_dur_ms", "max_dur_ms"),
+                sql =
+                    """
+                    INCLUDE PERFETTO MODULE android.binder;
+
+                    SELECT state.thread_state_type AS thread_state_type,
+                           state.state AS state,
+                           COUNT(*) AS txn_count,
+                           ROUND(SUM(state.dur) / 1e6, 3) AS total_dur_ms,
+                           ROUND(MAX(state.dur) / 1e6, 3) AS max_dur_ms
+                    FROM android_sync_binder_thread_state_by_txn AS state
+                    WHERE state.dur > 0
+                    GROUP BY state.thread_state_type, state.state
+                    ORDER BY total_dur_ms DESC
+                    LIMIT 30
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
                 id = "binder_latency",
                 category = DiagnosticCategory.BINDER,
                 title = "Binder Transaction Latency",
@@ -139,6 +209,31 @@ object PerfettoDiagnostics {
                     GROUP BY process.upid, process.name
                     ORDER BY janky_frames DESC
                     LIMIT 20
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
+                id = "frame_surface_correlation",
+                category = DiagnosticCategory.GRAPHICS,
+                title = "Frame / SurfaceFlinger Correlation",
+                description = "FrameTimeline jank grouped by application layer and SurfaceFlinger",
+                columns = listOf("layer_name", "frame_count", "janky_frames", "surface_flinger_janky_frames", "max_dur_ms"),
+                sql =
+                    """
+                    INCLUDE PERFETTO MODULE android.frames.timeline;
+
+                    SELECT COALESCE(frames.layer_name, 'unknown') AS layer_name,
+                           COUNT(*) AS frame_count,
+                           SUM(CASE WHEN frames.jank_type IS NOT NULL AND lower(frames.jank_type) != 'on time' THEN 1 ELSE 0 END) AS janky_frames,
+                           SUM(CASE WHEN lower(COALESCE(process.name, '')) GLOB '*surfaceflinger*'
+                                    AND frames.jank_type IS NOT NULL
+                                    AND lower(frames.jank_type) != 'on time' THEN 1 ELSE 0 END) AS surface_flinger_janky_frames,
+                           ROUND(MAX(frames.dur) / 1e6, 3) AS max_dur_ms
+                    FROM actual_frame_timeline_slice AS frames
+                    LEFT JOIN process ON process.upid = frames.upid
+                    WHERE frames.display_frame_token IS NOT NULL
+                    GROUP BY frames.layer_name
+                    ORDER BY janky_frames DESC, max_dur_ms DESC
+                    LIMIT 30
                     """.trimIndent(),
             ),
             DiagnosticQuery(

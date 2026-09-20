@@ -17,7 +17,6 @@
   `MainPage（状态、控制器、菜单、文件选择器） -> Screen（Compose 内容布局）` 的分层方式。
 - 自研 Desktop 界面没有 Android XML layout。除 Android 示例 App 使用代码创建传统 View 外，
   所有主要产品布局都定义在 Kotlin `@Composable` 函数中。
-- `android-studio-plugin/` 和 `web-ui-http-server/` 当前仍是规划占位，没有已实现的自研界面。
 
 ## 2. 总体导航
 
@@ -320,18 +319,7 @@ Layout Inspector 附带一个用于联调的 Android View 示例 App。它不是
 | 示例 Activity | `desktop-viewer/layout-inspector/samples/android-view-app/src/main/kotlin/dev/agentperf/sample/MainActivity.kt` | `MainActivity`、`onCreate` | 在 `setContentView` 中用 Kotlin 创建纵向 `LinearLayout` 和 3 个 `TextView`。 |
 | TextView 样式 | `desktop-viewer/layout-inspector/samples/android-view-app/src/main/kotlin/dev/agentperf/sample/MainActivity.kt` | `label` | 统一文字颜色、字号和底部间距。 |
 
-## 17. 尚无自研界面的规划模块
-
-| 模块 | 当前状态 | 证据位置 |
-| --- | --- | --- |
-| Android Studio 插件 | 只有规划文档，没有 Gradle 插件工程、`plugin.xml`、Action、ToolWindow 或设置页实现。 | `android-studio-plugin/README.md` 的“方案 A：Android Studio 插件”说明 |
-| Web UI + App 内 HTTP Server | 只有规划文档，没有该方案对应的自研 Web 前端或 Android Server 工程。 | `web-ui-http-server/README.md` 的“方案 C：Web UI + App 内 HTTP Server”说明 |
-
-Android Studio 插件未来计划的 Tool Window 区域记录在
-`docs/requirements/layout-complexity-inspector-three-solutions-plan.md` 的“三、方案 A：Android Studio 插件”章节，
-但这些规划内容不能当作现有界面代码位置。
-
-## 18. 维护时如何快速定位界面
+## 17. 维护时如何快速定位界面
 
 1. 先从 `DesktopAppMainPage` 的 `when (navigator.destination)` 找到一级路由对应的 `*MainPage`。
 2. 在 `*MainPage` 中查找传入的 `*Screen`，这里通常包含控制器、状态收集、工具栏和文件选择器。
