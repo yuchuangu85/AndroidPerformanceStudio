@@ -8,6 +8,7 @@ import com.androidperformancestudio.memory.analysis.InstanceQueryRow
 import com.androidperformancestudio.memory.analysis.InstanceReferenceQuery
 import com.androidperformancestudio.memory.analysis.ProguardMapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
+import com.androidperformancestudio.memory.memory_app.generated.resources.analyzing_memory_leaks
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
 import com.androidperformancestudio.memory.memory_app.generated.resources.capturing_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_bitmaps_for
@@ -18,6 +19,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.importing_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.loading_session
 import com.androidperformancestudio.memory.memory_app.generated.resources.mapping_imported
+import com.androidperformancestudio.memory.memory_app.generated.resources.memory_leaks_analysis_failed
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_capture_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_java_heap
@@ -35,6 +37,7 @@ import com.androidperformancestudio.memory.model.HeapLoadPhase
 import com.androidperformancestudio.memory.model.HeapObjectFieldEvidence
 import com.androidperformancestudio.memory.model.HeapObjectInvestigation
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
+import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
 import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.MemoryArrangeBy
@@ -136,6 +139,9 @@ internal interface MemoryProfilerBackend {
      */
     suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> =
         MemoryBackendResult.Failure("Mapping import unavailable", "The selected backend does not support mapping.txt.")
+
+    suspend fun analyzeLeaks(): MemoryBackendResult<LeakCanaryReport> =
+        MemoryBackendResult.Failure("Leak analysis unavailable", "The selected backend does not support LeakCanary analysis.")
 
     suspend fun listSessions(): MemoryBackendResult<List<MemorySessionMetadata>> = MemoryBackendResult.Success(emptyList())
 
@@ -662,6 +668,49 @@ internal class MemoryProfilerController(
     }
 
     @Suppress("TooGenericExceptionCaught")
+    suspend fun analyzeLeaks() {
+        activeOperationJob = currentCoroutineContext()[Job]
+        val snapshot = mutableState.value
+        if (snapshot.snapshotSummary == null) return
+        mutableState.value =
+            snapshot.copy(
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.analyzing_memory_leaks, language),
+                loadPhase = HeapLoadPhase.ANALYZE,
+                loadProgress = null,
+                error = null,
+                warning = null,
+            )
+        val result =
+            try {
+                backend.analyzeLeaks()
+            } catch (exception: CancellationException) {
+                markOperationCancelled()
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.memory_leaks_analysis_failed, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        when (result) {
+            is MemoryBackendResult.Failure -> showFailure(result)
+            is MemoryBackendResult.Success -> {
+                activeOperationJob = null
+                mutableState.value =
+                    mutableState.value.copy(
+                        isDumping = false,
+                        operationMessage = null,
+                        loadPhase = HeapLoadPhase.IDLE,
+                        loadProgress = 100,
+                        leakCanaryReport = result.value,
+                        error = null,
+                    )
+            }
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
     suspend fun dumpBitmaps() {
         activeOperationJob = currentCoroutineContext()[Job]
         val snapshot = mutableState.value
@@ -1026,6 +1075,7 @@ internal class MemoryProfilerController(
                             },
                         bitmapInstances = result.value.heapDump.bitmapInstances,
                         activityLeaks = result.value.heapDump.activityLeaks,
+                        leakCanaryReport = result.value.heapDump.leakCanaryReport,
                         mappingLoaded = result.value.mapping != null,
                         selectedClassName = null,
                         selectedClassifierId = null,

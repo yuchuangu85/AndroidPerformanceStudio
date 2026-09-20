@@ -196,6 +196,14 @@ public fun MemoryProfilerScreen(
                         language = language,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
+                MemoryProfilerViewMode.LeakCanary ->
+                    MemoryProfilerLeakCanaryPage(
+                        report = presentedState.leakCanaryReport,
+                        hasHeap = presentedState.snapshotSummary != null,
+                        isLoading = presentedState.isDumping,
+                        language = language,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
                 MemoryProfilerViewMode.Dashboard -> {
                 Column(
                     modifier =

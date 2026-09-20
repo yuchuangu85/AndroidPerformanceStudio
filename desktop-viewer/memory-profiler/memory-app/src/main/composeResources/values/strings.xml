@@ -58,4 +58,7 @@
     <string name="no_heap_objects_parsed">No heap objects were parsed from %1$s. The file may use unsupported HPROF records or may not contain a heap dump.</string>
     <string name="install_sdk_platform_tools">Install SDK Platform Tools or configure ANDROID_HOME/ANDROID_SDK_ROOT so adb is available.</string>
     <string name="hprof_parser_out_of_memory">The parser ran out of memory while analyzing this file. Try closing other workspaces or increase the desktop application's maximum heap size.</string>
+    <string name="memory_leaks_view">Memory Leaks</string>
+    <string name="analyzing_memory_leaks">Analyzing memory leaks…</string>
+    <string name="memory_leaks_analysis_failed">Memory leak analysis failed</string>
 </resources>

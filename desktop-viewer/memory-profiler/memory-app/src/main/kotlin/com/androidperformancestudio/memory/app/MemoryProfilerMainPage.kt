@@ -35,6 +35,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_java_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.memory_leaks_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.native_heap_view
 import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
@@ -251,6 +252,15 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     selected = state.viewMode == MemoryProfilerViewMode.NativeHeap,
                     enabled = state.nativeHeapTrace != null || state.isDumping,
                     onClick = { controller.changeViewMode(MemoryProfilerViewMode.NativeHeap) },
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.memory_leaks_view, language),
+                    selected = state.viewMode == MemoryProfilerViewMode.LeakCanary,
+                    enabled = loaded != null && !state.isDumping,
+                    onClick = {
+                        controller.changeViewMode(MemoryProfilerViewMode.LeakCanary)
+                        scope.launch { controller.analyzeLeaks() }
+                    },
                 )
             }
             MemoryProfilerDumpHeapButton(

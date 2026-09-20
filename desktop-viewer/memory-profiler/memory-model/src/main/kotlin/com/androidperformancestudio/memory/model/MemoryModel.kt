@@ -84,6 +84,7 @@ data class HeapDump(
     val heapByObjectId: Map<Long, String> = emptyMap(),
     val bitmapInstances: List<BitmapInstanceStats> = emptyList(),
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
+    val leakCanaryReport: LeakCanaryReport = LeakCanaryReport(),
     val artifact: CaptureArtifact? = null,
 )
 
@@ -174,7 +175,6 @@ data class HeapObjectInvestigation(
     val references: List<HeapObjectFieldEvidence> = emptyList(),
     val referenceChain: List<ObjectReference> = emptyList(),
 )
-
 
 data class HeapInstance(
     override val objectId: Long,
@@ -411,6 +411,45 @@ object MemoryHeapNames {
     /** Preferred display order for the Heap selector. */
     val ordered: List<String> = listOf(APP, IMAGE, ZYGOTE, DEFAULT)
 }
+
+/** Result of the optional Shark-backed LeakCanary-compatible offline analysis. */
+data class LeakCanaryReport(
+    val status: LeakCanaryStatus = LeakCanaryStatus.NOT_RUN,
+    val analyzedClassCount: Int = 0,
+    val analyzedObjectCount: Int = 0,
+    val applicationLeaks: List<LeakCanaryLeak> = emptyList(),
+    val libraryLeaks: List<LeakCanaryLeak> = emptyList(),
+    val message: String? = null,
+) {
+    val totalLeaks: Int
+        get() = applicationLeaks.size + libraryLeaks.size
+}
+
+enum class LeakCanaryStatus {
+    NOT_RUN,
+    ANALYZING,
+    NO_CANDIDATES,
+    COMPLETED,
+    FAILED,
+}
+
+data class LeakCanaryLeak(
+    val signature: String,
+    val shortDescription: String,
+    val leakingClassName: String,
+    val retainedHeapByteSize: Int? = null,
+    val retainedObjectCount: Int? = null,
+    val gcRootType: String? = null,
+    val trace: List<LeakCanaryTraceElement> = emptyList(),
+)
+
+data class LeakCanaryTraceElement(
+    val className: String,
+    val referenceName: String? = null,
+    val referenceType: String? = null,
+    val leakingStatus: String? = null,
+    val leakingStatusReason: String? = null,
+)
 
 /** A per-Activity-class summary used to report Activity leaks with live/destroyed counts. */
 data class ActivityLeakEntry(

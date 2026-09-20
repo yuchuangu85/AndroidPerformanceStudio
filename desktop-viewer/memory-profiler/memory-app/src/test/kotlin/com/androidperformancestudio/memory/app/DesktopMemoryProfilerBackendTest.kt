@@ -2,6 +2,8 @@ package com.androidperformancestudio.memory.app
 
 import com.androidperformancestudio.memory.capture.AndroidSdkHprofConvLocator
 import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
+import com.androidperformancestudio.memory.model.LeakCanaryReport
+import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.NativeHeapEvidenceSource
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.platform.adb.AdbBinaryResult
@@ -136,6 +138,10 @@ class DesktopMemoryProfilerBackendTest {
             )
             assertEquals(0, progress.first())
             assertEquals(100, progress.last())
+            assertEquals(LeakCanaryStatus.NOT_RUN, loaded.heapDump.leakCanaryReport.status)
+
+            val leakAnalysis = assertIs<MemoryBackendResult.Success<LeakCanaryReport>>(backend.analyzeLeaks()).value
+            assertEquals(LeakCanaryStatus.NO_CANDIDATES, leakAnalysis.status)
         }
 
     @Test

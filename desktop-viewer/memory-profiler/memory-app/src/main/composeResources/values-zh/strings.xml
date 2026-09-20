@@ -58,4 +58,7 @@
     <string name="no_heap_objects_parsed">未能从 %1$s 解析出堆对象。该文件可能使用了不受支持的 HPROF 记录，或不包含堆转储。</string>
     <string name="install_sdk_platform_tools">请安装 SDK Platform Tools，或配置 ANDROID_HOME/ANDROID_SDK_ROOT 以使 adb 可用。</string>
     <string name="hprof_parser_out_of_memory">解析器分析此文件时内存不足。请尝试关闭其他工作区，或增大桌面应用的最大堆内存。</string>
+    <string name="memory_leaks_view">内存泄漏</string>
+    <string name="analyzing_memory_leaks">正在分析内存泄漏…</string>
+    <string name="memory_leaks_analysis_failed">内存泄漏分析失败</string>
 </resources>

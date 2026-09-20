@@ -15,7 +15,12 @@ import com.androidperformancestudio.memory.model.BitmapDumpImage
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.LeakCanaryLeak
+import com.androidperformancestudio.memory.model.LeakCanaryReport
+import com.androidperformancestudio.memory.model.LeakCanaryStatus
+import com.androidperformancestudio.memory.model.LeakCanaryTraceElement
 import com.androidperformancestudio.memory.model.LeakSuspect
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
 import com.androidperformancestudio.memory.model.NativeHeapSample
@@ -74,6 +79,55 @@ class MemoryProfilerScreenTest {
             assertEquals(histogramBounds.left, histogramTitleBounds.left)
             assertEquals(histogramBounds.top, histogramTitleBounds.top)
         }
+
+    @Test
+    fun `leak canary view is a themed dedicated page with trace details`() {
+        runDesktopComposeUiTest(width = 1000, height = 700) {
+            setContent {
+                MemoryProfilerScreen(
+                    state =
+                        MemoryProfilerState(
+                            viewMode = MemoryProfilerViewMode.LeakCanary,
+                            snapshotSummary = HeapSnapshotSummary(id = "snapshot"),
+                            leakCanaryReport =
+                                LeakCanaryReport(
+                                    status = LeakCanaryStatus.COMPLETED,
+                                    analyzedClassCount = 4,
+                                    analyzedObjectCount = 12,
+                                    applicationLeaks =
+                                        listOf(
+                                            LeakCanaryLeak(
+                                                signature = "sig",
+                                                shortDescription = "Retained Activity",
+                                                leakingClassName = "com.example.MainActivity",
+                                                retainedHeapByteSize = 4096,
+                                                trace =
+                                                    listOf(
+                                                        LeakCanaryTraceElement(
+                                                            className = "com.example.Manager",
+                                                            referenceName = "activity",
+                                                            leakingStatus = "NOT_LEAKING",
+                                                        ),
+                                                        LeakCanaryTraceElement(
+                                                            className = "com.example.MainActivity",
+                                                            leakingStatus = "LEAKING",
+                                                        ),
+                                                    ),
+                                            ),
+                                        ),
+                                ),
+                        ),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            onNodeWithTag("memory-profiler-leak-canary-page").assertExists()
+            onNodeWithText("Memory leaks").assertExists()
+            onAllNodesWithText("Application leaks")[0].assertExists()
+            onAllNodesWithText("com.example.MainActivity")[0].assertExists()
+            onNodeWithText("Leak trace").assertExists()
+        }
+    }
 
     @Test
     fun `native heap view is a dedicated page with loading and allocation details`() {
