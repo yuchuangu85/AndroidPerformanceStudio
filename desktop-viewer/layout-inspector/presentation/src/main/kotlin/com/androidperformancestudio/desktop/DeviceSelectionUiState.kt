@@ -12,10 +12,11 @@ fun deviceChoices(devices: List<AdbDevice>): List<DeviceChoiceModel> =
     devices.map { device ->
         DeviceChoiceModel(
             serial = device.serial,
-            label = listOfNotNull(
-                device.model?.takeIf(String::isNotBlank),
-                device.serial,
-            ).joinToString(" · "),
+            label =
+                device.model
+                    ?.takeIf { model -> model.isNotBlank() && model != device.serial }
+                    ?.let { model -> "$model · ${device.serial}" }
+                    ?: device.serial,
         )
     }
 

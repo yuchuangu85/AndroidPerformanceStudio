@@ -100,6 +100,37 @@ class AndroidTargetMonitorTest {
         }
 
 
+
+    @Test
+    fun `online device model is enriched by focused getprop even without complete device properties`() =
+        kotlinx.coroutines.test.runTest {
+            val monitor =
+                AndroidTargetMonitors.create(Path.of("adb")) { request, _ ->
+                    val stdout =
+                        when {
+                            request.arguments == listOf("devices", "-l") ->
+                                "List of devices attached\nserial-1 device model:unknown product:unknown device:unknown\n"
+                            request.arguments.takeLast(2) == listOf("getprop", "ro.product.model") -> "Pixel 9 Pro\n"
+                            else -> ""
+                        }
+                    HostCommandResult.Completed(
+                        HostCommandOutput(
+                            pid = 1L,
+                            command = request.command,
+                            exitCode = 0,
+                            stdout = HostCapturedText(stdout, false),
+                            stderr = HostCapturedText("", false),
+                            startedAt = Instant.EPOCH,
+                            finishedAt = Instant.EPOCH,
+                        ),
+                    )
+                }
+
+            val devices = monitor.refreshDevices()
+
+            assertEquals("Pixel 9 Pro", (devices as StudioResult.Success).value.single().model)
+        }
+
     @Test
     fun `relative adb executable remains a PATH command when refreshing devices`() =
         kotlinx.coroutines.test.runTest {

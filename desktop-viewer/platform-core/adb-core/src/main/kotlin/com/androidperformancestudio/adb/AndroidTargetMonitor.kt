@@ -3,6 +3,8 @@ package com.androidperformancestudio.adb
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
@@ -180,18 +182,28 @@ internal class ProcessAndroidTargetDiscovery(
                         if (device.state != com.androidperformancestudio.platform.adb.AdbDeviceState.ONLINE) {
                             device
                         } else {
-                            when (
-                                val properties =
-                                    AdbDevicePropertiesReader(adbExecutable, processInvocation = processInvocation)
-                                        .read(device.serial, cancellationSignal)
-                            ) {
-                                is StudioResult.Failure -> device
-                                is StudioResult.Success -> device.copy(model = properties.value.model)
-                            }
+                            resolveModel(device.serial, cancellationSignal)
+                                ?.let { model -> device.copy(model = model) }
+                                ?: device
                         }
                     },
                 )
         }
+
+    private suspend fun resolveModel(
+        serial: String,
+        cancellationSignal: HostCancellationSignal,
+    ): String? {
+        val request =
+            HostProcessRequest(
+                executable = adbExecutable,
+                arguments = listOf("-s", serial, "shell", "getprop", "ro.product.model"),
+            )
+        return when (val result = processInvocation(request, cancellationSignal)) {
+            is HostCommandResult.Completed -> result.output.stdout.text.trim().usableModel()
+            is HostCommandResult.Failed -> null
+        }
+    }
 
     override suspend fun targets(
         serial: String,
@@ -199,12 +211,19 @@ internal class ProcessAndroidTargetDiscovery(
     ): StudioResult<AdbTargetSnapshot> =
         AdbTargetCatalog(adbExecutable, processInvocation).refresh(serial, cancellationSignal)
 
+    private fun String.usableModel(): String? =
+        takeIf { value -> value.isNotBlank() && value.lowercase() !in UNUSABLE_MODELS }
+
     override suspend fun threads(
         serial: String,
         pid: Int,
         cancellationSignal: HostCancellationSignal,
     ): StudioResult<List<AndroidThread>> =
         AdbTargetCatalog(adbExecutable, processInvocation).listThreads(serial, pid, cancellationSignal)
+
+    private companion object {
+        val UNUSABLE_MODELS = setOf("unknown", "<unknown>", "null", "n/a", "na")
+    }
 }
 
 internal data class AndroidThreadTarget(

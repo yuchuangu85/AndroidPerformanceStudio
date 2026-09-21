@@ -6,6 +6,17 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class DeviceSelectionUiStateTest {
+
+    @Test
+    fun `device choice does not duplicate a serial used as model fallback`() {
+        val choices =
+            deviceChoices(
+                listOf(AdbDevice(serial = "serial-1", state = AdbDeviceState.ONLINE, model = "serial-1")),
+            )
+
+        assertEquals(listOf(DeviceChoiceModel("serial-1", "serial-1")), choices)
+    }
+
     @Test
     fun `device choices prefer model label and keep serial identity`() {
         val choices = deviceChoices(
