@@ -1,25 +1,23 @@
 package com.androidperformancestudio.desktop
 
-import com.androidperformancestudio.platform.adb.AdbDevice
-import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
+import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 
 data class DeviceChoiceModel(
     val serial: String,
     val label: String,
 )
 
-fun deviceChoices(devices: List<AdbDevice>): List<DeviceChoiceModel> =
+fun deviceChoices(devices: List<AndroidDeviceInfo>): List<DeviceChoiceModel> =
     devices.map { device ->
         DeviceChoiceModel(
             serial = device.serial,
-            label = device.displayName(),
+            label = device.displayName,
         )
     }
 
 fun sanitizeSelectedDeviceSerial(
     selectedSerial: String?,
-    devices: List<AdbDevice>,
+    devices: List<AndroidDeviceInfo>,
 ): String? =
-    selectedSerial?.takeIf { serial -> devices.any { it.serial == serial && it.state == AdbDeviceState.ONLINE } }
-        ?: devices.filter { it.state == AdbDeviceState.ONLINE }.singleOrNull()?.serial
+    selectedSerial?.takeIf { serial -> devices.any { it.serial == serial && it.online } }
+        ?: devices.filter(AndroidDeviceInfo::online).singleOrNull()?.serial

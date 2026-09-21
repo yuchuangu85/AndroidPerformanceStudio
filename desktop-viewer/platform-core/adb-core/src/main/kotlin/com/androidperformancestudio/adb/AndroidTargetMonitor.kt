@@ -2,6 +2,10 @@ package com.androidperformancestudio.adb
 
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
+import com.androidperformancestudio.platform.adb.toDeviceInfo
+import com.androidperformancestudio.platform.adb.parseAdbDeviceIdentity
+import com.androidperformancestudio.platform.adb.withIdentity
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import com.androidperformancestudio.platform.toolchain.HostCommandResult
 import com.androidperformancestudio.platform.toolchain.HostProcessRequest
@@ -11,12 +15,15 @@ import java.util.concurrent.CopyOnWriteArraySet
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** Canonical device-list result delivered by [AndroidTargetMonitor]. */
+public typealias AndroidDeviceInfosResult = StudioResult<List<AndroidDeviceInfo>>
+
 /**
  * Receives cached Android target discovery updates. Pages register once and refresh through
  * [AndroidTargetMonitor], rather than owning separate device, package, process, or thread polling.
  */
 public interface AndroidTargetListener {
-    public fun onDevices(result: AdbDevicesResult) = Unit
+    public fun onDevices(result: AndroidDeviceInfosResult) = Unit
 
     public fun onTargetSnapshot(
         serial: String,
@@ -60,7 +67,7 @@ public class AndroidTargetMonitor internal constructor(
     private val threadMutexes = ConcurrentHashMap<AndroidThreadTarget, Mutex>()
 
     @Volatile
-    private var devicesResult: AdbDevicesResult? = null
+    private var devicesResult: AndroidDeviceInfosResult? = null
     private val targetsBySerial = ConcurrentHashMap<String, StudioResult<AdbTargetSnapshot>>()
     private val applicationsBySerial = ConcurrentHashMap<String, StudioResult<List<AndroidPackage>>>()
     private val processesBySerial = ConcurrentHashMap<String, StudioResult<List<AndroidProcess>>>()
@@ -79,8 +86,12 @@ public class AndroidTargetMonitor internal constructor(
     /** Refreshes the connected-device snapshot once and publishes it to all listeners. */
     public suspend fun refreshDevices(
         cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
-    ): AdbDevicesResult {
-        val result = devicesMutex.withLock { discovery.devices(cancellationSignal) }
+    ): AndroidDeviceInfosResult {
+        val result =
+            when (val devices = devicesMutex.withLock { discovery.devices(cancellationSignal) }) {
+                is StudioResult.Failure -> devices
+                is StudioResult.Success -> StudioResult.Success(devices.value.map(AdbDevice::toDeviceInfo))
+            }
         devicesResult = result
         listeners.forEach { it.onDevices(result) }
         return result
@@ -183,12 +194,7 @@ internal class ProcessAndroidTargetDiscovery(
                             device
                         } else {
                             resolveIdentity(device.serial, cancellationSignal)
-                                ?.let { identity ->
-                                    device.copy(
-                                        manufacturer = identity.manufacturer ?: device.manufacturer,
-                                        model = identity.model ?: device.model,
-                                    )
-                                }
+                                ?.let(device::withIdentity)
                                 ?: device
                         }
                     },
@@ -198,33 +204,17 @@ internal class ProcessAndroidTargetDiscovery(
     private suspend fun resolveIdentity(
         serial: String,
         cancellationSignal: HostCancellationSignal,
-    ): DeviceIdentity? {
+    ): com.androidperformancestudio.platform.adb.AdbDeviceIdentity? {
         val request =
             HostProcessRequest(
                 executable = adbExecutable,
                 arguments = listOf("-s", serial, "shell", "getprop"),
             )
         return when (val result = processInvocation(request, cancellationSignal)) {
-            is HostCommandResult.Completed -> {
-                val properties =
-                    result.output.stdout.text
-                        .lineSequence()
-                        .mapNotNull { line -> PROPERTY_LINE.matchEntire(line.trim()) }
-                        .associate { match -> match.groupValues[1] to match.groupValues[2].trim() }
-                DeviceIdentity(
-                    manufacturer = properties[MANUFACTURER_PROPERTY]?.usableManufacturer(),
-                    model = properties[MODEL_PROPERTY]?.usableModel(),
-                ).takeIf { identity -> identity.manufacturer != null || identity.model != null }
-            }
+            is HostCommandResult.Completed -> parseAdbDeviceIdentity(result.output.stdout.text)
             is HostCommandResult.Failed -> null
         }
     }
-
-    private fun String.usableManufacturer(): String? =
-        takeIf { value -> value.isNotBlank() && value.lowercase() !in UNUSABLE_MANUFACTURERS }
-
-    private fun String.usableModel(): String? =
-        takeIf { value -> value.isNotBlank() && value.lowercase() !in UNUSABLE_MODELS }
 
     override suspend fun targets(
         serial: String,
@@ -239,18 +229,6 @@ internal class ProcessAndroidTargetDiscovery(
     ): StudioResult<List<AndroidThread>> =
         AdbTargetCatalog(adbExecutable, processInvocation).listThreads(serial, pid, cancellationSignal)
 
-    private data class DeviceIdentity(
-        val manufacturer: String?,
-        val model: String?,
-    )
-
-    private companion object {
-        const val MANUFACTURER_PROPERTY = "ro.product.manufacturer"
-        const val MODEL_PROPERTY = "ro.product.model"
-        val PROPERTY_LINE = Regex("""^\[([^]]+)]\s*:\s*\[(.*)]$""")
-        val UNUSABLE_MANUFACTURERS = setOf("unknown", "<unknown>", "null", "n/a", "na")
-        val UNUSABLE_MODELS = setOf("<unknown>", "null", "n/a", "na")
-    }
 }
 
 internal data class AndroidThreadTarget(

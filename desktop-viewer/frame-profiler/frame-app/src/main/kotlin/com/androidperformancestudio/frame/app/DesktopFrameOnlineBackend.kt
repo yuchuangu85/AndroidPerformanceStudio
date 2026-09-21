@@ -20,7 +20,6 @@ import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.CancellationException
@@ -79,8 +78,8 @@ internal class DesktopFrameOnlineBackend(
                     result.value.map { device ->
                         FrameDeviceOption(
                             serial = device.serial,
-                            name = device.displayName(),
-                            online = device.state == AdbDeviceState.ONLINE,
+                            name = device.displayName,
+                            online = device.online,
                         )
                     },
                 )

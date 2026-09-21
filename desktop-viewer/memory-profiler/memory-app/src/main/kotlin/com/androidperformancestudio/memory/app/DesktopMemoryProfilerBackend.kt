@@ -77,7 +77,6 @@ import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
 import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.UiLanguage
@@ -140,7 +139,7 @@ internal class DesktopMemoryProfilerBackend(
                 MemoryBackendResult.Success(
                     result.value.map { device ->
                         val apiLevel =
-                            if (device.state == AdbDeviceState.ONLINE) {
+                            if (device.online) {
                                 when (val properties = AdbDevicePropertiesReader(adb).read(device.serial)) {
                                     is StudioResult.Success -> properties.value.sdkInt
                                     is StudioResult.Failure -> null
@@ -150,8 +149,8 @@ internal class DesktopMemoryProfilerBackend(
                             }
                         MemoryDeviceOption(
                             serial = device.serial,
-                            name = device.displayName(),
-                            online = device.state == AdbDeviceState.ONLINE,
+                            name = device.displayName,
+                            online = device.online,
                             apiLevel = apiLevel,
                             supportsBitmapDump = apiLevel != null && apiLevel >= BitmapHeapDumpCaptureSession.MINIMUM_BITMAP_DUMP_API,
                         )

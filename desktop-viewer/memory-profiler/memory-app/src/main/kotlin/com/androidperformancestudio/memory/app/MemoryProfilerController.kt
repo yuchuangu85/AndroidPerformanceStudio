@@ -2,7 +2,7 @@
 
 package com.androidperformancestudio.memory.app
 
-import com.androidperformancestudio.adb.AdbDevicesResult
+import com.androidperformancestudio.adb.AndroidDeviceInfosResult
 import com.androidperformancestudio.adb.AdbTargetSnapshot
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetSubscription
@@ -68,8 +68,6 @@ import com.androidperformancestudio.memory.presentation.MemorySortDirection
 import com.androidperformancestudio.memory.storage.MemorySessionFilterPreset
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
-import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
@@ -299,7 +297,7 @@ internal class MemoryProfilerController(
     private val targetSubscription =
         backend.registerTargetListener(
             object : AndroidTargetListener {
-                override fun onDevices(result: AdbDevicesResult) {
+                override fun onDevices(result: AndroidDeviceInfosResult) {
                     when (result) {
                         is com.androidperformancestudio.model.StudioResult.Failure ->
                             mutableState.value =
@@ -317,8 +315,8 @@ internal class MemoryProfilerController(
                                         result.value.map { device ->
                                             MemoryDeviceOption(
                                                 serial = device.serial,
-                                                name = device.displayName(),
-                                                online = device.state == AdbDeviceState.ONLINE,
+                                                name = device.displayName,
+                                                online = device.online,
                                             )
                                         },
                                     error = null,

@@ -114,7 +114,7 @@ import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.application.ConnectionStatus
 import com.androidperformancestudio.application.InspectorState
 import com.androidperformancestudio.application.InspectorStore
-import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import com.androidperformancestudio.platform.toolchain.RecentPathStore
 import com.androidperformancestudio.adb.ConnectedDeviceSession
 import com.androidperformancestudio.adb.AdbProcessRunner
@@ -272,7 +272,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     DisposableEffect(manualRefreshSession) {
         onDispose { manualRefreshSession.close() }
     }
-    var availableDevices by remember { mutableStateOf<List<AdbDevice>>(emptyList()) }
+    var availableDevices by remember { mutableStateOf<List<AndroidDeviceInfo>>(emptyList()) }
     var selectedDeviceSerial by remember(correlationHint) { mutableStateOf(correlationHint?.deviceSerial) }
     var deviceListRefreshRequest by remember { mutableStateOf(0) }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
@@ -310,7 +310,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
 
     LaunchedEffect(deviceListRefreshRequest) {
         val devices = withContext(Dispatchers.IO) {
-            runCatching { deviceClient.listAuthorizedDevices() }.getOrDefault(emptyList())
+            runCatching { deviceClient.listAuthorizedDeviceInfos() }.getOrDefault(emptyList())
         }
         availableDevices = devices
         selectedDeviceSerial = sanitizeSelectedDeviceSerial(selectedDeviceSerial, devices)

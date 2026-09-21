@@ -140,15 +140,12 @@ import com.androidperformancestudio.perfetto_app.generated.resources.refresh
 import com.androidperformancestudio.perfetto_app.generated.resources.running_diagnostic
 import com.androidperformancestudio.perfetto_app.generated.resources.select_a_diagnostic_on_the_left_to_view_its_result
 import com.androidperformancestudio.perfetto_app.generated.resources.select_device
-import com.androidperformancestudio.perfetto_app.generated.resources.text
 import com.androidperformancestudio.perfetto_app.generated.resources.trace_diagnostics
 import com.androidperformancestudio.platform.adb.AdbCommandFailedException
 import com.androidperformancestudio.platform.adb.AdbCommandTimeoutException
-import com.androidperformancestudio.platform.adb.AdbDevice
-import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.adb.AdbException
 import com.androidperformancestudio.platform.adb.AdbProcessStartException
+import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContext
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContexts
 import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
@@ -615,7 +612,7 @@ private fun RowScope.PerfettoToolbarContent(
     HeaderSpacer()
     Text(
         text =
-            selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.model) }
+            selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.displayName) }
                 ?: localizedStringResource(Res.string.no_online_device, language),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = ViewerTypography.label.fontSize,
@@ -637,8 +634,8 @@ private fun DeviceSelector(
         items = devices,
         selectedItem = selectedDevice,
         onItemSelected = { onSelectDevice(it.serial) },
-        itemLabel = { localizedStringResource(Res.string.text, language, it.model, it.serial) },
-        selectedItemLabel = PerfettoDevice::model,
+        itemLabel = PerfettoDevice::displayName,
+        selectedItemLabel = PerfettoDevice::displayName,
         placeholder = selectDeviceLabel,
         modifier = Modifier.width(170.dp),
         selectorDescription = selectDeviceLabel,
@@ -764,7 +761,7 @@ private fun RecentSessionRow(
 
 internal suspend fun discoverPerfettoDevices(
     adbPath: String,
-    deviceDiscovery: suspend (Path) -> StudioResult<List<AdbDevice>> = { executable ->
+    deviceDiscovery: suspend (Path) -> StudioResult<List<AndroidDeviceInfo>> = { executable ->
         AndroidTargetMonitors.shared(executable).refreshDevices()
     },
 ): StudioResult<List<PerfettoDevice>> {
@@ -786,8 +783,9 @@ internal suspend fun discoverPerfettoDevices(
                     result.value.map { device ->
                         PerfettoDevice(
                             serial = device.serial,
-                            model = device.displayName(),
-                            online = device.state == AdbDeviceState.ONLINE,
+                            model = device.deviceName,
+                            displayName = device.displayName,
+                            online = device.online,
                         )
                     },
                 )

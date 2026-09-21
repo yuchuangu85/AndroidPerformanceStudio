@@ -9,8 +9,7 @@ import com.androidperformancestudio.application.PackageOption
 import com.androidperformancestudio.application.ProcessOption
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.platform.adb.AdbDevice
-import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import java.nio.file.Path
 
 class AdbDeviceTargetGateway private constructor(
@@ -23,7 +22,7 @@ class AdbDeviceTargetGateway private constructor(
     ) : this(GatewayOperations.create(adbExecutable), bundledSimpleperfAbis)
 
     internal constructor(
-        refreshDevices: suspend () -> StudioResult<List<AdbDevice>>,
+        refreshDevices: suspend () -> StudioResult<List<AndroidDeviceInfo>>,
         readProperties: suspend (String) -> StudioResult<AndroidDeviceProperties>,
         detectCapabilities: suspend (AndroidDeviceProperties) -> StudioResult<DeviceCapabilities>,
         refreshTargets: suspend (String) -> StudioResult<AdbTargetSnapshot>,
@@ -43,7 +42,7 @@ class AdbDeviceTargetGateway private constructor(
     override suspend fun refreshDevices(): StudioResult<List<DeviceOption>> =
         when (val result = operations.refreshDevices()) {
             is StudioResult.Failure -> result
-            is StudioResult.Success -> StudioResult.Success(result.value.map(AdbDevice::toOption))
+            is StudioResult.Success -> StudioResult.Success(result.value.map(AndroidDeviceInfo::toOption))
         }
 
     override suspend fun loadSelection(serial: String): StudioResult<DeviceSelection> =
@@ -81,7 +80,7 @@ class AdbDeviceTargetGateway private constructor(
                 StudioResult.Success(
                     DeviceSelection(
                         serial = properties.serial,
-                        model = properties.model,
+                        model = properties.capabilityDisplayName,
                         androidVersion = properties.androidVersion,
                         sdkInt = properties.sdkInt,
                         abis = properties.abis,
@@ -97,7 +96,7 @@ class AdbDeviceTargetGateway private constructor(
 }
 
 private data class GatewayOperations(
-    val refreshDevices: suspend () -> StudioResult<List<AdbDevice>>,
+    val refreshDevices: suspend () -> StudioResult<List<AndroidDeviceInfo>>,
     val readProperties: suspend (String) -> StudioResult<AndroidDeviceProperties>,
     val detectCapabilities: suspend (AndroidDeviceProperties) -> StudioResult<DeviceCapabilities>,
     val refreshTargets: suspend (String) -> StudioResult<AdbTargetSnapshot>,
@@ -119,11 +118,11 @@ private data class GatewayOperations(
     }
 }
 
-private fun AdbDevice.toOption(): DeviceOption =
+private fun AndroidDeviceInfo.toOption(): DeviceOption =
     DeviceOption(
         serial = serial,
-        label = model?.replace('_', ' ') ?: serial,
-        isOnline = state == AdbDeviceState.ONLINE,
+        label = displayName,
+        isOnline = online,
     )
 
 private fun DeviceCapabilities.toSummary(): CapabilitySummary =

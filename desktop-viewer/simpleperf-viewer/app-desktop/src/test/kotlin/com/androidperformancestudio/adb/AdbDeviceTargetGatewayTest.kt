@@ -7,8 +7,8 @@ import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,6 +41,16 @@ class AdbDeviceTargetGatewayTest {
             assertEquals(listOf("cpu-clock", "cpu-cycles"), value.capabilities.eventNames)
             assertEquals(listOf("com.example.camera", "com.example.debug"), value.packages.map { it.packageName })
             assertEquals(listOf(321), value.processes.map { it.pid })
+        }
+
+    @Test
+    fun `uses manufacturer for capability name when model is unknown`() =
+        runBlocking {
+            val gateway = gateway(deviceModel = "unknown", manufacturer = "TCL")
+
+            val value = assertIs<StudioResult.Success<DeviceSelection>>(gateway.loadSelection("serial-1")).value
+
+            assertEquals("TCL", value.model)
         }
 
     @Test
@@ -159,24 +169,50 @@ class AdbDeviceTargetGatewayTest {
         readiness: CapabilityReadiness = CapabilityReadiness.LIMITED,
         limitations: Set<DeviceCapabilityLimitation> = setOf(DeviceCapabilityLimitation.ROOT_UNAVAILABLE),
         bundledSimpleperfAbis: Set<String> = emptySet(),
+        deviceModel: String = "Pixel 8",
+        manufacturer: String? = null,
     ): AdbDeviceTargetGateway =
         AdbDeviceTargetGateway(
             refreshDevices = {
                 StudioResult.Success(
                     listOf(
-                        AdbDevice(
+                        AndroidDeviceInfo(
                             serial = "serial-1",
+                            deviceName = deviceModel,
+                            displayName = "Device(serial-1)",
+                            manufacturer = manufacturer,
+                            product = null,
+                            device = null,
                             state = AdbDeviceState.ONLINE,
-                            model = "Pixel_8",
-                            attributes = mapOf("model" to "Pixel_8"),
+                            transportId = null,
+                            rawState = "device",
+                            statusDetail = null,
                         ),
-                        AdbDevice(serial = "offline-1", state = AdbDeviceState.OFFLINE),
+                        AndroidDeviceInfo(
+                            serial = "offline-1",
+                            deviceName = "offline-1",
+                            displayName = "offline-1",
+                            manufacturer = null,
+                            product = null,
+                            device = null,
+                            state = AdbDeviceState.OFFLINE,
+                            transportId = null,
+                            rawState = "offline",
+                            statusDetail = null,
+                        ),
                     ),
                 )
             },
             readProperties = {
                 StudioResult.Success(
-                    AndroidDeviceProperties("serial-1", "Pixel 8", listOf("arm64-v8a"), 35, "15"),
+                    AndroidDeviceProperties(
+                        serial = "serial-1",
+                        model = deviceModel,
+                        abis = listOf("arm64-v8a"),
+                        sdkInt = 35,
+                        androidVersion = "15",
+                        manufacturer = manufacturer,
+                    ),
                 )
             },
             detectCapabilities = {

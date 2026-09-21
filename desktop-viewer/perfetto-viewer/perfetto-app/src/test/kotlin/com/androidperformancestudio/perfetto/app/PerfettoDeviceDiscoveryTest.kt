@@ -3,8 +3,8 @@ package com.androidperformancestudio.perfetto.app
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.model.PerfettoDevice
-import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,8 +21,30 @@ class PerfettoDeviceDiscoveryTest {
                     assertEquals(Path.of("adb"), executable)
                     StudioResult.Success(
                         listOf(
-                            AdbDevice(serial = "online", state = AdbDeviceState.ONLINE, model = "Pixel_8"),
-                            AdbDevice(serial = "offline", state = AdbDeviceState.UNAUTHORIZED, model = "Pixel_7"),
+                            AndroidDeviceInfo(
+                                serial = "online",
+                                deviceName = "Pixel 8",
+                                displayName = "Pixel 8(online)",
+                                manufacturer = null,
+                                product = null,
+                                device = null,
+                                state = AdbDeviceState.ONLINE,
+                                transportId = null,
+                                rawState = "device",
+                                statusDetail = null,
+                            ),
+                            AndroidDeviceInfo(
+                                serial = "offline",
+                                deviceName = "Pixel 7",
+                                displayName = "Pixel 7(offline)",
+                                manufacturer = null,
+                                product = null,
+                                device = null,
+                                state = AdbDeviceState.UNAUTHORIZED,
+                                transportId = null,
+                                rawState = "unauthorized",
+                                statusDetail = null,
+                            ),
                         ),
                     )
                 }
@@ -30,10 +52,53 @@ class PerfettoDeviceDiscoveryTest {
             val success = assertIs<StudioResult.Success<*>>(result)
             assertEquals(
                 listOf(
-                    PerfettoDevice(serial = "online", model = "Pixel 8"),
-                    PerfettoDevice(serial = "offline", model = "Pixel 7", online = false),
+                    PerfettoDevice(
+                        serial = "online",
+                        model = "Pixel 8",
+                        displayName = "Pixel 8(online)",
+                    ),
+                    PerfettoDevice(
+                        serial = "offline",
+                        model = "Pixel 7",
+                        displayName = "Pixel 7(offline)",
+                        online = false,
+                    ),
                 ),
                 success.value,
+            )
+        }
+
+    @Test
+    fun `discovery keeps the canonical device label separate from model and serial`() =
+        runBlocking {
+            val result =
+                discoverPerfettoDevices("adb") {
+                    StudioResult.Success(
+                        listOf(
+                            AndroidDeviceInfo(
+                                serial = "UCSCU8AQWG6LJFQS",
+                                deviceName = "unknown",
+                                displayName = "TCL unknown(UCSCU8AQWG6LJFQS)",
+                                manufacturer = "TCL",
+                                product = "unknown",
+                                device = "unknown",
+                                state = AdbDeviceState.ONLINE,
+                                transportId = 4,
+                                rawState = "device",
+                                statusDetail = null,
+                            ),
+                        ),
+                    )
+                }
+
+            val success = assertIs<StudioResult.Success<*>>(result)
+            assertEquals(
+                PerfettoDevice(
+                    serial = "UCSCU8AQWG6LJFQS",
+                    model = "unknown",
+                    displayName = "TCL unknown(UCSCU8AQWG6LJFQS)",
+                ),
+                assertIs<List<PerfettoDevice>>(success.value).single(),
             )
         }
 

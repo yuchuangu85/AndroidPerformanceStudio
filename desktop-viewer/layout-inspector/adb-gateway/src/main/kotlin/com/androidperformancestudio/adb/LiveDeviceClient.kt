@@ -2,7 +2,11 @@ package com.androidperformancestudio.adb
 
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
+import com.androidperformancestudio.platform.adb.toDeviceInfo
 import com.androidperformancestudio.platform.adb.AdbDevicesParser
+import com.androidperformancestudio.platform.adb.parseAdbDeviceIdentity
+import com.androidperformancestudio.platform.adb.withIdentity
 import com.androidperformancestudio.protocol.CaptureFrame
 import com.androidperformancestudio.protocol.CaptureFrameCodec
 import com.androidperformancestudio.protocol.DisplayInfo
@@ -50,6 +54,8 @@ class LiveDeviceClient(
 
     fun listAuthorizedDevices(): List<AdbDevice> = authorizedDevices()
 
+    fun listAuthorizedDeviceInfos(): List<AndroidDeviceInfo> = authorizedDevices().map(AdbDevice::toDeviceInfo)
+
     fun dumpVisibleWindowViews(serial: String? = null): ByteArray {
         val device = selectDevice(serial)
         val result = checkedRun(AdbCommandFactory.dumpVisibleWindowViews(device.serial))
@@ -89,6 +95,14 @@ class LiveDeviceClient(
         checkedRun(listOf("devices", "-l")).stdout
             .let(AdbDevicesParser()::parse)
             .filter { it.state == AdbDeviceState.ONLINE }
+            .map { device ->
+                val identity =
+                    runCatching {
+                        checkedRun(listOf("-s", device.serial, "shell", "getprop")).stdout
+                            .let(::parseAdbDeviceIdentity)
+                    }.getOrNull()
+                identity?.let(device::withIdentity) ?: device
+            }
 
     private fun connectWithFallback(device: AdbDevice, packageName: String): ConnectedDeviceSession =
         try {

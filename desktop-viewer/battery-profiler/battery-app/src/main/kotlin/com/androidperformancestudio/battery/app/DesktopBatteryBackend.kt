@@ -16,7 +16,6 @@ import com.androidperformancestudio.battery.model.BatteryDevice
 import com.androidperformancestudio.battery.model.BatteryTarget
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.toolchain.HostCommandResult
 import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
@@ -63,8 +62,8 @@ internal class DesktopBatteryBackend(
                     result.value.map {
                         BatteryDevice(
                             it.serial,
-                            it.displayName(),
-                            it.state == AdbDeviceState.ONLINE,
+                            it.displayName,
+                            it.online,
                         )
                     },
                 )

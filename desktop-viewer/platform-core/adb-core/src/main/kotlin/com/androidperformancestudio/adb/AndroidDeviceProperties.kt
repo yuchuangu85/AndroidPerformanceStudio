@@ -11,7 +11,19 @@ data class AndroidDeviceProperties(
     val sdkInt: Int,
     val androidVersion: String,
     val manufacturer: String? = null,
-)
+) {
+    /** Compact name for capability panels; uses the manufacturer when the model is a placeholder. */
+    val capabilityDisplayName: String
+        get() =
+            model.takeUnless(String::isPlaceholderDeviceIdentity)
+                ?: manufacturer?.takeUnless(String::isPlaceholderDeviceIdentity)
+                ?: model
+}
+
+private fun String.isPlaceholderDeviceIdentity(): Boolean =
+    trim().lowercase() in PLACEHOLDER_DEVICE_IDENTITIES
+
+private val PLACEHOLDER_DEVICE_IDENTITIES = setOf("", "unknown", "<unknown>", "null", "n/a", "na")
 
 class AndroidGetpropParser {
     fun parse(

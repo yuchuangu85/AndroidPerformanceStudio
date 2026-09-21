@@ -238,8 +238,12 @@ data class CaptureMetadata(
 )
 
 data class PerfettoDevice(
+    /** Stable ADB identity used for capture commands and selection. */
     val serial: String,
+    /** Device model/name without a serial-number suffix. */
     val model: String,
+    /** Canonical user-facing label supplied by adb-core; never concatenate this in UI layers. */
+    val displayName: String = model,
     val androidSdk: Int = 0,
     val online: Boolean = true,
 )

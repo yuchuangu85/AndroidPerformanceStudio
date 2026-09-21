@@ -3,7 +3,6 @@ package com.androidperformancestudio.adb
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import com.androidperformancestudio.platform.toolchain.HostCapturedText
 import com.androidperformancestudio.platform.toolchain.HostCommandOutput
@@ -24,7 +23,7 @@ class AndroidTargetMonitorTest {
             val first =
                 monitor.register(
                     object : AndroidTargetListener {
-                        override fun onDevices(result: AdbDevicesResult) {
+                        override fun onDevices(result: AndroidDeviceInfosResult) {
                             events += "devices:${(result as StudioResult.Success).value.single().serial}"
                         }
 
@@ -60,7 +59,7 @@ class AndroidTargetMonitorTest {
             val replayed = mutableListOf<String>()
             monitor.register(
                 object : AndroidTargetListener {
-                    override fun onDevices(result: AdbDevicesResult) {
+                    override fun onDevices(result: AndroidDeviceInfosResult) {
                         replayed += "devices"
                     }
 
@@ -132,8 +131,8 @@ class AndroidTargetMonitorTest {
 
             val device = (devices as StudioResult.Success).value.single()
             assertEquals("TCL", device.manufacturer)
-            assertEquals("unknown", device.model)
-            assertEquals("TCL unknown(serial-1)", device.displayName())
+            assertEquals("unknown", device.deviceName)
+            assertEquals("TCL unknown(serial-1)", device.displayName)
         }
 
     @Test

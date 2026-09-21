@@ -2,7 +2,7 @@
 
 package com.androidperformancestudio.frame.app
 
-import com.androidperformancestudio.adb.AdbDevicesResult
+import com.androidperformancestudio.adb.AndroidDeviceInfosResult
 import com.androidperformancestudio.adb.AdbTargetSnapshot
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.contracts.ArtifactFileEvidence
@@ -20,8 +20,6 @@ import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerState
 import com.androidperformancestudio.frame.storage.SqliteFrameSessionStore
-import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,7 +49,7 @@ internal class FrameProfilerController(
     private val targetSubscription =
         onlineBackend.registerTargetListener(
             object : AndroidTargetListener {
-                override fun onDevices(result: AdbDevicesResult) {
+                override fun onDevices(result: AndroidDeviceInfosResult) {
                     when (result) {
                         is com.androidperformancestudio.model.StudioResult.Failure ->
                             mutableState.value =
@@ -66,8 +64,8 @@ internal class FrameProfilerController(
                                         result.value.map { device ->
                                             FrameDeviceOption(
                                                 serial = device.serial,
-                                                name = device.displayName(),
-                                                online = device.state == AdbDeviceState.ONLINE,
+                                                name = device.displayName,
+                                                online = device.online,
                                             )
                                         },
                                     isRefreshingDevices = false,

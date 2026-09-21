@@ -8,7 +8,6 @@ import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.adb.profileableOrDebuggableProcesses
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import java.nio.file.Path
@@ -47,7 +46,7 @@ class MethodRecordingDeviceGateway(
                 StudioResult.Success(
                     result.value.map { device ->
                         val apiLevel =
-                            if (device.state == AdbDeviceState.ONLINE) {
+                            if (device.online) {
                                 val properties =
                                     AdbDevicePropertiesReader(adbExecutable, processInvocation = processRunner)
                                         .read(device.serial, HostCancellationSignal())
@@ -57,8 +56,8 @@ class MethodRecordingDeviceGateway(
                             }
                         MethodTraceDeviceOption(
                             serial = device.serial,
-                            name = device.displayName(),
-                            online = device.state == AdbDeviceState.ONLINE,
+                            name = device.displayName,
+                            online = device.online,
                             sdkApiLevel = apiLevel,
                         )
                     },
