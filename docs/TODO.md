@@ -1,6 +1,6 @@
 # 待办事项
 
-最后扫描：2026-09-20
+最后扫描：2026-09-21
 
 本清单汇总 Git 已跟踪的一方源码和文档中仍然有效的规划、延期能力、开放决策与发布门禁。第三方/生成产物、已被当前实现推翻的旧研究结论、历史执行计划中的未回填复选框，以及仅声明“不在当前范围”的设想不重复收录。
 
@@ -25,23 +25,24 @@
 - [x] AAR bundle 与 protocol JAR 构建任务。
 - [ ] 使用真实可调试 App 完成注入、重装、Activity/Fragment 销毁、GC 保留和桌面实时事件端到端验收。
 
-### P0 本轮实现进度（2026-09-20）
+### P0 本轮实现进度（2026-09-21）
 
 以下为已落地的核心实现；真实 Android 工程/真机验收仍按原 P0 项目保留。
 
-- [x] Perfetto Diagnostics 增加 CPU contention、Binder server saturation、Binder wait chain、Frame/SurfaceFlinger correlation 查询。
-- [x] Frame Profiler 增加 Activity/window/UI-state 归因聚合，并纳入 JSON 导出。
-- [x] Benchmark CLI 增加 Macrobenchmark command plan/runner，支持编译模式、启动模式、warmup、iteration、trace 目录、JSON 结果和 baseline regression 关联。
+- [x] Perfetto Diagnostics 增加 sched switch/waking、run queue、主线程阻塞、CPU contention、Binder 长尾/system_server/wait chain、Binder/FrameTimeline 对齐查询。
+- [x] Frame Profiler 增加 Activity/Fragment/window/page/interaction/UI-state、JankStats、RenderThread、SurfaceFlinger 和 FrameTimeline 归因，并纳入 JSON 导出。
+- [x] Benchmark CLI 与模型增加 Macrobenchmark 场景矩阵（cold/warm/hot、scroll/animation/page switch）、ART 编译模式、Baseline Profile 状态、trace/JSON/统计结果关联和 regression 对比。
+- [x] Startup Profiler 将 sched_waking/run queue/Binder/main-thread/frame 证据按启动阶段做有界时间关联，并保留 Baseline Profile artifact 身份。
 - [ ] 用真实 Macrobenchmark Android 工程和真机完成冷/温/热、滚动/动画/页面切换的端到端验收。
 - [ ] 用真实 Perfetto trace 验证调度、Binder、FrameTimeline 查询在目标 API/设备矩阵上的 schema 兼容性。
 - [ ] 用真实 JankStats/FrameMetrics Agent 事件验证 Activity、Fragment、页面状态与 FrameTimeline 的时间关联。
 
 ### P0：实验与跨域归因
 
-- [ ] **Macrobenchmark + Baseline Profile 实验台** — 在 `benchmark-regression` / `startup-profiler` 上增加冷、温、热启动，滚动、动画、页面切换，ART 编译模式，Baseline Profile 前后对比，以及 Perfetto trace/JSON/统计结果关联。
-- [ ] **CPU 调度与线程竞争分析** — 在 `perfetto-viewer` 增加 `sched_switch`、`sched_waking`、run queue、线程唤醒延迟、主线程阻塞和 CPU contention 分析。
-- [ ] **Binder / IPC 性能分析** — 识别调用方、服务端、Binder 等待链、system_server 交互和 IPC 长尾，并与线程调度、FrameTimeline 对齐。
-- [ ] **FrameTimeline + JankStats 联合分析** — 在现有 `frame-profiler` 上增加 Activity、Fragment、页面、交互状态、RenderThread、SurfaceFlinger 与 Jank frame 的统一关联。
+- [x] **Macrobenchmark + Baseline Profile 实验台** — 在 `benchmark-regression` / `startup-profiler` 增加实验矩阵、编译模式、Profile 状态、trace/JSON/统计关联和前后对比。
+- [x] **CPU 调度与线程竞争分析** — 在 `perfetto-viewer` 增加 `sched_switch`、`sched_waking`、run queue、线程唤醒延迟、主线程阻塞和 CPU contention 分析。
+- [x] **Binder / IPC 性能分析** — 识别调用方、服务端、Binder 等待链、system_server 交互和 IPC 长尾，并提供 Binder–FrameTimeline 对齐查询。
+- [x] **FrameTimeline + JankStats 联合分析** — 在现有 `frame-profiler` 增加 Activity、Fragment、页面、交互状态、RenderThread、SurfaceFlinger 与 Jank frame 的统一关联。
 
 ### P1：运行时和 UI 深度诊断
 

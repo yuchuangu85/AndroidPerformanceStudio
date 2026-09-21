@@ -2,9 +2,11 @@
 
 package com.androidperformancestudio.benchmark.export
 
+import com.androidperformancestudio.benchmark.model.BaselineProfileComparison
 import com.androidperformancestudio.benchmark.model.RegressionClassification
 import com.androidperformancestudio.benchmark.model.RegressionReport
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -49,6 +51,71 @@ public class BenchmarkReportExporter {
             },
         ),
     )
+
+    /** Writes regression statistics together with profile state and trace pair identities. */
+    public fun writeBaselineProfileJson(
+        comparison: BaselineProfileComparison,
+        output: Path,
+    ) = write(
+        output,
+        json.encodeToString(
+            buildJsonObject {
+                put("schemaVersion", 2)
+                put("kind", "baseline-profile-comparison")
+                put("baselineProfileStatus", comparison.baselineStatus.name)
+                put("profiledProfileStatus", comparison.profiledStatus.name)
+                put("regressionReport", json.parseToJsonElement(reportJson(comparison.report)))
+                put(
+                    "tracePairs",
+                    buildJsonArray {
+                        comparison.tracePairs.forEach { pair ->
+                            add(
+                                buildJsonObject {
+                                    put("case", pair.caseIdentity)
+                                    put(
+                                        "before",
+                                        buildJsonArray { pair.before.forEach { path -> add(path.toString()) } },
+                                    )
+                                    put(
+                                        "after",
+                                        buildJsonArray { pair.after.forEach { path -> add(path.toString()) } },
+                                    )
+                                },
+                            )
+                        }
+                    },
+                )
+            },
+        ),
+    )
+
+    private fun reportJson(report: RegressionReport): String {
+        val temporary = buildJsonObject {
+            put("baselineRunId", report.baselineRunId)
+            put("currentRunId", report.currentRunId)
+            put("createdAt", report.createdAt.toString())
+            put("regressionCount", report.regressionCount)
+            put(
+                "comparisons",
+                buildJsonArray {
+                    report.comparisons.forEach { comparison ->
+                        add(
+                            buildJsonObject {
+                                put("case", comparison.caseIdentity)
+                                put("metric", comparison.metricName)
+                                put("classification", comparison.classification.name)
+                                put("confidence", comparison.confidence.name)
+                                comparison.baselineValue?.let { put("baseline", it) }
+                                comparison.currentValue?.let { put("current", it) }
+                                comparison.relativeDeltaPercent?.let { put("relativeDeltaPercent", it) }
+                            },
+                        )
+                    }
+                },
+            )
+        }
+        return temporary.toString()
+    }
 
     public fun writeCsv(
         report: RegressionReport,

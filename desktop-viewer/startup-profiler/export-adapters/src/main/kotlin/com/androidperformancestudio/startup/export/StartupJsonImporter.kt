@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.startup.export
 
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.startup.analysis.StartupAnalysisResult
 import com.androidperformancestudio.startup.analysis.StartupAnalyzer
 import com.androidperformancestudio.startup.model.CompilationMode
@@ -12,6 +13,9 @@ import com.androidperformancestudio.startup.model.StartupEnvironmentEvidence
 import com.androidperformancestudio.startup.model.StartupMetricEvidence
 import com.androidperformancestudio.startup.model.StartupMilestone
 import com.androidperformancestudio.startup.model.StartupMilestoneKind
+import com.androidperformancestudio.startup.model.StartupPerfettoPhaseAttribution
+import com.androidperformancestudio.startup.model.StartupPerfettoRootCauseEvidence
+import com.androidperformancestudio.startup.model.StartupPerfettoSlice
 import com.androidperformancestudio.startup.model.StartupProfileSource
 import com.androidperformancestudio.startup.model.StartupRawEvidence
 import com.androidperformancestudio.startup.model.StartupRun
@@ -21,6 +25,7 @@ import com.androidperformancestudio.startup.model.StartupTraceEvidence
 import com.androidperformancestudio.startup.model.StartupType
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -168,6 +173,7 @@ private data class StartupCompilationEvidenceDocument(
     val failureReason: String? = null,
     val profileSource: String = StartupProfileSource.UNVERIFIED.name,
     val profileSourceDeclared: Boolean = false,
+    val baselineProfileArtifact: String? = null,
 ) {
     fun toModel() =
         StartupCompilationEvidence(
@@ -181,6 +187,7 @@ private data class StartupCompilationEvidenceDocument(
             failureReason,
             StartupProfileSource.valueOf(profileSource),
             profileSourceDeclared,
+            baselineProfileArtifact,
         )
 }
 
@@ -214,8 +221,82 @@ private data class StartupTraceEvidenceDocument(
     val captured: Boolean = false,
     val truncated: Boolean = false,
     val failureReason: String? = null,
+    val artifact: JsonElement? = null,
+    val rootCause: StartupPerfettoRootCauseEvidenceDocument? = null,
 ) {
-    fun toModel() = StartupTraceEvidence(file, captured, truncated, failureReason)
+    fun toModel() =
+        StartupTraceEvidence(
+            file = file,
+            captured = captured,
+            truncated = truncated,
+            failureReason = failureReason,
+            artifact = artifact?.let { CaptureArtifactJson.decode(it.toString()) },
+            rootCause = rootCause?.toModel(),
+        )
+}
+
+@Serializable
+private data class StartupPerfettoRootCauseEvidenceDocument(
+    val schedulingSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val binderSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val mainThreadSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val frameSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val wakingSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val runQueueSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val phaseAttributions: List<StartupPerfettoPhaseAttributionDocument> = emptyList(),
+    val correlated: Boolean = false,
+    val correlationErrorBoundNs: Long? = null,
+    val limitations: List<String> = emptyList(),
+) {
+    fun toModel() =
+        StartupPerfettoRootCauseEvidence(
+            schedulingSlices = schedulingSlices.map(StartupPerfettoSliceDocument::toModel),
+            binderSlices = binderSlices.map(StartupPerfettoSliceDocument::toModel),
+            mainThreadSlices = mainThreadSlices.map(StartupPerfettoSliceDocument::toModel),
+            frameSlices = frameSlices.map(StartupPerfettoSliceDocument::toModel),
+            wakingSlices = wakingSlices.map(StartupPerfettoSliceDocument::toModel),
+            runQueueSlices = runQueueSlices.map(StartupPerfettoSliceDocument::toModel),
+            phaseAttributions = phaseAttributions.map(StartupPerfettoPhaseAttributionDocument::toModel),
+            correlated = correlated,
+            correlationErrorBoundNs = correlationErrorBoundNs,
+            limitations = limitations,
+        )
+}
+
+@Serializable
+private data class StartupPerfettoSliceDocument(
+    val timestampNs: Long,
+    val durationNs: Long,
+    val name: String,
+    val threadName: String? = null,
+) {
+    fun toModel() = StartupPerfettoSlice(timestampNs, durationNs, name, threadName)
+}
+
+@Serializable
+private data class StartupPerfettoPhaseAttributionDocument(
+    val phaseName: String,
+    val startNs: Long,
+    val endNs: Long,
+    val schedulingNs: Long = 0,
+    val binderNs: Long = 0,
+    val mainThreadBlockedNs: Long = 0,
+    val frameNs: Long = 0,
+    val wakingCount: Int = 0,
+    val runQueueSamples: Int = 0,
+) {
+    fun toModel() =
+        StartupPerfettoPhaseAttribution(
+            phaseName,
+            startNs,
+            endNs,
+            schedulingNs,
+            binderNs,
+            mainThreadBlockedNs,
+            frameNs,
+            wakingCount,
+            runQueueSamples,
+        )
 }
 
 @Serializable

@@ -35,4 +35,11 @@
     <string name="unknown_stage">unknown stage</string>
     <string name="frame_attribution">Jank attribution</string>
     <string name="frame_attribution_entry">%1$s · %2$s · %3$s jank / %4$s frames · p95 %5$s</string>
+    <string name="fragment">Fragment</string>
+    <string name="page">Page</string>
+    <string name="interaction_state">Interaction state</string>
+    <string name="render_thread">RenderThread</string>
+    <string name="surface_flinger_jank">SurfaceFlinger jank</string>
+    <string name="jank_stats">JankStats</string>
+    <string name="jank_stats_reasons">JankStats reasons</string>
 </resources>

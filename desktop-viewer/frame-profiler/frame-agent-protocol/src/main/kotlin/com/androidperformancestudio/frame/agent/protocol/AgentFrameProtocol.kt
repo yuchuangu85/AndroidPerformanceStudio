@@ -52,6 +52,10 @@ public data class AgentFrameSample(
     val platformJank: Boolean? = null,
     val platformJankRuleId: String? = null,
     val platformJankRuleVersion: String? = null,
+    val jankStatsJank: Boolean? = null,
+    val jankStatsReasons: Set<String> = emptySet(),
+    val jankStatsRuleId: String? = null,
+    val jankStatsRuleVersion: String? = null,
     val states: Map<String, String> = emptyMap(),
     val eligibleForJank: Boolean = true,
 )

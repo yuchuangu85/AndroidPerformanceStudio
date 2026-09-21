@@ -132,7 +132,8 @@ public class SqliteStartupSessionStore private constructor(
                 compilation_verified=?, compilation_failure=?, device_model=?, api_level=?, emulator=?, battery_percent=?,
                 charging=?, thermal_status=?, environment_captured_at=?, environment_failures=?, trace_file=?, trace_captured=?,
                 trace_truncated=?, trace_failure=?, trace_artifact_json=?, trace_correlated=?, trace_correlation_error_ns=?,
-                trace_limitations=?, diagnostics=?, profile_source=?, profile_source_declared=? WHERE id=?
+                trace_limitations=?, diagnostics=?, profile_source=?, profile_source_declared=?,
+                baseline_profile_artifact=? WHERE id=?
                 """.trimIndent(),
             ).use { statement ->
                 statement.setString(1, run.ttidEvidence.source?.name)
@@ -172,7 +173,8 @@ public class SqliteStartupSessionStore private constructor(
                 statement.setString(29, run.diagnostics.joinToString("\n"))
                 statement.setString(30, run.compilationEvidence?.profileSource?.name)
                 statement.setNullableBoolean(31, run.compilationEvidence?.profileSourceDeclared)
-                statement.setString(32, run.id)
+                statement.setString(32, run.compilationEvidence?.baselineProfileArtifact)
+                statement.setString(33, run.id)
                 statement.executeUpdate()
             }
         run.milestones.forEach { milestone ->
@@ -329,6 +331,7 @@ public class SqliteStartupSessionStore private constructor(
                 "diagnostics" to "TEXT",
                 "profile_source" to "TEXT",
                 "profile_source_declared" to "INTEGER",
+                "baseline_profile_artifact" to "TEXT",
             )
     }
 }

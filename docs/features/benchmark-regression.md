@@ -35,12 +35,13 @@ baseline JSON + current JSON
   --task :macrobenchmark:connectedCheck \
   --compilation-mode SPEED_PROFILE \
   --startup-mode WARM \
+  --scenario SCROLL \
   --warmups 2 --iterations 5 \
   --trace-dir /tmp/macro-traces \
   --result /tmp/benchmark.json'
 ```
 
-命令通过 `APS_MACROBENCHMARK_*` 环境变量和 Gradle project properties 把编译模式、启动模式、warmup、iteration、trace 输出目录传给目标 Android Benchmark 工程。执行完成后可以直接复用现有 JSON parser 和 RegressionAnalyzer 做 baseline/current 比较。
+命令通过 `APS_MACROBENCHMARK_*` 环境变量和 Gradle project properties 把编译模式、启动模式、场景、warmup、iteration、trace 输出目录传给目标 Android Benchmark 工程。执行完成后可以直接复用现有 JSON parser 和 RegressionAnalyzer 做 baseline/current 比较。
 
 当前边界：目标工程仍需提供 AndroidX Macrobenchmark 测试和可运行设备；APS 负责实验编排、参数传递、原始输出和结果比较，不替代目标工程中的 benchmark test。
 
@@ -57,3 +58,7 @@ baseline JSON + current JSON
 - 单次 benchmark 结果不能代表稳定回归；应保留样本数和统计上下文。
 - baseline 与 current 必须记录设备、编译模式、版本和环境，否则比较可能无效。
 - 回归标记是统计规则输出，不自动解释代码因果；需要结合 Startup、Frame、CPU 或 Trace Analyzer。
+
+## P0 实验矩阵与证据关联
+
+Benchmark case 会在指标样本之外保留标准化场景（`STARTUP`、`SCROLL`、`ANIMATION`、`PAGE_SWITCH`）、ART 编译模式、Baseline Profile 状态与 artifact 身份，以及 trace 路径。`BenchmarkExperimentAnalyzer` 对比 Profile 前后实验并按 benchmark case 配对 trace；Profile 是否验证成功与指标回归结论分别报告。CLI 通过 Gradle properties 和环境变量把同一实验矩阵传给目标 AndroidX Macrobenchmark 工程。

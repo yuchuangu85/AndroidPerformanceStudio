@@ -47,6 +47,9 @@ public data class FrameSummary(
     val platformJankFrames: Int = 0,
     val platformUnknownFrames: Int = 0,
     val platformJankRate: Double? = null,
+    val jankStatsClassifiedFrames: Int = 0,
+    val jankStatsJankFrames: Int = 0,
+    val jankStatsJankRate: Double? = null,
     val p50DurationNs: Long? = null,
     val p95DurationNs: Long? = null,
     val p99DurationNs: Long? = null,
@@ -129,6 +132,8 @@ public class FrameJankAnalyzer(
         val deadlineMisses = frames.count { it.deadlineVerdict == FrameDeadlineVerdict.MISSED }
         val platformClassified = frames.count { it.sample.platformJank != null }
         val platformJank = frames.count { it.sample.platformJank == true }
+        val jankStatsClassified = frames.count { it.sample.jankStatsJank != null }
+        val jankStatsJank = frames.count { it.sample.jankStatsJank == true }
         return FrameSummary(
             totalFrames = frames.size,
             deadlineClassifiedFrames = deadlineClassified,
@@ -139,6 +144,9 @@ public class FrameJankAnalyzer(
             platformJankFrames = platformJank,
             platformUnknownFrames = frames.size - platformClassified,
             platformJankRate = platformClassified.takeIf { it > 0 }?.let { platformJank.toDouble() / it },
+            jankStatsClassifiedFrames = jankStatsClassified,
+            jankStatsJankFrames = jankStatsJank,
+            jankStatsJankRate = jankStatsClassified.takeIf { it > 0 }?.let { jankStatsJank.toDouble() / it },
             p50DurationNs = durations.percentile(0.50),
             p95DurationNs = durations.percentile(0.95),
             p99DurationNs = durations.percentile(0.99),

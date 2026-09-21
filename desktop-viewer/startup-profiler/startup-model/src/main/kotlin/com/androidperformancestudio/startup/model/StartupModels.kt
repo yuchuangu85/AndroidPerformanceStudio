@@ -82,6 +82,8 @@ public data class StartupExperimentConfig(
     val capturePerfettoTrace: Boolean = false,
     val practicalChangeThresholdPercent: Double = 5.0,
     val profileSource: StartupProfileSource = StartupProfileSource.UNVERIFIED,
+    /** Optional profile artifact/hash supplied by the Baseline Profile or Macrobenchmark build. */
+    val baselineProfileArtifact: String? = null,
 ) {
     init {
         require(warmupRuns in 0..MAX_RUNS) { "warmupRuns must be between 0 and $MAX_RUNS" }
@@ -94,6 +96,12 @@ public data class StartupExperimentConfig(
         }
         require(compilationMode == CompilationMode.SPEED_PROFILE || profileSource == StartupProfileSource.UNVERIFIED) {
             "profileSource is only valid for speed-profile compilation mode"
+        }
+        require(baselineProfileArtifact == null || baselineProfileArtifact.isNotBlank()) {
+            "baselineProfileArtifact must not be blank"
+        }
+        require(compilationMode == CompilationMode.SPEED_PROFILE || baselineProfileArtifact == null) {
+            "baselineProfileArtifact is only valid for speed-profile compilation mode"
         }
     }
 
@@ -172,6 +180,7 @@ public data class StartupCompilationEvidence(
     val failureReason: String? = null,
     val profileSource: StartupProfileSource = StartupProfileSource.UNVERIFIED,
     val profileSourceDeclared: Boolean = false,
+    val baselineProfileArtifact: String? = null,
 )
 
 public data class StartupEnvironmentEvidence(
@@ -199,6 +208,9 @@ public data class StartupPerfettoRootCauseEvidence(
     val binderSlices: List<StartupPerfettoSlice> = emptyList(),
     val mainThreadSlices: List<StartupPerfettoSlice> = emptyList(),
     val frameSlices: List<StartupPerfettoSlice> = emptyList(),
+    val wakingSlices: List<StartupPerfettoSlice> = emptyList(),
+    val runQueueSlices: List<StartupPerfettoSlice> = emptyList(),
+    val phaseAttributions: List<StartupPerfettoPhaseAttribution> = emptyList(),
     val correlated: Boolean = false,
     val correlationErrorBoundNs: Long? = null,
     val limitations: List<String> = emptyList(),
@@ -209,6 +221,18 @@ public data class StartupPerfettoSlice(
     val durationNs: Long,
     val name: String,
     val threadName: String? = null,
+)
+
+public data class StartupPerfettoPhaseAttribution(
+    val phaseName: String,
+    val startNs: Long,
+    val endNs: Long,
+    val schedulingNs: Long = 0,
+    val binderNs: Long = 0,
+    val mainThreadBlockedNs: Long = 0,
+    val frameNs: Long = 0,
+    val wakingCount: Int = 0,
+    val runQueueSamples: Int = 0,
 )
 
 public data class StartupRunContext(

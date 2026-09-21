@@ -64,8 +64,14 @@ import com.androidperformancestudio.perfetto_app.generated.resources.captured_tr
 import com.androidperformancestudio.perfetto_app.generated.resources.delete
 import com.androidperformancestudio.perfetto_app.generated.resources.device_connected
 import com.androidperformancestudio.perfetto_app.generated.resources.device_refresh_failed
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_frame_alignment_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_frame_alignment_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_ipc_long_tail_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_ipc_long_tail_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_latency_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_latency_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_system_server_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_system_server_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_cpu_frequency_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_cpu_frequency_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_cpu_hotspots_description
@@ -74,8 +80,16 @@ import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_frame_jank_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_input_latency_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_input_latency_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_main_thread_blocked_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_main_thread_blocked_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_memory_timeline_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_memory_timeline_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_run_queue_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_run_queue_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sched_switch_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sched_switch_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sched_waking_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sched_waking_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_thread_states_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_thread_states_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_wakeup_latency_description
@@ -938,8 +952,15 @@ private fun TraceDiagnosticContent(
 private fun DiagnosticQuery.localizedTitle(language: UiLanguage): String =
     when (id) {
         "cpu_hotspots" -> localizedStringResource(Res.string.diagnostic_cpu_hotspots_title, language)
+        "sched_switch" -> localizedStringResource(Res.string.diagnostic_sched_switch_title, language)
+        "sched_waking" -> localizedStringResource(Res.string.diagnostic_sched_waking_title, language)
+        "run_queue" -> localizedStringResource(Res.string.diagnostic_run_queue_title, language)
+        "main_thread_blocked" -> localizedStringResource(Res.string.diagnostic_main_thread_blocked_title, language)
         "cpu_freq_dist" -> localizedStringResource(Res.string.diagnostic_cpu_frequency_title, language)
         "binder_latency" -> localizedStringResource(Res.string.diagnostic_binder_latency_title, language)
+        "binder_ipc_long_tail" -> localizedStringResource(Res.string.diagnostic_binder_ipc_long_tail_title, language)
+        "binder_system_server" -> localizedStringResource(Res.string.diagnostic_binder_system_server_title, language)
+        "binder_frame_alignment" -> localizedStringResource(Res.string.diagnostic_binder_frame_alignment_title, language)
         "frame_jank" -> localizedStringResource(Res.string.diagnostic_frame_jank_title, language)
         "mem_counters" -> localizedStringResource(Res.string.diagnostic_memory_timeline_title, language)
         "input_latency" -> localizedStringResource(Res.string.diagnostic_input_latency_title, language)
@@ -951,8 +972,15 @@ private fun DiagnosticQuery.localizedTitle(language: UiLanguage): String =
 private fun DiagnosticQuery.localizedDescription(language: UiLanguage): String =
     when (id) {
         "cpu_hotspots" -> localizedStringResource(Res.string.diagnostic_cpu_hotspots_description, language)
+        "sched_switch" -> localizedStringResource(Res.string.diagnostic_sched_switch_description, language)
+        "sched_waking" -> localizedStringResource(Res.string.diagnostic_sched_waking_description, language)
+        "run_queue" -> localizedStringResource(Res.string.diagnostic_run_queue_description, language)
+        "main_thread_blocked" -> localizedStringResource(Res.string.diagnostic_main_thread_blocked_description, language)
         "cpu_freq_dist" -> localizedStringResource(Res.string.diagnostic_cpu_frequency_description, language)
         "binder_latency" -> localizedStringResource(Res.string.diagnostic_binder_latency_description, language)
+        "binder_ipc_long_tail" -> localizedStringResource(Res.string.diagnostic_binder_ipc_long_tail_description, language)
+        "binder_system_server" -> localizedStringResource(Res.string.diagnostic_binder_system_server_description, language)
+        "binder_frame_alignment" -> localizedStringResource(Res.string.diagnostic_binder_frame_alignment_description, language)
         "frame_jank" -> localizedStringResource(Res.string.diagnostic_frame_jank_description, language)
         "mem_counters" -> localizedStringResource(Res.string.diagnostic_memory_timeline_description, language)
         "input_latency" -> localizedStringResource(Res.string.diagnostic_input_latency_description, language)

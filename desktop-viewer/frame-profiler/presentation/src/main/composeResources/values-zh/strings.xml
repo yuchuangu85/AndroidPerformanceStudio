@@ -35,4 +35,11 @@
     <string name="unknown_stage">未知阶段</string>
     <string name="frame_attribution">卡顿归因</string>
     <string name="frame_attribution_entry">%1$s · %2$s · %3$s 次卡顿 / %4$s 帧 · p95 %5$s</string>
+    <string name="fragment">Fragment</string>
+    <string name="page">页面</string>
+    <string name="interaction_state">交互状态</string>
+    <string name="render_thread">RenderThread</string>
+    <string name="surface_flinger_jank">SurfaceFlinger 卡顿</string>
+    <string name="jank_stats">JankStats</string>
+    <string name="jank_stats_reasons">JankStats 原因</string>
 </resources>

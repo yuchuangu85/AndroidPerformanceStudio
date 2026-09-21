@@ -101,9 +101,9 @@ internal class FrameMetricsStore(
             this
         } else {
             copy(
-                platformJank = signal.isJank,
-                platformJankRuleId = JANK_STATS_RULE_ID,
-                platformJankRuleVersion = JANK_STATS_RULE_VERSION,
+                jankStatsJank = signal.isJank,
+                jankStatsRuleId = JANK_STATS_RULE_ID,
+                jankStatsRuleVersion = JANK_STATS_RULE_VERSION,
                 states = states + signal.states + ("jankStats" to "true"),
             )
         }

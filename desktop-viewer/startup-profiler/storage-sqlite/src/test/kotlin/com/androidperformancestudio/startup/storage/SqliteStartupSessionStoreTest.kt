@@ -2,6 +2,8 @@ package com.androidperformancestudio.startup.storage
 
 import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.PlatformLaunchMetrics
+import com.androidperformancestudio.startup.model.StartupCompilationEvidence
+import com.androidperformancestudio.startup.model.StartupProfileSource
 import com.androidperformancestudio.startup.model.StartupRawEvidence
 import com.androidperformancestudio.startup.model.StartupRun
 import com.androidperformancestudio.startup.model.StartupSession
@@ -37,11 +39,29 @@ class SqliteStartupSessionStoreTest {
                 StartupType.COLD,
                 PlatformLaunchMetrics(totalTimeMs = 100),
                 rawEvidence = StartupRawEvidence("raw"),
+                compilationEvidence =
+                    StartupCompilationEvidence(
+                        requestedMode = CompilationMode.SPEED_PROFILE,
+                        verified = true,
+                        profileSource = StartupProfileSource.BASELINE_PROFILE_PLUGIN,
+                        profileSourceDeclared = true,
+                        baselineProfileArtifact = "baseline-prof.txt#abc",
+                    ),
             )
 
         SqliteStartupSessionStore.open(file).use { store ->
             store.save(session, listOf(run))
             assertEquals(1, store.listSessions().single().runCount)
+        }
+        DriverManager.getConnection("jdbc:sqlite:${file.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement
+                    .executeQuery("SELECT baseline_profile_artifact FROM startup_runs WHERE id = 'run'")
+                    .use { rows ->
+                        assertEquals(true, rows.next())
+                        assertEquals("baseline-prof.txt#abc", rows.getString(1))
+                    }
+            }
         }
     }
 
@@ -62,6 +82,7 @@ class SqliteStartupSessionStoreTest {
                     assertEquals(true, "agent_first_frame_source" in columns)
                     assertEquals(true, "profile_source" in columns)
                     assertEquals(true, "trace_file" in columns)
+                    assertEquals(true, "baseline_profile_artifact" in columns)
                 }
             }
         }

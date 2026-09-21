@@ -80,6 +80,16 @@ public data class FrameSample(
     val eligibleForJank: Boolean = true,
     val droppedBeforeSample: Long = 0,
     val layoutSnapshotId: String? = null,
+    /** Optional high-level context supplied by the Agent/JankStats integration. */
+    val fragmentName: String? = null,
+    val pageName: String? = null,
+    val interactionState: String? = null,
+    val renderThreadName: String? = null,
+    val surfaceFlingerJankType: String? = null,
+    val jankStatsJank: Boolean? = null,
+    val jankStatsReasons: Set<String> = emptySet(),
+    val jankStatsRuleId: String? = null,
+    val jankStatsRuleVersion: String? = null,
 ) {
     public fun resolvedDurationNs(): Long? =
         totalDurationNs?.takeIf { it >= 0L }

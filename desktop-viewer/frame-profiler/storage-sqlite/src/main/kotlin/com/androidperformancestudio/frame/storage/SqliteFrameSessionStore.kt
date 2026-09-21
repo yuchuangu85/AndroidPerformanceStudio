@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "MaxLineLength", "TooGenericExceptionCaught", "TooManyFunctions")
+@file:Suppress("LongMethod", "MagicNumber", "MaxLineLength", "TooGenericExceptionCaught", "TooManyFunctions")
 
 package com.androidperformancestudio.frame.storage
 
@@ -81,6 +81,15 @@ public class SqliteFrameSessionStore private constructor(
                     eligible_for_jank INTEGER NOT NULL,
                     dropped_before_sample INTEGER NOT NULL DEFAULT 0,
                     activity_name TEXT,
+                    fragment_name TEXT,
+                    page_name TEXT,
+                    interaction_state TEXT,
+                    render_thread_name TEXT,
+                    surface_flinger_jank_type TEXT,
+                    jank_stats_jank INTEGER,
+                    jank_stats_reasons TEXT NOT NULL DEFAULT '',
+                    jank_stats_rule_id TEXT,
+                    jank_stats_rule_version TEXT,
                     window_id TEXT,
                     layout_snapshot_id TEXT,
                     PRIMARY KEY(session_id, frame_id),
@@ -113,7 +122,7 @@ public class SqliteFrameSessionStore private constructor(
                 """.trimIndent(),
             )
             ensureCurrentColumns()
-            statement.execute("PRAGMA user_version = 4")
+            statement.execute("PRAGMA user_version = 5")
         }
     }
 
@@ -210,6 +219,15 @@ public class SqliteFrameSessionStore private constructor(
                 "platform_jank_rule_id" to "TEXT",
                 "platform_jank_rule_version" to "TEXT",
                 "dropped_before_sample" to "INTEGER NOT NULL DEFAULT 0",
+                "fragment_name" to "TEXT",
+                "page_name" to "TEXT",
+                "interaction_state" to "TEXT",
+                "render_thread_name" to "TEXT",
+                "surface_flinger_jank_type" to "TEXT",
+                "jank_stats_jank" to "INTEGER",
+                "jank_stats_reasons" to "TEXT NOT NULL DEFAULT ''",
+                "jank_stats_rule_id" to "TEXT",
+                "jank_stats_rule_version" to "TEXT",
             ),
         )
     }
@@ -296,8 +314,10 @@ public class SqliteFrameSessionStore private constructor(
                     layout_measure_ns, draw_ns, sync_ns, command_issue_ns, swap_buffers_ns, gpu_ns,
                     platform_jank, platform_jank_types, platform_jank_rule_id, platform_jank_rule_version,
                     eligible_for_jank, dropped_before_sample,
-                    activity_name, window_id, layout_snapshot_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    activity_name, fragment_name, page_name, interaction_state, render_thread_name,
+                    surface_flinger_jank_type, jank_stats_jank, jank_stats_reasons,
+                    jank_stats_rule_id, jank_stats_rule_version, window_id, layout_snapshot_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { statement ->
                 frames.forEach { frame ->
@@ -334,8 +354,17 @@ public class SqliteFrameSessionStore private constructor(
                     statement.setInt(27, if (frame.eligibleForJank) 1 else 0)
                     statement.setLong(28, frame.droppedBeforeSample)
                     statement.setString(29, frame.activityName)
-                    statement.setString(30, frame.windowId)
-                    statement.setString(31, frame.layoutSnapshotId)
+                    statement.setString(30, frame.fragmentName)
+                    statement.setString(31, frame.pageName)
+                    statement.setString(32, frame.interactionState)
+                    statement.setString(33, frame.renderThreadName)
+                    statement.setString(34, frame.surfaceFlingerJankType)
+                    statement.setNullableBoolean(35, frame.jankStatsJank)
+                    statement.setString(36, frame.jankStatsReasons.sorted().encodeStrings())
+                    statement.setString(37, frame.jankStatsRuleId)
+                    statement.setString(38, frame.jankStatsRuleVersion)
+                    statement.setString(39, frame.windowId)
+                    statement.setString(40, frame.layoutSnapshotId)
                     statement.addBatch()
                 }
                 statement.executeBatch()
@@ -441,6 +470,15 @@ public class SqliteFrameSessionStore private constructor(
             eligibleForJank = getInt("eligible_for_jank") != 0,
             droppedBeforeSample = getLong("dropped_before_sample"),
             activityName = getString("activity_name"),
+            fragmentName = getString("fragment_name"),
+            pageName = getString("page_name"),
+            interactionState = getString("interaction_state"),
+            renderThreadName = getString("render_thread_name"),
+            surfaceFlingerJankType = getString("surface_flinger_jank_type"),
+            jankStatsJank = nullableBoolean("jank_stats_jank"),
+            jankStatsReasons = getString("jank_stats_reasons").orEmpty().decodeStrings().toSet(),
+            jankStatsRuleId = getString("jank_stats_rule_id"),
+            jankStatsRuleVersion = getString("jank_stats_rule_version"),
             windowId = getString("window_id"),
             layoutSnapshotId = getString("layout_snapshot_id"),
             states = states,
@@ -465,6 +503,13 @@ public class SqliteFrameSessionStore private constructor(
         value: Double?,
     ) {
         if (value == null) setNull(index, Types.DOUBLE) else setDouble(index, value)
+    }
+
+    private fun java.sql.PreparedStatement.setNullableBoolean(
+        index: Int,
+        value: Boolean?,
+    ) {
+        if (value == null) setNull(index, Types.INTEGER) else setInt(index, if (value) 1 else 0)
     }
 
     private fun ResultSet.nullableLong(column: String): Long? = getLong(column).let { if (wasNull()) null else it }

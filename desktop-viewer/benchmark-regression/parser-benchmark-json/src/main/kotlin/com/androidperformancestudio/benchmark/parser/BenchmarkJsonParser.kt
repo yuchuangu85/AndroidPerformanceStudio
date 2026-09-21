@@ -2,11 +2,14 @@
 
 package com.androidperformancestudio.benchmark.parser
 
+import com.androidperformancestudio.benchmark.model.BaselineProfileEvidence
+import com.androidperformancestudio.benchmark.model.BaselineProfileStatus
 import com.androidperformancestudio.benchmark.model.BenchmarkBuild
 import com.androidperformancestudio.benchmark.model.BenchmarkCase
 import com.androidperformancestudio.benchmark.model.BenchmarkDevice
 import com.androidperformancestudio.benchmark.model.BenchmarkMetric
 import com.androidperformancestudio.benchmark.model.BenchmarkRun
+import com.androidperformancestudio.benchmark.model.BenchmarkScenario
 import com.androidperformancestudio.benchmark.model.EvidenceConfidence
 import com.androidperformancestudio.benchmark.model.MetricDirection
 import kotlinx.serialization.json.Json
@@ -59,6 +62,14 @@ public class BenchmarkJsonParser(
             build = parseBuild(context, root),
             cases = cases,
             warnings = warnings + unknownTopLevelWarnings(root),
+            evidenceArtifacts =
+                buildList {
+                    add(file.toAbsolutePath().normalize())
+                    cases.forEach { benchmarkCase ->
+                        addAll(benchmarkCase.traceArtifacts)
+                        benchmarkCase.baselineProfile?.artifact?.let(::add)
+                    }
+                }.distinct(),
         )
     }
 
@@ -92,6 +103,50 @@ public class BenchmarkJsonParser(
             iterationCount = value.int("repeatIterations") ?: value.int("iterationCount"),
             metrics = metrics,
             traceArtifacts = traces,
+            scenario = parseScenario(value, rawName),
+            baselineProfile = parseBaselineProfile(value, baseDir),
+        )
+    }
+
+    private fun parseScenario(value: JsonObject, rawName: String): BenchmarkScenario {
+        val explicit = value.string("scenario") ?: value.objectOrNull("params")?.string("scenario")
+        explicit?.let {
+            when (it.trim().lowercase().replace('-', '_').replace(' ', '_')) {
+                "startup", "cold", "warm", "hot" -> return BenchmarkScenario.STARTUP
+                "scroll", "scrolling", "fling" -> return BenchmarkScenario.SCROLL
+                "animation", "animate" -> return BenchmarkScenario.ANIMATION
+                "page_switch", "page switch", "navigation", "navigate" -> return BenchmarkScenario.PAGE_SWITCH
+                "custom" -> return BenchmarkScenario.CUSTOM
+            }
+        }
+        val normalized = rawName.lowercase()
+        return when {
+            listOf("startup", "cold", "warm", "hot").any(normalized::contains) -> BenchmarkScenario.STARTUP
+            listOf("scroll", "fling").any(normalized::contains) -> BenchmarkScenario.SCROLL
+            listOf("animation", "animate").any(normalized::contains) -> BenchmarkScenario.ANIMATION
+            listOf("page", "navigation", "navigate").any(normalized::contains) -> BenchmarkScenario.PAGE_SWITCH
+            else -> BenchmarkScenario.UNKNOWN
+        }
+    }
+
+    private fun parseBaselineProfile(value: JsonObject, baseDir: Path?): BaselineProfileEvidence? {
+        val profile = value.objectOrNull("baselineProfile") ?: value.objectOrNull("profile")
+        val statusText = value.string("baselineProfileStatus") ?: profile?.string("status")
+        val requested = value.boolean("baselineProfileEnabled") ?: profile != null || statusText != null
+        if (!requested && profile == null) return null
+        val status = when (statusText?.trim()?.lowercase()) {
+            "installed", "applied", "enabled" -> BaselineProfileStatus.INSTALLED
+            "verified", "compiled", "ready" -> BaselineProfileStatus.VERIFIED
+            "missing", "not_found", "not found" -> BaselineProfileStatus.MISSING
+            null -> if (requested) BaselineProfileStatus.UNKNOWN else BaselineProfileStatus.NOT_REQUESTED
+            else -> BaselineProfileStatus.UNKNOWN
+        }
+        val rawArtifact = value.string("baselineProfilePath") ?: profile?.string("path") ?: profile?.string("file")
+        return BaselineProfileEvidence(
+            status = status,
+            source = value.string("baselineProfileSource") ?: profile?.string("source"),
+            artifact = rawArtifact?.let { resolve(baseDir, it) },
+            profileHash = value.string("baselineProfileHash") ?: profile?.string("sha256") ?: profile?.string("hash"),
         )
     }
 

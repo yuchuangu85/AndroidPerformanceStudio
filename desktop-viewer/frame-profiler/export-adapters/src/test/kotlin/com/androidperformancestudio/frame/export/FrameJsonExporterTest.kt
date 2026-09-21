@@ -26,6 +26,11 @@ class FrameJsonExporterTest {
                 platformJank = true,
                 platformJankRuleId = "jank-rule",
                 platformJankRuleVersion = "1.2.3",
+                fragmentName = "FeedFragment",
+                jankStatsJank = true,
+                jankStatsReasons = setOf("slow draw"),
+                jankStatsRuleId = "jankstats-default",
+                jankStatsRuleVersion = "1.0.0",
                 states = mapOf("screen" to "feed\"list"),
             )
 
@@ -37,6 +42,9 @@ class FrameJsonExporterTest {
         assertTrue(json.contains("\"platformJankFrames\": 1"))
         assertTrue(json.contains("\"platformJankRuleId\": \"jank-rule\""))
         assertTrue(json.contains("\"platformJankRuleVersion\": \"1.2.3\""))
+        assertTrue(json.contains("\"fragmentName\": \"FeedFragment\""))
+        assertTrue(json.contains("\"jankStatsJank\": true"))
+        assertTrue(json.contains("\"jankStatsRuleId\": \"jankstats-default\""))
         assertTrue(json.contains("\"screen\": \"feed\\\"list\""))
         assertTrue(json.contains("\"clusters\": ["))
         assertTrue(json.contains("\"attributions\": ["))

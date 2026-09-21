@@ -8,6 +8,24 @@ public enum class EvidenceConfidence { EXACT, DERIVED, INFERRED, PARTIAL, UNKNOW
 
 public enum class MetricDirection { LOWER_IS_BETTER, HIGHER_IS_BETTER, UNKNOWN }
 
+/** Workload shape used to keep startup and interaction benchmark results comparable. */
+public enum class BenchmarkScenario {
+    STARTUP,
+    SCROLL,
+    ANIMATION,
+    PAGE_SWITCH,
+    CUSTOM,
+    UNKNOWN,
+}
+
+public enum class BaselineProfileStatus {
+    NOT_REQUESTED,
+    INSTALLED,
+    VERIFIED,
+    MISSING,
+    UNKNOWN,
+}
+
 public enum class RegressionClassification { REGRESSED, IMPROVED, STABLE, INCONCLUSIVE, INCOMPATIBLE }
 
 public enum class BaselinePolicy { PINNED, BRANCH_HEAD, ROLLING_MEDIAN, RELEASE_TAG }
@@ -46,6 +64,14 @@ public data class BenchmarkMetric(
     public fun representativeValue(): Double? = median ?: samples.sorted().medianOrNull()
 }
 
+public data class BaselineProfileEvidence(
+    val status: BaselineProfileStatus = BaselineProfileStatus.NOT_REQUESTED,
+    val source: String? = null,
+    val artifact: Path? = null,
+    val profileHash: String? = null,
+    val verifiedAt: Instant? = null,
+)
+
 public data class BenchmarkCase(
     val className: String,
     val testName: String,
@@ -55,6 +81,8 @@ public data class BenchmarkCase(
     val iterationCount: Int?,
     val metrics: List<BenchmarkMetric>,
     val traceArtifacts: List<Path>,
+    val scenario: BenchmarkScenario = BenchmarkScenario.UNKNOWN,
+    val baselineProfile: BaselineProfileEvidence? = null,
 ) {
     public val identity: String get() = "$className#$testName"
 }
@@ -69,6 +97,23 @@ public data class BenchmarkRun(
     val importedAt: Instant = Instant.now(),
     val cases: List<BenchmarkCase>,
     val warnings: List<String> = emptyList(),
+    /** Original JSON, Perfetto traces and profile artifacts remain independently addressable. */
+    val evidenceArtifacts: List<Path> = listOf(sourceFile),
+)
+
+public data class BaselineProfileComparison(
+    val baselineRunId: String,
+    val profiledRunId: String,
+    val report: RegressionReport,
+    val baselineStatus: BaselineProfileStatus,
+    val profiledStatus: BaselineProfileStatus,
+    val tracePairs: List<TraceArtifactPair>,
+)
+
+public data class TraceArtifactPair(
+    val caseIdentity: String,
+    val before: List<Path>,
+    val after: List<Path>,
 )
 
 public data class CompatibilityIssue(

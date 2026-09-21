@@ -2,8 +2,12 @@
 
 package com.androidperformancestudio.startup.export
 
+import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
 import com.androidperformancestudio.startup.analysis.StartupAnalysisResult
+import com.androidperformancestudio.startup.model.StartupPerfettoPhaseAttribution
+import com.androidperformancestudio.startup.model.StartupPerfettoRootCauseEvidence
+import com.androidperformancestudio.startup.model.StartupPerfettoSlice
 import com.androidperformancestudio.startup.model.StartupStatistics
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -85,6 +89,7 @@ public class StartupJsonExporter {
                                                 put("failureReason", evidence.failureReason)
                                                 put("profileSource", evidence.profileSource.name)
                                                 put("profileSourceDeclared", evidence.profileSourceDeclared)
+                                                put("baselineProfileArtifact", evidence.baselineProfileArtifact)
                                             },
                                         )
                                     }
@@ -111,6 +116,15 @@ public class StartupJsonExporter {
                                                 put("captured", evidence.captured)
                                                 put("truncated", evidence.truncated)
                                                 put("failureReason", evidence.failureReason)
+                                                evidence.artifact?.let { artifact ->
+                                                    put(
+                                                        "artifact",
+                                                        JSON.parseToJsonElement(CaptureArtifactJson.encode(artifact)),
+                                                    )
+                                                }
+                                                evidence.rootCause?.let { rootCause ->
+                                                    put("rootCause", rootCause.toJson())
+                                                }
                                             },
                                         )
                                     }
@@ -164,6 +178,47 @@ public class StartupJsonExporter {
             }
         Files.writeString(output, JSON.encodeToString(root))
     }
+
+    private fun StartupPerfettoRootCauseEvidence.toJson() =
+        buildJsonObject {
+            put("schedulingSlices", schedulingSlices.toJson())
+            put("binderSlices", binderSlices.toJson())
+            put("mainThreadSlices", mainThreadSlices.toJson())
+            put("frameSlices", frameSlices.toJson())
+            put("wakingSlices", wakingSlices.toJson())
+            put("runQueueSlices", runQueueSlices.toJson())
+            put("phaseAttributions", buildJsonArray { phaseAttributions.forEach { add(it.toJson()) } })
+            put("correlated", correlated)
+            put("correlationErrorBoundNs", correlationErrorBoundNs)
+            put("limitations", buildJsonArray { limitations.forEach(::add) })
+        }
+
+    private fun List<StartupPerfettoSlice>.toJson() =
+        buildJsonArray {
+            forEach { slice ->
+                add(
+                    buildJsonObject {
+                        put("timestampNs", slice.timestampNs)
+                        put("durationNs", slice.durationNs)
+                        put("name", slice.name)
+                        put("threadName", slice.threadName)
+                    },
+                )
+            }
+        }
+
+    private fun StartupPerfettoPhaseAttribution.toJson() =
+        buildJsonObject {
+            put("phaseName", phaseName)
+            put("startNs", startNs)
+            put("endNs", endNs)
+            put("schedulingNs", schedulingNs)
+            put("binderNs", binderNs)
+            put("mainThreadBlockedNs", mainThreadBlockedNs)
+            put("frameNs", frameNs)
+            put("wakingCount", wakingCount)
+            put("runQueueSamples", runQueueSamples)
+        }
 
     private fun StartupStatistics.toJson() =
         buildJsonObject {

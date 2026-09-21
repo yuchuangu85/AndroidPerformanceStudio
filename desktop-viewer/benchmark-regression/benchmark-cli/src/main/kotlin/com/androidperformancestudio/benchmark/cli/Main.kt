@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.benchmark.cli
 
+import com.androidperformancestudio.benchmark.analysis.BenchmarkExperimentAnalyzer
 import com.androidperformancestudio.benchmark.analysis.RegressionAnalyzer
 import com.androidperformancestudio.benchmark.export.BenchmarkReportExporter
 import com.androidperformancestudio.benchmark.model.RegressionPolicy
@@ -47,21 +48,7 @@ private fun runMacrobenchmarkCommand(args: List<String>, execute: Boolean) {
     val project = options["--project"]?.takeIf(String::isNotBlank)
         ?: return usageMacrobenchmark()
     try {
-        val plan =
-            MacrobenchmarkExperimentPlan(
-                projectRoot = Path.of(project),
-                gradleTask = options["--task"]?.ifBlank { null } ?: ":macrobenchmark:connectedCheck",
-                benchmarkFilter = options["--filter"],
-                compilationMode =
-                    options["--compilation-mode"]?.uppercase()?.let(MacrobenchmarkCompilationMode::valueOf)
-                        ?: MacrobenchmarkCompilationMode.NONE,
-                startupMode =
-                    options["--startup-mode"]?.uppercase()?.let(MacrobenchmarkStartupMode::valueOf)
-                        ?: MacrobenchmarkStartupMode.COLD,
-                warmups = options["--warmups"]?.toIntOrNull() ?: 2,
-                iterations = options["--iterations"]?.toIntOrNull() ?: 5,
-                traceDirectory = options["--trace-dir"]?.takeIf(String::isNotBlank)?.let(Path::of),
-            )
+        val plan = macrobenchmarkPlan(project, options)
         val command = MacrobenchmarkCommandBuilder.build(plan)
         if (!execute) {
             println(command.commandLine())
@@ -79,15 +66,25 @@ private fun runMacrobenchmarkCommand(args: List<String>, execute: Boolean) {
                 val current = BenchmarkJsonParser().parse(Path.of(resultPath))
                 println("macrobenchmark_cases=${current.cases.size}")
                 options["--baseline"]?.takeIf(String::isNotBlank)?.let { baselinePath ->
-                    val report =
-                        RegressionAnalyzer().compare(
-                            BenchmarkJsonParser().parse(Path.of(baselinePath)),
+                    val baseline = BenchmarkJsonParser().parse(Path.of(baselinePath))
+                    val experiment =
+                        BenchmarkExperimentAnalyzer().compareBaselineProfile(
+                            baseline,
                             current,
                             RegressionPolicy(relativeThresholdPercent = options["--threshold-percent"]?.toDoubleOrNull()),
                         )
-                    options["--report-json"]?.let { output -> BenchmarkReportExporter().writeJson(report, Path.of(output)) }
-                    println("macrobenchmark_regressions=${report.regressionCount}")
-                    if (report.regressionCount > 0) exitProcess(1)
+                    options["--report-json"]?.let { output ->
+                        val hasProfileEvidence =
+                            current.cases.any { it.baselineProfile != null } ||
+                                baseline.cases.any { it.baselineProfile != null }
+                        if (hasProfileEvidence) {
+                            BenchmarkReportExporter().writeBaselineProfileJson(experiment, Path.of(output))
+                        } else {
+                            BenchmarkReportExporter().writeJson(experiment.report, Path.of(output))
+                        }
+                    }
+                    println("macrobenchmark_regressions=${experiment.report.regressionCount}")
+                    if (experiment.report.regressionCount > 0) exitProcess(1)
                 }
             }
         }
@@ -98,11 +95,35 @@ private fun runMacrobenchmarkCommand(args: List<String>, execute: Boolean) {
     }
 }
 
+private fun macrobenchmarkPlan(
+    project: String,
+    options: Map<String, String>,
+): MacrobenchmarkExperimentPlan =
+    MacrobenchmarkExperimentPlan(
+        projectRoot = Path.of(project),
+        gradleTask = options["--task"]?.ifBlank { null } ?: ":macrobenchmark:connectedCheck",
+        benchmarkFilter = options["--filter"],
+        compilationMode =
+            options["--compilation-mode"]?.uppercase()?.let(MacrobenchmarkCompilationMode::valueOf)
+                ?: MacrobenchmarkCompilationMode.NONE,
+        startupMode =
+            options["--startup-mode"]?.uppercase()?.let(MacrobenchmarkStartupMode::valueOf)
+                ?: MacrobenchmarkStartupMode.COLD,
+        scenario =
+            options["--scenario"]?.uppercase()?.let(MacrobenchmarkScenario::valueOf)
+                ?: MacrobenchmarkScenario.STARTUP,
+        warmups = options["--warmups"]?.toIntOrNull() ?: 2,
+        iterations = options["--iterations"]?.toIntOrNull() ?: 5,
+        traceDirectory = options["--trace-dir"]?.takeIf(String::isNotBlank)?.let(Path::of),
+    )
+
 private fun usageMacrobenchmark() {
     System.err.println(
         "Usage: aps-benchmark macro-plan|macro-run --project DIR [--task TASK] " +
             "[--filter CLASS#METHOD] [--compilation-mode NONE|PARTIAL|FULL|SPEED_PROFILE] " +
-            "[--startup-mode COLD|WARM|HOT] [--warmups N] [--iterations N] [--trace-dir DIR] " +
+            "[--startup-mode COLD|WARM|HOT] " +
+            "[--scenario STARTUP|SCROLL|ANIMATION|PAGE_SWITCH] " +
+            "[--warmups N] [--iterations N] [--trace-dir DIR] " +
             "[--result BENCHMARK_JSON] [--baseline BENCHMARK_JSON] [--report-json REPORT_JSON]",
     )
     exitProcess(2)

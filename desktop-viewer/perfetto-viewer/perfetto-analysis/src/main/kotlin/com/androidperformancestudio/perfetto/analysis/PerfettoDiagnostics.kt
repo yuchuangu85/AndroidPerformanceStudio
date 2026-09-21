@@ -73,6 +73,121 @@ object PerfettoDiagnostics {
                     """.trimIndent(),
             ),
             DiagnosticQuery(
+                id = "sched_switch",
+                category = DiagnosticCategory.CPU,
+                title = "sched_switch Timeline",
+                description = "Running slices and their scheduler end state",
+                columns = listOf("timestamp_ns", "duration_ns", "cpu", "thread_name", "process_name", "end_state"),
+                sql =
+                    """
+                    SELECT sched.ts AS timestamp_ns,
+                           sched.dur AS duration_ns,
+                           sched.cpu AS cpu,
+                           thread.name AS thread_name,
+                           process.name AS process_name,
+                           sched.end_state AS end_state
+                    FROM sched_slice AS sched
+                    JOIN thread ON thread.utid = sched.utid
+                    LEFT JOIN process ON process.upid = thread.upid
+                    WHERE sched.dur >= 0
+                    ORDER BY sched.ts
+                    LIMIT 2000
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
+                id = "sched_waking",
+                category = DiagnosticCategory.CPU,
+                title = "sched_waking Events",
+                description = "Threads woken by another thread and their target CPU",
+                columns = listOf("timestamp_ns", "cpu", "target_cpu", "waker_thread", "target_thread", "success"),
+                sql =
+                    """
+                    WITH waking AS (
+                      SELECT event.id, event.ts, event.cpu, event.utid,
+                             MAX(CASE WHEN args.key = 'target_cpu' THEN args.int_value END) AS target_cpu,
+                             MAX(CASE WHEN args.key = 'pid' THEN args.int_value END) AS target_pid,
+                             MAX(CASE WHEN args.key = 'success' THEN args.int_value END) AS success
+                      FROM ftrace_event AS event
+                      LEFT JOIN args ON args.arg_set_id = event.arg_set_id
+                      WHERE event.name = 'sched_waking'
+                      GROUP BY event.id, event.ts, event.cpu, event.utid
+                    )
+                    SELECT waking.ts AS timestamp_ns,
+                           waking.cpu AS cpu,
+                           waking.target_cpu AS target_cpu,
+                           waker.name AS waker_thread,
+                           target.name AS target_thread,
+                           waking.success AS success
+                    FROM waking
+                    LEFT JOIN thread AS waker ON waker.utid = waking.utid
+                    LEFT JOIN thread AS target
+                      ON target.tid = waking.target_pid
+                     AND (target.start_ts IS NULL OR target.start_ts <= waking.ts)
+                     AND (target.end_ts IS NULL OR waking.ts < target.end_ts)
+                    ORDER BY waking.ts
+                    LIMIT 2000
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
+                id = "run_queue",
+                category = DiagnosticCategory.CPU,
+                title = "Run Queue Pressure",
+                description = "Runnable thread count over time, including high-pressure windows",
+                columns = listOf("timestamp_ns", "runnable_threads", "next_timestamp_ns", "run_queue_ms"),
+                sql =
+                    """
+                    INCLUDE PERFETTO MODULE sched.thread_level_parallelism;
+
+                    WITH queue AS (
+                      SELECT ts,
+                             runnable_thread_count,
+                             LEAD(ts) OVER (ORDER BY ts) AS next_ts
+                      FROM sched_runnable_thread_count
+                    )
+                    SELECT queue.ts AS timestamp_ns,
+                           queue.runnable_thread_count AS runnable_threads,
+                           queue.next_ts AS next_timestamp_ns,
+                           ROUND((queue.next_ts - queue.ts) / 1e6, 3) AS run_queue_ms
+                    FROM queue
+                    WHERE queue.runnable_thread_count > 0
+                    ORDER BY queue.runnable_thread_count DESC, queue.ts
+                    LIMIT 2000
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
+                id = "main_thread_blocked",
+                category = DiagnosticCategory.CPU,
+                title = "Main Thread Blocking",
+                description = "Main-thread sleeping and uninterruptible blocking intervals",
+                columns =
+                    listOf(
+                        "thread_name",
+                        "process_name",
+                        "state",
+                        "blocked_function",
+                        "block_count",
+                        "total_blocked_ms",
+                        "max_blocked_ms",
+                    ),
+                sql =
+                    """
+                    SELECT thread.name AS thread_name,
+                           process.name AS process_name,
+                           state.state AS state,
+                           state.blocked_function AS blocked_function,
+                           COUNT(*) AS block_count,
+                           ROUND(SUM(IIF(state.dur = -1, trace_end() - state.ts, state.dur)) / 1e6, 3) AS total_blocked_ms,
+                           ROUND(MAX(IIF(state.dur = -1, trace_end() - state.ts, state.dur)) / 1e6, 3) AS max_blocked_ms
+                    FROM thread_state AS state
+                    JOIN thread ON thread.utid = state.utid
+                    LEFT JOIN process ON process.upid = thread.upid
+                    WHERE thread.is_main_thread = 1 AND state.state IN ('S', 'D', 'S+')
+                    GROUP BY state.utid, state.state, state.blocked_function
+                    ORDER BY total_blocked_ms DESC
+                    LIMIT 30
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
                 id = "cpu_freq_dist",
                 category = DiagnosticCategory.CPU,
                 title = "CPU Frequency Distribution",
@@ -120,6 +235,73 @@ object PerfettoDiagnostics {
                     """.trimIndent(),
             ),
             DiagnosticQuery(
+                id = "binder_ipc_long_tail",
+                category = DiagnosticCategory.BINDER,
+                title = "Binder IPC Long Tail",
+                description = "Caller, server, AIDL method and long-tail Binder transaction latency",
+                columns =
+                    listOf(
+                        "client",
+                        "client_thread",
+                        "server",
+                        "server_thread",
+                        "interface",
+                        "method",
+                        "is_main_thread",
+                        "txn_count",
+                        "p50_ms",
+                        "p95_ms",
+                        "max_ms",
+                    ),
+                sql =
+                    """
+                    INCLUDE PERFETTO MODULE android.binder;
+
+                    SELECT binder.client_process AS client,
+                           binder.client_thread AS client_thread,
+                           binder.server_process AS server,
+                           binder.server_thread AS server_thread,
+                           binder.interface AS interface,
+                           binder.method_name AS method,
+                           binder.is_main_thread AS is_main_thread,
+                           COUNT(*) AS txn_count,
+                           ROUND(PERCENTILE(binder.client_dur, 50) / 1e6, 3) AS p50_ms,
+                           ROUND(PERCENTILE(binder.client_dur, 95) / 1e6, 3) AS p95_ms,
+                           ROUND(MAX(binder.client_dur) / 1e6, 3) AS max_ms
+                    FROM android_binder_txns AS binder
+                    WHERE binder.client_dur > 0
+                    GROUP BY binder.client_process, binder.client_thread, binder.server_process,
+                             binder.server_thread, binder.interface, binder.method_name, binder.is_main_thread
+                    ORDER BY max_ms DESC
+                    LIMIT 50
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
+                id = "binder_system_server",
+                category = DiagnosticCategory.BINDER,
+                title = "system_server IPC",
+                description = "Binder transactions crossing into system_server, including client and server time",
+                columns = listOf("client", "client_thread", "interface", "method", "txn_count", "client_ms", "server_ms", "max_client_ms"),
+                sql =
+                    """
+                    INCLUDE PERFETTO MODULE android.binder;
+
+                    SELECT binder.client_process AS client,
+                           binder.client_thread AS client_thread,
+                           binder.interface AS interface,
+                           binder.method_name AS method,
+                           COUNT(*) AS txn_count,
+                           ROUND(SUM(binder.client_dur) / 1e6, 3) AS client_ms,
+                           ROUND(SUM(binder.server_dur) / 1e6, 3) AS server_ms,
+                           ROUND(MAX(binder.client_dur) / 1e6, 3) AS max_client_ms
+                    FROM android_binder_txns AS binder
+                    WHERE lower(COALESCE(binder.server_process, '')) = 'system_server'
+                    GROUP BY binder.client_process, binder.client_thread, binder.interface, binder.method_name
+                    ORDER BY max_client_ms DESC
+                    LIMIT 50
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
                 id = "binder_server_saturation",
                 category = DiagnosticCategory.BINDER,
                 title = "Binder Server Saturation",
@@ -152,13 +334,13 @@ object PerfettoDiagnostics {
                     INCLUDE PERFETTO MODULE android.binder;
 
                     SELECT state.thread_state_type AS thread_state_type,
-                           state.state AS state,
-                           COUNT(*) AS txn_count,
-                           ROUND(SUM(state.dur) / 1e6, 3) AS total_dur_ms,
-                           ROUND(MAX(state.dur) / 1e6, 3) AS max_dur_ms
+                           state.thread_state AS state,
+                           SUM(state.thread_state_count) AS txn_count,
+                           ROUND(SUM(state.thread_state_dur) / 1e6, 3) AS total_dur_ms,
+                           ROUND(MAX(state.thread_state_dur) / 1e6, 3) AS max_dur_ms
                     FROM android_sync_binder_thread_state_by_txn AS state
-                    WHERE state.dur > 0
-                    GROUP BY state.thread_state_type, state.state
+                    WHERE state.thread_state_dur > 0
+                    GROUP BY state.thread_state_type, state.thread_state
                     ORDER BY total_dur_ms DESC
                     LIMIT 30
                     """.trimIndent(),
@@ -183,6 +365,39 @@ object PerfettoDiagnostics {
                     GROUP BY binder.client_upid, binder.server_upid
                     ORDER BY max_dur_ms DESC
                     LIMIT 20
+                    """.trimIndent(),
+            ),
+            DiagnosticQuery(
+                id = "binder_frame_alignment",
+                category = DiagnosticCategory.GRAPHICS,
+                title = "Binder / FrameTimeline Alignment",
+                description = "Binder calls overlapping an app frame and its jank classification",
+                columns = listOf("frame_id", "layer_name", "jank_type", "client", "server", "method", "binder_ms", "frame_overrun_ms"),
+                sql =
+                    """
+                    INCLUDE PERFETTO MODULE android.binder;
+                    INCLUDE PERFETTO MODULE android.frames.timeline;
+
+                    SELECT actual.display_frame_token AS frame_id,
+                           COALESCE(actual.layer_name, expected.layer_name) AS layer_name,
+                           actual.jank_type AS jank_type,
+                           binder.client_process AS client,
+                           binder.server_process AS server,
+                           binder.method_name AS method,
+                           ROUND(binder.client_dur / 1e6, 3) AS binder_ms,
+                           ROUND((actual.dur - expected.dur) / 1e6, 3) AS frame_overrun_ms
+                    FROM expected_frame_timeline_slice AS expected
+                    JOIN actual_frame_timeline_slice AS actual
+                      ON actual.display_frame_token = expected.display_frame_token
+                     AND actual.surface_frame_token IS expected.surface_frame_token
+                     AND actual.upid IS expected.upid
+                    JOIN android_binder_txns AS binder
+                      ON binder.client_upid = actual.upid
+                     AND binder.client_ts < actual.ts + actual.dur
+                     AND binder.client_ts + binder.client_dur > actual.ts
+                    WHERE actual.display_frame_token IS NOT NULL
+                    ORDER BY frame_overrun_ms DESC, binder_ms DESC
+                    LIMIT 100
                     """.trimIndent(),
             ),
             DiagnosticQuery(

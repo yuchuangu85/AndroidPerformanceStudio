@@ -45,4 +45,18 @@
     <string name="diagnostic_thread_states_description">Time spent in each scheduler state (R/S/D)</string>
     <string name="diagnostic_wakeup_latency_title">Thread Wakeup Latency</string>
     <string name="diagnostic_wakeup_latency_description">Time between waking and running on CPU</string>
+    <string name="diagnostic_sched_switch_title">sched_switch Timeline</string>
+    <string name="diagnostic_sched_switch_description">Running slices and scheduler end state</string>
+    <string name="diagnostic_sched_waking_title">sched_waking Events</string>
+    <string name="diagnostic_sched_waking_description">Wakeups, waker thread, and target CPU</string>
+    <string name="diagnostic_run_queue_title">Run Queue Pressure</string>
+    <string name="diagnostic_run_queue_description">Runnable thread count and pressure windows</string>
+    <string name="diagnostic_main_thread_blocked_title">Main Thread Blocking</string>
+    <string name="diagnostic_main_thread_blocked_description">Main-thread sleeping and uninterruptible blocking</string>
+    <string name="diagnostic_binder_ipc_long_tail_title">Binder IPC Long Tail</string>
+    <string name="diagnostic_binder_ipc_long_tail_description">Caller, server, method, and p95/p99 transaction latency</string>
+    <string name="diagnostic_binder_system_server_title">system_server IPC</string>
+    <string name="diagnostic_binder_system_server_description">Binder calls crossing into system_server</string>
+    <string name="diagnostic_binder_frame_alignment_title">Binder / FrameTimeline Alignment</string>
+    <string name="diagnostic_binder_frame_alignment_description">Binder calls overlapping a frame and its jank result</string>
 </resources>

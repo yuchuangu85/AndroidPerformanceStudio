@@ -163,6 +163,7 @@ public class StartupExperimentRunner internal constructor(
                     compilationMode = CompilationMode.CURRENT,
                     capturePerfettoTrace = false,
                     profileSource = StartupProfileSource.UNVERIFIED,
+                    baselineProfileArtifact = null,
                 ),
                 null,
             )
@@ -171,7 +172,14 @@ public class StartupExperimentRunner internal constructor(
         val compilationOutput = prepareCompilation(config.compilationMode, warnings)
         val compilationAfter = readCompilationSnapshot(warnings)
         val compilationEvidence =
-            compilationEvidence(config.compilationMode, config.profileSource, compilationBefore, compilationAfter, compilationOutput)
+            compilationEvidence(
+                config.compilationMode,
+                config.profileSource,
+                compilationBefore,
+                compilationAfter,
+                compilationOutput,
+                config.baselineProfileArtifact,
+            )
         compilationEvidence.failureReason?.let(warnings::add)
         val runs = mutableListOf<StartupRun>()
         repeat(config.measuredRuns) { index ->
@@ -397,6 +405,7 @@ public class StartupExperimentRunner internal constructor(
         before: CompilationSnapshot?,
         after: CompilationSnapshot?,
         output: String?,
+        baselineProfileArtifact: String?,
     ): StartupCompilationEvidence {
         val expected =
             when (mode) {
@@ -431,6 +440,7 @@ public class StartupExperimentRunner internal constructor(
                 mode == CompilationMode.SPEED_PROFILE &&
                     verified &&
                     profileSource != StartupProfileSource.UNVERIFIED,
+            baselineProfileArtifact = baselineProfileArtifact,
         )
     }
 

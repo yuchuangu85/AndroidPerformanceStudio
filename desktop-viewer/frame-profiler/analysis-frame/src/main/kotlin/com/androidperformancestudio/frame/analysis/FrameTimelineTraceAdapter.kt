@@ -4,6 +4,7 @@ import com.androidperformancestudio.contracts.CapabilityId
 import com.androidperformancestudio.frame.model.ExpectedDurationSource
 import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
+import com.androidperformancestudio.frame.model.JankType
 import com.androidperformancestudio.platform.perfetto.TraceColumn
 import com.androidperformancestudio.platform.perfetto.TraceQuery
 import com.androidperformancestudio.platform.perfetto.TraceQueryResult
@@ -104,7 +105,9 @@ class FrameTimelineTraceAdapter {
                         frameTimelineVsyncId = row.frameId,
                         totalDurationNs = row.actualDur,
                         platformJank = jank != null,
+                        platformJankTypes = if (jank == null) emptySet() else setOf(JankType.PLATFORM_REPORTED),
                         platformJankRuleId = row.jankType,
+                        surfaceFlingerJankType = row.surfaceFlingerJankType,
                         states =
                             buildMap {
                                 row.surfaceToken?.let { put("surfaceFrameToken", it.toString()) }

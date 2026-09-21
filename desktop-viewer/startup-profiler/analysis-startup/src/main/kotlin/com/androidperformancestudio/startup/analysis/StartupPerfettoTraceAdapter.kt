@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.androidperformancestudio.startup.analysis
 
 import com.androidperformancestudio.contracts.CapabilityId
@@ -7,8 +9,21 @@ import com.androidperformancestudio.platform.perfetto.TraceColumn
 import com.androidperformancestudio.platform.perfetto.TraceQuery
 import com.androidperformancestudio.platform.perfetto.TraceQueryResult
 import com.androidperformancestudio.platform.perfetto.TraceQuerySchema
+import com.androidperformancestudio.startup.model.StartupMilestone
+import com.androidperformancestudio.startup.model.StartupPerfettoPhaseAttribution
 import com.androidperformancestudio.startup.model.StartupPerfettoRootCauseEvidence
 import com.androidperformancestudio.startup.model.StartupPerfettoSlice
+
+data class StartupPerfettoEvidenceSlices(
+    val scheduling: List<StartupPerfettoSlice>,
+    val binder: List<StartupPerfettoSlice>,
+    val mainThread: List<StartupPerfettoSlice>,
+    val frames: List<StartupPerfettoSlice>,
+    val waking: List<StartupPerfettoSlice> = emptyList(),
+    val runQueue: List<StartupPerfettoSlice> = emptyList(),
+) {
+    fun allSlices(): List<StartupPerfettoSlice> = scheduling + binder + mainThread + frames + waking + runQueue
+}
 
 /** Startup-owned SQL and mapping; platform-perfetto never exposes startup DTOs. */
 class StartupPerfettoTraceAdapter(
@@ -26,6 +41,29 @@ class StartupPerfettoTraceAdapter(
                 "JOIN process AS p USING (upid) ${processFilter(processId)} ORDER BY s.ts",
         )
 
+    fun wakingQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> =
+        sliceQuery(
+            "WITH waking AS (" +
+                "SELECT e.id, e.ts, e.utid AS waker_utid, " +
+                "MAX(CASE WHEN args.key = 'pid' THEN args.int_value END) AS target_tid " +
+                "FROM ftrace_event AS e LEFT JOIN args ON args.arg_set_id = e.arg_set_id " +
+                "WHERE e.name = 'sched_waking' GROUP BY e.id, e.ts, e.utid) " +
+                "SELECT waking.ts, 0 AS dur, " +
+                "'sched_waking:' || COALESCE(waker.name, 'unknown') AS name, target.name AS thread_name " +
+                "FROM waking LEFT JOIN thread AS waker ON waker.utid = waking.waker_utid " +
+                "LEFT JOIN thread AS target ON target.tid = waking.target_tid " +
+                "AND (target.start_ts IS NULL OR target.start_ts <= waking.ts) " +
+                "AND (target.end_ts IS NULL OR waking.ts < target.end_ts) " +
+                wakingTargetFilter(processId) + " ORDER BY waking.ts",
+        )
+
+    fun runQueueQuery(): TraceQuery<StartupPerfettoSlice> =
+        sliceQuery(
+            "INCLUDE PERFETTO MODULE sched.thread_level_parallelism; " +
+                "SELECT ts, 0 AS dur, 'run_queue:' || runnable_thread_count AS name, NULL AS thread_name " +
+                "FROM sched_runnable_thread_count WHERE runnable_thread_count > 0 ORDER BY ts",
+        )
+
     fun binderQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> =
         sliceQuery(
             "SELECT s.ts, s.dur, s.name, t.name AS thread_name FROM slice AS s " +
@@ -37,11 +75,11 @@ class StartupPerfettoTraceAdapter(
 
     fun mainThreadQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> =
         sliceQuery(
-            "SELECT s.ts, s.dur, s.name, t.name AS thread_name FROM slice AS s " +
-                "LEFT JOIN thread_track AS tt ON tt.id = s.track_id " +
-                "LEFT JOIN thread AS t ON t.utid = tt.utid " +
-                "JOIN process AS p USING (upid) WHERE t.is_main_thread = 1 " +
-                processPredicate(processId) + " ORDER BY s.ts",
+            "SELECT state.ts, state.dur, COALESCE(state.blocked_function, state.state) AS name, " +
+                "thread.name AS thread_name FROM thread_state AS state " +
+                "JOIN thread ON thread.utid = state.utid JOIN process AS p USING (upid) " +
+                "WHERE thread.is_main_thread = 1 AND state.state IN ('S', 'D', 'S+') " +
+                processPredicate(processId) + " ORDER BY state.ts",
         )
 
     fun frameQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> =
@@ -58,28 +96,36 @@ class StartupPerfettoTraceAdapter(
         clockMapping: ClockMapping? = null,
     ): StartupPerfettoRootCauseEvidence =
         map(
-            schedulingQuery(null).map(TraceQueryResult.parse(schedulingCsv)),
-            binderQuery(null).map(TraceQueryResult.parse(binderCsv)),
-            mainThreadQuery(null).map(TraceQueryResult.parse(mainThreadCsv)),
-            frameQuery(null).map(TraceQueryResult.parse(frameCsv)),
+            StartupPerfettoEvidenceSlices(
+                scheduling = schedulingQuery(null).map(TraceQueryResult.parse(schedulingCsv)),
+                binder = binderQuery(null).map(TraceQueryResult.parse(binderCsv)),
+                mainThread = mainThreadQuery(null).map(TraceQueryResult.parse(mainThreadCsv)),
+                frames = frameQuery(null).map(TraceQueryResult.parse(frameCsv)),
+            ),
             clockMapping,
         )
 
     fun map(
-        scheduling: List<StartupPerfettoSlice>,
-        binder: List<StartupPerfettoSlice>,
-        mainThread: List<StartupPerfettoSlice>,
-        frames: List<StartupPerfettoSlice>,
+        evidence: StartupPerfettoEvidenceSlices,
         clockMapping: ClockMapping? = null,
+        milestones: List<StartupMilestone> = emptyList(),
     ): StartupPerfettoRootCauseEvidence {
-        val timestamps = scheduling + binder + mainThread + frames
+        val timestamps = evidence.allSlices()
         val error = clockMapping?.errorBoundNanos
         val correlated = clockMapping?.isAcceptableFor(timestamps) == true
         return StartupPerfettoRootCauseEvidence(
-            schedulingSlices = scheduling,
-            binderSlices = binder,
-            mainThreadSlices = mainThread,
-            frameSlices = frames,
+            schedulingSlices = evidence.scheduling,
+            binderSlices = evidence.binder,
+            mainThreadSlices = evidence.mainThread,
+            frameSlices = evidence.frames,
+            wakingSlices = evidence.waking,
+            runQueueSlices = evidence.runQueue,
+            phaseAttributions =
+                if (correlated) {
+                    attributePhases(evidence, milestones, clockMapping)
+                } else {
+                    emptyList()
+                },
             correlated = correlated,
             correlationErrorBoundNs = error,
             limitations =
@@ -103,6 +149,61 @@ class StartupPerfettoTraceAdapter(
                 threadName = row[threadName],
             )
         }
+
+    private fun wakingTargetFilter(processId: Int?): String {
+        if (processId == null) return "WHERE target.utid IS NOT NULL"
+        require(processId > 0) { "startup process id must be positive" }
+        return "WHERE target.upid = (SELECT upid FROM process WHERE pid = $processId ORDER BY start_ts DESC LIMIT 1)"
+    }
+
+    private fun attributePhases(
+        evidence: StartupPerfettoEvidenceSlices,
+        milestones: List<StartupMilestone>,
+        mapping: ClockMapping?,
+    ): List<StartupPerfettoPhaseAttribution> =
+        milestones.zipWithNext().mapNotNull { (start, end) ->
+            val startNs = start.elapsedRealtimeNs ?: return@mapNotNull null
+            val endNs = end.elapsedRealtimeNs ?: return@mapNotNull null
+            if (endNs <= startNs) return@mapNotNull null
+            StartupPerfettoPhaseAttribution(
+                phaseName = "${start.kind.name} → ${end.kind.name}",
+                startNs = startNs,
+                endNs = endNs,
+                schedulingNs = overlapNanos(evidence.scheduling, startNs, endNs, mapping),
+                binderNs = overlapNanos(evidence.binder, startNs, endNs, mapping),
+                mainThreadBlockedNs = overlapNanos(evidence.mainThread, startNs, endNs, mapping),
+                frameNs = overlapNanos(evidence.frames, startNs, endNs, mapping),
+                wakingCount = evidence.waking.count { inWindow(it, startNs, endNs, mapping) },
+                runQueueSamples = evidence.runQueue.count { inWindow(it, startNs, endNs, mapping) },
+            )
+        }
+
+    private fun overlapNanos(
+        slices: List<StartupPerfettoSlice>,
+        startNs: Long,
+        endNs: Long,
+        mapping: ClockMapping?,
+    ): Long =
+        slices.sumOf { slice ->
+            val mappedStart = mapTimestamp(slice.timestampNs, mapping)
+            val mappedEnd = mappedStart + slice.durationNs.coerceAtLeast(0L)
+            (minOf(mappedEnd, endNs) - maxOf(mappedStart, startNs)).coerceAtLeast(0L)
+        }
+
+    private fun inWindow(
+        slice: StartupPerfettoSlice,
+        startNs: Long,
+        endNs: Long,
+        mapping: ClockMapping?,
+    ): Boolean {
+        val timestamp = mapTimestamp(slice.timestampNs, mapping)
+        return timestamp in startNs until endNs
+    }
+
+    private fun mapTimestamp(
+        timestamp: Long,
+        mapping: ClockMapping?,
+    ): Long = mapping?.let { timestamp - it.sourceReferenceNanos + it.targetReferenceNanos } ?: timestamp
 
     private fun processFilter(processId: Int?): String {
         if (processId == null) return "WHERE p.pid IS NOT NULL"
@@ -137,6 +238,8 @@ class StartupPerfettoTraceAdapter(
         val BINDER = CapabilityId("startup.binder")
         val MAIN_THREAD = CapabilityId("startup.main_thread")
         val FRAME = CapabilityId("startup.frame")
-        val ALL: Set<CapabilityId> = setOf(SCHEDULING, BINDER, MAIN_THREAD, FRAME)
+        val SCHED_WAKING = CapabilityId("startup.sched_waking")
+        val RUN_QUEUE = CapabilityId("startup.run_queue")
+        val ALL: Set<CapabilityId> = setOf(SCHEDULING, BINDER, MAIN_THREAD, FRAME, SCHED_WAKING, RUN_QUEUE)
     }
 }

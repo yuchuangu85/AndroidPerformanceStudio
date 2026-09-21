@@ -65,9 +65,10 @@ class FrameMetricsStoreTest {
         )
 
         val sample = store.after(-1).frames.single()
-        assertEquals(true, sample.platformJank)
-        assertEquals(JANK_STATS_RULE_ID, sample.platformJankRuleId)
-        assertEquals(JANK_STATS_RULE_VERSION, sample.platformJankRuleVersion)
+        assertEquals(null, sample.platformJank)
+        assertEquals(true, sample.jankStatsJank)
+        assertEquals(JANK_STATS_RULE_ID, sample.jankStatsRuleId)
+        assertEquals(JANK_STATS_RULE_VERSION, sample.jankStatsRuleVersion)
         assertEquals("feed", sample.states["scroll"])
     }
 
@@ -84,9 +85,10 @@ class FrameMetricsStoreTest {
         store.add(frame(durationNs = 8, intendedVsyncNs = 200, windowId = "window:2"))
 
         val sample = store.after(-1).frames.single()
-        assertEquals(false, sample.platformJank)
-        assertEquals(JANK_STATS_RULE_ID, sample.platformJankRuleId)
-        assertEquals(JANK_STATS_RULE_VERSION, sample.platformJankRuleVersion)
+        assertEquals(null, sample.platformJank)
+        assertEquals(false, sample.jankStatsJank)
+        assertEquals(JANK_STATS_RULE_ID, sample.jankStatsRuleId)
+        assertEquals(JANK_STATS_RULE_VERSION, sample.jankStatsRuleVersion)
         assertEquals("details", sample.states["screen"])
     }
 

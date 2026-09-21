@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.benchmark.analysis
 
+import com.androidperformancestudio.benchmark.model.BenchmarkCase
 import com.androidperformancestudio.benchmark.model.BenchmarkMetric
 import com.androidperformancestudio.benchmark.model.BenchmarkRun
 import com.androidperformancestudio.benchmark.model.CompatibilityIssue
@@ -21,11 +22,20 @@ public class RegressionAnalyzer {
         current: BenchmarkRun,
         policy: RegressionPolicy,
     ): RegressionReport {
-        val compatibility = compatibilityIssues(baseline, current, policy)
-        val hardIssues = compatibility.filter { it.hard }
+        val runCompatibility = compatibilityIssues(baseline, current, policy)
+        val baselineCases = baseline.cases.associateBy(BenchmarkCase::identity)
+        val caseCompatibility =
+            current.cases.associate { currentCase ->
+                currentCase.identity to
+                    baselineCases[currentCase.identity]
+                        ?.let { baselineCase -> caseCompatibilityIssues(baselineCase, currentCase) }
+                        .orEmpty()
+            }
+        val compatibility = runCompatibility + caseCompatibility.values.flatten()
         val baselineMetrics = baseline.cases.flatMap { case -> case.metrics.map { (case.identity to it.name) to it } }.toMap()
         val comparisons =
             current.cases.flatMap { case ->
+                val hardIssues = (runCompatibility + caseCompatibility.getValue(case.identity)).filter(CompatibilityIssue::hard)
                 case.metrics.map { metric ->
                     val baselineMetric = baselineMetrics[case.identity to metric.name]
                     compareMetric(case.identity, baselineMetric, metric, policy, hardIssues)
@@ -58,6 +68,33 @@ public class RegressionAnalyzer {
             if (baseline.build.variant != current.build.variant) {
                 add(CompatibilityIssue("build.variant", baseline.build.variant, current.build.variant, true))
             }
+        }
+
+    private fun caseCompatibilityIssues(
+        baseline: BenchmarkCase,
+        current: BenchmarkCase,
+    ): List<CompatibilityIssue> =
+        buildList {
+            fun addIfDifferent(
+                field: String,
+                baselineValue: String?,
+                currentValue: String?,
+            ) {
+                if (baselineValue != currentValue) {
+                    add(
+                        CompatibilityIssue(
+                            field = "case.${current.identity}.$field",
+                            baseline = baselineValue,
+                            current = currentValue,
+                            hard = true,
+                        ),
+                    )
+                }
+            }
+
+            addIfDifferent("scenario", baseline.scenario.name, current.scenario.name)
+            addIfDifferent("compilationMode", baseline.compilationMode, current.compilationMode)
+            addIfDifferent("startupMode", baseline.startupMode, current.startupMode)
         }
 
     private fun compareMetric(

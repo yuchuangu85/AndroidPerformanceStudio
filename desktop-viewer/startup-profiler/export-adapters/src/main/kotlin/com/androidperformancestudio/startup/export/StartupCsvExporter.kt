@@ -15,7 +15,7 @@ public class StartupCsvExporter {
         val content =
             buildString {
                 appendLine(
-                    "iteration,runId,requestedType,observedType,totalTimeMs,thisTimeMs,waitTimeMs,displayedTimeMs,fullyDrawnTimeMs,agentAvailable,warnings,ttidSource,ttidUnavailableReason,ttfdSource,ttfdUnavailableReason,agentFirstFrameSource,agentFirstFrameUnavailableReason,compilerFilter,compilationVerified,profileSource,profileSourceDeclared,deviceModel,apiLevel,emulator,batteryPercent,charging,thermalStatus,traceFile,traceCaptured,traceTruncated,traceFailure,diagnostics",
+                    "iteration,runId,requestedType,observedType,totalTimeMs,thisTimeMs,waitTimeMs,displayedTimeMs,fullyDrawnTimeMs,agentAvailable,warnings,ttidSource,ttidUnavailableReason,ttfdSource,ttfdUnavailableReason,agentFirstFrameSource,agentFirstFrameUnavailableReason,compilerFilter,compilationVerified,profileSource,profileSourceDeclared,baselineProfileArtifact,deviceModel,apiLevel,emulator,batteryPercent,charging,thermalStatus,traceFile,traceCaptured,traceTruncated,traceFailure,diagnostics",
                 )
                 analysis.runs.forEach { run ->
                     appendLine(
@@ -56,6 +56,7 @@ public class StartupCsvExporter {
                                 ?.profileSourceDeclared
                                 ?.toString()
                                 .orEmpty(),
+                            run.compilationEvidence?.baselineProfileArtifact.orEmpty(),
                             run.environmentEvidence?.deviceModel.orEmpty(),
                             run.environmentEvidence
                                 ?.apiLevel

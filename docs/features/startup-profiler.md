@@ -38,3 +38,7 @@ Startup Profiler 用于分析冷启动、温启动和可重复启动实验，拆
 - 首帧、fully drawn 和用户可交互是不同 milestone，不应混为一个数字。
 - 单次启动不能作为稳定性结论；重复实验需保留每轮原始事件和丢失状态。
 - Baseline Profile 只说明编译配置差异与观测指标关联，不单独证明某项代码修改的因果。
+
+## 启动阶段跨域归因
+
+Startup Perfetto 证据包含调度、`sched_waking`、run queue、Binder、主线程阻塞和帧区间。存在可接受的 Perfetto 到 `elapsed_realtime` 时钟映射时，这些区间会按相邻启动 milestone 窗口汇总。结果保留有界重叠、时钟误差和缺失证据限制，不把时间相关直接表述为代码级因果。

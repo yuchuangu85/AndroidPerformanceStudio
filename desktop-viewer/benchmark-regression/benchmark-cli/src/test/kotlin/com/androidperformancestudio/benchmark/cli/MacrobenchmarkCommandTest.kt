@@ -18,6 +18,7 @@ class MacrobenchmarkCommandTest {
                 benchmarkFilter = "com.example.Benchmark#startup",
                 compilationMode = MacrobenchmarkCompilationMode.SPEED_PROFILE,
                 startupMode = MacrobenchmarkStartupMode.WARM,
+                scenario = MacrobenchmarkScenario.SCROLL,
                 warmups = 3,
                 iterations = 7,
                 traceDirectory = root.resolve("traces"),
@@ -28,9 +29,11 @@ class MacrobenchmarkCommandTest {
         assertEquals(root, command.workingDirectory)
         assertContains(command.arguments, "-Paps.macrobenchmark.compilationMode=speed_profile")
         assertContains(command.arguments, "-Paps.macrobenchmark.startupMode=warm")
+        assertContains(command.arguments, "-Paps.macrobenchmark.scenario=scroll")
         assertContains(command.arguments, "-Paps.macrobenchmark.warmups=3")
         assertContains(command.arguments, "-Paps.macrobenchmark.iterations=7")
         assertContains(command.commandLine(), "com.example.Benchmark#startup")
         assertEquals("speed_profile", command.environment["APS_MACROBENCHMARK_COMPILATION_MODE"])
+        assertEquals("scroll", command.environment["APS_MACROBENCHMARK_SCENARIO"])
     }
 }

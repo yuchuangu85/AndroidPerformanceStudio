@@ -34,14 +34,13 @@ Trace Analyzer 保留原始 trace 作为最高层证据，typed SQL adapter 只�
 
 当前诊断菜单复用统一 `PerfettoDiagnostics` 查询目录，包含：
 
-- CPU scheduling hotspots；
-- CPU frequency distribution；
+- CPU scheduling hotspots、`sched_switch` 与 `sched_waking`；
+- run queue pressure、主线程阻塞、CPU frequency distribution；
 - CPU contention 与 wakeup latency；
-- Binder transaction latency；
-- Binder server saturation；
-- Binder wait chain；
-- Frame jank；
-- Frame/SurfaceFlinger correlation；
+- Binder transaction latency、IPC 长尾和 `system_server` 交互；
+- Binder server saturation 与 wait chain；
+- Binder/FrameTimeline 有界重叠；
+- Frame jank 与 Frame/SurfaceFlinger correlation；
 - thread state、input latency 和 memory counters。
 
 查询结果始终保留 SQL、Trace Processor schema、原始 trace 和结构化结果之间的关系。
@@ -61,3 +60,7 @@ Trace Analyzer 保留原始 trace 作为最高层证据，typed SQL adapter 只�
 - schema、设备 API、权限和 trace config 会影响可用字段。
 - 跨工具跳转提供时间/对象关联，不自动证明因果关系。
 - 当前多设备、统一跨会话时间线和更多系统数据源仍需按路线单独实现。
+
+## P0 调度与 IPC 归因
+
+诊断目录提供 `sched_switch`、`sched_waking`、runnable thread run queue、主线程阻塞、唤醒延迟、CPU contention、Binder 调用方/服务端长尾和 `system_server` 查询。`binder_frame_alignment` 报告与 FrameTimeline 帧重叠的 Binder transaction；`CrossDomainAttributionAnalyzer` 以区间重叠和共享 vsync 身份形成可复核候选。所有结果保留 trace/schema 和置信边界，本身不构成因果证明。

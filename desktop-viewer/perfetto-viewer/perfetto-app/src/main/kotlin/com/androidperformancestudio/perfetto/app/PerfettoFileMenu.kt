@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
 import com.androidperformancestudio.perfetto_app.generated.resources.clear_menu
 import com.androidperformancestudio.perfetto_app.generated.resources.export
@@ -14,6 +13,7 @@ import com.androidperformancestudio.perfetto_app.generated.resources.open_recent
 import com.androidperformancestudio.perfetto_app.generated.resources.open_u2026
 import com.androidperformancestudio.perfetto_app.generated.resources.raw_trace_pftrace
 import com.androidperformancestudio.perfetto_app.generated.resources.session_package_zip
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path

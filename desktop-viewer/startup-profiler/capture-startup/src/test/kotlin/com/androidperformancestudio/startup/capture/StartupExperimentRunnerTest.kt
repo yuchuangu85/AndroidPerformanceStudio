@@ -106,6 +106,7 @@ class StartupExperimentRunnerTest {
                         requestedType = StartupType.HOT,
                         compilationMode = CompilationMode.SPEED_PROFILE,
                         profileSource = StartupProfileSource.MACROBENCHMARK,
+                        baselineProfileArtifact = "baseline-prof.txt#abc",
                         warmupRuns = 1,
                         measuredRuns = 1,
                     ),
@@ -127,6 +128,13 @@ class StartupExperimentRunnerTest {
                     .single()
                     .compilationEvidence
                     ?.profileSourceDeclared,
+            )
+            assertEquals(
+                "baseline-prof.txt#abc",
+                result.runs
+                    .single()
+                    .compilationEvidence
+                    ?.baselineProfileArtifact,
             )
             assertEquals(
                 "Pixel Test",

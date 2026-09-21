@@ -1,3 +1,5 @@
+@file:Suppress("LongMethod")
+
 package com.androidperformancestudio.frame.storage
 
 import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
@@ -61,6 +63,15 @@ class SqliteFrameSessionStoreTest {
                 eligibleForJank = false,
                 droppedBeforeSample = 3L,
                 layoutSnapshotId = "layout-1",
+                fragmentName = "FeedFragment",
+                pageName = "Feed",
+                interactionState = "scroll",
+                renderThreadName = "RenderThread",
+                surfaceFlingerJankType = "SurfaceFlinger Scheduling",
+                jankStatsJank = true,
+                jankStatsReasons = setOf("slow draw", "missed deadline"),
+                jankStatsRuleId = "androidx.metrics.performance.JankStats.FrameData.isJank.default",
+                jankStatsRuleVersion = "1.0.0",
                 states = mapOf("interaction" to "scroll"),
             )
 
@@ -73,6 +84,14 @@ class SqliteFrameSessionStoreTest {
                 )
             assertEquals(persistedSession, store.findSession(session.id))
             assertEquals(frame, store.loadFrames(session.id).single())
+        }
+        java.sql.DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA user_version").use { rows ->
+                    assertEquals(true, rows.next())
+                    assertEquals(5, rows.getInt(1))
+                }
+            }
         }
     }
 }

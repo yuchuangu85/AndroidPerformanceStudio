@@ -45,4 +45,18 @@
     <string name="diagnostic_thread_states_description">各调度器状态（R/S/D）下的耗时</string>
     <string name="diagnostic_wakeup_latency_title">线程唤醒延迟</string>
     <string name="diagnostic_wakeup_latency_description">从唤醒到在 CPU 上运行的耗时</string>
+    <string name="diagnostic_sched_switch_title">sched_switch 时间线</string>
+    <string name="diagnostic_sched_switch_description">运行切片及调度结束状态</string>
+    <string name="diagnostic_sched_waking_title">sched_waking 事件</string>
+    <string name="diagnostic_sched_waking_description">线程唤醒、唤醒方与目标 CPU</string>
+    <string name="diagnostic_run_queue_title">运行队列压力</string>
+    <string name="diagnostic_run_queue_description">可运行线程数量与高压力窗口</string>
+    <string name="diagnostic_main_thread_blocked_title">主线程阻塞</string>
+    <string name="diagnostic_main_thread_blocked_description">主线程睡眠与不可中断阻塞</string>
+    <string name="diagnostic_binder_ipc_long_tail_title">Binder IPC 长尾</string>
+    <string name="diagnostic_binder_ipc_long_tail_description">调用方、服务端、方法及 p95/p99 事务延迟</string>
+    <string name="diagnostic_binder_system_server_title">system_server IPC</string>
+    <string name="diagnostic_binder_system_server_description">进入 system_server 的 Binder 调用</string>
+    <string name="diagnostic_binder_frame_alignment_title">Binder / FrameTimeline 对齐</string>
+    <string name="diagnostic_binder_frame_alignment_description">与帧及卡顿结果重叠的 Binder 调用</string>
 </resources>

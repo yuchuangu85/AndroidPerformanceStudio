@@ -15,6 +15,9 @@ public class FrameAttributionAnalyzer {
                     activityName = key.activityName,
                     windowId = key.windowId,
                     uiState = key.uiState,
+                    fragmentName = key.fragmentName,
+                    pageName = key.pageName,
+                    interactionState = key.interactionState,
                     totalFrames = frames.size,
                     deadlineMissFrames =
                         frames.count {
@@ -27,6 +30,9 @@ public class FrameAttributionAnalyzer {
                     p95DurationNs = durations.percentile(0.95),
                     worstDurationNs = durations.lastOrNull(),
                     jankTypes = frames.flatMap { it.platformJankTypes }.map { it.name }.toSet(),
+                    renderThreadNames = frames.mapNotNull { it.renderThreadName }.toSet(),
+                    surfaceFlingerJankTypes = frames.mapNotNull { it.surfaceFlingerJankType }.toSet(),
+                    jankStatsFrames = frames.count { it.jankStatsJank == true },
                 )
             }.sortedWith(
                 compareByDescending<FrameAttribution> { it.platformJankFrames }
@@ -38,16 +44,23 @@ public class FrameAttributionAnalyzer {
             activityName = sample.activityName ?: "<unknown activity>",
             windowId = sample.windowId ?: "<unknown window>",
             uiState =
-                sample.states["screen"]
+                sample.interactionState
+                    ?: sample.states["screen"]
                     ?: sample.states["screenName"]
                     ?: sample.states["uiState"]
                     ?: "<unknown state>",
+            fragmentName = sample.fragmentName ?: sample.states["fragment"],
+            pageName = sample.pageName ?: sample.states["page"],
+            interactionState = sample.interactionState ?: sample.states["interaction"],
         )
 
     private data class AttributionKey(
         val activityName: String,
         val windowId: String,
         val uiState: String,
+        val fragmentName: String?,
+        val pageName: String?,
+        val interactionState: String?,
     )
 
     private fun List<Long>.percentile(fraction: Double): Long? {
@@ -67,4 +80,10 @@ public data class FrameAttribution(
     val p95DurationNs: Long?,
     val worstDurationNs: Long?,
     val jankTypes: Set<String>,
+    val fragmentName: String? = null,
+    val pageName: String? = null,
+    val interactionState: String? = null,
+    val renderThreadNames: Set<String> = emptySet(),
+    val surfaceFlingerJankTypes: Set<String> = emptySet(),
+    val jankStatsFrames: Int = 0,
 )

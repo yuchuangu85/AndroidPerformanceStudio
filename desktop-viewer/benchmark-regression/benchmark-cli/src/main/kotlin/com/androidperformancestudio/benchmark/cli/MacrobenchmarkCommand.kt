@@ -19,12 +19,20 @@ public enum class MacrobenchmarkStartupMode {
     HOT,
 }
 
+public enum class MacrobenchmarkScenario {
+    STARTUP,
+    SCROLL,
+    ANIMATION,
+    PAGE_SWITCH,
+}
+
 public data class MacrobenchmarkExperimentPlan(
     val projectRoot: Path,
     val gradleTask: String = ":macrobenchmark:connectedCheck",
     val benchmarkFilter: String? = null,
     val compilationMode: MacrobenchmarkCompilationMode = MacrobenchmarkCompilationMode.NONE,
     val startupMode: MacrobenchmarkStartupMode = MacrobenchmarkStartupMode.COLD,
+    val scenario: MacrobenchmarkScenario = MacrobenchmarkScenario.STARTUP,
     val warmups: Int = 2,
     val iterations: Int = 5,
     val traceDirectory: Path? = null,
@@ -60,6 +68,7 @@ public object MacrobenchmarkCommandBuilder {
             buildMap {
                 put("APS_MACROBENCHMARK_COMPILATION_MODE", plan.compilationMode.name.lowercase())
                 put("APS_MACROBENCHMARK_STARTUP_MODE", plan.startupMode.name.lowercase())
+                put("APS_MACROBENCHMARK_SCENARIO", plan.scenario.name.lowercase())
                 put("APS_MACROBENCHMARK_WARMUPS", plan.warmups.toString())
                 put("APS_MACROBENCHMARK_ITERATIONS", plan.iterations.toString())
                 traceDirectory?.let { put("APS_MACROBENCHMARK_TRACE_DIR", it.toString()) }
@@ -71,6 +80,7 @@ public object MacrobenchmarkCommandBuilder {
                 add("-Pandroidx.benchmark.output.enable=true")
                 add("-Paps.macrobenchmark.compilationMode=${plan.compilationMode.name.lowercase()}")
                 add("-Paps.macrobenchmark.startupMode=${plan.startupMode.name.lowercase()}")
+                add("-Paps.macrobenchmark.scenario=${plan.scenario.name.lowercase()}")
                 add("-Paps.macrobenchmark.warmups=${plan.warmups}")
                 add("-Paps.macrobenchmark.iterations=${plan.iterations}")
                 plan.benchmarkFilter?.let { add("-Pandroid.testInstrumentationRunnerArguments.class=$it") }

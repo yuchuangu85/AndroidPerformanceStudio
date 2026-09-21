@@ -30,7 +30,7 @@ Frame Profiler 将原始 gfxinfo/Agent 数据转成稳定的 frame model，再�
 
 ## FrameTimeline / Jank attribution
 
-帧模型保留 `activityName`、`windowId`、`states`、platform jank type、FrameTimeline vsync ID 和 SurfaceFlinger correlation。`FrameAttributionAnalyzer` 会按 Activity、window 和 UI state 聚合：
+帧模型保留 `activityName`、Fragment、页面、交互状态、`windowId`、`states`、RenderThread、platform jank type、JankStats、FrameTimeline vsync ID 和 SurfaceFlinger correlation。`FrameAttributionAnalyzer` 会按 Activity、window 和 UI state 聚合：
 
 - 总帧数；
 - deadline miss；
@@ -53,3 +53,7 @@ Frame Profiler 将原始 gfxinfo/Agent 数据转成稳定的 frame model，再�
 - gfxinfo 是平台帧统计，不等同于完整 SurfaceFlinger/FrameTimeline 因果链。
 - 屏幕刷新率、设备负载和采集窗口会影响阈值解释。
 - 更深层的调度、RenderThread、GPU、SurfaceFlinger 证据应通过 Trace Analyzer 关联。
+
+## FrameTimeline 与 JankStats 联合证据
+
+`FrameJankStatsCorrelator` 依次按 frame ID、vsync ID 和有界时间窗口，把应用侧 JankStats observation 与平台 FrameTimeline sample 关联。结果保留 Activity、Fragment、页面、交互状态、RenderThread、SurfaceFlinger jank type、JankStats reason/rule 身份及匹配方式。JSON 汇总分别报告 platform jank 与 JankStats rate，避免把两种证据通道伪装成同一指标。

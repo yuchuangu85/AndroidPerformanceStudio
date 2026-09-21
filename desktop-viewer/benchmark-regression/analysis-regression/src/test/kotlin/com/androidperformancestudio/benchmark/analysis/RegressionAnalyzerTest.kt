@@ -22,9 +22,21 @@ class RegressionAnalyzerTest {
         assertEquals(RegressionClassification.INCOMPATIBLE, result.comparisons.single().classification)
     }
 
+    @Test
+    fun `rejects comparison across benchmark scenarios`() {
+        val baseline = run(listOf(100.0, 101.0, 99.0), scenario = BenchmarkScenario.STARTUP)
+        val current = run(listOf(120.0, 119.0, 121.0), scenario = BenchmarkScenario.SCROLL)
+
+        val result = RegressionAnalyzer().compare(baseline, current, RegressionPolicy(relativeThresholdPercent = 5.0))
+
+        assertEquals(RegressionClassification.INCOMPATIBLE, result.comparisons.single().classification)
+        assertEquals("case.dev.Bench#startup.scenario", result.compatibilityIssues.single().field)
+    }
+
     private fun run(
         samples: List<Double>,
         model: String = "Pixel",
+        scenario: BenchmarkScenario = BenchmarkScenario.STARTUP,
     ) = BenchmarkRun(
         sourceFile = Path.of("result.json"),
         benchmarkDataVersion = 1,
@@ -53,6 +65,7 @@ class RegressionAnalyzerTest {
                         ),
                     ),
                     emptyList(),
+                    scenario = scenario,
                 ),
             ),
     )
