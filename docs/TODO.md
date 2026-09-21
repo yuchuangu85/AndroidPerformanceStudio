@@ -94,16 +94,23 @@
 
 来源：[V0.2 待办池](../desktop-viewer/simpleperf-viewer/docs/requirements/development-plan.md#10-v02-待办池)与[产品路线图](../desktop-viewer/simpleperf-viewer/docs/design/product-design.md#9-产品路线图)。
 
-- [ ] CPU Sample Heatmap。
-- [ ] Differential FlameGraph。
-- [ ] Gecko Profile 导出。
-- [ ] Folded Stacks 导出。
-- [ ] PProf 导出。
-- [ ] 接入 Perfetto Trace Processor，联合分析 sched、Binder 与 FrameTimeline。
-- [ ] 接入 `libsimpleperf_report`。
-- [ ] 线程池归一化分组，合并 Binder、AsyncTask、Coroutine 同类线程。
-- [ ] 补齐 V0.3 系统诊断中的频率与 GPU 联合分析。
-- [ ] 实施 V0.4 团队与自动化能力：批量采集、CI 对比、报告模板、符号服务器和规则市场。
+- [x] CPU Sample Heatmap。
+- [x] Differential FlameGraph。
+- [x] Gecko Profile 导出。
+- [x] Folded Stacks 导出。
+- [x] PProf 导出。
+- [x] 接入 Perfetto Trace Processor，联合分析 sched、Binder 与 FrameTimeline。
+- [x] 接入 `libsimpleperf_report` bridge/backend 边界。
+- [x] 线程池归一化分组，合并 Binder、AsyncTask、Coroutine 同类线程。
+- [x] 补齐 V0.3 系统诊断中的频率与 GPU 联合分析。
+- [x] 实施 V0.4 团队与自动化能力：批量采集/分析、CI 对比、报告模板、符号服务器和规则市场。
+
+### Simpleperf 后续能力验收保留项（2026-09-21）
+
+- [ ] 在三平台加载真实 `libsimpleperf_report` 与 bridge，和 protobuf backend 对照同一 `perf.data`。
+- [ ] 使用真实 Perfetto + Simpleperf 同步采集验证 sched/Binder/FrameTimeline 时钟映射与频率/GPU 对齐。
+- [ ] 将 Heatmap 与 Differential FlameGraph 纳入真实百万 sample UI 性能和交互验收。
+- [ ] 使用真实 CI runner、HTTP 符号服务器和外部规则包完成团队工作流验收。
 
 ## Simpleperf 性能验证
 

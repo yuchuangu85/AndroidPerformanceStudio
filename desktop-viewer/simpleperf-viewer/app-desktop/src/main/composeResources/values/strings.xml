@@ -42,4 +42,6 @@
     <string name="sp_ai_close">Close</string>
     <string name="sp_ai_failed_title">AI Analysis Failed</string>
 
+    <string name="sp_export_folded_stacks">Folded Stacks</string>
+    <string name="sp_export_pprof">PProf profile</string>
 </resources>

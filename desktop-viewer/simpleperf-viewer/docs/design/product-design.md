@@ -430,3 +430,7 @@ V0.2+：
 - AOSP Simpleperf View the profile：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/view_the_profile.md
 - Android NDK Simpleperf：https://developer.android.com/ndk/guides/simpleperf
 - 跨平台技术栈调研：`docs/design/technology-stack-research.md`
+
+## V0.2-V0.4 delivered core (2026-09-21)
+
+Advanced analysis is represented as evidence-preserving services rather than UI-only calculations: heatmap buckets retain CPU/thread/time identity, differential flame nodes retain baseline/current weights, Perfetto sources remain separate canonical slices/counters, and automation outputs fail closed when inputs or report-template fields are missing.

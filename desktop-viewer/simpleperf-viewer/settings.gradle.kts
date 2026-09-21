@@ -50,3 +50,7 @@ includeBuild("../ui-components") {
 includeBuild("../platform-core") {
     name = "simpleperf-platform-core"
 }
+
+includeBuild("../platform-perfetto") {
+    name = "simpleperf-platform-perfetto"
+}

@@ -446,6 +446,8 @@ private fun FrameWindowScope.SimpleperfMenu(
                 onSimpleperfReport = reportActions.onGenerateSimpleperfReport,
                 onHtmlReport = reportActions.onGenerateHtmlReport,
                 onExternalOpen = reportActions.onExportExternalGuide,
+                onFoldedStacks = reportActions.onExportFoldedStacks,
+                onPprof = reportActions.onExportPprof,
             ),
         onOpenRecent = { session -> scope.launch { sessionOpener(session) } },
         onClearRecent = {

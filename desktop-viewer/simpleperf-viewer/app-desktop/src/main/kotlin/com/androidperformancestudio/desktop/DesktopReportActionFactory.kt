@@ -8,7 +8,9 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.export.ExternalValidationResult
+import com.androidperformancestudio.export.FoldedStacksExportService
 import com.androidperformancestudio.export.GeckoProfileExportService
+import com.androidperformancestudio.export.PprofProfileExportService
 import com.androidperformancestudio.export.ReportExportService
 import com.androidperformancestudio.export.ReportHtmlAdapter
 import com.androidperformancestudio.export.SessionPackageService
@@ -45,6 +47,8 @@ internal class DesktopReportActionFactory(
     private val window: Window,
 ) {
     private val geckoProfiles = GeckoProfileExportService()
+    private val foldedStacks = FoldedStacksExportService()
+    private val pprofProfiles = PprofProfileExportService()
 
     fun create(state: ReportState): ReportActions =
         ReportActions(
@@ -83,6 +87,8 @@ internal class DesktopReportActionFactory(
             onGenerateHtmlReport = { generateHtmlReport(state) },
             onExportExternalGuide = { exportExternalGuide(state) },
             onExportGeckoProfile = { exportGeckoProfile(state) },
+            onExportFoldedStacks = { exportFoldedStacks(state) },
+            onExportPprof = { exportPprof(state) },
             onDetailsVisible = controller::setDetailsVisible,
             onTimelineHeightDp = controller::setTimelineHeightDp,
             onSelectOverviewFinding = controller::selectOverviewFinding,
@@ -228,6 +234,20 @@ internal class DesktopReportActionFactory(
             chooseSavePath("Export Firefox Profiler JSON", "perf_data.json.gz")?.let { output ->
                 scope.launch(Dispatchers.IO) { geckoProfiles.export(session, output) }
             }
+        }
+    }
+
+    private fun exportFoldedStacks(state: ReportState) {
+        val report = readyReport(state) ?: return
+        chooseSavePath("Export Folded Stacks", "profile.folded")?.let { output ->
+            scope.launch(Dispatchers.IO) { foldedStacks.export(report.flameGraph.callNodes, output) }
+        }
+    }
+
+    private fun exportPprof(state: ReportState) {
+        val report = readyReport(state) ?: return
+        chooseSavePath("Export PProf", "profile.pprof.gz")?.let { output ->
+            scope.launch(Dispatchers.IO) { pprofProfiles.export(report.flameGraph.callNodes, output) }
         }
     }
 

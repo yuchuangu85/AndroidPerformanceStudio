@@ -396,3 +396,7 @@ V0.1 验证重点：
 - AOSP Simpleperf README：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/README.md
 - AOSP Simpleperf View the profile：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/view_the_profile.md
 - 跨平台技术栈调研：`docs/design/technology-stack-research.md`
+
+## V0.2-V0.4 implementation status (2026-09-21)
+
+Repository-owned core support now includes CPU sample heatmaps, differential flame data, Gecko/Folded/PProf exports, Perfetto sched/Binder/FrameTimeline and frequency evidence adapters, a `libsimpleperf_report` bridge backend, Android thread-pool normalization, batch/CI automation, report templates, symbol server caching, and installable diagnostic rule packs. Native library/device/cross-platform acceptance remains a separate release gate.

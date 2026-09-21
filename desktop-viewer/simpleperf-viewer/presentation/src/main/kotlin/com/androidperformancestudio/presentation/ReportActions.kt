@@ -45,6 +45,8 @@ data class ReportActions(
     val onGenerateHtmlReport: () -> Unit,
     val onExportExternalGuide: () -> Unit,
     val onExportGeckoProfile: () -> Unit = {},
+    val onExportFoldedStacks: () -> Unit = {},
+    val onExportPprof: () -> Unit = {},
     val onDetailsVisible: (Boolean) -> Unit = {},
     val onTimelineHeightDp: (Int) -> Unit = {},
     val onSelectOverviewFinding: (String?) -> Unit = {},

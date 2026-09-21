@@ -4,11 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.app_desktop.generated.resources.Res
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_external_open
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_firefox_profiler_json
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_folded_stacks
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_json_csv
+import com.androidperformancestudio.app_desktop.generated.resources.sp_export_pprof
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_raw_protobuf
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_report_html_py
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_screenshot
@@ -26,6 +27,7 @@ import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_
 import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_capture_configuration
 import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_capture_templates
 import com.androidperformancestudio.presentation.CaptureSettingsSection
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path
@@ -51,6 +53,8 @@ internal data class SimpleperfExportMenuModel(
     val simpleperfReportLabel: String,
     val htmlReportLabel: String,
     val externalOpenLabel: String,
+    val foldedStacksLabel: String,
+    val pprofLabel: String,
 )
 
 internal data class SimpleperfExportMenuActions(
@@ -62,6 +66,8 @@ internal data class SimpleperfExportMenuActions(
     val onSimpleperfReport: () -> Unit,
     val onHtmlReport: () -> Unit,
     val onExternalOpen: () -> Unit,
+    val onFoldedStacks: () -> Unit,
+    val onPprof: () -> Unit,
 )
 
 internal data class SimpleperfConfigurationMenuModel(
@@ -110,6 +116,8 @@ internal fun simpleperfFileMenuModel(
                 simpleperfReportLabel = localizedStringResource(Res.string.sp_export_simpleperf_report, language),
                 htmlReportLabel = localizedStringResource(Res.string.sp_export_report_html_py, language),
                 externalOpenLabel = localizedStringResource(Res.string.sp_export_external_open, language),
+                foldedStacksLabel = localizedStringResource(Res.string.sp_export_folded_stacks, language),
+                pprofLabel = localizedStringResource(Res.string.sp_export_pprof, language),
             ),
         configurationMenu =
             SimpleperfConfigurationMenuModel(
@@ -174,6 +182,16 @@ internal fun FrameWindowScope.SimpleperfFileMenuBar(
                     text = model.exportMenu.geckoProfileLabel,
                     enabled = model.exportEnabled,
                     onClick = exportActions.onGeckoProfile,
+                )
+                Item(
+                    text = model.exportMenu.foldedStacksLabel,
+                    enabled = model.exportEnabled,
+                    onClick = exportActions.onFoldedStacks,
+                )
+                Item(
+                    text = model.exportMenu.pprofLabel,
+                    enabled = model.exportEnabled,
+                    onClick = exportActions.onPprof,
                 )
                 Item(
                     text = model.exportMenu.screenshotLabel,
