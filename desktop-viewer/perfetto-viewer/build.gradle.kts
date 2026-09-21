@@ -5,11 +5,11 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
 
 plugins {
-    kotlin("jvm") version "2.4.0" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.4.0" apply false
-    id("org.jetbrains.compose") version "1.11.1" apply false
-    id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
-    id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.compose.compiler) apply false
+    alias(libs.plugins.compose.multiplatform) apply false
+    alias(libs.plugins.ktlint) apply false
+    alias(libs.plugins.detekt) apply false
 }
 
 allprojects {

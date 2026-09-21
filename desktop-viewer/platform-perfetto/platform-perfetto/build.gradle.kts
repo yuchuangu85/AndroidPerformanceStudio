@@ -20,10 +20,10 @@ java {
 }
 
 dependencies {
-    api("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:host-toolchain:0.1.0-SNAPSHOT")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    api(libs.aps.profiler.contracts)
+    implementation(libs.aps.host.toolchain)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(kotlin("test"))
 }
 

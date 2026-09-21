@@ -2,10 +2,10 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     `java-library`
-    kotlin("jvm") version "2.4.0"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.4.0"
-    id("org.jetbrains.compose") version "1.11.1"
-    id("io.gitlab.arturbosch.detekt") version "1.23.8"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.detekt)
 }
 
 group = "com.androidperformancestudio"
@@ -27,15 +27,15 @@ java {
 dependencies {
     api(compose.desktop.currentOs)
     // Fluent Design UI (theme, navigation, materials)
-    api("io.github.compose-fluent:fluent:v0.1.0")
-    api("io.github.compose-fluent:fluent-icons-extended:v0.1.0")
+    api(libs.compose.fluent)
+    api(libs.compose.fluent.icons.extended)
 
     // Material3 retained for base components (Text, Button, Card, DropdownMenu, etc.)
     // that Fluent does not provide. Components using LocalViewerColors remain theme-agnostic.
-    api("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
-    api("org.jetbrains.compose.components:components-resources:1.11.1")
+    api(libs.compose.material3)
+    api(libs.compose.components.resources)
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.compose.ui:ui-test-junit4:1.11.1")
+    testImplementation(libs.compose.ui.test.junit4)
 }
 
 compose.resources {

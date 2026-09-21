@@ -8,19 +8,19 @@ compose.resources {
 }
 
 dependencies {
-    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation(libs.aps.ui.components)
     implementation(project(":parser-art-trace"))
     implementation(project(":capture-method-trace"))
     implementation(project(":simpleperf-presentation"))
     implementation(project(":simpleperf-application"))
     implementation(project(":simpleperf-storage-sqlite"))
-    implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
+    implementation(libs.aps.profiler.contracts)
     implementation(project(":profile-analysis"))
-    implementation("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:host-toolchain:0.1.0-SNAPSHOT")
-    implementation("org.jetbrains.compose.material3:material3:1.9.0")
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    implementation(libs.aps.adb.core)
+    implementation(libs.aps.host.toolchain)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.components.resources)
     testImplementation(compose.desktop.currentOs)
-    testImplementation("org.jetbrains.compose.ui:ui-test-junit4:1.11.1")
-    testImplementation("org.jetbrains.compose.ui:ui-test:1.11.1")
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.compose.ui.test)
 }

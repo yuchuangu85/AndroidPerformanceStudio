@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation(libs.aps.ui.components)
     implementation(project(":memory-model"))
     implementation(project(":leakcanary-agent-protocol"))
     implementation(project(":capture-memory"))
@@ -13,12 +13,12 @@ dependencies {
     implementation(project(":memory-storage-sqlite"))
     implementation(project(":memory-export-adapters"))
     implementation(project(":memory-presentation"))
-    implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:host-toolchain:0.1.0-SNAPSHOT")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation(libs.aps.profiler.contracts)
+    implementation(libs.aps.adb.core)
+    implementation(libs.aps.host.toolchain)
+    implementation(libs.kotlinx.coroutines.core)
     implementation(compose.desktop.currentOs)
-    implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    implementation(libs.compose.material3)
+    testImplementation(libs.kotlinx.coroutines.test)
+    implementation(libs.compose.components.resources)
 }

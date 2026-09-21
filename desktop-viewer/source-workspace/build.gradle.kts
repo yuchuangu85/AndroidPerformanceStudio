@@ -2,8 +2,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     `java-library`
-    kotlin("jvm") version "2.4.0"
-    id("io.gitlab.arturbosch.detekt") version "1.23.8"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.detekt)
 }
 
 group = "com.androidperformancestudio"
@@ -23,9 +23,9 @@ java {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    implementation("org.xerial:sqlite-jdbc:3.50.3.0")
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.sqlite.jdbc)
     testImplementation(kotlin("test"))
 }
 

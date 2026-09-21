@@ -15,7 +15,7 @@ dependencies {
     add(poc.implementationConfigurationName, project(":profile-model"))
     add(poc.implementationConfigurationName, project(":simpleperf-storage-sqlite"))
     add(poc.implementationConfigurationName, project(":visualization"))
-    add(poc.implementationConfigurationName, "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    add(poc.implementationConfigurationName, libs.kotlinx.coroutines.core)
     add(sampleGenerator.implementationConfigurationName, project(":simpleperf-export-adapters"))
     add(sampleGenerator.implementationConfigurationName, project(":profile-analysis"))
     add(sampleGenerator.implementationConfigurationName, project(":profile-model"))

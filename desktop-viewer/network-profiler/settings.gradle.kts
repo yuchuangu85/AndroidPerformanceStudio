@@ -1,10 +1,33 @@
 pluginManagement {
-    repositories { gradlePluginPortal(); google(); mavenCentral() }
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+        // Prefer the Alibaba Cloud mirror when Google's Maven endpoint is unavailable.
+        maven {
+            name = "AliyunGoogle"
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
+        google()
+    }
 }
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories { google(); mavenCentral() }
+    repositories {
+        mavenCentral()
+        // Prefer the Alibaba Cloud mirror when Google's Maven endpoint is unavailable.
+        maven {
+            name = "AliyunGoogle"
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
+        google()
+    }
+
+    versionCatalogs {
+        create("libs") {
+            from(files("../gradle/libs.versions.toml"))
+        }
+    }
 }
 
 rootProject.name = "network-profiler"
@@ -12,7 +35,6 @@ rootProject.name = "network-profiler"
 include(
     ":network-model",
     ":network-agent-protocol",
-    ":android-agent-network",
     ":network-instrumentation",
     ":capture-network",
     ":parser-har",
@@ -22,6 +44,12 @@ include(
     ":network-presentation",
     ":network-app",
 )
+
+// The Android capture agent requires AGP and is not needed for desktop-only analysis/import work.
+// Enable it with -PincludeNetworkAgent=true when building the device-side agent.
+if (providers.gradleProperty("includeNetworkAgent").orNull == "true") {
+    include(":android-agent-network")
+}
 
 project(":network-storage-sqlite").projectDir = file("storage-sqlite")
 project(":network-export-adapters").projectDir = file("export-adapters")

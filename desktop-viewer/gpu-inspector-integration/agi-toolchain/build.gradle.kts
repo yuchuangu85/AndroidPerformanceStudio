@@ -1,5 +1,5 @@
 dependencies {
-    api("com.androidperformancestudio:host-toolchain:0.1.0-SNAPSHOT")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    api(libs.aps.host.toolchain)
+    implementation(libs.kotlinx.coroutines.core)
     implementation(project(":gpu-integration-model"))
 }

@@ -18,7 +18,7 @@ java {
 }
 
 dependencies {
-    api("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
+    api(libs.aps.adb.core)
     implementation(project(":protocol-model"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)

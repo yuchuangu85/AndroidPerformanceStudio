@@ -1,7 +1,12 @@
 pluginManagement {
     repositories {
-        google()
         mavenCentral()
+        // Prefer the Alibaba Cloud mirror when Google's Maven endpoint is unavailable.
+        maven {
+            name = "AliyunGoogle"
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
+        google()
         gradlePluginPortal()
     }
 }
@@ -9,8 +14,13 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
         mavenCentral()
+        // Prefer the Alibaba Cloud mirror when Google's Maven endpoint is unavailable.
+        maven {
+            name = "AliyunGoogle"
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
+        google()
     }
 }
 
@@ -47,24 +57,26 @@ includeBuild("layout-inspector") {
     name = "layout-inspector"
 }
 
-// Android Agent modules (device-side libraries) are kept as standard includes
-// because they use the Android Gradle Plugin, not Compose Desktop.
-val layoutInspectorAgentModules =
-    mapOf(
-        ":layout-inspector-agent-core" to "layout-inspector/shared-kernel/android-agent-core",
-        ":layout-inspector-agent-view" to "layout-inspector/shared-kernel/android-agent-view",
-        ":layout-inspector-agent-frame" to "layout-inspector/shared-kernel/android-agent-frame",
-        ":layout-inspector-agent-startup" to "layout-inspector/shared-kernel/android-agent-startup",
-        ":layout-inspector-agent-startup-metrics" to "layout-inspector/shared-kernel/android-agent-startup-metrics",
-    )
+// Android Agent modules and the sample application require the Android Gradle Plugin.
+// Keep the desktop-only build independent of AGP; opt in with -PincludeLayoutInspectorAgents=true.
+if (providers.gradleProperty("includeLayoutInspectorAgents").orNull == "true") {
+    val layoutInspectorAgentModules =
+        mapOf(
+            ":layout-inspector-agent-core" to "layout-inspector/shared-kernel/android-agent-core",
+            ":layout-inspector-agent-view" to "layout-inspector/shared-kernel/android-agent-view",
+            ":layout-inspector-agent-frame" to "layout-inspector/shared-kernel/android-agent-frame",
+            ":layout-inspector-agent-startup" to "layout-inspector/shared-kernel/android-agent-startup",
+            ":layout-inspector-agent-startup-metrics" to "layout-inspector/shared-kernel/android-agent-startup-metrics",
+        )
 
-layoutInspectorAgentModules.forEach { (path, directory) ->
-    include(path)
-    project(path).projectDir = file(directory)
+    layoutInspectorAgentModules.forEach { (path, directory) ->
+        include(path)
+        project(path).projectDir = file(directory)
+    }
+
+    include(":layout-inspector-sample-app")
+    project(":layout-inspector-sample-app").projectDir = file("layout-inspector/samples/android-view-app")
 }
-
-include(":layout-inspector-sample-app")
-project(":layout-inspector-sample-app").projectDir = file("layout-inspector/samples/android-view-app")
 
 
 

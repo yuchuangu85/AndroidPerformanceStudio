@@ -18,7 +18,7 @@ android {
 
 dependencies {
     api(project(":layout-inspector-agent-core"))
-    implementation("com.androidperformancestudio.frame:frame-agent-protocol:0.1.0-SNAPSHOT")
+    implementation(libs.aps.frame.agent.protocol)
     implementation(libs.androidx.metrics.performance)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

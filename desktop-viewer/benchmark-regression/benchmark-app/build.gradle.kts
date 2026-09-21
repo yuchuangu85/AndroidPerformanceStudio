@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 dependencies {
-    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation(libs.aps.ui.components)
     implementation(project(":benchmark-model"))
     implementation(project(":parser-benchmark-json"))
     implementation(project(":analysis-regression"))
@@ -11,7 +11,7 @@ dependencies {
     implementation(project(":benchmark-export-adapters"))
     implementation(project(":benchmark-presentation"))
     implementation(compose.desktop.currentOs)
-    implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    implementation(libs.compose.material3)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.compose.components.resources)
 }

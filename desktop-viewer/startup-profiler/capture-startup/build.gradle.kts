@@ -2,12 +2,12 @@ dependencies {
     implementation(project(":startup-model"))
     implementation(project(":startup-agent-protocol"))
     implementation(project(":parser-startup"))
-    implementation("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:host-toolchain:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation(libs.aps.adb.core)
+    implementation(libs.aps.host.toolchain)
+    implementation(libs.aps.profiler.contracts)
+    implementation(libs.kotlinx.coroutines.core)
 }
 
 dependencies {
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    testImplementation(libs.kotlinx.coroutines.test)
 }

@@ -1,4 +1,4 @@
-plugins { id("com.android.library") }
+plugins { alias(libs.plugins.android.library) }
 android {
     namespace = "com.androidperformancestudio.network.agent"
     compileSdk = 37
@@ -11,6 +11,6 @@ android {
 dependencies {
     implementation(project(":network-agent-protocol"))
     implementation(project(":network-model"))
-    implementation("androidx.startup:startup-runtime:1.2.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation(libs.androidx.startup)
+    implementation(libs.okhttp)
 }

@@ -1,4 +1,4 @@
-plugins { id("com.android.library") }
+plugins { alias(libs.plugins.android.library) }
 
 android {
     namespace = "com.androidperformancestudio.memory.leak.agent"

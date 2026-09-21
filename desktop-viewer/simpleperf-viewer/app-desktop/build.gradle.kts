@@ -19,13 +19,13 @@ tasks
     .configureEach { dependsOn(prepareFirefoxProfilerAppResources) }
 
 dependencies {
-    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation(libs.aps.ui.components)
     implementation(project(":analysis-rules"))
     api(project(":simpleperf-application"))
     api(project(":capture-simpleperf"))
-    implementation("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
+    implementation(libs.aps.adb.core)
     implementation(project(":simpleperf-export-adapters"))
-    implementation("com.androidperformancestudio:host-toolchain:0.1.0-SNAPSHOT")
+    implementation(libs.aps.host.toolchain)
     implementation(project(":parser-simpleperf-proto"))
     api(project(":simpleperf-presentation"))
     implementation(project(":profile-analysis"))
@@ -33,8 +33,8 @@ dependencies {
     implementation(project(":simpleperf-storage-sqlite"))
     implementation(compose.desktop.currentOs)
     testImplementation(project(":simpleperf-test-fixtures"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    testImplementation(libs.kotlinx.coroutines.test)
+    implementation(libs.compose.components.resources)
 }
 
 compose.desktop {

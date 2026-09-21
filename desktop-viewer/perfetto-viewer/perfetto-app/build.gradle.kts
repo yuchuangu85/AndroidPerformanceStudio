@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation(libs.aps.ui.components)
     implementation(project(":perfetto-model"))
     implementation(project(":perfetto-capture"))
     implementation(project(":perfetto-ui-server"))
@@ -12,10 +12,10 @@ dependencies {
     implementation(project(":perfetto-storage"))
     implementation(project(":perfetto-export"))
     implementation(project(":perfetto-presentation"))
-    implementation("com.androidperformancestudio:adb-core:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:platform-perfetto:0.1.0-SNAPSHOT")
+    implementation(libs.aps.adb.core)
+    implementation(libs.aps.platform.perfetto)
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.compose.components.resources)
 }

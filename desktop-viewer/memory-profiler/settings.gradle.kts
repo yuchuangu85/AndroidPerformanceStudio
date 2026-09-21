@@ -1,15 +1,13 @@
 pluginManagement {
     repositories {
         gradlePluginPortal()
-        google()
         mavenCentral()
-    }
-    resolutionStrategy {
-        eachPlugin {
-            if (requested.id.id == "com.android.library") {
-                useModule("com.android.tools.build:gradle:9.2.0")
-            }
+        // Prefer the Alibaba Cloud mirror when Google's Maven endpoint is unavailable.
+        maven {
+            name = "AliyunGoogle"
+            url = uri("https://maven.aliyun.com/repository/google")
         }
+        google()
     }
 }
 
@@ -17,7 +15,18 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         mavenCentral()
+        // Prefer the Alibaba Cloud mirror when Google's Maven endpoint is unavailable.
+        maven {
+            name = "AliyunGoogle"
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
         google()
+    }
+
+    versionCatalogs {
+        create("libs") {
+            from(files("../gradle/libs.versions.toml"))
+        }
     }
 }
 

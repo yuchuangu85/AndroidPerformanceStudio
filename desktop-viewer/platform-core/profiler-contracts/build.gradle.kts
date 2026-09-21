@@ -19,7 +19,7 @@ java {
 }
 
 dependencies {
-    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    api(libs.kotlinx.serialization.json)
     testImplementation(kotlin("test"))
 }
 

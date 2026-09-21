@@ -4,11 +4,11 @@ plugins {
 }
 
 dependencies {
-    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation(libs.aps.ui.components)
     implementation(project(":profile-analysis"))
     implementation(project(":profile-model"))
-    implementation("org.jetbrains.compose.foundation:foundation:1.11.1")
+    implementation(libs.compose.foundation)
     testImplementation(compose.desktop.currentOs)
-    testImplementation("org.jetbrains.compose.ui:ui-test:1.11.1")
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    testImplementation(libs.compose.ui.test)
+    implementation(libs.compose.components.resources)
 }

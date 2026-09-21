@@ -8,10 +8,10 @@ compose.resources {
 }
 
 dependencies {
-    implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
+    implementation(libs.aps.profiler.contracts)
+    implementation(libs.aps.ui.components)
     implementation(project(":network-model"))
     implementation(project(":analysis-network"))
-    implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    implementation(libs.compose.material3)
+    implementation(libs.compose.components.resources)
 }

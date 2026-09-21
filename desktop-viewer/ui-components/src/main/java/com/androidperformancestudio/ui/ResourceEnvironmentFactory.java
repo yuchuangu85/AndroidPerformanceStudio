@@ -4,6 +4,7 @@ import org.jetbrains.compose.resources.DensityQualifier;
 import org.jetbrains.compose.resources.LanguageQualifier;
 import org.jetbrains.compose.resources.RegionQualifier;
 import org.jetbrains.compose.resources.ResourceEnvironment;
+import org.jetbrains.compose.resources.ScriptQualifier;
 import org.jetbrains.compose.resources.ThemeQualifier;
 import java.util.Locale;
 
@@ -16,6 +17,7 @@ final class ResourceEnvironmentFactory {
         String country = locale.getCountry().isEmpty() ? "US" : locale.getCountry();
         return new ResourceEnvironment(
                 new LanguageQualifier(language),
+                new ScriptQualifier(""),
                 new RegionQualifier(country),
                 ThemeQualifier.LIGHT,
                 DensityQualifier.MDPI);

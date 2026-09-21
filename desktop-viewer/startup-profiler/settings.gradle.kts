@@ -1,16 +1,32 @@
 pluginManagement {
     repositories {
         gradlePluginPortal()
-        google()
         mavenCentral()
+        // Prefer the Alibaba Cloud mirror when Google's Maven endpoint is unavailable.
+        maven {
+            name = "AliyunGoogle"
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
+        google()
     }
 }
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
         mavenCentral()
+        // Prefer the Alibaba Cloud mirror when Google's Maven endpoint is unavailable.
+        maven {
+            name = "AliyunGoogle"
+            url = uri("https://maven.aliyun.com/repository/google")
+        }
+        google()
+    }
+
+    versionCatalogs {
+        create("libs") {
+            from(files("../gradle/libs.versions.toml"))
+        }
     }
 }
 

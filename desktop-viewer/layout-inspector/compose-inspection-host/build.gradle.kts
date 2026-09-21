@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
-    id("com.google.protobuf")
+    alias(libs.plugins.protobuf)
 }
 
 kotlin {
@@ -18,15 +18,17 @@ java {
 dependencies {
     api(project(":compose-inspection-model"))
     implementation(project(":adb-gateway"))
-    implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
-    implementation("com.google.protobuf:protobuf-java:4.35.1")
+    implementation(libs.aps.profiler.contracts)
+    implementation(libs.protobuf.java)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
+val protobufVersion = libs.versions.protobufVersion.get()
+
 protobuf {
-    protoc { artifact = "com.google.protobuf:protoc:4.35.1" }
+    protoc { artifact = "com.google.protobuf:protoc:$protobufVersion" }
 }
 
 tasks.test { useJUnitPlatform() }

@@ -3,8 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 dependencies {
-    implementation("com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT")
-    implementation("com.androidperformancestudio:profiler-contracts:0.1.0-SNAPSHOT")
+    implementation(libs.aps.ui.components)
+    implementation(libs.aps.profiler.contracts)
     implementation(project(":network-model"))
     implementation(project(":network-agent-protocol"))
     implementation(project(":capture-network"))
@@ -14,7 +14,7 @@ dependencies {
     implementation(project(":network-export-adapters"))
     implementation(project(":network-presentation"))
     implementation(compose.desktop.currentOs)
-    implementation("org.jetbrains.compose.material3:material3:1.11.0-alpha07")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("org.jetbrains.compose.components:components-resources:1.11.1")
+    implementation(libs.compose.material3)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.compose.components.resources)
 }
