@@ -20,6 +20,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,6 +80,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     onOpenPerfetto: (FramePerfettoInspectionRequest) -> Unit = {},
 ) {
     val controller = remember { FrameProfilerController() }
+    DisposableEffect(controller) { onDispose(controller::close) }
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var showImportDialog by remember { mutableStateOf(false) }

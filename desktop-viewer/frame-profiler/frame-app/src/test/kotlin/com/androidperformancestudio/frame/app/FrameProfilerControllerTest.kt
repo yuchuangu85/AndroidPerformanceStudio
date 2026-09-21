@@ -1,5 +1,7 @@
 package com.androidperformancestudio.frame.app
 
+import com.androidperformancestudio.adb.AndroidTargetListener
+import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.contracts.ArtifactAcquisitionKind
 import com.androidperformancestudio.contracts.ArtifactCompleteness
 import com.androidperformancestudio.contracts.ArtifactProducer
@@ -26,6 +28,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
+private typealias TargetListener = AndroidTargetListener
+private typealias TargetSubscription = AndroidTargetSubscription
 
 class FrameProfilerControllerTest {
     @Test
@@ -223,6 +228,10 @@ class FrameProfilerControllerTest {
         private val process: FrameProcessOption,
         private val capture: OnlineFrameCapture,
     ) : FrameOnlineBackend {
+        private val noOpTargetSubscription = TargetSubscription {}
+
+        override fun registerTargetListener(listener: TargetListener): TargetSubscription = noOpTargetSubscription
+
         override suspend fun listDevices(): FrameBackendResult<List<FrameDeviceOption>> =
             FrameBackendResult.Success(listOf(FrameDeviceOption("device-1", "Test device")))
 

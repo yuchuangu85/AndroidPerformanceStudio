@@ -2,8 +2,8 @@
 
 package com.androidperformancestudio.startup.app
 
-import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.adb.AdbTargetCatalog
+import com.androidperformancestudio.adb.AndroidTargetMonitor
+import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
@@ -38,10 +38,11 @@ internal interface StartupBackend {
 
 internal class DesktopStartupBackend(
     private val adbLocator: () -> Path? = ::locateSystemAdb,
+    private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
 ) : StartupBackend {
     override suspend fun listDevices(): StartupBackendResult<List<StartupDevice>> {
         val adb = adbLocator() ?: return missingAdb()
-        return when (val result = AdbDeviceRefresher(adb).refresh()) {
+        return when (val result = targetMonitorProvider(adb).refreshDevices()) {
             is StudioResult.Failure -> StartupBackendResult.Failure(result.error.message)
             is StudioResult.Success ->
                 StartupBackendResult.Success(
@@ -58,7 +59,7 @@ internal class DesktopStartupBackend(
 
     override suspend fun listTargets(serial: String): StartupBackendResult<List<StartupTarget>> {
         val adb = adbLocator() ?: return missingAdb()
-        return when (val catalog = AdbTargetCatalog(adb).refresh(serial)) {
+        return when (val catalog = targetMonitorProvider(adb).refreshTargets(serial)) {
             is StudioResult.Failure -> StartupBackendResult.Failure(catalog.error.message)
             is StudioResult.Success -> {
                 val output =

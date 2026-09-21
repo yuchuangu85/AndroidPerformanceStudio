@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf">Select a debuggable process; FrameMetrics Agent is preferred and gfxinfo is used as fallback.</string>
+    <string name="select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf">Select a debuggable or profileable process; FrameMetrics Agent is preferred and gfxinfo is used as fallback.</string>
     <string name="opens_the_current_foreground_layout_for_timing_correlation_it_does">Opens the current foreground layout for timing correlation; it does not attribute jank to a View.</string>
     <string name="waiting_for_live_frame_data">Waiting for live frame data</string>
     <string name="capture_online_or_import_framestats">Capture online or import FrameStats</string>

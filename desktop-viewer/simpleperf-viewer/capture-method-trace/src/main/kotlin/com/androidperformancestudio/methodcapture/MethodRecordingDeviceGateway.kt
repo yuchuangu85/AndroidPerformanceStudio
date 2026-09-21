@@ -1,8 +1,11 @@
 package com.androidperformancestudio.methodcapture
 
 import com.androidperformancestudio.adb.AdbDevicePropertiesReader
-import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.adb.AdbTargetCatalog
+import com.androidperformancestudio.adb.AndroidTargetListener
+import com.androidperformancestudio.adb.AndroidTargetMonitor
+import com.androidperformancestudio.adb.AndroidTargetMonitors
+import com.androidperformancestudio.adb.AndroidTargetSubscription
+import com.androidperformancestudio.adb.profileableOrDebuggableProcesses
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
@@ -31,10 +34,13 @@ class MethodRecordingDeviceGateway(
     private val processRunner: MethodTraceCaptureProcessRunner = { request, signal ->
         StudioHostProcessExecutor().run(request, signal)
     },
+    private val targetMonitor: AndroidTargetMonitor =
+        AndroidTargetMonitors.create(adbExecutable, processRunner),
 ) {
-    suspend fun refreshDevices(): StudioResult<List<MethodTraceDeviceOption>> {
-        val refresher = AdbDeviceRefresher(adbExecutable, processInvocation = processRunner)
-        return when (val result = refresher.refresh(HostCancellationSignal())) {
+    fun register(listener: AndroidTargetListener): AndroidTargetSubscription = targetMonitor.register(listener)
+
+    suspend fun refreshDevices(): StudioResult<List<MethodTraceDeviceOption>> =
+        when (val result = targetMonitor.refreshDevices(HostCancellationSignal())) {
             is StudioResult.Failure -> result
             is StudioResult.Success ->
                 StudioResult.Success(
@@ -57,28 +63,15 @@ class MethodRecordingDeviceGateway(
                     },
                 )
         }
-    }
 
-    suspend fun loadProcesses(serial: String): StudioResult<List<MethodTraceProcessOption>> {
-        val catalog = AdbTargetCatalog(adbExecutable, processRunner)
-        return when (val result = catalog.refresh(serial, HostCancellationSignal())) {
+    suspend fun loadProcesses(serial: String): StudioResult<List<MethodTraceProcessOption>> =
+        when (val result = targetMonitor.refreshTargets(serial, HostCancellationSignal())) {
             is StudioResult.Failure -> result
-            is StudioResult.Success -> {
-                val profileable =
-                    result.value.packages
-                        .filter { it.debuggable || it.profileableByShell }
-                        .mapTo(hashSetOf()) { it.packageName }
-                val processes =
-                    result.value.processes
-                        .mapNotNull { process ->
-                            val packageName =
-                                profileable.firstOrNull { candidate ->
-                                    process.name == candidate || process.name.startsWith("$candidate:")
-                                } ?: return@mapNotNull null
-                            MethodTraceProcessOption(pid = process.pid, name = process.name, packageName = packageName)
-                        }.sortedWith(compareBy<MethodTraceProcessOption> { it.name }.thenBy { it.pid })
-                StudioResult.Success(processes)
-            }
+            is StudioResult.Success ->
+                StudioResult.Success(
+                    result.value.profileableOrDebuggableProcesses().map { process ->
+                        MethodTraceProcessOption(process.pid, process.name, process.packageName)
+                    },
+                )
         }
-    }
 }

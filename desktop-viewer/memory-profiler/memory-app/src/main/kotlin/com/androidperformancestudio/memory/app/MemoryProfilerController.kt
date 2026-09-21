@@ -2,6 +2,10 @@
 
 package com.androidperformancestudio.memory.app
 
+import com.androidperformancestudio.adb.AdbDevicesResult
+import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidTargetListener
+import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
 import com.androidperformancestudio.memory.analysis.InstanceQueryDetail
 import com.androidperformancestudio.memory.analysis.InstanceQueryRow
@@ -64,6 +68,7 @@ import com.androidperformancestudio.memory.presentation.MemorySortDirection
 import com.androidperformancestudio.memory.storage.MemorySessionFilterPreset
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
@@ -115,6 +120,8 @@ internal sealed interface MemoryBackendResult<out T> {
 
 @Suppress("TooManyFunctions")
 internal interface MemoryProfilerBackend {
+    fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription
+
     suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>>
 
     suspend fun listProcesses(serial: String): MemoryBackendResult<List<MemoryProcessOption>>
@@ -288,6 +295,72 @@ internal class MemoryProfilerController(
 
     private val loadedHeapsBySnapshotId = linkedMapOf<String, LoadedHeap>()
     private var previousBitmapDump: LoadedBitmapDump? = null
+    private val targetSubscription =
+        backend.registerTargetListener(
+            object : AndroidTargetListener {
+                override fun onDevices(result: AdbDevicesResult) {
+                    when (result) {
+                        is com.androidperformancestudio.model.StudioResult.Failure ->
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    error =
+                                        MemoryProfilerError(
+                                            title = "Unable to list Android devices",
+                                            detail = result.error.message,
+                                        ),
+                                )
+                        is com.androidperformancestudio.model.StudioResult.Success ->
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    devices =
+                                        result.value.map { device ->
+                                            MemoryDeviceOption(
+                                                serial = device.serial,
+                                                name = device.model?.replace('_', ' ') ?: device.serial,
+                                                online = device.state == AdbDeviceState.ONLINE,
+                                            )
+                                        },
+                                    error = null,
+                                )
+                    }
+                }
+
+                override fun onTargetSnapshot(
+                    serial: String,
+                    result: com.androidperformancestudio.model.StudioResult<AdbTargetSnapshot>,
+                ) {
+                    if (serial != mutableState.value.selectedDeviceSerial) return
+                    when (result) {
+                        is com.androidperformancestudio.model.StudioResult.Failure ->
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    error =
+                                        MemoryProfilerError(
+                                            title = "Unable to list device processes",
+                                            detail = result.error.message,
+                                        ),
+                                )
+                        is com.androidperformancestudio.model.StudioResult.Success -> {
+                            val processes = result.value.heapDumpableProcesses()
+                            val selected =
+                                mutableState.value.selectedProcessId?.takeIf { pid ->
+                                    processes.any { it.pid == pid }
+                                }
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    processes = processes,
+                                    selectedProcessId = selected,
+                                    error = null,
+                                )
+                        }
+                    }
+                }
+            },
+        )
+
+    fun close() {
+        targetSubscription.close()
+    }
 
     suspend fun refreshDevices() {
         when (val result = backend.listDevices()) {

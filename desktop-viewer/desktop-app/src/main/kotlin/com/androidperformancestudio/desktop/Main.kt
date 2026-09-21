@@ -7,17 +7,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 
 internal const val APP_DISPLAY_NAME = "AndroidPerfermanceStudio"
 
 fun main() = application {
     val appIcon = painterResource("icons/app-icon.png")
     val windowTitle = remember { mutableStateOf(APP_DISPLAY_NAME) }
+    val windowState = rememberWindowState(placement = WindowPlacement.Maximized)
     Window(
         onCloseRequest = ::exitApplication,
         icon = appIcon,
         title = windowTitle.value,
+        state = windowState,
     ) {
         var settingsRequest by remember { mutableStateOf<SettingsRequest?>(null) }
         var nextSettingsRequestId by remember { mutableStateOf(0L) }

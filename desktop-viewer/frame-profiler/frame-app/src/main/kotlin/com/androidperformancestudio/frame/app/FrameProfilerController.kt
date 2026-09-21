@@ -2,9 +2,12 @@
 
 package com.androidperformancestudio.frame.app
 
+import com.androidperformancestudio.adb.AdbDevicesResult
+import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidTargetListener
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.contracts.CaptureArtifactJson
-import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import com.androidperformancestudio.frame.analysis.FrameAnalysisResult
 import com.androidperformancestudio.frame.analysis.FrameJankAnalyzer
 import com.androidperformancestudio.frame.export.FrameCsvExporter
@@ -17,6 +20,7 @@ import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerState
 import com.androidperformancestudio.frame.storage.SqliteFrameSessionStore
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,8 +47,70 @@ internal class FrameProfilerController(
     private val onlineFrames = mutableListOf<FrameSample>()
     private var activeCapture: OnlineFrameCapture? = null
     private var currentSession: FrameCaptureSession? = null
+    private val targetSubscription =
+        onlineBackend.registerTargetListener(
+            object : AndroidTargetListener {
+                override fun onDevices(result: AdbDevicesResult) {
+                    when (result) {
+                        is com.androidperformancestudio.model.StudioResult.Failure ->
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    isRefreshingDevices = false,
+                                    errorMessage = result.error.message,
+                                )
+                        is com.androidperformancestudio.model.StudioResult.Success ->
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    devices =
+                                        result.value.map { device ->
+                                            FrameDeviceOption(
+                                                serial = device.serial,
+                                                name = device.model?.replace('_', ' ') ?: device.serial,
+                                                online = device.state == AdbDeviceState.ONLINE,
+                                            )
+                                        },
+                                    isRefreshingDevices = false,
+                                    errorMessage = null,
+                                )
+                    }
+                }
+
+                override fun onTargetSnapshot(
+                    serial: String,
+                    result: com.androidperformancestudio.model.StudioResult<AdbTargetSnapshot>,
+                ) {
+                    if (serial != mutableState.value.selectedDeviceSerial) return
+                    when (result) {
+                        is com.androidperformancestudio.model.StudioResult.Failure ->
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    isRefreshingDevices = false,
+                                    errorMessage = result.error.message,
+                                )
+                        is com.androidperformancestudio.model.StudioResult.Success -> {
+                            val processes = result.value.frameCaptureProcesses()
+                            val selected =
+                                mutableState.value.selectedProcessId?.takeIf { pid ->
+                                    processes.any { it.pid == pid }
+                                } ?: processes.singleOrNull()?.pid
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    processes = processes,
+                                    selectedProcessId = selected,
+                                    isRefreshingDevices = false,
+                                    errorMessage = null,
+                                )
+                        }
+                    }
+                }
+            },
+        )
 
     val state: StateFlow<FrameProfilerState> = mutableState.asStateFlow()
+
+    fun close() {
+        targetSubscription.close()
+    }
 
     suspend fun refreshDevices() {
         if (mutableState.value.isCapturing) return

@@ -1,5 +1,7 @@
 package com.androidperformancestudio.memory.app
 
+import com.androidperformancestudio.adb.AndroidTargetListener
+import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
@@ -22,6 +24,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
+private typealias TargetListener = AndroidTargetListener
+private typealias TargetSubscription = AndroidTargetSubscription
 
 class MemoryProfilerControllerTest {
     @Test
@@ -253,6 +258,9 @@ class MemoryProfilerControllerTest {
         private val importRelease: CompletableDeferred<Unit>? = null,
     ) : MemoryProfilerBackend {
         val events = mutableListOf<String>()
+        private val noOpTargetSubscription = TargetSubscription {}
+
+        override fun registerTargetListener(listener: TargetListener): TargetSubscription = noOpTargetSubscription
 
         override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
             events += "listDevices"

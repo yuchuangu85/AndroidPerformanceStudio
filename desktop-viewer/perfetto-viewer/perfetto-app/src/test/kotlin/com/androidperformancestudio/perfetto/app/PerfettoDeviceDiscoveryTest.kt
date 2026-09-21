@@ -5,7 +5,6 @@ import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.model.PerfettoDevice
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
-import com.androidperformancestudio.platform.adb.AdbNotFoundException
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,9 +19,11 @@ class PerfettoDeviceDiscoveryTest {
             val result =
                 discoverPerfettoDevices("adb") { executable ->
                     assertEquals(Path.of("adb"), executable)
-                    listOf(
-                        AdbDevice(serial = "online", state = AdbDeviceState.ONLINE, model = "Pixel_8"),
-                        AdbDevice(serial = "offline", state = AdbDeviceState.UNAUTHORIZED, model = "Pixel_7"),
+                    StudioResult.Success(
+                        listOf(
+                            AdbDevice(serial = "online", state = AdbDeviceState.ONLINE, model = "Pixel_8"),
+                            AdbDevice(serial = "offline", state = AdbDeviceState.UNAUTHORIZED, model = "Pixel_7"),
+                        ),
                     )
                 }
 
@@ -41,12 +42,18 @@ class PerfettoDeviceDiscoveryTest {
         runBlocking {
             val result =
                 discoverPerfettoDevices("adb") {
-                    throw AdbNotFoundException()
+                    StudioResult.Failure(
+                        com.androidperformancestudio.model.StudioError(
+                            ErrorCategory.PROCESS_START,
+                            "ADB_NOT_FOUND",
+                            "adb was not found",
+                        ),
+                    )
                 }
 
             val failure = assertIs<StudioResult.Failure>(result)
-            assertEquals(ErrorCategory.UNKNOWN, failure.error.category)
-            assertEquals("PERFETTO_DEVICE_DISCOVERY_FAILED", failure.error.code)
+            assertEquals(ErrorCategory.PROCESS_START, failure.error.category)
+            assertEquals("ADB_NOT_FOUND", failure.error.code)
         }
 
     @Test

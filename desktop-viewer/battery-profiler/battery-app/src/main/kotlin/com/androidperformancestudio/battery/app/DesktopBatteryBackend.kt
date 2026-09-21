@@ -7,7 +7,8 @@
 
 package com.androidperformancestudio.battery.app
 
-import com.androidperformancestudio.adb.AdbDeviceRefresher
+import com.androidperformancestudio.adb.AndroidTargetMonitor
+import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.battery.capture.BatteryExperimentRunner
 import com.androidperformancestudio.battery.historian.BatteryHistorianAdapter
@@ -49,11 +50,12 @@ internal interface BatteryBackend {
 
 internal class DesktopBatteryBackend(
     private val adbLocator: () -> Path? = ::locateSystemAdb,
+    private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
     private val processRunner: StudioHostProcessExecutor = StudioHostProcessExecutor(),
 ) : BatteryBackend {
     override suspend fun listDevices(): BatteryBackendResult<List<BatteryDevice>> {
         val adb = adbLocator() ?: return missingAdb()
-        return when (val result = AdbDeviceRefresher(adb).refresh()) {
+        return when (val result = targetMonitorProvider(adb).refreshDevices()) {
             is StudioResult.Failure -> BatteryBackendResult.Failure(result.error.message)
             is StudioResult.Success ->
                 BatteryBackendResult.Success(

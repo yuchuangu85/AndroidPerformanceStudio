@@ -4,13 +4,13 @@ package com.androidperformancestudio.frame.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.FrameWindowScope
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.frame.frame_app.generated.resources.Res
 import com.androidperformancestudio.frame.frame_app.generated.resources.export
 import com.androidperformancestudio.frame.frame_app.generated.resources.export_csv
 import com.androidperformancestudio.frame.frame_app.generated.resources.export_json
 import com.androidperformancestudio.frame.frame_app.generated.resources.file
 import com.androidperformancestudio.frame.frame_app.generated.resources.import_framestats
+import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 

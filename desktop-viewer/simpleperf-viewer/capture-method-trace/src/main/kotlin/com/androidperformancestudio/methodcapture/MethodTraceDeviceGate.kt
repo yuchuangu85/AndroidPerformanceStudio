@@ -2,7 +2,8 @@ package com.androidperformancestudio.methodcapture
 
 import com.androidperformancestudio.adb.AdbDeviceCapabilityDetector
 import com.androidperformancestudio.adb.AdbDevicePropertiesReader
-import com.androidperformancestudio.adb.AdbTargetCatalog
+import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import java.nio.file.Path
@@ -67,8 +68,7 @@ object MethodTraceDeviceGate {
         val target =
             when (
                 val result =
-                    AdbTargetCatalog(adbExecutable, processRunner)
-                        .refresh(serial, HostCancellationSignal())
+                    refreshTarget(serial, adbExecutable, processRunner)
             ) {
                 is StudioResult.Failure -> return result
                 is StudioResult.Success -> result.value
@@ -87,4 +87,13 @@ object MethodTraceDeviceGate {
             ),
         )
     }
+
+    private suspend fun refreshTarget(
+        serial: String,
+        adbExecutable: Path,
+        processRunner: MethodTraceCaptureProcessRunner,
+    ): StudioResult<AdbTargetSnapshot> =
+        AndroidTargetMonitors
+            .create(adbExecutable, processRunner)
+            .refreshTargets(serial, HostCancellationSignal())
 }

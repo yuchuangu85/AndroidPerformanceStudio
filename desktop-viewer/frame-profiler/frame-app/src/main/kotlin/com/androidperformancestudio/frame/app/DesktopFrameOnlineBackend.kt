@@ -2,9 +2,13 @@
 
 package com.androidperformancestudio.frame.app
 
-import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.adb.AdbTargetCatalog
+import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidTargetListener
+import com.androidperformancestudio.adb.AndroidTargetMonitor
+import com.androidperformancestudio.adb.AndroidTargetMonitors
+import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.adb.profileableOrDebuggableProcesses
 import com.androidperformancestudio.frame.capture.FrameMetricsAgentCaptureSession
 import com.androidperformancestudio.frame.capture.GfxInfoCaptureTarget
 import com.androidperformancestudio.frame.capture.GfxInfoPollBatch
@@ -43,6 +47,8 @@ internal interface OnlineFrameCapture {
 }
 
 internal interface FrameOnlineBackend {
+    fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription
+
     suspend fun listDevices(): FrameBackendResult<List<FrameDeviceOption>>
 
     suspend fun listProcesses(serial: String): FrameBackendResult<List<FrameProcessOption>>
@@ -56,10 +62,16 @@ internal interface FrameOnlineBackend {
 
 internal class DesktopFrameOnlineBackend(
     private val adbLocator: () -> Path? = ::locateSystemAdb,
+    private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
 ) : FrameOnlineBackend {
+    override fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription {
+        val monitor = adbLocator()?.let(targetMonitorProvider) ?: return AndroidTargetSubscription {}
+        return monitor.register(listener)
+    }
+
     override suspend fun listDevices(): FrameBackendResult<List<FrameDeviceOption>> {
         val adb = adbLocator() ?: return missingAdb()
-        return when (val result = AdbDeviceRefresher(adb).refresh()) {
+        return when (val result = targetMonitorProvider(adb).refreshDevices()) {
             is StudioResult.Failure -> FrameBackendResult.Failure(result.error.message)
             is StudioResult.Success ->
                 FrameBackendResult.Success(
@@ -76,24 +88,9 @@ internal class DesktopFrameOnlineBackend(
 
     override suspend fun listProcesses(serial: String): FrameBackendResult<List<FrameProcessOption>> {
         val adb = adbLocator() ?: return missingAdb()
-        return when (val result = AdbTargetCatalog(adb).refresh(serial)) {
+        return when (val result = targetMonitorProvider(adb).refreshTargets(serial)) {
             is StudioResult.Failure -> FrameBackendResult.Failure(result.error.message)
-            is StudioResult.Success -> {
-                val debuggablePackages =
-                    result.value.packages
-                        .filter { it.debuggable }
-                        .mapTo(hashSetOf()) { it.packageName }
-                val processes =
-                    result.value.processes
-                        .mapNotNull { process ->
-                            val packageName =
-                                debuggablePackages.firstOrNull { candidate ->
-                                    process.name == candidate || process.name.startsWith("$candidate:")
-                                } ?: return@mapNotNull null
-                            FrameProcessOption(process.pid, process.name, packageName)
-                        }.sortedWith(compareBy<FrameProcessOption> { it.name }.thenBy { it.pid })
-                FrameBackendResult.Success(processes)
-            }
+            is StudioResult.Success -> FrameBackendResult.Success(result.value.frameCaptureProcesses())
         }
     }
 
@@ -192,6 +189,11 @@ internal class DesktopFrameOnlineBackend(
         }
     }
 }
+
+internal fun AdbTargetSnapshot.frameCaptureProcesses(): List<FrameProcessOption> =
+    profileableOrDebuggableProcesses().map { process ->
+        FrameProcessOption(process.pid, process.name, process.packageName)
+    }
 
 internal class AgentPreferredOnlineFrameCapture(
     private val agent: OnlineFrameCapture,

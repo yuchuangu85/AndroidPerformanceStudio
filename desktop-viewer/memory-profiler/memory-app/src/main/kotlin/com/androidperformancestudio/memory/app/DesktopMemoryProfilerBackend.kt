@@ -3,9 +3,13 @@
 package com.androidperformancestudio.memory.app
 
 import com.androidperformancestudio.adb.AdbDevicePropertiesReader
-import com.androidperformancestudio.adb.AdbDeviceRefresher
-import com.androidperformancestudio.adb.AdbTargetCatalog
+import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidTargetListener
+import com.androidperformancestudio.adb.AndroidTargetMonitor
+import com.androidperformancestudio.adb.AndroidTargetMonitors
+import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.adb.profileableOrDebuggableProcesses
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalysisRequest
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalyzer
 import com.androidperformancestudio.memory.analysis.HeapGraphToHeapDump
@@ -93,6 +97,7 @@ import java.time.format.DateTimeFormatter
 internal class DesktopMemoryProfilerBackend(
     private val dataRoot: Path = defaultDataRoot(),
     private val adbLocator: () -> Path? = ::locateSystemAdb,
+    private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
     private val bitmapCaptureSessionFactory: (Path) -> BitmapHeapDumpCaptureSession = ::BitmapHeapDumpCaptureSession,
     private val language: UiLanguage = UiLanguage.ENGLISH,
@@ -120,9 +125,14 @@ internal class DesktopMemoryProfilerBackend(
     private var leakCanaryCursor: Long = 0L
     private var leakCanaryEvents: List<LeakCanaryLiveEvent> = emptyList()
 
+    override fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription {
+        val monitor = adbLocator()?.let(targetMonitorProvider) ?: return AndroidTargetSubscription {}
+        return monitor.register(listener)
+    }
+
     override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
         val adb = adbLocator() ?: return missingAdb()
-        return when (val result = AdbDeviceRefresher(adb).refresh()) {
+        return when (val result = targetMonitorProvider(adb).refreshDevices()) {
             is StudioResult.Failure ->
                 result.toBackendFailure(localizedStringResource(Res.string.unable_to_list_android_devices, language))
             is StudioResult.Success ->
@@ -151,25 +161,10 @@ internal class DesktopMemoryProfilerBackend(
 
     override suspend fun listProcesses(serial: String): MemoryBackendResult<List<MemoryProcessOption>> {
         val adb = adbLocator() ?: return missingAdb()
-        return when (val result = AdbTargetCatalog(adb).refresh(serial)) {
+        return when (val result = targetMonitorProvider(adb).refreshTargets(serial)) {
             is StudioResult.Failure ->
                 result.toBackendFailure(localizedStringResource(Res.string.unable_to_list_device_processes, language))
-            is StudioResult.Success -> {
-                val debuggablePackages =
-                    result.value.packages
-                        .filter { it.debuggable }
-                        .mapTo(hashSetOf()) { it.packageName }
-                val processes =
-                    result.value.processes
-                        .mapNotNull { process ->
-                            val packageName =
-                                debuggablePackages.firstOrNull { candidate ->
-                                    process.name == candidate || process.name.startsWith("$candidate:")
-                                } ?: return@mapNotNull null
-                            MemoryProcessOption(pid = process.pid, name = process.name, packageName = packageName)
-                        }.sortedWith(compareBy<MemoryProcessOption> { it.name }.thenBy { it.pid })
-                MemoryBackendResult.Success(processes)
-            }
+            is StudioResult.Success -> MemoryBackendResult.Success(result.value.heapDumpableProcesses())
         }
     }
 
@@ -1185,3 +1180,8 @@ internal class DesktopMemoryProfilerBackend(
         }
     }
 }
+
+internal fun AdbTargetSnapshot.heapDumpableProcesses(): List<MemoryProcessOption> =
+    profileableOrDebuggableProcesses().map { process ->
+        MemoryProcessOption(process.pid, process.name, process.packageName)
+    }

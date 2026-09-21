@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf">选择设备和 debuggable 进程开始采集；优先使用 FrameMetrics Agent，不可用时自动回退 gfxinfo。</string>
+    <string name="select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf">选择设备和 debuggable 或 profileable 进程开始采集；优先使用 FrameMetrics Agent，不可用时自动回退 gfxinfo。</string>
     <string name="opens_the_current_foreground_layout_for_timing_correlation_it_does">打开当前前台布局用于时间与复杂度关联；该关联不表示某个 View 导致卡顿。</string>
     <string name="waiting_for_live_frame_data">正在等待设备帧数据</string>
     <string name="capture_online_or_import_framestats">在线采集或导入 FrameStats</string>

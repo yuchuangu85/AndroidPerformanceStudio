@@ -105,16 +105,15 @@ private data class GatewayOperations(
 ) {
     companion object {
         fun create(adbExecutable: Path): GatewayOperations {
-            val deviceRefresher = AdbDeviceRefresher(adbExecutable)
+            val targetMonitor = AndroidTargetMonitors.shared(adbExecutable)
             val propertyReader = AdbDevicePropertiesReader(adbExecutable)
             val capabilityDetector = AdbDeviceCapabilityDetector(adbExecutable)
-            val targetCatalog = AdbTargetCatalog(adbExecutable)
             return GatewayOperations(
-                refreshDevices = { deviceRefresher.refresh() },
+                refreshDevices = { targetMonitor.refreshDevices() },
                 readProperties = { serial -> propertyReader.read(serial) },
                 detectCapabilities = { properties -> capabilityDetector.detect(properties) },
-                refreshTargets = { serial -> targetCatalog.refresh(serial) },
-                readThreads = { serial, pid -> targetCatalog.listThreads(serial, pid) },
+                refreshTargets = { serial -> targetMonitor.refreshTargets(serial) },
+                readThreads = { serial, pid -> targetMonitor.refreshThreads(serial, pid) },
             )
         }
     }

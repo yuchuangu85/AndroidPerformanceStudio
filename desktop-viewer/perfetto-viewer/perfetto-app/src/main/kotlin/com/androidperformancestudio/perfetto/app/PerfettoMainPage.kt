@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
@@ -147,7 +148,6 @@ import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.AdbException
 import com.androidperformancestudio.platform.adb.AdbProcessStartException
-import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContext
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContexts
 import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
@@ -763,8 +763,8 @@ private fun RecentSessionRow(
 
 internal suspend fun discoverPerfettoDevices(
     adbPath: String,
-    deviceLister: suspend (Path) -> List<AdbDevice> = { executable ->
-        DefaultAdbClient(executable).listDevices()
+    deviceDiscovery: suspend (Path) -> StudioResult<List<AdbDevice>> = { executable ->
+        AndroidTargetMonitors.shared(executable).refreshDevices()
     },
 ): StudioResult<List<PerfettoDevice>> {
     if (adbPath.isBlank()) {
@@ -778,15 +778,19 @@ internal suspend fun discoverPerfettoDevices(
     }
     return try {
         val executable = Path.of(adbPath)
-        StudioResult.Success(
-            deviceLister(executable).map { device ->
-                PerfettoDevice(
-                    serial = device.serial,
-                    model = device.model?.replace('_', ' ') ?: device.serial,
-                    online = device.state == AdbDeviceState.ONLINE,
+        when (val result = deviceDiscovery(executable)) {
+            is StudioResult.Failure -> result
+            is StudioResult.Success ->
+                StudioResult.Success(
+                    result.value.map { device ->
+                        PerfettoDevice(
+                            serial = device.serial,
+                            model = device.model?.replace('_', ' ') ?: device.serial,
+                            online = device.state == AdbDeviceState.ONLINE,
+                        )
+                    },
                 )
-            },
-        )
+        }
     } catch (error: CancellationException) {
         throw error
     } catch (error: InvalidPathException) {

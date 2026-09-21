@@ -1,5 +1,8 @@
 package com.androidperformancestudio.memory.app
 
+import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidPackage
+import com.androidperformancestudio.adb.AndroidProcess
 import com.androidperformancestudio.memory.capture.AndroidSdkHprofConvLocator
 import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
 import com.androidperformancestudio.memory.model.LeakCanaryReport
@@ -34,6 +37,35 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 
 class DesktopMemoryProfilerBackendTest {
+    @Test
+    fun `profileable by shell processes remain selectable for heap dumps`() {
+        val snapshot =
+            AdbTargetSnapshot(
+                packages =
+                    listOf(
+                        AndroidPackage("com.example.debug", debuggable = true),
+                        AndroidPackage("com.example.profileable", profileableByShell = true),
+                        AndroidPackage("com.example.hidden"),
+                    ),
+                processes =
+                    listOf(
+                        AndroidProcess(10, 1, "u0_a10", "com.example.debug"),
+                        AndroidProcess(11, 1, "u0_a11", "com.example.profileable:worker"),
+                        AndroidProcess(12, 1, "u0_a12", "com.example.hidden"),
+                    ),
+            )
+
+        val processes = snapshot.heapDumpableProcesses()
+
+        assertEquals(
+            listOf(
+                MemoryProcessOption(10, "com.example.debug", "com.example.debug"),
+                MemoryProcessOption(11, "com.example.profileable:worker", "com.example.profileable"),
+            ),
+            processes,
+        )
+    }
+
     @Test
     fun `native import uses visible partial wire fallback only when the tool is unavailable`() =
         kotlinx.coroutines.test.runTest {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -73,6 +74,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         remember(language) {
             MemoryProfilerController(DesktopMemoryProfilerBackend(language = language), language = language)
         }
+    DisposableEffect(controller) { onDispose(controller::close) }
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     val loaded = controller.loadedHeap
