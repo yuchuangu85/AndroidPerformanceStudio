@@ -77,6 +77,7 @@ import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
 import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.UiLanguage
@@ -149,7 +150,7 @@ internal class DesktopMemoryProfilerBackend(
                             }
                         MemoryDeviceOption(
                             serial = device.serial,
-                            name = device.model?.replace('_', ' ') ?: device.serial,
+                            name = device.displayName(),
                             online = device.state == AdbDeviceState.ONLINE,
                             apiLevel = apiLevel,
                             supportsBitmapDump = apiLevel != null && apiLevel >= BitmapHeapDumpCaptureSession.MINIMUM_BITMAP_DUMP_API,

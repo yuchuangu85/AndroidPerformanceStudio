@@ -3,6 +3,7 @@ package com.androidperformancestudio.adb
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import com.androidperformancestudio.platform.toolchain.HostCapturedText
 import com.androidperformancestudio.platform.toolchain.HostCommandOutput
@@ -110,7 +111,8 @@ class AndroidTargetMonitorTest {
                         when {
                             request.arguments == listOf("devices", "-l") ->
                                 "List of devices attached\nserial-1 device model:unknown product:unknown device:unknown\n"
-                            request.arguments.takeLast(2) == listOf("getprop", "ro.product.model") -> "Pixel 9 Pro\n"
+                            request.arguments == listOf("-s", "serial-1", "shell", "getprop") ->
+                                "[ro.product.manufacturer]: [TCL]\n[ro.product.model]: [unknown]\n"
                             else -> ""
                         }
                     HostCommandResult.Completed(
@@ -128,7 +130,10 @@ class AndroidTargetMonitorTest {
 
             val devices = monitor.refreshDevices()
 
-            assertEquals("Pixel 9 Pro", (devices as StudioResult.Success).value.single().model)
+            val device = (devices as StudioResult.Success).value.single()
+            assertEquals("TCL", device.manufacturer)
+            assertEquals("unknown", device.model)
+            assertEquals("TCL unknown(serial-1)", device.displayName())
         }
 
     @Test

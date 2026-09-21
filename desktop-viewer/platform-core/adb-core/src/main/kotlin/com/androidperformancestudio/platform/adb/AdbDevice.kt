@@ -12,6 +12,7 @@ data class AdbDevice(
     val serial: String,
     val state: AdbDeviceState,
     val product: String? = null,
+    val manufacturer: String? = null,
     val model: String? = null,
     val device: String? = null,
     val transportId: Int? = null,
@@ -21,6 +22,21 @@ data class AdbDevice(
 )
 
 typealias DeviceTarget = AdbDevice
+
+/** Matches the Android Studio device label shape: manufacturer model(serial). */
+fun AdbDevice.displayName(): String {
+    val manufacturerLabel = manufacturer?.displayPart(allowUnknown = false)
+    val modelLabel = model?.takeIf { it != serial }?.displayPart(allowUnknown = true)
+    val identity = listOfNotNull(manufacturerLabel, modelLabel).joinToString(" ")
+    return if (identity.isBlank()) serial else "$identity($serial)"
+}
+
+private fun String.displayPart(allowUnknown: Boolean): String? =
+    trim().takeIf { value ->
+        value.isNotEmpty() &&
+            value.lowercase() !in setOf("<unknown>", "null", "n/a", "na") &&
+            (allowUnknown || !value.equals("unknown", ignoreCase = true))
+    }
 
 private val AdbDeviceState.defaultRawState: String
     get() =

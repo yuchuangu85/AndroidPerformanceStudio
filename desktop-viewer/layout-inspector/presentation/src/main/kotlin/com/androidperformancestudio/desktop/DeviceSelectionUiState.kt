@@ -2,6 +2,7 @@ package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.displayName
 
 data class DeviceChoiceModel(
     val serial: String,
@@ -12,11 +13,7 @@ fun deviceChoices(devices: List<AdbDevice>): List<DeviceChoiceModel> =
     devices.map { device ->
         DeviceChoiceModel(
             serial = device.serial,
-            label =
-                device.model
-                    ?.takeIf { model -> model.isNotBlank() && model != device.serial }
-                    ?.let { model -> "$model · ${device.serial}" }
-                    ?: device.serial,
+            label = device.displayName(),
         )
     }
 

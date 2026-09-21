@@ -8,6 +8,7 @@ import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.adb.profileableOrDebuggableProcesses
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
 import com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor
 import java.nio.file.Path
@@ -56,7 +57,7 @@ class MethodRecordingDeviceGateway(
                             }
                         MethodTraceDeviceOption(
                             serial = device.serial,
-                            name = device.model?.replace('_', ' ') ?: device.serial,
+                            name = device.displayName(),
                             online = device.state == AdbDeviceState.ONLINE,
                             sdkApiLevel = apiLevel,
                         )

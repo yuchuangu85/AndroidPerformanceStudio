@@ -69,6 +69,7 @@ import com.androidperformancestudio.memory.storage.MemorySessionFilterPreset
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
@@ -316,7 +317,7 @@ internal class MemoryProfilerController(
                                         result.value.map { device ->
                                             MemoryDeviceOption(
                                                 serial = device.serial,
-                                                name = device.model?.replace('_', ' ') ?: device.serial,
+                                                name = device.displayName(),
                                                 online = device.state == AdbDeviceState.ONLINE,
                                             )
                                         },

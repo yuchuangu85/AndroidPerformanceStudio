@@ -28,8 +28,8 @@ class DeviceSelectionUiStateTest {
 
         assertEquals(
             listOf(
-                DeviceChoiceModel("emulator-5554", "sdk_gphone · emulator-5554"),
-                DeviceChoiceModel("R3CN30ABC", "Pixel_8 · R3CN30ABC"),
+                DeviceChoiceModel("emulator-5554", "sdk_gphone(emulator-5554)"),
+                DeviceChoiceModel("R3CN30ABC", "Pixel_8(R3CN30ABC)"),
             ),
             choices,
         )

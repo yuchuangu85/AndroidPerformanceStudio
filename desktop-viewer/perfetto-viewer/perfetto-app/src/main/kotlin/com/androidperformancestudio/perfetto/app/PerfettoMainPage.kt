@@ -146,6 +146,7 @@ import com.androidperformancestudio.platform.adb.AdbCommandFailedException
 import com.androidperformancestudio.platform.adb.AdbCommandTimeoutException
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.adb.AdbException
 import com.androidperformancestudio.platform.adb.AdbProcessStartException
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContext
@@ -785,7 +786,7 @@ internal suspend fun discoverPerfettoDevices(
                     result.value.map { device ->
                         PerfettoDevice(
                             serial = device.serial,
-                            model = device.model?.replace('_', ' ') ?: device.serial,
+                            model = device.displayName(),
                             online = device.state == AdbDeviceState.ONLINE,
                         )
                     },

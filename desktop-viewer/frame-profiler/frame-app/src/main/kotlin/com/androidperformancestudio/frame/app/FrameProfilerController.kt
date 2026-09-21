@@ -21,6 +21,7 @@ import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerState
 import com.androidperformancestudio.frame.storage.SqliteFrameSessionStore
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.displayName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,7 +66,7 @@ internal class FrameProfilerController(
                                         result.value.map { device ->
                                             FrameDeviceOption(
                                                 serial = device.serial,
-                                                name = device.model?.replace('_', ' ') ?: device.serial,
+                                                name = device.displayName(),
                                                 online = device.state == AdbDeviceState.ONLINE,
                                             )
                                         },

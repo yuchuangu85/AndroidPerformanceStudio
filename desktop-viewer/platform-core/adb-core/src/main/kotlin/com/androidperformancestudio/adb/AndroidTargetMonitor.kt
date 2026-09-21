@@ -182,37 +182,55 @@ internal class ProcessAndroidTargetDiscovery(
                         if (device.state != com.androidperformancestudio.platform.adb.AdbDeviceState.ONLINE) {
                             device
                         } else {
-                            resolveModel(device.serial, cancellationSignal)
-                                ?.let { model -> device.copy(model = model) }
+                            resolveIdentity(device.serial, cancellationSignal)
+                                ?.let { identity ->
+                                    device.copy(
+                                        manufacturer = identity.manufacturer ?: device.manufacturer,
+                                        model = identity.model ?: device.model,
+                                    )
+                                }
                                 ?: device
                         }
                     },
                 )
         }
 
-    private suspend fun resolveModel(
+    private suspend fun resolveIdentity(
         serial: String,
         cancellationSignal: HostCancellationSignal,
-    ): String? {
+    ): DeviceIdentity? {
         val request =
             HostProcessRequest(
                 executable = adbExecutable,
-                arguments = listOf("-s", serial, "shell", "getprop", "ro.product.model"),
+                arguments = listOf("-s", serial, "shell", "getprop"),
             )
         return when (val result = processInvocation(request, cancellationSignal)) {
-            is HostCommandResult.Completed -> result.output.stdout.text.trim().usableModel()
+            is HostCommandResult.Completed -> {
+                val properties =
+                    result.output.stdout.text
+                        .lineSequence()
+                        .mapNotNull { line -> PROPERTY_LINE.matchEntire(line.trim()) }
+                        .associate { match -> match.groupValues[1] to match.groupValues[2].trim() }
+                DeviceIdentity(
+                    manufacturer = properties[MANUFACTURER_PROPERTY]?.usableManufacturer(),
+                    model = properties[MODEL_PROPERTY]?.usableModel(),
+                ).takeIf { identity -> identity.manufacturer != null || identity.model != null }
+            }
             is HostCommandResult.Failed -> null
         }
     }
+
+    private fun String.usableManufacturer(): String? =
+        takeIf { value -> value.isNotBlank() && value.lowercase() !in UNUSABLE_MANUFACTURERS }
+
+    private fun String.usableModel(): String? =
+        takeIf { value -> value.isNotBlank() && value.lowercase() !in UNUSABLE_MODELS }
 
     override suspend fun targets(
         serial: String,
         cancellationSignal: HostCancellationSignal,
     ): StudioResult<AdbTargetSnapshot> =
         AdbTargetCatalog(adbExecutable, processInvocation).refresh(serial, cancellationSignal)
-
-    private fun String.usableModel(): String? =
-        takeIf { value -> value.isNotBlank() && value.lowercase() !in UNUSABLE_MODELS }
 
     override suspend fun threads(
         serial: String,
@@ -221,8 +239,17 @@ internal class ProcessAndroidTargetDiscovery(
     ): StudioResult<List<AndroidThread>> =
         AdbTargetCatalog(adbExecutable, processInvocation).listThreads(serial, pid, cancellationSignal)
 
+    private data class DeviceIdentity(
+        val manufacturer: String?,
+        val model: String?,
+    )
+
     private companion object {
-        val UNUSABLE_MODELS = setOf("unknown", "<unknown>", "null", "n/a", "na")
+        const val MANUFACTURER_PROPERTY = "ro.product.manufacturer"
+        const val MODEL_PROPERTY = "ro.product.model"
+        val PROPERTY_LINE = Regex("""^\[([^]]+)]\s*:\s*\[(.*)]$""")
+        val UNUSABLE_MANUFACTURERS = setOf("unknown", "<unknown>", "null", "n/a", "na")
+        val UNUSABLE_MODELS = setOf("<unknown>", "null", "n/a", "na")
     }
 }
 

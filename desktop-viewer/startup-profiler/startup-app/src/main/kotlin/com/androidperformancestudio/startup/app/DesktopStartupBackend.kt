@@ -7,6 +7,7 @@ import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.adb.SystemAdbLocator
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
+import com.androidperformancestudio.platform.adb.displayName
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.startup.capture.StartupExperimentRunner
@@ -49,7 +50,7 @@ internal class DesktopStartupBackend(
                     result.value.map { device ->
                         StartupDevice(
                             serial = device.serial,
-                            name = device.model?.replace('_', ' ') ?: device.serial,
+                            name = device.displayName(),
                             online = device.state == AdbDeviceState.ONLINE,
                         )
                     },
