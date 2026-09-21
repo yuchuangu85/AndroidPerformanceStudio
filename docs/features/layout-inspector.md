@@ -68,3 +68,7 @@ layout-inspector/shared-kernel/analysis-engine
 - fallback 无法保证获得 Agent 的全部字段、事件和自定义采集能力。
 - 当前实时路径面向一台授权设备；多设备选择仍是待办。
 - Compose 深层语义、State Reads 和调用栈属于独立能力，不应从传统 View snapshot 的结果推断。
+
+## Compose Stability / Recomposition
+
+Layout Inspector 可导入 Compose Compiler `*-composables.txt`、`*-composables.csv` 与 `*-classes.txt` 报告，在 Compose 节点详情中展示 restartable、skippable 和不稳定参数。`ComposeStabilityAnalyzer` 将静态稳定性与 Inspector 的 recompose/skip count 合并，并只在提供显式 `ComposeJankObservation` 时报告 Jank 关联，避免从重组次数直接推断卡顿因果。

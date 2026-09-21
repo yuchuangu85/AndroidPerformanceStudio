@@ -11,8 +11,6 @@
 
 package com.androidperformancestudio.battery.presentation
 
-import com.androidperformancestudio.ui.LocalViewerColors
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -34,7 +32,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,16 +63,21 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.netw
 import com.androidperformancestudio.battery.battery_app.generated.resources.no_attributable_energy_data_was_provided_by_this_device
 import com.androidperformancestudio.battery.battery_app.generated.resources.no_delta_or_unavailable
 import com.androidperformancestudio.battery.battery_app.generated.resources.p90_n
+import com.androidperformancestudio.battery.battery_app.generated.resources.peak_temperature
 import com.androidperformancestudio.battery.battery_app.generated.resources.run_resource_details
 import com.androidperformancestudio.battery.battery_app.generated.resources.runs
 import com.androidperformancestudio.battery.battery_app.generated.resources.s
 import com.androidperformancestudio.battery.battery_app.generated.resources.sensors
+import com.androidperformancestudio.battery.battery_app.generated.resources.sustained_performance_window
 import com.androidperformancestudio.battery.battery_app.generated.resources.text
+import com.androidperformancestudio.battery.battery_app.generated.resources.thermal_evidence_detail
+import com.androidperformancestudio.battery.battery_app.generated.resources.thermal_status
 import com.androidperformancestudio.battery.battery_app.generated.resources.wakelock
 import com.androidperformancestudio.battery.battery_app.generated.resources.wakelocks
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.BatteryStatistics
 import com.androidperformancestudio.battery.model.ResourceTimer
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerMetricCard
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -158,6 +160,8 @@ private fun ResultsPane(
             MetricCard(localizedStringResource(Res.string.median_wakeup_alarms, language), analysis.wakeupAlarmCount, "", language)
             MetricCard(localizedStringResource(Res.string.median_network, language), analysis.networkBytes, "B", language)
             MetricCard(localizedStringResource(Res.string.modeled_energy, language), analysis.energyMah, "mAh", language)
+            MetricCard(localizedStringResource(Res.string.peak_temperature, language), analysis.peakTemperatureCelsius, "°C", language)
+            MetricCard(localizedStringResource(Res.string.thermal_status, language), analysis.thermalStatus, "", language)
         }
         val session = state.experiment?.session
         session?.let {
@@ -324,6 +328,29 @@ private fun RunDetail(
                 energy.attributionScope,
                 energy.confidence,
             ),
+        )
+    }
+    Text(
+        localizedStringResource(
+            Res.string.thermal_evidence_detail,
+            language,
+            run.peakTemperatureCelsius?.format("°C") ?: "—",
+            run.maxThermalStatus ?: "—",
+            run.throttledSamples,
+        ),
+        fontWeight = FontWeight.SemiBold,
+    )
+    run.performanceWindows.forEach { window ->
+        Text(
+            localizedStringResource(
+                Res.string.sustained_performance_window,
+                language,
+                window.durationMs,
+                window.peakTemperatureCelsius?.format("°C") ?: "—",
+                window.maxThermalStatus ?: "—",
+                window.throttled,
+            ),
+            style = MaterialTheme.typography.bodySmall,
         )
     }
     Text(

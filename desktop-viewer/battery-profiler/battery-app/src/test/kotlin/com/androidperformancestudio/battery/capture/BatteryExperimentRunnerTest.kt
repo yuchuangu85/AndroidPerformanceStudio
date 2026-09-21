@@ -118,4 +118,16 @@ class BatteryExperimentRunnerTest {
             assertEquals(2, completedRuns)
             assertEquals(1, progress.count { "Cooling down" in it })
         }
+
+    @Test
+    fun `parses thermal status temperatures and throttling`() {
+        val evidence =
+            parseThermalEvidence(
+                "mStatus=3\nTemperature{mValue=43.5, mType=0, mName=CPU, mStatus=3}",
+            )
+
+        assertEquals(3, evidence.status)
+        assertEquals(43.5, evidence.peakTemperatureCelsius)
+        assertEquals(true, evidence.throttling)
+    }
 }

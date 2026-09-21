@@ -3,6 +3,7 @@ package com.androidperformancestudio.application
 import com.androidperformancestudio.analysis.AiAnalysisReport
 import com.androidperformancestudio.analysis.AnalysisReport
 import com.androidperformancestudio.analysis.LayoutAnalyzer
+import com.androidperformancestudio.compose.inspection.ComposeCompilerReport
 import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
 import com.androidperformancestudio.compose.inspection.ComposableDetail
 import com.androidperformancestudio.compose.inspection.ComposeDetailCoverage
@@ -75,6 +76,7 @@ class InspectorStore(
             connectionStatus = connectionStatus,
             composeInspection = composeInspection,
             composeInspectionWarning = composeInspectionWarning,
+            composeCompilerReport = previous.composeCompilerReport,
         )
     }
 
@@ -279,6 +281,11 @@ class InspectorStore(
         if (aiAnalysis != null) {
             state = state.copy(aiAnalysis = aiAnalysis)
         }
+    }
+
+
+    fun loadComposeCompilerReport(report: ComposeCompilerReport) {
+        state = state.copy(composeCompilerReport = report)
     }
 
     fun loadAiAnalysis(report: AiAnalysisReport) {

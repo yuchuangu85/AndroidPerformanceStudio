@@ -124,6 +124,7 @@ import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.protocol.ProtocolCodec
 import com.androidperformancestudio.protocol.UiNode
 import com.androidperformancestudio.compose.inspection.host.ComposeInjectionManager
+import com.androidperformancestudio.compose.inspection.host.ComposeCompilerReportParser
 import com.androidperformancestudio.compose.inspection.host.ComposeInspectionAuthorization
 import com.androidperformancestudio.compose.inspection.host.ComposeInspectorArtifactResolver
 import com.androidperformancestudio.compose.inspection.host.ComposeLiveSession
@@ -132,6 +133,7 @@ import com.androidperformancestudio.compose.inspection.ComposeArchivePrivacy
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.chooseDirectory
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
@@ -247,6 +249,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val composeInjectionManager = remember {
         ComposeInjectionManager(composeProcessRunner, composeArtifactResolver)
     }
+    val composeCompilerReportParser = remember { ComposeCompilerReportParser() }
     var fullComposeEnabled by remember { mutableStateOf(false) }
     var hideSystemComposables by remember { mutableStateOf(DEFAULT_HIDE_SYSTEM_COMPOSABLES) }
     var composeAuthorization by remember { mutableStateOf<AuthorizedComposeTarget?>(null) }
@@ -542,6 +545,18 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
     var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
     val uiLanguage = languagePreference.resolve(Locale.getDefault())
+    val importComposeCompilerReports: () -> Unit = {
+        chooseDirectory(
+            window,
+            localizedStringResource(Res.string.import_compose_compiler_reports, uiLanguage),
+        )?.toPath()?.let { directory ->
+            coroutineScope.launch {
+                val report = withContext(Dispatchers.IO) { composeCompilerReportParser.parse(directory) }
+                store.loadComposeCompilerReport(report)
+                state = store.state
+            }
+        }
+    }
     var settingsVisible by remember { mutableStateOf(false) }
     LaunchedEffect(settingsRevision) {
         if (settingsRevision > 0L) {
@@ -1205,6 +1220,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 hideSystemComposables = hideSystemComposables,
                 recompositionActive = recompositionActive,
                 recompositionControlsEnabled = composeSession != null,
+                composeCompilerReportLoaded = state.composeCompilerReport != null,
+                onImportComposeCompilerReports = importComposeCompilerReports,
                 onToggleSystemComposables = { hideSystemComposables = !hideSystemComposables },
                 onToggleRecomposition = {
                     coroutineScope.launch {
@@ -1666,6 +1683,8 @@ private fun LayoutInspectorStatusBar(
     hideSystemComposables: Boolean,
     recompositionActive: Boolean,
     recompositionControlsEnabled: Boolean,
+    composeCompilerReportLoaded: Boolean,
+    onImportComposeCompilerReports: () -> Unit,
     onToggleSystemComposables: () -> Unit,
     onToggleRecomposition: () -> Unit,
     onResetRecomposition: () -> Unit,
@@ -1694,6 +1713,19 @@ private fun LayoutInspectorStatusBar(
             valueColor = colors.primaryText,
             monospace = true,
         )
+        StatusBarDivider()
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.import_compose_compiler_reports, language),
+            selected = composeCompilerReportLoaded,
+            onClick = onImportComposeCompilerReports,
+        )
+        if (composeCompilerReportLoaded) {
+            StatusBarValue(
+                label = localizedStringResource(Res.string.compose_compiler_report, language),
+                value = localizedStringResource(Res.string.loaded, language),
+                valueColor = colors.primaryText,
+            )
+        }
         StatusBarDivider()
         if (fullComposeEnabled) {
             ProfilerCompactButton(

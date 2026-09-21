@@ -6,6 +6,7 @@ import com.androidperformancestudio.battery.model.BatteryDeviceState
 import com.androidperformancestudio.battery.model.BatteryRawEvidence
 import com.androidperformancestudio.battery.model.BatteryRun
 import com.androidperformancestudio.battery.model.BatterySnapshot
+import com.androidperformancestudio.battery.model.BatteryThermalEvidence
 import com.androidperformancestudio.battery.model.NetworkUsage
 import com.androidperformancestudio.battery.model.ResourceTimer
 import com.androidperformancestudio.battery.model.UidBatteryStats
@@ -82,6 +83,32 @@ class BatteryAnalyzerTest {
             )
 
         assertTrue(result.warnings.any { "baseline temperature" in it })
+    }
+
+    @Test
+    fun `summarizes thermal throttling across samples`() {
+        val before = snapshot(0, ResourceTimer("lock", 0, 0), NetworkUsage())
+        val middle =
+            before.copy(
+                id = "middle",
+                capturedAt = Instant.EPOCH.plusSeconds(5),
+                thermalEvidence = BatteryThermalEvidence(2, true, mapOf("cpu" to 42.5)),
+            )
+        val after =
+            before.copy(
+                id = "after",
+                capturedAt = Instant.EPOCH.plusSeconds(10),
+                thermalEvidence = BatteryThermalEvidence(3, true, mapOf("cpu" to 44.0)),
+            )
+
+        val result = analyzer.diff(BatteryRun("run", "session", 1, before, listOf(middle), after))
+
+        assertEquals(44.0, result.peakTemperatureCelsius)
+        assertEquals(3, result.maxThermalStatus)
+        assertEquals(2, result.throttledSamples)
+        assertEquals(2, result.performanceWindows.size)
+        assertTrue(result.performanceWindows.all { it.throttled })
+        assertTrue(result.warnings.any { "Thermal throttling" in it })
     }
 
     private fun snapshot(

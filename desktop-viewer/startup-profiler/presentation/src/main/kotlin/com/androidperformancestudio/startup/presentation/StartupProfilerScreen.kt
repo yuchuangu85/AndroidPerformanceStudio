@@ -10,8 +10,6 @@
 
 package com.androidperformancestudio.startup.presentation
 
-import com.androidperformancestudio.ui.LocalViewerColors
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -117,8 +115,9 @@ import com.androidperformancestudio.startup.presentation.generated.resources.var
 import com.androidperformancestudio.startup.presentation.generated.resources.wait_time
 import com.androidperformancestudio.startup.presentation.generated.resources.warm
 import com.androidperformancestudio.startup.presentation.generated.resources.warnings
-import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerMetricCard
+import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.util.Locale
 
@@ -438,6 +437,16 @@ private fun RunDetail(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            rootCause.phaseAttributions.forEach { phase ->
+                Text(
+                    "${phase.phaseName}: GC ${phase.gcNs / 1_000_000.0} ms · " +
+                        "JIT ${phase.jitNs / 1_000_000.0} ms · " +
+                        "class load ${phase.classLoadingNs / 1_000_000.0} ms · " +
+                        "verify/init ${phase.classVerificationNs / 1_000_000.0} ms",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
     if (run.diagnostics.isNotEmpty()) {

@@ -4,6 +4,7 @@ import com.androidperformancestudio.presentation.generated.resources.Res
 import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.protocol.Bounds
 import com.androidperformancestudio.compose.inspection.ComposableNode as InspectedComposableNode
+import com.androidperformancestudio.compose.inspection.ComposeCompilerReport
 import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
@@ -44,6 +45,7 @@ internal object NodeDetailsPresenter {
         language: UiLanguage,
         composeInspection: ComposeInspectionDocument? = null,
         composeInspectionWarning: String? = null,
+        composeCompilerReport: ComposeCompilerReport? = null,
     ): List<DetailSectionModel> {
         val viewNode = node as? ViewNode
         val composeNode = node as? ComposeNode
@@ -174,6 +176,7 @@ internal object NodeDetailsPresenter {
             node,
             composeInspection,
             composeInspectionWarning,
+            composeCompilerReport,
             language,
         ) + rawPropertiesSection(node, attributes, language)
     }
@@ -182,6 +185,7 @@ internal object NodeDetailsPresenter {
         node: UiNode,
         document: ComposeInspectionDocument?,
         warning: String?,
+        compilerReport: ComposeCompilerReport?,
         language: UiLanguage,
     ): List<DetailSectionModel> {
         val nodeId = (node as? ComposeNode)?.id
@@ -226,6 +230,28 @@ internal object NodeDetailsPresenter {
                     ),
                 )
             }
+            compilerReport?.functions
+                ?.firstOrNull { function ->
+                    function.name == inspectedNode?.name &&
+                        (function.sourceFile == null || inspectedNode.source?.fileName == function.sourceFile)
+                }?.let { function ->
+                    val unstable = function.parameters.filter { it.stability.name == "UNSTABLE" }
+                    add(
+                        DetailSectionModel(
+                            localizedStringResource(Res.string.detail_section_compose_compiler, language),
+                            listOf(
+                                row(language, Res.string.detail_label_restartable, function.restartable),
+                                row(language, Res.string.detail_label_skippable, function.skippable),
+                                row(
+                                    language,
+                                    Res.string.detail_label_unstable_parameters,
+                                    unstable.joinToString { "${it.name}: ${it.type}" }.ifBlank { "—" },
+                                ),
+                            ),
+                            highlightsRenderingRisk = unstable.isNotEmpty() || !function.skippable,
+                        ),
+                    )
+                }
             detail?.parameters?.toSection(Res.string.detail_section_compose_parameters, language)?.let(::add)
             detail?.modifiers?.toSection(Res.string.detail_section_compose_modifiers, language)?.let(::add)
             detail?.mergedSemantics?.toSection(Res.string.detail_section_merged_semantics, language)?.let(::add)

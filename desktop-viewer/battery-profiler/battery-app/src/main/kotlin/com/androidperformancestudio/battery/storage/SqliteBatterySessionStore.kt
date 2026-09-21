@@ -162,7 +162,10 @@ public class SqliteBatterySessionStore private constructor(
         (listOf(run.baseline) + run.samples + run.finalSnapshot).forEach { snapshot ->
             connection
                 .prepareStatement(
-                    "INSERT OR REPLACE INTO battery_snapshots (id, run_id, sequence, captured_at, stats_period_id, boot_id, level, temperature, powered, checkin, report, battery, history, warnings, conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO battery_snapshots " +
+                        "(id, run_id, sequence, captured_at, stats_period_id, boot_id, level, temperature, powered, " +
+                        "checkin, report, battery, history, warnings, conditions, thermal_raw, thermal_status, " +
+                        "thermal_throttling, thermal_temperatures) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 ).use { statement ->
                     statement.setString(1, snapshot.id)
                     statement.setString(2, run.id)
@@ -182,6 +185,14 @@ public class SqliteBatterySessionStore private constructor(
                         15,
                         snapshot.conditions.entries.joinToString("\n") { (key, value) -> "$key=${value.replace("\n", " ")}" },
                     )
+                    statement.setString(16, snapshot.rawEvidence.thermal)
+                    statement.setNullableInt(17, snapshot.thermalEvidence.status)
+                    statement.setInt(18, if (snapshot.thermalEvidence.throttling) 1 else 0)
+                    statement.setString(
+                        19,
+                        snapshot.thermalEvidence.temperaturesCelsius.entries
+                            .joinToString("\n") { (name, value) -> "$name=$value" },
+                    )
                     statement.executeUpdate()
                 }
         }
@@ -196,20 +207,47 @@ public class SqliteBatterySessionStore private constructor(
             statement.setString(1, delta.runId)
             statement.executeUpdate()
         }
+        connection.prepareStatement("DELETE FROM battery_performance_windows WHERE run_id=?").use { statement ->
+            statement.setString(1, delta.runId)
+            statement.executeUpdate()
+        }
         connection
             .prepareStatement(
-                "INSERT OR REPLACE INTO battery_deltas (run_id, duration_ms, total_network_bytes, warnings) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO battery_deltas " +
+                    "(run_id, duration_ms, total_network_bytes, warnings, peak_temperature_c, max_thermal_status, throttled_samples) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
             ).use { statement ->
                 statement.setString(1, delta.runId)
                 statement.setLong(2, delta.durationMs)
                 statement.setLong(3, delta.network.totalBytes)
                 statement.setString(4, delta.warnings.joinToString("\n"))
+                statement.setNullableDouble(5, delta.peakTemperatureCelsius)
+                statement.setNullableInt(6, delta.maxThermalStatus)
+                statement.setInt(7, delta.throttledSamples)
                 statement.executeUpdate()
             }
         saveTimers(delta.runId, "wakelock", delta.wakelocks)
         saveTimers(delta.runId, "alarm", delta.alarms)
         saveTimers(delta.runId, "job", delta.jobs)
         saveTimers(delta.runId, "sensor", delta.sensors)
+        delta.performanceWindows.forEachIndexed { index, window ->
+            connection
+                .prepareStatement(
+                    "INSERT INTO battery_performance_windows " +
+                        "(run_id, window_index, started_at, ended_at, duration_ms, peak_temperature_c, max_thermal_status, throttled) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ).use { statement ->
+                    statement.setString(1, delta.runId)
+                    statement.setInt(2, index)
+                    statement.setString(3, window.startedAt.toString())
+                    statement.setString(4, window.endedAt.toString())
+                    statement.setLong(5, window.durationMs)
+                    statement.setNullableDouble(6, window.peakTemperatureCelsius)
+                    statement.setNullableInt(7, window.maxThermalStatus)
+                    statement.setInt(8, if (window.throttled) 1 else 0)
+                    statement.executeUpdate()
+                }
+        }
         delta.energy.forEach { energy ->
             connection
                 .prepareStatement(
@@ -268,10 +306,10 @@ public class SqliteBatterySessionStore private constructor(
                     "CREATE TABLE IF NOT EXISTS battery_runs (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES battery_sessions(id) ON DELETE CASCADE, iteration INTEGER NOT NULL, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, sample_count INTEGER NOT NULL)",
                 )
                 statement.execute(
-                    "CREATE TABLE IF NOT EXISTS battery_snapshots (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES battery_runs(id) ON DELETE CASCADE, sequence INTEGER NOT NULL, captured_at TEXT NOT NULL, stats_period_id TEXT, boot_id TEXT, level INTEGER, temperature INTEGER, powered INTEGER, checkin TEXT NOT NULL, report TEXT NOT NULL, battery TEXT NOT NULL, history TEXT, warnings TEXT NOT NULL, conditions TEXT NOT NULL DEFAULT '')",
+                    "CREATE TABLE IF NOT EXISTS battery_snapshots (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES battery_runs(id) ON DELETE CASCADE, sequence INTEGER NOT NULL, captured_at TEXT NOT NULL, stats_period_id TEXT, boot_id TEXT, level INTEGER, temperature INTEGER, powered INTEGER, checkin TEXT NOT NULL, report TEXT NOT NULL, battery TEXT NOT NULL, history TEXT, warnings TEXT NOT NULL, conditions TEXT NOT NULL DEFAULT '', thermal_raw TEXT, thermal_status INTEGER, thermal_throttling INTEGER NOT NULL DEFAULT 0, thermal_temperatures TEXT NOT NULL DEFAULT '')",
                 )
                 statement.execute(
-                    "CREATE TABLE IF NOT EXISTS battery_deltas (run_id TEXT PRIMARY KEY REFERENCES battery_runs(id) ON DELETE CASCADE, duration_ms INTEGER NOT NULL, total_network_bytes INTEGER NOT NULL, warnings TEXT NOT NULL)",
+                    "CREATE TABLE IF NOT EXISTS battery_deltas (run_id TEXT PRIMARY KEY REFERENCES battery_runs(id) ON DELETE CASCADE, duration_ms INTEGER NOT NULL, total_network_bytes INTEGER NOT NULL, warnings TEXT NOT NULL, peak_temperature_c REAL, max_thermal_status INTEGER, throttled_samples INTEGER NOT NULL DEFAULT 0)",
                 )
                 statement.execute(
                     "CREATE TABLE IF NOT EXISTS battery_resources (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES battery_runs(id) ON DELETE CASCADE, kind TEXT NOT NULL, name TEXT NOT NULL, duration_ms INTEGER NOT NULL, count INTEGER NOT NULL, confidence TEXT NOT NULL)",
@@ -279,11 +317,25 @@ public class SqliteBatterySessionStore private constructor(
                 statement.execute(
                     "CREATE TABLE IF NOT EXISTS battery_energy (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES battery_runs(id) ON DELETE CASCADE, component TEXT NOT NULL, energy_mah REAL, energy_uws INTEGER, source TEXT NOT NULL, scope TEXT NOT NULL, confidence TEXT NOT NULL)",
                 )
+                statement.execute(
+                    "CREATE TABLE IF NOT EXISTS battery_performance_windows (run_id TEXT NOT NULL REFERENCES battery_runs(id) ON DELETE CASCADE, window_index INTEGER NOT NULL, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, duration_ms INTEGER NOT NULL, peak_temperature_c REAL, max_thermal_status INTEGER, throttled INTEGER NOT NULL, PRIMARY KEY(run_id, window_index))",
+                )
                 if (!connection.hasColumn("battery_sessions", "status")) {
                     statement.execute("ALTER TABLE battery_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'COMPLETED'")
                 }
                 if (!connection.hasColumn("battery_snapshots", "conditions")) {
                     statement.execute("ALTER TABLE battery_snapshots ADD COLUMN conditions TEXT NOT NULL DEFAULT ''")
+                }
+                if (!connection.hasColumn("battery_snapshots", "thermal_raw")) {
+                    statement.execute("ALTER TABLE battery_snapshots ADD COLUMN thermal_raw TEXT")
+                    statement.execute("ALTER TABLE battery_snapshots ADD COLUMN thermal_status INTEGER")
+                    statement.execute("ALTER TABLE battery_snapshots ADD COLUMN thermal_throttling INTEGER NOT NULL DEFAULT 0")
+                    statement.execute("ALTER TABLE battery_snapshots ADD COLUMN thermal_temperatures TEXT NOT NULL DEFAULT ''")
+                }
+                if (!connection.hasColumn("battery_deltas", "peak_temperature_c")) {
+                    statement.execute("ALTER TABLE battery_deltas ADD COLUMN peak_temperature_c REAL")
+                    statement.execute("ALTER TABLE battery_deltas ADD COLUMN max_thermal_status INTEGER")
+                    statement.execute("ALTER TABLE battery_deltas ADD COLUMN throttled_samples INTEGER NOT NULL DEFAULT 0")
                 }
             }
         }

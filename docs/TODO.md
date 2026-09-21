@@ -46,10 +46,17 @@
 
 ### P1：运行时和 UI 深度诊断
 
-- [ ] **Compose Stability / Recomposition Profiler** — 解析 Compose Compiler stability/composable reports，展示不稳定参数、不可跳过 Composable、重组次数和跳过次数，并关联 Jank。
-- [ ] **I/O 与 SQLite Profiler** — 增加文件读写、fsync、block I/O、page fault、SQLite query/transaction、WAL checkpoint 和数据库锁等待分析。
-- [ ] **ART / GC / JIT / Class Loading Profiler** — 在启动和内存分析中增加 GC pause、allocation churn、JIT、dex2oat、类加载、验证和初始化阶段归因。
-- [ ] **Thermal / DVFS / Power Rails 分析** — 在 `battery-profiler` 与 Perfetto 分析中加入温度、CPU/GPU 频率、thermal throttling、power rail 和持续性能窗口，并关联帧率/Jank。
+- [x] **Compose Stability / Recomposition Profiler** — 解析 Compose Compiler stability/composable reports，展示不稳定参数、不可跳过 Composable、重组次数和跳过次数，并通过显式 Jank observation 建立有界关联。
+- [x] **I/O 与 SQLite Profiler** — 增加文件读写、fsync、block I/O、page fault、SQLite query/transaction、WAL checkpoint 和数据库锁等待分析。
+- [x] **ART / GC / JIT / Class Loading Profiler** — 在启动和内存分析中增加 GC pause、allocation churn、JIT、dex2oat、类加载、验证和初始化阶段归因。
+- [x] **Thermal / DVFS / Power Rails 分析** — 在 `battery-profiler` 与 Perfetto 分析中加入温度、CPU/GPU 频率、thermal throttling、power rail 和持续性能窗口，并提供 FrameTimeline 对齐。
+
+### P1 验收保留项（2026-09-21）
+
+- [ ] 使用真实 Compose Compiler 版本矩阵验证 reports 文本/CSV 方言，并与运行时 inspector/JankStats 同步采集。
+- [ ] 使用真实 SQLite workload 和文件 I/O 压力验证目标设备 ftrace/atrace 覆盖率。
+- [ ] 使用真实 ART trace 验证不同 Android 版本的 GC、JIT、dex2oat 与 class-loading slice 命名。
+- [ ] 使用具备 power rail 的设备完成 Thermal/DVFS/Power Rail 与 FrameTimeline 真机对齐验收。
 
 ### P2：后台与专项场景
 

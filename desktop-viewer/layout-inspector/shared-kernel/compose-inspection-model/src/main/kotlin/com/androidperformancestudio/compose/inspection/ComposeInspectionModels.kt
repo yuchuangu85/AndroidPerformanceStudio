@@ -161,3 +161,60 @@ data class RecompositionObservation(
     val active: Boolean,
     val continuous: Boolean,
 )
+
+@Serializable
+enum class ComposeCompilerStability { STABLE, UNSTABLE, RUNTIME, UNKNOWN }
+
+@Serializable
+data class ComposeCompilerParameter(
+    val name: String,
+    val type: String,
+    val stability: ComposeCompilerStability,
+)
+
+@Serializable
+data class ComposeCompilerFunction(
+    val packageName: String? = null,
+    val name: String,
+    val restartable: Boolean = false,
+    val skippable: Boolean = false,
+    val readonly: Boolean = false,
+    val parameters: List<ComposeCompilerParameter> = emptyList(),
+    val sourceFile: String? = null,
+    val sourceLine: Int? = null,
+)
+
+@Serializable
+data class ComposeCompilerClass(
+    val name: String,
+    val stability: ComposeCompilerStability,
+    val unstableMembers: List<String> = emptyList(),
+)
+
+@Serializable
+data class ComposeCompilerReport(
+    val sourceDirectory: String,
+    val files: List<String>,
+    val functions: List<ComposeCompilerFunction>,
+    val classes: List<ComposeCompilerClass>,
+    val warnings: List<String> = emptyList(),
+)
+
+@Serializable
+data class ComposeJankObservation(
+    val composableName: String,
+    val frameId: Long? = null,
+    val frameTimelineVsyncId: Long? = null,
+    val isJank: Boolean,
+    val source: String,
+)
+
+@Serializable
+data class ComposeStabilityFinding(
+    val function: ComposeCompilerFunction,
+    val unstableParameters: List<ComposeCompilerParameter>,
+    val recomposeCount: Int = 0,
+    val skipCount: Int = 0,
+    val jankFrameCount: Int = 0,
+    val limitations: List<String> = emptyList(),
+)

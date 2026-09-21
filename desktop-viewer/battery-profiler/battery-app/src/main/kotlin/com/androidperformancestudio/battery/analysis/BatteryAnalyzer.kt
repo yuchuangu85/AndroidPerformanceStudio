@@ -1,6 +1,7 @@
 @file:Suppress(
     "ComplexCondition",
     "CyclomaticComplexMethod",
+    "LongMethod",
     "MagicNumber",
     "MaxLineLength",
     "ktlint:standard:max-line-length",
@@ -9,8 +10,10 @@
 
 package com.androidperformancestudio.battery.analysis
 
+import com.androidperformancestudio.battery.model.BatteryPerformanceWindow
 import com.androidperformancestudio.battery.model.BatteryRun
 import com.androidperformancestudio.battery.model.BatteryRunDelta
+import com.androidperformancestudio.battery.model.BatterySnapshot
 import com.androidperformancestudio.battery.model.BatteryStatistics
 import com.androidperformancestudio.battery.model.EnergyEstimate
 import com.androidperformancestudio.battery.model.NetworkUsage
@@ -30,6 +33,8 @@ public data class BatteryAnalysisResult(
     val networkBytes: BatteryStatistics,
     val energyMah: BatteryStatistics,
     val warnings: List<String>,
+    val peakTemperatureCelsius: BatteryStatistics = BatteryStatistics(0, 0, null, null, null, null, null, null, null, null),
+    val thermalStatus: BatteryStatistics = BatteryStatistics(0, 0, null, null, null, null, null, null, null, null),
 )
 
 public class BatteryAnalyzer {
@@ -64,6 +69,8 @@ public class BatteryAnalyzer {
             sensorDurationMs = statistics(deltas.map { run -> run.sensors.sumOf(ResourceTimer::durationMs).toDouble() }),
             networkBytes = statistics(deltas.map { run -> run.network.totalBytes.toDouble() }),
             energyMah = statistics(deltas.map { run -> run.energy.sumOf { it.energyMah ?: 0.0 }.takeIf { it > 0 } }),
+            peakTemperatureCelsius = statistics(deltas.map { it.peakTemperatureCelsius }),
+            thermalStatus = statistics(deltas.map { it.maxThermalStatus?.toDouble() }),
             warnings = deltas.flatMap(BatteryRunDelta::warnings).distinct(),
         )
     }
@@ -108,6 +115,11 @@ public class BatteryAnalyzer {
                 warnings += "Experiment condition '$name' changed from '$old' to '$current'."
             }
         }
+        val thermalSamples = (listOf(before) + run.samples + after).map { it.thermalEvidence }
+        val peakTemperature = thermalSamples.mapNotNull { it.peakTemperatureCelsius }.maxOrNull()
+        val maxThermalStatus = thermalSamples.mapNotNull { it.status }.maxOrNull()
+        val throttledSamples = thermalSamples.count { it.throttling }
+        if (throttledSamples > 0) warnings += "Thermal throttling was observed in $throttledSamples captured samples."
         val wakelocks = diffTimers(before.uidStats.wakelocks, after.uidStats.wakelocks, "wakelock", warnings)
         return BatteryRunDelta(
             runId = run.id,
@@ -122,8 +134,25 @@ public class BatteryAnalyzer {
             energy = diffEnergy(before.uidStats.energy, after.uidStats.energy, warnings),
             history = after.history.filter { event -> event.uid == null || event.uid == after.uidStats.uid },
             warnings = (before.warnings + after.warnings + warnings + diagnose(wakelocks, durationMs)).distinct(),
+            peakTemperatureCelsius = peakTemperature,
+            maxThermalStatus = maxThermalStatus,
+            throttledSamples = throttledSamples,
+            performanceWindows = performanceWindows(listOf(before) + run.samples + after),
         )
     }
+
+    private fun performanceWindows(snapshots: List<BatterySnapshot>): List<BatteryPerformanceWindow> =
+        snapshots.sortedBy { it.capturedAt }.zipWithNext().map { (start, end) ->
+            val evidence = listOf(start.thermalEvidence, end.thermalEvidence)
+            BatteryPerformanceWindow(
+                startedAt = start.capturedAt,
+                endedAt = end.capturedAt,
+                durationMs = Duration.between(start.capturedAt, end.capturedAt).toMillis().coerceAtLeast(0),
+                peakTemperatureCelsius = evidence.mapNotNull { it.peakTemperatureCelsius }.maxOrNull(),
+                maxThermalStatus = evidence.mapNotNull { it.status }.maxOrNull(),
+                throttled = evidence.any { it.throttling },
+            )
+        }
 
     public fun statistics(values: List<Double?>): BatteryStatistics {
         val present = values.filterNotNull().sorted()

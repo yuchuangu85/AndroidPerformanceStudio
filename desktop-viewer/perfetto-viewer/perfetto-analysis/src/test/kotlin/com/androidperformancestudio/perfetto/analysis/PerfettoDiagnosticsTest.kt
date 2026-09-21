@@ -28,6 +28,22 @@ class PerfettoDiagnosticsTest {
                 "binder_frame_alignment",
                 "frame_jank",
                 "frame_surface_correlation",
+                "file_io_syscalls",
+                "fsync_calls",
+                "block_io_pressure",
+                "page_faults",
+                "sqlite_activity",
+                "sqlite_lock_wait",
+                "art_gc_events",
+                "art_allocation_churn",
+                "art_jit_dex2oat",
+                "art_class_loading",
+                "art_class_verification",
+                "thermal_throttling",
+                "dvfs_residency",
+                "gpu_frequency_residency",
+                "power_rails",
+                "power_frame_alignment",
                 "mem_counters",
                 "input_latency",
                 "thread_states",
@@ -60,6 +76,11 @@ class PerfettoDiagnosticsTest {
         assertTrue(byId.getValue("binder_server_saturation").sql.contains("server_dur"))
         assertTrue(byId.getValue("binder_wait_chain").sql.contains("android_sync_binder_thread_state_by_txn"))
         assertTrue(byId.getValue("frame_surface_correlation").sql.contains("actual_frame_timeline_slice"))
+        assertTrue(byId.getValue("block_io_pressure").sql.contains("INCLUDE PERFETTO MODULE linux.block_io;"))
+        assertTrue(byId.getValue("art_gc_events").sql.contains("android_garbage_collection_events"))
+        assertTrue(byId.getValue("art_class_loading").sql.contains("android_class_loading_for_startup"))
+        assertTrue(byId.getValue("dvfs_residency").sql.contains("INCLUDE PERFETTO MODULE android.dvfs;"))
+        assertTrue(byId.getValue("power_rails").sql.contains("android_power_rails_counters"))
         PerfettoDiagnostics.all.forEach { query ->
             assertFalse(Regex("\\bLIKE\\b", RegexOption.IGNORE_CASE).containsMatchIn(query.sql), query.id)
         }

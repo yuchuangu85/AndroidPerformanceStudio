@@ -243,6 +243,10 @@ private data class StartupPerfettoRootCauseEvidenceDocument(
     val frameSlices: List<StartupPerfettoSliceDocument> = emptyList(),
     val wakingSlices: List<StartupPerfettoSliceDocument> = emptyList(),
     val runQueueSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val gcSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val jitSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val classLoadingSlices: List<StartupPerfettoSliceDocument> = emptyList(),
+    val classVerificationSlices: List<StartupPerfettoSliceDocument> = emptyList(),
     val phaseAttributions: List<StartupPerfettoPhaseAttributionDocument> = emptyList(),
     val correlated: Boolean = false,
     val correlationErrorBoundNs: Long? = null,
@@ -256,6 +260,10 @@ private data class StartupPerfettoRootCauseEvidenceDocument(
             frameSlices = frameSlices.map(StartupPerfettoSliceDocument::toModel),
             wakingSlices = wakingSlices.map(StartupPerfettoSliceDocument::toModel),
             runQueueSlices = runQueueSlices.map(StartupPerfettoSliceDocument::toModel),
+            gcSlices = gcSlices.map(StartupPerfettoSliceDocument::toModel),
+            jitSlices = jitSlices.map(StartupPerfettoSliceDocument::toModel),
+            classLoadingSlices = classLoadingSlices.map(StartupPerfettoSliceDocument::toModel),
+            classVerificationSlices = classVerificationSlices.map(StartupPerfettoSliceDocument::toModel),
             phaseAttributions = phaseAttributions.map(StartupPerfettoPhaseAttributionDocument::toModel),
             correlated = correlated,
             correlationErrorBoundNs = correlationErrorBoundNs,
@@ -284,6 +292,10 @@ private data class StartupPerfettoPhaseAttributionDocument(
     val frameNs: Long = 0,
     val wakingCount: Int = 0,
     val runQueueSamples: Int = 0,
+    val gcNs: Long = 0,
+    val jitNs: Long = 0,
+    val classLoadingNs: Long = 0,
+    val classVerificationNs: Long = 0,
 ) {
     fun toModel() =
         StartupPerfettoPhaseAttribution(
@@ -296,6 +308,10 @@ private data class StartupPerfettoPhaseAttributionDocument(
             frameNs,
             wakingCount,
             runQueueSamples,
+            gcNs,
+            jitNs,
+            classLoadingNs,
+            classVerificationNs,
         )
 }
 

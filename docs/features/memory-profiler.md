@@ -69,3 +69,7 @@ cd desktop-viewer/memory-profiler
 - HPROF、Native trace、Bitmap dump、分析 JSON/CSV/Markdown 分属不同 artifact。
 - 已安装 APK 不能假设可以无损注入；注入需要重建、签名和重新安装。
 - 当前真机端到端 Agent 验收仍需单独执行。
+
+## ART runtime evidence
+
+`ArtRuntimeTraceProcessorAdapter` 提供 GC pause/reclaimed heap、allocation churn、JIT/dex2oat 和 class loading/initialization 的独立模型。该证据来自 Perfetto ART/heap tables，与 HPROF retained-size 和 Native Heap allocation 保持分离。

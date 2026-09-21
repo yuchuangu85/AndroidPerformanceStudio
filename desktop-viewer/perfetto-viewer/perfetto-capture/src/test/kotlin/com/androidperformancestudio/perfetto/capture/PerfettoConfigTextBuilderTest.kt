@@ -113,6 +113,10 @@ class PerfettoConfigTextBuilderTest {
                     enabledProbes =
                         setOf(
                             PerfettoProbe.SYSCALLS,
+                            PerfettoProbe.FILESYSTEM_IO,
+                            PerfettoProbe.PAGE_FAULTS,
+                            PerfettoProbe.ART_RUNTIME,
+                            PerfettoProbe.THERMAL,
                             PerfettoProbe.JAVA_HEAP_DUMP,
                             PerfettoProbe.POWER_RAILS,
                             PerfettoProbe.GPU_MEMORY,
@@ -125,6 +129,9 @@ class PerfettoConfigTextBuilderTest {
             )
 
         assertTrue(text.contains("raw_syscalls/sys_enter"))
+        assertTrue(text.contains("block/block_rq_issue"))
+        assertTrue(text.contains("exceptions/page_fault_user"))
+        assertTrue(text.contains("thermal/thermal_temperature"))
         assertTrue(text.contains("name: \"android.java_hprof\""))
         assertTrue(text.contains("name: \"android.power\""))
         assertTrue(text.contains("name: \"android.gpu.memory\""))

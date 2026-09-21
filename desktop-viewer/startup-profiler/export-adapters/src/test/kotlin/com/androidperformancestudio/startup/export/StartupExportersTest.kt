@@ -84,7 +84,9 @@ class StartupExportersTest {
             assertEquals(true, traceEvidence?.captured)
             val rootCause = requireNotNull(traceEvidence?.rootCause)
             assertEquals("sched", rootCause.schedulingSlices.single().name)
+            assertEquals("concurrent copying GC", rootCause.gcSlices.single().name)
             assertEquals(30, rootCause.phaseAttributions.single().schedulingNs)
+            assertEquals(10, rootCause.phaseAttributions.single().gcNs)
         }
     }
 
@@ -177,6 +179,7 @@ private fun startupAnalysisFixture() =
                         rootCause =
                             StartupPerfettoRootCauseEvidence(
                                 schedulingSlices = listOf(StartupPerfettoSlice(100, 30, "sched", "main")),
+                                gcSlices = listOf(StartupPerfettoSlice(130, 10, "concurrent copying GC", "HeapTaskDaemon")),
                                 phaseAttributions =
                                     listOf(
                                         StartupPerfettoPhaseAttribution(
@@ -184,6 +187,7 @@ private fun startupAnalysisFixture() =
                                             startNs = 100,
                                             endNs = 200,
                                             schedulingNs = 30,
+                                            gcNs = 10,
                                         ),
                                     ),
                                 correlated = true,

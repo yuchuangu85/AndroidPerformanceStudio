@@ -71,6 +71,9 @@ class BatteryExportersTest {
                 emptyList(),
                 emptyList(),
                 emptyList(),
+                peakTemperatureCelsius = 44.0,
+                maxThermalStatus = 3,
+                throttledSamples = 2,
             )
         val stats = BatteryStatistics(1, 0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0)
         val analysis = BatteryAnalysisResult(listOf(delta), stats, stats, stats, stats, stats, stats, emptyList())
@@ -85,6 +88,7 @@ class BatteryExportersTest {
 
         assertContains(Files.readString(json), "\"schemaVersion\": 1")
         assertContains(Files.readString(json), "\"deviceLocalId\"")
+        assertContains(Files.readString(json), "\"peakTemperatureCelsius\": 44.0")
         kotlin.test.assertFalse(Files.readString(json).contains("\"deviceSerial\""))
         assertContains(Files.readString(csv), "wakelock")
         assertContains(Files.readString(csv), "SHARED_UID")

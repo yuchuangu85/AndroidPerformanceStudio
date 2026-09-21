@@ -20,6 +20,7 @@ import com.androidperformancestudio.battery.model.BatteryRun
 import com.androidperformancestudio.battery.model.BatterySession
 import com.androidperformancestudio.battery.model.BatterySnapshot
 import com.androidperformancestudio.battery.model.BatteryTarget
+import com.androidperformancestudio.battery.model.BatteryThermalEvidence
 import com.androidperformancestudio.battery.model.UidBatteryStats
 import com.androidperformancestudio.battery.parser.BatteryStatsParser
 import com.androidperformancestudio.platform.adb.AdbClient
@@ -168,6 +169,7 @@ public class BatteryExperimentRunner(
         val checkin = timed("checkin", listOf("dumpsys", "batterystats", "--checkin"))
         val report = optionalTimed("report", listOf("dumpsys", "batterystats"), durations).orEmpty()
         val battery = timed("battery", listOf("dumpsys", "battery"))
+        val thermal = optionalTimed("thermal", listOf("dumpsys", "thermalservice"), durations)
         val history =
             if (includeHistory && session.capabilities.history) {
                 optionalTimed("history", listOf("dumpsys", "batterystats", "--history"), durations)
@@ -192,8 +194,17 @@ public class BatteryExperimentRunner(
             deviceState = parser.parseDeviceState(battery),
             history = history?.let(parser::parseHistory) ?: parsed.history,
             warnings = (parsed.warnings + attributionWarnings).distinct(),
-            rawEvidence = BatteryRawEvidence(checkin, report, battery, history, durations),
+            rawEvidence =
+                BatteryRawEvidence(
+                    checkin = checkin,
+                    report = report,
+                    battery = battery,
+                    history = history,
+                    commandDurationsMs = durations,
+                    thermal = thermal,
+                ),
             conditions = captureConditions(),
+            thermalEvidence = parseThermalEvidence(thermal),
         )
     }
 
@@ -203,6 +214,7 @@ public class BatteryExperimentRunner(
     ): BatterySnapshot {
         val started = System.nanoTime()
         val battery = commandRunner.execute(listOf("dumpsys", "battery"))
+        val thermal = optionalCommand(listOf("dumpsys", "thermalservice"))
         return BatterySnapshot(
             id = UUID.randomUUID().toString(),
             sessionId = session.id,
@@ -217,8 +229,10 @@ public class BatteryExperimentRunner(
                     checkin = "",
                     report = "",
                     battery = battery,
+                    thermal = thermal,
                     commandDurationsMs = mapOf("battery" to (System.nanoTime() - started) / NANOS_PER_MILLISECOND),
                 ),
+            thermalEvidence = parseThermalEvidence(thermal),
         )
     }
 
@@ -308,6 +322,27 @@ public class BatteryExperimentRunner(
         const val MILLIS_PER_SECOND = 1_000L
     }
 }
+
+internal fun parseThermalEvidence(output: String?): BatteryThermalEvidence {
+    if (output.isNullOrBlank()) return BatteryThermalEvidence()
+    val status =
+        Regex("""(?i)(?:mStatus|Status)\s*[=:]\s*(\d+)""")
+            .find(output)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+    val temperatures = linkedMapOf<String, Double>()
+    THERMAL_TEMPERATURE.findAll(output).forEachIndexed { index, match ->
+        val value = match.groupValues[1].toDoubleOrNull() ?: return@forEachIndexed
+        val name = match.groupValues.getOrNull(2)?.takeIf(String::isNotBlank) ?: "sensor-$index"
+        temperatures[name] = value
+    }
+    val throttling = (status ?: 0) >= 2 || output.contains("throttl", ignoreCase = true)
+    return BatteryThermalEvidence(status, throttling, temperatures, output)
+}
+
+private val THERMAL_TEMPERATURE =
+    Regex("""(?i)(?:mValue|value)\s*[=:]\s*([0-9]+(?:\.[0-9]+)?).*?(?:mName|name)\s*[=:]\s*([^,}\n]+)""")
 
 internal fun parseScreenState(output: String): String? =
     Regex("(?m)^\\s*mScreenState=(\\S+)").find(output)?.groupValues?.get(1)

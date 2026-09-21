@@ -71,6 +71,10 @@ internal class StartupPerfettoEvidenceAnalyzer(
             val scheduling = context.query(adapter.schedulingQuery(run.processIdAfter)).valueOrReturn()
             val waking = context.query(adapter.wakingQuery(run.processIdAfter)).valueOrReturn()
             val runQueue = context.query(adapter.runQueueQuery()).valueOrReturn()
+            val gc = context.query(adapter.gcQuery(run.processIdAfter)).valueOrReturn()
+            val jit = context.query(adapter.jitQuery(run.processIdAfter)).valueOrReturn()
+            val classLoading = context.query(adapter.classLoadingQuery(run.processIdAfter)).valueOrReturn()
+            val classVerification = context.query(adapter.classVerificationQuery(run.processIdAfter)).valueOrReturn()
             val binder = context.query(adapter.binderQuery(run.processIdAfter)).valueOrReturn()
             val main = context.query(adapter.mainThreadQuery(run.processIdAfter)).valueOrReturn()
             val frames = context.query(adapter.frameQuery(run.processIdAfter)).valueOrReturn()
@@ -86,6 +90,10 @@ internal class StartupPerfettoEvidenceAnalyzer(
                                 frames = frames,
                                 waking = waking,
                                 runQueue = runQueue,
+                                gc = gc,
+                                jit = jit,
+                                classLoading = classLoading,
+                                classVerification = classVerification,
                             ),
                         clockMapping = analyzedArtifact.clockMappings.singleOrNull(),
                         milestones = run.milestones,

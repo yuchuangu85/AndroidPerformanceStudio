@@ -38,3 +38,7 @@ experiment config
 - batterystats 反映系统统计与归因，不是每条耗电的直接硬件测量。
 - 设备厂商、电源 HAL、Android 版本和后台策略会影响可见字段。
 - thermal、DVFS、power rail 等更细粒度证据需要额外 Perfetto/设备支持。
+
+## Thermal / DVFS / Power Rails
+
+Battery capture 额外保留 `dumpsys thermalservice` 原始输出、thermal status、峰值温度和 throttled sample 数；JSON、CSV、raw bundle 与 SQLite 均保留这些字段。DVFS、GPU frequency 和 power rail 使用固定 Trace Processor 查询分析，并通过有界时间重叠与 FrameTimeline 对齐，不把系统级 rail 能量声明为单 App 因果归因。

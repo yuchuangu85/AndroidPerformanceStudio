@@ -21,8 +21,13 @@ data class StartupPerfettoEvidenceSlices(
     val frames: List<StartupPerfettoSlice>,
     val waking: List<StartupPerfettoSlice> = emptyList(),
     val runQueue: List<StartupPerfettoSlice> = emptyList(),
+    val gc: List<StartupPerfettoSlice> = emptyList(),
+    val jit: List<StartupPerfettoSlice> = emptyList(),
+    val classLoading: List<StartupPerfettoSlice> = emptyList(),
+    val classVerification: List<StartupPerfettoSlice> = emptyList(),
 ) {
-    fun allSlices(): List<StartupPerfettoSlice> = scheduling + binder + mainThread + frames + waking + runQueue
+    fun allSlices(): List<StartupPerfettoSlice> =
+        scheduling + binder + mainThread + frames + waking + runQueue + gc + jit + classLoading + classVerification
 }
 
 /** Startup-owned SQL and mapping; platform-perfetto never exposes startup DTOs. */
@@ -62,6 +67,27 @@ class StartupPerfettoTraceAdapter(
             "INCLUDE PERFETTO MODULE sched.thread_level_parallelism; " +
                 "SELECT ts, 0 AS dur, 'run_queue:' || runnable_thread_count AS name, NULL AS thread_name " +
                 "FROM sched_runnable_thread_count WHERE runnable_thread_count > 0 ORDER BY ts",
+        )
+
+    fun gcQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> =
+        sliceQuery(
+            "INCLUDE PERFETTO MODULE android.garbage_collection; " +
+                "SELECT gc_ts AS ts, gc_dur AS dur, gc_type AS name, thread_name " +
+                "FROM android_garbage_collection_events " +
+                processFilterForUpid(processId) + " ORDER BY gc_ts",
+        )
+
+    fun jitQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> =
+        runtimeSliceQuery(processId, "LOWER(s.name) GLOB '*jit*compil*' OR LOWER(s.name) GLOB '*dex2oat*'")
+
+    @Suppress("MaxLineLength", "ktlint:standard:max-line-length")
+    fun classLoadingQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> = runtimeSliceQuery(processId, "s.name GLOB 'L*;'")
+
+    fun classVerificationQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> =
+        runtimeSliceQuery(
+            processId,
+            "LOWER(s.name) GLOB '*verifyclass*' OR LOWER(s.name) GLOB '*classlinker*' " +
+                "OR LOWER(s.name) GLOB '*initializeclass*' OR LOWER(s.name) GLOB '*<clinit>*'",
         )
 
     fun binderQuery(processId: Int?): TraceQuery<StartupPerfettoSlice> =
@@ -120,6 +146,10 @@ class StartupPerfettoTraceAdapter(
             frameSlices = evidence.frames,
             wakingSlices = evidence.waking,
             runQueueSlices = evidence.runQueue,
+            gcSlices = evidence.gc,
+            jitSlices = evidence.jit,
+            classLoadingSlices = evidence.classLoading,
+            classVerificationSlices = evidence.classVerification,
             phaseAttributions =
                 if (correlated) {
                     attributePhases(evidence, milestones, clockMapping)
@@ -175,6 +205,10 @@ class StartupPerfettoTraceAdapter(
                 frameNs = overlapNanos(evidence.frames, startNs, endNs, mapping),
                 wakingCount = evidence.waking.count { inWindow(it, startNs, endNs, mapping) },
                 runQueueSamples = evidence.runQueue.count { inWindow(it, startNs, endNs, mapping) },
+                gcNs = overlapNanos(evidence.gc, startNs, endNs, mapping),
+                jitNs = overlapNanos(evidence.jit, startNs, endNs, mapping),
+                classLoadingNs = overlapNanos(evidence.classLoading, startNs, endNs, mapping),
+                classVerificationNs = overlapNanos(evidence.classVerification, startNs, endNs, mapping),
             )
         }
 
@@ -204,6 +238,23 @@ class StartupPerfettoTraceAdapter(
         timestamp: Long,
         mapping: ClockMapping?,
     ): Long = mapping?.let { timestamp - it.sourceReferenceNanos + it.targetReferenceNanos } ?: timestamp
+
+    private fun runtimeSliceQuery(
+        processId: Int?,
+        predicate: String,
+    ): TraceQuery<StartupPerfettoSlice> =
+        sliceQuery(
+            "SELECT s.ts, s.dur, s.name, t.name AS thread_name FROM slice AS s " +
+                "JOIN thread_track AS tt ON tt.id = s.track_id " +
+                "JOIN thread AS t ON t.utid = tt.utid JOIN process AS p USING (upid) " +
+                "WHERE ($predicate) " + processPredicate(processId) + " ORDER BY s.ts",
+        )
+
+    private fun processFilterForUpid(processId: Int?): String {
+        if (processId == null) return "WHERE upid IS NOT NULL"
+        require(processId > 0) { "startup process id must be positive" }
+        return "WHERE upid = (SELECT upid FROM process WHERE pid = $processId ORDER BY start_ts DESC LIMIT 1)"
+    }
 
     private fun processFilter(processId: Int?): String {
         if (processId == null) return "WHERE p.pid IS NOT NULL"
@@ -240,6 +291,22 @@ class StartupPerfettoTraceAdapter(
         val FRAME = CapabilityId("startup.frame")
         val SCHED_WAKING = CapabilityId("startup.sched_waking")
         val RUN_QUEUE = CapabilityId("startup.run_queue")
-        val ALL: Set<CapabilityId> = setOf(SCHEDULING, BINDER, MAIN_THREAD, FRAME, SCHED_WAKING, RUN_QUEUE)
+        val GC = CapabilityId("startup.art.gc")
+        val JIT = CapabilityId("startup.art.jit")
+        val CLASS_LOADING = CapabilityId("startup.art.class_loading")
+        val CLASS_VERIFICATION = CapabilityId("startup.art.class_verification")
+        val ALL: Set<CapabilityId> =
+            setOf(
+                SCHEDULING,
+                BINDER,
+                MAIN_THREAD,
+                FRAME,
+                SCHED_WAKING,
+                RUN_QUEUE,
+                GC,
+                JIT,
+                CLASS_LOADING,
+                CLASS_VERIFICATION,
+            )
     }
 }

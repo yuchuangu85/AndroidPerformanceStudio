@@ -195,6 +195,18 @@ object PerfettoConfigTextBuilder {
             PerfettoProbe.CPU_FREQUENCY ->
                 listOf("power/cpu_frequency", "power/cpu_idle", "power/suspend_resume")
             PerfettoProbe.SYSCALLS -> listOf("raw_syscalls/sys_enter", "raw_syscalls/sys_exit")
+            PerfettoProbe.FILESYSTEM_IO ->
+                listOf(
+                    "block/block_rq_issue",
+                    "block/block_rq_complete",
+                    "f2fs/f2fs_write_begin",
+                    "f2fs/f2fs_write_end",
+                    "ext4/ext4_sync_file_enter",
+                    "ext4/ext4_sync_file_exit",
+                )
+            PerfettoProbe.PAGE_FAULTS ->
+                listOf("exceptions/page_fault_user", "exceptions/page_fault_kernel", "filemap/mm_filemap_fault")
+            PerfettoProbe.ART_RUNTIME -> listOf("ftrace/print")
             PerfettoProbe.HIGH_FREQUENCY_MEMORY ->
                 listOf(
                     "mm_event/mm_event_record",
@@ -206,6 +218,13 @@ object PerfettoConfigTextBuilder {
                 )
             PerfettoProbe.LOW_MEMORY_KILLER ->
                 listOf("lowmemorykiller/lowmemory_kill", "oom/oom_score_adj_update")
+            PerfettoProbe.THERMAL ->
+                listOf(
+                    "thermal/thermal_temperature",
+                    "thermal/cdev_update",
+                    "thermal/thermal_power_cpu_limit",
+                    "power/cpu_frequency_limits",
+                )
             PerfettoProbe.BOARD_VOLTAGES ->
                 listOf(
                     "regulator/regulator_set_voltage",
@@ -234,8 +253,8 @@ object PerfettoConfigTextBuilder {
 
     private fun atraceCategories(template: PerfettoTraceTemplate): List<String> =
         when (template) {
-            PerfettoTraceTemplate.SYSTEM_OVERVIEW -> listOf("am", "binder_driver", "gfx", "view", "wm", "power")
-            PerfettoTraceTemplate.APP_PERFORMANCE -> listOf("am", "binder_driver", "gfx", "view", "wm")
+            PerfettoTraceTemplate.SYSTEM_OVERVIEW -> listOf("am", "binder_driver", "dalvik", "database", "gfx", "view", "wm", "power")
+            PerfettoTraceTemplate.APP_PERFORMANCE -> listOf("am", "binder_driver", "dalvik", "database", "gfx", "view", "wm")
             PerfettoTraceTemplate.GFX_PIPELINE -> listOf("gfx", "view", "wm")
             PerfettoTraceTemplate.INPUT_LATENCY -> listOf("input", "view", "wm")
             PerfettoTraceTemplate.MEMORY_PROFILE -> listOf("am", "dalvik")

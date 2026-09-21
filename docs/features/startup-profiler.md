@@ -42,3 +42,7 @@ Startup Profiler 用于分析冷启动、温启动和可重复启动实验，拆
 ## 启动阶段跨域归因
 
 Startup Perfetto 证据包含调度、`sched_waking`、run queue、Binder、主线程阻塞和帧区间。存在可接受的 Perfetto 到 `elapsed_realtime` 时钟映射时，这些区间会按相邻启动 milestone 窗口汇总。结果保留有界重叠、时钟误差和缺失证据限制，不把时间相关直接表述为代码级因果。
+
+## ART startup attribution
+
+Startup Perfetto evidence 将 GC、JIT/dex2oat、class loading、class verification/initialization 分别保留，并按 milestone phase 统计重叠时长；JSON round-trip 保留原始 slice，不把多个 ART 通道合并为单一耗时。

@@ -127,12 +127,22 @@ public data class BatteryHistoryEvent(
     val confidence: EvidenceConfidence,
 )
 
+public data class BatteryThermalEvidence(
+    val status: Int? = null,
+    val throttling: Boolean = false,
+    val temperaturesCelsius: Map<String, Double> = emptyMap(),
+    val raw: String? = null,
+) {
+    public val peakTemperatureCelsius: Double? get() = temperaturesCelsius.values.maxOrNull()
+}
+
 public data class BatteryRawEvidence(
     val checkin: String,
     val report: String,
     val battery: String,
     val history: String? = null,
     val commandDurationsMs: Map<String, Long> = emptyMap(),
+    val thermal: String? = null,
 )
 
 public data class BatterySnapshot(
@@ -148,6 +158,7 @@ public data class BatterySnapshot(
     val warnings: List<String> = emptyList(),
     val rawEvidence: BatteryRawEvidence,
     val conditions: Map<String, String> = emptyMap(),
+    val thermalEvidence: BatteryThermalEvidence = BatteryThermalEvidence(),
 )
 
 public data class BatterySession(
@@ -171,6 +182,15 @@ public data class BatteryRun(
     val finalSnapshot: BatterySnapshot,
 )
 
+public data class BatteryPerformanceWindow(
+    val startedAt: Instant,
+    val endedAt: Instant,
+    val durationMs: Long,
+    val peakTemperatureCelsius: Double? = null,
+    val maxThermalStatus: Int? = null,
+    val throttled: Boolean = false,
+)
+
 public data class BatteryRunDelta(
     val runId: String,
     val sessionId: String,
@@ -184,6 +204,10 @@ public data class BatteryRunDelta(
     val energy: List<EnergyEstimate>,
     val history: List<BatteryHistoryEvent>,
     val warnings: List<String>,
+    val peakTemperatureCelsius: Double? = null,
+    val maxThermalStatus: Int? = null,
+    val throttledSamples: Int = 0,
+    val performanceWindows: List<BatteryPerformanceWindow> = emptyList(),
 )
 
 public data class BatteryStatistics(

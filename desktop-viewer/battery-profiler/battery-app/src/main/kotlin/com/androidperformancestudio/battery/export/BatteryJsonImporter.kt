@@ -5,6 +5,7 @@ package com.androidperformancestudio.battery.export
 import com.androidperformancestudio.battery.analysis.BatteryAnalysisResult
 import com.androidperformancestudio.battery.analysis.BatteryAnalyzer
 import com.androidperformancestudio.battery.model.AttributionScope
+import com.androidperformancestudio.battery.model.BatteryPerformanceWindow
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.EnergyEstimate
 import com.androidperformancestudio.battery.model.EnergyEvidenceKind
@@ -34,6 +35,8 @@ public class BatteryJsonImporter(
             sensorDurationMs = analyzer.statistics(runs.map { run -> run.sensors.sumOf(ResourceTimer::durationMs).toDouble() }),
             networkBytes = analyzer.statistics(runs.map { run -> run.network.totalBytes.toDouble() }),
             energyMah = analyzer.statistics(runs.map { run -> run.energy.sumOf { it.energyMah ?: 0.0 }.takeIf { it > 0 } }),
+            peakTemperatureCelsius = analyzer.statistics(runs.map { it.peakTemperatureCelsius }),
+            thermalStatus = analyzer.statistics(runs.map { it.maxThermalStatus?.toDouble() }),
             warnings = document.warnings,
         )
     }
@@ -63,6 +66,10 @@ private data class BatteryRunDocument(
     val jobs: List<ResourceTimerDocument> = emptyList(),
     val sensors: List<ResourceTimerDocument> = emptyList(),
     val energy: List<EnergyEstimateDocument> = emptyList(),
+    val peakTemperatureCelsius: Double? = null,
+    val maxThermalStatus: Int? = null,
+    val throttledSamples: Int = 0,
+    val performanceWindows: List<BatteryPerformanceWindowDocument> = emptyList(),
     val warnings: List<String> = emptyList(),
 ) {
     fun toModel(sessionId: String): BatteryRunDelta =
@@ -79,6 +86,30 @@ private data class BatteryRunDocument(
             energy = energy.map(EnergyEstimateDocument::toModel),
             history = emptyList(),
             warnings = warnings,
+            peakTemperatureCelsius = peakTemperatureCelsius,
+            maxThermalStatus = maxThermalStatus,
+            throttledSamples = throttledSamples,
+            performanceWindows = performanceWindows.map(BatteryPerformanceWindowDocument::toModel),
+        )
+}
+
+@Serializable
+private data class BatteryPerformanceWindowDocument(
+    val startedAt: String,
+    val endedAt: String,
+    val durationMs: Long,
+    val peakTemperatureCelsius: Double? = null,
+    val maxThermalStatus: Int? = null,
+    val throttled: Boolean = false,
+) {
+    fun toModel() =
+        BatteryPerformanceWindow(
+            startedAt = java.time.Instant.parse(startedAt),
+            endedAt = java.time.Instant.parse(endedAt),
+            durationMs = durationMs,
+            peakTemperatureCelsius = peakTemperatureCelsius,
+            maxThermalStatus = maxThermalStatus,
+            throttled = throttled,
         )
 }
 

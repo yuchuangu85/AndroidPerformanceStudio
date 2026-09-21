@@ -23,6 +23,8 @@ enum class PerfettoProbeGroup(
     val displayName: String,
 ) {
     CPU("CPU"),
+    IO("I/O"),
+    RUNTIME("ART Runtime"),
     MEMORY("Memory"),
     POWER("Power"),
     GPU("GPU"),
@@ -45,6 +47,9 @@ enum class PerfettoProbe(
     CPU_SCHEDULING(PerfettoProbeGroup.CPU, "Scheduling details", requiredDataSource = "linux.ftrace"),
     CPU_FREQUENCY(PerfettoProbeGroup.CPU, "CPU frequency and idle states", requiredDataSource = "linux.sys_stats"),
     SYSCALLS(PerfettoProbeGroup.CPU, "Syscalls", requiredDataSource = "linux.ftrace"),
+    FILESYSTEM_IO(PerfettoProbeGroup.IO, "Filesystem and block I/O", requiredDataSource = "linux.ftrace"),
+    PAGE_FAULTS(PerfettoProbeGroup.IO, "Page faults", requiredDataSource = "linux.ftrace"),
+    ART_RUNTIME(PerfettoProbeGroup.RUNTIME, "ART GC, JIT and class loading", requiredDataSource = "linux.ftrace"),
 
     NATIVE_HEAP(
         PerfettoProbeGroup.MEMORY,
@@ -68,6 +73,7 @@ enum class PerfettoProbe(
 
     POWER_RAILS(PerfettoProbeGroup.POWER, "Battery drain & power rails", requiredDataSource = "android.power"),
     BOARD_VOLTAGES(PerfettoProbeGroup.POWER, "Board voltages & frequencies", requiredDataSource = "linux.ftrace"),
+    THERMAL(PerfettoProbeGroup.POWER, "Thermal and throttling signals", requiredDataSource = "linux.ftrace"),
 
     GPU_FREQUENCY(PerfettoProbeGroup.GPU, "GPU frequency", requiredDataSource = "linux.ftrace"),
     GPU_MEMORY(PerfettoProbeGroup.GPU, "GPU memory", minimumAndroidSdk = 31, requiredDataSource = "android.gpu.memory"),
@@ -113,6 +119,10 @@ fun PerfettoTraceTemplate.defaultProbes(): Set<PerfettoProbe> =
                 PerfettoProbe.KERNEL_MEMINFO,
                 PerfettoProbe.VMSTAT,
                 PerfettoProbe.PROCESS_STATS,
+                PerfettoProbe.FILESYSTEM_IO,
+                PerfettoProbe.PAGE_FAULTS,
+                PerfettoProbe.ART_RUNTIME,
+                PerfettoProbe.THERMAL,
                 PerfettoProbe.ATRACE,
                 PerfettoProbe.FRAME_TIMELINE,
             )
@@ -121,6 +131,9 @@ fun PerfettoTraceTemplate.defaultProbes(): Set<PerfettoProbe> =
                 PerfettoProbe.CPU_USAGE,
                 PerfettoProbe.CPU_SCHEDULING,
                 PerfettoProbe.PROCESS_STATS,
+                PerfettoProbe.FILESYSTEM_IO,
+                PerfettoProbe.PAGE_FAULTS,
+                PerfettoProbe.ART_RUNTIME,
                 PerfettoProbe.ATRACE,
                 PerfettoProbe.FRAME_TIMELINE,
             )
@@ -142,6 +155,8 @@ fun PerfettoTraceTemplate.defaultProbes(): Set<PerfettoProbe> =
                 PerfettoProbe.HIGH_FREQUENCY_MEMORY,
                 PerfettoProbe.LOW_MEMORY_KILLER,
                 PerfettoProbe.PROCESS_STATS,
+                PerfettoProbe.PAGE_FAULTS,
+                PerfettoProbe.ART_RUNTIME,
                 PerfettoProbe.ATRACE,
             )
         PerfettoTraceTemplate.CUSTOM -> emptySet()

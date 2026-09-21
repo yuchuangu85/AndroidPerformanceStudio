@@ -152,6 +152,7 @@ internal object InspectorPresenter {
                         language = language,
                         composeInspection = state.composeInspection,
                         composeInspectionWarning = state.composeInspectionWarning,
+                        composeCompilerReport = state.composeCompilerReport,
                     ),
                 )
             } ?: NodeDetailsModel(),

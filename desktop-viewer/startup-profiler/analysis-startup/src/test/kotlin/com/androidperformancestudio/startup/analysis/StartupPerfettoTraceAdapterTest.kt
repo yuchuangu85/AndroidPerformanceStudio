@@ -89,6 +89,10 @@ class StartupPerfettoTraceAdapterTest {
                         frames = listOf(StartupPerfettoSlice(170, 20, "frame")),
                         waking = listOf(StartupPerfettoSlice(125, 0, "sched_waking", "main")),
                         runQueue = listOf(StartupPerfettoSlice(140, 0, "run_queue:2")),
+                        gc = listOf(StartupPerfettoSlice(145, 10, "concurrent copying GC", "HeapTaskDaemon")),
+                        jit = listOf(StartupPerfettoSlice(155, 5, "JIT compiling Feed", "Jit thread pool")),
+                        classLoading = listOf(StartupPerfettoSlice(160, 7, "Ldev/example/Feed;", "main")),
+                        classVerification = listOf(StartupPerfettoSlice(170, 3, "VerifyClass Feed", "main")),
                     ),
                 clockMapping = mapping,
                 milestones = milestones,
@@ -101,5 +105,10 @@ class StartupPerfettoTraceAdapterTest {
         assertEquals(20, phase.frameNs)
         assertEquals(1, phase.wakingCount)
         assertEquals(1, phase.runQueueSamples)
+        assertEquals(10, phase.gcNs)
+        assertEquals(5, phase.jitNs)
+        assertEquals(7, phase.classLoadingNs)
+        assertEquals(3, phase.classVerificationNs)
+        assertTrue(StartupPerfettoTraceAdapter().gcQuery(42).sql.contains("android_garbage_collection_events"))
     }
 }

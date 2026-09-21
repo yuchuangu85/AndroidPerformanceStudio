@@ -99,4 +99,8 @@
     <string name="sensors">Sensors</string>
     <string name="energy_evidence_detail">%1$s: %2$s / %3$s µWs · %4$s · %5$s · %6$s</string>
     <string name="history_event_detail">%1$s ms · %2$s · %3$s · %4$s</string>
+    <string name="peak_temperature">Peak Temperature</string>
+    <string name="thermal_status">Thermal Status</string>
+    <string name="thermal_evidence_detail">Thermal · peak %1$s · status %2$s · throttled samples %3$s</string>
+    <string name="sustained_performance_window">Sustained window · %1$s ms · peak %2$s · status %3$s · throttled %4$s</string>
 </resources>

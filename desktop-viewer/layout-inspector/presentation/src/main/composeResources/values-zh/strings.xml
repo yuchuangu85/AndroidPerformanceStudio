@@ -250,4 +250,11 @@
 
     <string name="select_source_candidate">选择源码候选项</string>
     <string name="source_candidate">候选项 %1$d · %2$s</string>
+    <string name="import_compose_compiler_reports">导入 Compose 报告</string>
+    <string name="compose_compiler_report">Compose 编译器</string>
+    <string name="loaded">已加载</string>
+    <string name="detail_section_compose_compiler">Compose 编译器稳定性</string>
+    <string name="detail_label_restartable">可重启</string>
+    <string name="detail_label_skippable">可跳过</string>
+    <string name="detail_label_unstable_parameters">不稳定参数</string>
 </resources>

@@ -65,6 +65,26 @@ public class BatteryJsonExporter {
             put("iteration", delta.iteration)
             put("durationMs", delta.durationMs)
             put("networkBytes", delta.network.totalBytes)
+            put("peakTemperatureCelsius", delta.peakTemperatureCelsius)
+            put("maxThermalStatus", delta.maxThermalStatus)
+            put("throttledSamples", delta.throttledSamples)
+            put(
+                "performanceWindows",
+                buildJsonArray {
+                    delta.performanceWindows.forEach { window ->
+                        add(
+                            buildJsonObject {
+                                put("startedAt", window.startedAt.toString())
+                                put("endedAt", window.endedAt.toString())
+                                put("durationMs", window.durationMs)
+                                put("peakTemperatureCelsius", window.peakTemperatureCelsius)
+                                put("maxThermalStatus", window.maxThermalStatus)
+                                put("throttled", window.throttled)
+                            },
+                        )
+                    }
+                },
+            )
             put("wakelocks", timers(delta.wakelocks))
             put("alarms", timers(delta.alarms))
             put("jobs", timers(delta.jobs))
@@ -123,6 +143,12 @@ public class BatteryCsvExporter {
                 writeTimers(writer, run, "job", run.jobs, attributionScope)
                 writeTimers(writer, run, "sensor", run.sensors, attributionScope)
                 writer.appendLine("1,${run.iteration},network,total,,,${run.network.totalBytes},,,,,")
+                writer.appendLine(
+                    "1,${run.iteration},thermal,peak_temperature_c,,,${run.peakTemperatureCelsius ?: ""},,,,,",
+                )
+                writer.appendLine(
+                    "1,${run.iteration},thermal,status,,,${run.maxThermalStatus ?: ""},,,,,",
+                )
                 run.energy.forEach { energy ->
                     writer.appendLine(
                         listOf(
@@ -193,6 +219,7 @@ public class BatteryRawBundleExporter {
                     zip.writeEntry("$prefix/report.txt", snapshot.rawEvidence.report)
                     zip.writeEntry("$prefix/battery.txt", snapshot.rawEvidence.battery)
                     snapshot.rawEvidence.history?.let { zip.writeEntry("$prefix/history.txt", it) }
+                    snapshot.rawEvidence.thermal?.let { zip.writeEntry("$prefix/thermal.txt", it) }
                     if (snapshot.conditions.isNotEmpty()) {
                         zip.writeEntry(
                             "$prefix/conditions.txt",

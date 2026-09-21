@@ -64,3 +64,7 @@ Trace Analyzer 保留原始 trace 作为最高层证据，typed SQL adapter 只�
 ## P0 调度与 IPC 归因
 
 诊断目录提供 `sched_switch`、`sched_waking`、runnable thread run queue、主线程阻塞、唤醒延迟、CPU contention、Binder 调用方/服务端长尾和 `system_server` 查询。`binder_frame_alignment` 报告与 FrameTimeline 帧重叠的 Binder transaction；`CrossDomainAttributionAnalyzer` 以区间重叠和共享 vsync 身份形成可复核候选。所有结果保留 trace/schema 和置信边界，本身不构成因果证明。
+
+## P1 runtime diagnostics
+
+诊断目录新增文件 read/write、fsync、block I/O queue、page fault、SQLite query/transaction/WAL/lock wait、ART GC/allocation/JIT/dex2oat/class loading、thermal throttling、DVFS、GPU frequency、power rail，以及 power/frame overlap。对应 capture probes 会启用 filesystem、page-fault、ART 与 thermal ftrace/atrace 事件。

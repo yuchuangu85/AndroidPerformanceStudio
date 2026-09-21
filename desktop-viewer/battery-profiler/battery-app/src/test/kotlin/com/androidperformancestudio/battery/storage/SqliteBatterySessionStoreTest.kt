@@ -8,12 +8,14 @@ import com.androidperformancestudio.battery.model.BatteryCapabilityLevel
 import com.androidperformancestudio.battery.model.BatteryDeviceState
 import com.androidperformancestudio.battery.model.BatteryEnvironment
 import com.androidperformancestudio.battery.model.BatteryExperimentConfig
+import com.androidperformancestudio.battery.model.BatteryPerformanceWindow
 import com.androidperformancestudio.battery.model.BatteryRawEvidence
 import com.androidperformancestudio.battery.model.BatteryRun
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.BatterySession
 import com.androidperformancestudio.battery.model.BatterySessionStatus
 import com.androidperformancestudio.battery.model.BatterySnapshot
+import com.androidperformancestudio.battery.model.BatteryThermalEvidence
 import com.androidperformancestudio.battery.model.NetworkUsage
 import com.androidperformancestudio.battery.model.UidBatteryStats
 import java.nio.file.Files
@@ -50,7 +52,8 @@ class SqliteBatterySessionStoreTest {
                 "boot",
                 UidBatteryStats(10123),
                 BatteryDeviceState(),
-                rawEvidence = BatteryRawEvidence("c", "r", "b"),
+                rawEvidence = BatteryRawEvidence("c", "r", "b", thermal = "mStatus=3"),
+                thermalEvidence = BatteryThermalEvidence(3, true, mapOf("CPU" to 44.0)),
             )
         val final = snapshot.copy(id = "final", sequence = 1, capturedAt = Instant.EPOCH.plusSeconds(10))
         val run = BatteryRun("run", "session", 1, snapshot, emptyList(), final)
@@ -68,6 +71,20 @@ class SqliteBatterySessionStoreTest {
                 emptyList(),
                 emptyList(),
                 emptyList(),
+                peakTemperatureCelsius = 44.0,
+                maxThermalStatus = 3,
+                throttledSamples = 1,
+                performanceWindows =
+                    listOf(
+                        BatteryPerformanceWindow(
+                            Instant.EPOCH,
+                            Instant.EPOCH.plusSeconds(10),
+                            10_000,
+                            44.0,
+                            3,
+                            true,
+                        ),
+                    ),
             )
 
         SqliteBatterySessionStore.open(file).use { store ->
@@ -83,6 +100,17 @@ class SqliteBatterySessionStoreTest {
                 }
             assertNotEquals("serial", stored)
             assertEquals(64, stored.length)
+            connection.createStatement().executeQuery(
+                "SELECT thermal_status, thermal_throttling FROM battery_snapshots WHERE id = 'snapshot'",
+            ).use {
+                check(it.next())
+                assertEquals(3, it.getInt(1))
+                assertEquals(1, it.getInt(2))
+            }
+            connection.createStatement().executeQuery("SELECT COUNT(*) FROM battery_performance_windows").use {
+                check(it.next())
+                assertEquals(1, it.getInt(1))
+            }
         }
     }
 
@@ -166,6 +194,8 @@ class SqliteBatterySessionStoreTest {
         DriverManager.getConnection("jdbc:sqlite:${file.toAbsolutePath()}").use { connection ->
             assertEquals(true, connection.hasColumnForTest("battery_sessions", "status"))
             assertEquals(true, connection.hasColumnForTest("battery_snapshots", "conditions"))
+            assertEquals(true, connection.hasColumnForTest("battery_snapshots", "thermal_raw"))
+            assertEquals(true, connection.hasColumnForTest("battery_deltas", "peak_temperature_c"))
         }
     }
 }

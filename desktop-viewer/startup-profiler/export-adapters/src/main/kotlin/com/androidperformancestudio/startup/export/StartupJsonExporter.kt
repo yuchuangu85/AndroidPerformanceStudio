@@ -187,6 +187,10 @@ public class StartupJsonExporter {
             put("frameSlices", frameSlices.toJson())
             put("wakingSlices", wakingSlices.toJson())
             put("runQueueSlices", runQueueSlices.toJson())
+            put("gcSlices", gcSlices.toJson())
+            put("jitSlices", jitSlices.toJson())
+            put("classLoadingSlices", classLoadingSlices.toJson())
+            put("classVerificationSlices", classVerificationSlices.toJson())
             put("phaseAttributions", buildJsonArray { phaseAttributions.forEach { add(it.toJson()) } })
             put("correlated", correlated)
             put("correlationErrorBoundNs", correlationErrorBoundNs)
@@ -218,6 +222,10 @@ public class StartupJsonExporter {
             put("frameNs", frameNs)
             put("wakingCount", wakingCount)
             put("runQueueSamples", runQueueSamples)
+            put("gcNs", gcNs)
+            put("jitNs", jitNs)
+            put("classLoadingNs", classLoadingNs)
+            put("classVerificationNs", classVerificationNs)
         }
 
     private fun StartupStatistics.toJson() =

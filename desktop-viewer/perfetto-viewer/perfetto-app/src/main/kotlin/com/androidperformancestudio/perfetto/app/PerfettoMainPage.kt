@@ -64,6 +64,16 @@ import com.androidperformancestudio.perfetto_app.generated.resources.captured_tr
 import com.androidperformancestudio.perfetto_app.generated.resources.delete
 import com.androidperformancestudio.perfetto_app.generated.resources.device_connected
 import com.androidperformancestudio.perfetto_app.generated.resources.device_refresh_failed
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_allocation_churn_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_allocation_churn_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_class_loading_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_class_loading_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_class_verification_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_class_verification_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_gc_events_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_gc_events_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_jit_dex2oat_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_jit_dex2oat_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_frame_alignment_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_frame_alignment_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_ipc_long_tail_description
@@ -72,24 +82,46 @@ import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_latency_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_system_server_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_binder_system_server_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_block_io_pressure_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_block_io_pressure_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_cpu_frequency_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_cpu_frequency_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_cpu_hotspots_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_cpu_hotspots_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_dvfs_residency_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_dvfs_residency_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_file_io_syscalls_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_file_io_syscalls_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_frame_jank_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_frame_jank_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_fsync_calls_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_fsync_calls_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_gpu_frequency_residency_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_gpu_frequency_residency_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_input_latency_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_input_latency_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_main_thread_blocked_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_main_thread_blocked_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_memory_timeline_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_memory_timeline_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_page_faults_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_page_faults_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_power_frame_alignment_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_power_frame_alignment_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_power_rails_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_power_rails_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_run_queue_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_run_queue_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sched_switch_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sched_switch_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sched_waking_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sched_waking_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sqlite_activity_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sqlite_activity_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sqlite_lock_wait_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_sqlite_lock_wait_title
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_thermal_throttling_description
+import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_thermal_throttling_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_thread_states_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_thread_states_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_wakeup_latency_description
@@ -962,6 +994,22 @@ private fun DiagnosticQuery.localizedTitle(language: UiLanguage): String =
         "binder_system_server" -> localizedStringResource(Res.string.diagnostic_binder_system_server_title, language)
         "binder_frame_alignment" -> localizedStringResource(Res.string.diagnostic_binder_frame_alignment_title, language)
         "frame_jank" -> localizedStringResource(Res.string.diagnostic_frame_jank_title, language)
+        "file_io_syscalls" -> localizedStringResource(Res.string.diagnostic_file_io_syscalls_title, language)
+        "fsync_calls" -> localizedStringResource(Res.string.diagnostic_fsync_calls_title, language)
+        "block_io_pressure" -> localizedStringResource(Res.string.diagnostic_block_io_pressure_title, language)
+        "page_faults" -> localizedStringResource(Res.string.diagnostic_page_faults_title, language)
+        "sqlite_activity" -> localizedStringResource(Res.string.diagnostic_sqlite_activity_title, language)
+        "sqlite_lock_wait" -> localizedStringResource(Res.string.diagnostic_sqlite_lock_wait_title, language)
+        "art_gc_events" -> localizedStringResource(Res.string.diagnostic_art_gc_events_title, language)
+        "art_allocation_churn" -> localizedStringResource(Res.string.diagnostic_art_allocation_churn_title, language)
+        "art_jit_dex2oat" -> localizedStringResource(Res.string.diagnostic_art_jit_dex2oat_title, language)
+        "art_class_loading" -> localizedStringResource(Res.string.diagnostic_art_class_loading_title, language)
+        "art_class_verification" -> localizedStringResource(Res.string.diagnostic_art_class_verification_title, language)
+        "thermal_throttling" -> localizedStringResource(Res.string.diagnostic_thermal_throttling_title, language)
+        "dvfs_residency" -> localizedStringResource(Res.string.diagnostic_dvfs_residency_title, language)
+        "gpu_frequency_residency" -> localizedStringResource(Res.string.diagnostic_gpu_frequency_residency_title, language)
+        "power_rails" -> localizedStringResource(Res.string.diagnostic_power_rails_title, language)
+        "power_frame_alignment" -> localizedStringResource(Res.string.diagnostic_power_frame_alignment_title, language)
         "mem_counters" -> localizedStringResource(Res.string.diagnostic_memory_timeline_title, language)
         "input_latency" -> localizedStringResource(Res.string.diagnostic_input_latency_title, language)
         "thread_states" -> localizedStringResource(Res.string.diagnostic_thread_states_title, language)
@@ -982,6 +1030,22 @@ private fun DiagnosticQuery.localizedDescription(language: UiLanguage): String =
         "binder_system_server" -> localizedStringResource(Res.string.diagnostic_binder_system_server_description, language)
         "binder_frame_alignment" -> localizedStringResource(Res.string.diagnostic_binder_frame_alignment_description, language)
         "frame_jank" -> localizedStringResource(Res.string.diagnostic_frame_jank_description, language)
+        "file_io_syscalls" -> localizedStringResource(Res.string.diagnostic_file_io_syscalls_description, language)
+        "fsync_calls" -> localizedStringResource(Res.string.diagnostic_fsync_calls_description, language)
+        "block_io_pressure" -> localizedStringResource(Res.string.diagnostic_block_io_pressure_description, language)
+        "page_faults" -> localizedStringResource(Res.string.diagnostic_page_faults_description, language)
+        "sqlite_activity" -> localizedStringResource(Res.string.diagnostic_sqlite_activity_description, language)
+        "sqlite_lock_wait" -> localizedStringResource(Res.string.diagnostic_sqlite_lock_wait_description, language)
+        "art_gc_events" -> localizedStringResource(Res.string.diagnostic_art_gc_events_description, language)
+        "art_allocation_churn" -> localizedStringResource(Res.string.diagnostic_art_allocation_churn_description, language)
+        "art_jit_dex2oat" -> localizedStringResource(Res.string.diagnostic_art_jit_dex2oat_description, language)
+        "art_class_loading" -> localizedStringResource(Res.string.diagnostic_art_class_loading_description, language)
+        "art_class_verification" -> localizedStringResource(Res.string.diagnostic_art_class_verification_description, language)
+        "thermal_throttling" -> localizedStringResource(Res.string.diagnostic_thermal_throttling_description, language)
+        "dvfs_residency" -> localizedStringResource(Res.string.diagnostic_dvfs_residency_description, language)
+        "gpu_frequency_residency" -> localizedStringResource(Res.string.diagnostic_gpu_frequency_residency_description, language)
+        "power_rails" -> localizedStringResource(Res.string.diagnostic_power_rails_description, language)
+        "power_frame_alignment" -> localizedStringResource(Res.string.diagnostic_power_frame_alignment_description, language)
         "mem_counters" -> localizedStringResource(Res.string.diagnostic_memory_timeline_description, language)
         "input_latency" -> localizedStringResource(Res.string.diagnostic_input_latency_description, language)
         "thread_states" -> localizedStringResource(Res.string.diagnostic_thread_states_description, language)

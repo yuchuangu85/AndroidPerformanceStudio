@@ -210,6 +210,10 @@ public data class StartupPerfettoRootCauseEvidence(
     val frameSlices: List<StartupPerfettoSlice> = emptyList(),
     val wakingSlices: List<StartupPerfettoSlice> = emptyList(),
     val runQueueSlices: List<StartupPerfettoSlice> = emptyList(),
+    val gcSlices: List<StartupPerfettoSlice> = emptyList(),
+    val jitSlices: List<StartupPerfettoSlice> = emptyList(),
+    val classLoadingSlices: List<StartupPerfettoSlice> = emptyList(),
+    val classVerificationSlices: List<StartupPerfettoSlice> = emptyList(),
     val phaseAttributions: List<StartupPerfettoPhaseAttribution> = emptyList(),
     val correlated: Boolean = false,
     val correlationErrorBoundNs: Long? = null,
@@ -233,6 +237,10 @@ public data class StartupPerfettoPhaseAttribution(
     val frameNs: Long = 0,
     val wakingCount: Int = 0,
     val runQueueSamples: Int = 0,
+    val gcNs: Long = 0,
+    val jitNs: Long = 0,
+    val classLoadingNs: Long = 0,
+    val classVerificationNs: Long = 0,
 )
 
 public data class StartupRunContext(
