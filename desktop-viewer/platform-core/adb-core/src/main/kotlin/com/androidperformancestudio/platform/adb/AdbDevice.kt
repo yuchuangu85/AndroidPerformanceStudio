@@ -100,13 +100,22 @@ class AdbDevicesParser {
                     else -> AdbDeviceState.UNKNOWN
                 },
             product = attributes["product"],
-            model = attributes["model"],
+            model =
+                attributes["model"].usableDeviceLabel()
+                    ?: attributes["product"].usableDeviceLabel()
+                    ?: attributes["device"].usableDeviceLabel()
+                    ?: serial,
             device = attributes["device"],
             transportId = attributes["transport_id"]?.toIntOrNull(),
             attributes = attributes,
             rawState = rawState,
         )
     }
+
+    private fun String?.usableDeviceLabel(): String? =
+        this
+            ?.trim()
+            ?.takeIf { value -> value.isNotEmpty() && value.lowercase() !in UNUSABLE_DEVICE_LABELS }
 
     private fun parseAttribute(token: String): Pair<String, String>? {
         val delimiter = token.indexOf(':')
@@ -117,6 +126,7 @@ class AdbDevicesParser {
     private companion object {
         const val DEVICES_HEADER = "List of devices attached"
         const val NO_PERMISSIONS_STATE = "no permissions"
+        val UNUSABLE_DEVICE_LABELS = setOf("unknown", "<unknown>", "null", "n/a", "na")
         val WHITESPACE = Regex("\\s+")
     }
 }

@@ -33,6 +33,24 @@ class AdbDevicesParserTest {
         assertEquals("reconnecting", devices[4].rawState)
     }
 
+
+    @Test
+    fun `falls back from unknown model to product device then serial`() {
+        val devices =
+            AdbDevicesParser().parse(
+                """
+                List of devices attached
+                product-fallback device product:Pixel_9 model:unknown device:panther
+                device-fallback device product:unknown model:<unknown> device:oriole
+                serial-fallback device product:unknown model:unknown device:unknown
+                """.trimIndent(),
+            )
+
+        assertEquals("Pixel_9", devices[0].model)
+        assertEquals("oriole", devices[1].model)
+        assertEquals("serial-fallback", devices[2].model)
+    }
+
     @Test
     fun `rejects malformed device lines`() {
         assertFailsWith<AdbOutputParseException> {

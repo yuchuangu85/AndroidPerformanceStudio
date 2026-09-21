@@ -136,8 +136,8 @@ public object AndroidTargetMonitors {
     private val monitors = ConcurrentHashMap<Path, AndroidTargetMonitor>()
 
     public fun shared(adbExecutable: Path): AndroidTargetMonitor {
-        val normalized = adbExecutable.toAbsolutePath().normalize()
-        return monitors.getOrPut(normalized) { AndroidTargetMonitor(ProcessAndroidTargetDiscovery(normalized)) }
+        val cacheKey = adbExecutable.toAbsolutePath().normalize()
+        return monitors.getOrPut(cacheKey) { AndroidTargetMonitor(ProcessAndroidTargetDiscovery(adbExecutable)) }
     }
 
     /** Creates an isolated monitor when a caller needs a custom process invocation, such as tests. */
@@ -146,7 +146,7 @@ public object AndroidTargetMonitors {
         processInvocation: ProcessInvocation,
     ): AndroidTargetMonitor =
         AndroidTargetMonitor(
-            ProcessAndroidTargetDiscovery(adbExecutable.toAbsolutePath().normalize(), processInvocation),
+            ProcessAndroidTargetDiscovery(adbExecutable, processInvocation),
         )
 }
 
@@ -172,7 +172,26 @@ internal class ProcessAndroidTargetDiscovery(
     },
 ) : AndroidTargetDiscovery {
     override suspend fun devices(cancellationSignal: HostCancellationSignal): AdbDevicesResult =
-        AdbDeviceRefresher(adbExecutable, processInvocation = processInvocation).refresh(cancellationSignal)
+        when (val result = AdbDeviceRefresher(adbExecutable, processInvocation = processInvocation).refresh(cancellationSignal)) {
+            is StudioResult.Failure -> result
+            is StudioResult.Success ->
+                StudioResult.Success(
+                    result.value.map { device ->
+                        if (device.state != com.androidperformancestudio.platform.adb.AdbDeviceState.ONLINE) {
+                            device
+                        } else {
+                            when (
+                                val properties =
+                                    AdbDevicePropertiesReader(adbExecutable, processInvocation = processInvocation)
+                                        .read(device.serial, cancellationSignal)
+                            ) {
+                                is StudioResult.Failure -> device
+                                is StudioResult.Success -> device.copy(model = properties.value.model)
+                            }
+                        }
+                    },
+                )
+        }
 
     override suspend fun targets(
         serial: String,

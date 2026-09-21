@@ -4,6 +4,12 @@ import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.HostCapturedText
+import com.androidperformancestudio.platform.toolchain.HostCommandOutput
+import com.androidperformancestudio.platform.toolchain.HostCommandResult
+import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import java.nio.file.Path
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -91,6 +97,33 @@ class AndroidTargetMonitorTest {
                 events,
             )
             assertEquals(listOf("devices", "applications", "processes", "threads"), replayed)
+        }
+
+
+    @Test
+    fun `relative adb executable remains a PATH command when refreshing devices`() =
+        kotlinx.coroutines.test.runTest {
+            var executable: Path? = null
+            val monitor =
+                AndroidTargetMonitors.create(Path.of("adb")) { request, _ ->
+                    executable = request.executable
+                    HostCommandResult.Completed(
+                        HostCommandOutput(
+                            pid = 1L,
+                            command = request.command,
+                            exitCode = 0,
+                            stdout = HostCapturedText("List of devices attached\nserial-1 device\n", false),
+                            stderr = HostCapturedText("", false),
+                            startedAt = Instant.EPOCH,
+                            finishedAt = Instant.EPOCH,
+                        ),
+                    )
+                }
+
+            val devices = monitor.refreshDevices()
+
+            assertEquals(Path.of("adb"), executable)
+            assertEquals("serial-1", (devices as StudioResult.Success).value.single().serial)
         }
 
     private class FakeDiscovery : AndroidTargetDiscovery {
