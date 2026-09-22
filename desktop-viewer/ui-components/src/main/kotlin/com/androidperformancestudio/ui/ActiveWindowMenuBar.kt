@@ -15,6 +15,13 @@ import javax.swing.JMenu
 import javax.swing.JMenuBar
 
 private const val PRELOADED_MENU_MARKER = "android-performance-studio.preloaded-menu"
+private const val MENU_BAR_READY_CALLBACK = "android-performance-studio.menu-bar-ready"
+
+private class MenuBarHostState {
+    var initialized: Boolean = false
+    var menuKey: Any? = null
+    var menuBar: JMenuBar = JMenuBar()
+}
 
 public val LocalWindowMenuBarActive = staticCompositionLocalOf { true }
 
@@ -28,19 +35,33 @@ public val LocalWindowMenuBarActive = staticCompositionLocalOf { true }
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 public fun FrameWindowScope.WindowMenuBarHost(
     preloadedMenuTitles: List<String> = emptyList(),
+    preloadedMenuKey: Any? = preloadedMenuTitles,
+    onMenuBarReady: () -> Unit = {},
 ) {
-    val menuBar = remember { JMenuBar() }
-    if (preloadedMenuTitles.isEmpty()) {
-        if (window.jMenuBar === menuBar) {
-            window.jMenuBar = null
-            refreshNativeMenuBar()
-        }
-    } else if (window.jMenuBar !== menuBar) {
+    window.rootPane.putClientProperty(MENU_BAR_READY_CALLBACK, Runnable { onMenuBarReady() })
+    val hostState = remember { MenuBarHostState() }
+    val menuBar: JMenuBar
+    if (!hostState.initialized || hostState.menuKey != preloadedMenuKey) {
+        val oldMenuBar = hostState.menuBar
+        menuBar = JMenuBar()
+        hostState.menuBar = menuBar
+        hostState.menuKey = preloadedMenuKey
+        hostState.initialized = true
         menuBar.updatePreloadedMenus(preloadedMenuTitles)
-        window.jMenuBar = menuBar
+        if (preloadedMenuTitles.isEmpty()) {
+            if (window.jMenuBar === oldMenuBar) {
+                window.jMenuBar = null
+            }
+        } else {
+            window.jMenuBar = menuBar
+        }
         refreshNativeMenuBar()
     } else {
-        menuBar.updatePreloadedMenus(preloadedMenuTitles)
+        menuBar = hostState.menuBar
+        if (preloadedMenuTitles.isNotEmpty() && window.jMenuBar !== menuBar) {
+            window.jMenuBar = menuBar
+            refreshNativeMenuBar()
+        }
     }
     DisposableEffect(menuBar) {
         onDispose {
@@ -50,7 +71,14 @@ public fun FrameWindowScope.WindowMenuBarHost(
             }
         }
     }
-    SideEffect(::refreshNativeMenuBar)
+    if (preloadedMenuTitles.isEmpty()) {
+        SideEffect {
+            refreshNativeMenuBar()
+            onMenuBarReady()
+        }
+    } else {
+        SideEffect(::refreshNativeMenuBar)
+    }
 }
 
 @Composable
@@ -70,6 +98,7 @@ public fun FrameWindowScope.ActiveWindowMenuBar(
         DisposableEffect(menuBar) {
             val composition = menuBar.setContent(parentComposition, content)
             removePreloadedMenus(menuBar)
+            notifyNativeMenuBarReady()
             onDispose {
                 composition.dispose()
                 removeFeatureMenus(menuBar)
@@ -81,6 +110,10 @@ public fun FrameWindowScope.ActiveWindowMenuBar(
         }
         SideEffect(::refreshNativeMenuBar)
     }
+}
+
+private fun FrameWindowScope.notifyNativeMenuBarReady() {
+    (window.rootPane.getClientProperty(MENU_BAR_READY_CALLBACK) as? Runnable)?.run()
 }
 
 private fun JMenuBar.updatePreloadedMenus(titles: List<String>) {

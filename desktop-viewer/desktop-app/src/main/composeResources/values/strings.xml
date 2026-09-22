@@ -162,4 +162,6 @@
     <string name="source_reason_method_name_matched">Method name matched</string>
     <string name="source_reason_symbolizer_source_path_matched">Symbolizer source path matched</string>
     <string name="source_reason_native_symbol_name_matched">Native symbol name matched</string>
+    <string name="native_file_menu">File</string>
+    <string name="native_method_recording_menu">Method Recording</string>
 </resources>

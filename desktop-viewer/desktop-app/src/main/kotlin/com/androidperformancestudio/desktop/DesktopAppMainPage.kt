@@ -79,6 +79,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
     var memoryHighlightClassName by remember { mutableStateOf<String?>(null) }
     var composeSourceCandidates by remember { mutableStateOf<List<ResolutionCandidate>>(emptyList()) }
     var archivedSourceToRebind by remember { mutableStateOf<AiSourceCandidateReference?>(null) }
+    var menuReadyDestination by remember { mutableStateOf<AppDestination?>(null) }
     val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
     val simpleperfPreferencesStore = remember { SimpleperfPreferencesStore.desktop() }
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
@@ -112,15 +113,20 @@ public fun FrameWindowScope.DesktopAppMainPage(
             simpleperfEngine = simpleperfPreferences.simpleperfEngine,
         )
 
-    // Install the native menu bar before composing any retained feature page. The active
-    // feature fills this bar later, while its title placeholder is visible immediately.
+    // Install the native menu bar before composing any retained feature page. Preload the
+    // same first menu title that the feature will render so macOS never flashes the page title.
+    val preloadedMenuTitle =
+        when {
+            navigator.destination == AppDestination.METHOD_RECORDING ->
+                localizedStringResource(Res.string.native_method_recording_menu, language)
+            navigator.destination.hasNativeFeatureMenu() ->
+                localizedStringResource(Res.string.native_file_menu, language)
+            else -> null
+        }
     WindowMenuBarHost(
-        preloadedMenuTitles =
-            if (navigator.destination.hasNativeFeatureMenu()) {
-                listOf(localizedStringResource(navigator.destination.titleResource, language))
-            } else {
-                emptyList()
-            },
+        preloadedMenuKey = navigator.destination,
+        preloadedMenuTitles = preloadedMenuTitle?.let(::listOf) ?: emptyList(),
+        onMenuBarReady = { menuReadyDestination = navigator.destination },
     )
 
     LaunchedEffect(settingsRequest?.requestId) {
@@ -142,8 +148,10 @@ public fun FrameWindowScope.DesktopAppMainPage(
             navigator.clearPerfettoTrace()
         }
     }
-    LaunchedEffect(navigator.destination, language) {
-        windowTitle?.value = localizedStringResource(navigator.destination.titleResource, language)
+    LaunchedEffect(menuReadyDestination, navigator.destination, language) {
+        if (menuReadyDestination == navigator.destination) {
+            windowTitle?.value = localizedStringResource(navigator.destination.titleResource, language)
+        }
     }
 
     ViewerTheme(

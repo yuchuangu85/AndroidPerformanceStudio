@@ -162,4 +162,6 @@
     <string name="source_reason_method_name_matched">方法名匹配</string>
     <string name="source_reason_symbolizer_source_path_matched">符号化源码路径匹配</string>
     <string name="source_reason_native_symbol_name_matched">原生符号名匹配</string>
+    <string name="native_file_menu">文件</string>
+    <string name="native_method_recording_menu">方法记录</string>
 </resources>
