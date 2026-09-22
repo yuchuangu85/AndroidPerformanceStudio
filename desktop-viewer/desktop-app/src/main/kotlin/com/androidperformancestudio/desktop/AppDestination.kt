@@ -129,3 +129,17 @@ class AppNavigator(
         this.destination = destination
     }
 }
+
+internal fun AppDestination.hasNativeFeatureMenu(): Boolean =
+    when (this) {
+        AppDestination.LAYOUT_INSPECTOR,
+        AppDestination.SIMPLEPERF,
+        AppDestination.PERFETTO,
+        AppDestination.MEMORY_PROFILER,
+        AppDestination.FRAME_PROFILER,
+        AppDestination.STARTUP_PROFILER,
+        AppDestination.BATTERY_PROFILER,
+        AppDestination.METHOD_RECORDING,
+        -> true
+        else -> false
+    }

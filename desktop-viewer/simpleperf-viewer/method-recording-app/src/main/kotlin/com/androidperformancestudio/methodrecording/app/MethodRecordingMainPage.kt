@@ -60,6 +60,16 @@ fun FrameWindowScope.MethodRecordingMainPage(
         initialTraceFile?.let { file -> controller.importTrace(file) }
     }
 
+    ActiveWindowMenuBar {
+        Menu(localizedStringResource(Res.string.method_recording, language)) {
+            Item(
+                text = localizedStringResource(Res.string.import_trace, language),
+                enabled = !state.isLoading,
+                onClick = { showTraceFileDialog = true },
+            )
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(
             language = language,
@@ -115,16 +125,6 @@ fun FrameWindowScope.MethodRecordingMainPage(
             language = language,
             modifier = Modifier.weight(1f),
         )
-    }
-
-    ActiveWindowMenuBar {
-        Menu(localizedStringResource(Res.string.method_recording, language)) {
-            Item(
-                text = localizedStringResource(Res.string.import_trace, language),
-                enabled = !state.isLoading,
-                onClick = { showTraceFileDialog = true },
-            )
-        }
     }
 
     if (showTraceFileDialog) {

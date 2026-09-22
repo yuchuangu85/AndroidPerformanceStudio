@@ -143,11 +143,18 @@ class ProfilerThemeSupportTest {
                 ),
             )
 
+        assertTrue(shell.contains("WindowMenuBarHost("))
+        assertTrue(shell.indexOf("    WindowMenuBarHost(") < shell.indexOf("    ViewerTheme("))
         assertTrue(shell.contains("LocalWindowMenuBarActive provides active"))
+        assertTrue(sharedMenuBar.contains("WindowMenuBarHost("))
         assertTrue(sharedMenuBar.contains("if (LocalWindowMenuBarActive.current)"))
-        assertTrue(sharedMenuBar.contains("startsWith(\"Windows\", ignoreCase = true)"))
+        assertTrue(sharedMenuBar.contains("SideEffect(::refreshNativeMenuBar)"))
         assertTrue(sharedMenuBar.contains("window.rootPane.revalidate()"))
         assertTrue(sharedMenuBar.contains("window.rootPane.repaint()"))
+        val nativeAttach = sharedMenuBar.indexOf("window.jMenuBar = menuBar")
+        val menuContent =
+            sharedMenuBar.indexOf("val composition = menuBar.setContent(parentComposition, content)")
+        assertTrue(nativeAttach >= 0 && nativeAttach < menuContent)
         profilerWindowMenuSources().forEach { source ->
             val content = Files.readString(source)
             assertTrue(content.contains("ActiveWindowMenuBar {"), "$source must gate its window menu bar")

@@ -3,6 +3,7 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.WindowMenuBarHost
 import com.androidperformancestudio.ui.rememberViewerThemeContext
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.desktop_app.generated.resources.Res
@@ -110,6 +111,17 @@ public fun FrameWindowScope.DesktopAppMainPage(
             flameTooltipMode = simpleperfPreferences.flameTooltipMode,
             simpleperfEngine = simpleperfPreferences.simpleperfEngine,
         )
+
+    // Install the native menu bar before composing any retained feature page. The active
+    // feature fills this bar later, while its title placeholder is visible immediately.
+    WindowMenuBarHost(
+        preloadedMenuTitles =
+            if (navigator.destination.hasNativeFeatureMenu()) {
+                listOf(localizedStringResource(navigator.destination.titleResource, language))
+            } else {
+                emptyList()
+            },
+    )
 
     LaunchedEffect(settingsRequest?.requestId) {
         if (shouldOpenSettingsForRequest(settingsRequest)) {
