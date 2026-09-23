@@ -7,4 +7,13 @@
     <string name="settings">设置</string>
     <string name="search_options">搜索选项</string>
     <string name="no_matching_options">没有匹配的选项</string>
+    <string name="evidence_complete">完整</string>
+    <string name="evidence_partial">部分</string>
+    <string name="evidence_unknown">未知</string>
+    <string name="evidence_exact">精确</string>
+    <string name="evidence_derived">推导</string>
+    <string name="evidence_inferred">推断</string>
+    <string name="evidence_estimated">估算</string>
+    <string name="evidence_unavailable">不可用</string>
+    <string name="evidence_content_description">证据：%1$s</string>
 </resources>

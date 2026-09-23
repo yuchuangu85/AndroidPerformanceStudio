@@ -66,8 +66,8 @@ import com.androidperformancestudio.perfetto_app.generated.resources.adb_path
 import com.androidperformancestudio.perfetto_app.generated.resources.captured_traces_will_appear_here
 import com.androidperformancestudio.perfetto_app.generated.resources.delete
 import com.androidperformancestudio.perfetto_app.generated.resources.device_connected
-import com.androidperformancestudio.perfetto_app.generated.resources.device_status
 import com.androidperformancestudio.perfetto_app.generated.resources.device_refresh_failed
+import com.androidperformancestudio.perfetto_app.generated.resources.device_status
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_allocation_churn_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_allocation_churn_title
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_class_loading_description
@@ -209,6 +209,7 @@ fun FrameWindowScope.PerfettoMainPage(
     onNavigateHome: (() -> Unit)? = null,
     onOpenUserGuide: (() -> Unit)? = null,
     initialTraceFile: Path? = null,
+    initialTraceRequestId: Long = 0L,
     initialTraceNotice: String? = null,
     initialTraceTimestampNanos: Long? = null,
 ) {
@@ -221,6 +222,7 @@ fun FrameWindowScope.PerfettoMainPage(
     val artifactFactory = remember { PerfettoArtifactFactory() }
     var captureState by remember { mutableStateOf<PerfettoCaptureState>(PerfettoCaptureState.Idle) }
     var sessions by remember { mutableStateOf<List<TraceSession>>(emptyList()) }
+    var sessionsLoaded by remember { mutableStateOf(false) }
     var recentFiles by remember { mutableStateOf<List<Path>>(emptyList()) }
     var activeTraceFile by remember { mutableStateOf<Path?>(null) }
     var activeArtifact by remember { mutableStateOf<com.androidperformancestudio.contracts.CaptureArtifact?>(null) }
@@ -319,9 +321,14 @@ fun FrameWindowScope.PerfettoMainPage(
             is StudioResult.Success -> sessions = result.value
             is StudioResult.Failure -> diagnosticError = result.error.message
         }
+        sessionsLoaded = true
     }
-    LaunchedEffect(initialTraceFile, initialTraceTimestampNanos) {
-        initialTraceFile?.let { openTrace(it, null, initialTraceTimestampNanos) }
+    LaunchedEffect(initialTraceFile, initialTraceRequestId, initialTraceTimestampNanos, sessionsLoaded) {
+        if (sessionsLoaded) {
+            initialTraceFile?.let { trace ->
+                openTrace(trace, storedArtifactForTrace(sessions, trace), initialTraceTimestampNanos)
+            }
+        }
     }
     LaunchedEffect(captureState) {
         val completed = captureState as? PerfettoCaptureState.Completed ?: return@LaunchedEffect

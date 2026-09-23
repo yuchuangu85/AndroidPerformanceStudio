@@ -4,6 +4,7 @@ import com.androidperformancestudio.ui.viewerColors
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -42,11 +43,38 @@ class AppHomePageLayoutTest {
     }
 
     @Test
+    fun `dashboard keeps its header fixed and scrolls only the main content`() {
+        val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
+        val dashboard = source.substringAfter("Surface(modifier = Modifier.fillMaxSize()")
+            .substringBefore("private fun HomeDeviceSummary")
+        val beforeMetrics = dashboard.substringBefore("StudioMetricCard(")
+        val afterMetrics = dashboard.substringAfter("StudioMetricCard(")
+
+        assertFalse(beforeMetrics.contains(".verticalScroll(rememberScrollState())"))
+        assertTrue(afterMetrics.contains(".weight(1f)\n                        .verticalScroll(rememberScrollState())"))
+        assertTrue(dashboard.contains("StudioDataTable("))
+        assertTrue(dashboard.contains("Res.string.recent_column_artifact"))
+        assertTrue(dashboard.contains("Res.string.recent_column_feature"))
+    }
+
+    @Test
     fun `source workspace is the last home entry`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
         val entries = source.substringAfter("val entries =").substringBefore("val colors =")
 
         val lastEntry = entries.substring(entries.lastIndexOf("HomeFeatureEntry("))
         assertTrue(lastEntry.contains("onClick = onOpenSourceWorkspaces"))
+    }
+
+    @Test
+    fun `dashboard exposes all implemented module routes and stacks metrics in narrow windows`() {
+        val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
+        val entries = source.substringAfter("val entries =").substringBefore("val colors =")
+
+        assertTrue(entries.contains("onClick = onOpenGpuInspector"))
+        assertTrue(entries.contains("onClick = onOpenBenchmarkRegression"))
+        assertTrue(entries.contains("onClick = onOpenMethodRecording"))
+        assertTrue(source.contains("val compact = maxWidth < 500.dp"))
+        assertTrue(source.contains("Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.sectionGap))"))
     }
 }

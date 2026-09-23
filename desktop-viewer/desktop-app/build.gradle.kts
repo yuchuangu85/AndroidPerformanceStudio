@@ -143,6 +143,8 @@ dependencies {
     implementation(libs.aps.ai.core)
     implementation(libs.aps.source.workspace)
     implementation(libs.aps.ui.components)
+    implementation(libs.aps.host.toolchain)
+    implementation(libs.aps.adb.core)
     implementation(libs.aps.presentation)
     implementation(libs.aps.analysis.engine)
     implementation(libs.aps.app.desktop)

@@ -1,12 +1,16 @@
 package com.androidperformancestudio.desktop
 
 internal data class PaneWidths(
-    val hierarchy: Float = 375f,
+    val hierarchy: Float = 320f,
     val properties: Float = 300f,
 )
 
 internal object PaneLayout {
-    const val HIERARCHY_MIN_WIDTH_DP = 180f
+    const val HIERARCHY_MIN_WIDTH_DP = 280f
+    const val HIERARCHY_MAX_WIDTH_DP = 360f
+    private const val COMPACT_HIERARCHY_MIN_WIDTH_DP = 180f
+    private const val COMPACT_PROPERTIES_MIN_WIDTH_DP = 200f
+    private const val COMPACT_CANVAS_MIN_WIDTH_DP = 280f
     const val PROPERTIES_MIN_WIDTH_DP = 240f
     const val CANVAS_MIN_WIDTH_DP = 320f
     const val SPLITTER_WIDTH_DP = 7f
@@ -16,14 +20,20 @@ internal object PaneLayout {
         widths: PaneWidths,
         availableWidthDp: Float,
     ): PaneWidths {
+        val compact = availableWidthDp < regularMinimumWidth()
+        val hierarchyMinimum = if (compact) COMPACT_HIERARCHY_MIN_WIDTH_DP else HIERARCHY_MIN_WIDTH_DP
+        val propertiesMinimum = if (compact) COMPACT_PROPERTIES_MIN_WIDTH_DP else PROPERTIES_MIN_WIDTH_DP
+        val canvasMinimum = if (compact) COMPACT_CANVAS_MIN_WIDTH_DP else CANVAS_MIN_WIDTH_DP
         val sidePaneBudget =
             availableWidthDp -
-                CANVAS_MIN_WIDTH_DP -
+                canvasMinimum -
                 SPLITTER_WIDTH_DP * SPLITTER_COUNT
-        val hierarchyMaximum = maxOf(HIERARCHY_MIN_WIDTH_DP, sidePaneBudget - PROPERTIES_MIN_WIDTH_DP)
-        val hierarchy = widths.hierarchy.coerceIn(HIERARCHY_MIN_WIDTH_DP, hierarchyMaximum)
-        val propertiesMaximum = maxOf(PROPERTIES_MIN_WIDTH_DP, sidePaneBudget - hierarchy)
-        val properties = widths.properties.coerceIn(PROPERTIES_MIN_WIDTH_DP, propertiesMaximum)
+        val hierarchyMaximum = (sidePaneBudget - propertiesMinimum)
+            .coerceAtLeast(hierarchyMinimum)
+            .coerceAtMost(HIERARCHY_MAX_WIDTH_DP)
+        val hierarchy = widths.hierarchy.coerceIn(hierarchyMinimum, hierarchyMaximum)
+        val propertiesMaximum = maxOf(propertiesMinimum, sidePaneBudget - hierarchy)
+        val properties = widths.properties.coerceIn(propertiesMinimum, propertiesMaximum)
         return PaneWidths(hierarchy = hierarchy, properties = properties)
     }
 
@@ -32,16 +42,15 @@ internal object PaneLayout {
         deltaDp: Float,
         availableWidthDp: Float,
     ): PaneWidths {
+        val fitted = fit(widths, availableWidthDp)
+        val hierarchyMinimum = if (availableWidthDp < regularMinimumWidth()) COMPACT_HIERARCHY_MIN_WIDTH_DP else HIERARCHY_MIN_WIDTH_DP
+        val canvasMinimum = if (availableWidthDp < regularMinimumWidth()) COMPACT_CANVAS_MIN_WIDTH_DP else CANVAS_MIN_WIDTH_DP
         val maximumWidth =
-            maxOf(
-                HIERARCHY_MIN_WIDTH_DP,
-                availableWidthDp -
-                    widths.properties -
-                    CANVAS_MIN_WIDTH_DP -
-                    SPLITTER_WIDTH_DP * SPLITTER_COUNT,
-            )
-        return widths.copy(
-            hierarchy = (widths.hierarchy + deltaDp).coerceIn(HIERARCHY_MIN_WIDTH_DP, maximumWidth),
+            (availableWidthDp - fitted.properties - canvasMinimum - SPLITTER_WIDTH_DP * SPLITTER_COUNT)
+                .coerceAtLeast(hierarchyMinimum)
+                .coerceAtMost(HIERARCHY_MAX_WIDTH_DP)
+        return fitted.copy(
+            hierarchy = (fitted.hierarchy + deltaDp).coerceIn(hierarchyMinimum, maximumWidth),
         )
     }
 
@@ -50,16 +59,22 @@ internal object PaneLayout {
         deltaDp: Float,
         availableWidthDp: Float,
     ): PaneWidths {
+        val fitted = fit(widths, availableWidthDp)
+        val propertiesMinimum = if (availableWidthDp < regularMinimumWidth()) COMPACT_PROPERTIES_MIN_WIDTH_DP else PROPERTIES_MIN_WIDTH_DP
+        val canvasMinimum = if (availableWidthDp < regularMinimumWidth()) COMPACT_CANVAS_MIN_WIDTH_DP else CANVAS_MIN_WIDTH_DP
         val maximumWidth =
             maxOf(
-                PROPERTIES_MIN_WIDTH_DP,
+                propertiesMinimum,
                 availableWidthDp -
-                    widths.hierarchy -
-                    CANVAS_MIN_WIDTH_DP -
+                    fitted.hierarchy -
+                    canvasMinimum -
                     SPLITTER_WIDTH_DP * SPLITTER_COUNT,
             )
-        return widths.copy(
-            properties = (widths.properties - deltaDp).coerceIn(PROPERTIES_MIN_WIDTH_DP, maximumWidth),
+        return fitted.copy(
+            properties = (fitted.properties - deltaDp).coerceIn(propertiesMinimum, maximumWidth),
         )
     }
+
+    private fun regularMinimumWidth(): Float =
+        HIERARCHY_MIN_WIDTH_DP + PROPERTIES_MIN_WIDTH_DP + CANVAS_MIN_WIDTH_DP + SPLITTER_WIDTH_DP * SPLITTER_COUNT
 }

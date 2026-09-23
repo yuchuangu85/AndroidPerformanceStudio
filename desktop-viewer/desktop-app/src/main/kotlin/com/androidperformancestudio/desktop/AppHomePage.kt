@@ -30,9 +30,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -40,8 +44,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.studio.StudioEmptyState
+import com.androidperformancestudio.ui.studio.StudioErrorState
+import com.androidperformancestudio.ui.studio.StudioDataTable
+import com.androidperformancestudio.ui.studio.StudioLoadingState
+import com.androidperformancestudio.ui.studio.StudioPanel
+import com.androidperformancestudio.ui.studio.StudioPanelHeader
+import com.androidperformancestudio.ui.studio.StudioMetricCard
+import com.androidperformancestudio.ui.studio.StudioStatusChip
+import com.androidperformancestudio.ui.studio.StudioStatusTone
+import com.androidperformancestudio.ui.studio.StudioTokens
+import com.androidperformancestudio.ui.studio.StudioTableColumn
+import com.androidperformancestudio.desktop.dashboard.StudioFeature
+import com.androidperformancestudio.desktop.dashboard.StudioRecentItem
+import com.androidperformancestudio.desktop.dashboard.WorkspaceOverviewRepository
+import com.androidperformancestudio.desktop.dashboard.WorkspaceOverviewSnapshot
+import com.androidperformancestudio.desktop.dashboard.DeviceOverviewSource
+import com.androidperformancestudio.desktop.dashboard.StudioDeviceOverview
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 
 internal const val HOME_CARD_HEIGHT_DP = 184
 internal const val HOME_CARD_CORNER_RADIUS_DP = 14
@@ -56,7 +79,7 @@ internal fun homeGridColumnCount(availableWidthDp: Int): Int =
     }
 
 @Composable
-fun AppHomePage(
+internal fun AppHomePage(
     language: UiLanguage,
     onOpenSourceWorkspaces: () -> Unit,
     onOpenLayoutInspector: () -> Unit,
@@ -70,7 +93,31 @@ fun AppHomePage(
     onOpenGpuInspector: () -> Unit,
     onOpenBenchmarkRegression: () -> Unit,
     onOpenMethodRecording: () -> Unit,
+    onOpenRecentArtifact: (StudioRecentItem) -> Unit,
+    onOpenTraceFile: () -> Unit,
+    onAnalyzeHprof: () -> Unit,
+    androidSdkPath: String? = null,
+    active: Boolean = true,
 ) {
+    val overviewRepository = remember { WorkspaceOverviewRepository.desktop() }
+    val deviceOverviewSource = remember(androidSdkPath) { DeviceOverviewSource(androidSdkPath) }
+    var recentSnapshot by remember { mutableStateOf<WorkspaceOverviewSnapshot?>(null) }
+    var loadingRecentItems by remember { mutableStateOf(true) }
+    var deviceOverview by remember { mutableStateOf<StudioDeviceOverview?>(null) }
+    var deviceRefreshRevision by remember { mutableStateOf(0) }
+    LaunchedEffect(active) {
+        if (active) {
+            loadingRecentItems = true
+            recentSnapshot = overviewRepository.loadRecent(limit = 6)
+            loadingRecentItems = false
+        }
+    }
+    LaunchedEffect(active, deviceOverviewSource, deviceRefreshRevision) {
+        if (active) {
+            deviceOverview = null
+            deviceOverview = deviceOverviewSource.load()
+        }
+    }
     val entries =
         listOf(
             HomeFeatureEntry(
@@ -162,6 +209,27 @@ fun AppHomePage(
                 onClick = onOpenNetworkProfiler,
             ),
             HomeFeatureEntry(
+                title = localizedStringResource(Res.string.gpu_inspector, language),
+                subtitle = localizedStringResource(Res.string.gpu_agi_integration, language),
+                description = localizedStringResource(Res.string.discover_and_launch_android_gpu_inspector_then_index_and_verify, language),
+                actionLabel = localizedStringResource(Res.string.open, language),
+                onClick = onOpenGpuInspector,
+            ),
+            HomeFeatureEntry(
+                title = localizedStringResource(Res.string.benchmark_regression, language),
+                subtitle = localizedStringResource(Res.string.macrobenchmark_regression, language),
+                description = localizedStringResource(Res.string.compare_androidx_benchmark_baselines_and_current_results_with_ci_regre, language),
+                actionLabel = localizedStringResource(Res.string.open, language),
+                onClick = onOpenBenchmarkRegression,
+            ),
+            HomeFeatureEntry(
+                title = localizedStringResource(Res.string.cpu_method_recording, language),
+                subtitle = localizedStringResource(Res.string.method_recording, language),
+                description = localizedStringResource(Res.string.cpu_method_recording_description, language),
+                actionLabel = localizedStringResource(Res.string.open, language),
+                onClick = onOpenMethodRecording,
+            ),
+            HomeFeatureEntry(
                 title = localizedStringResource(Res.string.source_workspaces, language),
                 subtitle = localizedStringResource(Res.string.source_home_subtitle, language),
                 description = localizedStringResource(Res.string.source_home_description, language),
@@ -176,7 +244,6 @@ fun AppHomePage(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 32.dp, vertical = 30.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -208,6 +275,55 @@ fun AppHomePage(
                 Spacer(Modifier.height(24.dp))
 
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val compact = maxWidth < 500.dp
+                    val devicesLabel = localizedStringResource(Res.string.connected_devices, language)
+                    val devicesValue = (deviceOverview as? StudioDeviceOverview.Available)?.connectedCount?.toString() ?: "—"
+                    val recentLabel = localizedStringResource(Res.string.recent_artifacts_shown, language)
+                    val recentValue = recentSnapshot?.takeIf { !loadingRecentItems && it.unavailableSourceCount < it.sourceCount }?.items?.size?.toString() ?: "—"
+                    val recentScope = localizedStringResource(Res.string.recent_artifacts_scope, language)
+                    if (compact) {
+                        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.sectionGap)) {
+                            StudioMetricCard(label = devicesLabel, value = devicesValue, modifier = Modifier.fillMaxWidth())
+                            StudioMetricCard(label = recentLabel, value = recentValue, modifier = Modifier.fillMaxWidth(), supportingText = recentScope)
+                        }
+                    } else {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.sectionGap)) {
+                            StudioMetricCard(label = devicesLabel, value = devicesValue, modifier = Modifier.weight(1f))
+                            StudioMetricCard(label = recentLabel, value = recentValue, modifier = Modifier.weight(1f), supportingText = recentScope)
+                        }
+                    }
+                }
+            }
+            Column(
+                modifier =
+                    Modifier
+                        .widthIn(max = HOME_MAX_CONTENT_WIDTH_DP.dp)
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.Start,
+            ) {
+                Spacer(Modifier.height(StudioTokens.sectionGap))
+                HomeDeviceSummary(
+                    overview = deviceOverview,
+                    language = language,
+                    onRefresh = { deviceRefreshRevision++ },
+                )
+                Spacer(Modifier.height(StudioTokens.sectionGap))
+                StudioPanel(modifier = Modifier.fillMaxWidth()) {
+                    StudioPanelHeader(title = localizedStringResource(Res.string.quick_actions, language))
+                    Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.sectionGap)) {
+                        TextButton(onClick = onOpenTraceFile) {
+                            Text(localizedStringResource(Res.string.open_trace_file, language))
+                        }
+                        TextButton(onClick = onAnalyzeHprof) {
+                            Text(localizedStringResource(Res.string.analyze_hprof, language))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(StudioTokens.sectionGap))
+
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     val columnCount = homeGridColumnCount(maxWidth.value.toInt())
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         entries.chunked(columnCount).forEach { rowEntries ->
@@ -228,10 +344,164 @@ fun AppHomePage(
                         }
                     }
                 }
+                Spacer(Modifier.height(StudioTokens.sectionGap))
+                StudioDataTable(
+                    columns = listOf(
+                        StudioTableColumn(localizedStringResource(Res.string.recent_column_artifact, language), 2.4f),
+                        StudioTableColumn(localizedStringResource(Res.string.recent_column_feature, language), 1f),
+                        StudioTableColumn(localizedStringResource(Res.string.recent_column_action, language), 0.85f),
+                    ),
+                    title = localizedStringResource(Res.string.recent_artifacts, language),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    when {
+                        loadingRecentItems -> StudioLoadingState(
+                            title = localizedStringResource(Res.string.recent_artifacts, language),
+                            detail = localizedStringResource(Res.string.loading_recent_artifacts, language),
+                        )
+                        recentSnapshot != null && recentSnapshot?.unavailableSourceCount == recentSnapshot?.sourceCount -> StudioErrorState(
+                            title = localizedStringResource(Res.string.recent_indexes_unavailable, language),
+                            detail = localizedStringResource(Res.string.recent_indexes_unavailable_hint, language),
+                        )
+                        recentSnapshot?.items?.isEmpty() == true && recentSnapshot?.unavailableSourceCount == 0 -> StudioEmptyState(
+                            title = localizedStringResource(Res.string.no_recent_artifacts, language),
+                            detail = localizedStringResource(Res.string.recent_artifacts_hint, language),
+                        )
+                        else -> {
+                            if ((recentSnapshot?.unavailableSourceCount ?: 0) > 0) {
+                                Text(
+                                    text = localizedStringResource(Res.string.some_recent_indexes_unavailable, language),
+                                    color = colors.secondaryText,
+                                )
+                            }
+                            recentSnapshot?.items.orEmpty().forEach { item ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = StudioTokens.compactContentPadding),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(2.4f)) {
+                                        Text(
+                                            text = item.title,
+                                            color = colors.primaryText,
+                                            fontSize = ViewerTypography.body.fontSize,
+                                            lineHeight = ViewerTypography.body.lineHeight,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        val subtitle = listOfNotNull(item.packageName, item.capturedAt?.toString()).joinToString(" · ")
+                                        if (subtitle.isNotEmpty()) {
+                                            Text(
+                                                text = subtitle,
+                                                color = colors.secondaryText,
+                                                fontSize = ViewerTypography.secondary.fontSize,
+                                                lineHeight = ViewerTypography.secondary.lineHeight,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    }
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        StudioStatusChip(
+                                            label = localizedStringResource(
+                                                when (item.feature) {
+                                                    StudioFeature.LAYOUT -> Res.string.recent_feature_layout
+                                                    StudioFeature.CPU -> Res.string.recent_feature_cpu
+                                                    StudioFeature.TRACE -> Res.string.recent_feature_trace
+                                                    StudioFeature.MEMORY -> Res.string.recent_feature_memory
+                                                },
+                                                language,
+                                            ),
+                                            tone = StudioStatusTone.NEUTRAL,
+                                        )
+                                    }
+                                    Box(modifier = Modifier.weight(0.85f), contentAlignment = Alignment.CenterEnd) {
+                                        TextButton(onClick = { onOpenRecentArtifact(item) }) {
+                                            Text(
+                                                text = localizedStringResource(Res.string.open_artifact, language),
+                                                color = colors.accent,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
+
+@Composable
+private fun HomeDeviceSummary(
+    overview: StudioDeviceOverview?,
+    language: UiLanguage,
+    onRefresh: () -> Unit,
+) {
+    val colors = LocalViewerColors.current
+    val title = localizedStringResource(Res.string.connected_devices, language)
+    when (overview) {
+        null -> StudioLoadingState(
+            title = title,
+            detail = localizedStringResource(Res.string.loading_devices, language),
+        )
+        StudioDeviceOverview.Unavailable -> StudioErrorState(
+            title = title,
+            detail = localizedStringResource(Res.string.device_discovery_unavailable, language),
+            retryLabel = localizedStringResource(Res.string.refresh_devices, language),
+            onRetry = onRefresh,
+        )
+        is StudioDeviceOverview.Available ->
+            StudioPanel(modifier = Modifier.fillMaxWidth()) {
+                StudioPanelHeader(title = title) {
+                    TextButton(onClick = onRefresh) {
+                        Text(
+                            text = localizedStringResource(Res.string.refresh_devices, language),
+                            color = colors.accent,
+                        )
+                    }
+                }
+                if (overview.devices.isEmpty()) {
+                    Text(
+                        text = localizedStringResource(Res.string.no_connected_devices, language),
+                        color = colors.secondaryText,
+                        fontSize = ViewerTypography.body.fontSize,
+                        lineHeight = ViewerTypography.body.lineHeight,
+                    )
+                } else {
+                    overview.devices.forEach { device ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = device.displayName,
+                                modifier = Modifier.weight(1f),
+                                color = colors.primaryText,
+                                fontSize = ViewerTypography.body.fontSize,
+                                lineHeight = ViewerTypography.body.lineHeight,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            StudioStatusChip(
+                                label = localizedStringResource(device.state.labelResource(), language),
+                                tone = if (device.online) StudioStatusTone.SUCCESS else StudioStatusTone.WARNING,
+                            )
+                        }
+                    }
+                }
+            }
+    }
+}
+
+private fun AdbDeviceState.labelResource() =
+    when (this) {
+        AdbDeviceState.ONLINE -> Res.string.device_online
+        AdbDeviceState.OFFLINE -> Res.string.device_offline
+        AdbDeviceState.UNAUTHORIZED -> Res.string.device_unauthorized
+        AdbDeviceState.NO_PERMISSIONS -> Res.string.device_no_permissions
+        AdbDeviceState.UNKNOWN -> Res.string.device_unknown
+    }
 
 private data class HomeFeatureEntry(
     val title: String,

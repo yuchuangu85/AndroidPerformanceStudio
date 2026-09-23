@@ -16,9 +16,14 @@ class RecentPathStore(
     }
 
     @Synchronized
-    fun load(): List<Path> =
+    fun load(): List<Path> = loadResult().getOrDefault(emptyList())
+
+    /** Unlike [load], preserves read failures for callers that must distinguish unavailable from empty. */
+    @Synchronized
+    fun loadResult(): Result<List<Path>> =
         runCatching {
-            if (!Files.isRegularFile(storageFile)) return emptyList()
+            if (Files.notExists(storageFile)) return@runCatching emptyList()
+            require(Files.isRegularFile(storageFile)) { "Recent path index is not a regular file: $storageFile" }
             Files.readAllLines(storageFile, StandardCharsets.UTF_8)
                 .asSequence()
                 .filter(String::isNotBlank)
@@ -26,7 +31,7 @@ class RecentPathStore(
                 .distinct()
                 .take(maximumEntries)
                 .toList()
-        }.getOrDefault(emptyList())
+        }
 
     @Synchronized
     fun record(path: Path): List<Path> {

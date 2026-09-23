@@ -41,6 +41,13 @@
     <string name="sp_ai_open_source_candidate">打开源码候选项 %1$d</string>
     <string name="sp_ai_close">关闭</string>
     <string name="sp_ai_failed_title">AI 分析失败</string>
+    <string name="sp_ai_evidence_scope_label">证据范围：%1$s</string>
+    <string name="sp_ai_session_label">会话：%1$s</string>
+    <string name="sp_ai_evidence_summary">证据：%1$d 个热点 · %2$d 个样本</string>
+    <string name="sp_ai_findings">发现</string>
+    <string name="sp_ai_no_findings">未返回发现。</string>
+    <string name="sp_ai_explanation_label">解释</string>
+    <string name="sp_ai_recommendation_label">建议</string>
 
     <string name="sp_export_folded_stacks">Folded Stacks</string>
     <string name="sp_export_pprof">PProf Profile</string>

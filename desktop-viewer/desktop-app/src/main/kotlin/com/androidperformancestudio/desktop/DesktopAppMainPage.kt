@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -39,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
+import com.androidperformancestudio.desktop.shell.CommercialAppShell
 import com.androidperformancestudio.desktop.SimpleperfLanguagePreference
 import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
@@ -58,6 +58,9 @@ import com.androidperformancestudio.analysis.AiSourceCandidateReference
 import com.androidperformancestudio.source.ResolutionCandidate
 import com.androidperformancestudio.source.ResolutionConfidence
 import java.util.Locale
+import java.nio.file.Files
+import java.nio.file.Path
+import javax.swing.JFileChooser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -161,10 +164,10 @@ public fun FrameWindowScope.DesktopAppMainPage(
     ) {
         val viewerThemeContext = rememberViewerThemeContext()
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 32.dp) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background,
-                contentColor = MaterialTheme.colorScheme.onBackground,
+            CommercialAppShell(
+                navigator = navigator,
+                language = language,
+                onOpenSettings = { openSettings(SettingsPage.GENERAL) },
             ) {
                 navigator.retainedDestinations.forEach { destination ->
                     key(destination) {
@@ -177,6 +180,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                                         .zIndex(if (active) 1f else 0f)
                                         .alpha(if (active) 1f else 0f)
                                         .blockPointerInputWhenInactive(active)
+                                        .blockKeyboardInputWhenInactive(active)
                                         .then(if (active) Modifier else Modifier.clearAndSetSemantics {}),
                             ) {
                 when (destination) {
@@ -195,6 +199,26 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             onOpenGpuInspector = { navigator.open(AppDestination.GPU_INSPECTOR) },
                             onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
                             onOpenMethodRecording = { navigator.open(AppDestination.METHOD_RECORDING) },
+                            onOpenRecentArtifact = { item ->
+                                when (item.feature) {
+                                    com.androidperformancestudio.desktop.dashboard.StudioFeature.LAYOUT ->
+                                        navigator.openLayoutArchive(item.artifactPath)
+                                    com.androidperformancestudio.desktop.dashboard.StudioFeature.CPU ->
+                                        navigator.openSimpleperfSession(item.artifactPath)
+                                    com.androidperformancestudio.desktop.dashboard.StudioFeature.TRACE ->
+                                        navigator.openPerfettoTrace(item.artifactPath)
+                                    com.androidperformancestudio.desktop.dashboard.StudioFeature.MEMORY ->
+                                        navigator.openMemoryProfiler(item.artifactPath)
+                                }
+                            },
+                            onOpenTraceFile = {
+                                chooseHomeArtifact()?.let { navigator.openPerfettoTrace(it) }
+                            },
+                            onAnalyzeHprof = {
+                                chooseHomeArtifact()?.let { navigator.openMemoryProfiler(it) }
+                            },
+                            androidSdkPath = applicationSettings.androidSdkPath,
+                            active = active,
                         )
                     AppDestination.SOURCE_WORKSPACES ->
                         SourceWorkspacesPage(
@@ -217,6 +241,8 @@ public fun FrameWindowScope.DesktopAppMainPage(
                                 navigator.open(AppDestination.MEMORY_PROFILER)
                             },
                             correlationHint = navigator.inspectorCorrelationHint,
+                            initialArchiveFile = navigator.layoutArchiveRequest?.path,
+                            initialArchiveRequestId = navigator.layoutArchiveRequest?.requestId ?: 0L,
                             aiAnalysisClient = remember(sourceWorkspaceRuntime) {
                                 SourceAwareLayoutAiAnalysisClient(sourceWorkspaceRuntime)
                             },
@@ -252,6 +278,8 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             window = window,
                             settings = simpleperfSettings,
                             androidSdkPath = applicationSettings.androidSdkPath?.let { path -> runCatching { java.nio.file.Path.of(path) }.getOrNull() },
+                            initialSessionFile = navigator.simpleperfSessionRequest?.path,
+                            initialSessionRequestId = navigator.simpleperfSessionRequest?.requestId ?: 0L,
                             onSettingsChanged = updateSimpleperfPreferences,
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             onOpenPreferences = { section ->
@@ -266,9 +294,11 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             },
                             aiAnalysisClient = null,
                             onOpenSourceCandidate = { candidateId ->
-                                sourceWorkspaceRuntime.candidate(candidateId)?.let { candidate ->
-                                    navigator.openSource(candidate.location)
-                                }
+                                sourceWorkspaceRuntime.candidate(candidateId)
+                                    ?.takeIf { it.confidence != ResolutionConfidence.WEAK }
+                                    ?.let { candidate ->
+                                        navigator.openSource(candidate.location)
+                                    }
                             },
                         )
                     AppDestination.PERFETTO ->
@@ -280,6 +310,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             },
                             onNavigateHome = { navigator.open(AppDestination.HOME) },
                             initialTraceFile = navigator.perfettoTraceFile,
+                            initialTraceRequestId = navigator.perfettoTraceRequestId,
                             initialTraceNotice = navigator.perfettoTraceNotice,
                             initialTraceTimestampNanos = navigator.perfettoTimestampNanos,
                             onOpenUserGuide = {
@@ -293,6 +324,7 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             language = language,
                             highlightClassName = memoryHighlightClassName,
                             initialImportFile = navigator.memoryImportFile,
+                            initialImportRequestId = navigator.memoryImportRequestId,
                             initialImportIsJavaHeap = navigator.memoryImportIsJavaHeap,
                             onBack = { navigator.open(AppDestination.HOME) },
                         )
@@ -482,6 +514,16 @@ public fun FrameWindowScope.DesktopAppMainPage(
     }
 }
 
+private fun chooseHomeArtifact(): Path? =
+    JFileChooser().run {
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+            selectedFile?.toPath()?.takeIf(Files::isRegularFile)
+        } else {
+            null
+        }
+    }
+
 private fun Modifier.blockPointerInputWhenInactive(active: Boolean): Modifier =
     if (active) {
         this
@@ -493,4 +535,12 @@ private fun Modifier.blockPointerInputWhenInactive(active: Boolean): Modifier =
                 }
             }
         }
+    }
+
+
+private fun Modifier.blockKeyboardInputWhenInactive(active: Boolean): Modifier =
+    if (active) {
+        this
+    } else {
+        onPreviewKeyEvent { true }
     }

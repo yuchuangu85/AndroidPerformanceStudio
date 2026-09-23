@@ -26,6 +26,11 @@ enum class AppDestination {
     METHOD_RECORDING,
 }
 
+data class AppArtifactOpenRequest(
+    val path: Path,
+    val requestId: Long,
+)
+
 internal fun com.androidperformancestudio.desktop.AppDestination.shouldMaximizeWindow(): Boolean =
     when (this) {
         AppDestination.HOME -> false
@@ -61,6 +66,8 @@ class AppNavigator(
         private set
     var perfettoTraceFile by mutableStateOf<Path?>(null)
         private set
+    var perfettoTraceRequestId by mutableStateOf(0L)
+        private set
     var perfettoTraceNotice by mutableStateOf<String?>(null)
         private set
     var perfettoTimestampNanos by mutableStateOf<Long?>(null)
@@ -69,10 +76,17 @@ class AppNavigator(
         private set
     var memoryImportFile by mutableStateOf<Path?>(null)
         private set
+    var memoryImportRequestId by mutableStateOf(0L)
+        private set
     var memoryImportIsJavaHeap by mutableStateOf(false)
         private set
     var methodRecordingTraceFile by mutableStateOf<Path?>(null)
         private set
+    var layoutArchiveRequest by mutableStateOf<AppArtifactOpenRequest?>(null)
+        private set
+    var simpleperfSessionRequest by mutableStateOf<AppArtifactOpenRequest?>(null)
+        private set
+    private var nextArtifactOpenRequestId: Long = 0
 
     fun open(destination: com.androidperformancestudio.desktop.AppDestination) {
         activate(destination)
@@ -88,12 +102,23 @@ class AppNavigator(
         activate(AppDestination.LAYOUT_INSPECTOR)
     }
 
+    fun openLayoutArchive(path: Path) {
+        layoutArchiveRequest = AppArtifactOpenRequest(path, ++nextArtifactOpenRequestId)
+        activate(AppDestination.LAYOUT_INSPECTOR)
+    }
+
+    fun openSimpleperfSession(path: Path) {
+        simpleperfSessionRequest = AppArtifactOpenRequest(path, ++nextArtifactOpenRequestId)
+        activate(AppDestination.SIMPLEPERF)
+    }
+
     fun openPerfettoTrace(
         path: Path,
-        notice: String,
+        notice: String? = null,
         timestampNanos: Long? = null,
     ) {
         perfettoTraceFile = path
+        perfettoTraceRequestId = ++nextArtifactOpenRequestId
         perfettoTraceNotice = notice
         perfettoTimestampNanos = timestampNanos
         activate(AppDestination.PERFETTO)
@@ -113,6 +138,7 @@ class AppNavigator(
     ) {
         inspectorCorrelationHint = null
         memoryImportFile = file
+        memoryImportRequestId = ++nextArtifactOpenRequestId
         memoryImportIsJavaHeap = javaHeap
         activate(AppDestination.MEMORY_PROFILER)
     }

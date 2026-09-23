@@ -7,4 +7,13 @@
     <string name="settings">Settings</string>
     <string name="search_options">Search options</string>
     <string name="no_matching_options">No matching options</string>
+    <string name="evidence_complete">Complete</string>
+    <string name="evidence_partial">Partial</string>
+    <string name="evidence_unknown">Unknown</string>
+    <string name="evidence_exact">Exact</string>
+    <string name="evidence_derived">Derived</string>
+    <string name="evidence_inferred">Inferred</string>
+    <string name="evidence_estimated">Estimated</string>
+    <string name="evidence_unavailable">Unavailable</string>
+    <string name="evidence_content_description">Evidence: %1$s</string>
 </resources>

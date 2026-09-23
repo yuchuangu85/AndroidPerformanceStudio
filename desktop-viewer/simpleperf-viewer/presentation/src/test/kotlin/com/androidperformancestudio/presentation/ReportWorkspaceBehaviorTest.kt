@@ -13,6 +13,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.ReportArtifact
@@ -46,6 +48,80 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class ReportWorkspaceBehaviorTest {
+    @Test
+    fun `top functions navigation remains reachable by horizontal scrolling in a narrow pane`() =
+        runDesktopComposeUiTest(width = 650, height = 600) {
+            var focused: String? = null
+            val state = sampleReportState(ReportTab.TOP_FUNCTIONS)
+            setContent {
+                SimpleperfLocalization(UiLanguage.ENGLISH) {
+                    TopFunctionsReport(
+                        state,
+                        requireNotNull(state.lastReadyReport),
+                        goldenActions().copy(onFocusCallTreeFunction = { focused = it }),
+                        viewerColors(darkTheme = false),
+                    )
+                }
+            }
+
+            onNodeWithTag("top-function-table-scroll").performTouchInput { swipeLeft() }
+            onAllNodesWithText("Path")[1].performClick()
+            assertEquals("renderFrame", focused)
+        }
+
+    @Test
+    fun `top functions shared table preserves selection and cross-view actions`() =
+        runDesktopComposeUiTest(width = 1200, height = 760) {
+            var selected: String? = null
+            var callTree: String? = null
+            var flame: String? = null
+            val state = sampleReportState(ReportTab.TOP_FUNCTIONS)
+            setContent {
+                SimpleperfLocalization(UiLanguage.ENGLISH) {
+                    TopFunctionsReport(
+                        state = state,
+                        report = requireNotNull(state.lastReadyReport),
+                        actions = goldenActions().copy(
+                            onSelectTopFunction = { selected = it },
+                            onFocusCallTreeFunction = { callTree = it },
+                            onFocusFunction = { flame = it },
+                        ),
+                        style = viewerColors(darkTheme = false),
+                    )
+                }
+            }
+
+            onNodeWithText("Function / Library").assertExists()
+            onNodeWithText("Navigate").assertExists()
+            onNodeWithTag("top-function-row-renderFrame").performClick()
+            assertEquals("renderFrame", selected)
+            onAllNodesWithText("Path")[1].performClick()
+            onNodeWithText("Flame").performClick()
+            assertEquals("renderFrame", callTree)
+            assertEquals("renderFrame", flame)
+        }
+
+    @Test
+    fun `overview metrics use evidence-backed cards in an adaptive grid`() =
+        runDesktopComposeUiTest(width = 700, height = 760) {
+            assertEquals(4, overviewMetricColumns(1100))
+            assertEquals(2, overviewMetricColumns(700))
+            assertEquals(1, overviewMetricColumns(420))
+            val report = requireNotNull(sampleReportState().lastReadyReport)
+            setContent {
+                SimpleperfLocalization(UiLanguage.ENGLISH) {
+                    OverviewReport(report, goldenActions(), viewerColors(darkTheme = false))
+                }
+            }
+
+            val samples = onNodeWithContentDescription("Samples: 120").fetchSemanticsNode().boundsInRoot
+            val weight = onNodeWithContentDescription("Event weight: 2400").fetchSemanticsNode().boundsInRoot
+            val threads = onNodeWithContentDescription("Threads: 2").fetchSemanticsNode().boundsInRoot
+            onNodeWithContentDescription("Lost rate: 0.83%").assertExists()
+            assertEquals(samples.top, weight.top, 1f)
+            assertTrue(threads.top > samples.bottom)
+        }
+
     @Test
     fun `report navigation tabs use the selected Chinese language`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {

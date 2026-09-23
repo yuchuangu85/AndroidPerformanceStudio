@@ -79,6 +79,7 @@ class ComposeInspectionPresenterTest {
         )
 
         val sections = model.details.sections.associateBy { it.title }
+        assertEquals(DetailCategory.COMPOSE, sections.getValue("COMPOSE SOURCE").category)
         assertEquals("Screen.kt", sections.getValue("COMPOSE SOURCE").rows.first { it.label == "File" }.value)
         assertTrue(sections.getValue("PARAMETERS").rows.single().value.contains("Hello"))
         assertEquals("4", sections.getValue("RECOMPOSITION").rows.first { it.label == "Recompose count" }.value)

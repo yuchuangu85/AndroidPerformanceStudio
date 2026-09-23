@@ -92,6 +92,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -221,6 +224,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     onCanOpenSourceCandidateDirectly: ((String) -> Boolean)? = null,
     onOpenComposeSource: ((String, Int, Int) -> Unit)? = null,
     correlationHint: InspectorCorrelationHint? = null,
+    initialArchiveFile: Path? = null,
+    initialArchiveRequestId: Long = 0L,
 ) {
     val store = remember { createInitialInspectorStore() }
     var state by remember { mutableStateOf(store.state) }
@@ -670,6 +675,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
         }
     }
+    LaunchedEffect(initialArchiveFile, initialArchiveRequestId) {
+        initialArchiveFile?.let(openCaptureArchive)
+    }
     val importCaptureArchive: () -> Unit = importCaptureArchive@{
         if (archiveUiState is CaptureArchiveUiState.Working) {
             return@importCaptureArchive
@@ -1034,20 +1042,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             BoxWithConstraints(modifier = Modifier.weight(1f)) {
                 val availableHeightDp = maxHeight.value
                 val normalizedFindingsHeight = FindingsLayout.fit(findingsHeightDp, availableHeightDp)
-                SideEffect {
-                    if (findingsHeightDp != normalizedFindingsHeight) {
-                        findingsHeightDp = normalizedFindingsHeight
-                    }
-                }
                 Column(modifier = Modifier.fillMaxSize()) {
                     BoxWithConstraints(modifier = Modifier.weight(1f)) {
                         val availableWidthDp = maxWidth.value
                         val normalizedPaneWidths = PaneLayout.fit(paneWidths, availableWidthDp)
-                        SideEffect {
-                            if (paneWidths != normalizedPaneWidths) {
-                                paneWidths = normalizedPaneWidths
-                            }
-                        }
                         SideEffect {
                             val rows = InspectorPresenter.present(state, uiLanguage).rows
                             val sanitizedHiddenLayerState = hiddenLayerState.sanitize(rows)
@@ -2867,6 +2865,16 @@ private fun DetailsPane(
         }?.source
     }
     var expansionState by remember { mutableStateOf(DetailSectionExpansionState()) }
+    var selectedCategory by remember { mutableStateOf(DetailCategory.OVERVIEW) }
+    val categories = DetailCategory.entries.filter { category -> details.sections.any { it.category == category } }
+    val activeCategory = selectedCategory.takeIf(categories::contains) ?: categories.firstOrNull()
+    val detailsListState = rememberLazyListState()
+    LaunchedEffect(activeCategory, details.id) {
+        if (activeCategory != null) {
+            selectedCategory = activeCategory
+            detailsListState.scrollToItem(0)
+        }
+    }
     Column(modifier.background(colors.panel)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(end = 6.dp),
@@ -2911,8 +2919,25 @@ private fun DetailsPane(
                 }
             }
         }
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(details.sections, key = { it.title }) { section ->
+        if (categories.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(colors.sectionBackground),
+            ) {
+                categories.forEach { category ->
+                    TextButton(onClick = { selectedCategory = category }) {
+                        Text(
+                            text = localizedStringResource(category.detailsTabTitle, language),
+                            color = if (category == activeCategory) colors.accent else colors.secondaryText,
+                            fontSize = ViewerTypography.secondary.fontSize,
+                            fontWeight = if (category == activeCategory) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(color = colors.border)
+        }
+        LazyColumn(state = detailsListState, modifier = Modifier.fillMaxSize()) {
+            items(details.sections.filter { it.category == activeCategory }, key = { it.title }) { section ->
                 DetailSection(
                     section = section,
                     expanded = expansionState.isExpanded(section.title),
@@ -2925,6 +2950,17 @@ private fun DetailsPane(
         }
     }
 }
+
+private val DetailCategory.detailsTabTitle: StringResource
+    get() =
+        when (this) {
+            DetailCategory.OVERVIEW -> Res.string.details_tab_overview
+            DetailCategory.LAYOUT -> Res.string.details_tab_layout
+            DetailCategory.DRAWING -> Res.string.details_tab_drawing
+            DetailCategory.ACCESSIBILITY -> Res.string.details_tab_accessibility
+            DetailCategory.COMPOSE -> Res.string.details_tab_compose
+            DetailCategory.EVIDENCE -> Res.string.details_tab_evidence
+        }
 
 @Composable
 private fun DetailSection(
@@ -3145,6 +3181,10 @@ private fun FindingsPane(
                     FindingRow(
                         finding = finding,
                         selected = selectionState.isSelected(finding.key),
+                        onClick = {
+                            selectionState = selectionState.select(finding.key)
+                            onSelectNode(finding.nodeId)
+                        },
                         onDoubleClick = {
                             selectionState = selectionState.select(finding.key)
                             val archived = state.aiAnalysis?.provenance?.sourceCandidates.orEmpty()
@@ -3343,6 +3383,7 @@ private fun TimelineScrollButton(
 private fun FindingRow(
     finding: FindingRowModel,
     selected: Boolean,
+    onClick: () -> Unit,
     onDoubleClick: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -3360,10 +3401,26 @@ private fun FindingRow(
                 pass = PointerEventPass.Initial,
             ) { event ->
                 val mouseEvent = event.nativeEvent as? MouseEvent
-                if (mouseEvent?.button == MouseEvent.BUTTON1 && mouseEvent.clickCount == 2) {
-                    onDoubleClick()
+                if (mouseEvent?.button == MouseEvent.BUTTON1) {
+                    when (mouseEvent.clickCount) {
+                        1 -> onClick()
+                        2 -> onDoubleClick()
+                    }
                 }
-            },
+            }
+            .semantics {
+                role = Role.Button
+                onClick { onClick(); true }
+            }
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
+                    onClick()
+                    true
+                } else {
+                    false
+                }
+            }
+            .focusable(),
     ) {
         SelectionContainer {
             Text(

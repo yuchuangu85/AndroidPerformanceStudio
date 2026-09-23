@@ -36,6 +36,7 @@ data class DetailSectionModel(
     val title: String,
     val rows: List<DetailRowModel>,
     val highlightsRenderingRisk: Boolean = false,
+    val category: DetailCategory = DetailCategory.OVERVIEW,
 )
 
 internal object NodeDetailsPresenter {
@@ -57,6 +58,7 @@ internal object NodeDetailsPresenter {
                 title = localizedStringResource(Res.string.detail_section_render_risks, language),
                 rows = riskRows(node, attributes, complexity, overlap, language),
                 highlightsRenderingRisk = true,
+                category = DetailCategory.EVIDENCE,
             ),
             DetailSectionModel(
                 title = localizedStringResource(Res.string.detail_section_identity, language),
@@ -68,9 +70,8 @@ internal object NodeDetailsPresenter {
                         ?: viewNode?.attributes?.rawProperties?.let { props ->
                             props["text:mText"] ?: props["text:text"]
                         }),
-                    row(language, Res.string.detail_label_content_description, attributes.contentDescription),
-                    row(language, Res.string.detail_label_semantics_role, composeNode?.semanticsRole),
                 ),
+                category = DetailCategory.OVERVIEW,
             ),
             DetailSectionModel(
                 title = localizedStringResource(Res.string.detail_section_layout, language),
@@ -116,6 +117,7 @@ internal object NodeDetailsPresenter {
                     ),
                     row(language, Res.string.detail_label_layout_requested, attributes.layoutRequested),
                 ),
+                category = DetailCategory.LAYOUT,
             ),
             DetailSectionModel(
                 title = localizedStringResource(Res.string.detail_section_drawing, language),
@@ -160,10 +162,13 @@ internal object NodeDetailsPresenter {
                     row(language, Res.string.detail_label_hardware_accelerated, attributes.hardwareAccelerated),
                     row(language, Res.string.detail_label_layer_type, attributes.layerType),
                 ),
+                category = DetailCategory.DRAWING,
             ),
             DetailSectionModel(
                 title = localizedStringResource(Res.string.detail_section_interaction, language),
                 rows = listOf(
+                    row(language, Res.string.detail_label_content_description, attributes.contentDescription),
+                    row(language, Res.string.detail_label_semantics_role, composeNode?.semanticsRole),
                     row(language, Res.string.detail_label_enabled, attributes.enabled),
                     row(language, Res.string.detail_label_clickable, attributes.clickable),
                     row(language, Res.string.detail_label_long_clickable, attributes.longClickable),
@@ -171,6 +176,7 @@ internal object NodeDetailsPresenter {
                     row(language, Res.string.detail_label_focused, attributes.focused),
                     row(language, Res.string.detail_label_selected, attributes.selected),
                 ),
+                category = DetailCategory.ACCESSIBILITY,
             ),
         ) + composeInspectionSections(
             node,
@@ -178,7 +184,8 @@ internal object NodeDetailsPresenter {
             composeInspectionWarning,
             composeCompilerReport,
             language,
-        ) + rawPropertiesSection(node, attributes, language)
+        ).map { it.copy(category = DetailCategory.COMPOSE) } +
+            rawPropertiesSection(node, attributes, language).map { it.copy(category = DetailCategory.EVIDENCE) }
     }
 
     private fun composeInspectionSections(

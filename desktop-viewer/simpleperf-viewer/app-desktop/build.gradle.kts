@@ -33,6 +33,8 @@ dependencies {
     implementation(project(":simpleperf-storage-sqlite"))
     implementation(compose.desktop.currentOs)
     testImplementation(project(":simpleperf-test-fixtures"))
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.compose.ui.test)
     testImplementation(libs.kotlinx.coroutines.test)
     implementation(libs.compose.components.resources)
 }

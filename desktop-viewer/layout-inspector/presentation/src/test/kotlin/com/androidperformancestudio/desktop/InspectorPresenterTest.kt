@@ -156,6 +156,17 @@ class InspectorPresenterTest {
             details.sections.map { it.title },
         )
         assertEquals(
+            listOf(
+                DetailCategory.EVIDENCE,
+                DetailCategory.OVERVIEW,
+                DetailCategory.LAYOUT,
+                DetailCategory.DRAWING,
+                DetailCategory.ACCESSIBILITY,
+                DetailCategory.EVIDENCE,
+            ),
+            details.sections.map { it.category },
+        )
+        assertEquals(
             "1 pair · max 100% · structural",
             details.row("Overdraw estimate").value,
         )
@@ -213,7 +224,8 @@ class InspectorPresenterTest {
         ).details
 
         val identityRows = details.sections.single { it.title == "IDENTITY" }.rows
-        assertEquals("Button", identityRows.single { it.label == "Semantics role" }.value)
+        val accessibilityRows = details.sections.single { it.category == DetailCategory.ACCESSIBILITY }.rows
+        assertEquals("Button", accessibilityRows.single { it.label == "Semantics role" }.value)
         assertEquals("Save", identityRows.single { it.label == "Text" }.value)
         assertEquals("save_button", details.row("TestTag").value)
     }

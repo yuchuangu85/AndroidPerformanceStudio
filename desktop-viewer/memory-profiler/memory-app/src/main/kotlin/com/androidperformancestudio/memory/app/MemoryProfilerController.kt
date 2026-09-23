@@ -2,8 +2,8 @@
 
 package com.androidperformancestudio.memory.app
 
-import com.androidperformancestudio.adb.AndroidDeviceInfosResult
 import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidDeviceInfosResult
 import com.androidperformancestudio.adb.AndroidProcessSelection
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetSubscription
@@ -296,13 +296,15 @@ internal class MemoryProfilerController(
     private val loadedHeapsBySnapshotId = linkedMapOf<String, LoadedHeap>()
     private var previousBitmapDump: LoadedBitmapDump? = null
     private val processSelection = AndroidProcessSelection(MemoryProcessOption::pid)
-    private val processSelectionSubscription = processSelection.register { choice ->
-        mutableState.value = mutableState.value.copy(
-            selectedDeviceSerial = choice.serial,
-            processes = choice.processes,
-            selectedProcessId = choice.selectedPid,
-        )
-    }
+    private val processSelectionSubscription =
+        processSelection.register { choice ->
+            mutableState.value =
+                mutableState.value.copy(
+                    selectedDeviceSerial = choice.serial,
+                    processes = choice.processes,
+                    selectedProcessId = choice.selectedPid,
+                )
+        }
     private val targetSubscription =
         backend.registerTargetListener(
             object : AndroidTargetListener {

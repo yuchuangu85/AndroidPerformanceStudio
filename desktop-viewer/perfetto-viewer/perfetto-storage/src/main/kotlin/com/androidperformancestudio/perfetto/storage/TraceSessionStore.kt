@@ -28,6 +28,7 @@ import java.time.Instant
 /** Durable, version-tolerant index for locally captured traces. */
 class TraceSessionStore(
     private val storageDir: Path = defaultStorageDir(),
+    initializeStorage: Boolean = true,
 ) {
     private val indexFile: Path = storageDir.resolve("sessions.json")
     private val lock = Any()
@@ -38,8 +39,10 @@ class TraceSessionStore(
         }
 
     init {
-        Files.createDirectories(storageDir)
-        if (!Files.exists(indexFile)) Files.writeString(indexFile, "[]")
+        if (initializeStorage) {
+            Files.createDirectories(storageDir)
+            if (!Files.exists(indexFile)) Files.writeString(indexFile, "[]")
+        }
     }
 
     fun save(session: TraceSession): StudioResult<Unit> =

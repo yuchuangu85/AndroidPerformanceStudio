@@ -76,7 +76,6 @@ import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
 import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -94,7 +93,7 @@ import java.time.format.DateTimeFormatter
 
 @Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
 internal class DesktopMemoryProfilerBackend(
-    private val dataRoot: Path = defaultDataRoot(),
+    private val dataRoot: Path = defaultMemoryDataRoot(),
     private val adbLocator: () -> Path? = ::defaultAdbExecutable,
     private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
@@ -1165,15 +1164,10 @@ internal class DesktopMemoryProfilerBackend(
         private const val DEFAULT_DIGEST_BUFFER_BYTES = 64 * 1024
         private val SESSION_ID_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").withZone(ZoneOffset.UTC)
         private const val MAX_LIVE_EVENTS = 1_000
-
-        private fun defaultDataRoot(): Path =
-            Path.of(
-                System.getProperty("user.home"),
-                ".android-performance-studio",
-                "memory-profiler",
-            )
     }
 }
+
+internal fun defaultMemoryDataRoot(): Path = Path.of(System.getProperty("user.home"), ".android-performance-studio", "memory-profiler")
 
 internal fun AdbTargetSnapshot.heapDumpableProcesses(): List<MemoryProcessOption> =
     profileableOrDebuggableProcesses().map { process ->

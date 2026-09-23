@@ -57,6 +57,12 @@
     <string name="hierarchy">HIERARCHY</string>
     <string name="canvas">CANVAS</string>
     <string name="properties">PROPERTIES</string>
+    <string name="details_tab_overview">Overview</string>
+    <string name="details_tab_layout">Layout</string>
+    <string name="details_tab_drawing">Drawing</string>
+    <string name="details_tab_accessibility">Accessibility</string>
+    <string name="details_tab_compose">Compose</string>
+    <string name="details_tab_evidence">Evidence</string>
     <string name="findings">FINDINGS</string>
     <string name="run_ai_analysis">Run AI</string>
     <string name="ai_analysis_running">AI running…</string>

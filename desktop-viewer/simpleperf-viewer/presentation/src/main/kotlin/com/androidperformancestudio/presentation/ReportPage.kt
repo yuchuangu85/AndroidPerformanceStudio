@@ -9,8 +9,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Divider
 import androidx.compose.material3.Text
@@ -69,6 +72,9 @@ import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.studio.StudioMetricCard
+import com.androidperformancestudio.ui.studio.StudioDataTable
+import com.androidperformancestudio.ui.studio.StudioTableColumn
 import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.visualization.NavigationAction
 import org.jetbrains.compose.resources.StringResource
@@ -222,23 +228,26 @@ internal fun OverviewReport(
     style: ViewerColors,
 ) {
     val language = currentSimpleperfLanguage()
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(modifier = Modifier.testTag("overview-report-list"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard(SimpleperfViewerRes.sp_report_samples, report.overview.sampleCount.toString(), Modifier.weight(1f), style)
-                MetricCard(
-                    SimpleperfViewerRes.sp_report_event_weight,
-                    report.overview.totalEventWeight.toString(),
-                    Modifier.weight(1f),
-                    style,
-                )
-                MetricCard(SimpleperfViewerRes.sp_target_threads, report.overview.threadCount.toString(), Modifier.weight(1f), style)
-                MetricCard(
-                    SimpleperfViewerRes.sp_report_lost_rate,
-                    "%.2f%%".format(report.quality.lostRate * PERCENT_MULTIPLIER),
-                    Modifier.weight(1f),
-                    style,
-                )
+            val metrics = listOf(
+                SimpleperfViewerRes.sp_report_samples to report.overview.sampleCount.toString(),
+                SimpleperfViewerRes.sp_report_event_weight to report.overview.totalEventWeight.toString(),
+                SimpleperfViewerRes.sp_target_threads to report.overview.threadCount.toString(),
+                SimpleperfViewerRes.sp_report_lost_rate to "%.2f%%".format(report.quality.lostRate * PERCENT_MULTIPLIER),
+            )
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val columns = overviewMetricColumns(maxWidth.value.toInt())
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    metrics.chunked(columns).forEach { rowMetrics ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            rowMetrics.forEach { (title, value) ->
+                                MetricCard(title, value, Modifier.weight(1f))
+                            }
+                            repeat(columns - rowMetrics.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
             }
         }
         item {
@@ -345,22 +354,25 @@ internal fun OverviewReport(
     }
 }
 
+internal fun overviewMetricColumns(availableWidthDp: Int): Int =
+    when {
+        availableWidthDp >= 960 -> 4
+        availableWidthDp >= 520 -> 2
+        else -> 1
+    }
+
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
 private fun MetricCard(
     title: StringResource,
     value: String,
     modifier: Modifier,
-    style: ViewerColors,
 ) {
-    MacOsPanel(modifier, style) {
-        Text(
-            localizedStringResource(title, currentSimpleperfLanguage()),
-            color = style.secondaryText,
-            fontSize = ViewerTypography.dense.fontSize,
-        )
-        Text(value, color = style.text, fontSize = ViewerTypography.metric.fontSize, fontWeight = FontWeight.SemiBold)
-    }
+    StudioMetricCard(
+        label = localizedStringResource(title, currentSimpleperfLanguage()),
+        value = value,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -373,7 +385,7 @@ internal fun TopFunctionsReport(
 ) {
     val language = currentSimpleperfLanguage()
     val color = LocalViewerColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 10.dp)) {
             TopFunctionSort.entries.forEach { sort ->
                 MacOSChoiceChip(
@@ -396,64 +408,40 @@ internal fun TopFunctionsReport(
             )
         }
         Divider(Modifier.fillMaxWidth(), color = color.border)
-        TopFunctionHeader(style)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            itemsIndexed(report.topFunctions, key = ::topFunctionItemKey) { _, function ->
-                TopFunctionRow(
-                    function = function,
-                    onSelect = { actions.onSelectTopFunction(function.symbolName) },
-                    onFocusCallTree = actions.onFocusCallTreeFunction,
-                    onFocusFlame = actions.onFocusFunction,
-                    style = style,
-                )
+        BoxWithConstraints(Modifier.weight(1f)) {
+            val tableWidth = maxOf(maxWidth, 980.dp)
+            Row(Modifier.fillMaxSize().horizontalScroll(rememberScrollState()).testTag("top-function-table-scroll")) {
+                StudioDataTable(
+                    columns = topFunctionColumns(language),
+                    modifier = Modifier.width(tableWidth).fillMaxHeight(),
+                ) {
+                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        itemsIndexed(report.topFunctions, key = ::topFunctionItemKey) { _, function ->
+                            TopFunctionRow(
+                                function = function,
+                                onSelect = { actions.onSelectTopFunction(function.symbolName) },
+                                onFocusCallTree = actions.onFocusCallTreeFunction,
+                                onFocusFlame = actions.onFocusFunction,
+                                style = style,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
-private fun TopFunctionHeader(style: ViewerColors) {
-    val language = currentSimpleperfLanguage()
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_calltree_function_library, language),
-            modifier = Modifier.weight(1f),
-            color = style.secondaryText,
-            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        )
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_calltree_inclusive, language),
-            modifier = Modifier.width(90.dp),
-            color = style.secondaryText,
-            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        )
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_calltree_exclusive, language),
-            modifier = Modifier.width(90.dp),
-            color = style.secondaryText,
-            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        )
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_report_samples, language),
-            modifier = Modifier.width(70.dp),
-            color = style.secondaryText,
-            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        )
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_target_threads, language),
-            modifier = Modifier.width(70.dp),
-            color = style.secondaryText,
-            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        )
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_calltree_navigate, language),
-            modifier = Modifier.width(180.dp),
-            color = style.secondaryText,
-            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-        )
-    }
-}
+private fun topFunctionColumns(language: UiLanguage): List<StudioTableColumn> =
+    listOf(
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_function_library, language), 4.2f),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_inclusive, language), 0.9f),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_exclusive, language), 0.9f),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_report_samples, language), 0.7f),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_target_threads, language), 0.7f),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_navigate, language), 1.8f),
+    )
 
 @Composable
 @Suppress("FunctionName", "ktlint:standard:function-naming")
@@ -472,18 +460,17 @@ private fun TopFunctionRow(
                 .background(style.panel, RoundedCornerShape(9.dp))
                 .border(ViewerDimensions.hairline, style.border, RoundedCornerShape(9.dp))
                 .clickable(onClick = onSelect)
-                .padding(horizontal = 20.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 8.dp, vertical = 7.dp),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(function.symbolName, color = style.text, fontSize = ViewerTypography.label.fontSize, fontWeight = FontWeight.SemiBold)
-            Text(function.filePath, color = style.secondaryText, fontSize = ViewerTypography.micro.fontSize)
+        Column(modifier = Modifier.weight(4.2f)) {
+            Text(function.symbolName, color = style.text, fontSize = ViewerTypography.label.fontSize, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(function.filePath, color = style.secondaryText, fontSize = ViewerTypography.micro.fontSize, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(function.inclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = ViewerTypography.label.fontSize)
-        Text(function.exclusiveWeight.toString(), modifier = Modifier.width(90.dp), color = style.text, fontSize = ViewerTypography.label.fontSize)
-        Text(function.sampleCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = ViewerTypography.label.fontSize)
-        Text(function.threadCount.toString(), modifier = Modifier.width(70.dp), color = style.text, fontSize = ViewerTypography.label.fontSize)
-        Row(modifier = Modifier.width(180.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(function.inclusiveWeight.toString(), modifier = Modifier.weight(0.9f), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Text(function.exclusiveWeight.toString(), modifier = Modifier.weight(0.9f), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Text(function.sampleCount.toString(), modifier = Modifier.weight(0.7f), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Text(function.threadCount.toString(), modifier = Modifier.weight(0.7f), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Row(modifier = Modifier.weight(1.8f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             MacOSTextButton(
                 localizedStringResource(SimpleperfViewerRes.sp_calltree_path, currentSimpleperfLanguage()),
                 { onFocusCallTree(function.symbolName) },

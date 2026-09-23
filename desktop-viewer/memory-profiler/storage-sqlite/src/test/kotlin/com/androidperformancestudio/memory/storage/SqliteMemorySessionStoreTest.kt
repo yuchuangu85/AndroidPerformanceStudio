@@ -1,13 +1,16 @@
 package com.androidperformancestudio.memory.storage
 
 import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.io.path.Path
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SqliteMemorySessionStoreTest {
     @Test
@@ -36,6 +39,25 @@ class SqliteMemorySessionStoreTest {
         SqliteMemorySessionStore.open(database).use { reopened ->
             assertEquals(persisted(metadata), reopened.find("session-1"))
         }
+    }
+
+    @Test
+    fun `read-only session access neither creates missing indexes nor changes an existing index`() {
+        val directory = createTempDirectory("memory-read-only")
+        val missing = directory.resolve("missing.db")
+        assertFailsWith<IllegalArgumentException> { SqliteMemorySessionStore.openExistingReadOnly(missing) }
+        assertTrue(Files.notExists(missing))
+
+        val database = directory.resolve("sessions.db")
+        SqliteMemorySessionStore.open(database).use { it.upsert(metadata("saved", 1L)) }
+        val before = Files.readAllBytes(database)
+
+        SqliteMemorySessionStore.openExistingReadOnly(database).use { store ->
+            assertEquals(listOf("saved"), store.listRecent().map(MemorySessionMetadata::sessionId))
+            assertFailsWith<java.sql.SQLException> { store.upsert(metadata("unexpected", 2L)) }
+        }
+
+        assertTrue(before.contentEquals(Files.readAllBytes(database)))
     }
 
     private fun persisted(metadata: MemorySessionMetadata): MemorySessionMetadata =

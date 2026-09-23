@@ -41,6 +41,13 @@
     <string name="sp_ai_open_source_candidate">Open Source Candidate %1$d</string>
     <string name="sp_ai_close">Close</string>
     <string name="sp_ai_failed_title">AI Analysis Failed</string>
+    <string name="sp_ai_evidence_scope_label">Evidence scope: %1$s</string>
+    <string name="sp_ai_session_label">Session: %1$s</string>
+    <string name="sp_ai_evidence_summary">Evidence: %1$d hotspot(s) · %2$d samples</string>
+    <string name="sp_ai_findings">Findings</string>
+    <string name="sp_ai_no_findings">No findings returned.</string>
+    <string name="sp_ai_explanation_label">Explanation</string>
+    <string name="sp_ai_recommendation_label">Recommendation</string>
 
     <string name="sp_export_folded_stacks">Folded Stacks</string>
     <string name="sp_export_pprof">PProf profile</string>

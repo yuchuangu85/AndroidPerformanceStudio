@@ -70,7 +70,8 @@ class MemoryProfilerWorkspaceSourceTest {
         assertEquals(1, Regex("SegmentedSelector\\(").findAll(toolbar).count())
         val primaryViewSelector = toolbar.substringAfter("SegmentedSelector(").substringBefore("ProfilerCompactButton(")
         val primaryViewModes =
-            workspace.substringAfter("private val MEMORY_PROFILER_PRIMARY_VIEW_MODES =")
+            workspace
+                .substringAfter("private val MEMORY_PROFILER_PRIMARY_VIEW_MODES =")
                 .substringBefore("private fun MemoryProfilerViewMode.primaryViewLabel")
         assertTrue(primaryViewModes.contains("MemoryProfilerViewMode.Dashboard"))
         assertTrue(primaryViewModes.contains("MemoryProfilerViewMode.ClassList"))

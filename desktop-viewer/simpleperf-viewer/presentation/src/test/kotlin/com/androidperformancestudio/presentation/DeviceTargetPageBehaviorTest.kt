@@ -34,6 +34,24 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class DeviceTargetPageBehaviorTest {
     @Test
+    fun `toolbar opens the existing offline session workflow without a connected device`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            var openCount = 0
+            setContent {
+                HomeScreen(
+                    state = DeviceTargetState(),
+                    captureState = CaptureState.Idle,
+                    reportState = ReportState(),
+                    actions = deviceActions(),
+                    reportActions = goldenActions().copy(onOpenSession = { openCount++ }),
+                )
+            }
+
+            onNodeWithText("Open Session").performClick()
+            assertEquals(1, openCount)
+        }
+
+    @Test
     fun `adb not found error directs user to configure SDK path`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             setContent {
@@ -172,7 +190,7 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithContentDescription("Device selector").performClick()
             onNodeWithText("Pixel Offline").assertIsNotEnabled()
             onNodeWithText("Pixel 8 Pro").performClick()
-            onNodeWithText("Open Session").assertDoesNotExist()
+            onNodeWithText("Open Session").assertExists()
             onNodeWithText("Capture target").assertDoesNotExist()
 
             onNodeWithText("Device & Target").assertDoesNotExist()
@@ -180,12 +198,14 @@ class DeviceTargetPageBehaviorTest {
             val appSelector = onNodeWithContentDescription("App selector").fetchSemanticsNode().boundsInRoot
             val refresh = onNodeWithText("Refresh").fetchSemanticsNode().boundsInRoot
             val getData = onNodeWithText("Get data").fetchSemanticsNode().boundsInRoot
+            val openSession = onNodeWithText("Open Session").fetchSemanticsNode().boundsInRoot
             val capabilities = onNodeWithText("Capabilities").fetchSemanticsNode().boundsInRoot
             val settings = onNodeWithContentDescription("Settings").fetchSemanticsNode().boundsInRoot
             assertTrue(deviceSelector.left < TOOLBAR_LEFT_ALIGNMENT_LIMIT)
             assertTrue(deviceSelector.width < appSelector.width)
             assertTrue(getData.left > refresh.right)
-            assertTrue(capabilities.left > getData.right)
+            assertTrue(openSession.left > getData.right)
+            assertTrue(capabilities.left > openSession.right)
             assertTrue(settings.left > capabilities.right)
             onNodeWithText("Settings").assertDoesNotExist()
             onNodeWithContentDescription("Settings").performClick()

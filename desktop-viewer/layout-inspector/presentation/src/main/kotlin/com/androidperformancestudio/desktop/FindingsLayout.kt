@@ -5,7 +5,7 @@ internal object FindingsLayoutTokens {
 }
 
 internal object FindingsLayout {
-    const val DEFAULT_HEIGHT_DP = 89f
+    const val DEFAULT_HEIGHT_DP = 240f
     const val MIN_HEIGHT_DP = 56f
     const val SPLITTER_HEIGHT_DP = 7f
     private const val MAX_HEIGHT_RATIO = 0.5f

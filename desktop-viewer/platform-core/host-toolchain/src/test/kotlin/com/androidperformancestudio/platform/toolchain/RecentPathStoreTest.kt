@@ -62,4 +62,20 @@ class RecentPathStoreTest {
             root.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun `strict read distinguishes missing index from unreadable index`() {
+        val root = createTempDirectory("recent-paths-unavailable")
+        try {
+            val missing = RecentPathStore(root.resolve("missing.txt"))
+            assertEquals(emptyList(), missing.loadResult().getOrThrow())
+
+            val directoryIndex = Files.createDirectory(root.resolve("recent.txt"))
+            val unavailable = RecentPathStore(directoryIndex)
+            assertTrue(unavailable.loadResult().isFailure)
+            assertTrue(unavailable.load().isEmpty())
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
 }

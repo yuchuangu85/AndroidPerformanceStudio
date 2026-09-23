@@ -122,6 +122,12 @@ internal fun DeviceTargetPage(
             HeaderSpacer()
             ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading)
             HeaderSpacer()
+            MacOSTextButton(
+                localizedStringResource(SimpleperfViewerRes.sp_target_open_session, currentSimpleperfLanguage()),
+                reportActions.onOpenSession,
+                style,
+            )
+            HeaderSpacer()
             CapabilityPopupButton(state.selection, style)
         }
         if (reportState.loadState == ReportLoadState.Closed) {

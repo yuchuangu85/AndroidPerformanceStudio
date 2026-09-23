@@ -88,6 +88,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     onBack: () -> Unit = {},
     highlightClassName: String? = null,
     initialImportFile: Path? = null,
+    initialImportRequestId: Long = 0L,
     initialImportIsJavaHeap: Boolean = false,
 ) {
     val controller =
@@ -108,7 +109,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     LaunchedEffect(highlightClassName) {
         highlightClassName?.let(controller::highlightClass)
     }
-    LaunchedEffect(initialImportFile, initialImportIsJavaHeap) {
+    LaunchedEffect(initialImportFile, initialImportIsJavaHeap, initialImportRequestId) {
         initialImportFile?.let { file ->
             if (initialImportIsJavaHeap) {
                 controller.importJavaHeap(file)

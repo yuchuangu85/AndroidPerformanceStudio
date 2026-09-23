@@ -36,6 +36,30 @@ class AppNavigatorTest {
     }
 
     @Test
+    fun `recent artifact requests reopen the exact feature even for the same path twice`() {
+        val navigator = AppNavigator()
+        val layoutArchive = Path.of("capture.apinspect")
+        val cpuSession = Path.of("capture.simpleperf")
+
+        navigator.openLayoutArchive(layoutArchive)
+        val firstLayoutRequest = navigator.layoutArchiveRequest
+        assertEquals(AppDestination.LAYOUT_INSPECTOR, navigator.destination)
+        assertEquals(layoutArchive, firstLayoutRequest?.path)
+
+        navigator.open(AppDestination.HOME)
+        navigator.openLayoutArchive(layoutArchive)
+        assertTrue(navigator.layoutArchiveRequest!!.requestId > firstLayoutRequest!!.requestId)
+
+        navigator.openSimpleperfSession(cpuSession)
+        assertEquals(AppDestination.SIMPLEPERF, navigator.destination)
+        assertEquals(cpuSession, navigator.simpleperfSessionRequest?.path)
+        assertEquals(
+            listOf(AppDestination.HOME, AppDestination.LAYOUT_INSPECTOR, AppDestination.SIMPLEPERF),
+            navigator.retainedDestinations,
+        )
+    }
+
+    @Test
     fun `feature destinations request a maximized window but home does not`() {
         assertFalse(AppDestination.HOME.shouldMaximizeWindow())
         assertTrue(AppDestination.LAYOUT_INSPECTOR.shouldMaximizeWindow())
@@ -78,5 +102,23 @@ class AppNavigatorTest {
         navigator.open(AppDestination.HOME)
         assertEquals(trace, navigator.perfettoTraceFile)
         assertEquals(notice, navigator.perfettoTraceNotice)
+    }
+
+    @Test
+    fun `reopening the same trace or heap produces a new import request`() {
+        val navigator = AppNavigator()
+        val trace = Path.of("capture.perfetto-trace")
+        val heap = Path.of("capture.hprof")
+
+        navigator.openPerfettoTrace(trace)
+        val firstTraceRequestId = navigator.perfettoTraceRequestId
+        navigator.openPerfettoTrace(trace)
+        assertTrue(navigator.perfettoTraceRequestId > firstTraceRequestId)
+
+        navigator.openMemoryProfiler(heap)
+        val firstHeapRequestId = navigator.memoryImportRequestId
+        navigator.openMemoryProfiler(heap)
+        assertTrue(navigator.memoryImportRequestId > firstHeapRequestId)
+        assertEquals(heap, navigator.memoryImportFile)
     }
 }

@@ -4,6 +4,8 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.analysis.DiagnosticFinding
 import com.androidperformancestudio.analysis.DiagnosticSeverity
@@ -37,6 +39,7 @@ class FirefoxExistingPanelsTest {
             setContent { ReportPage(state, goldenActions()) }
 
             onNodeWithText("Data quality").assertExists()
+            onNodeWithTag("overview-report-list").performScrollToNode(hasText("Recommendations"))
             onNodeWithText("Recommendations").assertExists()
             onNodeWithTag("report-tab-DIAGNOSTICS").assertDoesNotExist()
         }

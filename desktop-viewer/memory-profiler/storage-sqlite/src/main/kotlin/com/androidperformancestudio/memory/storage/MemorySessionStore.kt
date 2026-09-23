@@ -3,6 +3,7 @@
 package com.androidperformancestudio.memory.storage
 
 import com.androidperformancestudio.contracts.DeviceIdentityPseudonymizer
+import org.sqlite.SQLiteConfig
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
@@ -44,8 +45,13 @@ data class MemorySessionUiSettings(
 class SqliteMemorySessionStore private constructor(
     private val connection: Connection,
     private val deviceIdentity: DeviceIdentityPseudonymizer = DeviceIdentityPseudonymizer(),
+    initializeSchema: Boolean = true,
 ) : AutoCloseable {
     init {
+        if (initializeSchema) createSchema()
+    }
+
+    private fun createSchema() {
         connection.createStatement().use { statement ->
             statement.executeUpdate(
                 """
@@ -351,6 +357,16 @@ class SqliteMemorySessionStore private constructor(
         fun open(databaseFile: Path): SqliteMemorySessionStore {
             databaseFile.parent?.let(Files::createDirectories)
             return SqliteMemorySessionStore(DriverManager.getConnection("jdbc:sqlite:$databaseFile"))
+        }
+
+        /** Opens an existing index without creating a database, migrating schema, or writing metadata. */
+        fun openExistingReadOnly(databaseFile: Path): SqliteMemorySessionStore {
+            require(Files.isRegularFile(databaseFile)) { "Memory session index is not a regular file: $databaseFile" }
+            val config = SQLiteConfig().apply { setReadOnly(true) }
+            return SqliteMemorySessionStore(
+                DriverManager.getConnection("jdbc:sqlite:$databaseFile", config.toProperties()),
+                initializeSchema = false,
+            )
         }
     }
 }

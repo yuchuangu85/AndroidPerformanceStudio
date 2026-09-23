@@ -31,12 +31,8 @@ import com.androidperformancestudio.app_desktop.generated.resources.Res
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_analyze
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_cancel
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_close
-import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_confidence
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_failed_title
-import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_open_source
-import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_open_source_candidate
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_performance_data_only
-import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_result_title
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_run_details
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_run_title
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_scope_call_node
@@ -93,6 +89,8 @@ fun FrameWindowScope.SimpleperfMainPage(
     onCaptureSettingsContextChanged: (SimpleperfCaptureSettingsContext?) -> Unit = {},
     aiAnalysisClient: SimpleperfAiAnalysisClient? = null,
     onOpenSourceCandidate: ((String) -> Unit)? = null,
+    initialSessionFile: Path? = null,
+    initialSessionRequestId: Long = 0L,
 ) {
     var currentSettings by remember(settings) { mutableStateOf(settings) }
     val dependencies = remember(androidSdkPath) { createWorkspaceDependencies(androidSdkPath) }
@@ -139,7 +137,7 @@ fun FrameWindowScope.SimpleperfMainPage(
     val scope = rememberCoroutineScope()
     var pendingAiAnalysis by remember { mutableStateOf<PendingSimpleperfAiAnalysis?>(null) }
     var aiAnalysisWorking by remember { mutableStateOf(false) }
-    var aiAnalysisResult by remember { mutableStateOf<SimpleperfAiAnalysisReport?>(null) }
+    var aiAnalysisResult by remember { mutableStateOf<SimpleperfAiInsight?>(null) }
     var aiAnalysisError by remember { mutableStateOf<String?>(null) }
     val reportActionFactory =
         remember(reportController, sessionPackages, reportExports, sessionOpener, scope, window) {
@@ -185,6 +183,9 @@ fun FrameWindowScope.SimpleperfMainPage(
         onDispose { currentOnCaptureSettingsContextChanged(null) }
     }
     LaunchedEffect(controller) { controller.refreshDevices(reloadSelection = false) }
+    LaunchedEffect(initialSessionFile, initialSessionRequestId) {
+        initialSessionFile?.let { sessionOpener.open(it) }
+    }
     SimpleperfMenu(
         reportState,
         reportActions,
@@ -196,50 +197,58 @@ fun FrameWindowScope.SimpleperfMainPage(
         },
         onOpenPreferences = onOpenPreferences,
     )
-    HomeScreen(
-        state = state,
-        captureState = captureState,
-        reportState = reportState,
-        actions =
-            controller.deviceActions(
-                scope,
-                reportController,
-                offlineImporter,
-                sessionOpener::open,
-            ),
-        reportActions = reportActions,
-        darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
+    SimpleperfAiWorkspace(
+        insight = aiAnalysisResult,
         language = resolvedLanguage,
-        captureSettingsSection = captureSettingsSection,
-        captureSettingsManagedExternally = onOpenPreferences != null,
-        onCaptureSettingsSectionChange = { section ->
-            if (section != null && onOpenPreferences != null) {
-                onOpenPreferences(section)
-            } else {
-                captureSettingsSection = section
-            }
-        },
-        flameTooltipMode = currentSettings.flameTooltipMode,
-        onFlameTooltipModeChange = {
-            currentSettings = currentSettings.copy(flameTooltipMode = it)
-            onSettingsChanged(currentSettings)
-        },
-        simpleperfEngine = currentSettings.simpleperfEngine,
-        onSimpleperfEngineChange = {
-            currentSettings = currentSettings.copy(simpleperfEngine = it)
-            onSettingsChanged(currentSettings)
-        },
-        onOpenUserGuide = onOpenUserGuide,
-        onNavigateHome = onNavigateHome,
-        onRunAiAnalysis =
-            aiAnalysisClient?.let {
-                {
-                    (reportState.loadState as? ReportLoadState.Ready)?.report?.let { report ->
-                        pendingAiAnalysis = PendingSimpleperfAiAnalysis(report, reportState)
-                    }
+        darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
+        onCloseInsight = { aiAnalysisResult = null },
+        onOpenSourceCandidate = onOpenSourceCandidate,
+    ) {
+        HomeScreen(
+            state = state,
+            captureState = captureState,
+            reportState = reportState,
+            actions =
+                controller.deviceActions(
+                    scope,
+                    reportController,
+                    offlineImporter,
+                    sessionOpener::open,
+                ),
+            reportActions = reportActions,
+            darkTheme = currentSettings.theme.resolveDark(isSystemInDarkTheme()),
+            language = resolvedLanguage,
+            captureSettingsSection = captureSettingsSection,
+            captureSettingsManagedExternally = onOpenPreferences != null,
+            onCaptureSettingsSectionChange = { section ->
+                if (section != null && onOpenPreferences != null) {
+                    onOpenPreferences(section)
+                } else {
+                    captureSettingsSection = section
                 }
             },
-    )
+            flameTooltipMode = currentSettings.flameTooltipMode,
+            onFlameTooltipModeChange = {
+                currentSettings = currentSettings.copy(flameTooltipMode = it)
+                onSettingsChanged(currentSettings)
+            },
+            simpleperfEngine = currentSettings.simpleperfEngine,
+            onSimpleperfEngineChange = {
+                currentSettings = currentSettings.copy(simpleperfEngine = it)
+                onSettingsChanged(currentSettings)
+            },
+            onOpenUserGuide = onOpenUserGuide,
+            onNavigateHome = onNavigateHome,
+            onRunAiAnalysis =
+                aiAnalysisClient?.let {
+                    {
+                        (reportState.loadState as? ReportLoadState.Ready)?.report?.let { report ->
+                            pendingAiAnalysis = PendingSimpleperfAiAnalysis(report, reportState)
+                        }
+                    }
+                },
+        )
+    }
 
     pendingAiAnalysis?.let { pending ->
         var performanceOnly by remember(pending) { mutableStateOf(false) }
@@ -270,9 +279,13 @@ fun FrameWindowScope.SimpleperfMainPage(
                         pendingAiAnalysis = null
                         aiAnalysisWorking = true
                         aiAnalysisError = null
+                        aiAnalysisResult = null
+                        val evidenceScope = selectedSimpleperfScope(pending.state, pending.report, resolvedLanguage)
+                        val evidenceCount = extractSimpleperfEvidence(pending.report, pending.state).size
+                        val sampleCount = pending.report.overview.sampleCount
                         scope.launch {
                             try {
-                                aiAnalysisResult =
+                                val result =
                                     withContext(Dispatchers.IO) {
                                         requireNotNull(aiAnalysisClient).analyze(
                                             pending.report,
@@ -280,6 +293,14 @@ fun FrameWindowScope.SimpleperfMainPage(
                                             !performanceOnly,
                                         )
                                     }
+                                aiAnalysisResult =
+                                    SimpleperfAiInsight(
+                                        result = result,
+                                        sessionName = pending.report.session.name,
+                                        evidenceScope = evidenceScope,
+                                        evidenceCount = evidenceCount,
+                                        sampleCount = sampleCount,
+                                    )
                             } catch (cancellation: CancellationException) {
                                 throw cancellation
                             } catch (failure: Throwable) {
@@ -294,54 +315,6 @@ fun FrameWindowScope.SimpleperfMainPage(
             dismissButton = {
                 TextButton(onClick = { pendingAiAnalysis = null }) {
                     Text(localizedStringResource(Res.string.sp_ai_cancel, resolvedLanguage))
-                }
-            },
-        )
-    }
-    aiAnalysisResult?.let { result ->
-        AlertDialog(
-            onDismissRequest = { aiAnalysisResult = null },
-            title = {
-                Text(localizedStringResource(Res.string.sp_ai_result_title, resolvedLanguage, result.model))
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(result.summary)
-                    result.findings.take(6).forEach { finding ->
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                "${finding.title} (" +
-                                    localizedStringResource(
-                                        Res.string.sp_ai_confidence,
-                                        resolvedLanguage,
-                                        (finding.confidence * 100).toInt(),
-                                    ) +
-                                    ")",
-                            )
-                            Text(finding.explanation)
-                            Text(finding.recommendation)
-                            finding.sourceCandidateIds.forEachIndexed { index, candidateId ->
-                                TextButton(onClick = { onOpenSourceCandidate?.invoke(candidateId) }) {
-                                    Text(
-                                        if (finding.sourceCandidateIds.size == 1) {
-                                            localizedStringResource(Res.string.sp_ai_open_source, resolvedLanguage)
-                                        } else {
-                                            localizedStringResource(
-                                                Res.string.sp_ai_open_source_candidate,
-                                                resolvedLanguage,
-                                                index + 1,
-                                            )
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { aiAnalysisResult = null }) {
-                    Text(localizedStringResource(Res.string.sp_ai_close, resolvedLanguage))
                 }
             },
         )

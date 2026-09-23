@@ -57,6 +57,12 @@
     <string name="hierarchy">层级结构</string>
     <string name="canvas">画布</string>
     <string name="properties">属性</string>
+    <string name="details_tab_overview">概览</string>
+    <string name="details_tab_layout">布局</string>
+    <string name="details_tab_drawing">绘制</string>
+    <string name="details_tab_accessibility">无障碍</string>
+    <string name="details_tab_compose">Compose</string>
+    <string name="details_tab_evidence">证据</string>
     <string name="findings">问题</string>
     <string name="run_ai_analysis">AI 分析</string>
     <string name="ai_analysis_running">AI 分析中…</string>
