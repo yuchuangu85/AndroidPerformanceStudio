@@ -206,7 +206,11 @@ class DeviceTargetController(
         captureSession?.stop()
     }
 
-    suspend fun refreshDevices() {
+    /**
+     * Refreshes the device list. Explicit user refreshes reload the selected device;
+     * workspace re-entry can keep the already loaded selection to avoid repeating ADB probes.
+     */
+    suspend fun refreshDevices(reloadSelection: Boolean = true) {
         mutableState.value = mutableState.value.copy(isLoading = true, error = null)
         when (val result = gateway.refreshDevices()) {
             is StudioResult.Success -> {
@@ -232,10 +236,12 @@ class DeviceTargetController(
                         threads = current.threads.takeIf { retainedSerial != null }.orEmpty(),
                         isLoading = false,
                     )
-                if (retainedSerial != null) {
-                    selectDevice(retainedSerial)
-                } else if (automaticSerial != null) {
-                    selectDevice(automaticSerial)
+                val serialToLoad = retainedSerial ?: automaticSerial
+                val selectionNeedsLoad =
+                    serialToLoad != null &&
+                        (reloadSelection || current.selection == null || current.selectedSerial != serialToLoad)
+                if (selectionNeedsLoad) {
+                    selectDevice(serialToLoad)
                 }
             }
             is StudioResult.Failure ->

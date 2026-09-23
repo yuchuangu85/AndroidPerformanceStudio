@@ -184,7 +184,7 @@ fun FrameWindowScope.SimpleperfMainPage(
     DisposableEffect(Unit) {
         onDispose { currentOnCaptureSettingsContextChanged(null) }
     }
-    LaunchedEffect(controller) { controller.refreshDevices() }
+    LaunchedEffect(controller) { controller.refreshDevices(reloadSelection = false) }
     SimpleperfMenu(
         reportState,
         reportActions,

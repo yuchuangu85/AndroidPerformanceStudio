@@ -98,6 +98,24 @@ class DeviceTargetControllerTest {
         }
 
     @Test
+    fun `startup refresh reuses the loaded selection for the same online device`() =
+        runBlocking {
+            val gateway = FakeDeviceTargetGateway()
+            val controller = DeviceTargetController(gateway)
+            controller.refreshDevices()
+            gateway.packages = listOf(PackageOption("com.example.changed"))
+
+            controller.refreshDevices(reloadSelection = false)
+
+            assertEquals(
+                listOf("com.example.camera", "com.example.music"),
+                controller.state.value.visiblePackages
+                    .map(PackageOption::packageName),
+            )
+            assertEquals(1, gateway.selectionLoads)
+        }
+
+    @Test
     fun `selecting a process loads threads and prepares capture in the target workspace`() =
         runBlocking {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())
