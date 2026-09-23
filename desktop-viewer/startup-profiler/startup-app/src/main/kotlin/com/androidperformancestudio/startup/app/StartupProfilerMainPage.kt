@@ -197,6 +197,8 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 HeaderSpacer()
                 DropdownSelector(
                     items = state.targets,
+                    searchable = true,
+                    searchLanguage = language,
                     selectedItem = state.targets.firstOrNull { it.componentName == state.selectedComponentName },
                     onItemSelected = { controller.selectTarget(it.componentName) },
                     itemLabel = {

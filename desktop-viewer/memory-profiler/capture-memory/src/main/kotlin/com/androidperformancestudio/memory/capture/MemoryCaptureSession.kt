@@ -1,5 +1,6 @@
 package com.androidperformancestudio.memory.capture
 
+import com.androidperformancestudio.adb.AndroidDevicePropertyClient
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbClient
@@ -216,26 +217,19 @@ class MemoryHeapDumpCaptureSession(
             StudioResult.Failure(adbError(adbArguments, error))
         }
 
-    /** Reads the device Android API level via getprop; returns null when it cannot be determined. */
+    /** Reads the shared adb-core device-property snapshot; returns null when unavailable. */
     private suspend fun readSdkApiLevel(
         serial: String,
         cancellationSignal: HostCancellationSignal,
     ): Int? =
-        try {
-            adbClient
-                .shell(
-                    serial = serial,
-                    arguments = listOf("getprop", "ro.build.version.sdk"),
-                    timeout = 30.seconds,
-                    isCancellationRequested = cancellationSignal::isCancelled,
-                ).stdout
-                .trim()
-                .toIntOrNull()
-        } catch (error: java.util.concurrent.CancellationException) {
-            throw error
-        } catch (_: RuntimeException) {
-            null
-        }
+        (
+            AndroidDevicePropertyClient(adbClient).sdkInt(
+                serial = serial,
+                timeout = 30.seconds,
+                isCancellationRequested = cancellationSignal::isCancelled,
+            ) as? StudioResult.Success
+        )?.value
+
 
     private suspend fun convert(
         hprofConv: Path,

@@ -109,6 +109,8 @@ import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.search.CompactSearchField
 import com.androidperformancestudio.ui.search.CompactSearchNavigationButton
 import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.SegmentedSelector
+import com.androidperformancestudio.ui.SegmentedSelectorStyle
 import com.androidperformancestudio.ui.button.HomeButton
 import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.application.ConnectionStatus
@@ -157,18 +159,6 @@ import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 internal const val AUTO_SCAN_DEFAULT_ENABLED = false
-private val ScanModeRefreshButtonShape = RoundedCornerShape(
-    topStart = 4.dp,
-    topEnd = 0.dp,
-    bottomEnd = 0.dp,
-    bottomStart = 4.dp,
-)
-private val ScanModeAutoScanButtonShape = RoundedCornerShape(
-    topStart = 0.dp,
-    topEnd = 4.dp,
-    bottomEnd = 4.dp,
-    bottomStart = 0.dp,
-)
 // Source-aware payload preflight is complete; keep the user-facing analysis entry available.
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
@@ -1656,24 +1646,28 @@ private fun ScanModeButtons(
     onManualRefreshSelected: () -> Unit,
 ) {
     val language = LocalLayoutInspectorLanguage.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ProfilerCompactButton(
-            text = localizedStringResource(Res.string.refresh, language),
-            selected = scanControlState.manualRefreshSelected,
-            enabled = controlsEnabled && manualRefreshAvailable && scanControlState.manualRefreshEnabled,
-            shape = ScanModeRefreshButtonShape,
-            onClick = onManualRefreshSelected,
-        )
-        ProfilerCompactButton(
-            text = localizedStringResource(Res.string.auto_scan, language),
-            selected = scanControlState.autoScanSelected,
-            enabled = controlsEnabled,
-            shape = ScanModeAutoScanButtonShape,
-            onClick = onAutoScanSelected,
-        )
-    }
+    SegmentedSelector(
+        items = listOf(ScanMode.MANUAL, ScanMode.AUTOMATIC),
+        selectedItem = scanControlState.selectedMode,
+        onItemSelected = { mode ->
+            if (mode == ScanMode.AUTOMATIC) onAutoScanSelected() else onManualRefreshSelected()
+        },
+        onSelectedItemClick = { mode ->
+            if (mode == ScanMode.MANUAL) onManualRefreshSelected()
+        },
+        itemLabel = { mode ->
+            localizedStringResource(
+                if (mode == ScanMode.MANUAL) Res.string.refresh else Res.string.auto_scan,
+                language,
+            )
+        },
+        itemEnabled = { mode ->
+            mode == ScanMode.AUTOMATIC ||
+                (manualRefreshAvailable && scanControlState.manualRefreshEnabled)
+        },
+        enabled = controlsEnabled,
+        style = SegmentedSelectorStyle.COMPACT_OUTLINED,
+    )
 }
 
 @Composable

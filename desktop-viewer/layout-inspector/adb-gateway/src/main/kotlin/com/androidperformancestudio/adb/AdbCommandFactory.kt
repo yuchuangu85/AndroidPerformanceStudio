@@ -1,8 +1,10 @@
 package com.androidperformancestudio.adb
 
+import com.androidperformancestudio.platform.adb.AdbCommandArguments
+import com.androidperformancestudio.platform.adb.AdbInputException
+
+/** Layout Inspector-only ADB command construction; generic operations delegate to adb-core. */
 object AdbCommandFactory {
-    private val safePackageName = Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+")
-    private val safeDeviceValue = Regex("[A-Za-z0-9_.:-]+")
     private val safeSocketName = Regex("[A-Za-z0-9_.-]+")
 
     fun forward(
@@ -12,18 +14,15 @@ object AdbCommandFactory {
     ): List<String> {
         require(hostPort in 1..65535) { "Host port must be between 1 and 65535" }
         require(safeSocketName.matches(socketName)) { "Unsafe local abstract socket name" }
-        return devicePrefix(serial) + listOf(
-            "forward",
-            "tcp:$hostPort",
-            "localabstract:$socketName",
-        )
+        return AdbCommandArguments.forward(serial, "tcp:$hostPort", "localabstract:$socketName")
     }
+
 
     fun readSession(
         serial: String,
         packageName: String,
     ): List<String> {
-        require(safePackageName.matches(packageName)) { "Invalid Android package name" }
+        requirePackageName(packageName)
         return devicePrefix(serial) + listOf(
             "shell",
             "run-as",
@@ -33,13 +32,7 @@ object AdbCommandFactory {
         )
     }
 
-    fun foregroundActivity(serial: String): List<String> =
-        devicePrefix(serial) + listOf(
-            "shell",
-            "dumpsys",
-            "activity",
-            "activities",
-        )
+    fun foregroundActivity(serial: String): List<String> = AdbCommandArguments.foregroundActivity(serial)
 
     fun dumpHierarchy(serial: String): List<String> =
         devicePrefix(serial) + listOf(
@@ -57,37 +50,26 @@ object AdbCommandFactory {
             "dump-visible-window-views",
         )
 
-    fun captureScreenshot(serial: String): List<String> =
-        devicePrefix(serial) + listOf(
-            "exec-out",
-            "screencap",
-            "-p",
-        )
+    fun captureScreenshot(serial: String): List<String> = AdbCommandArguments.screenshot(serial)
 
     fun removeForward(
         serial: String,
         hostPort: Int,
     ): List<String> {
         require(hostPort in 1..65535) { "Host port must be between 1 and 65535" }
-        return devicePrefix(serial) + listOf(
-            "forward",
-            "--remove",
-            "tcp:$hostPort",
-        )
+        return AdbCommandArguments.removeForward(serial, "tcp:$hostPort")
     }
 
-    fun getProperty(serial: String, property: String): List<String> {
-        require(property in setOf("ro.product.cpu.abi", "ro.build.version.sdk")) { "Unsupported device property" }
-        return devicePrefix(serial) + listOf("shell", "getprop", property)
-    }
 
-    fun pidOf(serial: String, packageName: String): List<String> {
-        require(safePackageName.matches(packageName)) { "Invalid Android package name" }
-        return devicePrefix(serial) + listOf("shell", "pidof", packageName)
-    }
+    fun getProperty(serial: String, property: String): List<String> =
+        AdbCommandArguments.property(serial, property)
+
+    fun pidOf(serial: String, packageName: String): List<String> =
+        AdbCommandArguments.pidOf(serial, packageName)
+
 
     fun packagePaths(serial: String, packageName: String): List<String> {
-        require(safePackageName.matches(packageName)) { "Invalid Android package name" }
+        requirePackageName(packageName)
         return devicePrefix(serial) + listOf("shell", "pm", "path", packageName)
     }
 
@@ -156,14 +138,19 @@ object AdbCommandFactory {
     }
 
     private fun runAs(serial: String, packageName: String, vararg arguments: String): List<String> {
-        require(safePackageName.matches(packageName)) { "Invalid Android package name" }
+        requirePackageName(packageName)
         return devicePrefix(serial) + listOf("shell", "run-as", packageName) + arguments
     }
 
-    private fun devicePrefix(serial: String): List<String> {
-        require(safeDeviceValue.matches(serial)) { "Invalid device serial" }
-        return listOf("-s", serial)
+    private fun requirePackageName(packageName: String) {
+        try {
+            AdbCommandArguments.requirePackageName(packageName)
+        } catch (error: AdbInputException) {
+            throw IllegalArgumentException("Invalid Android package name", error)
+        }
     }
+
+    private fun devicePrefix(serial: String): List<String> = AdbCommandArguments.devicePrefix(serial)
 
     private val safeRemotePath = Regex("/[A-Za-z0-9_./-]+")
     private val safePackageApkPath = Regex("/[A-Za-z0-9_./~+=-]+")

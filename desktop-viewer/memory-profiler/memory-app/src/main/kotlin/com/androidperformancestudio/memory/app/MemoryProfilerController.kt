@@ -4,6 +4,7 @@ package com.androidperformancestudio.memory.app
 
 import com.androidperformancestudio.adb.AndroidDeviceInfosResult
 import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidProcessSelection
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
@@ -294,6 +295,14 @@ internal class MemoryProfilerController(
 
     private val loadedHeapsBySnapshotId = linkedMapOf<String, LoadedHeap>()
     private var previousBitmapDump: LoadedBitmapDump? = null
+    private val processSelection = AndroidProcessSelection(MemoryProcessOption::pid)
+    private val processSelectionSubscription = processSelection.register { choice ->
+        mutableState.value = mutableState.value.copy(
+            selectedDeviceSerial = choice.serial,
+            processes = choice.processes,
+            selectedProcessId = choice.selectedPid,
+        )
+    }
     private val targetSubscription =
         backend.registerTargetListener(
             object : AndroidTargetListener {
@@ -340,17 +349,8 @@ internal class MemoryProfilerController(
                                         ),
                                 )
                         is com.androidperformancestudio.model.StudioResult.Success -> {
-                            val processes = result.value.heapDumpableProcesses()
-                            val selected =
-                                mutableState.value.selectedProcessId?.takeIf { pid ->
-                                    processes.any { it.pid == pid }
-                                }
-                            mutableState.value =
-                                mutableState.value.copy(
-                                    processes = processes,
-                                    selectedProcessId = selected,
-                                    error = null,
-                                )
+                            processSelection.updateProcesses(serial, result.value.heapDumpableProcesses())
+                            mutableState.value = mutableState.value.copy(error = null)
                         }
                     }
                 }
@@ -358,6 +358,7 @@ internal class MemoryProfilerController(
         )
 
     fun close() {
+        processSelectionSubscription.close()
         targetSubscription.close()
     }
 
@@ -373,14 +374,8 @@ internal class MemoryProfilerController(
                         .filter(MemoryDeviceOption::online)
                         .singleOrNull()
                         ?.serial
-                mutableState.value =
-                    mutableState.value.copy(
-                        devices = result.value,
-                        selectedDeviceSerial = retainedSerial,
-                        processes = if (retainedSerial == null) emptyList() else mutableState.value.processes,
-                        selectedProcessId = if (retainedSerial == null) null else mutableState.value.selectedProcessId,
-                        error = null,
-                    )
+                if (retainedSerial == null) processSelection.selectDevice(null)
+                mutableState.value = mutableState.value.copy(devices = result.value, error = null)
                 if (retainedSerial == null && automaticSerial != null) {
                     selectDevice(automaticSerial)
                 }
@@ -414,23 +409,22 @@ internal class MemoryProfilerController(
     }
 
     suspend fun selectDevice(serial: String) {
-        mutableState.value =
-            mutableState.value.copy(
-                selectedDeviceSerial = serial,
-                selectedProcessId = null,
-                processes = emptyList(),
-                error = null,
-            )
-        when (val result = backend.listProcesses(serial)) {
+        processSelection.selectDevice(serial)
+        mutableState.value = mutableState.value.copy(error = null)
+        val result = backend.listProcesses(serial)
+        if (processSelection.snapshot.serial != serial) return
+        when (result) {
             is MemoryBackendResult.Failure -> showFailure(result)
-            is MemoryBackendResult.Success ->
-                mutableState.value = mutableState.value.copy(processes = result.value, error = null)
+            is MemoryBackendResult.Success -> {
+                processSelection.updateProcesses(serial, result.value)
+                mutableState.value = mutableState.value.copy(error = null)
+            }
         }
     }
 
     fun selectProcess(pid: Int) {
-        if (mutableState.value.processes.any { it.pid == pid }) {
-            mutableState.value = mutableState.value.copy(selectedProcessId = pid, error = null)
+        if (processSelection.selectProcess(pid)) {
+            mutableState.value = mutableState.value.copy(error = null)
         }
     }
 

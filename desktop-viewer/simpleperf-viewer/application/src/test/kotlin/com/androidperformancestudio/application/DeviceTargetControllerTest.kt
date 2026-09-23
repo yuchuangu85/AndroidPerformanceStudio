@@ -141,6 +141,22 @@ class DeviceTargetControllerTest {
         }
 
     @Test
+    fun `reselecting a process after choosing its thread returns to process target`() =
+        runBlocking {
+            val controller = DeviceTargetController(FakeDeviceTargetGateway())
+            controller.selectDevice("serial-1")
+            controller.selectPackage("com.example.camera")
+            controller.selectProcess(321)
+            controller.selectThread(ThreadOption(pid = 321, tid = 333, name = "RenderThread"))
+            assertIs<CaptureTarget.Thread>(controller.state.value.selectedTarget)
+
+            controller.selectProcess(321)
+
+            assertIs<CaptureTarget.Process>(controller.state.value.selectedTarget)
+            assertEquals(321, controller.state.value.selectedProcessId)
+        }
+
+    @Test
     fun `process selection is constrained to the previously selected app`() =
         runBlocking {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())

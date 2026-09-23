@@ -9,6 +9,7 @@ import com.androidperformancestudio.platform.adb.AdbNotExecutableException
 import com.androidperformancestudio.platform.adb.AdbNotFoundException
 import com.androidperformancestudio.platform.toolchain.HostOperatingSystem
 import com.androidperformancestudio.platform.toolchain.HostPlatform
+import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -113,6 +114,29 @@ class SystemAdbLocator(
             ),
         )
 }
+
+/** Resolves the current host's ADB executable through the single adb-core locator. */
+public fun resolveSystemAdb(
+    configuration: AdbConfiguration = AdbConfiguration(),
+): StudioResult<AdbLocation> {
+    val platform = SystemHostPlatformDetector().detect()
+    return when (platform) {
+        is StudioResult.Success -> SystemAdbLocator(platform.value).locate(configuration)
+        is StudioResult.Failure -> StudioResult.Failure(platform.error)
+    }
+}
+
+/** Returns the current host's resolved ADB path, or `null` when ADB is unavailable. */
+public fun defaultAdbExecutable(
+    configuration: AdbConfiguration = AdbConfiguration(),
+): Path? = (resolveSystemAdb(configuration) as? StudioResult.Success)?.value?.executable
+
+/** Returns a command path even when discovery fails, preserving a typed adb-core fallback. */
+public fun defaultAdbCommandExecutable(
+    configuration: AdbConfiguration = AdbConfiguration(),
+): Path =
+    defaultAdbExecutable(configuration)
+        ?: Path.of(if (System.getProperty("os.name").contains("windows", ignoreCase = true)) "adb.exe" else "adb")
 
 private fun HostOperatingSystem.toOsName(): String =
     when (this) {

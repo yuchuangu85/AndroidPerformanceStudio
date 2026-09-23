@@ -20,3 +20,6 @@ localizedStringResource(Res.string.title, UiLanguage.SIMPLIFIED_CHINESE)
 
 Add future languages by extending `UiLanguage` and providing the corresponding Compose resource
 qualifier directory; existing control signatures do not need to change.
+
+UI control and theme conventions:
+[`../docs/architecture/ui-components-and-theme.md`](../docs/architecture/ui-components-and-theme.md).

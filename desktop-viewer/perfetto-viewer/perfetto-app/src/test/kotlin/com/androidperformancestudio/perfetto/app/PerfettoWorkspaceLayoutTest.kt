@@ -41,6 +41,21 @@ class PerfettoWorkspaceLayoutTest {
     }
 
     @Test
+    fun `device connection status is rendered in the bottom footer`() {
+        val toolbarStart = source.indexOf("HeaderToolbar(")
+        val toolbarEnd = source.indexOf("HorizontalDivider(color = MaterialTheme.colorScheme.outline)", toolbarStart)
+        val toolbar = source.substring(toolbarStart, toolbarEnd)
+        assertFalse(toolbar.contains("PerfettoStatusDot("))
+        val footerStart = source.indexOf("PerfettoStatusBar(")
+        assertTrue(footerStart > toolbarEnd)
+        val footer = source.substring(footerStart)
+        assertTrue(footer.contains("ViewerDimensions.footerHeight"))
+        assertTrue(footer.contains("Res.string.device_status"))
+        assertTrue(footer.contains("Res.string.device_connected"))
+        assertTrue(footer.contains("Res.string.no_online_device"))
+    }
+
+    @Test
     fun `workspace avoids large material page components`() {
         assertTrue(source.contains("private fun InitialTraceNotice("))
         assertFalse(source.contains("Card("))

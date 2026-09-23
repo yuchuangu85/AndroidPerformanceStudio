@@ -9,6 +9,7 @@
 - [`architecture/DEVELOPMENT.md`](architecture/DEVELOPMENT.md) — 版本矩阵、模块边界、安全约束和兼容策略。
 - [`architecture/PROTOCOL.md`](architecture/PROTOCOL.md) — Layout Report Protocol 版本与兼容契约。
 - [`architecture/ui-layout-map.md`](architecture/ui-layout-map.md) — 桌面端页面、控件和 Mermaid 布局图。
+- [`architecture/ui-components-and-theme.md`](architecture/ui-components-and-theme.md) — 公共控件、主题令牌与胶囊单选控件用法。
 
 ## Design
 

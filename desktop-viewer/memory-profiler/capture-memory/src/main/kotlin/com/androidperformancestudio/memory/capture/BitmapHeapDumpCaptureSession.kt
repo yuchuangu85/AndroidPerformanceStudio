@@ -3,6 +3,7 @@
 package com.androidperformancestudio.memory.capture
 
 import com.androidperformancestudio.memory.model.ProcessMemorySnapshot
+import com.androidperformancestudio.adb.AndroidDevicePropertyClient
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbClient
@@ -63,12 +64,15 @@ class BitmapHeapDumpCaptureSession(
         onProgress: (BitmapCaptureProgress) -> Unit = {},
     ): StudioResult<BitmapCaptureResult> {
         onProgress(BitmapCaptureProgress(BitmapCaptureStage.CheckingDevice, 5))
-        val sdkResult = runAdb(request.serial, listOf("shell", "getprop", "ro.build.version.sdk"), 30.seconds, cancellationSignal)
-        if (sdkResult is StudioResult.Failure) return sdkResult
-        val sdkText = (sdkResult as StudioResult.Success).value.trim()
         val sdkLevel =
-            sdkText.toIntOrNull()
-                ?: return failure("BITMAP_SDK_UNKNOWN", "Unable to read Android API level: $sdkText")
+            (
+                AndroidDevicePropertyClient(adbClient).sdkInt(
+                    serial = request.serial,
+                    timeout = 30.seconds,
+                    isCancellationRequested = cancellationSignal::isCancelled,
+                ) as? StudioResult.Success
+            )?.value
+                ?: return failure("BITMAP_SDK_UNKNOWN", "Unable to read Android API level.")
         if (sdkLevel < MINIMUM_BITMAP_DUMP_API) {
             return failure(
                 "BITMAP_DUMP_UNSUPPORTED_API",

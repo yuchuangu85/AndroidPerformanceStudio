@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.methodcapture
 
+import com.androidperformancestudio.adb.AndroidDevicePropertyClient
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
@@ -143,22 +144,17 @@ class MethodTraceCaptureSession(
     private suspend fun readSdkApiLevel(
         serial: String,
         cancellationSignal: HostCancellationSignal,
-    ): Int? =
-        try {
-            adbClient
-                .shell(
-                    serial = serial,
-                    arguments = listOf("getprop", "ro.build.version.sdk"),
-                    timeout = COMMAND_TIMEOUT,
-                    isCancellationRequested = cancellationSignal::isCancelled,
-                ).stdout
-                .trim()
-                .toIntOrNull()
-        } catch (error: java.util.concurrent.CancellationException) {
-            throw error
-        } catch (_: RuntimeException) {
-            null
-        }
+    ): Int? {
+        if (cancellationSignal.isCancelled) return null
+        return (
+            AndroidDevicePropertyClient(adbClient).sdkInt(
+                serial = serial,
+                timeout = COMMAND_TIMEOUT,
+                isCancellationRequested = cancellationSignal::isCancelled,
+            ) as? StudioResult.Success
+        )?.value
+    }
+
 
     private suspend fun waitForTraceFile(
         serial: String,

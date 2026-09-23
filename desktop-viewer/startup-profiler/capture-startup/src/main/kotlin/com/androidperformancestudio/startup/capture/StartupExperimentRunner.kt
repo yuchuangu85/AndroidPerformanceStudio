@@ -12,6 +12,7 @@
 
 package com.androidperformancestudio.startup.capture
 
+import com.androidperformancestudio.adb.AndroidDevicePropertyClient
 import com.androidperformancestudio.platform.adb.AdbClient
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.startup.agent.protocol.AgentStartupEvent
@@ -73,6 +74,9 @@ internal interface StartupCommandRunner {
         arguments: List<String>,
         timeoutSeconds: Int,
     ): String = execute(arguments)
+
+    suspend fun readDeviceProperty(property: String): String =
+        execute(listOf("getprop", property))
 
     suspend fun pull(
         remote: String,
@@ -336,12 +340,29 @@ public class StartupExperimentRunner internal constructor(
             if (value == null && failures.none { it.startsWith("$label:") }) failures += "$label: no value returned"
             return value
         }
-        val model = read("device model", listOf("getprop", "ro.product.model"))
-        val api = read("API level", listOf("getprop", "ro.build.version.sdk"))?.toIntOrNull()
+        suspend fun readDeviceProperty(
+            label: String,
+            property: String,
+        ): String? {
+            val value =
+                try {
+                    commandRunner.readDeviceProperty(property).trim().takeIf(String::isNotEmpty)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Exception) {
+                    failures += "$label: ${exception.message}"
+                    null
+                }
+            if (value == null && failures.none { it.startsWith("$label:") }) failures += "$label: no value returned"
+            return value
+        }
+
+        val model = readDeviceProperty("device model", "ro.product.model")
+        val api = readDeviceProperty("API level", "ro.build.version.sdk")?.toIntOrNull()
         if (api == null && failures.none { it.startsWith("API level:") }) failures += "API level: invalid value"
         val emulator =
             try {
-                when (val qemu = commandRunner.execute(listOf("getprop", "ro.kernel.qemu")).trim()) {
+                when (val qemu = commandRunner.readDeviceProperty("ro.kernel.qemu").trim()) {
                     "1" -> true
                     "", "0" -> false
                     else -> {
@@ -732,6 +753,18 @@ private class TypedStartupCommandRunner(
                 ).stdout
         } catch (error: RuntimeException) {
             throw StartupCaptureException(error.message ?: "ADB shell command failed").also { it.initCause(error) }
+        }
+
+    override suspend fun readDeviceProperty(property: String): String =
+        try {
+            val result = AndroidDevicePropertyClient(adbClient).read(serial, property)
+            when (result) {
+                is com.androidperformancestudio.model.StudioResult.Success -> result.value
+                is com.androidperformancestudio.model.StudioResult.Failure ->
+                    throw StartupCaptureException(result.error.message)
+            }
+        } catch (error: RuntimeException) {
+            throw StartupCaptureException(error.message ?: "ADB property read failed").also { it.initCause(error) }
         }
 
     override suspend fun pull(

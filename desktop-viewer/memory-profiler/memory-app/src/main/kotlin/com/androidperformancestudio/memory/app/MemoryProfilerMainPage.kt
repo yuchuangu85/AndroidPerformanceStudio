@@ -52,6 +52,8 @@ import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.SegmentedSelector
+import com.androidperformancestudio.ui.SegmentedSelectorStyle
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.chooseDirectory
 import com.androidperformancestudio.ui.chooseSaveFile
@@ -60,6 +62,24 @@ import kotlinx.coroutines.launch
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.nio.file.Path
+
+private val MEMORY_PROFILER_PRIMARY_VIEW_MODES =
+    listOf(
+        MemoryProfilerViewMode.Dashboard,
+        MemoryProfilerViewMode.ClassList,
+        MemoryProfilerViewMode.Dominators,
+    )
+
+private fun MemoryProfilerViewMode.primaryViewLabel(language: UiLanguage): String =
+    localizedStringResource(
+        when (this) {
+            MemoryProfilerViewMode.Dashboard -> Res.string.dashboard_view
+            MemoryProfilerViewMode.ClassList -> Res.string.class_list_view
+            MemoryProfilerViewMode.Dominators -> Res.string.dominators_view
+            else -> error("Not a primary memory profiler view: $this")
+        },
+        language,
+    )
 
 @Composable
 @Suppress("LongParameterList", "CyclomaticComplexMethod")
@@ -225,20 +245,12 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                         .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.dashboard_view, language),
-                    selected = state.viewMode == MemoryProfilerViewMode.Dashboard,
-                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.Dashboard) },
-                )
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.class_list_view, language),
-                    selected = state.viewMode == MemoryProfilerViewMode.ClassList,
-                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.ClassList) },
-                )
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.dominators_view, language),
-                    selected = state.viewMode == MemoryProfilerViewMode.Dominators,
-                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.Dominators) },
+                SegmentedSelector(
+                    items = MEMORY_PROFILER_PRIMARY_VIEW_MODES,
+                    selectedItem = state.viewMode.takeIf { it in MEMORY_PROFILER_PRIMARY_VIEW_MODES },
+                    onItemSelected = controller::changeViewMode,
+                    itemLabel = { mode -> mode.primaryViewLabel(language) },
+                    style = SegmentedSelectorStyle.COMPACT_OUTLINED,
                 )
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.diff_view, language),

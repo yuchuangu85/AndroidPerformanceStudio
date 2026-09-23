@@ -49,7 +49,7 @@ class AdbExecutableResolverTest {
     @Test
     fun `missing executable becomes actionable process result instead of IOException`() {
         val result = AdbProcessRunner(
-            executable = "/definitely/missing/adb",
+            executable = Path.of("/definitely/missing/adb"),
             timeoutMillis = 50,
         ).run(listOf("devices", "-l"))
 

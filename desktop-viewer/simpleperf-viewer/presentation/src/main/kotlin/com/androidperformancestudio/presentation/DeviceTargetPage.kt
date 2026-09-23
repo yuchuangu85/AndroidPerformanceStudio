@@ -257,6 +257,8 @@ private fun AppSelector(
     val language = currentSimpleperfLanguage()
     DropdownSelector(
         items = packages,
+        searchable = true,
+        searchLanguage = language,
         selectedItem = packages.firstOrNull { it.packageName == selectedPackage },
         onItemSelected = { onSelect(it.packageName) },
         itemLabel = PackageOption::packageName,
@@ -283,6 +285,9 @@ private fun ProcessSelector(
     val language = currentSimpleperfLanguage()
     DropdownSelector(
         items = processes,
+        searchable = true,
+        searchLanguage = language,
+        itemSearchText = { "${it.name} ${it.pid} ${it.user}" },
         selectedItem = processes.firstOrNull { it.pid == selectedPid },
         onItemSelected = { onSelect(it.pid) },
         itemLabel = ProcessOption::name,

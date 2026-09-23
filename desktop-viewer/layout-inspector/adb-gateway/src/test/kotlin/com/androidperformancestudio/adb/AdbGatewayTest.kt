@@ -1,5 +1,6 @@
 package com.androidperformancestudio.adb
 
+import java.nio.file.Path
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.AdbDevicesParser
 import com.androidperformancestudio.protocol.ViewNode
@@ -136,7 +137,7 @@ class AdbGatewayTest {
         val startedAt = System.nanoTime()
 
         val result = AdbProcessRunner(
-            executable = "/bin/sleep",
+            executable = Path.of("/bin/sleep"),
             timeoutMillis = 50,
         ).run(listOf("5"))
 

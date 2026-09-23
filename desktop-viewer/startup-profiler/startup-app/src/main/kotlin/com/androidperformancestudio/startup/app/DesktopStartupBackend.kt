@@ -4,11 +4,10 @@ package com.androidperformancestudio.startup.app
 
 import com.androidperformancestudio.adb.AndroidTargetMonitor
 import com.androidperformancestudio.adb.AndroidTargetMonitors
-import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.adb.defaultAdbExecutable
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
-import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.startup.capture.StartupExperimentRunner
 import com.androidperformancestudio.startup.model.StartupDevice
 import com.androidperformancestudio.startup.model.StartupTarget
@@ -37,7 +36,7 @@ internal interface StartupBackend {
 }
 
 internal class DesktopStartupBackend(
-    private val adbLocator: () -> Path? = ::locateSystemAdb,
+    private val adbLocator: () -> Path? = ::defaultAdbExecutable,
     private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
 ) : StartupBackend {
     override suspend fun listDevices(): StartupBackendResult<List<StartupDevice>> {
@@ -119,11 +118,6 @@ internal class DesktopStartupBackend(
     private companion object {
         const val MAX_OUTPUT = 4 * 1024 * 1024
         val COMMAND_TIMEOUT = 30.seconds
-
-        fun locateSystemAdb(): Path? {
-            val platform = (SystemHostPlatformDetector().detect() as? StudioResult.Success)?.value ?: return null
-            return (SystemAdbLocator(platform).locate() as? StudioResult.Success)?.value?.executable
-        }
     }
 }
 

@@ -46,7 +46,7 @@ public fun ProfilerCompactButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     selected: Boolean = false,
-    shape: Shape = RoundedCornerShape(4.dp),
+    shape: Shape = RoundedCornerShape(ViewerDimensions.compactControlRadius),
 ) {
     val containerColor =
         if (selected) {
@@ -65,7 +65,7 @@ public fun ProfilerCompactButton(
     Box(
         modifier =
             modifier
-                .height(24.dp)
+                .height(ViewerDimensions.compactControlHeight)
                 .clip(shape)
                 .background(containerColor.copy(alpha = disabledAlpha))
                 .border(1.dp, MaterialTheme.colorScheme.primary, shape)

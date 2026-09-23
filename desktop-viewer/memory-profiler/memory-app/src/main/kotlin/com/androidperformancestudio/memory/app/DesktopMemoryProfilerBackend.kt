@@ -8,7 +8,7 @@ import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetMonitor
 import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.adb.AndroidTargetSubscription
-import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.adb.defaultAdbExecutable
 import com.androidperformancestudio.adb.profileableOrDebuggableProcesses
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalysisRequest
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalyzer
@@ -78,7 +78,6 @@ import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
-import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Dispatchers
@@ -96,7 +95,7 @@ import java.time.format.DateTimeFormatter
 @Suppress("LargeClass", "LongParameterList", "TooManyFunctions")
 internal class DesktopMemoryProfilerBackend(
     private val dataRoot: Path = defaultDataRoot(),
-    private val adbLocator: () -> Path? = ::locateSystemAdb,
+    private val adbLocator: () -> Path? = ::defaultAdbExecutable,
     private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
     private val bitmapCaptureSessionFactory: (Path) -> BitmapHeapDumpCaptureSession = ::BitmapHeapDumpCaptureSession,
@@ -1173,11 +1172,6 @@ internal class DesktopMemoryProfilerBackend(
                 ".android-performance-studio",
                 "memory-profiler",
             )
-
-        private fun locateSystemAdb(): Path? {
-            val platform = (SystemHostPlatformDetector().detect() as? StudioResult.Success)?.value ?: return null
-            return (SystemAdbLocator(platform).locate() as? StudioResult.Success)?.value?.executable
-        }
     }
 }
 

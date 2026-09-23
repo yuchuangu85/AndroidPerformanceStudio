@@ -17,6 +17,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,7 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.adb.AdbConfiguration
-import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.adb.defaultAdbExecutable
 import com.androidperformancestudio.methodrecording.app.generated.resources.Res
 import com.androidperformancestudio.methodrecording.app.generated.resources.capture
 import com.androidperformancestudio.methodrecording.app.generated.resources.device_connected
@@ -45,8 +46,6 @@ import com.androidperformancestudio.methodrecording.app.generated.resources.refr
 import com.androidperformancestudio.methodrecording.app.generated.resources.select_device
 import com.androidperformancestudio.methodrecording.app.generated.resources.select_process
 import com.androidperformancestudio.methodrecording.app.generated.resources.stop
-import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.ui.ActiveWindowMenuBar
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.DropdownSelector
@@ -70,8 +69,12 @@ fun FrameWindowScope.MethodRecordingMainPage(
     initialTraceFile: Path? = null,
     onBack: () -> Unit = {},
 ) {
-    val adbExecutable = remember(androidSdkPath) { locateSystemAdb(androidSdkPath) }
+    val adbExecutable =
+        remember(androidSdkPath) {
+            defaultAdbExecutable(AdbConfiguration(androidSdkPath = androidSdkPath))
+        }
     val controller = remember(adbExecutable) { MethodRecordingController(adbExecutable, language = language) }
+    DisposableEffect(controller) { onDispose(controller::close) }
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var showTraceFileDialog by remember { mutableStateOf(false) }
@@ -109,6 +112,9 @@ fun FrameWindowScope.MethodRecordingMainPage(
             HeaderSpacer()
             DropdownSelector(
                 items = state.processes,
+                searchable = true,
+                searchLanguage = language,
+                itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
                 selectedItem = state.processes.firstOrNull { it.pid == state.selectedPid },
                 onItemSelected = { process -> controller.selectProcess(process.pid) },
                 itemLabel = { process -> process.name },
@@ -211,13 +217,4 @@ private fun MethodRecordingStatusBar(
             maxLines = 1,
         )
     }
-}
-
-@Suppress("ReturnCount")
-private fun locateSystemAdb(androidSdkPath: Path?): Path? {
-    val platform = (SystemHostPlatformDetector().detect() as? StudioResult.Success)?.value ?: return null
-    val location =
-        SystemAdbLocator(platform).locate(AdbConfiguration(androidSdkPath = androidSdkPath)) as? StudioResult.Success
-            ?: return null
-    return location.value.executable
 }

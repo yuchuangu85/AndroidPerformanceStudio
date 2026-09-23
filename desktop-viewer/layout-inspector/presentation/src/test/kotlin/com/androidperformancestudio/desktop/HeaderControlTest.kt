@@ -143,7 +143,7 @@ class HeaderControlTest {
     }
 
     @Test
-    fun `scan controls use adjacent mutually exclusive buttons`() {
+    fun `scan controls use a mutually exclusive shared segmented selector`() {
         assertEquals("Auto scan", localizedStringResource(Res.string.auto_scan, UiLanguage.ENGLISH))
         assertEquals("自动扫描", localizedStringResource(Res.string.auto_scan, UiLanguage.SIMPLIFIED_CHINESE))
         assertEquals("Refresh", localizedStringResource(Res.string.refresh, UiLanguage.ENGLISH))
@@ -155,47 +155,39 @@ class HeaderControlTest {
         val scanControls = source
             .substringAfter("private fun ScanModeButtons(")
             .substringBefore("private fun LayoutInspectorStatusBar(")
+        val selector =
+            Files.readString(
+                Path.of(
+                    "../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/SegmentedSelector.kt",
+                ),
+            )
+        val dimensions =
+            Files.readString(
+                Path.of("../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/ViewerTheme.kt"),
+            )
+        val compactButton =
+            Files.readString(
+                Path.of("../../ui-components/src/main/kotlin/com/androidperformancestudio/ui/ProfilerMacOsControls.kt"),
+            )
 
-        assertEquals(2, Regex("ProfilerCompactButton\\(").findAll(scanControls).count())
-        assertFalse(scanControls.contains("horizontalArrangement ="))
-        assertTrue(
-            scanControls.indexOf("text = localizedStringResource(Res.string.refresh, language)") <
-                scanControls.indexOf("text = localizedStringResource(Res.string.auto_scan, language)"),
-        )
-        assertTrue(scanControls.contains("selected = scanControlState.autoScanSelected"))
-        assertTrue(scanControls.contains("selected = scanControlState.manualRefreshSelected"))
-        assertTrue(scanControls.contains("onClick = onAutoScanSelected"))
-        assertTrue(scanControls.contains("onClick = onManualRefreshSelected"))
+        assertEquals(1, Regex("SegmentedSelector\\(").findAll(scanControls).count())
+        assertTrue(scanControls.contains("items = listOf(ScanMode.MANUAL, ScanMode.AUTOMATIC)"))
+        assertTrue(scanControls.contains("selectedItem = scanControlState.selectedMode"))
+        assertTrue(scanControls.contains("style = SegmentedSelectorStyle.COMPACT_OUTLINED"))
+        assertTrue(scanControls.contains("onSelectedItemClick"))
+        assertTrue(scanControls.contains("onAutoScanSelected()"))
+        assertTrue(scanControls.contains("onManualRefreshSelected()"))
+        assertTrue(selector.contains("SegmentedSelectorStyle.COMPACT_OUTLINED"))
+        assertTrue(selector.contains("ViewerDimensions.compactControlHeight"))
+        assertTrue(selector.contains("ViewerDimensions.compactControlRadius"))
+        assertTrue(selector.contains("colors.accent"))
+        assertTrue(dimensions.contains("compactControlHeight = 24.dp"))
+        assertTrue(dimensions.contains("compactControlRadius = 4.dp"))
+        assertTrue(compactButton.contains("ViewerDimensions.compactControlHeight"))
+        assertTrue(compactButton.contains("ViewerDimensions.compactControlRadius"))
         assertFalse(source.contains("MacOSChoiceChip("))
         assertFalse(source.contains("private fun AutoScanSwitch("))
         assertFalse(source.contains("private fun ManualRefreshButton("))
-    }
-
-    @Test
-    fun `scan control group keeps only its outer corners rounded`() {
-        val source = Files.readString(
-            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
-        )
-        val scanControls = source
-            .substringAfter("private fun ScanModeButtons(")
-            .substringBefore("private fun LayoutInspectorStatusBar(")
-        val refreshShape = source
-            .substringAfter("private val ScanModeRefreshButtonShape")
-            .substringBefore("private val ScanModeAutoScanButtonShape")
-        val autoScanShape = source
-            .substringAfter("private val ScanModeAutoScanButtonShape")
-            .substringBefore("internal const val AI_ANALYSIS_ENTRY_VISIBLE")
-
-        assertTrue(scanControls.contains("shape = ScanModeRefreshButtonShape"))
-        assertTrue(scanControls.contains("shape = ScanModeAutoScanButtonShape"))
-        assertTrue(refreshShape.contains("topStart = 4.dp"))
-        assertTrue(refreshShape.contains("topEnd = 0.dp"))
-        assertTrue(refreshShape.contains("bottomEnd = 0.dp"))
-        assertTrue(refreshShape.contains("bottomStart = 4.dp"))
-        assertTrue(autoScanShape.contains("topStart = 0.dp"))
-        assertTrue(autoScanShape.contains("topEnd = 4.dp"))
-        assertTrue(autoScanShape.contains("bottomEnd = 4.dp"))
-        assertTrue(autoScanShape.contains("bottomStart = 0.dp"))
     }
 
     @Test

@@ -149,6 +149,9 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             HeaderSpacer()
             DropdownSelector(
                 items = state.processes,
+                searchable = true,
+                searchLanguage = language,
+                itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
                 selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
                 onItemSelected = { controller.selectProcess(it.pid) },
                 itemLabel = {

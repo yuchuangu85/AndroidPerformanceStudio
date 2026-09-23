@@ -9,35 +9,48 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui_components.generated.resources.Res
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
+import com.androidperformancestudio.ui_components.generated.resources.no_matching_options
+import com.androidperformancestudio.ui_components.generated.resources.search_options
 import org.jetbrains.compose.resources.painterResource
 import kotlin.plus
 
-/** Generic compact dropdown shared by profiler and inspector toolbars. */
+/**
+ * Generic compact dropdown shared by profiler and inspector toolbars.
+ * Set [searchable] for app/process lists; [itemSearchText] may include hidden identifiers such as a package name.
+ */
 @Composable
 @Suppress("FunctionName", "LongMethod", "LongParameterList")
 public fun <T> DropdownSelector(
@@ -60,8 +73,17 @@ public fun <T> DropdownSelector(
     controlFontSize: TextUnit? = null,
     menuFontSize: TextUnit? = null,
     onControlClick: (() -> Unit)? = null,
+    searchable: Boolean = false,
+    searchLanguage: UiLanguage = UiLanguage.ENGLISH,
+    itemSearchText: (T) -> String = itemLabel,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredItems = filterDropdownItems(items, searchQuery.takeIf { searchable }.orEmpty(), itemSearchText)
+    val closeMenu = {
+        expanded = false
+        searchQuery = ""
+    }
     val displayText = selectedItem?.let(selectedItemLabel) ?: placeholder
     val controlTextSize = controlFontSize ?: ViewerTypography.secondary.fontSize
     val menuTextSize = menuFontSize ?: ViewerTypography.bodyCompact.fontSize
@@ -78,7 +100,12 @@ public fun <T> DropdownSelector(
                         selectorDescription?.let { contentDescription = it }
                         stateDescription = displayText
                     }.clickable(enabled = canExpand) {
-                        if (onControlClick == null) expanded = true else onControlClick()
+                        if (onControlClick == null) {
+                            searchQuery = ""
+                            expanded = true
+                        } else {
+                            onControlClick()
+                        }
                     }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -104,32 +131,53 @@ public fun <T> DropdownSelector(
         }
         DropdownMenu(
             expanded = expanded && canExpand && onControlClick == null,
-            onDismissRequest = { expanded = false },
-            modifier = menuModifier.background(colors.panel),
+            onDismissRequest = closeMenu,
+            modifier =
+                menuModifier
+                    .then(if (searchable) Modifier.heightIn(max = 360.dp) else Modifier)
+                    .background(colors.panel),
         ) {
-            onPlaceholderSelected?.let { selectPlaceholder ->
-                DropdownSelectorMenuItem(
-                    label = placeholder,
-                    secondary = null,
-                    selected = selectedItem == null,
-                    enabled = enabled,
-                    onClick = {
-                        expanded = false
-                        selectPlaceholder()
-                    },
+            if (searchable) {
+                DropdownSelectorSearchField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = localizedStringResource(Res.string.search_options, searchLanguage),
                     colors = colors,
-                    itemHeight = menuItemHeight,
-                    fontSize = menuTextSize,
                 )
             }
-            items.forEach { item ->
+            if (searchQuery.isBlank()) {
+                onPlaceholderSelected?.let { selectPlaceholder ->
+                    DropdownSelectorMenuItem(
+                        label = placeholder,
+                        secondary = null,
+                        selected = selectedItem == null,
+                        enabled = enabled,
+                        onClick = {
+                            closeMenu()
+                            selectPlaceholder()
+                        },
+                        colors = colors,
+                        itemHeight = menuItemHeight,
+                        fontSize = menuTextSize,
+                    )
+                }
+            }
+            if (searchable && filteredItems.isEmpty()) {
+                Text(
+                    text = localizedStringResource(Res.string.no_matching_options, searchLanguage),
+                    color = colors.secondaryText,
+                    fontSize = menuTextSize,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+            filteredItems.forEach { item ->
                 DropdownSelectorMenuItem(
                     label = itemLabel(item),
                     secondary = itemSecondary(item),
                     selected = item == selectedItem,
                     enabled = enabled && itemEnabled(item),
                     onClick = {
-                        expanded = false
+                        closeMenu()
                         onItemSelected(item)
                     },
                     colors = colors,
@@ -139,6 +187,53 @@ public fun <T> DropdownSelector(
             }
         }
     }
+}
+
+/** Case-insensitive substring matching for optional dropdown search; preserves item order. */
+internal fun <T> filterDropdownItems(
+    items: List<T>,
+    query: String,
+    searchText: (T) -> String,
+): List<T> {
+    val term = query.trim()
+    return if (term.isEmpty()) items else items.filter { searchText(it).contains(term, ignoreCase = true) }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun DropdownSelectorSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    colors: ViewerColors,
+) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .border(1.dp, colors.accent, RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp, vertical = 5.dp)
+                .focusRequester(focusRequester)
+                .testTag("dropdown-selector-search")
+                .semantics { contentDescription = placeholder },
+        singleLine = true,
+        textStyle = ViewerTypography.bodyCompact.copy(color = colors.text),
+        cursorBrush = SolidColor(colors.accent),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        decorationBox = { innerTextField ->
+            Box {
+                if (value.isEmpty()) {
+                    Text(placeholder, color = colors.secondaryText, style = ViewerTypography.bodyCompact)
+                }
+                innerTextField()
+            }
+        },
+    )
 }
 
 @Composable

@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.memory.capture
 
+import com.androidperformancestudio.adb.AndroidDevicePropertyClient
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
@@ -127,21 +128,14 @@ class NativeHeapCaptureSession(
         serial: String,
         cancellationSignal: HostCancellationSignal,
     ): Int? =
-        try {
-            adbClient
-                .shell(
-                    serial = serial,
-                    arguments = listOf("getprop", "ro.build.version.sdk"),
-                    timeout = 30.seconds,
-                    isCancellationRequested = cancellationSignal::isCancelled,
-                ).stdout
-                .trim()
-                .toIntOrNull()
-        } catch (error: java.util.concurrent.CancellationException) {
-            throw error
-        } catch (_: RuntimeException) {
-            null
-        }
+        (
+            AndroidDevicePropertyClient(adbClient).sdkInt(
+                serial = serial,
+                timeout = 30.seconds,
+                isCancellationRequested = cancellationSignal::isCancelled,
+            ) as? StudioResult.Success
+        )?.value
+
 
     private suspend fun runAdb(
         serial: String,

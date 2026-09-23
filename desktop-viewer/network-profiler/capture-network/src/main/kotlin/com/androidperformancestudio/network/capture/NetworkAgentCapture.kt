@@ -2,53 +2,68 @@
 
 package com.androidperformancestudio.network.capture
 
+import com.androidperformancestudio.adb.defaultAdbExecutable
 import com.androidperformancestudio.network.model.*
 import com.androidperformancestudio.network.protocol.AgentCommand
 import com.androidperformancestudio.network.protocol.AgentNetworkEvent
 import com.androidperformancestudio.network.protocol.NETWORK_AGENT_PORT
 import com.androidperformancestudio.network.protocol.NETWORK_AGENT_PROTOCOL_VERSION
 import com.androidperformancestudio.network.protocol.NetworkAgentCodec
-import com.androidperformancestudio.platform.toolchain.HostProcessRequest
-import com.androidperformancestudio.platform.toolchain.HostProcessRunner
-import com.androidperformancestudio.platform.toolchain.HostProcessTimeoutException
-import com.androidperformancestudio.platform.toolchain.JvmHostProcessRunner
+import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import java.net.InetAddress
 import java.net.Socket
-import java.nio.file.Path
 import java.security.MessageDigest
-import java.time.Duration
 import java.time.Instant
 import java.util.UUID
-import kotlin.time.toKotlinDuration
+import kotlin.time.Duration.Companion.seconds
 
-public data class CommandResult(
-    val exitCode: Int,
-    val stdout: String,
-    val stderr: String,
-    val timedOut: Boolean,
-)
+/** A network-capture port backed by adb-core rather than a feature-owned host process runner. */
+public interface NetworkAdbGateway {
+    public suspend fun readAgentToken(serial: String, packageName: String): String
 
-public interface AdbCommandRunner {
-    public suspend fun run(arguments: List<String>, timeout: Duration = Duration.ofSeconds(10)): CommandResult
+    public suspend fun allocateForward(serial: String, remotePort: Int): Int
+
+    public suspend fun removeForward(serial: String, localPort: Int)
 }
 
-public class ProcessAdbCommandRunner(
-    private val delegate: HostProcessRunner = JvmHostProcessRunner(),
-) : AdbCommandRunner {
-    override suspend fun run(arguments: List<String>, timeout: Duration): CommandResult =
-        try {
-            val result =
-                delegate.executeText(
-                    HostProcessRequest(
-                        executable = Path.of(requireNotNull(arguments.firstOrNull()) { "ADB command is empty" }),
-                        arguments = arguments.drop(1),
-                        timeout = timeout.toKotlinDuration(),
-                    ),
-                )
-            CommandResult(result.exitCode, result.stdout, result.stderr, false)
-        } catch (_: HostProcessTimeoutException) {
-            CommandResult(-1, "", "", true)
-        }
+/** Default network transport; every ADB command is executed by [AdbClient]. */
+public class CoreNetworkAdbGateway(
+    private val adbClient: AdbClient,
+) : NetworkAdbGateway {
+    override suspend fun readAgentToken(serial: String, packageName: String): String =
+        adbClient
+            .shell(
+                serial = serial,
+                arguments = listOf("run-as", packageName, "cat", "files/aps-network/token"),
+                timeout = NETWORK_ADB_TIMEOUT,
+            ).stdout
+            .trim()
+
+    override suspend fun allocateForward(serial: String, remotePort: Int): Int =
+        adbClient
+            .forward(
+                serial = serial,
+                local = "tcp:0",
+                remote = "tcp:$remotePort",
+                timeout = NETWORK_ADB_TIMEOUT,
+            ).stdout
+            .trim()
+            .toIntOrNull()
+            ?: error("ADB did not return an allocated local port")
+
+    override suspend fun removeForward(serial: String, localPort: Int) {
+        adbClient.removeForward(serial, "tcp:$localPort", NETWORK_ADB_TIMEOUT)
+    }
+}
+
+private val NETWORK_ADB_TIMEOUT = 10.seconds
+
+private fun defaultNetworkAdbGateway(): NetworkAdbGateway {
+    val executable =
+        defaultAdbExecutable()
+            ?: error("Android SDK Platform Tools were not found. Configure ANDROID_HOME or ANDROID_SDK_ROOT.")
+    return CoreNetworkAdbGateway(DefaultAdbClient(executable))
 }
 
 public class ActiveNetworkCapture internal constructor(
@@ -69,25 +84,39 @@ public class ActiveNetworkCapture internal constructor(
 )
 
 public class NetworkAgentCapture(
-    private val adb: Path = Path.of("adb"),
-    private val runner: AdbCommandRunner = ProcessAdbCommandRunner(),
+    private val adbGatewayProvider: () -> NetworkAdbGateway = ::defaultNetworkAdbGateway,
 ) {
+    private var adbGateway: NetworkAdbGateway? = null
+
+    private fun adbGateway(): NetworkAdbGateway =
+        adbGateway ?: adbGatewayProvider().also { adbGateway = it }
+
     public suspend fun start(serial: String, packageName: String): ActiveNetworkCapture {
         require(serial.isNotBlank()) { "Device serial is required" }
         require(PACKAGE_PATTERN.matches(packageName)) { "Invalid Android package name" }
-        val tokenResult = runner.run(listOf(adb.toString(), "-s", serial, "shell", "run-as", packageName, "cat", "files/aps-network/token"))
-        check(tokenResult.exitCode == 0 && tokenResult.stdout.isNotBlank()) { "Network Agent token is unavailable. Ensure the debuggable app is running and the Agent initializer is installed: ${tokenResult.stderr.trim()}" }
-        val forward = runner.run(listOf(adb.toString(), "-s", serial, "forward", "tcp:0", "tcp:$NETWORK_AGENT_PORT"))
-        check(forward.exitCode == 0) { "Unable to create ADB forward: ${forward.stderr.trim()}" }
-        val localPort = forward.stdout.trim().toIntOrNull() ?: error("ADB did not return an allocated local port")
-        val socket = runCatching { Socket(InetAddress.getLoopbackAddress(), localPort).apply { soTimeout = 10_000 } }.getOrElse { failure ->
-            runner.run(listOf(adb.toString(), "-s", serial, "forward", "--remove", "tcp:$localPort"))
-            throw failure
+        val adbGateway = adbGateway()
+        val token =
+            runCatching { adbGateway.readAgentToken(serial, packageName) }
+                .getOrElse { error ->
+                    throw IllegalStateException(
+                        "Network Agent token is unavailable. Ensure the debuggable app is running and the Agent initializer is installed.",
+                        error,
+                    )
+                }
+        check(token.isNotBlank()) {
+            "Network Agent token is unavailable. Ensure the debuggable app is running and the Agent initializer is installed."
         }
+        val localPort = adbGateway.allocateForward(serial, NETWORK_AGENT_PORT)
+        val socket =
+            runCatching { Socket(InetAddress.getLoopbackAddress(), localPort).apply { soTimeout = 10_000 } }
+                .getOrElse { failure ->
+                    runCatching { adbGateway.removeForward(serial, localPort) }
+                    throw failure
+                }
         return try {
             val wallBefore = Instant.now()
             val hostBefore = System.nanoTime()
-            NetworkAgentCodec.writeCommand(socket.getOutputStream(), AgentCommand("HELLO", token = tokenResult.stdout.trim()))
+            NetworkAgentCodec.writeCommand(socket.getOutputStream(), AgentCommand("HELLO", token = token))
             val ready = NetworkAgentCodec.readResponse(socket.getInputStream())
             val hostAfter = System.nanoTime()
             check(ready.type == "READY") { ready.message ?: "Network Agent rejected the session" }
@@ -110,7 +139,7 @@ public class NetworkAgentCapture(
             )
         } catch (failure: Exception) {
             runCatching(socket::close)
-            runner.run(listOf(adb.toString(), "-s", serial, "forward", "--remove", "tcp:$localPort"))
+            runCatching { adbGateway.removeForward(serial, localPort) }
             throw failure
         }
     }
@@ -139,7 +168,7 @@ public class NetworkAgentCapture(
             } while (response.type == "STOPPING")
         } finally {
             capture.socket.close()
-            runner.run(listOf(adb.toString(), "-s", capture.serial, "forward", "--remove", "tcp:${capture.localPort}"))
+            adbGateway().removeForward(capture.serial, capture.localPort)
         }
 
         val end = requireNotNull(finalResponse)

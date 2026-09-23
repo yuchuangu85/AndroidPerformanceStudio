@@ -1,5 +1,6 @@
 package com.androidperformancestudio.methodrecording.app
 
+import com.androidperformancestudio.adb.AndroidProcessSelection
 import com.androidperformancestudio.arttrace.ArtTraceCallStackProjector
 import com.androidperformancestudio.arttrace.ArtTraceFlameGraphBuilder
 import com.androidperformancestudio.arttrace.ArtTraceParseResult
@@ -10,6 +11,7 @@ import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.methodcapture.MethodRecordingDeviceGateway
 import com.androidperformancestudio.methodcapture.MethodTraceCaptureRequest
 import com.androidperformancestudio.methodcapture.MethodTraceCaptureSession
+import com.androidperformancestudio.methodcapture.MethodTraceProcessOption
 import com.androidperformancestudio.methodrecording.app.generated.resources.Res
 import com.androidperformancestudio.methodrecording.app.generated.resources.adb_not_found
 import com.androidperformancestudio.methodrecording.app.generated.resources.capture_failed
@@ -43,9 +45,21 @@ class MethodRecordingController(
     private val captureSession = adbExecutable?.let { MethodTraceCaptureSession(it) }
     private val gateway = adbExecutable?.let { MethodRecordingDeviceGateway(it) }
     private val mutableState = MutableStateFlow(MethodRecordingState())
+    private val processSelection = AndroidProcessSelection(MethodTraceProcessOption::pid)
+    private val processSelectionSubscription = processSelection.register { choice ->
+        mutableState.value = mutableState.value.copy(
+            selectedSerial = choice.serial,
+            processes = choice.processes,
+            selectedPid = choice.selectedPid,
+        )
+    }
     val state: StateFlow<MethodRecordingState> = mutableState.asStateFlow()
 
     private var callStackTable: CallStackTable? = null
+
+    fun close() {
+        processSelectionSubscription.close()
+    }
 
     suspend fun refreshDevices() {
         val gw = gateway
@@ -62,14 +76,8 @@ class MethodRecordingController(
                 val current =
                     mutableState.value.selectedSerial
                         ?.takeIf { serial -> result.value.any { it.serial == serial && it.online } }
-                mutableState.value =
-                    mutableState.value.copy(
-                        devices = result.value,
-                        selectedSerial = current,
-                        processes = emptyList(),
-                        selectedPid = null,
-                        error = null,
-                    )
+                processSelection.selectDevice(current)
+                mutableState.value = mutableState.value.copy(devices = result.value, error = null)
                 val automatic =
                     current ?: result.value
                         .filter { it.online }
@@ -84,23 +92,18 @@ class MethodRecordingController(
 
     suspend fun selectDevice(serial: String) {
         val gw = gateway ?: return
-        mutableState.value =
-            mutableState.value.copy(
-                selectedSerial = serial,
-                selectedPid = null,
-                processes = emptyList(),
-                error = null,
-            )
-        when (val result = gw.loadProcesses(serial)) {
+        processSelection.selectDevice(serial)
+        mutableState.value = mutableState.value.copy(error = null)
+        val result = gw.loadProcesses(serial)
+        if (processSelection.snapshot.serial != serial) return
+        when (result) {
             is StudioResult.Failure -> mutableState.value = mutableState.value.copy(error = result.error.message)
-            is StudioResult.Success -> mutableState.value = mutableState.value.copy(processes = result.value)
+            is StudioResult.Success -> processSelection.updateProcesses(serial, result.value)
         }
     }
 
     fun selectProcess(pid: Int) {
-        if (mutableState.value.processes.any { it.pid == pid }) {
-            mutableState.value = mutableState.value.copy(selectedPid = pid)
-        }
+        processSelection.selectProcess(pid)
     }
 
     suspend fun importTrace(

@@ -2,8 +2,9 @@
 
 package com.androidperformancestudio.frame.app
 
-import com.androidperformancestudio.adb.AndroidDeviceInfosResult
 import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidDeviceInfosResult
+import com.androidperformancestudio.adb.AndroidProcessSelection
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import com.androidperformancestudio.contracts.CaptureArtifact
@@ -17,6 +18,7 @@ import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.parser.GfxInfoFrameStatsParser
 import com.androidperformancestudio.frame.presentation.FrameDeviceOption
+import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerState
 import com.androidperformancestudio.frame.storage.SqliteFrameSessionStore
@@ -46,6 +48,14 @@ internal class FrameProfilerController(
     private val onlineFrames = mutableListOf<FrameSample>()
     private var activeCapture: OnlineFrameCapture? = null
     private var currentSession: FrameCaptureSession? = null
+    private val processSelection = AndroidProcessSelection(FrameProcessOption::pid, selectSingleProcess = true)
+    private val processSelectionSubscription = processSelection.register { choice ->
+        mutableState.value = mutableState.value.copy(
+            selectedDeviceSerial = choice.serial,
+            processes = choice.processes,
+            selectedProcessId = choice.selectedPid,
+        )
+    }
     private val targetSubscription =
         onlineBackend.registerTargetListener(
             object : AndroidTargetListener {
@@ -87,18 +97,11 @@ internal class FrameProfilerController(
                                     errorMessage = result.error.message,
                                 )
                         is com.androidperformancestudio.model.StudioResult.Success -> {
-                            val processes = result.value.frameCaptureProcesses()
-                            val selected =
-                                mutableState.value.selectedProcessId?.takeIf { pid ->
-                                    processes.any { it.pid == pid }
-                                } ?: processes.singleOrNull()?.pid
-                            mutableState.value =
-                                mutableState.value.copy(
-                                    processes = processes,
-                                    selectedProcessId = selected,
-                                    isRefreshingDevices = false,
-                                    errorMessage = null,
-                                )
+                            processSelection.updateProcesses(serial, result.value.frameCaptureProcesses())
+                            mutableState.value = mutableState.value.copy(
+                                isRefreshingDevices = false,
+                                errorMessage = null,
+                            )
                         }
                     }
                 }
@@ -131,15 +134,12 @@ internal class FrameProfilerController(
                         .filter(FrameDeviceOption::online)
                         .singleOrNull()
                         ?.serial
-                mutableState.value =
-                    mutableState.value.copy(
-                        devices = result.value,
-                        selectedDeviceSerial = retainedSerial,
-                        processes = if (retainedSerial == null) emptyList() else mutableState.value.processes,
-                        selectedProcessId = if (retainedSerial == null) null else mutableState.value.selectedProcessId,
-                        isRefreshingDevices = false,
-                        errorMessage = null,
-                    )
+                if (retainedSerial == null) processSelection.selectDevice(null)
+                mutableState.value = mutableState.value.copy(
+                    devices = result.value,
+                    isRefreshingDevices = false,
+                    errorMessage = null,
+                )
                 if (retainedSerial == null && automaticSerial != null) {
                     selectDevice(automaticSerial)
                 }
@@ -149,35 +149,27 @@ internal class FrameProfilerController(
 
     suspend fun selectDevice(serial: String) {
         if (mutableState.value.isCapturing) return
-        mutableState.value =
-            mutableState.value.copy(
-                selectedDeviceSerial = serial,
-                selectedProcessId = null,
-                processes = emptyList(),
-                isRefreshingDevices = true,
-                errorMessage = null,
-            )
-        when (val result = onlineBackend.listProcesses(serial)) {
+        processSelection.selectDevice(serial)
+        mutableState.value = mutableState.value.copy(isRefreshingDevices = true, errorMessage = null)
+        val result = onlineBackend.listProcesses(serial)
+        if (processSelection.snapshot.serial != serial) return
+        when (result) {
             is FrameBackendResult.Failure ->
                 mutableState.value =
                     mutableState.value.copy(
                         isRefreshingDevices = false,
                         errorMessage = result.message,
                     )
-            is FrameBackendResult.Success ->
-                mutableState.value =
-                    mutableState.value.copy(
-                        processes = result.value,
-                        selectedProcessId = result.value.singleOrNull()?.pid,
-                        isRefreshingDevices = false,
-                        errorMessage = null,
-                    )
+            is FrameBackendResult.Success -> {
+                processSelection.updateProcesses(serial, result.value)
+                mutableState.value = mutableState.value.copy(isRefreshingDevices = false, errorMessage = null)
+            }
         }
     }
 
     fun selectProcess(pid: Int) {
-        if (!mutableState.value.isCapturing && mutableState.value.processes.any { it.pid == pid }) {
-            mutableState.value = mutableState.value.copy(selectedProcessId = pid, errorMessage = null)
+        if (!mutableState.value.isCapturing && processSelection.selectProcess(pid)) {
+            mutableState.value = mutableState.value.copy(errorMessage = null)
         }
     }
 

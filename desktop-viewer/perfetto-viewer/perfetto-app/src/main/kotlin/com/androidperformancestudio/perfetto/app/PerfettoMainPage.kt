@@ -2,6 +2,7 @@ package com.androidperformancestudio.perfetto.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -64,6 +66,7 @@ import com.androidperformancestudio.perfetto_app.generated.resources.adb_path
 import com.androidperformancestudio.perfetto_app.generated.resources.captured_traces_will_appear_here
 import com.androidperformancestudio.perfetto_app.generated.resources.delete
 import com.androidperformancestudio.perfetto_app.generated.resources.device_connected
+import com.androidperformancestudio.perfetto_app.generated.resources.device_status
 import com.androidperformancestudio.perfetto_app.generated.resources.device_refresh_failed
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_allocation_churn_description
 import com.androidperformancestudio.perfetto_app.generated.resources.diagnostic_art_allocation_churn_title
@@ -153,6 +156,7 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
@@ -445,7 +449,7 @@ fun FrameWindowScope.PerfettoMainPage(
                 )
             }
             Column(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxWidth().weight(1f),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().weight(if (activeTraceFile == null) 1f else 0.62f),
@@ -535,6 +539,11 @@ fun FrameWindowScope.PerfettoMainPage(
                     )
                 }
             }
+            PerfettoStatusBar(
+                devices = devices,
+                selectedDeviceSerial = selectedDeviceSerial,
+                language = language,
+            )
         }
     }
     DisposableEffect(Unit) {
@@ -559,6 +568,55 @@ fun FrameWindowScope.PerfettoMainPage(
             diagnosticResult = null
             diagnosticError = null
         }
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
+private fun PerfettoStatusBar(
+    devices: List<PerfettoDevice>,
+    selectedDeviceSerial: String?,
+    language: UiLanguage,
+) {
+    val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
+    val statusText =
+        selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.displayName) }
+            ?: localizedStringResource(Res.string.no_online_device, language)
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(ViewerDimensions.footerHeight)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(
+                    ViewerDimensions.hairline,
+                    MaterialTheme.colorScheme.outline,
+                    RoundedCornerShape(0.dp),
+                ).horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "${localizedStringResource(Res.string.device_status, language)}:",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = ViewerTypography.label.fontSize,
+            maxLines = 1,
+        )
+        PerfettoStatusDot(
+            color =
+                if (selectedDevice?.online == true) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+        )
+        Text(
+            text = statusText,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = ViewerTypography.label.fontSize,
+            maxLines = 1,
+        )
     }
 }
 
@@ -601,23 +659,6 @@ private fun RowScope.PerfettoToolbarContent(
         enabled = !deviceRefreshInProgress,
     )
     Spacer(Modifier.weight(1f))
-    PerfettoStatusDot(
-        color =
-            if (selectedDevice?.online == true) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.error
-            },
-    )
-    HeaderSpacer()
-    Text(
-        text =
-            selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.displayName) }
-                ?: localizedStringResource(Res.string.no_online_device, language),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = ViewerTypography.label.fontSize,
-        maxLines = 1,
-    )
 }
 
 @Composable

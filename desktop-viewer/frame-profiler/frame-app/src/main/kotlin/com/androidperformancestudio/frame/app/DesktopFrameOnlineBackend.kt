@@ -3,11 +3,12 @@
 package com.androidperformancestudio.frame.app
 
 import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidDevicePropertyClient
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetMonitor
 import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.adb.AndroidTargetSubscription
-import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.adb.defaultAdbExecutable
 import com.androidperformancestudio.adb.profileableOrDebuggableProcesses
 import com.androidperformancestudio.frame.capture.FrameMetricsAgentCaptureSession
 import com.androidperformancestudio.frame.capture.GfxInfoCaptureTarget
@@ -21,7 +22,6 @@ import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
-import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.CancellationException
 import java.nio.file.Path
 import java.time.Instant
@@ -61,7 +61,7 @@ internal interface FrameOnlineBackend {
 }
 
 internal class DesktopFrameOnlineBackend(
-    private val adbLocator: () -> Path? = ::locateSystemAdb,
+    private val adbLocator: () -> Path? = ::defaultAdbExecutable,
     private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
 ) : FrameOnlineBackend {
     override fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription {
@@ -171,22 +171,13 @@ internal class DesktopFrameOnlineBackend(
         adb: Path,
         serial: String,
     ): Int? =
-        runCatching {
-            DefaultAdbClient(adb)
-                .shell(serial, listOf("getprop", "ro.build.version.sdk"))
-                .stdout
-                .trim()
-                .toIntOrNull()
-        }.getOrNull()
+        (AndroidDevicePropertyClient(DefaultAdbClient(adb)).sdkInt(serial) as? StudioResult.Success)
+            ?.value
+
 
     private companion object {
         val FRAME_METRICS_CAPABILITIES = FrameSourceCapabilities(true, true, true, true, true)
         val GFXINFO_CAPABILITIES = FrameSourceCapabilities(true, true, false, true, false)
-
-        fun locateSystemAdb(): Path? {
-            val platform = (SystemHostPlatformDetector().detect() as? StudioResult.Success)?.value ?: return null
-            return (SystemAdbLocator(platform).locate() as? StudioResult.Success)?.value?.executable
-        }
     }
 }
 

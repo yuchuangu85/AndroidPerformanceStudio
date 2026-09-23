@@ -4,8 +4,10 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.application.CapabilityStatus
 import com.androidperformancestudio.application.CapabilitySummary
@@ -253,8 +255,10 @@ class DeviceTargetPageBehaviorTest {
 
             onNodeWithContentDescription("Search package, process, user or PID").assertDoesNotExist()
             onNodeWithContentDescription("App selector").performClick()
+            onNodeWithTag("dropdown-selector-search").performTextInput("SECOND")
             onNodeWithText("com.example.second").performClick()
             onNodeWithContentDescription("Process selector").performClick()
+            onNodeWithTag("dropdown-selector-search").performTextInput("WORKER")
             onNodeWithText("unrelated.process").assertDoesNotExist()
             onNodeWithText("com.example.second:worker").performClick()
             assertEquals(

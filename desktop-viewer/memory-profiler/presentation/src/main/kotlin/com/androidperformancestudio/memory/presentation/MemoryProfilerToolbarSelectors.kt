@@ -63,6 +63,9 @@ private fun MemoryProfilerProcessSelector(
     val selectProcessLabel = localizedStringResource(Res.string.select_process, language)
     DropdownSelector(
         items = state.processes,
+        searchable = true,
+        searchLanguage = language,
+        itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
         selectedItem = selected,
         onItemSelected = { onSelectProcess(it.pid) },
         itemLabel = { process ->

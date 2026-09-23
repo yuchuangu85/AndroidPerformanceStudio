@@ -5,4 +5,6 @@
          限定符变体（例如 values-zh/strings.xml）可提供区域设置覆盖。 -->
     <string name="back_to_home">返回主页</string>
     <string name="settings">设置</string>
+    <string name="search_options">搜索选项</string>
+    <string name="no_matching_options">没有匹配的选项</string>
 </resources>

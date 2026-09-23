@@ -6,14 +6,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class DropdownSelectorTest {
@@ -64,6 +68,81 @@ class DropdownSelectorTest {
             onNodeWithText("Pixel 9").performClick()
             assertEquals("Pixel 9", selected)
         }
+
+    @Test
+    fun `searchable dropdown filters without changing selection and clears query on reopen`() =
+        runDesktopComposeUiTest {
+            var selected by mutableStateOf<String?>(null)
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    DropdownSelector(
+                        items = listOf("com.example.Camera", "com.sample.Maps", "org.example.Music"),
+                        selectedItem = selected,
+                        onItemSelected = { selected = it },
+                        itemLabel = { it },
+                        placeholder = "App",
+                        selectorDescription = "App selector",
+                        searchable = true,
+                    )
+                }
+            }
+
+            onNodeWithContentDescription("App selector").performClick()
+            onNodeWithTag("dropdown-selector-search").assertIsFocused()
+            onNodeWithTag("dropdown-selector-search").performTextInput("MAP")
+            onNodeWithText("com.sample.Maps").assertExists()
+            onNodeWithText("com.example.Camera").assertDoesNotExist()
+            assertEquals(null, selected)
+            onNodeWithText("com.sample.Maps").performClick()
+            assertEquals("com.sample.Maps", selected)
+
+            onNodeWithContentDescription("App selector").performClick()
+            onNodeWithText("com.example.Camera").assertExists()
+            onNodeWithText("org.example.Music").assertExists()
+            onNodeWithTag("dropdown-selector-search").performTextInput("absent")
+            onNodeWithText("No matching options").assertExists()
+            onNodeWithText("com.example.Camera").assertDoesNotExist()
+            assertEquals("com.sample.Maps", selected)
+        }
+
+    @Test
+    fun `search matches alternate text and keeps disabled results disabled`() =
+        runDesktopComposeUiTest {
+            data class Option(val label: String, val packageName: String, val available: Boolean)
+            val options =
+                listOf(
+                    Option("Camera", "com.example.camera", false),
+                    Option("Maps", "com.example.maps", true),
+                )
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    DropdownSelector(
+                        items = options,
+                        selectedItem = null,
+                        onItemSelected = {},
+                        itemLabel = Option::label,
+                        itemSearchText = { "${it.label} ${it.packageName}" },
+                        itemEnabled = Option::available,
+                        placeholder = "App",
+                        selectorDescription = "App selector",
+                        searchable = true,
+                    )
+                }
+            }
+
+            onNodeWithContentDescription("App selector").performClick()
+            onNodeWithTag("dropdown-selector-search").performTextInput("CAMERA")
+            onNodeWithText("Camera").assertIsNotEnabled()
+            onNodeWithText("Maps").assertDoesNotExist()
+        }
+
+    @Test
+    fun `filter handles case whitespace and preserves source order`() {
+        val items = listOf("com.example.Camera", "com.sample.Maps", "org.example.Music")
+        assertEquals(listOf("com.example.Camera", "org.example.Music"), filterDropdownItems(items, "  ExAmPlE ") { it })
+        assertTrue(filterDropdownItems(items, "", String::toString) === items)
+        assertFalse(filterDropdownItems(items, "missing") { it }.isNotEmpty())
+    }
 
     @Test
     fun `keeps unavailable items disabled and renders secondary text`() =

@@ -70,12 +70,27 @@ public data class ViewerColors(
 ) {
     public val text: Color
         get() = primaryText
+
+    /** Translucent pill surfaces remain theme-aware over the parent workspace color. */
+    public val segmentedTrack: Color
+        get() = primaryText.copy(alpha = if (isDark) 0.10f else 0.08f)
+
+    public val segmentedSelected: Color
+        get() = if (isDark) primaryText.copy(alpha = 0.18f) else panel.copy(alpha = 0.65f)
 }
 
 public object ViewerDimensions {
     public val footerHeight = 29.dp
     public val buttonHeight = 28.dp
     public val selectorHeight = 30.dp
+    public val segmentedControlHeight = 28.dp
+    public val segmentedItemHeight = 24.dp
+    public val segmentedRadius = 14.dp
+    public val segmentedMinItemWidth = 40.dp
+    public val segmentedMaxWidth = 360.dp
+    /** Matches the existing profiler toolbar action buttons. */
+    public val compactControlHeight = 24.dp
+    public val compactControlRadius = 4.dp
     public val controlRadius = 6.dp
     public val hairline = 1.dp
 }

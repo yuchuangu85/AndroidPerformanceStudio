@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.adb.AdbConfiguration
 import com.androidperformancestudio.adb.AdbDeviceTargetGateway
-import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.adb.resolveSystemAdb
 import com.androidperformancestudio.app_desktop.generated.resources.Res
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_analyze
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_cancel
@@ -66,7 +66,6 @@ import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.parser.HostSimpleperfLocator
 import com.androidperformancestudio.parser.SimpleperfReportConverter
 import com.androidperformancestudio.platform.toolchain.RecentPathStore
-import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.DeviceTargetActions
 import com.androidperformancestudio.presentation.HomeScreen
@@ -101,6 +100,7 @@ fun FrameWindowScope.SimpleperfMainPage(
         remember(dependencies) {
             DeviceTargetController(dependencies.deviceGateway, dependencies.captureSession)
         }
+    DisposableEffect(controller) { onDispose(controller::close) }
     val reportController = remember { ReportController() }
     DisposableEffect(reportController) {
         onDispose(reportController::close)
@@ -531,14 +531,7 @@ private suspend fun ReportController.openFirefoxProfiler(
 }
 
 private fun createWorkspaceDependencies(androidSdkPath: Path? = null): WorkspaceDependencies {
-    val platform = SystemHostPlatformDetector().detect()
-    if (platform is StudioResult.Failure) {
-        return WorkspaceDependencies(UnavailableDeviceTargetGateway(platform), null)
-    }
-    val location =
-        SystemAdbLocator((platform as StudioResult.Success).value).locate(
-            AdbConfiguration(androidSdkPath = androidSdkPath),
-        )
+    val location = resolveSystemAdb(AdbConfiguration(androidSdkPath = androidSdkPath))
     return when (location) {
         is StudioResult.Success -> {
             val adbExecutable = location.value.executable

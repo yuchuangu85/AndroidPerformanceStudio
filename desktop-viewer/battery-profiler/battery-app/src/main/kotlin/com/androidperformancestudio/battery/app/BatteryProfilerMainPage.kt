@@ -208,6 +208,8 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             HeaderSpacer()
             DropdownSelector(
                 items = state.targets,
+                searchable = true,
+                searchLanguage = language,
                 selectedItem = state.targets.firstOrNull { it.packageName == state.selectedPackageName },
                 onItemSelected = { controller.selectTarget(it.packageName) },
                 itemLabel = {

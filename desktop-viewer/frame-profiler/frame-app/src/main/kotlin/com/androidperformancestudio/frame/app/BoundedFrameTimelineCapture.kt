@@ -1,6 +1,7 @@
 package com.androidperformancestudio.frame.app
 
-import com.androidperformancestudio.adb.SystemAdbLocator
+import com.androidperformancestudio.adb.AndroidDevicePropertyClient
+import com.androidperformancestudio.adb.defaultAdbExecutable
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbClient
@@ -9,7 +10,6 @@ import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.platform.perfetto.PerfettoCaptureDocument
 import com.androidperformancestudio.platform.perfetto.PerfettoConfigComposer
 import com.androidperformancestudio.platform.perfetto.PerfettoDataSource
-import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
 import java.nio.file.Files
@@ -35,7 +35,7 @@ internal fun interface BoundedFrameTimelineCaptureBackend {
 
 /** Captures Android 12+ FrameTimeline evidence without changing the Live Frame Observation path. */
 internal class DesktopBoundedFrameTimelineCaptureBackend(
-    private val adbLocator: () -> Path? = ::locateSystemAdb,
+    private val adbLocator: () -> Path? = ::defaultAdbExecutable,
     private val adbClientFactory: (Path) -> AdbClient = ::DefaultAdbClient,
     private val captureRoot: Path = defaultCaptureRoot(),
 ) : BoundedFrameTimelineCaptureBackend {
@@ -57,11 +57,8 @@ internal class DesktopBoundedFrameTimelineCaptureBackend(
         val remoteTrace = "/data/misc/perfetto-traces/aps-frame-$sessionId.pftrace"
         return try {
             val apiLevel =
-                client
-                    .shell(serial, listOf("getprop", "ro.build.version.sdk"), 5.seconds)
-                    .stdout
-                    .trim()
-                    .toIntOrNull()
+                (AndroidDevicePropertyClient(client).sdkInt(serial) as? StudioResult.Success)
+                    ?.value
                     ?: return FrameBackendResult.Failure("Unable to read the device Android API level.")
             if (apiLevel < MINIMUM_FRAME_TIMELINE_API) {
                 return FrameBackendResult.Failure(
@@ -120,10 +117,5 @@ internal class DesktopBoundedFrameTimelineCaptureBackend(
 
         fun defaultCaptureRoot(): Path =
             Path.of(System.getProperty("user.home"), ".android-performance-studio", "frame-profiler", "captures")
-
-        fun locateSystemAdb(): Path? {
-            val platform = (SystemHostPlatformDetector().detect() as? StudioResult.Success)?.value ?: return null
-            return (SystemAdbLocator(platform).locate() as? StudioResult.Success)?.value?.executable
-        }
     }
 }

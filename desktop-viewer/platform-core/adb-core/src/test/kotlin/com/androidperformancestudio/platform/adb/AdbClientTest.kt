@@ -115,3 +115,67 @@ class AdbClientTest {
             error("not used")
     }
 }
+
+private class AdbCoreMigrationTest {
+    @Test
+    fun `generic feature command executor keeps host execution inside adb core`() =
+        runBlocking {
+            val runner = AdbClientTestRecordingRunner(textStdout = "ok")
+            val executor = DefaultAdbCommandExecutor(Path.of("/sdk/adb"), runner)
+
+            val result = executor.executeText(listOf("-s", "serial-1", "shell", "run-as", "dev.example", "pwd"))
+
+            assertEquals("ok", result.stdout)
+            assertEquals(
+                listOf("-s", "serial-1", "shell", "run-as", "dev.example", "pwd"),
+                runner.commands.single().arguments,
+            )
+        }
+
+    @Test
+    fun `shared property client uses the precise adb core getprop command`() =
+        runBlocking {
+            val runner = AdbClientTestRecordingRunner(textStdout = "35\n")
+            val properties = com.androidperformancestudio.adb.AndroidDevicePropertyClient(
+                DefaultAdbClient(Path.of("/sdk/adb"), runner),
+            )
+
+            val result = properties.sdkInt("serial-1")
+
+            assertEquals(35, (result as com.androidperformancestudio.model.StudioResult.Success).value)
+            assertEquals(
+                listOf("-s", "serial-1", "shell", "'getprop'", "'ro.build.version.sdk'"),
+                runner.commands.single().arguments,
+            )
+        }
+
+    @Test
+    fun `shared command arguments validate and construct generic forwarding operations`() {
+        assertEquals(
+            listOf("-s", "serial-1", "forward", "tcp:0", "tcp:48123"),
+            AdbCommandArguments.forward("serial-1", "tcp:0", "tcp:48123"),
+        )
+        assertEquals(
+            listOf("-s", "serial-1", "forward", "--remove", "tcp:48123"),
+            AdbCommandArguments.removeForward("serial-1", "tcp:48123"),
+        )
+        assertFailsWith<AdbInputException> {
+            AdbCommandArguments.pidOf("serial-1", "dev.example; rm -rf /")
+        }
+    }
+}
+
+private class AdbClientTestRecordingRunner(
+    private val textStdout: String,
+) : HostProcessRunner {
+    val commands = mutableListOf<HostProcessRequest>()
+
+    override suspend fun executeText(request: HostProcessRequest): HostProcessTextResult {
+        commands += request
+        return HostProcessTextResult(-1, 0, textStdout, "", Duration.ZERO, false, false)
+    }
+
+    override suspend fun executeBinary(request: HostProcessRequest): HostProcessBinaryResult = error("not used")
+
+    override fun launch(request: HostProcessLaunchRequest): RunningHostProcess = error("not used")
+}

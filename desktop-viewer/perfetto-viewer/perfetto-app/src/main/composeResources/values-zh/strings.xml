@@ -22,6 +22,7 @@
     <string name="export_trace">导出轨迹</string>
     <string name="failed_to_export_trace">轨迹导出失败</string>
     <string name="refresh">刷新</string>
+    <string name="device_status">设备</string>
     <string name="device_connected">%1$s 已连接</string>
     <string name="device_refresh_failed">无法刷新设备。请检查 ADB 路径、设备连接和 USB 调试授权。</string>
     <string name="no_online_device">没有在线设备</string>
