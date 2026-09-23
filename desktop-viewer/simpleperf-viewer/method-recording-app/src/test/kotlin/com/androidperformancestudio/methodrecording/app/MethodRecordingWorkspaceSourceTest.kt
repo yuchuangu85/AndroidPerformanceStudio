@@ -21,4 +21,16 @@ class MethodRecordingWorkspaceSourceTest {
         assertFalse(source.contains("ProfilerMacOsToolbar"))
         assertFalse(source.contains("HomeButton("))
     }
+
+    @Test
+    fun `trace workspace exposes device connection state in the bottom status bar`() {
+        val contentStart = source.indexOf("MethodRecordingScreen(")
+        val footerStart = source.indexOf("MethodRecordingStatusBar(", contentStart)
+        assertTrue(footerStart > contentStart)
+        assertTrue(source.contains(".height(ViewerDimensions.footerHeight)"))
+        assertTrue(source.contains("Res.string.device_status"))
+        assertTrue(source.contains("Res.string.device_connected"))
+        assertTrue(source.contains("Res.string.device_offline"))
+        assertTrue(source.contains("Res.string.devices_connected"))
+    }
 }

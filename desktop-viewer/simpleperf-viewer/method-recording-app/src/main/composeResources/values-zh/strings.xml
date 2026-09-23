@@ -10,6 +10,10 @@
     <string name="device_selector">设备选择器</string>
     <string name="process_selector">进程选择器</string>
     <string name="refresh_devices">刷新设备</string>
+    <string name="device_status">设备</string>
+    <string name="device_connected">已连接 · %1$s</string>
+    <string name="device_offline">未连接 · %1$s</string>
+    <string name="devices_connected">已连接 %1$d 台设备</string>
     <string name="no_devices">无设备</string>
     <string name="no_processes">无进程</string>
     <string name="no_trace_loaded">导入或抓取 .trace 文件以分析 Java/Kotlin 方法执行。</string>

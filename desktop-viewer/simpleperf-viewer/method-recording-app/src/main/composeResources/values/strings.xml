@@ -10,6 +10,10 @@
     <string name="device_selector">Device selector</string>
     <string name="process_selector">Process selector</string>
     <string name="refresh_devices">Refresh Devices</string>
+    <string name="device_status">Device</string>
+    <string name="device_connected">Connected · %1$s</string>
+    <string name="device_offline">Offline · %1$s</string>
+    <string name="devices_connected">%1$d devices connected</string>
     <string name="no_devices">No devices</string>
     <string name="no_processes">No processes</string>
     <string name="no_trace_loaded">Import or capture a .trace file to analyze Java/Kotlin method execution.</string>
