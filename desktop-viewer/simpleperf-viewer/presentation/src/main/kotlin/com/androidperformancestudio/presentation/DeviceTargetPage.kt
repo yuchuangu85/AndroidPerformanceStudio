@@ -2,8 +2,6 @@
 
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +50,7 @@ import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 
@@ -122,26 +121,16 @@ internal fun DeviceTargetPage(
             HeaderSpacer()
             ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading)
             HeaderSpacer()
-            MacOSTextButton(
-                localizedStringResource(SimpleperfViewerRes.sp_target_open_session, currentSimpleperfLanguage()),
-                reportActions.onOpenSession,
-                style,
-            )
-            HeaderSpacer()
             CapabilityPopupButton(state.selection, style)
         }
-        if (reportState.loadState == ReportLoadState.Closed) {
-            Spacer(Modifier.weight(1f))
-        } else {
-            ReportWorkspace(
-                state = reportState,
-                actions = reportActions,
-                style = style,
-                modifier = Modifier.weight(1f),
-                flameTooltipMode = flameTooltipMode,
-                onRunAiAnalysis = onRunAiAnalysis,
-            )
-        }
+        ReportWorkspace(
+            state = reportState,
+            actions = reportActions,
+            style = style,
+            modifier = Modifier.weight(1f),
+            flameTooltipMode = flameTooltipMode,
+            onRunAiAnalysis = onRunAiAnalysis,
+        )
         WorkspaceFooter(state, captureState, reportState, actions, style)
     }
     settingsSection?.let { section ->
@@ -401,7 +390,12 @@ private fun CapabilityPopup(
                         lineHeight = ViewerTypography.body.lineHeight,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(selection.serial, color = style.secondaryText, fontSize = ViewerTypography.label.fontSize, lineHeight = ViewerTypography.label.lineHeight)
+                    Text(
+                        selection.serial,
+                        color = style.secondaryText,
+                        fontSize = ViewerTypography.label.fontSize,
+                        lineHeight = ViewerTypography.label.lineHeight,
+                    )
                 }
                 CapabilityStatusBadge(selection.capabilities.status, style)
             }

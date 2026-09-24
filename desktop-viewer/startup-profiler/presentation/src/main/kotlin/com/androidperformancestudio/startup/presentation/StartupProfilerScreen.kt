@@ -11,36 +11,46 @@
 package com.androidperformancestudio.startup.presentation
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.startup.analysis.StartupAnalysisResult
 import com.androidperformancestudio.startup.analysis.StartupComparison
 import com.androidperformancestudio.startup.model.EvidenceConfidence
 import com.androidperformancestudio.startup.model.StartupMilestoneKind
+import com.androidperformancestudio.startup.model.StartupPerfettoSlice
 import com.androidperformancestudio.startup.model.StartupPhase
 import com.androidperformancestudio.startup.model.StartupRun
 import com.androidperformancestudio.startup.model.StartupStatistics
@@ -57,7 +67,9 @@ import com.androidperformancestudio.startup.presentation.generated.resources.age
 import com.androidperformancestudio.startup.presentation.generated.resources.baseline_comparison
 import com.androidperformancestudio.startup.presentation.generated.resources.choose_a_device_and_app_to_run_repeatable_cold_warm
 import com.androidperformancestudio.startup.presentation.generated.resources.cold
-import com.androidperformancestudio.startup.presentation.generated.resources.compilation_evidence
+import com.androidperformancestudio.startup.presentation.generated.resources.compilation_details
+import com.androidperformancestudio.startup.presentation.generated.resources.correlated
+import com.androidperformancestudio.startup.presentation.generated.resources.correlation_error_bound
 import com.androidperformancestudio.startup.presentation.generated.resources.diagnostics
 import com.androidperformancestudio.startup.presentation.generated.resources.displayed
 import com.androidperformancestudio.startup.presentation.generated.resources.environment_evidence
@@ -81,9 +93,13 @@ import com.androidperformancestudio.startup.presentation.generated.resources.med
 import com.androidperformancestudio.startup.presentation.generated.resources.median_totaltime
 import com.androidperformancestudio.startup.presentation.generated.resources.metric_evidence
 import com.androidperformancestudio.startup.presentation.generated.resources.milestones
+import com.androidperformancestudio.startup.presentation.generated.resources.no
 import com.androidperformancestudio.startup.presentation.generated.resources.no_agent_phases_available
+import com.androidperformancestudio.startup.presentation.generated.resources.not_correlated
 import com.androidperformancestudio.startup.presentation.generated.resources.observed
+import com.androidperformancestudio.startup.presentation.generated.resources.open_trace
 import com.androidperformancestudio.startup.presentation.generated.resources.p90_n
+import com.androidperformancestudio.startup.presentation.generated.resources.p95_n
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_activity_create
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_activity_to_resumed
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_agent_initialization
@@ -96,6 +112,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.pla
 import com.androidperformancestudio.startup.presentation.generated.resources.process_start
 import com.androidperformancestudio.startup.presentation.generated.resources.raw_am_start_w_evidence
 import com.androidperformancestudio.startup.presentation.generated.resources.report_fully_drawn_hint
+import com.androidperformancestudio.startup.presentation.generated.resources.requested
 import com.androidperformancestudio.startup.presentation.generated.resources.run
 import com.androidperformancestudio.startup.presentation.generated.resources.run_detail
 import com.androidperformancestudio.startup.presentation.generated.resources.stability
@@ -107,7 +124,18 @@ import com.androidperformancestudio.startup.presentation.generated.resources.tex
 import com.androidperformancestudio.startup.presentation.generated.resources.this_time
 import com.androidperformancestudio.startup.presentation.generated.resources.total
 import com.androidperformancestudio.startup.presentation.generated.resources.total_time
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_binder_slices
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_correlation
 import com.androidperformancestudio.startup.presentation.generated.resources.trace_evidence
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_failure_reason
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_frame_slices
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_limitations
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_main_thread_slices
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_more_slices
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_open_failed
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_scheduling_slices
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_slice_count
+import com.androidperformancestudio.startup.presentation.generated.resources.trace_slice_detail
 import com.androidperformancestudio.startup.presentation.generated.resources.unavailable
 import com.androidperformancestudio.startup.presentation.generated.resources.unknown
 import com.androidperformancestudio.startup.presentation.generated.resources.unstable
@@ -115,10 +143,15 @@ import com.androidperformancestudio.startup.presentation.generated.resources.var
 import com.androidperformancestudio.startup.presentation.generated.resources.wait_time
 import com.androidperformancestudio.startup.presentation.generated.resources.warm
 import com.androidperformancestudio.startup.presentation.generated.resources.warnings
+import com.androidperformancestudio.startup.presentation.generated.resources.yes
 import com.androidperformancestudio.ui.LocalViewerColors
-import com.androidperformancestudio.ui.ProfilerMetricCard
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.studio.StudioDataTable
+import com.androidperformancestudio.ui.studio.StudioMetricCard
+import com.androidperformancestudio.ui.studio.StudioTableColumn
+import com.androidperformancestudio.ui.studio.StudioTokens
 import java.util.Locale
 
 @Composable
@@ -185,17 +218,20 @@ private fun ResultsPane(
             StabilityCard(analysis, language)
         }
         state.comparison?.let { comparison -> BaselineComparison(comparison, language) }
-        Text(
-            localizedStringResource(Res.string.measured_runs, language),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            RunRowHeader(language)
-            analysis.runs.forEach { run -> RunRow(run, run.id == selected.id, actions.onSelectRun, language) }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val tableWidth = maxOf(maxWidth, RUN_TABLE_MIN_WIDTH)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                StudioDataTable(
+                    columns = runTableColumns(language),
+                    title = localizedStringResource(Res.string.measured_runs, language),
+                    modifier = Modifier.width(tableWidth),
+                ) {
+                    analysis.runs.forEach { run -> RunRow(run, run.id == selected.id, actions.onSelectRun, language) }
+                }
+            }
         }
         HorizontalDivider()
-        RunDetail(selected, language)
+        RunDetail(selected, actions, language)
         if (analysis.warnings.isNotEmpty()) {
             Text(
                 localizedStringResource(Res.string.warnings, language),
@@ -219,20 +255,21 @@ private fun MetricCard(
     statistics: StartupStatistics,
     language: UiLanguage,
 ) {
-    ProfilerMetricCard(
+    StudioMetricCard(
         label = title,
         value = statistics.medianMs.formatMs(),
         modifier = Modifier.width(172.dp),
-        supportingText =
-            listOfNotNull(
-                localizedStringResource(Res.string.p90_n, language, statistics.p90Ms.formatMs(), statistics.count),
-                localizedStringResource(Res.string.low_tail_resolution, language)
-                    .takeIf { statistics.p90LowResolution || statistics.p95LowResolution },
-            ),
-        prominent = true,
-        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        supportingText = statistics.metricSupportingText(language),
     )
 }
+
+internal fun StartupStatistics.metricSupportingText(language: UiLanguage): String =
+    listOfNotNull(
+        localizedStringResource(Res.string.p90_n, language, p90Ms.formatMs(), count),
+        localizedStringResource(Res.string.p95_n, language, p95Ms.formatMs(), count),
+        localizedStringResource(Res.string.low_tail_resolution, language)
+            .takeIf { p90LowResolution || p95LowResolution },
+    ).joinToString("\n")
 
 @Composable
 private fun StabilityCard(
@@ -249,16 +286,12 @@ private fun StabilityCard(
             ratio <= 0.15 -> localizedStringResource(Res.string.variable, language)
             else -> localizedStringResource(Res.string.unstable, language)
         }
-    Card(Modifier.width(156.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(localizedStringResource(Res.string.stability, language), style = MaterialTheme.typography.labelLarge)
-            Text(label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(
-                localizedStringResource(Res.string.mad, language, deviation.formatMs()),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
+    StudioMetricCard(
+        label = localizedStringResource(Res.string.stability, language),
+        value = label,
+        modifier = Modifier.width(156.dp),
+        supportingText = localizedStringResource(Res.string.mad, language, deviation.formatMs()),
+    )
 }
 
 @Composable
@@ -297,17 +330,16 @@ private fun BaselineComparison(
     }
 }
 
-@Composable
-private fun RunRowHeader(language: UiLanguage) {
-    Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant).padding(vertical = 6.dp, horizontal = 8.dp)) {
-        TableCell(localizedStringResource(Res.string.run, language), 70)
-        TableCell(localizedStringResource(Res.string.observed, language), 100)
-        TableCell(localizedStringResource(Res.string.total, language), 100)
-        TableCell(localizedStringResource(Res.string.displayed, language), 100)
-        TableCell(localizedStringResource(Res.string.fully_drawn, language), 110)
-        TableCell(localizedStringResource(Res.string.agent, language), 80)
-    }
-}
+private fun runTableColumns(language: UiLanguage): List<StudioTableColumn> =
+    listOf(
+        StudioTableColumn(localizedStringResource(Res.string.run, language), RUN_COLUMN_WEIGHT),
+        StudioTableColumn(localizedStringResource(Res.string.requested, language), TYPE_COLUMN_WEIGHT),
+        StudioTableColumn(localizedStringResource(Res.string.observed, language), TYPE_COLUMN_WEIGHT),
+        StudioTableColumn(localizedStringResource(Res.string.total, language), TIME_COLUMN_WEIGHT),
+        StudioTableColumn(localizedStringResource(Res.string.displayed, language), TIME_COLUMN_WEIGHT),
+        StudioTableColumn(localizedStringResource(Res.string.fully_drawn, language), FULLY_DRAWN_COLUMN_WEIGHT),
+        StudioTableColumn(localizedStringResource(Res.string.agent, language), AGENT_COLUMN_WEIGHT),
+    )
 
 @Composable
 private fun RunRow(
@@ -316,41 +348,63 @@ private fun RunRow(
     onSelect: (String) -> Unit,
     language: UiLanguage,
 ) {
-    val background = if (selected) MaterialTheme.colorScheme.primaryContainer else LocalViewerColors.current.transparent
-    Row(Modifier.background(background).clickable { onSelect(run.id) }.padding(vertical = 6.dp, horizontal = 8.dp)) {
-        TableCell(run.iteration.toString(), 70)
-        TableCell(run.observedType.localizedLabel(language), 100)
-        TableCell(run.platform.totalTimeMs.formatMs(), 100)
-        TableCell(run.platform.displayedTimeMs.formatMs(), 100)
-        TableCell(run.platform.fullyDrawnTimeMs.formatMs(), 110)
+    val colors = LocalViewerColors.current
+    val background = if (selected) colors.accent.copy(alpha = 0.12f) else colors.transparent
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(background)
+                .selectable(selected = selected, onClick = { onSelect(run.id) }, role = Role.RadioButton)
+                .padding(horizontal = StudioTokens.compactContentPadding, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TableCell(run.iteration.toString(), RUN_COLUMN_WEIGHT, emphasized = selected)
+        TableCell(run.requestedType.localizedLabel(language), TYPE_COLUMN_WEIGHT)
+        TableCell(run.observedType.localizedLabel(language), TYPE_COLUMN_WEIGHT)
+        TableCell(run.platform.totalTimeMs.formatMs(), TIME_COLUMN_WEIGHT)
+        TableCell(run.platform.displayedTimeMs.formatMs(), TIME_COLUMN_WEIGHT)
+        TableCell(run.platform.fullyDrawnTimeMs.formatMs(), FULLY_DRAWN_COLUMN_WEIGHT)
         TableCell(
             localizedStringResource(
                 if (run.rawEvidence.agentAvailable) Res.string.full else Res.string.fallback,
                 language,
             ),
-            80,
+            AGENT_COLUMN_WEIGHT,
         )
     }
 }
 
 @Composable
-private fun TableCell(
+private fun RowScope.TableCell(
     text: String,
-    width: Int,
+    weight: Float,
+    emphasized: Boolean = false,
 ) {
-    Text(text, modifier = Modifier.width(width.dp), maxLines = 1)
+    Text(
+        text,
+        modifier = Modifier.weight(weight),
+        color = LocalViewerColors.current.primaryText,
+        fontSize = ViewerTypography.label.fontSize,
+        fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @Composable
 private fun RunDetail(
     run: StartupRun,
+    actions: StartupProfilerActions,
     language: UiLanguage,
 ) {
+    var traceOpenFailed by remember(run.id) { mutableStateOf(false) }
     Text(
         localizedStringResource(
             Res.string.run_detail,
             language,
             run.iteration,
+            run.requestedType.localizedLabel(language),
             run.observedType.localizedLabel(language),
         ),
         style = MaterialTheme.typography.titleMedium,
@@ -363,7 +417,7 @@ private fun RunDetail(
             language,
             "TTID",
             run.ttidEvidence.source?.name ?: localizedStringResource(Res.string.unavailable, language),
-            run.ttidEvidence.unavailableReason ?: run.ttidEvidence.confidence.localizedLabel(language),
+            run.ttidEvidence.statusLabel(language),
         ),
     )
     Text(
@@ -372,7 +426,7 @@ private fun RunDetail(
             language,
             localizedStringResource(Res.string.agent_first_frame, language),
             run.agentFirstFrameEvidence.source?.name ?: localizedStringResource(Res.string.unavailable, language),
-            run.agentFirstFrameEvidence.unavailableReason ?: run.agentFirstFrameEvidence.confidence.localizedLabel(language),
+            run.agentFirstFrameEvidence.statusLabel(language),
         ),
     )
     Text(
@@ -381,21 +435,16 @@ private fun RunDetail(
             language,
             "TTFD",
             run.ttfdEvidence.source?.name ?: localizedStringResource(Res.string.unavailable, language),
-            run.ttfdEvidence.unavailableReason ?: run.ttfdEvidence.confidence.localizedLabel(language),
+            run.ttfdEvidence.statusLabel(language),
         ),
     )
     if (run.platform.fullyDrawnTimeMs == null) Text(localizedStringResource(Res.string.report_fully_drawn_hint, language))
-    run.compilationEvidence?.let { evidence ->
-        Text(
-            localizedStringResource(
-                Res.string.compilation_evidence,
-                language,
-                evidence.requestedMode.name,
-                evidence.compilerFilterAfter ?: localizedStringResource(Res.string.unavailable, language),
-                evidence.verified,
-                evidence.profileSource.name,
-            ),
-        )
+    Text(localizedStringResource(Res.string.compilation_details, language), fontWeight = FontWeight.SemiBold)
+    val compilationEvidence = run.compilationEvidence
+    if (compilationEvidence == null) {
+        Text(localizedStringResource(Res.string.unavailable, language))
+    } else {
+        compilationEvidence.detailRows(language).forEach { row -> Text("${row.label}: ${row.value}") }
     }
     run.environmentEvidence?.let { evidence ->
         Text(
@@ -417,11 +466,12 @@ private fun RunDetail(
             localizedStringResource(
                 Res.string.trace_evidence,
                 language,
-                evidence.file ?: evidence.failureReason.orEmpty(),
-                evidence.captured,
-                evidence.truncated,
+                evidence.file ?: localizedStringResource(Res.string.unavailable, language),
+                localizedStringResource(if (evidence.captured) Res.string.yes else Res.string.no, language),
+                localizedStringResource(if (evidence.truncated) Res.string.yes else Res.string.no, language),
             ),
         )
+        evidence.failureReason?.let { reason -> Text(localizedStringResource(Res.string.trace_failure_reason, language, reason)) }
         evidence.artifact?.let { artifact ->
             Text(
                 "Artifact: ${artifact.completeness.name.lowercase()} · ${artifact.availableCapabilities.size} capabilities",
@@ -429,14 +479,37 @@ private fun RunDetail(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        val traceFile = evidence.file
+        if (evidence.captured && !traceFile.isNullOrBlank()) {
+            actions.onOpenTrace?.let { openTrace ->
+                OutlinedButton(onClick = { traceOpenFailed = !openTrace(traceFile) }) {
+                    Text(localizedStringResource(Res.string.open_trace, language))
+                }
+                if (traceOpenFailed) {
+                    Text(localizedStringResource(Res.string.trace_open_failed, language), color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
         evidence.rootCause?.let { rootCause ->
             Text(
-                "Root-cause evidence: ${if (rootCause.correlated) "correlated" else "not correlated"}" +
-                    rootCause.correlationErrorBoundNs?.let { " · error ±$it ns" }.orEmpty() +
-                    if (rootCause.limitations.isEmpty()) "" else " · ${rootCause.limitations.joinToString()}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                localizedStringResource(Res.string.trace_correlation, language) + ": " +
+                    localizedStringResource(
+                        if (rootCause.correlated) Res.string.correlated else Res.string.not_correlated,
+                        language,
+                    ),
             )
+            Text(
+                localizedStringResource(Res.string.correlation_error_bound, language) + ": " +
+                    (rootCause.correlationErrorBoundNs?.let { "±$it ns" } ?: localizedStringResource(Res.string.unavailable, language)),
+            )
+            TraceSliceGroup(localizedStringResource(Res.string.trace_scheduling_slices, language), rootCause.schedulingSlices, language)
+            TraceSliceGroup(localizedStringResource(Res.string.trace_binder_slices, language), rootCause.binderSlices, language)
+            TraceSliceGroup(localizedStringResource(Res.string.trace_main_thread_slices, language), rootCause.mainThreadSlices, language)
+            TraceSliceGroup(localizedStringResource(Res.string.trace_frame_slices, language), rootCause.frameSlices, language)
+            if (rootCause.limitations.isNotEmpty()) {
+                Text(localizedStringResource(Res.string.trace_limitations, language), fontWeight = FontWeight.SemiBold)
+                rootCause.limitations.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            }
             rootCause.phaseAttributions.forEach { phase ->
                 Text(
                     "${phase.phaseName}: GC ${phase.gcNs / 1_000_000.0} ms · " +
@@ -511,6 +584,33 @@ private fun RunDetail(
 }
 
 @Composable
+private fun TraceSliceGroup(
+    label: String,
+    slices: List<StartupPerfettoSlice>,
+    language: UiLanguage,
+) {
+    Text(localizedStringResource(Res.string.trace_slice_count, language, label, slices.size), fontWeight = FontWeight.SemiBold)
+    slices.take(MAX_VISIBLE_TRACE_SLICES).forEach { slice ->
+        Text(
+            localizedStringResource(
+                Res.string.trace_slice_detail,
+                language,
+                slice.name,
+                slice.threadName ?: "—",
+                slice.timestampNs,
+                slice.durationNs,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    if (slices.size > MAX_VISIBLE_TRACE_SLICES) {
+        Text(localizedStringResource(Res.string.trace_more_slices, language, MAX_VISIBLE_TRACE_SLICES, slices.size))
+    }
+}
+
+private const val MAX_VISIBLE_TRACE_SLICES = 5
+
+@Composable
 private fun TimelineBar(values: List<Pair<String, Double>>) {
     if (values.isEmpty()) return
     val maximum = values.maxOf { it.second }.coerceAtLeast(1.0)
@@ -550,6 +650,13 @@ private fun MessagePane(
 
 private fun Number?.formatMs(): String = this?.let { String.format(Locale.US, "%.1f ms", toDouble()) } ?: "—"
 
+private val RUN_TABLE_MIN_WIDTH = 760.dp
+private const val RUN_COLUMN_WEIGHT = 0.7f
+private const val TYPE_COLUMN_WEIGHT = 1f
+private const val TIME_COLUMN_WEIGHT = 1f
+private const val FULLY_DRAWN_COLUMN_WEIGHT = 1.1f
+private const val AGENT_COLUMN_WEIGHT = 0.8f
+
 private fun StartupType.localizedLabel(language: UiLanguage): String =
     localizedStringResource(
         when (this) {
@@ -561,7 +668,7 @@ private fun StartupType.localizedLabel(language: UiLanguage): String =
         language,
     )
 
-private fun EvidenceConfidence.localizedLabel(language: UiLanguage): String =
+internal fun EvidenceConfidence.localizedLabel(language: UiLanguage): String =
     localizedStringResource(
         when (this) {
             EvidenceConfidence.EXACT -> Res.string.exact

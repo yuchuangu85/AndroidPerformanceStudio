@@ -1,7 +1,5 @@
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,6 +27,7 @@ import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphFrameDetails
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 

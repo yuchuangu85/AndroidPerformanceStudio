@@ -1,7 +1,5 @@
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -40,6 +38,7 @@ import com.androidperformancestudio.presentation.generated.resources.SimpleperfV
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 import java.awt.Cursor

@@ -8,6 +8,29 @@ import kotlin.test.assertEquals
 
 class FrameAttributionAnalyzerTest {
     @Test
+    fun `unknown budget provenance does not count as an attributed deadline miss`() {
+        val result =
+            FrameAttributionAnalyzer().analyze(
+                listOf(
+                    sample(1, 30L, "Home", "window-1", "home")
+                        .copy(expectedDurationSource = ExpectedDurationSource.UNKNOWN),
+                ),
+            )
+
+        assertEquals(0, result.single().deadlineMissFrames)
+    }
+
+    @Test
+    fun `ineligible frame does not count as an attributed deadline miss`() {
+        val result =
+            FrameAttributionAnalyzer().analyze(
+                listOf(sample(1, 30L, "Home", "window-1", "home").copy(eligibleForJank = false)),
+            )
+
+        assertEquals(0, result.single().deadlineMissFrames)
+    }
+
+    @Test
     fun `groups jank by activity window and UI state`() {
         val samples =
             listOf(

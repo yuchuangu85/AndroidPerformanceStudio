@@ -9,8 +9,6 @@
 
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,6 +64,7 @@ import com.androidperformancestudio.ui.SELECTED_TEMPLATE_ALPHA
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
@@ -253,7 +252,11 @@ private fun SettingsNavigation(
             fontSize = ViewerTypography.sectionTitle.fontSize,
             fontWeight = FontWeight.SemiBold,
         )
-        Text(localizedStringResource(SimpleperfViewerRes.sp_target_application, locale), color = style.secondaryText, fontSize = ViewerTypography.label.fontSize)
+        Text(
+            localizedStringResource(SimpleperfViewerRes.sp_target_application, locale),
+            color = style.secondaryText,
+            fontSize = ViewerTypography.label.fontSize,
+        )
         Spacer(Modifier.height(8.dp))
         CaptureSettingsSection.entries.filter { item -> item != CaptureSettingsSection.USER_GUIDE || showUserGuide }.forEach { item ->
             val selected = item == section
@@ -663,7 +666,12 @@ private fun EmptyParametersPanel(
     locale: java.util.Locale,
 ) {
     MacOsPanel(modifier, style) {
-        Text(localizedStringResource(title, locale), color = style.text, fontSize = ViewerTypography.bodyCompact.fontSize, fontWeight = FontWeight.SemiBold)
+        Text(
+            localizedStringResource(title, locale),
+            color = style.text,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
+            fontWeight = FontWeight.SemiBold,
+        )
         Text(
             localizedStringResource(SimpleperfViewerRes.sp_capture_sampling_target_required_hint, locale),
             color = style.secondaryText,
@@ -688,7 +696,12 @@ internal fun MacOsTextField(
             onValueChange = onValueChange,
             enabled = enabled,
             singleLine = true,
-            textStyle = TextStyle(color = style.text, fontSize = ViewerTypography.secondary.fontSize, lineHeight = ViewerTypography.label.lineHeight),
+            textStyle =
+                TextStyle(
+                    color = style.text,
+                    fontSize = ViewerTypography.secondary.fontSize,
+                    lineHeight = ViewerTypography.label.lineHeight,
+                ),
             cursorBrush = SolidColor(style.accent),
             modifier =
                 Modifier

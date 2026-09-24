@@ -33,6 +33,7 @@ public data class StartupProfilerState(
 
 public data class StartupProfilerActions(
     val onSelectRun: (String) -> Unit = {},
+    val onOpenTrace: ((String) -> Boolean)? = null,
 )
 
 public fun StartupProfilerState.withStartupType(type: StartupType): StartupProfilerState = copy(config = config.copy(requestedType = type))

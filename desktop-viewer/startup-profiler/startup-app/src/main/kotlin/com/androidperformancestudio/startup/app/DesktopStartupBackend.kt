@@ -6,7 +6,6 @@ import com.androidperformancestudio.adb.AndroidTargetMonitor
 import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.adb.defaultAdbExecutable
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.startup.capture.StartupExperimentRunner
 import com.androidperformancestudio.startup.model.StartupDevice

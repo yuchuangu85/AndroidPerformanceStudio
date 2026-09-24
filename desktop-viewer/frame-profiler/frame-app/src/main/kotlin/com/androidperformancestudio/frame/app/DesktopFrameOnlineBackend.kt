@@ -20,7 +20,6 @@ import com.androidperformancestudio.frame.model.FrameSourceCapabilities
 import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.model.StudioResult
-import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import kotlinx.coroutines.CancellationException
 import java.nio.file.Path
@@ -173,7 +172,6 @@ internal class DesktopFrameOnlineBackend(
     ): Int? =
         (AndroidDevicePropertyClient(DefaultAdbClient(adb)).sdkInt(serial) as? StudioResult.Success)
             ?.value
-
 
     private companion object {
         val FRAME_METRICS_CAPABILITIES = FrameSourceCapabilities(true, true, true, true, true)

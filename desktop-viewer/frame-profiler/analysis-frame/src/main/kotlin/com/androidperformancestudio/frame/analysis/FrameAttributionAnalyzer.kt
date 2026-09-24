@@ -21,9 +21,10 @@ public class FrameAttributionAnalyzer {
                     totalFrames = frames.size,
                     deadlineMissFrames =
                         frames.count {
-                            it.resolvedDurationNs()?.let { duration ->
-                                it.expectedDurationNs?.let { expected -> duration > expected } == true
-                            } == true
+                            it.eligibleForJank &&
+                                it.resolvedDurationNs()?.let { duration ->
+                                    it.knownExpectedDurationNs()?.let { expected -> duration > expected } == true
+                                } == true
                         },
                     platformJankFrames = frames.count { it.platformJank == true },
                     averageDurationNs = durations.takeIf(List<Long>::isNotEmpty)?.average()?.toLong(),

@@ -3,8 +3,6 @@
 
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -70,12 +68,13 @@ import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.studio.StudioMetricCard
-import com.androidperformancestudio.ui.studio.StudioDataTable
-import com.androidperformancestudio.ui.studio.StudioTableColumn
 import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
+import com.androidperformancestudio.ui.studio.StudioDataTable
+import com.androidperformancestudio.ui.studio.StudioMetricCard
+import com.androidperformancestudio.ui.studio.StudioTableColumn
 import com.androidperformancestudio.visualization.NavigationAction
 import org.jetbrains.compose.resources.StringResource
 import androidx.compose.material3.Text as MaterialText
@@ -138,6 +137,8 @@ private fun ReportResultPane(
                         currentSimpleperfLanguage(),
                     ),
                     style,
+                    actionLabel = localizedStringResource(SimpleperfViewerRes.sp_target_open_session, currentSimpleperfLanguage()),
+                    onAction = actions.onOpenSession,
                 )
             is ReportLoadState.Loading ->
                 ReportStatus(
@@ -152,7 +153,8 @@ private fun ReportResultPane(
                 ReportStatus(
                     "${loadState.error.code}: ${loadState.error.message}",
                     style,
-                    actions.onCloseSession,
+                    actionLabel = localizedStringResource(SimpleperfViewerRes.sp_capture_back, currentSimpleperfLanguage()),
+                    onAction = actions.onCloseSession,
                 )
             is ReportLoadState.Ready ->
                 FirefoxReportWorkspace(
@@ -172,22 +174,16 @@ private fun ReportResultPane(
 private fun ReportStatus(
     message: String,
     style: ViewerColors,
-    onClose: (() -> Unit)? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
     Column(
         Modifier.fillMaxSize().background(style.panel, RoundedCornerShape(10.dp)).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(message, color = style.text, fontSize = ViewerTypography.body.fontSize)
-        onClose?.let {
-            MacOSTextButton(
-                localizedStringResource(
-                    SimpleperfViewerRes.sp_capture_back,
-                    currentSimpleperfLanguage(),
-                ),
-                it,
-                style,
-            )
+        if (actionLabel != null && onAction != null) {
+            MacOSTextButton(actionLabel, onAction, style)
         }
     }
 }
@@ -230,12 +226,13 @@ internal fun OverviewReport(
     val language = currentSimpleperfLanguage()
     LazyColumn(modifier = Modifier.testTag("overview-report-list"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            val metrics = listOf(
-                SimpleperfViewerRes.sp_report_samples to report.overview.sampleCount.toString(),
-                SimpleperfViewerRes.sp_report_event_weight to report.overview.totalEventWeight.toString(),
-                SimpleperfViewerRes.sp_target_threads to report.overview.threadCount.toString(),
-                SimpleperfViewerRes.sp_report_lost_rate to "%.2f%%".format(report.quality.lostRate * PERCENT_MULTIPLIER),
-            )
+            val metrics =
+                listOf(
+                    SimpleperfViewerRes.sp_report_samples to report.overview.sampleCount.toString(),
+                    SimpleperfViewerRes.sp_report_event_weight to report.overview.totalEventWeight.toString(),
+                    SimpleperfViewerRes.sp_target_threads to report.overview.threadCount.toString(),
+                    SimpleperfViewerRes.sp_report_lost_rate to "%.2f%%".format(report.quality.lostRate * PERCENT_MULTIPLIER),
+                )
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val columns = overviewMetricColumns(maxWidth.value.toInt())
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -463,13 +460,46 @@ private fun TopFunctionRow(
                 .padding(horizontal = 8.dp, vertical = 7.dp),
     ) {
         Column(modifier = Modifier.weight(4.2f)) {
-            Text(function.symbolName, color = style.text, fontSize = ViewerTypography.label.fontSize, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(function.filePath, color = style.secondaryText, fontSize = ViewerTypography.micro.fontSize, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                function.symbolName,
+                color = style.text,
+                fontSize = ViewerTypography.label.fontSize,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                function.filePath,
+                color = style.secondaryText,
+                fontSize = ViewerTypography.micro.fontSize,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Text(function.inclusiveWeight.toString(), modifier = Modifier.weight(0.9f), color = style.text, fontSize = ViewerTypography.label.fontSize)
-        Text(function.exclusiveWeight.toString(), modifier = Modifier.weight(0.9f), color = style.text, fontSize = ViewerTypography.label.fontSize)
-        Text(function.sampleCount.toString(), modifier = Modifier.weight(0.7f), color = style.text, fontSize = ViewerTypography.label.fontSize)
-        Text(function.threadCount.toString(), modifier = Modifier.weight(0.7f), color = style.text, fontSize = ViewerTypography.label.fontSize)
+        Text(
+            function.inclusiveWeight.toString(),
+            modifier = Modifier.weight(0.9f),
+            color = style.text,
+            fontSize = ViewerTypography.label.fontSize,
+        )
+        Text(
+            function.exclusiveWeight.toString(),
+            modifier = Modifier.weight(0.9f),
+            color = style.text,
+            fontSize = ViewerTypography.label.fontSize,
+        )
+        Text(
+            function.sampleCount.toString(),
+            modifier = Modifier.weight(0.7f),
+            color = style.text,
+            fontSize = ViewerTypography.label.fontSize,
+        )
+        Text(
+            function.threadCount.toString(),
+            modifier = Modifier.weight(0.7f),
+            color = style.text,
+            fontSize = ViewerTypography.label.fontSize,
+        )
         Row(modifier = Modifier.weight(1.8f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             MacOSTextButton(
                 localizedStringResource(SimpleperfViewerRes.sp_calltree_path, currentSimpleperfLanguage()),
@@ -835,7 +865,12 @@ private fun DiagnosticCard(
         Text(finding.conclusion, color = style.text, fontSize = ViewerTypography.label.fontSize)
         finding.evidence.forEach { evidence ->
             Row(Modifier.fillMaxWidth()) {
-                Text(evidence.label, modifier = Modifier.weight(1f), color = style.secondaryText, fontSize = ViewerTypography.dense.fontSize)
+                Text(
+                    evidence.label,
+                    modifier = Modifier.weight(1f),
+                    color = style.secondaryText,
+                    fontSize = ViewerTypography.dense.fontSize,
+                )
                 Text(evidence.value, color = style.text, fontSize = ViewerTypography.dense.fontSize, fontWeight = FontWeight.SemiBold)
             }
         }

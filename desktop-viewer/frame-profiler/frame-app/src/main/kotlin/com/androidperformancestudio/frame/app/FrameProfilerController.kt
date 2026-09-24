@@ -18,8 +18,8 @@ import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.parser.GfxInfoFrameStatsParser
 import com.androidperformancestudio.frame.presentation.FrameDeviceOption
-import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
+import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.frame.presentation.FrameProfilerState
 import com.androidperformancestudio.frame.storage.SqliteFrameSessionStore
 import kotlinx.coroutines.CancellationException
@@ -49,13 +49,15 @@ internal class FrameProfilerController(
     private var activeCapture: OnlineFrameCapture? = null
     private var currentSession: FrameCaptureSession? = null
     private val processSelection = AndroidProcessSelection(FrameProcessOption::pid, selectSingleProcess = true)
-    private val processSelectionSubscription = processSelection.register { choice ->
-        mutableState.value = mutableState.value.copy(
-            selectedDeviceSerial = choice.serial,
-            processes = choice.processes,
-            selectedProcessId = choice.selectedPid,
-        )
-    }
+    private val processSelectionSubscription =
+        processSelection.register { choice ->
+            mutableState.value =
+                mutableState.value.copy(
+                    selectedDeviceSerial = choice.serial,
+                    processes = choice.processes,
+                    selectedProcessId = choice.selectedPid,
+                )
+        }
     private val targetSubscription =
         onlineBackend.registerTargetListener(
             object : AndroidTargetListener {
@@ -98,10 +100,11 @@ internal class FrameProfilerController(
                                 )
                         is com.androidperformancestudio.model.StudioResult.Success -> {
                             processSelection.updateProcesses(serial, result.value.frameCaptureProcesses())
-                            mutableState.value = mutableState.value.copy(
-                                isRefreshingDevices = false,
-                                errorMessage = null,
-                            )
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    isRefreshingDevices = false,
+                                    errorMessage = null,
+                                )
                         }
                     }
                 }
@@ -135,11 +138,12 @@ internal class FrameProfilerController(
                         .singleOrNull()
                         ?.serial
                 if (retainedSerial == null) processSelection.selectDevice(null)
-                mutableState.value = mutableState.value.copy(
-                    devices = result.value,
-                    isRefreshingDevices = false,
-                    errorMessage = null,
-                )
+                mutableState.value =
+                    mutableState.value.copy(
+                        devices = result.value,
+                        isRefreshingDevices = false,
+                        errorMessage = null,
+                    )
                 if (retainedSerial == null && automaticSerial != null) {
                     selectDevice(automaticSerial)
                 }

@@ -1,10 +1,13 @@
 package com.androidperformancestudio.startup.presentation
 
+import com.androidperformancestudio.startup.model.StartupStatistics
 import com.androidperformancestudio.startup.presentation.generated.resources.Res
 import com.androidperformancestudio.startup.presentation.generated.resources.cold
 import com.androidperformancestudio.startup.presentation.generated.resources.exact
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_first_frame_to_fully_drawn
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_range
+import com.androidperformancestudio.startup.presentation.generated.resources.requested
+import com.androidperformancestudio.startup.presentation.generated.resources.run_detail
 import com.androidperformancestudio.startup.presentation.generated.resources.startup_profiler
 import com.androidperformancestudio.startup.presentation.generated.resources.total
 import com.androidperformancestudio.ui.UiLanguage
@@ -63,6 +66,54 @@ class StartupProfilerLocalizationTest {
                 "进程启动",
                 "首帧",
             ),
+        )
+    }
+
+    @Test
+    fun `run presentation keeps requested and observed startup types distinct`() {
+        assertTrue(source.contains("StudioTableColumn(localizedStringResource(Res.string.requested, language)"))
+        assertTrue(source.contains("run.requestedType.localizedLabel(language)"))
+        assertTrue(source.contains("run.observedType.localizedLabel(language)"))
+        assertEquals("请求类型", localizedStringResource(Res.string.requested, UiLanguage.SIMPLIFIED_CHINESE))
+        assertEquals(
+            "第 2 轮详情 · 请求 冷启动 · 实际 热启动",
+            localizedStringResource(Res.string.run_detail, UiLanguage.SIMPLIFIED_CHINESE, 2, "冷启动", "热启动"),
+        )
+    }
+
+    @Test
+    fun `measured runs table keeps selection and horizontal access to real run values`() {
+        assertTrue(source.contains("StudioDataTable("))
+        assertTrue(source.contains(".horizontalScroll(rememberScrollState())"))
+        assertTrue(source.contains(".selectable(selected = selected, onClick = { onSelect(run.id) }"))
+        assertTrue(source.contains("TableCell(run.iteration.toString(), RUN_COLUMN_WEIGHT, emphasized = selected)"))
+        assertTrue(source.contains("run.platform.totalTimeMs.formatMs()"))
+        assertTrue(source.contains("run.platform.displayedTimeMs.formatMs()"))
+        assertTrue(source.contains("run.platform.fullyDrawnTimeMs.formatMs()"))
+    }
+
+    @Test
+    fun `commercial metric cards retain sample count and low tail resolution warning`() {
+        val statistics =
+            StartupStatistics(
+                count = 3,
+                missingCount = 0,
+                minimumMs = 10.0,
+                maximumMs = 30.0,
+                medianMs = 20.0,
+                meanMs = 20.0,
+                p90Ms = 30.0,
+                p95Ms = 30.0,
+                standardDeviationMs = 10.0,
+                medianAbsoluteDeviationMs = 10.0,
+                p90LowResolution = true,
+            )
+
+        assertTrue(source.contains("StudioMetricCard("))
+        assertTrue(source.contains("statistics.metricSupportingText(language)"))
+        assertEquals(
+            "p90 30.0 ms · n=3\np95 30.0 ms · n=3\nTail percentile resolution is low for this sample count.",
+            statistics.metricSupportingText(UiLanguage.ENGLISH),
         )
     }
 }

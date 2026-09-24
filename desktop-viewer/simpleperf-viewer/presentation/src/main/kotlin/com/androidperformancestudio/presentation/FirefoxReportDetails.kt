@@ -2,8 +2,6 @@
 
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +23,7 @@ import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import org.jetbrains.compose.resources.StringResource
 

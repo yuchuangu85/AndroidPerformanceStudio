@@ -1,7 +1,5 @@
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +18,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.CallStackTransform
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 

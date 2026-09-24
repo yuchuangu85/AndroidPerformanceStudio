@@ -2,8 +2,6 @@
 
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +30,7 @@ import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerTypography
 
 private enum class MarkerSort { START, DURATION, NAME, THREAD, SCHEMA }
 
@@ -120,7 +119,12 @@ private fun MarkerTableRow(
     ) {
         Text(marker.name, Modifier.weight(1f), color = style.text, fontSize = ViewerTypography.label.fontSize)
         Text(marker.startNanos.toString(), Modifier.width(110.dp), color = style.text, fontSize = ViewerTypography.dense.fontSize)
-        Text((marker.endNanosExclusive - marker.startNanos).toString(), Modifier.width(90.dp), color = style.text, fontSize = ViewerTypography.dense.fontSize)
+        Text(
+            (marker.endNanosExclusive - marker.startNanos).toString(),
+            Modifier.width(90.dp),
+            color = style.text,
+            fontSize = ViewerTypography.dense.fontSize,
+        )
         Text(marker.threadName ?: "Global", Modifier.width(110.dp), color = style.text, fontSize = ViewerTypography.dense.fontSize)
         Text(marker.schema, Modifier.width(100.dp), color = style.text, fontSize = ViewerTypography.dense.fontSize)
     }

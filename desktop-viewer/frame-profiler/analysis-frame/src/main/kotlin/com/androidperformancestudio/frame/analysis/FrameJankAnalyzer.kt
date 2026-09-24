@@ -96,7 +96,7 @@ public class FrameJankAnalyzer(
         if (!sample.eligibleForJank) return unknown(sample)
 
         val duration = sample.resolvedDurationNs()
-        val expected = sample.expectedDurationNs?.takeIf { it > 0L }
+        val expected = sample.knownExpectedDurationNs()
         val verdict =
             if (duration != null && expected != null) {
                 if (duration > expected) FrameDeadlineVerdict.MISSED else FrameDeadlineVerdict.MET

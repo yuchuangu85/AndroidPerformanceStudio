@@ -58,4 +58,6 @@ public data class FrameProcessOption(
 public data class FrameProfilerActions(
     val onSelectFrame: (Long) -> Unit = {},
     val onInspectLayout: (FrameSample) -> Unit = {},
+    val onOpenTrace: ((FrameSample) -> Unit)? = null,
+    val onCopyEvidence: ((String) -> Boolean)? = null,
 )

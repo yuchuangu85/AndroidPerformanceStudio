@@ -367,6 +367,16 @@ public fun FrameWindowScope.DesktopAppMainPage(
                         StartupProfilerMainPage(
                             language = language,
                             onBack = { navigator.open(AppDestination.HOME) },
+                            onOpenTrace = { path ->
+                                navigator.openPerfettoTrace(
+                                    path,
+                                    localizedStringResource(
+                                        Res.string.opened_from_tool_for_correlation_only,
+                                        language,
+                                        localizedStringResource(Res.string.startup_profiler, language),
+                                    ),
+                                )
+                            },
                         )
                     AppDestination.BATTERY_PROFILER ->
                         BatteryProfilerMainPage(

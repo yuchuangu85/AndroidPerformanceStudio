@@ -34,7 +34,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class DeviceTargetPageBehaviorTest {
     @Test
-    fun `toolbar opens the existing offline session workflow without a connected device`() =
+    fun `empty workspace opens the existing offline session workflow without a connected device`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             var openCount = 0
             setContent {
@@ -204,9 +204,10 @@ class DeviceTargetPageBehaviorTest {
             assertTrue(deviceSelector.left < TOOLBAR_LEFT_ALIGNMENT_LIMIT)
             assertTrue(deviceSelector.width < appSelector.width)
             assertTrue(getData.left > refresh.right)
-            assertTrue(openSession.left > getData.right)
-            assertTrue(capabilities.left > openSession.right)
+            assertTrue(capabilities.left > getData.right)
             assertTrue(settings.left > capabilities.right)
+            assertTrue(settings.right <= 1100f)
+            assertTrue(openSession.top > settings.bottom)
             onNodeWithText("Settings").assertDoesNotExist()
             onNodeWithContentDescription("Settings").performClick()
             onNodeWithContentDescription("Capture settings: Sampling template").assertExists()

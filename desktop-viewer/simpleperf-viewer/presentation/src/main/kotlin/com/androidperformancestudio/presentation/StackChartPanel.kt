@@ -1,7 +1,5 @@
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +15,7 @@ import com.androidperformancestudio.profileanalysis.StackChartEmptyReason
 import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
 

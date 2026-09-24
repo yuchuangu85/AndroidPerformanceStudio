@@ -3,8 +3,6 @@
 
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -56,6 +54,7 @@ import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.ThreadTimelineTrack
 import com.androidperformancestudio.storage.TimelineBucket
 import com.androidperformancestudio.ui.ViewerColors
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.NavigationAction
 import com.androidperformancestudio.visualization.TimeViewport

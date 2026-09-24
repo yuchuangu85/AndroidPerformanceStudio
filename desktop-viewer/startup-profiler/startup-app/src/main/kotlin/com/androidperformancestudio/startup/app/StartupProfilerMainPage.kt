@@ -98,11 +98,14 @@ import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.nio.file.Files
+import java.nio.file.Path
 
 @Composable
 public fun FrameWindowScope.StartupProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
+    onOpenTrace: ((Path) -> Unit)? = null,
 ) {
     val controller = remember(language) { StartupProfilerController(language = language) }
     val state by controller.state.collectAsState()
@@ -339,7 +342,11 @@ public fun FrameWindowScope.StartupProfilerMainPage(
         )
         StartupProfilerScreen(
             state = state,
-            actions = StartupProfilerActions(onSelectRun = controller::selectRun),
+            actions =
+                StartupProfilerActions(
+                    onSelectRun = controller::selectRun,
+                    onOpenTrace = onOpenTrace?.let { open -> { file -> openStartupTraceFile(file, open) } },
+                ),
             language = language,
             modifier = Modifier.weight(1f),
         )
@@ -349,6 +356,15 @@ public fun FrameWindowScope.StartupProfilerMainPage(
             errorMessage = state.errorMessage,
         )
     }
+}
+
+internal fun openStartupTraceFile(
+    file: String,
+    onOpenTrace: (Path) -> Unit,
+): Boolean {
+    val path = runCatching { Path.of(file) }.getOrNull() ?: return false
+    if (!Files.isRegularFile(path)) return false
+    return runCatching { onOpenTrace(path) }.isSuccess
 }
 
 @Composable

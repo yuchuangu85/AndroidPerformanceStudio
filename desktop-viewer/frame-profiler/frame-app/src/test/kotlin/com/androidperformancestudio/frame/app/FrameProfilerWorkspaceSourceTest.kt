@@ -82,6 +82,38 @@ class FrameProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `toolbar remains horizontally reachable when capture actions exceed window width`() {
+        val toolbar =
+            source.substring(
+                source.indexOf("HeaderToolbar("),
+                source.indexOf("HorizontalDivider(", source.indexOf("HeaderToolbar(")),
+            )
+
+        assertTrue(toolbar.contains(".horizontalScroll(rememberScrollState())"))
+        assertTrue(toolbar.contains("Res.string.open_trace_in_perfetto"))
+        assertTrue(toolbar.contains("Res.string.start_capture"))
+    }
+
+    @Test
+    fun `trace actions use the displayed frame and stay unavailable in details without a trace`() {
+        val selectedSample = source.substringAfter("val selectedSample =").substringBefore("val openTraceForSample")
+        assertTrue(selectedSample.contains("?: state.analysis"))
+        assertTrue(selectedSample.contains("?.firstOrNull()"))
+        assertTrue(source.contains("onClick = { openTraceForSample(selectedSample) }"))
+        assertTrue(source.contains("framePerfettoInspectionRequest(trace, sample)"))
+        assertTrue(source.contains("onOpenTrace ="))
+        assertTrue(source.contains("if (state.perfettoTraceFile != null)"))
+    }
+
+    @Test
+    fun `copy evidence writes to the clipboard only from the explicit frame action`() {
+        assertTrue(source.contains("onCopyEvidence = { evidence ->"))
+        assertTrue(source.contains("Toolkit.getDefaultToolkit().systemClipboard.setContents("))
+        assertTrue(source.contains("StringSelection(evidence)"))
+        assertTrue(source.contains("}.isSuccess"))
+    }
+
+    @Test
     fun `file actions are wired through the menu and removed from the toolbar`() {
         val toolbar =
             source.substring(

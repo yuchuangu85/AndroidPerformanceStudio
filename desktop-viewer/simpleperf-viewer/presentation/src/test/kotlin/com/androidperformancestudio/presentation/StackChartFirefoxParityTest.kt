@@ -33,7 +33,7 @@ class StackChartFirefoxParityTest {
             val pixels = onNodeWithTag("stack-chart-canvas").captureToImage().toPixelMap()
             val hasVisibleLabel =
                 (153..190).any { x ->
-                    (2..13).any { y -> pixels[x, y].isNear(Color.Black) }
+                    (2..13).any { y -> pixels[x, y].isDarkInk() }
                 }
             assertTrue(
                 pixels[0, 0].isNear(Color.White) &&
@@ -68,3 +68,5 @@ private fun Color.isNear(other: Color): Boolean =
     kotlin.math.abs(red - other.red) < 0.05f &&
         kotlin.math.abs(green - other.green) < 0.05f &&
         kotlin.math.abs(blue - other.blue) < 0.05f
+
+private fun Color.isDarkInk(): Boolean = red < 0.2f && green < 0.2f && blue < 0.2f

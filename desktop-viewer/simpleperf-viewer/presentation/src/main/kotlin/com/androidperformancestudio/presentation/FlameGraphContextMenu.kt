@@ -1,7 +1,5 @@
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +27,7 @@ import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import org.jetbrains.compose.resources.StringResource

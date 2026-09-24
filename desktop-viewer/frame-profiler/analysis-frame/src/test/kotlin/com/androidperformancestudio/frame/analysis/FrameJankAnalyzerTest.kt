@@ -11,6 +11,20 @@ class FrameJankAnalyzerTest {
     private val analyzer = FrameJankAnalyzer()
 
     @Test
+    fun `unknown budget provenance cannot classify a deadline miss`() {
+        val sample =
+            frame(id = 1, durationNs = 20_000_000L, expectedNs = 16_666_667L)
+                .copy(expectedDurationSource = ExpectedDurationSource.UNKNOWN)
+
+        val result = analyzer.analyze(listOf(sample))
+
+        assertEquals(FrameDeadlineVerdict.UNKNOWN, result.frames.single().deadlineVerdict)
+        assertEquals(null, result.frames.single().missedVsyncCount)
+        assertEquals(1, result.summary.deadlineUnknownFrames)
+        assertEquals(null, result.summary.deadlineMissRate)
+    }
+
+    @Test
     fun `uses each frame deadline instead of fixed 60hz threshold`() {
         val frames =
             listOf(

@@ -91,6 +91,10 @@ public data class FrameSample(
     val jankStatsRuleId: String? = null,
     val jankStatsRuleVersion: String? = null,
 ) {
+    /** An expected duration is usable only when its positive value has declared provenance. */
+    public fun knownExpectedDurationNs(): Long? =
+        expectedDurationNs?.takeIf { it > 0L && expectedDurationSource != ExpectedDurationSource.UNKNOWN }
+
     public fun resolvedDurationNs(): Long? =
         totalDurationNs?.takeIf { it >= 0L }
             ?: difference(frameCompletedNs ?: presentNs, intendedVsyncNs)

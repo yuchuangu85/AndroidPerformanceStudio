@@ -81,11 +81,12 @@ class ReportWorkspaceBehaviorTest {
                     TopFunctionsReport(
                         state = state,
                         report = requireNotNull(state.lastReadyReport),
-                        actions = goldenActions().copy(
-                            onSelectTopFunction = { selected = it },
-                            onFocusCallTreeFunction = { callTree = it },
-                            onFocusFunction = { flame = it },
-                        ),
+                        actions =
+                            goldenActions().copy(
+                                onSelectTopFunction = { selected = it },
+                                onFocusCallTreeFunction = { callTree = it },
+                                onFocusFunction = { flame = it },
+                            ),
                         style = viewerColors(darkTheme = false),
                     )
                 }

@@ -1,7 +1,5 @@
 package com.androidperformancestudio.presentation
 
-import com.androidperformancestudio.ui.ViewerTypography
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +20,7 @@ import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 

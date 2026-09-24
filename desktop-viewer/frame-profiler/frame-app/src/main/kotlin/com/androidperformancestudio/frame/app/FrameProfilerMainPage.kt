@@ -53,6 +53,7 @@ import com.androidperformancestudio.frame.frame_app.generated.resources.select_p
 import com.androidperformancestudio.frame.frame_app.generated.resources.start_capture
 import com.androidperformancestudio.frame.frame_app.generated.resources.status
 import com.androidperformancestudio.frame.frame_app.generated.resources.stop_capture
+import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
@@ -70,6 +71,8 @@ import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -82,6 +85,20 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     val controller = remember { FrameProfilerController() }
     DisposableEffect(controller) { onDispose(controller::close) }
     val state by controller.state.collectAsState()
+    val selectedSample =
+        state.analysis
+            ?.frames
+            ?.firstOrNull { it.sample.frameId == state.selectedFrameId }
+            ?.sample
+            ?: state.analysis
+                ?.frames
+                ?.firstOrNull()
+                ?.sample
+    val openTraceForSample: (FrameSample?) -> Unit = { sample ->
+        state.perfettoTraceFile?.let { trace ->
+            onOpenPerfetto(framePerfettoInspectionRequest(trace, sample))
+        }
+    }
     val scope = rememberCoroutineScope()
     var showImportDialog by remember { mutableStateOf(false) }
     val operationMessage = state.operationStatus?.localizedText(language)
@@ -137,118 +154,106 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             },
             onNavigateSettings = null,
         ) {
-            DropdownSelector(
-                items = state.devices,
-                selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
-                onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
-                itemLabel = { it.name },
-                placeholder = localizedStringResource(Res.string.device, language),
-                enabled = !state.isCapturing && !state.isLoading,
-                itemEnabled = { it.online },
-            )
-            HeaderSpacer()
-            DropdownSelector(
-                items = state.processes,
-                searchable = true,
-                searchLanguage = language,
-                itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
-                selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
-                onItemSelected = { controller.selectProcess(it.pid) },
-                itemLabel = {
-                    localizedStringResource(
-                        Res.string.process_with_pid,
-                        language,
-                        it.name,
-                        it.pid,
-                    )
-                },
-                placeholder = localizedStringResource(Res.string.process, language),
-                enabled = !state.isCapturing && !state.isLoading && state.selectedDeviceSerial != null,
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh, language),
-                enabled = !state.isCapturing && !state.isLoading && !state.isRefreshingDevices,
-                onClick = { scope.launch { controller.refreshDevices() } },
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_perfetto_frametimeline, language),
-                enabled = !state.isCapturing && !state.isLoading,
-                onClick = {
-                    chooseOpenFile(
-                        window,
-                        localizedStringResource(Res.string.select_perfetto_trace, language),
-                        "Perfetto trace",
-                        "trace",
-                        "perfetto-trace",
-                        "pftrace",
-                    )?.let { trace ->
-                        scope.launch { controller.importPerfettoTrace(trace.toPath()) }
-                    }
-                },
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.associate_perfetto_trace, language),
-                enabled = !state.isCapturing && !state.isLoading && state.analysis != null,
-                onClick = {
-                    chooseOpenFile(
-                        window,
-                        localizedStringResource(Res.string.select_perfetto_trace, language),
-                        "Perfetto trace",
-                        "trace",
-                        "perfetto-trace",
-                        "pftrace",
-                    )?.let { trace ->
-                        scope.launch { controller.associatePerfettoTrace(trace.toPath()) }
-                    }
-                },
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.capture_frametimeline, language),
-                enabled = state.selectedProcessId != null && !state.isCapturing && !state.isLoading,
-                onClick = { scope.launch { controller.captureFrameTimeline() } },
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
-                enabled = state.perfettoTraceFile != null,
-                onClick = {
-                    state.perfettoTraceFile?.let { trace ->
-                        val sample =
-                            state.analysis
-                                ?.frames
-                                ?.firstOrNull { it.sample.frameId == state.selectedFrameId }
-                                ?.sample
-                        onOpenPerfetto(
-                            FramePerfettoInspectionRequest(
-                                traceFile = trace,
-                                frameId = sample?.frameId,
-                                frameTimelineVsyncId = sample?.frameTimelineVsyncId,
-                                intendedVsyncNs = sample?.intendedVsyncNs,
-                            ),
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                DropdownSelector(
+                    items = state.devices,
+                    selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+                    onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
+                    itemLabel = { it.name },
+                    placeholder = localizedStringResource(Res.string.device, language),
+                    enabled = !state.isCapturing && !state.isLoading,
+                    itemEnabled = { it.online },
+                )
+                HeaderSpacer()
+                DropdownSelector(
+                    items = state.processes,
+                    searchable = true,
+                    searchLanguage = language,
+                    itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
+                    selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
+                    onItemSelected = { controller.selectProcess(it.pid) },
+                    itemLabel = {
+                        localizedStringResource(
+                            Res.string.process_with_pid,
+                            language,
+                            it.name,
+                            it.pid,
                         )
-                    }
-                },
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text =
-                    if (state.isCapturing) {
-                        localizedStringResource(Res.string.stop_capture, language)
-                    } else {
-                        localizedStringResource(Res.string.start_capture, language)
                     },
-                enabled = state.selectedProcessId != null && (state.isCapturing || !state.isLoading),
-                onClick = {
-                    scope.launch {
-                        if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()
-                    }
-                },
-            )
-            Spacer(Modifier.weight(1f))
+                    placeholder = localizedStringResource(Res.string.process, language),
+                    enabled = !state.isCapturing && !state.isLoading && state.selectedDeviceSerial != null,
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.refresh, language),
+                    enabled = !state.isCapturing && !state.isLoading && !state.isRefreshingDevices,
+                    onClick = { scope.launch { controller.refreshDevices() } },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.import_perfetto_frametimeline, language),
+                    enabled = !state.isCapturing && !state.isLoading,
+                    onClick = {
+                        chooseOpenFile(
+                            window,
+                            localizedStringResource(Res.string.select_perfetto_trace, language),
+                            "Perfetto trace",
+                            "trace",
+                            "perfetto-trace",
+                            "pftrace",
+                        )?.let { trace ->
+                            scope.launch { controller.importPerfettoTrace(trace.toPath()) }
+                        }
+                    },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.associate_perfetto_trace, language),
+                    enabled = !state.isCapturing && !state.isLoading && state.analysis != null,
+                    onClick = {
+                        chooseOpenFile(
+                            window,
+                            localizedStringResource(Res.string.select_perfetto_trace, language),
+                            "Perfetto trace",
+                            "trace",
+                            "perfetto-trace",
+                            "pftrace",
+                        )?.let { trace ->
+                            scope.launch { controller.associatePerfettoTrace(trace.toPath()) }
+                        }
+                    },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.capture_frametimeline, language),
+                    enabled = state.selectedProcessId != null && !state.isCapturing && !state.isLoading,
+                    onClick = { scope.launch { controller.captureFrameTimeline() } },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
+                    enabled = state.perfettoTraceFile != null,
+                    onClick = { openTraceForSample(selectedSample) },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text =
+                        if (state.isCapturing) {
+                            localizedStringResource(Res.string.stop_capture, language)
+                        } else {
+                            localizedStringResource(Res.string.start_capture, language)
+                        },
+                    enabled = state.selectedProcessId != null && (state.isCapturing || !state.isLoading),
+                    onClick = {
+                        scope.launch {
+                            if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()
+                        }
+                    },
+                )
+            }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         FrameProfilerScreen(
@@ -256,6 +261,17 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             actions =
                 FrameProfilerActions(
                     onSelectFrame = controller::selectFrame,
+                    onCopyEvidence = { evidence ->
+                        runCatching {
+                            Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(evidence), null)
+                        }.isSuccess
+                    },
+                    onOpenTrace =
+                        if (state.perfettoTraceFile != null) {
+                            { sample -> openTraceForSample(sample) }
+                        } else {
+                            null
+                        },
                     onInspectLayout = { sample ->
                         sample.packageName?.let { packageName ->
                             scope.launch {
