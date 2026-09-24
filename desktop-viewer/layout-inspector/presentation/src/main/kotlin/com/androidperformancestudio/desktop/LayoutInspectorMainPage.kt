@@ -48,6 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -142,6 +143,10 @@ import com.androidperformancestudio.ui.chooseDirectory
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.ViewerTypography.icon
+import com.androidperformancestudio.ui_components.generated.resources.ic_toggle_bottom
+import com.androidperformancestudio.ui_components.generated.resources.ic_toggle_left
+import com.androidperformancestudio.ui_components.generated.resources.ic_toggle_right
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -151,13 +156,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.skia.Image
 import java.awt.Cursor
 import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
 import java.nio.file.Path
 import java.util.Locale
+import javax.swing.Icon
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -1012,23 +1020,23 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 HeaderDivider()
                 HeaderSpacer()
                 PanelToggleButton(
-                    position = PanelPosition.LEFT,
                     visible = panelVisibility.showHierarchy,
                     contentDescription = localizedStringResource(Res.string.toggle_hierarchy, language),
+                    resource = com.androidperformancestudio.ui_components.generated.resources.Res.drawable.ic_toggle_left,
                     onClick = { performAction(ViewerAction.TOGGLE_HIERARCHY) },
                 )
                 HeaderSpacer()
                 PanelToggleButton(
-                    position = PanelPosition.BOTTOM,
                     visible = panelVisibility.showFindings,
                     contentDescription = localizedStringResource(Res.string.toggle_findings, language),
+                    resource = com.androidperformancestudio.ui_components.generated.resources.Res.drawable.ic_toggle_bottom,
                     onClick = { performAction(ViewerAction.TOGGLE_FINDINGS) },
                 )
                 HeaderSpacer()
                 PanelToggleButton(
-                    position = PanelPosition.RIGHT,
                     visible = panelVisibility.showDetails,
                     contentDescription = localizedStringResource(Res.string.toggle_details, language),
+                    resource = com.androidperformancestudio.ui_components.generated.resources.Res.drawable.ic_toggle_right,
                     onClick = { performAction(ViewerAction.TOGGLE_DETAILS) },
                 )
             }
@@ -1798,9 +1806,9 @@ private enum class PanelPosition {
 
 @Composable
 private fun PanelToggleButton(
-    position: PanelPosition,
     visible: Boolean,
     contentDescription: String,
+    resource: DrawableResource,
     onClick: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -1818,37 +1826,11 @@ private fun PanelToggleButton(
                 .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(15.dp)) {
-            val inset = 1.dp.toPx()
-            val strokeWidth = 1.dp.toPx()
-            val contentLeft = inset + strokeWidth
-            val contentTop = inset + strokeWidth
-            val contentWidth = size.width - contentLeft * 2
-            val contentHeight = size.height - contentTop * 2
-            drawRect(
-                color = iconColor,
-                topLeft = Offset(inset, inset),
-                size = Size(size.width - inset * 2, size.height - inset * 2),
-                style = Stroke(width = strokeWidth),
-            )
-            when (position) {
-                PanelPosition.LEFT -> drawRect(
-                    color = iconColor.copy(alpha = 0.8f),
-                    topLeft = Offset(contentLeft, contentTop),
-                    size = Size(4.dp.toPx(), contentHeight),
-                )
-                PanelPosition.BOTTOM -> drawRect(
-                    color = iconColor.copy(alpha = 0.8f),
-                    topLeft = Offset(contentLeft, size.height - contentTop - 4.dp.toPx()),
-                    size = Size(contentWidth, 4.dp.toPx()),
-                )
-                PanelPosition.RIGHT -> drawRect(
-                    color = iconColor.copy(alpha = 0.8f),
-                    topLeft = Offset(size.width - contentLeft - 4.dp.toPx(), contentTop),
-                    size = Size(4.dp.toPx(), contentHeight),
-                )
-            }
-        }
+        Icon(
+            painter = painterResource(resource),
+            contentDescription = contentDescription,
+            tint = iconColor,
+        )
     }
 }
 

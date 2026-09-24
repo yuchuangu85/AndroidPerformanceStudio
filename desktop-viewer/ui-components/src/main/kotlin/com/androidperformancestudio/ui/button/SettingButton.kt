@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,6 +25,10 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui_components.generated.resources.Res
+import com.androidperformancestudio.ui_components.generated.resources.ic_home
+import com.androidperformancestudio.ui_components.generated.resources.ic_settings
+import org.jetbrains.compose.resources.painterResource
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -57,30 +62,10 @@ public fun SettingsButton(
                 ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(15.dp)) {
-            drawSettingsGear(iconColor)
-        }
-    }
-}
-
-private fun DrawScope.drawSettingsGear(iconColor: Color) {
-    val center = Offset(size.width / 2f, size.height / 2f)
-    val strokeWidth = 1.2.dp.toPx()
-    val innerRadius = 2.2.dp.toPx()
-    val outerRadius = 5.2.dp.toPx()
-    drawCircle(iconColor, innerRadius, center, style = Stroke(width = strokeWidth))
-    drawCircle(iconColor, outerRadius, center, style = Stroke(width = strokeWidth))
-    repeat(SETTINGS_GEAR_TOOTH_COUNT) { index ->
-        val angle =
-            Math.toRadians(
-                (index * SETTINGS_GEAR_TOOTH_ANGLE_DEGREES) + SETTINGS_GEAR_START_ANGLE_DEGREES,
-            )
-        val direction = Offset(cos(angle).toFloat(), sin(angle).toFloat())
-        drawLine(
-            color = iconColor,
-            start = center + direction * outerRadius,
-            end = center + direction * (outerRadius + 2.dp.toPx()),
-            strokeWidth = strokeWidth,
+        Icon(
+            painter = painterResource(Res.drawable.ic_settings),
+            contentDescription = contentDescription,
+            tint = iconColor,
         )
     }
 }

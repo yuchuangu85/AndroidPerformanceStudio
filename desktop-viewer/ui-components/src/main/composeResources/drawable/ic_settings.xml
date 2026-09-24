@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="15dp"
+        android:height="15dp"
+        android:viewportWidth="15"
+        android:viewportHeight="15">
+
+    <!-- Outer circle -->
+    <path
+            android:pathData="
+            M12.7,7.5
+            A5.2,5.2 0,1 1,2.3 7.5
+            A5.2,5.2 0,1 1,12.7 7.5"
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.2" />
+
+    <!-- Inner circle -->
+    <path
+            android:pathData="
+            M9.7,7.5
+            A2.2,2.2 0,1 1,5.3 7.5
+            A2.2,2.2 0,1 1,9.7 7.5"
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.2" />
+
+    <!-- Teeth -->
+    <path
+            android:pathData="
+            M7.5,2.3 L7.5,0.3
+            M11.177,3.823 L12.591,2.409
+            M12.7,7.5 L14.7,7.5
+            M11.177,11.177 L12.591,12.591
+            M7.5,12.7 L7.5,14.7
+            M3.823,11.177 L2.409,12.591
+            M2.3,7.5 L0.3,7.5
+            M3.823,3.823 L2.409,2.409"
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.2" />
+</vector>
