@@ -64,6 +64,13 @@
     <string name="details_tab_compose">Compose</string>
     <string name="details_tab_evidence">证据</string>
     <string name="findings">问题</string>
+    <string name="finding_column_severity">严重级别</string>
+    <string name="finding_column_finding">问题</string>
+    <string name="finding_column_details">描述</string>
+    <string name="finding_column_node">节点</string>
+    <string name="finding_severity_info">信息</string>
+    <string name="finding_severity_warning">警告</string>
+    <string name="finding_severity_error">错误</string>
     <string name="run_ai_analysis">AI 分析</string>
     <string name="ai_analysis_running">AI 分析中…</string>
     <string name="no_live_frame">无实时画面</string>
@@ -71,6 +78,7 @@
     <string name="zoom_out_preview">缩小预览</string>
     <string name="zoom_in_preview">放大预览</string>
     <string name="no_findings">暂无问题</string>
+    <string name="no_findings_for_severity">该严重级别暂无问题</string>
     <string name="timeline_live_capture">时间线  实时采集</string>
     <string name="no_app">无应用</string>
     <string name="no_available_windows">无可用窗口</string>
@@ -120,6 +128,7 @@
     <string name="timeline_diff">Δ +%1$d -%2$d 移动 %3$d</string>
     <string name="timeline_frame_summary">+%1$d -%2$d 移动 %3$d</string>
     <string name="info_badge">信息 %1$d</string>
+    <string name="all_findings_badge">全部 %1$d</string>
     <string name="warning_badge">警告 %1$d</string>
     <string name="error_badge">错误 %1$d</string>
     <string name="subtree_complexity">%1$d 个后代 · 深度 %2$d</string>

@@ -10,6 +10,9 @@ class UiComponentsDependencyContractTest {
     @Test
     fun `every Compose application and presentation module uses the public UI library`() {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
+        val catalog = Files.readString(desktopViewer.resolve("gradle/libs.versions.toml"))
+
+        assertTrue(catalog.contains("aps-ui-components = { module = \"com.androidperformancestudio:ui-components\", version.ref = \"aps\" }"))
 
         UI_MODULE_BUILD_FILES.forEach { relativePath ->
             val buildFile = desktopViewer.resolve(relativePath)
@@ -96,7 +99,7 @@ class UiComponentsDependencyContractTest {
 
     private companion object {
         const val UI_COMPONENTS_DEPENDENCY =
-            "com.androidperformancestudio:ui-components:0.1.0-SNAPSHOT"
+            "implementation(libs.aps.ui.components)"
         const val LEGACY_LANGUAGE_PARAMETER = "chinese: Boolean"
         val SCOPED_LANGUAGE_ENUM = Regex("""enum class \w+Language(?:\s|\()""")
 

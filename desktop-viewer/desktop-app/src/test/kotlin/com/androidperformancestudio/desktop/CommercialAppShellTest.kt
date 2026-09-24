@@ -13,6 +13,13 @@ import org.junit.jupiter.api.Test
 
 class CommercialAppShellTest {
     @Test
+    fun `desktop window honors the commercial minimum size`() {
+        val main = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/Main.kt"))
+
+        assertTrue(main.contains("window.minimumSize = java.awt.Dimension(1280, 720)"))
+    }
+
+    @Test
     fun `navigation rail collapses below the documented minimum width`() {
         assertTrue(navigationRailCollapsedFor(NAVIGATION_COLLAPSE_BREAKPOINT_DP - 1))
         assertFalse(navigationRailCollapsedFor(NAVIGATION_COLLAPSE_BREAKPOINT_DP))

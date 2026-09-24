@@ -64,6 +64,13 @@
     <string name="details_tab_compose">Compose</string>
     <string name="details_tab_evidence">Evidence</string>
     <string name="findings">FINDINGS</string>
+    <string name="finding_column_severity">SEVERITY</string>
+    <string name="finding_column_finding">FINDING</string>
+    <string name="finding_column_details">DETAILS</string>
+    <string name="finding_column_node">NODE</string>
+    <string name="finding_severity_info">Info</string>
+    <string name="finding_severity_warning">Warning</string>
+    <string name="finding_severity_error">Error</string>
     <string name="run_ai_analysis">Run AI</string>
     <string name="ai_analysis_running">AI running…</string>
     <string name="no_live_frame">No live frame</string>
@@ -71,6 +78,7 @@
     <string name="zoom_out_preview">Zoom out preview</string>
     <string name="zoom_in_preview">Zoom in preview</string>
     <string name="no_findings">No findings</string>
+    <string name="no_findings_for_severity">No findings at this severity</string>
     <string name="timeline_live_capture">TIMELINE  Live capture</string>
     <string name="no_app">No app</string>
     <string name="no_available_windows">No available windows</string>
@@ -120,6 +128,7 @@
     <string name="timeline_diff">Δ +%1$d -%2$d moved %3$d</string>
     <string name="timeline_frame_summary">+%1$d -%2$d moved %3$d</string>
     <string name="info_badge">INFO %1$d</string>
+    <string name="all_findings_badge">ALL %1$d</string>
     <string name="warning_badge">WARN %1$d</string>
     <string name="error_badge">ERROR %1$d</string>
     <string name="subtree_complexity">%1$d descendants · depth %2$d</string>

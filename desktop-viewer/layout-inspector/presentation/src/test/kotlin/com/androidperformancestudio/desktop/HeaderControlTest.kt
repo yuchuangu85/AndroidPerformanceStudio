@@ -70,14 +70,14 @@ class HeaderControlTest {
         assertFalse(statusBar.contains("PanelToggleButton("))
         assertTrue(statusBar.contains("ProfilerCompactButton("))
         assertEquals(3, header.split("PanelToggleButton(").size - 1)
-        assertTrue(header.indexOf("ScanModeButtons(") < header.indexOf("position = PanelPosition.LEFT"))
+        assertTrue(header.indexOf("ScanModeButtons(") < header.indexOf("Res.drawable.ic_toggle_left"))
         assertTrue(
-            header.indexOf("position = PanelPosition.LEFT") <
-                header.indexOf("position = PanelPosition.BOTTOM"),
+            header.indexOf("Res.drawable.ic_toggle_left") <
+                header.indexOf("Res.drawable.ic_toggle_bottom"),
         )
         assertTrue(
-            header.indexOf("position = PanelPosition.BOTTOM") <
-                header.indexOf("position = PanelPosition.RIGHT"),
+            header.indexOf("Res.drawable.ic_toggle_bottom") <
+                header.indexOf("Res.drawable.ic_toggle_right"),
         )
         assertTrue(header.contains("contentDescription = localizedStringResource(Res.string.toggle_hierarchy, language)"))
     }
@@ -90,7 +90,7 @@ class HeaderControlTest {
         val findingsHeader = source
             .substringAfter("private fun FindingsPane(")
             .substringAfter("Column(modifier.background(colors.panel)) {")
-            .substringBefore("if (model.timelineFrames.isNotEmpty())")
+            .substringBefore("if (showTimeline) {")
 
         assertTrue(findingsHeader.contains("verticalAlignment = Alignment.CenterVertically"))
         assertFalse(findingsHeader.contains("TextButton("))

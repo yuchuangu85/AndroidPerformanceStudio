@@ -52,6 +52,32 @@ class ViewDisplayProjectionTest {
     }
 
     @Test
+    fun `severity filter preserves the visible finding order and source evidence`() {
+        val findings = listOf(
+            finding(key = "info", nodeId = "root", tone = FindingTone.INFO),
+            finding(key = "warning-a", nodeId = "root", tone = FindingTone.WARNING)
+                .copy(sourceCandidateIds = listOf("source-1")),
+            finding(key = "error", nodeId = "root", tone = FindingTone.ERROR),
+            finding(key = "warning-b", nodeId = "root", tone = FindingTone.WARNING),
+        )
+
+        assertEquals(findings, ViewDisplayProjection.findingsBySeverity(findings, tone = null))
+        assertEquals(
+            listOf("warning-a", "warning-b"),
+            ViewDisplayProjection.findingsBySeverity(findings, FindingTone.WARNING).map(FindingRowModel::key),
+        )
+        assertEquals(
+            listOf("source-1"),
+            ViewDisplayProjection.findingsBySeverity(findings, FindingTone.WARNING)
+                .first().sourceCandidateIds,
+        )
+        assertEquals(
+            emptyList<FindingRowModel>(),
+            ViewDisplayProjection.findingsBySeverity(findings.take(2), FindingTone.ERROR),
+        )
+    }
+
+    @Test
     fun `hierarchy label can omit only the index prefix`() {
         val row = rows.last()
 

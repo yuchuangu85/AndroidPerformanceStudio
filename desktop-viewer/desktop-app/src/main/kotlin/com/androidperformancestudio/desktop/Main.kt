@@ -35,7 +35,7 @@ fun main() = application {
             }
             onDispose(registration::close)
         }
-        window.minimumSize = java.awt.Dimension(1100, 720)
+        window.minimumSize = java.awt.Dimension(1280, 720)
         DesktopAppMainPage(windowTitle, settingsRequest = settingsRequest)
     }
 }

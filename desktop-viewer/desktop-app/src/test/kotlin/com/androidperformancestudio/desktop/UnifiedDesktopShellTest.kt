@@ -81,10 +81,10 @@ class UnifiedDesktopShellTest {
             "Res.string.startup_profiler",
             "Res.string.battery_profiler",
             "Res.string.network_profiler",
-        ).forEach { resource -> assertTrue(home.contains(resource), "Missing home resource reference: $resource") }
-        listOf(
             "Res.string.gpu_inspector",
             "Res.string.benchmark_regression",
+        ).forEach { resource -> assertTrue(home.contains(resource), "Missing home resource reference: $resource") }
+        listOf(
             "Res.string.view_live_telemetry",
             "Res.string.cpu_method_recording",
             "Res.string.java_kotlin_allocations",

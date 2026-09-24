@@ -23,7 +23,6 @@ class UserDocumentationPackagingTest {
         assertTrue(englishMarkdown.isNotEmpty())
         assertTrue(Files.isRegularFile(chinese.resolve("index.html")))
         assertTrue(Files.isRegularFile(chinese.resolve("images/screenshot-2022-04-25.png")))
-        assertFalse(Files.exists(chinese.resolve(".DS_Store")))
         chineseMarkdown.forEach { name ->
             val content = Files.readString(chinese.resolve(name))
             assertFalse(content.contains("ZXQPROTECTED"), "Unresolved translation placeholder in $name")
@@ -39,6 +38,7 @@ class UserDocumentationPackagingTest {
         assertTrue(buildScript.contains("userDocumentationChinese"))
         assertTrue(buildScript.contains("into(\"docs-user\")"))
         assertTrue(buildScript.contains("into(\"docs-user-zh\")"))
+        assertTrue(buildScript.contains("exclude(\"**/.DS_Store\")"))
     }
 
     @Test

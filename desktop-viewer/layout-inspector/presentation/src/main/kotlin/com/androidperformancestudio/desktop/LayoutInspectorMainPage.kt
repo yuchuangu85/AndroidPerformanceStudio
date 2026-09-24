@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
@@ -39,6 +40,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.v2.ScrollbarAdapter
@@ -96,6 +98,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -1174,6 +1177,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         }
                         FindingsPane(
                             state = state,
+                            panelHeightDp = normalizedFindingsHeight,
                             viewDisplayOptions = viewDisplayOptions,
                             onSelectNode = selectNode,
                             aiAnalysisUiState = aiAnalysisUiState,
@@ -3078,6 +3082,7 @@ private fun com.androidperformancestudio.compose.inspection.ComposableDetail.fin
 @Composable
 private fun FindingsPane(
     state: InspectorState,
+    panelHeightDp: Float,
     viewDisplayOptions: ViewDisplayOptions,
     aiAnalysisUiState: AiAnalysisUiState,
     onRunAiAnalysis: () -> Unit,
@@ -3099,6 +3104,9 @@ private fun FindingsPane(
         hideInvisible = viewDisplayOptions.hideInvisibleFindings,
     )
     val severitySummary = ViewDisplayProjection.severitySummary(findings)
+    var selectedTone by remember { mutableStateOf<FindingTone?>(null) }
+    val displayedFindings = ViewDisplayProjection.findingsBySeverity(findings, selectedTone)
+    val showTimeline = FindingsLayout.showTimeline(panelHeightDp, model.timelineFrames.isNotEmpty())
     var selectionState by remember { mutableStateOf(FindingSelectionState()) }
     var sourceCandidateChoices by remember { mutableStateOf<List<String>>(emptyList()) }
     Column(modifier.background(colors.panel)) {
@@ -3111,11 +3119,33 @@ private fun FindingsPane(
         ) {
             Text(localizedStringResource(Res.string.findings, language), color = colors.secondaryText, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(18.dp))
-            Badge(localizedStringResource(Res.string.info_badge, language, severitySummary.info), colors.info)
+            FindingSeverityChip(
+                text = localizedStringResource(Res.string.all_findings_badge, language, findings.size),
+                color = colors.accent,
+                selected = selectedTone == null,
+                onClick = { selectedTone = null },
+            )
             Spacer(Modifier.width(8.dp))
-            Badge(localizedStringResource(Res.string.warning_badge, language, severitySummary.warning), colors.warning)
+            FindingSeverityChip(
+                text = localizedStringResource(Res.string.info_badge, language, severitySummary.info),
+                color = colors.info,
+                selected = selectedTone == FindingTone.INFO,
+                onClick = { selectedTone = FindingTone.INFO },
+            )
             Spacer(Modifier.width(8.dp))
-            Badge(localizedStringResource(Res.string.error_badge, language, severitySummary.error), colors.error)
+            FindingSeverityChip(
+                text = localizedStringResource(Res.string.warning_badge, language, severitySummary.warning),
+                color = colors.warning,
+                selected = selectedTone == FindingTone.WARNING,
+                onClick = { selectedTone = FindingTone.WARNING },
+            )
+            Spacer(Modifier.width(8.dp))
+            FindingSeverityChip(
+                text = localizedStringResource(Res.string.error_badge, language, severitySummary.error),
+                color = colors.error,
+                selected = selectedTone == FindingTone.ERROR,
+                onClick = { selectedTone = FindingTone.ERROR },
+            )
             Spacer(Modifier.weight(1f))
             if (AI_ANALYSIS_ENTRY_VISIBLE) {
                 val aiStatus = when (aiAnalysisUiState) {
@@ -3146,7 +3176,7 @@ private fun FindingsPane(
                 )
             }
         }
-        if (model.timelineFrames.isNotEmpty()) {
+        if (showTimeline) {
             HorizontalDivider(color = colors.border)
             TimelineStrip(
                 frames = model.timelineFrames,
@@ -3155,11 +3185,21 @@ private fun FindingsPane(
             )
         }
         HorizontalDivider(color = colors.border)
-        if (findings.isEmpty()) {
-            Text(localizedStringResource(Res.string.no_findings, language), color = colors.subtleText, modifier = Modifier.padding(16.dp))
+        if (displayedFindings.isEmpty()) {
+            Text(
+                localizedStringResource(
+                    if (findings.isEmpty()) Res.string.no_findings else Res.string.no_findings_for_severity,
+                    language,
+                ),
+                color = colors.subtleText,
+                modifier = Modifier.padding(16.dp),
+            )
         } else {
+            if (FindingsLayout.showTableHeader(panelHeightDp, showTimeline)) {
+                FindingsTableHeader()
+            }
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                items(findings, key = { it.key }) { finding ->
+                items(displayedFindings, key = { it.key }) { finding ->
                     FindingRow(
                         finding = finding,
                         selected = selectionState.isSelected(finding.key),
@@ -3369,14 +3409,17 @@ private fun FindingRow(
     onDoubleClick: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
+    val language = LocalLayoutInspectorLanguage.current
     val findingColor = when (finding.tone) {
         FindingTone.INFO -> colors.info
         FindingTone.WARNING -> colors.warning
         FindingTone.ERROR -> colors.error
     }
+    val severityLabel = localizedStringResource(finding.tone.severityLabelResource(), language)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = FindingsLayoutTokens.MIN_VISIBLE_ROW_HEIGHT_DP.dp)
             .background(if (selected) colors.selectedRow else colors.transparent)
             .onPointerEvent(
                 eventType = PointerEventType.Press,
@@ -3392,6 +3435,8 @@ private fun FindingRow(
             }
             .semantics {
                 role = Role.Button
+                this.selected = selected
+                contentDescription = "$severityLabel, ${finding.title}, ${finding.message}, ${finding.nodeNumber}"
                 onClick { onClick(); true }
             }
             .onPreviewKeyEvent { event ->
@@ -3405,21 +3450,94 @@ private fun FindingRow(
             .focusable(),
     ) {
         SelectionContainer {
-            Text(
-                "[${finding.nodeNumber}]  ${finding.title}  ·  ${finding.message}",
-                color = findingColor,
-                fontSize = ViewerTypography.secondary.fontSize,
-                lineHeight = ViewerTypography.secondary.lineHeight,
-                fontFamily = FontFamily.Monospace,
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        horizontal = 16.dp,
+                        horizontal = 12.dp,
                         vertical = FindingsLayoutTokens.VERTICAL_PADDING_DP.dp,
                     ),
-            )
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    text = severityLabel,
+                    color = findingColor,
+                    fontSize = ViewerTypography.label.fontSize,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.width(FindingsLayoutTokens.SEVERITY_COLUMN_WIDTH_DP.dp),
+                )
+                Text(
+                    text = finding.title,
+                    color = colors.rowText,
+                    fontSize = ViewerTypography.secondary.fontSize,
+                    lineHeight = ViewerTypography.secondary.lineHeight,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = finding.message,
+                    color = colors.secondaryText,
+                    fontSize = ViewerTypography.secondary.fontSize,
+                    lineHeight = ViewerTypography.secondary.lineHeight,
+                    modifier = Modifier.weight(2f),
+                )
+                Text(
+                    text = finding.nodeNumber,
+                    color = colors.mutedText,
+                    fontSize = ViewerTypography.label.fontSize,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.width(FindingsLayoutTokens.NODE_COLUMN_WIDTH_DP.dp),
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun FindingsTableHeader() {
+    val colors = LocalViewerColors.current
+    val language = LocalLayoutInspectorLanguage.current
+    Row(
+        modifier = Modifier.fillMaxWidth().height(FindingsLayoutTokens.TABLE_HEADER_HEIGHT_DP.dp)
+            .background(colors.sectionBackground)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            localizedStringResource(Res.string.finding_column_severity, language),
+            color = colors.secondaryText,
+            fontSize = ViewerTypography.label.fontSize,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(FindingsLayoutTokens.SEVERITY_COLUMN_WIDTH_DP.dp),
+        )
+        Text(
+            localizedStringResource(Res.string.finding_column_finding, language),
+            color = colors.secondaryText,
+            fontSize = ViewerTypography.label.fontSize,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            localizedStringResource(Res.string.finding_column_details, language),
+            color = colors.secondaryText,
+            fontSize = ViewerTypography.label.fontSize,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(2f),
+        )
+        Text(
+            localizedStringResource(Res.string.finding_column_node, language),
+            color = colors.secondaryText,
+            fontSize = ViewerTypography.label.fontSize,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(FindingsLayoutTokens.NODE_COLUMN_WIDTH_DP.dp),
+        )
+    }
+    HorizontalDivider(color = colors.border)
+}
+
+private fun FindingTone.severityLabelResource(): StringResource = when (this) {
+    FindingTone.INFO -> Res.string.finding_severity_info
+    FindingTone.WARNING -> Res.string.finding_severity_warning
+    FindingTone.ERROR -> Res.string.finding_severity_error
 }
 
 @Composable
@@ -3451,13 +3569,21 @@ private fun PanelTitle(
 }
 
 @Composable
-private fun Badge(text: String, color: Color) {
+private fun FindingSeverityChip(
+    text: String,
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     Text(
         text,
         color = color,
         fontSize = ViewerTypography.label.fontSize,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.background(color.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+        modifier = Modifier
+            .background(color.copy(alpha = if (selected) 0.25f else 0.10f), RoundedCornerShape(4.dp))
+            .border(if (selected) 1.dp else 0.dp, color.copy(alpha = if (selected) 0.7f else 0f), RoundedCornerShape(4.dp))
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 7.dp, vertical = 3.dp),
     )
 }

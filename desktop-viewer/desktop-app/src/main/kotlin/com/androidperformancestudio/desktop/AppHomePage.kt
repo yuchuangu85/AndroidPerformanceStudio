@@ -92,7 +92,6 @@ internal fun AppHomePage(
     onOpenNetworkProfiler: () -> Unit,
     onOpenGpuInspector: () -> Unit,
     onOpenBenchmarkRegression: () -> Unit,
-    onOpenMethodRecording: () -> Unit,
     onOpenRecentArtifact: (StudioRecentItem) -> Unit,
     onOpenTraceFile: () -> Unit,
     onAnalyzeHprof: () -> Unit,
@@ -221,13 +220,6 @@ internal fun AppHomePage(
                 description = localizedStringResource(Res.string.compare_androidx_benchmark_baselines_and_current_results_with_ci_regre, language),
                 actionLabel = localizedStringResource(Res.string.open, language),
                 onClick = onOpenBenchmarkRegression,
-            ),
-            HomeFeatureEntry(
-                title = localizedStringResource(Res.string.cpu_method_recording, language),
-                subtitle = localizedStringResource(Res.string.method_recording, language),
-                description = localizedStringResource(Res.string.cpu_method_recording_description, language),
-                actionLabel = localizedStringResource(Res.string.open, language),
-                onClick = onOpenMethodRecording,
             ),
             HomeFeatureEntry(
                 title = localizedStringResource(Res.string.source_workspaces, language),

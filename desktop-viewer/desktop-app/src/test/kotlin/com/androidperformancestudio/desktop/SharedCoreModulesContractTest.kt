@@ -11,13 +11,13 @@ class SharedCoreModulesContractTest {
     fun `root build exposes the AI and source workspace libraries as composite builds`() {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         val settings = Files.readString(desktopViewer.resolve("settings.gradle.kts"))
+        val presentationBuild = Files.readString(desktopViewer.resolve("layout-inspector/presentation/build.gradle.kts"))
+        val catalog = Files.readString(desktopViewer.resolve("gradle/libs.versions.toml"))
 
         assertTrue(settings.contains("includeBuild(\"ai-core\")"))
         assertTrue(settings.contains("includeBuild(\"source-workspace\")"))
-        assertTrue(
-            Files.readString(desktopViewer.resolve("layout-inspector/presentation/build.gradle.kts"))
-                .contains("com.androidperformancestudio:ai-core:0.1.0-SNAPSHOT"),
-        )
+        assertTrue(presentationBuild.contains("implementation(libs.aps.ai.core)"))
+        assertTrue(catalog.contains("aps-ai-core = { module = \"com.androidperformancestudio:ai-core\", version.ref = \"aps\" }"))
     }
 
     @Test
@@ -39,12 +39,14 @@ class SharedCoreModulesContractTest {
         val platformSettings = Files.readString(desktopViewer.resolve("platform-core/settings.gradle.kts"))
         val contractsBuild = Files.readString(desktopViewer.resolve("platform-core/profiler-contracts/build.gradle.kts"))
         val compatibilityBuild = Files.readString(desktopViewer.resolve("simpleperf-viewer/profile-model/build.gradle.kts"))
+        val catalog = Files.readString(desktopViewer.resolve("gradle/libs.versions.toml"))
 
         assertTrue(rootSettings.contains("includeBuild(\"platform-core\")"))
         assertTrue(platformSettings.contains("\":profiler-contracts\""))
         assertTrue(contractsBuild.contains("`java-library`"))
         assertFalse(contractsBuild.contains("org.jetbrains.compose"))
-        assertTrue(compatibilityBuild.contains("com.androidperformancestudio:profiler-contracts"))
+        assertTrue(compatibilityBuild.contains("api(libs.aps.profiler.contracts)"))
+        assertTrue(catalog.contains("aps-profiler-contracts = { module = \"com.androidperformancestudio:profiler-contracts\", version.ref = \"aps\" }"))
     }
 
     @Test

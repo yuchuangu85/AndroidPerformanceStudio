@@ -46,6 +46,9 @@ internal object ViewDisplayProjection {
         error = findings.count { it.tone == FindingTone.ERROR },
     )
 
+    fun findingsBySeverity(findings: List<FindingRowModel>, tone: FindingTone?): List<FindingRowModel> =
+        if (tone == null) findings else findings.filter { it.tone == tone }
+
     fun hierarchyLabel(
         row: TreeRowModel,
         hideIndex: Boolean,

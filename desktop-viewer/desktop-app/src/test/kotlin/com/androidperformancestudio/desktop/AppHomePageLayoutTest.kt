@@ -73,7 +73,12 @@ class AppHomePageLayoutTest {
 
         assertTrue(entries.contains("onClick = onOpenGpuInspector"))
         assertTrue(entries.contains("onClick = onOpenBenchmarkRegression"))
-        assertTrue(entries.contains("onClick = onOpenMethodRecording"))
+        assertFalse(entries.contains("onClick = onOpenMethodRecording"))
+        val shell = Files.readString(
+            Path.of("src/main/kotlin/com/androidperformancestudio/desktop/shell/CommercialAppShell.kt"),
+        )
+        assertTrue(shell.contains("listOf(AppDestination.SOURCE_WORKSPACES, AppDestination.METHOD_RECORDING)"))
+        assertTrue(shell.contains("navigator.open(destination)"))
         assertTrue(source.contains("val compact = maxWidth < 500.dp"))
         assertTrue(source.contains("Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.sectionGap))"))
     }

@@ -34,6 +34,21 @@ class FindingSelectionStateTest {
         assertTrue(pointerBinding.contains("1 -> onClick()"))
         assertTrue(pointerBinding.contains("2 -> onDoubleClick()"))
         assertTrue(pointerBinding.contains("onClick { onClick(); true }"))
+        assertTrue(pointerBinding.contains("this.selected = selected"))
         assertTrue(pointerBinding.contains("event.key == Key.Enter"))
+    }
+
+    @Test
+    fun `findings use a virtualized honest table without changing row interactions`() {
+        val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"))
+        val pane = source.substringAfter("private fun FindingsPane(").substringBefore("private fun TimelineStrip(")
+        val row = source.substringAfter("private fun FindingRow(").substringBefore("private fun PanelTitle(")
+
+        assertTrue(pane.contains("FindingsTableHeader("))
+        assertTrue(pane.contains("LazyColumn("))
+        assertTrue(row.contains("finding.title"))
+        assertTrue(row.contains("finding.message"))
+        assertTrue(row.contains("finding.nodeNumber"))
+        assertTrue(row.contains("SelectionContainer"))
     }
 }

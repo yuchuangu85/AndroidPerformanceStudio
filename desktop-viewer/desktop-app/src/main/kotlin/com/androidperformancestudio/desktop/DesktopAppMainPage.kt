@@ -65,7 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Composable
-public fun FrameWindowScope.DesktopAppMainPage(
+fun FrameWindowScope.DesktopAppMainPage(
     windowTitle: MutableState<String>? = null,
     settingsRequest: SettingsRequest? = null
 ) {
@@ -198,7 +198,6 @@ public fun FrameWindowScope.DesktopAppMainPage(
                             onOpenNetworkProfiler = { navigator.open(AppDestination.NETWORK_PROFILER) },
                             onOpenGpuInspector = { navigator.open(AppDestination.GPU_INSPECTOR) },
                             onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
-                            onOpenMethodRecording = { navigator.open(AppDestination.METHOD_RECORDING) },
                             onOpenRecentArtifact = { item ->
                                 when (item.feature) {
                                     com.androidperformancestudio.desktop.dashboard.StudioFeature.LAYOUT ->

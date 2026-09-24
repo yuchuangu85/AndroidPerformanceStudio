@@ -33,9 +33,11 @@ class FeatureDirectoryStructureTest {
 
         val shellBuild = Files.readString(shell.resolve("build.gradle.kts"))
         val layoutBuild = Files.readString(layoutUi.resolve("build.gradle.kts"))
+        val catalog = Files.readString(root.resolve("gradle/libs.versions.toml"))
         assertTrue(shellBuild.contains("compose.desktop {"))
         assertTrue(shellBuild.contains("nativeDistributions"))
-        assertTrue(shellBuild.contains("com.androidperformancestudio:presentation:0.1.0-SNAPSHOT"))
+        assertTrue(shellBuild.contains("implementation(libs.aps.presentation)"))
+        assertTrue(catalog.contains("aps-presentation = { module = \"com.androidperformancestudio:presentation\", version.ref = \"aps\" }"))
         assertTrue(Files.readString(root.resolve("settings.gradle.kts")).contains("includeBuild(\"layout-inspector\")"))
         assertFalse(layoutBuild.contains("compose.desktop {"))
         assertFalse(layoutBuild.contains("nativeDistributions"))
@@ -84,8 +86,10 @@ class FeatureDirectoryStructureTest {
         }
         val settings = Files.readString(root.resolve("settings.gradle.kts"))
         val shellBuild = Files.readString(root.resolve("desktop-app/build.gradle.kts"))
+        val catalog = Files.readString(root.resolve("gradle/libs.versions.toml"))
         assertTrue(settings.contains("includeBuild(\"memory-profiler\")"))
-        assertTrue(shellBuild.contains("com.androidperformancestudio.memory:memory-app"))
+        assertTrue(shellBuild.contains("implementation(libs.aps.memory.app)"))
+        assertTrue(catalog.contains("aps-memory-app = { module = \"com.androidperformancestudio.memory:memory-app\", version.ref = \"aps\" }"))
     }
 
     private fun findGradleRoot(): Path =
