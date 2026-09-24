@@ -183,6 +183,12 @@ class MemoryProfilerControllerTest {
             val controller = MemoryProfilerController(FakeBackend())
             controller.importHprof(Path.of("heap.hprof"))
 
+            assertTrue(
+                controller.state.value.snapshotSummary
+                    ?.loadedAt
+                    ?.isAfter(Instant.EPOCH) == true,
+            )
+
             controller.selectClassifier(
                 MemoryClassifierRow(
                     id = "group:com.example",

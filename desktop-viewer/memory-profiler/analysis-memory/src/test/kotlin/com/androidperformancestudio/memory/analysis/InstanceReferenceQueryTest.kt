@@ -125,13 +125,67 @@ class InstanceReferenceQueryTest {
         val detail = assertNotNull(query.detailOf(5, arrayStart = 1, arrayLimit = 1))
 
         assertEquals(2, detail.elementCount)
-        assertEquals("[0]", detail.fields.single().name)
+        assertEquals("[1]", detail.fields.single().name)
         assertEquals(3L, detail.fields.single().targetObjectId)
+        assertEquals(1, detail.arrayPageSize)
+    }
+
+    @Test
+    fun `array page range retains absolute indexes and requested page size at the final partial page`() {
+        val longArray =
+            InstanceReferenceQuery(
+                HeapDump(
+                    objectArrays =
+                        listOf(
+                            HeapObjectArray(
+                                objectId = 50,
+                                arrayClassObjectId = 105,
+                                elementCount = 450,
+                                elementIds = (1L..450L).toList(),
+                            ),
+                        ),
+                ),
+            )
+
+        val detail = assertNotNull(longArray.detailOf(50, arrayStart = 400))
+
+        assertEquals(200, detail.arrayPageSize)
+        assertEquals(50, detail.fields.size)
+        assertEquals("[400]", detail.fields.first().name)
+        assertEquals("[449]", detail.fields.last().name)
     }
 
     @Test
     fun `unknown object id returns null detail`() {
         assertNull(query.detailOf(999L))
+    }
+
+    @Test
+    fun `object detail preserves unknown shallow size and estimated native size`() {
+        val objectQuery =
+            InstanceReferenceQuery(
+                HeapDump(
+                    instances =
+                        listOf(
+                            HeapInstance(
+                                objectId = 42,
+                                classObjectId = 100,
+                                className = "com.example.Bitmap",
+                                shallowSize = 0,
+                                shallowSizeKnown = false,
+                                nativeSizeBytes = 4096,
+                            ),
+                        ),
+                ),
+            )
+
+        val row = objectQuery.instancesOf("com.example.Bitmap").single()
+        val detail = assertNotNull(objectQuery.detailOf(42))
+        assertFalse(row.shallowSizeKnown)
+        assertEquals(4096L, row.nativeSize)
+        assertFalse(detail.shallowSizeKnown)
+        assertEquals(4096L, detail.nativeSize)
+        assertNull(detail.depth)
     }
 
     @Test

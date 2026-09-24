@@ -110,6 +110,7 @@ public data class MemoryInstanceRow(
     val reachable: Boolean,
     /** Estimated native footprint of this instance (Bitmap pixel buffer); null when unknown. */
     val nativeSize: Long? = null,
+    val shallowSizeKnown: Boolean = true,
 )
 
 public data class MemoryDominatorRow(
@@ -166,6 +167,8 @@ public data class MemoryInstanceDetail(
     val fields: List<MemoryInstanceField>,
     val referenceChain: List<ObjectReference>,
     val references: List<MemoryInstanceField> = emptyList(),
+    val shallowSizeKnown: Boolean = true,
+    val nativeSize: Long? = null,
 )
 
 public data class MemoryProfilerState(

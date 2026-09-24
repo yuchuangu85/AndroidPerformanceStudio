@@ -82,6 +82,8 @@ import com.androidperformancestudio.memory.presentation.generated.resources.allo
 import com.androidperformancestudio.memory.presentation.generated.resources.allocations_size
 import com.androidperformancestudio.memory.presentation.generated.resources.arrange_by
 import com.androidperformancestudio.memory.presentation.generated.resources.array_elements
+import com.androidperformancestudio.memory.presentation.generated.resources.array_page_range
+import com.androidperformancestudio.memory.presentation.generated.resources.array_values_unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.back
 import com.androidperformancestudio.memory.presentation.generated.resources.forward
 import com.androidperformancestudio.memory.presentation.generated.resources.callstack_name
@@ -96,6 +98,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.deal
 import com.androidperformancestudio.memory.presentation.generated.resources.deallocations_size
 import com.androidperformancestudio.memory.presentation.generated.resources.delete_filter
 import com.androidperformancestudio.memory.presentation.generated.resources.depth
+import com.androidperformancestudio.memory.presentation.generated.resources.estimated_native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.duplicate_bitmaps
 import com.androidperformancestudio.memory.presentation.generated.resources.duplicates_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.fields
@@ -106,8 +109,10 @@ import com.androidperformancestudio.memory.presentation.generated.resources.impo
 import com.androidperformancestudio.memory.presentation.generated.resources.instance
 import com.androidperformancestudio.memory.presentation.generated.resources.instance_details
 import com.androidperformancestudio.memory.presentation.generated.resources.instance_list
+import com.androidperformancestudio.memory.presentation.generated.resources.next_array_page
+import com.androidperformancestudio.memory.presentation.generated.resources.no_object_fields
+import com.androidperformancestudio.memory.presentation.generated.resources.previous_array_page
 import com.androidperformancestudio.memory.presentation.generated.resources.leaks_summary
-import com.androidperformancestudio.memory.presentation.generated.resources.load_more_array_elements
 import com.androidperformancestudio.memory.presentation.generated.resources.match_case
 import com.androidperformancestudio.memory.presentation.generated.resources.module_name
 import com.androidperformancestudio.memory.presentation.generated.resources.native_size
@@ -123,6 +128,8 @@ import com.androidperformancestudio.memory.presentation.generated.resources.refe
 import com.androidperformancestudio.memory.presentation.generated.resources.references
 import com.androidperformancestudio.memory.presentation.generated.resources.regex
 import com.androidperformancestudio.memory.presentation.generated.resources.retained
+import com.androidperformancestudio.memory.presentation.generated.resources.root_reachability
+import com.androidperformancestudio.memory.presentation.generated.resources.root_reachability_unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.select_a_class_to_view_its_instances
 import com.androidperformancestudio.memory.presentation.generated.resources.select_an_instance_to_view_details
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow
@@ -131,7 +138,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.save
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow_size_change
 import com.androidperformancestudio.memory.presentation.generated.resources.system_classes
 import com.androidperformancestudio.memory.presentation.generated.resources.total_count
-import com.androidperformancestudio.memory.presentation.generated.resources.unreachable
+import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.unpin_object
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -766,14 +773,18 @@ private fun InstanceTableRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = row.depth?.toString() ?: localizedStringResource(Res.string.unreachable, language),
+                text = row.depth?.toString() ?: localizedStringResource(Res.string.unavailable, language),
                 Modifier.width(52.dp),
                 fontSize = ViewerTypography.bodyCompact.fontSize,
             )
             Text(row.nativeSize?.let(::formatBytes) ?: "—", Modifier.width(96.dp), fontSize = ViewerTypography.bodyCompact.fontSize)
-            Text(formatBytes(row.shallowSize), Modifier.width(88.dp), fontSize = ViewerTypography.bodyCompact.fontSize)
             Text(
-                text = row.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unreachable, language),
+                if (row.shallowSizeKnown) formatBytes(row.shallowSize) else localizedStringResource(Res.string.unavailable, language),
+                Modifier.width(88.dp),
+                fontSize = ViewerTypography.bodyCompact.fontSize,
+            )
+            Text(
+                text = row.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, language),
                 modifier = Modifier.width(112.dp),
                 fontSize = ViewerTypography.bodyCompact.fontSize,
             )
@@ -872,12 +883,26 @@ private fun InstanceDetailPane(
             fontSize = ViewerTypography.body.fontSize,
         )
         Text(
+            text = "ID 0x${java.lang.Long.toHexString(detail.objectId)}",
+            fontSize = ViewerTypography.secondary.fontSize,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
             text =
-                buildString {
-                    append("ID 0x${java.lang.Long.toHexString(detail.objectId)}")
-                    detail.depth?.let { append(" · ${localizedStringResource(Res.string.depth, language)} $it") }
-                    detail.retainedSize?.let { append(" · ${localizedStringResource(Res.string.retained, language)} ${formatBytes(it)}") }
-                },
+                detail.depth?.let { localizedStringResource(Res.string.root_reachability, language, integer(it)) }
+                    ?: localizedStringResource(Res.string.root_reachability_unavailable, language),
+            fontSize = ViewerTypography.secondary.fontSize,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        val unavailable = localizedStringResource(Res.string.unavailable, language)
+        val shallowSize = if (detail.shallowSizeKnown) formatBytes(detail.shallowSize) else unavailable
+        val retainedSize = detail.retainedSize?.let(::formatBytes) ?: unavailable
+        val nativeSize = detail.nativeSize?.let(::formatBytes) ?: unavailable
+        Text(
+            text =
+                "${localizedStringResource(Res.string.shallow, language)} $shallowSize · " +
+                    "${localizedStringResource(Res.string.retained, language)} $retainedSize · " +
+                    "${localizedStringResource(Res.string.estimated_native_size, language)} $nativeSize",
             fontSize = ViewerTypography.secondary.fontSize,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -889,11 +914,30 @@ private fun InstanceDetailPane(
                     fontWeight = FontWeight.Bold,
                     fontSize = ViewerTypography.bodyCompact.fontSize,
                 )
+                if (detail.isArray && detail.elementCount != null && detail.fields.isNotEmpty()) {
+                    Text(
+                        localizedStringResource(
+                            Res.string.array_page_range,
+                            language,
+                            integer(detail.arrayStart + 1),
+                            integer(detail.arrayStart + detail.fields.size),
+                            integer(detail.elementCount),
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = ViewerTypography.secondary.fontSize,
+                    )
+                }
                 if (detail.fields.isEmpty()) {
                     Text(
                         text =
-                            detail.elementCount?.let { localizedStringResource(Res.string.array_elements, language, integer(it)) }
-                                ?: localizedStringResource(Res.string.unreachable, language),
+                            detail.elementCount?.let {
+                                if (it > 0) {
+                                    localizedStringResource(Res.string.array_values_unavailable, language)
+                                } else {
+                                    localizedStringResource(Res.string.array_elements, language, integer(it))
+                                }
+                            }
+                                ?: localizedStringResource(Res.string.no_object_fields, language),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = ViewerTypography.secondary.fontSize,
                     )
@@ -930,11 +974,21 @@ private fun InstanceDetailPane(
                             }
                         }
                     }
-                    if (detail.isArray && detail.elementCount != null && detail.arrayStart + detail.fields.size < detail.elementCount) {
-                        ProfilerCompactButton(
-                            text = localizedStringResource(Res.string.load_more_array_elements, language),
-                            onClick = { onLoadArrayRange(detail.objectId, detail.arrayStart + detail.arrayPageSize) },
-                        )
+                    if (detail.isArray) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            detail.previousArrayPageStart()?.let { previousStart ->
+                                ProfilerCompactButton(
+                                    text = localizedStringResource(Res.string.previous_array_page, language),
+                                    onClick = { onLoadArrayRange(detail.objectId, previousStart) },
+                                )
+                            }
+                            detail.nextArrayPageStart()?.let { nextStart ->
+                                ProfilerCompactButton(
+                                    text = localizedStringResource(Res.string.next_array_page, language),
+                                    onClick = { onLoadArrayRange(detail.objectId, nextStart) },
+                                )
+                            }
+                        }
                     }
                 }
             }

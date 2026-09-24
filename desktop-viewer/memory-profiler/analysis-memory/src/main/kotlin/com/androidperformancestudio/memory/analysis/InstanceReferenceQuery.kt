@@ -19,6 +19,7 @@ data class InstanceQueryRow(
     val depth: Int?,
     val reachable: Boolean,
     val nativeSize: Long? = null,
+    val shallowSizeKnown: Boolean = true,
 )
 
 /** A single field value of an instance, either a primitive or an object reference. */
@@ -38,10 +39,13 @@ data class InstanceQueryDetail(
     val depth: Int?,
     val isArray: Boolean,
     val elementCount: Int?,
+    val arrayPageSize: Int = 200,
     val fields: List<FieldValue>,
     val referenceChain: List<ObjectReference>,
     /** Every object/class field that points to this object. */
     val references: List<FieldValue> = emptyList(),
+    val shallowSizeKnown: Boolean = true,
+    val nativeSize: Long? = null,
 )
 
 /**
@@ -60,8 +64,8 @@ class InstanceReferenceQuery(
         (heapDump.objectArrays + heapDump.primitiveArrays).groupBy { it.className }
     private val heapClasses = heapDump.classes.sortedBy { it.objectId }
     private val heapClassById = heapClasses.associateBy { it.objectId }
-    private val classObjectShallowSize =
-        heapClasses.firstOrNull { it.name == HeapClass.CLASS_OBJECT_CLASS_NAME }?.instanceSize ?: 0L
+    private val classObjectType = heapClasses.firstOrNull { it.name == HeapClass.CLASS_OBJECT_CLASS_NAME }
+    private val classObjectShallowSize = classObjectType?.instanceSize ?: 0L
     private val objectById =
         buildMap {
             heapDump.instances.forEach { put(it.objectId, it) }
@@ -108,6 +112,7 @@ class InstanceReferenceQuery(
                         retainedSize = retainedSizes[heapClass.objectId],
                         depth = depth,
                         reachable = depth != null,
+                        shallowSizeKnown = classObjectType != null,
                     )
                 }
         }
@@ -125,6 +130,7 @@ class InstanceReferenceQuery(
                 depth = depth,
                 reachable = depth != null,
                 nativeSize = (obj as? HeapInstance)?.nativeSizeBytes,
+                shallowSizeKnown = obj.shallowSizeKnown,
             )
         }
     }
@@ -136,6 +142,8 @@ class InstanceReferenceQuery(
         arrayLimit: Int = MAX_ARRAY_ELEMENT_FIELDS,
     ): InstanceQueryDetail? {
         val obj = objectById[objectId] ?: return classDetailOf(objectId)
+        val boundedStart = arrayStart.coerceAtLeast(0)
+        val boundedLimit = arrayLimit.coerceIn(1, MAX_ARRAY_ELEMENT_FIELDS)
         val elementCount =
             when (obj) {
                 is HeapObjectArray -> obj.elementCount
@@ -147,11 +155,11 @@ class InstanceReferenceQuery(
                 is HeapInstance -> instanceFields(obj)
                 is HeapObjectArray ->
                     obj.elementIds
-                        .drop(arrayStart.coerceAtLeast(0))
-                        .take(arrayLimit.coerceIn(1, MAX_ARRAY_ELEMENT_FIELDS))
+                        .drop(boundedStart)
+                        .take(boundedLimit)
                         .mapIndexed { index, id ->
                             FieldValue(
-                                name = "[$index]",
+                                name = "[${boundedStart + index}]",
                                 displayValue = renderObjectReference(id),
                                 targetObjectId = id,
                                 targetClassName = graph.classNames[id],
@@ -167,9 +175,12 @@ class InstanceReferenceQuery(
             depth = chainFinder.depthOf(obj.objectId),
             isArray = obj is HeapObjectArray || obj is HeapPrimitiveArray,
             elementCount = elementCount,
+            arrayPageSize = boundedLimit,
             fields = fields,
             referenceChain = chainFinder.chainTo(objectId),
             references = inboundReferences[objectId].orEmpty(),
+            shallowSizeKnown = obj.shallowSizeKnown,
+            nativeSize = (obj as? HeapInstance)?.nativeSizeBytes,
         )
     }
 
@@ -194,6 +205,7 @@ class InstanceReferenceQuery(
                 },
             referenceChain = chainFinder.chainTo(objectId),
             references = inboundReferences[objectId].orEmpty(),
+            shallowSizeKnown = classObjectType != null,
         )
     }
 

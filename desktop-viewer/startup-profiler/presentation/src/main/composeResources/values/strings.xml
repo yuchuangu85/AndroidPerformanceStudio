@@ -18,8 +18,13 @@
     <string name="requested">Requested</string>
     <string name="run_detail">Run %1$s Detail · Requested %2$s · Observed %3$s</string>
     <string name="platform_timeline">Platform Timeline</string>
-    <string name="agent_phases_separate_clock_domain">Agent Phases (separate clock domain)</string>
-    <string name="no_agent_phases_available">No Agent phases available</string>
+    <string name="platform_durations_independent">Platform-reported durations are independent measurements, not additive phases.</string>
+    <string name="no_platform_durations">No platform-reported durations are available for this run.</string>
+    <string name="startup_waterfall">Startup Waterfall</string>
+    <string name="waterfall_clock_domain">%1$s clock domain · relative to first recorded phase</string>
+    <string name="waterfall_interval">+%1$s · duration %2$s</string>
+    <string name="waterfall_unplotted_phases">%1$s phase(s) not plotted: matching same-source milestone endpoints are unavailable or inconsistent.</string>
+    <string name="waterfall_no_intervals">No verified phase intervals are available for this run.</string>
     <string name="milestones">Milestones</string>
     <string name="raw_am_start_w_evidence">Raw am start -W Evidence</string>
     <string name="text">%1$s/%2$s</string>

@@ -564,7 +564,8 @@ internal class MemoryProfilerController(
         historyIndex: Int? = null,
         arrayStart: Int = 0,
     ) {
-        val detail = instanceQuery?.detailOf(objectId, arrayStart = arrayStart)?.toPresentation(arrayStart = arrayStart) ?: return
+        val boundedStart = arrayStart.coerceAtLeast(0)
+        val detail = instanceQuery?.detailOf(objectId, arrayStart = boundedStart)?.toPresentation(arrayStart = boundedStart) ?: return
         val current = mutableState.value
         val instances =
             instanceQuery
@@ -1440,6 +1441,7 @@ internal class MemoryProfilerController(
             mappingDigest = mappingDigest,
             indexFile = indexFile,
             capturedAt = capturedAt,
+            loadedAt = Instant.now(),
             format = format,
             idSize = idSize,
             classCount = histogram.summary.classCount,
@@ -1480,6 +1482,7 @@ internal class MemoryProfilerController(
             depth = depth,
             reachable = reachable,
             nativeSize = nativeSize,
+            shallowSizeKnown = shallowSizeKnown,
         )
 
     private fun InstanceQueryDetail.toEvidence(): HeapObjectInvestigation =
@@ -1492,6 +1495,8 @@ internal class MemoryProfilerController(
             fields = fields.map { HeapObjectFieldEvidence(it.name, it.displayValue, it.targetObjectId, it.targetClassName) },
             references = references.map { HeapObjectFieldEvidence(it.name, it.displayValue, it.targetObjectId, it.targetClassName) },
             referenceChain = referenceChain,
+            shallowSizeKnown = shallowSizeKnown,
+            nativeSize = nativeSize,
         )
 
     private fun InstanceQueryDetail.toPresentation(arrayStart: Int = 0): MemoryInstanceDetail =
@@ -1504,7 +1509,7 @@ internal class MemoryProfilerController(
             isArray = isArray,
             elementCount = elementCount,
             arrayStart = arrayStart,
-            arrayPageSize = fields.size.coerceAtLeast(1),
+            arrayPageSize = arrayPageSize,
             fields =
                 fields.map { field ->
                     MemoryInstanceField(
@@ -1524,5 +1529,7 @@ internal class MemoryProfilerController(
                         targetClassName = reference.targetClassName,
                     )
                 },
+            shallowSizeKnown = shallowSizeKnown,
+            nativeSize = nativeSize,
         )
 }

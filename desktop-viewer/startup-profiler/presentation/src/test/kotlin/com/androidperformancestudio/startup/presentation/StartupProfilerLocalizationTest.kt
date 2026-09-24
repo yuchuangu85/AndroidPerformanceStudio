@@ -93,6 +93,15 @@ class StartupProfilerLocalizationTest {
     }
 
     @Test
+    fun `selected run waterfall appears before the runs table and detail`() {
+        val results = source.substringAfter("private fun ResultsPane(").substringBefore("private fun MetricCard(")
+
+        assertTrue(results.indexOf("StartupWaterfallChart(selected, language)") < results.indexOf("StudioDataTable("))
+        assertTrue(results.indexOf("StudioDataTable(") < results.indexOf("RunDetail(selected, actions, language)"))
+        assertTrue(results.indexOf("RunDetail(selected, actions, language)") < results.indexOf("BaselineComparison(comparison, language)"))
+    }
+
+    @Test
     fun `commercial metric cards retain sample count and low tail resolution warning`() {
         val statistics =
             StartupStatistics(

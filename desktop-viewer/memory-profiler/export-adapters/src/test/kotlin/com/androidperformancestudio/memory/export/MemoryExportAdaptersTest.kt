@@ -5,6 +5,7 @@ import com.androidperformancestudio.memory.model.HeapDiff
 import com.androidperformancestudio.memory.model.HeapDiffEntry
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
+import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapObjectFieldEvidence
 import com.androidperformancestudio.memory.model.HeapObjectInvestigation
 import java.nio.file.Files
@@ -93,6 +94,42 @@ class MemoryExportAdaptersTest {
         assertTrue(text.contains("\"objectId\": 42"))
         assertTrue(text.contains("\"className\": \"com.example.Root\""))
         assertTrue(text.contains("\"fields\""))
+    }
+
+    @Test
+    fun `unknown shallow size is not exported as zero for instances or object detail`() {
+        val directory = createTempDirectory("memory-unknown-size-export")
+        val csv = directory.resolve("instances.csv")
+        val json = directory.resolve("object.json")
+        val heap =
+            HeapDump(
+                instances =
+                    listOf(
+                        HeapInstance(
+                            objectId = 42,
+                            classObjectId = 100,
+                            className = "example.Bitmap",
+                            shallowSize = 0,
+                            shallowSizeKnown = false,
+                        ),
+                    ),
+            )
+
+        adapters.exportClassInstancesCsv(heap, "example.Bitmap", csv)
+        adapters.exportObjectInvestigationJson(
+            HeapObjectInvestigation(
+                objectId = 42,
+                className = "example.Bitmap",
+                shallowSize = 0,
+                shallowSizeKnown = false,
+                nativeSize = 4096,
+            ),
+            json,
+        )
+
+        assertTrue(Files.readString(csv).contains("0x2a,example.Bitmap,,"))
+        assertTrue(Files.readString(json).contains("\"shallowSize\": null"))
+        assertTrue(Files.readString(json).contains("\"nativeSize\": 4096"))
     }
 
     @Test

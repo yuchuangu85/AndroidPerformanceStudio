@@ -3,12 +3,9 @@
 package com.androidperformancestudio.memory.app
 
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -23,7 +20,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_view
@@ -46,6 +42,7 @@ import com.androidperformancestudio.memory.presentation.MemoryProfilerCaptureNat
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpBitmapsButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerScreen
+import com.androidperformancestudio.memory.presentation.MemoryProfilerSnapshotTabs
 import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSelectors
 import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
@@ -81,8 +78,8 @@ private fun MemoryProfilerViewMode.primaryViewLabel(language: UiLanguage): Strin
         language,
     )
 
-@Composable
 @Suppress("LongParameterList", "CyclomaticComplexMethod")
+@Composable
 fun FrameWindowScope.MemoryProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
@@ -326,6 +323,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             state = state,
             onSelectSnapshot = controller::selectSnapshot,
             onCloseSnapshot = controller::closeSnapshot,
+            language = language,
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         MemoryProfilerScreen(
@@ -432,32 +430,5 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 }
             },
         )
-    }
-}
-
-@Composable
-private fun MemoryProfilerSnapshotTabs(
-    state: com.androidperformancestudio.memory.presentation.MemoryProfilerState,
-    onSelectSnapshot: (String) -> Unit,
-    onCloseSnapshot: (String) -> Unit,
-) {
-    if (state.snapshotSummaries.isEmpty()) return
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        androidx.compose.material3.Text("Snapshots", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        state.snapshotSummaries.forEach { snapshot ->
-            ProfilerCompactButton(
-                text = "${snapshot.id} · ${snapshot.objectCount} obj · ${snapshot.warningCount} warn",
-                selected = snapshot.id == state.activeSnapshotId,
-                onClick = { onSelectSnapshot(snapshot.id) },
-            )
-            ProfilerCompactButton(
-                text = "×",
-                onClick = { onCloseSnapshot(snapshot.id) },
-            )
-        }
     }
 }

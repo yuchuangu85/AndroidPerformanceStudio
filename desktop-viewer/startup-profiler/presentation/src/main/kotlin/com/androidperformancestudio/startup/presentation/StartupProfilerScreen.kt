@@ -10,6 +10,7 @@
 
 package com.androidperformancestudio.startup.presentation
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -62,7 +65,6 @@ import com.androidperformancestudio.startup.presentation.generated.resources.act
 import com.androidperformancestudio.startup.presentation.generated.resources.activity_started
 import com.androidperformancestudio.startup.presentation.generated.resources.agent
 import com.androidperformancestudio.startup.presentation.generated.resources.agent_first_frame
-import com.androidperformancestudio.startup.presentation.generated.resources.agent_phases_separate_clock_domain
 import com.androidperformancestudio.startup.presentation.generated.resources.agent_ready
 import com.androidperformancestudio.startup.presentation.generated.resources.baseline_comparison
 import com.androidperformancestudio.startup.presentation.generated.resources.choose_a_device_and_app_to_run_repeatable_cold_warm
@@ -94,7 +96,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.med
 import com.androidperformancestudio.startup.presentation.generated.resources.metric_evidence
 import com.androidperformancestudio.startup.presentation.generated.resources.milestones
 import com.androidperformancestudio.startup.presentation.generated.resources.no
-import com.androidperformancestudio.startup.presentation.generated.resources.no_agent_phases_available
+import com.androidperformancestudio.startup.presentation.generated.resources.no_platform_durations
 import com.androidperformancestudio.startup.presentation.generated.resources.not_correlated
 import com.androidperformancestudio.startup.presentation.generated.resources.observed
 import com.androidperformancestudio.startup.presentation.generated.resources.open_trace
@@ -108,6 +110,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.pha
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_process_bootstrap
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_range
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_resumed_to_first_frame
+import com.androidperformancestudio.startup.presentation.generated.resources.platform_durations_independent
 import com.androidperformancestudio.startup.presentation.generated.resources.platform_timeline
 import com.androidperformancestudio.startup.presentation.generated.resources.process_start
 import com.androidperformancestudio.startup.presentation.generated.resources.raw_am_start_w_evidence
@@ -118,6 +121,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.run
 import com.androidperformancestudio.startup.presentation.generated.resources.stability
 import com.androidperformancestudio.startup.presentation.generated.resources.stable
 import com.androidperformancestudio.startup.presentation.generated.resources.startup_profiler
+import com.androidperformancestudio.startup.presentation.generated.resources.startup_waterfall
 import com.androidperformancestudio.startup.presentation.generated.resources.text
 import com.androidperformancestudio.startup.presentation.generated.resources.text_45f5c8ce
 import com.androidperformancestudio.startup.presentation.generated.resources.text_aeb7e472
@@ -143,6 +147,10 @@ import com.androidperformancestudio.startup.presentation.generated.resources.var
 import com.androidperformancestudio.startup.presentation.generated.resources.wait_time
 import com.androidperformancestudio.startup.presentation.generated.resources.warm
 import com.androidperformancestudio.startup.presentation.generated.resources.warnings
+import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_clock_domain
+import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_interval
+import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_no_intervals
+import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_unplotted_phases
 import com.androidperformancestudio.startup.presentation.generated.resources.yes
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
@@ -150,6 +158,7 @@ import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioDataTable
 import com.androidperformancestudio.ui.studio.StudioMetricCard
+import com.androidperformancestudio.ui.studio.StudioPanel
 import com.androidperformancestudio.ui.studio.StudioTableColumn
 import com.androidperformancestudio.ui.studio.StudioTokens
 import java.util.Locale
@@ -217,7 +226,12 @@ private fun ResultsPane(
             MetricCard(localizedStringResource(Res.string.median_fully_drawn, language), analysis.fullyDrawn, language)
             StabilityCard(analysis, language)
         }
-        state.comparison?.let { comparison -> BaselineComparison(comparison, language) }
+        StudioPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                StartupWaterfallChart(selected, language)
+                PlatformDurationBars(selected, language)
+            }
+        }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val tableWidth = maxOf(maxWidth, RUN_TABLE_MIN_WIDTH)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
@@ -232,6 +246,7 @@ private fun ResultsPane(
         }
         HorizontalDivider()
         RunDetail(selected, actions, language)
+        state.comparison?.let { comparison -> BaselineComparison(comparison, language) }
         if (analysis.warnings.isNotEmpty()) {
             Text(
                 localizedStringResource(Res.string.warnings, language),
@@ -525,37 +540,6 @@ private fun RunDetail(
     if (run.diagnostics.isNotEmpty()) {
         Text(localizedStringResource(Res.string.diagnostics, language, run.diagnostics.joinToString()))
     }
-    TimelineBar(
-        listOfNotNull(
-            run.platform.thisTimeMs?.let {
-                localizedStringResource(Res.string.this_time, language) to it.toDouble()
-            },
-            run.platform.totalTimeMs?.let {
-                localizedStringResource(Res.string.total_time, language) to it.toDouble()
-            },
-            run.platform.waitTimeMs?.let {
-                localizedStringResource(Res.string.wait_time, language) to it.toDouble()
-            },
-            run.platform.fullyDrawnTimeMs?.let {
-                localizedStringResource(Res.string.fully_drawn_time, language) to it.toDouble()
-            },
-        ),
-    )
-    Text(
-        localizedStringResource(Res.string.agent_phases_separate_clock_domain, language),
-        fontWeight = FontWeight.SemiBold,
-    )
-    if (run.phases.isEmpty()) {
-        Text(localizedStringResource(Res.string.no_agent_phases_available, language))
-    } else {
-        run.phases.forEach { phase ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(phase.localizedName(language), Modifier.width(220.dp))
-                Text((phase.durationNs / 1_000_000.0).formatMs())
-                ConfidenceBadge(phase.confidence, language)
-            }
-        }
-    }
     if (run.milestones.isNotEmpty()) {
         Text(localizedStringResource(Res.string.milestones, language), fontWeight = FontWeight.SemiBold)
         run.milestones.forEach { milestone ->
@@ -580,6 +564,98 @@ private fun RunDetail(
             ).padding(vertical = 6.dp, horizontal = 8.dp),
     ) {
         Text(run.rawEvidence.amStartOutput, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun PlatformDurationBars(
+    run: StartupRun,
+    language: UiLanguage,
+) {
+    Text(localizedStringResource(Res.string.platform_durations_independent, language), style = MaterialTheme.typography.bodySmall)
+    val values =
+        listOfNotNull(
+            run.platform.thisTimeMs?.takeIf { it >= 0 }?.let {
+                localizedStringResource(Res.string.this_time, language) to it.toDouble()
+            },
+            run.platform.totalTimeMs?.takeIf { it >= 0 }?.let {
+                localizedStringResource(Res.string.total_time, language) to it.toDouble()
+            },
+            run.platform.waitTimeMs?.takeIf { it >= 0 }?.let {
+                localizedStringResource(Res.string.wait_time, language) to it.toDouble()
+            },
+            run.platform.fullyDrawnTimeMs?.takeIf { it >= 0 }?.let {
+                localizedStringResource(Res.string.fully_drawn_time, language) to it.toDouble()
+            },
+        )
+    if (values.isEmpty()) {
+        Text(localizedStringResource(Res.string.no_platform_durations, language))
+    } else {
+        TimelineBar(values)
+    }
+}
+
+@Composable
+private fun StartupWaterfallChart(
+    run: StartupRun,
+    language: UiLanguage,
+) {
+    val waterfall = remember(run) { run.waterfallModel() }
+    val colors = MaterialTheme.colorScheme
+    Text(localizedStringResource(Res.string.startup_waterfall, language), fontWeight = FontWeight.SemiBold)
+    if (waterfall.groups.isEmpty()) {
+        Text(localizedStringResource(Res.string.waterfall_no_intervals, language))
+    }
+    waterfall.groups.forEach { group ->
+        Text(
+            localizedStringResource(Res.string.waterfall_clock_domain, language, group.source.name),
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant,
+        )
+        group.segments.forEach { segment ->
+            val offsetNs = segment.startNs - group.originNs
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(segment.phase.localizedName(language), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    localizedStringResource(
+                        Res.string.waterfall_interval,
+                        language,
+                        (offsetNs / 1_000_000.0).formatMs(),
+                        (segment.phase.durationNs / 1_000_000.0).formatMs(),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                ConfidenceBadge(segment.phase.confidence, language)
+            }
+            Canvas(Modifier.fillMaxWidth().height(12.dp)) {
+                drawRect(colors.surfaceVariant)
+                val extent = group.extentNs.coerceAtLeast(1L).toDouble()
+                val x = (offsetNs / extent * size.width).toFloat().coerceIn(0f, size.width)
+                val width =
+                    (segment.phase.durationNs / extent * size.width)
+                        .toFloat()
+                        .coerceAtLeast(2f)
+                        .coerceAtMost(size.width - x)
+                val color =
+                    when (segment.phase.confidence) {
+                        EvidenceConfidence.EXACT -> colors.primary
+                        EvidenceConfidence.UNAVAILABLE -> colors.outline
+                        else -> colors.tertiary
+                    }
+                if (segment.phase.durationNs == 0L) {
+                    drawLine(color, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2f)
+                } else {
+                    drawRect(color, Offset(x, 0f), Size(width, size.height))
+                }
+            }
+        }
+    }
+    if (waterfall.unplottedPhaseCount > 0) {
+        Text(
+            localizedStringResource(Res.string.waterfall_unplotted_phases, language, waterfall.unplottedPhaseCount),
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant,
+        )
     }
 }
 
@@ -620,10 +696,17 @@ private fun TimelineBar(values: List<Pair<String, Double>>) {
                 Text(label, Modifier.width(100.dp))
                 Box(
                     Modifier
-                        .width((duration / maximum * 480).coerceAtLeast(2.0).dp)
+                        .weight(1f)
                         .height(16.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)),
-                )
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth((duration / maximum).toFloat().coerceIn(0f, 1f))
+                            .height(16.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)),
+                    )
+                }
                 Text(duration.formatMs())
             }
         }

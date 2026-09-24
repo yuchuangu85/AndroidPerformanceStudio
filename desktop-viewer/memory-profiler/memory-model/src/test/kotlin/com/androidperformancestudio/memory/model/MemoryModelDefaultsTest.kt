@@ -37,6 +37,11 @@ class MemoryModelDefaultsTest {
     }
 
     @Test
+    fun `snapshot loading time is unavailable until a load succeeds`() {
+        assertEquals(Instant.EPOCH, HeapSnapshotSummary(id = "new").loadedAt)
+    }
+
+    @Test
     fun `class stats retained size is unavailable until phase two`() {
         val stats = ClassStats(className = "Example", instanceCount = 1, shallowSize = 24L)
 

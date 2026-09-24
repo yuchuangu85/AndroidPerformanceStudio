@@ -40,6 +40,7 @@ data class HeapSnapshotSummary(
     val mappingDigest: String? = null,
     val indexFile: Path? = null,
     val capturedAt: Instant = Instant.EPOCH,
+    val loadedAt: Instant = Instant.EPOCH,
     val format: String = "",
     val idSize: Int = 0,
     val classCount: Int = 0,
@@ -174,6 +175,8 @@ data class HeapObjectInvestigation(
     val fields: List<HeapObjectFieldEvidence> = emptyList(),
     val references: List<HeapObjectFieldEvidence> = emptyList(),
     val referenceChain: List<ObjectReference> = emptyList(),
+    val shallowSizeKnown: Boolean = true,
+    val nativeSize: Long? = null,
 )
 
 data class HeapInstance(

@@ -65,7 +65,10 @@ class MemoryExportAdapters {
                     writer.writeRow(
                         "0x${java.lang.Long.toHexString(instance.objectId)}",
                         instance.className,
-                        instance.shallowSize.toString(),
+                        instance.shallowSize
+                            .takeIf { instance.shallowSizeKnown }
+                            ?.toString()
+                            .orEmpty(),
                         heapDump.objectRetainedSizes[instance.objectId]?.toString().orEmpty(),
                     )
                 }
@@ -108,7 +111,8 @@ class MemoryExportAdapters {
                     appendLine("{")
                     appendLine("  \"objectId\": ${investigation.objectId},")
                     appendLine("  \"className\": ${investigation.className.jsonString()},")
-                    appendLine("  \"shallowSize\": ${investigation.shallowSize},")
+                    appendLine("  \"shallowSize\": ${investigation.shallowSize.takeIf { investigation.shallowSizeKnown } ?: "null"},")
+                    appendLine("  \"nativeSize\": ${investigation.nativeSize ?: "null"},")
                     appendLine("  \"retainedSize\": ${investigation.retainedSize ?: "null"},")
                     appendLine("  \"depth\": ${investigation.depth ?: "null"},")
                     appendLine("  \"fields\": ${investigation.fields.toFieldJsonArray()},")

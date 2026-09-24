@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -102,6 +103,10 @@ import com.androidperformancestudio.memory.presentation.generated.resources.no_n
 import com.androidperformancestudio.memory.presentation.generated.resources.objects
 import com.androidperformancestudio.memory.presentation.generated.resources.overview
 import com.androidperformancestudio.memory.presentation.generated.resources.reference_chain_entry
+import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_artifact
+import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_artifact_warning
+import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_evidence_title
+import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_limitation
 import com.androidperformancestudio.memory.presentation.generated.resources.retained
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
@@ -124,30 +129,59 @@ public fun MemoryProfilerScreen(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background),
         ) {
-            if (presentedState.artifact != null || presentedState.mappingLoaded) {
+            if (presentedState.snapshotSummary != null || presentedState.artifact != null || presentedState.mappingLoaded) {
                 Column(
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier =
+                        Modifier
+                            .heightIn(max = 160.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     presentedState.snapshotSummary?.let { snapshot ->
                         Text(
-                            "Snapshot: ${snapshot.id} · ${snapshot.format} · ${snapshot.capabilities.size} capabilities" +
-                                snapshot.sourceFileDigest?.let { " · source ${it.take(12)}" }.orEmpty() +
-                                snapshot.mappingDigest?.let { " · mapping ${it.take(12)}" }.orEmpty() +
-                                if (snapshot.indexFile != null) " · indexed" else "",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = ViewerTypography.bodyCompact.fontSize,
+                            localizedStringResource(Res.string.snapshot_evidence_title, language),
+                            fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 8.dp),
                         )
+                        snapshot.evidenceLines(language).forEach { line ->
+                            Text(
+                                line,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = ViewerTypography.bodyCompact.fontSize,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
+                        }
                     }
                     presentedState.artifact?.let { artifact ->
                         Text(
-                            "Evidence: ${artifact.kind.value} · ${artifact.completeness} · " +
-                                "${artifact.availableCapabilities.size} capabilities",
+                            localizedStringResource(
+                                Res.string.snapshot_artifact,
+                                language,
+                                artifact.kind.value,
+                                artifact.completeness.name,
+                                artifact.availableCapabilities.size,
+                            ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = ViewerTypography.bodyCompact.fontSize,
                             modifier = Modifier.padding(horizontal = 8.dp),
                         )
+                        artifact.limitations.forEach { limitation ->
+                            Text(
+                                localizedStringResource(Res.string.snapshot_limitation, language, limitation.code, limitation.message),
+                                color = MaterialTheme.colorScheme.tertiary,
+                                fontSize = ViewerTypography.bodyCompact.fontSize,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
+                        }
+                        artifact.warnings.forEach { warning ->
+                            Text(
+                                localizedStringResource(Res.string.snapshot_artifact_warning, language, warning),
+                                color = MaterialTheme.colorScheme.tertiary,
+                                fontSize = ViewerTypography.bodyCompact.fontSize,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
+                        }
                     }
                     if (presentedState.mappingLoaded) {
                         Text(

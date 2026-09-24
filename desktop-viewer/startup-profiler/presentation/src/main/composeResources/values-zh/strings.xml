@@ -18,8 +18,13 @@
     <string name="requested">请求类型</string>
     <string name="run_detail">第 %1$s 轮详情 · 请求 %2$s · 实际 %3$s</string>
     <string name="platform_timeline">平台时间轨</string>
-    <string name="agent_phases_separate_clock_domain">Agent 阶段（独立时钟域）</string>
-    <string name="no_agent_phases_available">无可用 Agent 阶段</string>
+    <string name="platform_durations_independent">平台报告的时长是独立测量值，不能相加为连续阶段。</string>
+    <string name="no_platform_durations">本轮没有可用的平台时长数据。</string>
+    <string name="startup_waterfall">启动阶段瀑布图</string>
+    <string name="waterfall_clock_domain">%1$s 时钟域 · 相对首个已记录阶段</string>
+    <string name="waterfall_interval">+%1$s · 时长 %2$s</string>
+    <string name="waterfall_unplotted_phases">%1$s 个阶段未绘制：缺少同来源的起止里程碑，或记录不一致。</string>
+    <string name="waterfall_no_intervals">本轮没有可验证的阶段区间。</string>
     <string name="milestones">里程碑</string>
     <string name="raw_am_start_w_evidence">原始 am start -W 证据</string>
     <string name="text">%1$s/%2$s</string>
