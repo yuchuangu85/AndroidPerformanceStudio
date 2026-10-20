@@ -7,7 +7,8 @@ internal data class PaneWidths(
 
 internal object PaneLayout {
     const val HIERARCHY_MIN_WIDTH_DP = 280f
-    const val HIERARCHY_MAX_WIDTH_DP = 360f
+    // Deep view trees need room for indentation; the window budget still keeps the canvas minimum.
+    const val HIERARCHY_MAX_WIDTH_DP = 640f
     private const val COMPACT_HIERARCHY_MIN_WIDTH_DP = 180f
     private const val COMPACT_PROPERTIES_MIN_WIDTH_DP = 200f
     private const val COMPACT_CANVAS_MIN_WIDTH_DP = 280f
