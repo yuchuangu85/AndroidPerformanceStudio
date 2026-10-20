@@ -65,6 +65,7 @@ internal fun FirefoxReportWorkspace(
                 .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        CpuProfilerKpiStrip(report, style)
         Box(
             Modifier
                 .fillMaxWidth()
@@ -84,6 +85,7 @@ internal fun FirefoxReportWorkspace(
         ) {
             FirefoxReportTabs(state.selectedTab, actions.onSelectTab, style)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CpuExportMenuButton(actions, style)
                 onRunAiAnalysis?.let { run ->
                     Box(Modifier.testTag("run-ai-analysis")) {
                         MacOSTextButton(
@@ -116,6 +118,14 @@ internal fun FirefoxReportWorkspace(
             FirefoxStackToolbar(state, actions, style)
         }
         Divider(Modifier.fillMaxWidth(), color = color.border)
+        if (state.selectedTab == ReportTab.FLAME_GRAPH || state.selectedTab == ReportTab.CALL_TREE) {
+            CpuCallPathBreadcrumb(
+                report = report,
+                selected = state.workspace.selections.callNodeId,
+                onSelect = { nodeId -> actions.onSelectCallNode(nodeId) },
+                style = style,
+            )
+        }
         FirefoxReportContentAndDetails(
             state = state,
             report = report,
@@ -197,7 +207,7 @@ private fun FirefoxReportContentAndDetails(
                     ReportSelectedPanel(state, report, actions, style, flameTooltipMode)
                 }
                 Box(Modifier.fillMaxWidth().height(NARROW_DETAILS_HEIGHT)) {
-                    FirefoxReportDetails(state, report, style)
+                    FirefoxReportDetails(state, report, style, actions)
                 }
             }
         } else {
@@ -207,7 +217,7 @@ private fun FirefoxReportContentAndDetails(
                 }
                 if (state.workspace.detailsVisible) {
                     Box(Modifier.width(WIDE_DETAILS_WIDTH).fillMaxHeight()) {
-                        FirefoxReportDetails(state, report, style)
+                        FirefoxReportDetails(state, report, style, actions)
                     }
                 }
             }

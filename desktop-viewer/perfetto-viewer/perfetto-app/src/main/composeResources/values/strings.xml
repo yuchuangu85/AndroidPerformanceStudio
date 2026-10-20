@@ -94,4 +94,24 @@
     <string name="diagnostic_power_frame_alignment_description">Power rail intervals overlapping FrameTimeline frames</string>
     <string name="diagnostic_result_rows">%1$d result rows</string>
     <string name="diagnostic_data_source_limitation">Results are limited to data sources recorded in this trace artifact.</string>
+    <string name="trace_preset_core">Core diagnostics</string>
+    <string name="trace_preset_jank">Jank and rendering</string>
+    <string name="trace_preset_scheduling">CPU scheduling</string>
+    <string name="trace_preset_binder">Binder IPC</string>
+    <string name="trace_preset_io">I/O and SQLite</string>
+    <string name="trace_preset_memory">Memory and ART</string>
+    <string name="trace_preset_power">Thermal and power</string>
+    <string name="trace_preset_all">All diagnostics</string>
+    <string name="trace_metric_janky_frames">%1$s / %2$s janky frames</string>
+    <string name="trace_metric_max_latency">Max %1$s ms</string>
+    <string name="trace_metric_max_blocked">Max blocked %1$s ms</string>
+    <string name="trace_metric_max_wakeup">Max wakeup %1$s µs</string>
+    <string name="trace_metric_peak_rss">Peak RSS %1$s KB</string>
+    <string name="trace_metric_top_cpu">Top thread %1$s ms</string>
+    <string name="trace_metric_top_frequency">Top residency %1$s MHz</string>
+    <string name="trace_metric_top_state">Top state %1$s ms</string>
+    <string name="trace_metric_no_data">No rows recorded</string>
+    <string name="trace_metric_subject">%1$s · %2$s</string>
+    <string name="trace_severity_heuristic">Severity uses fixed APS thresholds on the returned aggregate; it is not a Perfetto classification.</string>
+    <string name="trace_preset_completed">Preset “%1$s”: %2$d succeeded, %3$d failed</string>
 </resources>

@@ -94,4 +94,24 @@
     <string name="diagnostic_power_frame_alignment_description">与 FrameTimeline 帧重叠的电源轨区间</string>
     <string name="diagnostic_result_rows">%1$d 行结果</string>
     <string name="diagnostic_data_source_limitation">结果仅覆盖此 Trace 产物实际记录的数据源。</string>
+    <string name="trace_preset_core">核心诊断</string>
+    <string name="trace_preset_jank">卡顿与渲染</string>
+    <string name="trace_preset_scheduling">CPU 调度</string>
+    <string name="trace_preset_binder">Binder IPC</string>
+    <string name="trace_preset_io">I/O 与 SQLite</string>
+    <string name="trace_preset_memory">内存与 ART</string>
+    <string name="trace_preset_power">温控与功耗</string>
+    <string name="trace_preset_all">全部诊断</string>
+    <string name="trace_metric_janky_frames">%1$s / %2$s 卡顿帧</string>
+    <string name="trace_metric_max_latency">最大 %1$s ms</string>
+    <string name="trace_metric_max_blocked">最长阻塞 %1$s ms</string>
+    <string name="trace_metric_max_wakeup">最大唤醒延迟 %1$s µs</string>
+    <string name="trace_metric_peak_rss">RSS 峰值 %1$s KB</string>
+    <string name="trace_metric_top_cpu">最高线程 %1$s ms</string>
+    <string name="trace_metric_top_frequency">最高驻留 %1$s MHz</string>
+    <string name="trace_metric_top_state">最高状态 %1$s ms</string>
+    <string name="trace_metric_no_data">未记录数据行</string>
+    <string name="trace_metric_subject">%1$s · %2$s</string>
+    <string name="trace_severity_heuristic">严重程度基于返回聚合值的 APS 固定阈值，并非 Perfetto 分类。</string>
+    <string name="trace_preset_completed">预设“%1$s”：成功 %2$d 项，失败 %3$d 项</string>
 </resources>

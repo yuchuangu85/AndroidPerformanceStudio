@@ -4,27 +4,41 @@ package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.PanelProjection
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
+import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.studio.StudioTokens
 import org.jetbrains.compose.resources.StringResource
 
 @Composable
@@ -33,6 +47,7 @@ internal fun FirefoxReportDetails(
     state: ReportState,
     report: ReportData,
     style: ViewerColors,
+    actions: ReportActions? = null,
 ) {
     Column(
         modifier =
@@ -40,6 +55,7 @@ internal fun FirefoxReportDetails(
                 .fillMaxHeight()
                 .fillMaxWidth()
                 .testTag("report-details")
+                .verticalScroll(rememberScrollState())
                 .background(style.panel)
                 .border(ViewerDimensions.hairline, style.border)
                 .padding(12.dp),
@@ -47,10 +63,10 @@ internal fun FirefoxReportDetails(
     ) {
         when (state.selectedTab) {
             ReportTab.OVERVIEW -> OverviewDetails(state, report, style)
-            ReportTab.TOP_FUNCTIONS -> TopFunctionDetails(state, report, style)
+            ReportTab.TOP_FUNCTIONS -> TopFunctionDetails(state, report, style, actions)
             ReportTab.CALL_TREE,
             ReportTab.FLAME_GRAPH,
-            -> CallStackDetails(state, report, style)
+            -> CallStackDetails(state, report, style, actions)
             ReportTab.STACK_CHART -> StackBlockDetails(state, report, style)
             ReportTab.MARKER_CHART,
             ReportTab.MARKER_TABLE,
@@ -91,22 +107,34 @@ private fun TopFunctionDetails(
     state: ReportState,
     report: ReportData,
     style: ViewerColors,
+    actions: ReportActions?,
 ) {
     val function = report.topFunctions.firstOrNull { it.symbolName == state.workspace.selections.topFunctionKey }
     if (function == null) {
         DetailsPrompt(SimpleperfViewerRes.sp_function_select_function_hint, style)
     } else {
+        val total = report.overview.totalEventWeight
         DetailsHeading(SimpleperfViewerRes.sp_function_function_details, style)
-        Text(function.symbolName, color = style.text, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.SemiBold)
-        Text(function.filePath, color = style.secondaryText, fontSize = ViewerTypography.dense.fontSize)
+        InspectorSymbol(function.symbolName, function.filePath, style)
+        InspectorMetricGrid(
+            listOf(
+                SimpleperfViewerRes.sp_inspector_total_share to inspectorShare(function.inclusiveWeight, total),
+                SimpleperfViewerRes.sp_inspector_self_share to inspectorShare(function.exclusiveWeight, total),
+                SimpleperfViewerRes.sp_inspector_inclusive to formatCpuCount(function.inclusiveWeight),
+                SimpleperfViewerRes.sp_inspector_self to formatCpuCount(function.exclusiveWeight),
+                SimpleperfViewerRes.sp_inspector_samples to formatCpuCount(function.sampleCount),
+                SimpleperfViewerRes.sp_inspector_threads to formatCpuCount(function.threadCount),
+            ),
+            style,
+        )
         Text(
             localizedStringResource(
                 SimpleperfViewerRes.sp_report_inclusive_value_format,
                 currentSimpleperfLanguage(),
                 function.inclusiveWeight,
             ),
-            color = style.text,
-            fontSize = ViewerTypography.label.fontSize,
+            color = style.secondaryText,
+            fontSize = ViewerTypography.dense.fontSize,
         )
         Text(
             localizedStringResource(
@@ -114,9 +142,10 @@ private fun TopFunctionDetails(
                 currentSimpleperfLanguage(),
                 function.exclusiveWeight,
             ),
-            color = style.text,
-            fontSize = ViewerTypography.label.fontSize,
+            color = style.secondaryText,
+            fontSize = ViewerTypography.dense.fontSize,
         )
+        actions?.let { InspectorActions(function.symbolName, it, style) }
     }
 }
 
@@ -125,19 +154,172 @@ private fun CallStackDetails(
     state: ReportState,
     report: ReportData,
     style: ViewerColors,
+    actions: ReportActions?,
 ) {
     val selected = state.workspace.selections.callNodeId
-    val treeNode = report.callTree.firstOrNull { it.id == selected?.value }
-    val flameFrame = selected?.let { report.flameGraph.callNodes.indexOf(it) }?.let(report.flameGraph.callNodes::frameAt)
-    val symbol = treeNode?.symbolName ?: flameFrame?.symbolName
-    if (symbol == null) {
+    val frame = remember(report, selected) { report.cpuSelectedFrame(selected) }
+    if (frame == null) {
         DetailsPrompt(SimpleperfViewerRes.sp_calltree_select_call_stack_frame_hint, style)
     } else {
         DetailsHeading(SimpleperfViewerRes.sp_function_function_details, style)
-        Text(symbol, color = style.text, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.SemiBold)
-        Text(treeNode?.filePath ?: flameFrame?.resource.orEmpty(), color = style.secondaryText, fontSize = ViewerTypography.dense.fontSize)
+        InspectorSymbol(frame.symbolName, frame.resource, style)
+        InspectorMetricGrid(
+            listOf(
+                SimpleperfViewerRes.sp_inspector_total_share to (frame.totalShare?.let(::formatCpuPercent) ?: "—"),
+                SimpleperfViewerRes.sp_inspector_self_share to (frame.selfShare?.let(::formatCpuPercent) ?: "—"),
+                SimpleperfViewerRes.sp_inspector_inclusive to formatCpuCount(frame.inclusiveWeight),
+                SimpleperfViewerRes.sp_inspector_self to formatCpuCount(frame.selfWeight),
+                SimpleperfViewerRes.sp_inspector_samples to formatCpuCount(frame.sampleCount),
+                SimpleperfViewerRes.sp_inspector_threads to formatCpuCount(frame.threadCount),
+            ),
+            style,
+        )
+        InspectorFrameList(SimpleperfViewerRes.sp_inspector_call_path, frame.path, frame.nodeId, actions, style)
+        if (frame.topCallees.isNotEmpty()) {
+            InspectorFrameList(SimpleperfViewerRes.sp_inspector_children, frame.topCallees, null, actions, style)
+        }
+        actions?.let { InspectorActions(frame.symbolName, it, style) }
     }
 }
+
+@Composable
+private fun InspectorSymbol(
+    symbol: String,
+    resource: String,
+    style: ViewerColors,
+) {
+    SelectionContainer {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                symbol,
+                modifier = Modifier.testTag("inspector-symbol"),
+                color = style.text,
+                fontSize = ViewerTypography.secondary.fontSize,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (resource.isNotBlank()) {
+                Text(
+                    localizedStringResource(SimpleperfViewerRes.sp_inspector_library, currentSimpleperfLanguage()) + ": " + resource,
+                    color = style.secondaryText,
+                    fontSize = ViewerTypography.dense.fontSize,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectorMetricGrid(
+    metrics: List<Pair<StringResource, String>>,
+    style: ViewerColors,
+) {
+    val language = currentSimpleperfLanguage()
+    Column(Modifier.testTag("inspector-metrics"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        metrics.chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                pair.forEach { (label, value) ->
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .background(style.toolbar, RoundedCornerShape(StudioTokens.smallRadius))
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                    ) {
+                        Text(
+                            localizedStringResource(label, language),
+                            color = style.secondaryText,
+                            fontSize = ViewerTypography.micro.fontSize,
+                            maxLines = 1,
+                        )
+                        Text(
+                            value,
+                            color = style.text,
+                            fontSize = ViewerTypography.label.fontSize,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectorFrameList(
+    title: StringResource,
+    frames: List<CpuPathFrame>,
+    current: FlameCallNodeId?,
+    actions: ReportActions?,
+    style: ViewerColors,
+) {
+    DetailsHeading(title, style)
+    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        frames.forEachIndexed { index, frame ->
+            val isCurrent = frame.nodeId == current
+            Text(
+                frame.symbolName,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (actions != null) {
+                                Modifier.clickable { actions.onSelectCallNode(frame.nodeId) }
+                            } else {
+                                Modifier
+                            },
+                        ).padding(start = if (current != null) (index * INSPECTOR_PATH_INDENT).dp else 0.dp, top = 1.dp, bottom = 1.dp),
+                color = if (isCurrent) style.accent else style.text,
+                fontSize = ViewerTypography.dense.fontSize,
+                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun InspectorActions(
+    symbol: String,
+    actions: ReportActions,
+    style: ViewerColors,
+) {
+    val language = currentSimpleperfLanguage()
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.testTag("inspector-focus-flame")) {
+            MacOSTextButton(
+                localizedStringResource(SimpleperfViewerRes.sp_inspector_focus_flame, language),
+                { actions.onFocusFunction(symbol) },
+                style,
+            )
+        }
+        Box(Modifier.testTag("inspector-focus-call-tree")) {
+            MacOSTextButton(
+                localizedStringResource(SimpleperfViewerRes.sp_inspector_focus_call_tree, language),
+                { actions.onFocusCallTreeFunction(symbol) },
+                style,
+            )
+        }
+        Box(Modifier.testTag("inspector-copy-symbol")) {
+            MacOSTextButton(
+                localizedStringResource(SimpleperfViewerRes.sp_inspector_copy_symbol, language),
+                { actions.onCopyFlameFunction(symbol) },
+                style,
+            )
+        }
+    }
+}
+
+private fun inspectorShare(
+    weight: Long,
+    total: Long,
+): String = if (total > 0L) formatCpuPercent(weight.toDouble() / total) else "—"
+
+private const val INSPECTOR_PATH_INDENT = 6
 
 @Composable
 private fun StackBlockDetails(

@@ -53,17 +53,17 @@ internal fun FirefoxReportTabs(
                     if (event.type != KeyEventType.KeyDown) {
                         false
                     } else {
-                        val currentIndex = ReportTab.entries.indexOf(selectedTab)
+                        val currentIndex = CPU_PROFILER_TAB_ORDER.indexOf(selectedTab)
                         val nextIndex =
                             when (event.key) {
                                 Key.DirectionLeft -> (currentIndex - 1).coerceAtLeast(0)
-                                Key.DirectionRight -> (currentIndex + 1).coerceAtMost(ReportTab.entries.lastIndex)
+                                Key.DirectionRight -> (currentIndex + 1).coerceAtMost(CPU_PROFILER_TAB_ORDER.lastIndex)
                                 else -> currentIndex
                             }
                         if (nextIndex == currentIndex) {
                             false
                         } else {
-                            onSelectTab(ReportTab.entries[nextIndex])
+                            onSelectTab(CPU_PROFILER_TAB_ORDER[nextIndex])
                             true
                         }
                     }
@@ -71,7 +71,7 @@ internal fun FirefoxReportTabs(
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ReportTab.entries.forEach { tab ->
+        CPU_PROFILER_TAB_ORDER.forEach { tab ->
             val selected = tab == selectedTab
             val label = localizedStringResource(tab.labelResource(), language)
             Box(

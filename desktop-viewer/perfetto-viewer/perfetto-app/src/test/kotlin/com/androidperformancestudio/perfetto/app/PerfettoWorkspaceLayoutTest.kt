@@ -80,13 +80,17 @@ class PerfettoWorkspaceLayoutTest {
 
     @Test
     fun `diagnostic failures remain artifact scoped and preserve the active viewer`() {
-        val start = source.indexOf("val runDiagnostic: (DiagnosticQuery) -> Unit")
+        val start = source.indexOf("val executeDiagnostic: suspend (DiagnosticQuery) -> Boolean")
         val end = source.indexOf("PerfettoFileMenuBar(", start)
         val diagnosticBlock = source.substring(start, end)
 
+        assertTrue(start > source.indexOf("val acquireAnalysisContext:"))
         assertTrue(diagnosticBlock.contains("recordFailure"))
         assertTrue(diagnosticBlock.contains("activeArtifact?.id == artifact.id"))
         assertTrue(diagnosticBlock.contains("DiagnosticOutcome(error = message)"))
+        assertTrue(diagnosticBlock.contains("val runDiagnostic: (DiagnosticQuery) -> Unit"))
+        // Presets run each query through the same isolated runner and count failures instead of aborting.
+        assertTrue(diagnosticBlock.contains("queries.count { query -> executeDiagnostic(query) }"))
         assertFalse(diagnosticBlock.contains("activeTraceFile = null"))
         assertFalse(diagnosticBlock.contains("activeArtifact = null"))
     }

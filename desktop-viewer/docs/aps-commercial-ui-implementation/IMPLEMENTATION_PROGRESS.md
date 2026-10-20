@@ -2,6 +2,41 @@
 
 This is a continuation checkpoint for the [phased implementation plan](README.md), not an assertion that the full commercial UI is finished.
 
+## 2026-10-16: CPU Profiler reference workspace (page 03)
+
+### Implemented
+
+- `CpuProfilerWorkspace.kt` adds an evidence-only KPI strip above the activity timeline: Samples (lost
+  count/rate), Threads (process count), Capture Duration, Effective Sample Rate, Lost / Invalid Samples (only
+  when the quality summary records any) and Top Function Share (hottest self weight). CPU usage, energy and
+  temperature are never shown because simpleperf samples do not carry them.
+- Tabs are displayed as Overview | Flame Graph | Call Tree | Top Functions | Stack | Marker Chart | Marker
+  Table through `CPU_PROFILER_TAB_ORDER`. The `ReportTab` enum and persisted selection are unchanged, and
+  arrow-key tab navigation follows the display order.
+- The toolbar gained Import, wired to the existing offline import/open-session flow. The tab row gained an
+  Export menu over the existing report, session, Gecko, folded, pprof, HTML and screenshot actions.
+- Flame Graph and Call Tree show a selected-path breadcrumb, and clicking a crumb reselects that frame. The
+  flame canvas, layout, navigator, tooltip and details panel are untouched.
+- The Detail Inspector shows Total % / Self % / Inclusive / Self / Samples / Threads, library, call path,
+  top callees, and Focus flame / Focus call tree / Copy symbol actions.
+- Top Functions columns are Function | Library / Path | Total % (with a share bar) | Inclusive | Self |
+  Samples | Threads | Navigate. Rows highlight the selection, Up/Down change it, Enter focuses the flame
+  graph and Shift+Enter focuses the call tree.
+- Call Tree gained Samples / Threads columns, Expand all / Collapse all, and Firefox-style keys (Up/Down,
+  Right expand/descend, Left collapse/ascend, `*` expand subtree, Enter focus flame).
+- The AI Insight Drawer was already docked with model, evidence scope, confidence, explanation,
+  recommendation and Open Source, so it was left as is.
+
+### Verification
+
+- `CpuProfilerWorkspaceTest` covers KPI derivation, hidden cards without evidence, the absence of CPU
+  usage/energy/temperature text, tab order, export dispatch, breadcrumb and inspector actions, and keyboard
+  navigation in both tables.
+- Flame graph goldens pass unchanged. The `macos-device-target-*` goldens were regenerated for the new
+  layout; they were already failing on HEAD before this change.
+- `DeviceTargetPageBehaviorTest` has 4 failures that already exist on HEAD (it looks for the Settings /
+  Back to home buttons that `b76571f3` hid) and are not addressed here.
+
 ## 2026-10-15: GPU Analysis Hub reference workspace (page 09)
 
 ### Implemented

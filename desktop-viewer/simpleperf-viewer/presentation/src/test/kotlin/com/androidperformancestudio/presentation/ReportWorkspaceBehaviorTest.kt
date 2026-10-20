@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -94,7 +96,7 @@ class ReportWorkspaceBehaviorTest {
                 }
             }
 
-            onNodeWithText("Function / Library").assertExists()
+            onNodeWithText("Library / Path").assertExists()
             onNodeWithText("Navigate").assertExists()
             onNodeWithTag("top-function-row-renderFrame").performClick()
             assertEquals("renderFrame", selected)
@@ -242,11 +244,11 @@ class ReportWorkspaceBehaviorTest {
             assertEquals(2, onAllNodesWithText("/system/lib64/libui.so").fetchSemanticsNodes().size)
             onNodeWithTag("call-tree-row-1").performClick()
             assertEquals(FlameCallNodeId(1), selectedNode)
-            onNodeWithText("renderFrame").assertExists()
+            onNode(hasText("renderFrame") and hasAnyAncestor(hasTestTag("call-tree-list"))).assertExists()
 
             onNodeWithContentDescription("Collapse main").performClick()
 
-            onNodeWithText("renderFrame").assertDoesNotExist()
+            onNode(hasText("renderFrame") and hasAnyAncestor(hasTestTag("call-tree-list"))).assertDoesNotExist()
             onNodeWithContentDescription("Expand main").assertExists()
         }
 

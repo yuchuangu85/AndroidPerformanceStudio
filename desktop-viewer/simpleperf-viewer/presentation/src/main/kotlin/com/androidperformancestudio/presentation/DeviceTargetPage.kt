@@ -126,6 +126,15 @@ internal fun DeviceTargetPage(
             HeaderSpacer()
             ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading)
             HeaderSpacer()
+            Box(Modifier.testTag("cpu-toolbar-import")) {
+                MacOSTextButton(
+                    localizedStringResource(SimpleperfViewerRes.sp_workspace_import, currentSimpleperfLanguage()),
+                    reportActions.onOpenSession,
+                    style,
+                    enabled = !captureActive,
+                )
+            }
+            HeaderSpacer()
             CapabilityPopupButton(state.selection, style)
         }
         ReportWorkspace(
@@ -140,6 +149,7 @@ internal fun DeviceTargetPage(
                 ),
             flameTooltipMode = flameTooltipMode,
             onRunAiAnalysis = onRunAiAnalysis,
+            captureState = captureState,
         )
         WorkspaceFooter(state, captureState, reportState, actions, style)
     }

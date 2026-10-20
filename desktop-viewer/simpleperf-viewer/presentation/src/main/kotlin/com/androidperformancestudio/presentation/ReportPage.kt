@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,13 +37,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -59,6 +65,7 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
+import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
@@ -109,6 +116,7 @@ internal fun ReportWorkspace(
     modifier: Modifier = Modifier,
     flameTooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
     onRunAiAnalysis: (() -> Unit)? = null,
+    captureState: CaptureState? = null,
 ) {
     Box(
         modifier
@@ -116,7 +124,7 @@ internal fun ReportWorkspace(
             .background(style.workspace)
             .border(ViewerDimensions.hairline, style.border),
     ) {
-        ReportResultPane(state, actions, style, Modifier.fillMaxSize(), flameTooltipMode, onRunAiAnalysis)
+        ReportResultPane(state, actions, style, Modifier.fillMaxSize(), flameTooltipMode, onRunAiAnalysis, captureState)
     }
 }
 
@@ -129,9 +137,57 @@ private fun ReportResultPane(
     modifier: Modifier,
     flameTooltipMode: FlameTooltipMode,
     onRunAiAnalysis: (() -> Unit)?,
+    captureState: CaptureState?,
 ) {
-    Box(modifier.fillMaxHeight()) {
-        when (val loadState = state.loadState) {
+    val loadState = state.loadState
+    if (loadState is ReportLoadState.Ready) {
+        Box(modifier.fillMaxHeight()) {
+            FirefoxReportWorkspace(
+                state = state,
+                report = loadState.report,
+                actions = actions,
+                style = style,
+                flameTooltipMode = flameTooltipMode,
+                onRunAiAnalysis = onRunAiAnalysis,
+            )
+        }
+        return
+    }
+    // Cards stay on screen in every state; they fill in place when the report becomes Ready.
+    Column(
+        modifier.fillMaxHeight().padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CpuProfilerPendingKpiStrip(pendingKpiText(loadState, captureState), style)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            ReportPendingStatus(loadState, actions, style)
+        }
+    }
+}
+
+@Composable
+private fun pendingKpiText(
+    loadState: ReportLoadState,
+    captureState: CaptureState?,
+): String {
+    val language = currentSimpleperfLanguage()
+    return when {
+        captureState?.isCaptureActive() == true -> captureState.statusText(language)
+        loadState is ReportLoadState.Loading -> localizedStringResource(SimpleperfViewerRes.sp_kpi_pending_loading, language)
+        loadState is ReportLoadState.Failed -> localizedStringResource(SimpleperfViewerRes.sp_kpi_pending_failed, language)
+        else -> localizedStringResource(SimpleperfViewerRes.sp_kpi_pending_no_session, language)
+    }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun ReportPendingStatus(
+    loadState: ReportLoadState,
+    actions: ReportActions,
+    style: ViewerColors,
+) {
+    Box(Modifier.fillMaxSize()) {
+        when (loadState) {
             ReportLoadState.Closed ->
                 ReportStatus(
                     localizedStringResource(
@@ -158,15 +214,7 @@ private fun ReportResultPane(
                     actionLabel = localizedStringResource(SimpleperfViewerRes.sp_capture_back, currentSimpleperfLanguage()),
                     onAction = actions.onCloseSession,
                 )
-            is ReportLoadState.Ready ->
-                FirefoxReportWorkspace(
-                    state = state,
-                    report = loadState.report,
-                    actions = actions,
-                    style = style,
-                    flameTooltipMode = flameTooltipMode,
-                    onRunAiAnalysis = onRunAiAnalysis,
-                )
+            is ReportLoadState.Ready -> Unit
         }
     }
 }
@@ -412,18 +460,40 @@ internal fun TopFunctionsReport(
             )
         }
         Divider(Modifier.fillMaxWidth(), color = color.border)
-        BoxWithConstraints(Modifier.weight(1f)) {
+        val selectedKey = state.workspace.selections.topFunctionKey
+        val topListState = rememberLazyListState()
+        val tableFocus = remember { FocusRequester() }
+        LaunchedEffect(report.topFunctions, selectedKey) {
+            val index = report.topFunctions.indexOfFirst { it.symbolName == selectedKey }
+            if (index >= 0 && topListState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
+                topListState.animateScrollToItem(index)
+            }
+        }
+        BoxWithConstraints(
+            Modifier
+                .weight(1f)
+                .testTag("top-function-table")
+                .focusRequester(tableFocus)
+                .onKeyEvent { event ->
+                    handleTopFunctionKey(event, report.topFunctions, selectedKey, actions)
+                }.focusable(),
+        ) {
             val tableWidth = maxOf(maxWidth, 980.dp)
             Row(Modifier.fillMaxSize().horizontalScroll(rememberScrollState()).testTag("top-function-table-scroll")) {
                 StudioDataTable(
                     columns = topFunctionColumns(language),
                     modifier = Modifier.width(tableWidth).fillMaxHeight(),
                 ) {
-                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    LazyColumn(state = topListState, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         itemsIndexed(report.topFunctions, key = ::topFunctionItemKey) { _, function ->
                             TopFunctionRow(
                                 function = function,
-                                onSelect = { actions.onSelectTopFunction(function.symbolName) },
+                                totalWeight = report.overview.totalEventWeight,
+                                selected = function.symbolName == selectedKey,
+                                onSelect = {
+                                    tableFocus.requestFocus()
+                                    actions.onSelectTopFunction(function.symbolName)
+                                },
                                 onFocusCallTree = actions.onFocusCallTreeFunction,
                                 onFocusFlame = actions.onFocusFunction,
                                 style = style,
@@ -436,78 +506,140 @@ internal fun TopFunctionsReport(
     }
 }
 
+/** Up/Down move the selection, Enter focuses the flame graph and Shift+Enter focuses the call tree. */
+internal fun handleTopFunctionKey(
+    event: androidx.compose.ui.input.key.KeyEvent,
+    functions: List<TopFunction>,
+    selectedKey: String?,
+    actions: ReportActions,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown || functions.isEmpty()) return false
+    val current = functions.indexOfFirst { it.symbolName == selectedKey }
+    return when (event.key) {
+        Key.DirectionDown -> {
+            actions.onSelectTopFunction(functions[(current + 1).coerceIn(0, functions.lastIndex)].symbolName)
+            true
+        }
+        Key.DirectionUp -> {
+            actions.onSelectTopFunction(functions[(current - 1).coerceIn(0, functions.lastIndex)].symbolName)
+            true
+        }
+        Key.Enter, Key.NumPadEnter -> {
+            val symbol = functions.getOrNull(current)?.symbolName ?: return false
+            if (event.isShiftPressed) actions.onFocusCallTreeFunction(symbol) else actions.onFocusFunction(symbol)
+            true
+        }
+        else -> false
+    }
+}
+
 @Composable
 private fun topFunctionColumns(language: UiLanguage): List<StudioTableColumn> =
     listOf(
-        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_function_library, language), 4.2f),
-        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_inclusive, language), 0.9f),
-        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_exclusive, language), 0.9f),
-        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_report_samples, language), 0.7f),
-        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_target_threads, language), 0.7f),
-        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_navigate, language), 1.8f),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_workspace_function, language), TOP_FUNCTION_NAME_WEIGHT),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_workspace_library_path, language), TOP_FUNCTION_PATH_WEIGHT),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_workspace_total_percent, language), TOP_FUNCTION_SHARE_WEIGHT),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_inclusive, language), TOP_FUNCTION_NUMBER_WEIGHT),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_exclusive, language), TOP_FUNCTION_NUMBER_WEIGHT),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_report_samples, language), TOP_FUNCTION_COUNT_WEIGHT),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_target_threads, language), TOP_FUNCTION_COUNT_WEIGHT),
+        StudioTableColumn(localizedStringResource(SimpleperfViewerRes.sp_calltree_navigate, language), TOP_FUNCTION_ACTION_WEIGHT),
     )
 
+private const val TOP_FUNCTION_NAME_WEIGHT = 2.6f
+private const val TOP_FUNCTION_PATH_WEIGHT = 2.2f
+private const val TOP_FUNCTION_SHARE_WEIGHT = 1.2f
+private const val TOP_FUNCTION_NUMBER_WEIGHT = 0.9f
+private const val TOP_FUNCTION_COUNT_WEIGHT = 0.7f
+private const val TOP_FUNCTION_ACTION_WEIGHT = 1.8f
+
 @Composable
-@Suppress("FunctionName", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
 private fun TopFunctionRow(
     function: TopFunction,
+    totalWeight: Long,
+    selected: Boolean,
     onSelect: () -> Unit,
     onFocusCallTree: (String) -> Unit,
     onFocusFlame: (String) -> Unit,
     style: ViewerColors,
 ) {
+    val share = if (totalWeight > 0L) function.inclusiveWeight.toFloat() / totalWeight else 0f
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .testTag("top-function-row-${function.symbolName}")
-                .background(style.panel, RoundedCornerShape(9.dp))
-                .border(ViewerDimensions.hairline, style.border, RoundedCornerShape(9.dp))
+                .semantics { this.selected = selected }
+                .background(if (selected) style.accent.copy(alpha = 0.16f) else style.panel, RoundedCornerShape(9.dp))
+                .border(ViewerDimensions.hairline, if (selected) style.accent else style.border, RoundedCornerShape(9.dp))
                 .clickable(onClick = onSelect)
                 .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(4.2f)) {
+        Text(
+            function.symbolName,
+            modifier = Modifier.weight(TOP_FUNCTION_NAME_WEIGHT),
+            color = style.text,
+            fontSize = ViewerTypography.label.fontSize,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            function.filePath,
+            modifier = Modifier.weight(TOP_FUNCTION_PATH_WEIGHT),
+            color = style.secondaryText,
+            fontSize = ViewerTypography.dense.fontSize,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(
+            Modifier.weight(TOP_FUNCTION_SHARE_WEIGHT).padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Text(
-                function.symbolName,
+                if (totalWeight > 0L) formatCpuPercent(share.toDouble()) else "—",
+                modifier = Modifier.width(44.dp),
                 color = style.text,
                 fontSize = ViewerTypography.label.fontSize,
-                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                function.filePath,
-                color = style.secondaryText,
-                fontSize = ViewerTypography.micro.fontSize,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Box(Modifier.weight(1f).height(4.dp).background(style.toolbar, RoundedCornerShape(2.dp))) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(share.coerceIn(0f, 1f))
+                        .height(4.dp)
+                        .background(style.accent, RoundedCornerShape(2.dp)),
+                )
+            }
         }
         Text(
             function.inclusiveWeight.toString(),
-            modifier = Modifier.weight(0.9f),
+            modifier = Modifier.weight(TOP_FUNCTION_NUMBER_WEIGHT),
             color = style.text,
             fontSize = ViewerTypography.label.fontSize,
         )
         Text(
             function.exclusiveWeight.toString(),
-            modifier = Modifier.weight(0.9f),
+            modifier = Modifier.weight(TOP_FUNCTION_NUMBER_WEIGHT),
             color = style.text,
             fontSize = ViewerTypography.label.fontSize,
         )
         Text(
             function.sampleCount.toString(),
-            modifier = Modifier.weight(0.7f),
+            modifier = Modifier.weight(TOP_FUNCTION_COUNT_WEIGHT),
             color = style.text,
             fontSize = ViewerTypography.label.fontSize,
         )
         Text(
             function.threadCount.toString(),
-            modifier = Modifier.weight(0.7f),
+            modifier = Modifier.weight(TOP_FUNCTION_COUNT_WEIGHT),
             color = style.text,
             fontSize = ViewerTypography.label.fontSize,
         )
-        Row(modifier = Modifier.weight(1.8f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(modifier = Modifier.weight(TOP_FUNCTION_ACTION_WEIGHT), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             MacOSTextButton(
                 localizedStringResource(SimpleperfViewerRes.sp_calltree_path, currentSimpleperfLanguage()),
                 { onFocusCallTree(function.symbolName) },
@@ -563,13 +695,50 @@ internal fun CallTreeReport(
             }
         }
     }
+    val treeFocus = remember { FocusRequester() }
+    val language = currentSimpleperfLanguage()
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 10.dp).testTag("call-tree-toolbar"),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.testTag("call-tree-expand-all")) {
+                MacOSTextButton(
+                    localizedStringResource(SimpleperfViewerRes.sp_workspace_expand_all, language),
+                    { expandedIds = childrenByParent.keys.filterNotNull().toMutableSet() },
+                    style,
+                    height = 20.dp,
+                )
+            }
+            Box(Modifier.testTag("call-tree-collapse-all")) {
+                MacOSTextButton(
+                    localizedStringResource(SimpleperfViewerRes.sp_workspace_collapse_all, language),
+                    { expandedIds = mutableSetOf() },
+                    style,
+                    height = 20.dp,
+                )
+            }
+        }
         Column(
             Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .background(style.panel)
-                .border(ViewerDimensions.hairline, style.border),
+                .border(ViewerDimensions.hairline, style.border)
+                .focusRequester(treeFocus)
+                .onKeyEvent { event ->
+                    handleCallTreeKey(
+                        event = event,
+                        visible = visible,
+                        allNodes = report.callTree,
+                        selectedNodeId = selectedNodeId,
+                        expandedIds = expandedIds,
+                        hasChildren = { id -> childrenByParent[id].orEmpty().isNotEmpty() },
+                        onExpandedChange = { expandedIds = it.toMutableSet() },
+                        actions = actions,
+                    )
+                }.focusable(),
         ) {
             FirefoxCallTreeHeader(
                 report.overview.eventTypes.firefoxTotalColumnLabel(currentSimpleperfLanguage()),
@@ -590,7 +759,10 @@ internal fun CallTreeReport(
                         selected = selectedNodeId?.value == node.id,
                         search = state.callStackQuery.searchText,
                         style = style,
-                        onSelect = { actions.onSelectCallNode(FlameCallNodeId(node.id)) },
+                        onSelect = {
+                            treeFocus.requestFocus()
+                            actions.onSelectCallNode(FlameCallNodeId(node.id))
+                        },
                         onToggle = {
                             expandedIds =
                                 expandedIds.toMutableSet().also {
@@ -600,6 +772,70 @@ internal fun CallTreeReport(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Firefox-style call tree keys: Up/Down move through visible rows, Right expands or descends, Left collapses or
+ * ascends to the parent, `*` expands the selected subtree and Enter focuses the selected function in the flame graph.
+ */
+@Suppress("LongParameterList", "CyclomaticComplexMethod", "ReturnCount")
+internal fun handleCallTreeKey(
+    event: androidx.compose.ui.input.key.KeyEvent,
+    visible: List<CallTreeNode>,
+    allNodes: List<CallTreeNode>,
+    selectedNodeId: FlameCallNodeId?,
+    expandedIds: Set<Long>,
+    hasChildren: (Long) -> Boolean,
+    onExpandedChange: (Set<Long>) -> Unit,
+    actions: ReportActions,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown || visible.isEmpty()) return false
+    val index = visible.selectedNodeIndex(selectedNodeId)
+    val node = visible.getOrNull(index)
+
+    fun select(target: CallTreeNode) = actions.onSelectCallNode(FlameCallNodeId(target.id))
+    when (event.key) {
+        Key.DirectionDown -> select(visible[(index + 1).coerceIn(0, visible.lastIndex)])
+        Key.DirectionUp -> select(visible[(index - 1).coerceIn(0, visible.lastIndex)])
+        Key.DirectionRight -> {
+            node ?: return false
+            when {
+                !hasChildren(node.id) -> return false
+                node.id !in expandedIds -> onExpandedChange(expandedIds + node.id)
+                else -> visible.getOrNull(index + 1)?.takeIf { it.parentId == node.id }?.let(::select)
+            }
+        }
+        Key.DirectionLeft -> {
+            node ?: return false
+            if (node.id in expandedIds) {
+                onExpandedChange(expandedIds - node.id)
+            } else {
+                visible.firstOrNull { it.id == node.parentId }?.let(::select) ?: return false
+            }
+        }
+        Key.Multiply, Key.NumPadMultiply -> {
+            node ?: return false
+            onExpandedChange(expandedIds + allNodes.subtreeIds(node.id))
+        }
+        Key.Enter, Key.NumPadEnter -> {
+            node ?: return false
+            if (event.isShiftPressed) actions.onFocusCallTreeFunction(node.symbolName) else actions.onFocusFunction(node.symbolName)
+        }
+        else -> return false
+    }
+    return true
+}
+
+private fun List<CallTreeNode>.subtreeIds(rootId: Long): Set<Long> {
+    val children = groupBy(CallTreeNode::parentId)
+    return buildSet {
+        val pending = ArrayDeque(listOf(rootId))
+        while (pending.isNotEmpty()) {
+            val id = pending.removeFirst()
+            add(id)
+            children[id].orEmpty().forEach { pending.addLast(it.id) }
         }
     }
 }
@@ -631,6 +867,18 @@ private fun FirefoxCallTreeHeader(
                     currentSimpleperfLanguage(),
                 ),
             width = FIREFOX_SELF_COLUMN_WIDTH,
+            style = style,
+        )
+        FirefoxCallTreeDivider(style)
+        FirefoxCallTreeHeaderCell(
+            label = localizedStringResource(SimpleperfViewerRes.sp_report_samples, currentSimpleperfLanguage()),
+            width = CALL_TREE_COUNT_COLUMN_WIDTH,
+            style = style,
+        )
+        FirefoxCallTreeDivider(style)
+        FirefoxCallTreeHeaderCell(
+            label = localizedStringResource(SimpleperfViewerRes.sp_target_threads, currentSimpleperfLanguage()),
+            width = CALL_TREE_COUNT_COLUMN_WIDTH,
             style = style,
         )
         FirefoxCallTreeDivider(style)
@@ -693,6 +941,10 @@ private fun FirefoxCallTreeRow(
         FirefoxCallTreeValue(node.inclusiveWeight.firefoxWeight(), FIREFOX_TOTAL_COLUMN_WIDTH, foreground)
         FirefoxCallTreeDivider(style)
         FirefoxCallTreeValue(node.exclusiveWeight.firefoxWeight(), FIREFOX_SELF_COLUMN_WIDTH, foreground)
+        FirefoxCallTreeDivider(style)
+        FirefoxCallTreeValue(node.sampleCount.firefoxWeight(), CALL_TREE_COUNT_COLUMN_WIDTH, foreground)
+        FirefoxCallTreeDivider(style)
+        FirefoxCallTreeValue(node.threadCount.firefoxWeight(), CALL_TREE_COUNT_COLUMN_WIDTH, foreground)
         FirefoxCallTreeDivider(style)
         Spacer(Modifier.width(FIREFOX_ICON_COLUMN_WIDTH))
         FirefoxCallTreeDivider(style)
@@ -1045,6 +1297,7 @@ private val FIREFOX_CALL_TREE_ROW_HEIGHT = 16.dp
 private val FIREFOX_PERCENT_COLUMN_WIDTH = 55.dp
 private val FIREFOX_TOTAL_COLUMN_WIDTH = 70.dp
 private val FIREFOX_SELF_COLUMN_WIDTH = 80.dp
+private val CALL_TREE_COUNT_COLUMN_WIDTH = 64.dp
 private val FIREFOX_ICON_COLUMN_WIDTH = 20.dp
 private val FIREFOX_TOGGLE_COLUMN_WIDTH = 18.dp
 private const val FIREFOX_CALL_TREE_INDENT = 10
