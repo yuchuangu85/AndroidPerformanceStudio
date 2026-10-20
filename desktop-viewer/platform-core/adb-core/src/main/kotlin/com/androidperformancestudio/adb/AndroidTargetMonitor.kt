@@ -2,6 +2,8 @@ package com.androidperformancestudio.adb
 
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbDevice
+import com.androidperformancestudio.platform.adb.AdbDeviceIdentity
+import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import com.androidperformancestudio.platform.adb.toDeviceInfo
 import com.androidperformancestudio.platform.adb.parseAdbDeviceIdentity
@@ -12,6 +14,10 @@ import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -68,6 +74,9 @@ public class AndroidTargetMonitor internal constructor(
 
     @Volatile
     private var devicesResult: AndroidDeviceInfosResult? = null
+
+    @Volatile
+    private var devicesGeneration = 0L
     private val targetsBySerial = ConcurrentHashMap<String, StudioResult<AdbTargetSnapshot>>()
     private val applicationsBySerial = ConcurrentHashMap<String, StudioResult<List<AndroidPackage>>>()
     private val processesBySerial = ConcurrentHashMap<String, StudioResult<List<AndroidProcess>>>()
@@ -87,15 +96,28 @@ public class AndroidTargetMonitor internal constructor(
     public suspend fun refreshDevices(
         cancellationSignal: HostCancellationSignal = HostCancellationSignal(),
     ): AndroidDeviceInfosResult {
+        // Pages often refresh at the same moment; callers that waited behind an in-flight refresh
+        // reuse its result instead of queueing another full `adb devices` + identity round.
+        val requestedGeneration = devicesGeneration
         val result =
-            when (val devices = devicesMutex.withLock { discovery.devices(cancellationSignal) }) {
-                is StudioResult.Failure -> devices
-                is StudioResult.Success -> StudioResult.Success(devices.value.map(AdbDevice::toDeviceInfo))
+            devicesMutex.withLock {
+                val cached = devicesResult
+                if (cached != null && devicesGeneration != requestedGeneration) return cached
+                val fresh =
+                    when (val devices = discovery.devices(cancellationSignal)) {
+                        is StudioResult.Failure -> devices
+                        is StudioResult.Success -> StudioResult.Success(devices.value.map(AdbDevice::toDeviceInfo))
+                    }
+                devicesResult = fresh
+                devicesGeneration++
+                fresh
             }
-        devicesResult = result
         listeners.forEach { it.onDevices(result) }
         return result
     }
+
+    /** Latest device snapshot without touching ADB, for pages that want to render immediately. */
+    public fun cachedDevices(): AndroidDeviceInfosResult? = devicesResult
 
     /** Refreshes installed applications and processes for [serial] once and publishes both updates. */
     public suspend fun refreshTargets(
@@ -184,36 +206,64 @@ internal class ProcessAndroidTargetDiscovery(
         com.androidperformancestudio.platform.toolchain.StudioHostProcessExecutor().run(request, signal)
     },
 ) : AndroidTargetDiscovery {
+    /**
+     * Identity (manufacturer/model) never changes while a device stays attached, so it is resolved
+     * once per connection. Keyed by transport id so a reconnect or a reused serial re-resolves.
+     */
+    private val identities = ConcurrentHashMap<AdbIdentityKey, AdbDeviceIdentity>()
+
     override suspend fun devices(cancellationSignal: HostCancellationSignal): AdbDevicesResult =
         when (val result = AdbDeviceRefresher(adbExecutable, processInvocation = processInvocation).refresh(cancellationSignal)) {
             is StudioResult.Failure -> result
-            is StudioResult.Success ->
-                StudioResult.Success(
-                    result.value.map { device ->
-                        if (device.state != com.androidperformancestudio.platform.adb.AdbDeviceState.ONLINE) {
-                            device
-                        } else {
-                            resolveIdentity(device.serial, cancellationSignal)
-                                ?.let(device::withIdentity)
-                                ?: device
-                        }
-                    },
-                )
+            is StudioResult.Success -> {
+                val devices = result.value
+                val onlineKeys = devices.filter { it.state == AdbDeviceState.ONLINE }.map(AdbDevice::identityKey).toSet()
+                identities.keys.retainAll(onlineKeys)
+                // Uncached devices are resolved concurrently so one slow device does not serialize the list.
+                val enriched =
+                    coroutineScope {
+                        devices
+                            .map { device ->
+                                async {
+                                    if (device.state != AdbDeviceState.ONLINE) return@async device
+                                    cachedOrResolvedIdentity(device, cancellationSignal)
+                                        ?.let(device::withIdentity)
+                                        ?: device
+                                }
+                            }.awaitAll()
+                    }
+                StudioResult.Success(enriched)
+            }
         }
+
+    private suspend fun cachedOrResolvedIdentity(
+        device: AdbDevice,
+        cancellationSignal: HostCancellationSignal,
+    ): AdbDeviceIdentity? {
+        val key = device.identityKey()
+        identities[key]?.let { return it }
+        return resolveIdentity(device.serial, cancellationSignal)?.also { identities[key] = it }
+    }
 
     private suspend fun resolveIdentity(
         serial: String,
         cancellationSignal: HostCancellationSignal,
-    ): com.androidperformancestudio.platform.adb.AdbDeviceIdentity? {
+    ): AdbDeviceIdentity? {
         val request =
             HostProcessRequest(
                 executable = adbExecutable,
                 arguments = listOf("-s", serial, "shell", "getprop"),
+                timeout = IDENTITY_TIMEOUT,
             )
         return when (val result = processInvocation(request, cancellationSignal)) {
             is HostCommandResult.Completed -> parseAdbDeviceIdentity(result.output.stdout.text)
             is HostCommandResult.Failed -> null
         }
+    }
+
+    private companion object {
+        /** Identity is cosmetic; a wedged device must not hold the device list for the default 30s. */
+        val IDENTITY_TIMEOUT = 5.seconds
     }
 
     override suspend fun targets(
@@ -230,6 +280,13 @@ internal class ProcessAndroidTargetDiscovery(
         AdbTargetCatalog(adbExecutable, processInvocation).listThreads(serial, pid, cancellationSignal)
 
 }
+
+private data class AdbIdentityKey(
+    val serial: String,
+    val transportId: Int?,
+)
+
+private fun AdbDevice.identityKey(): AdbIdentityKey = AdbIdentityKey(serial, transportId)
 
 internal data class AndroidThreadTarget(
     val serial: String,
