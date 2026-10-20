@@ -1,5 +1,6 @@
 package com.androidperformancestudio.ui.studio
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
@@ -114,6 +115,53 @@ class StudioComponentsTest {
 
             onNodeWithTag("studio-search").performTextInput("CPU")
             onNodeWithText("CPU").assertIsDisplayed()
+        }
+
+    @Test
+    fun `compact search field uses the toolbar input height`() =
+        runDesktopComposeUiTest {
+            setContent {
+                ViewerTheme(darkTheme = true) {
+                    StudioSearchField(
+                        value = "",
+                        onValueChange = {},
+                        placeholder = "Search",
+                        modifier = Modifier.testTag("compact-search"),
+                        compact = true,
+                    )
+                }
+            }
+
+            val height = onNodeWithTag("compact-search").fetchSemanticsNode().boundsInRoot.height
+            assertEquals(24, height.toInt())
+        }
+
+    @Test
+    fun `compact search field matches the compact text field height`() =
+        runDesktopComposeUiTest {
+            setContent {
+                ViewerTheme(darkTheme = true) {
+                    Column {
+                        com.androidperformancestudio.ui.ProfilerCompactTextField(
+                            label = "Package",
+                            value = "",
+                            onValueChange = {},
+                            modifier = Modifier.testTag("compact-text-field"),
+                        )
+                        StudioSearchField(
+                            value = "",
+                            onValueChange = {},
+                            placeholder = "Search",
+                            modifier = Modifier.testTag("compact-search-compare"),
+                            compact = true,
+                        )
+                    }
+                }
+            }
+
+            val textHeight = onNodeWithTag("compact-text-field").fetchSemanticsNode().boundsInRoot.height
+            val searchHeight = onNodeWithTag("compact-search-compare").fetchSemanticsNode().boundsInRoot.height
+            assertEquals(textHeight, searchHeight)
         }
 
     @Test

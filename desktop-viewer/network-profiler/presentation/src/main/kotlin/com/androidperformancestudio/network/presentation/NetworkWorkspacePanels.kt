@@ -97,7 +97,13 @@ internal fun NetworkRequestControls(
         }
     }
     val search: @Composable (Modifier) -> Unit = { modifier ->
-        StudioSearchField(query, onQueryChange, localizedStringResource(Res.string.network_search, language), modifier.testTag("network-request-search"))
+        StudioSearchField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = localizedStringResource(Res.string.network_search, language),
+            modifier = modifier.testTag("network-request-search"),
+            compact = true,
+        )
     }
     if (narrow) {
         Column(Modifier.fillMaxWidth()) {

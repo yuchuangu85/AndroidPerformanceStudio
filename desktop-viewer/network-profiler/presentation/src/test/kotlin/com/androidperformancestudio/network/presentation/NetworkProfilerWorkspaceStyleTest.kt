@@ -23,6 +23,18 @@ class NetworkProfilerWorkspaceStyleTest {
     }
 
     @Test
+    fun `request search uses the compact toolbar input height`() {
+        val panels =
+            Files.readString(
+                Path.of(
+                    "src/main/kotlin/com/androidperformancestudio/network/presentation/NetworkWorkspacePanels.kt",
+                ),
+            )
+        assertTrue(panels.contains("compact = true"))
+        assertTrue(panels.contains("network-request-search"))
+    }
+
+    @Test
     fun `compact adoption retains real summaries request selection and failure evidence`() {
         assertTrue(source.contains("height(IntrinsicSize.Max)"))
         assertFalse(source.contains("height(108.dp)"))
