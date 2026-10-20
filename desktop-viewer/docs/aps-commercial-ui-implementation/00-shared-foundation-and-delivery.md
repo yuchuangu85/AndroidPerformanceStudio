@@ -62,7 +62,8 @@ Android Performance Studio
 ├── Memory Profiler
 ├── Frame Profiler
 ├── Startup Profiler
-├── Battery & Network
+├── Battery Profiler
+├── Network Profiler
 ├── GPU Analysis Hub
 ├── Benchmark Regression
 ├── Reports
@@ -72,7 +73,7 @@ Android Performance Studio
 
 其中：
 
-- `Battery` 与 `Network` 可以在 UI 上组合，但底层保持两个独立模块。
+- `Battery` 与 `Network` 分别作为独立的一级页面；底层继续保持两个独立模块，不共享业务事件模型。
 - `GPU Inspector` 当前实现应定位为 **GPU Analysis Hub / AGI Integration**，不能伪装成本地完整 GPU Analyzer。
 - `Reports` 是新的产品级聚合页，但不改变每个 feature 自身的导出能力。
 - `Source Workspaces` 保持上下文工作区，不建议占用一级常驻导航位，可由 Layout / CPU / AI Insight 等入口跳转。
@@ -207,7 +208,8 @@ flowchart TB
     Content --> Memory[Memory Profiler]
     Content --> Frame[Frame Profiler]
     Content --> Startup[Startup Profiler]
-    Content --> BatteryNet[Battery & Network]
+    Content --> Battery[Battery Profiler]
+    Content --> Network[Network Profiler]
     Content --> GPU[GPU Hub]
     Content --> Benchmark[Benchmark]
     Content --> Reports[Reports]
@@ -435,7 +437,8 @@ Trace Analyzer
 Memory Profiler
 Frame Profiler
 Startup Profiler
-Battery & Network
+Battery Profiler
+Network Profiler
 GPU Analysis
 Benchmark
 ────────
@@ -1022,17 +1025,16 @@ Export
 
 ---
 
-## Phase 9：Battery & Network Composite Page
+## Phase 9：Battery / Network Independent Pages
 
-先 UI 容器合并：
+Battery 与 Network 各自拥有独立一级页面和独立控制器：
 
 ```text
-Battery | Network
+Battery Profiler
+Network Profiler
 ```
 
-再单独评估 Correlation。
-
-不要第一步就做跨时钟关联。
+先前合并的标签页容器已移除，避免用户把两类证据误认为同一工作区。Correlation 只在具备可比较时钟证据时再单独评估；不要第一步就做跨时钟关联。
 
 ---
 
@@ -1363,7 +1365,8 @@ Trace
 交付：
 
 ```text
-Battery & Network
+Battery Profiler
+Network Profiler
 Benchmark
 Reports
 GPU Hub
@@ -1400,7 +1403,7 @@ Release validation
 | Memory | 高 | 中～高 |
 | Frame | 中 | 低 |
 | Startup | 中 | 低 |
-| Battery & Network | 高 | 中 |
+| Battery / Network | 高 | 中 |
 | GPU Hub | 低～中 | 低 |
 | Benchmark | 中～高 | 中 |
 | Reports | 中 | 中 |

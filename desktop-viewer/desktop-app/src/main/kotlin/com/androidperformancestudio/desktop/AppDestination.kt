@@ -19,7 +19,8 @@ enum class AppDestination {
     MEMORY_PROFILER,
     FRAME_PROFILER,
     STARTUP_PROFILER,
-    BATTERY_NETWORK,
+    BATTERY_PROFILER,
+    NETWORK_PROFILER,
     GPU_INSPECTOR,
     BENCHMARK_REGRESSION,
     METHOD_RECORDING,
@@ -60,7 +61,8 @@ internal val com.androidperformancestudio.desktop.AppDestination.titleResource: 
             AppDestination.MEMORY_PROFILER -> Res.string.memory_profiler
             AppDestination.FRAME_PROFILER -> Res.string.frame_profiler
             AppDestination.STARTUP_PROFILER -> Res.string.startup_profiler
-            AppDestination.BATTERY_NETWORK -> Res.string.battery_network
+            AppDestination.BATTERY_PROFILER -> Res.string.battery_profiler
+            AppDestination.NETWORK_PROFILER -> Res.string.network_profiler
             AppDestination.GPU_INSPECTOR -> Res.string.gpu_inspector
             AppDestination.BENCHMARK_REGRESSION -> Res.string.benchmark_regression
             AppDestination.METHOD_RECORDING -> Res.string.method_recording
@@ -167,6 +169,14 @@ class AppNavigator(
     }
 }
 
+/**
+ * Destinations whose page publishes its own native menu through `ActiveWindowMenuBar`.
+ *
+ * The window title is only updated after the active page reports its menu bar ready. A destination
+ * listed here but without an actual menu publisher therefore keeps the previous page's title, so
+ * the list must stay in sync with the pages that call `ActiveWindowMenuBar`. Pages without a native
+ * menu use the host fallback menu, which reports readiness immediately.
+ */
 internal fun AppDestination.hasNativeFeatureMenu(): Boolean =
     when (this) {
         AppDestination.LAYOUT_INSPECTOR,
@@ -175,7 +185,7 @@ internal fun AppDestination.hasNativeFeatureMenu(): Boolean =
         AppDestination.MEMORY_PROFILER,
         AppDestination.FRAME_PROFILER,
         AppDestination.STARTUP_PROFILER,
-        AppDestination.BATTERY_NETWORK,
+        AppDestination.BATTERY_PROFILER,
         AppDestination.METHOD_RECORDING,
         -> true
         else -> false

@@ -58,11 +58,13 @@ class UnifiedDesktopShellTest {
         assertFalse(shell.contains("返回主页"))
         assertFalse(shell.contains("RetainedFeatureLayer"))
 
-        assertTrue(shell.contains("BatteryNetworkMainPage("))
+        assertTrue(shell.contains("BatteryProfilerMainPage("))
+        assertTrue(shell.contains("NetworkProfilerMainPage("))
         assertTrue(shell.contains("onOpenMemoryProfiler"))
         assertTrue(shell.contains("onOpenFrameProfiler"))
         assertTrue(shell.contains("onOpenStartupProfiler"))
-        assertTrue(shell.contains("onOpenBatteryNetwork"))
+        assertTrue(shell.contains("onOpenBatteryProfiler"))
+        assertTrue(shell.contains("onOpenNetworkProfiler"))
         assertTrue(shell.contains("onOpenGpuInspector"))
         assertTrue(shell.contains("onOpenBenchmarkRegression"))
         assertTrue(shell.contains("GpuIntegrationMainPage("))
@@ -78,7 +80,8 @@ class UnifiedDesktopShellTest {
             "Res.string.heap_dump_capture_object_statistics_and_class_histogram_analysis",
             "Res.string.frame_profiler",
             "Res.string.startup_profiler",
-            "Res.string.battery_network",
+            "Res.string.battery_profiler",
+            "Res.string.network_profiler",
             "Res.string.gpu_inspector",
             "Res.string.benchmark_regression",
         ).forEach { resource -> assertTrue(home.contains(resource), "Missing home resource reference: $resource") }

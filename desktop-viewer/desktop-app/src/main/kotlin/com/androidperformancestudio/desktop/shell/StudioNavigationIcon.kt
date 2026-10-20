@@ -10,6 +10,7 @@ import com.androidperformancestudio.ui_components.generated.resources.ic_nav_mem
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_frame_profiler
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_startup_profiler
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_battery
+import com.androidperformancestudio.ui_components.generated.resources.ic_nav_network
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_gpu_inspector
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_benchmark
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_method_recording
@@ -34,7 +35,8 @@ internal val AppDestination.navigationIconResource: DrawableResource
             AppDestination.MEMORY_PROFILER -> UiComponentsRes.drawable.ic_nav_memory_profiler
             AppDestination.FRAME_PROFILER -> UiComponentsRes.drawable.ic_nav_frame_profiler
             AppDestination.STARTUP_PROFILER -> UiComponentsRes.drawable.ic_nav_startup_profiler
-            AppDestination.BATTERY_NETWORK -> UiComponentsRes.drawable.ic_nav_battery
+            AppDestination.BATTERY_PROFILER -> UiComponentsRes.drawable.ic_nav_battery
+            AppDestination.NETWORK_PROFILER -> UiComponentsRes.drawable.ic_nav_network
             AppDestination.GPU_INSPECTOR -> UiComponentsRes.drawable.ic_nav_gpu_inspector
             AppDestination.BENCHMARK_REGRESSION -> UiComponentsRes.drawable.ic_nav_benchmark
             AppDestination.METHOD_RECORDING -> UiComponentsRes.drawable.ic_nav_method_recording

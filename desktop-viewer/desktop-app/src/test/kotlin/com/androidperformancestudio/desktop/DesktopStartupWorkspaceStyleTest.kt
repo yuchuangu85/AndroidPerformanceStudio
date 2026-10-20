@@ -15,7 +15,6 @@ class DesktopStartupWorkspaceStyleTest {
             "AppHomePage.kt",
             "DesktopAppSettingsPage.kt",
             "SourceWorkspacesPage.kt",
-            "BatteryNetworkMainPage.kt",
         ).forEach { file ->
             val source = Files.readString(sourceRoot.resolve(file))
             assertFalse(source.contains("StudioWorkspaceHeader("), file)
@@ -60,18 +59,5 @@ class DesktopStartupWorkspaceStyleTest {
         assertTrue(source.contains("SourceWorkspacePaneLayout.dragFiles("))
         assertTrue(source.contains("runtime.service.read(location)"))
         assertTrue(source.contains("pageError?.let"))
-    }
-
-    @Test
-    fun `battery network keeps responsive tabs and retained layers without a banner`() {
-        val source = Files.readString(sourceRoot.resolve("BatteryNetworkMainPage.kt"))
-        assertFalse(source.contains("StudioWorkspaceHeader("))
-        assertTrue(source.contains(".widthIn(max = 360.dp).fillMaxWidth()"))
-        assertTrue(source.contains("onItemSelected = onSelectedTabChanged"))
-        assertTrue(source.contains("blockBatteryNetworkPointerInputWhenInactive(active)"))
-        assertTrue(source.contains("blockBatteryNetworkKeyboardInputWhenInactive(active)"))
-        assertTrue(source.contains("LocalWindowMenuBarActive provides menuBarActive"))
-        assertTrue(source.contains("Res.string.correlation_unavailable_message, language"))
-        assertFalse(source.contains("Res.string.battery_network_subtitle"))
     }
 }

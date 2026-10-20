@@ -13,7 +13,10 @@ class StartupStyleAdoptionTest {
             AppDestination.HOME to sourcePath("desktop-app", "desktop/AppHomePage.kt"),
             AppDestination.SOURCE_WORKSPACES to sourcePath("desktop-app", "desktop/SourceWorkspacesPage.kt"),
             AppDestination.SETTINGS to sourcePath("desktop-app", "desktop/DesktopAppSettingsPage.kt"),
-            AppDestination.BATTERY_NETWORK to sourcePath("desktop-app", "desktop/BatteryNetworkMainPage.kt"),
+            AppDestination.BATTERY_PROFILER to
+                sourcePath("battery-profiler/battery-app", "battery/presentation/BatteryProfilerScreen.kt"),
+            AppDestination.NETWORK_PROFILER to
+                sourcePath("network-profiler/presentation", "network/presentation/NetworkProfilerScreen.kt"),
             AppDestination.LAYOUT_INSPECTOR to
                 sourcePath("layout-inspector/presentation", "desktop/LayoutInspectorMainPage.kt"),
             AppDestination.SIMPLEPERF to
@@ -46,7 +49,7 @@ class StartupStyleAdoptionTest {
     }
 
     @Test
-    fun `combined Battery Network children do not duplicate their parent workspace heading`() {
+    fun `Battery and Network pages do not duplicate a workspace heading`() {
         listOf(
             sourcePath("battery-profiler/battery-app", "battery/presentation/BatteryProfilerScreen.kt"),
             sourcePath("network-profiler/presentation", "network/presentation/NetworkProfilerScreen.kt"),
