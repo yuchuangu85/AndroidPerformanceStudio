@@ -13,7 +13,7 @@ class CpuWorkspaceStyleTest {
         assertFalse(source.contains("StudioWorkspaceHeader("))
         assertTrue(source.indexOf("HeaderToolbar(") < source.indexOf("ReportWorkspace("))
         assertTrue(source.indexOf("ReportWorkspace(") < source.indexOf("WorkspaceFooter("))
-        assertTrue(source.contains("StudioTokens.compactContentPadding"))
+        assertTrue(source("ReportPage.kt").contains("StudioTokens.compactContentPadding"))
     }
 
     @Test
@@ -26,6 +26,18 @@ class CpuWorkspaceStyleTest {
         assertTrue(source.contains("ToolbarCaptureActions(state, captureState, actions, style"))
         assertTrue(source.contains("flameTooltipMode = flameTooltipMode"))
         assertTrue(source.contains("onRunAiAnalysis = onRunAiAnalysis"))
+        // The report content sits directly on the workspace instead of inside a page-level frame.
+        val reportWorkspace =
+            source("ReportPage.kt")
+                .substringAfter("internal fun ReportWorkspace(")
+                .substringBefore("private fun ReportResultPane(")
+        assertFalse(reportWorkspace.contains(".border("))
+        assertFalse(source("FirefoxReportWorkspace.kt").contains(".border("))
+        val reportStatus =
+            source("ReportPage.kt")
+                .substringAfter("private fun ReportStatus(")
+                .substringBefore("internal fun ReportSelectedPanel(")
+        assertFalse(reportStatus.contains("StudioCard("), "Pending/error status must not re-frame the content area")
     }
 
     private fun source(file: String): String = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/presentation", file))

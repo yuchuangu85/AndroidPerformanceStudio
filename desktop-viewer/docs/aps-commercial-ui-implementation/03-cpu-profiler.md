@@ -134,7 +134,13 @@ simpleperf-viewer/app-desktop/SimpleperfMainPage.kt
 
 Controller / Storage / Analysis 不应因视觉改造被重写。
 
-## 8.8 验收
+## 8.8 当前落地与布局说明（2026-10-20）
+
+- 移除了 ReportWorkspace / FirefoxReportWorkspace 的页面级边框方框，报告内容直接铺在 workspace 背景上。
+- 统一由 ReportWorkspace 提供 `compactContentPadding`（8dp）外边距，KPI 卡片、时间线、标签页等内容到页面边缘的距离一致，不再叠加页面级 padding 与内容区 padding 两层留白。
+- DeviceTargetPage 不再额外包裹 ReportWorkspace 的外边距。
+
+## 8.9 验收
 
 - Flame Graph golden/UI tests 继续通过或有明确 golden 更新；
 - Capture 不受页面切换影响；

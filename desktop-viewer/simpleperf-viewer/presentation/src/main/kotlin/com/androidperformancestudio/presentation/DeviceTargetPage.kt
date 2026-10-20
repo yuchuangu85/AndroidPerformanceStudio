@@ -57,7 +57,6 @@ import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
@@ -141,12 +140,7 @@ internal fun DeviceTargetPage(
             state = reportState,
             actions = reportActions,
             style = style,
-            modifier =
-                Modifier.weight(1f).padding(
-                    start = StudioTokens.compactContentPadding,
-                    end = StudioTokens.compactContentPadding,
-                    bottom = StudioTokens.compactContentPadding,
-                ),
+            modifier = Modifier.weight(1f),
             flameTooltipMode = flameTooltipMode,
             onRunAiAnalysis = onRunAiAnalysis,
             captureState = captureState,

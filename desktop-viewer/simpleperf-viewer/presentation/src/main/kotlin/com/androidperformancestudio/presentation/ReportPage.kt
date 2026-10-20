@@ -118,13 +118,16 @@ internal fun ReportWorkspace(
     onRunAiAnalysis: (() -> Unit)? = null,
     captureState: CaptureState? = null,
 ) {
-    Box(
-        modifier
-            .fillMaxSize()
-            .background(style.workspace)
-            .border(ViewerDimensions.hairline, style.border),
-    ) {
-        ReportResultPane(state, actions, style, Modifier.fillMaxSize(), flameTooltipMode, onRunAiAnalysis, captureState)
+    Box(modifier.fillMaxSize().background(style.workspace)) {
+        ReportResultPane(
+            state = state,
+            actions = actions,
+            style = style,
+            modifier = Modifier.fillMaxSize().padding(StudioTokens.compactContentPadding),
+            flameTooltipMode = flameTooltipMode,
+            onRunAiAnalysis = onRunAiAnalysis,
+            captureState = captureState,
+        )
     }
 }
 
@@ -155,7 +158,7 @@ private fun ReportResultPane(
     }
     // Cards stay on screen in every state; they fill in place when the report becomes Ready.
     Column(
-        modifier.fillMaxHeight().padding(10.dp),
+        modifier.fillMaxHeight(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CpuProfilerPendingKpiStrip(pendingKpiText(loadState, captureState), style)
@@ -227,10 +230,9 @@ private fun ReportStatus(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
-    StudioCard(
+    Column(
         modifier = Modifier.fillMaxSize(),
-        containerColor = style.panel,
-        borderColor = style.border,
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
     ) {
         Text(message, color = style.text, fontSize = ViewerTypography.body.fontSize)
         if (actionLabel != null && onAction != null) {
