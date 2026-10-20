@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,12 +44,10 @@ import com.androidperformancestudio.startup.model.StartupProfileSource
 import com.androidperformancestudio.startup.model.StartupRun
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.generated.resources.Res
-import com.androidperformancestudio.startup.presentation.generated.resources.advanced_configuration
 import com.androidperformancestudio.startup.presentation.generated.resources.application
 import com.androidperformancestudio.startup.presentation.generated.resources.baseline_profile_artifact
 import com.androidperformancestudio.startup.presentation.generated.resources.baseline_profile_status
 import com.androidperformancestudio.startup.presentation.generated.resources.cold_start_description
-import com.androidperformancestudio.startup.presentation.generated.resources.collapse_configuration
 import com.androidperformancestudio.startup.presentation.generated.resources.compilation
 import com.androidperformancestudio.startup.presentation.generated.resources.compilation_current
 import com.androidperformancestudio.startup.presentation.generated.resources.compilation_reset
@@ -78,6 +75,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.sto
 import com.androidperformancestudio.startup.presentation.generated.resources.warm_start_description
 import com.androidperformancestudio.startup.presentation.generated.resources.warmup_runs
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
@@ -146,125 +144,111 @@ internal fun StartupTypeTabs(
     }
 }
 
+/**
+ * Page-level target selection for the startup experiment.
+ *
+ * The device comes first because it scopes the application list; both selectors live in the page
+ * header so the selected device and component stay visible above the scrolling workspace.
+ */
+@Composable
+public fun StartupTargetSelectors(
+    state: StartupProfilerState,
+    actions: StartupProfilerActions,
+    language: UiLanguage,
+) {
+    DropdownSelector(
+        items = state.devices,
+        selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+        onItemSelected = { actions.onSelectDevice(it.serial) },
+        itemLabel = { it.name },
+        itemEnabled = { it.online },
+        placeholder = localizedStringResource(Res.string.device, language),
+        selectorDescription = localizedStringResource(Res.string.device, language),
+        modifier = Modifier.width(160.dp).testTag("startup-device"),
+        fillWidth = true,
+        enabled = !state.isRunning && !state.isRefreshing,
+    )
+    HeaderSpacer()
+    DropdownSelector(
+        items = state.targets,
+        searchable = true,
+        searchLanguage = language,
+        selectedItem = state.targets.firstOrNull { it.componentName == state.selectedComponentName },
+        onItemSelected = {
+            actions.onSelectTarget(it.componentName)
+        },
+        itemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
+        selectedItemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
+        itemSecondary = { it.componentName },
+        placeholder = localizedStringResource(Res.string.application, language),
+        selectorDescription = localizedStringResource(Res.string.application, language),
+        modifier = Modifier.width(220.dp).testTag("startup-target"),
+        fillWidth = true,
+        enabled = !state.isRunning && state.selectedDeviceSerial != null,
+    )
+}
+
 @Composable
 internal fun StartupScenarioControls(
     state: StartupProfilerState,
     actions: StartupProfilerActions,
     language: UiLanguage,
 ) {
-    var advanced by remember { mutableStateOf(false) }
     val config = state.config
     StudioPanel(
         modifier = Modifier.fillMaxWidth().testTag("startup-scenario"),
         contentPadding = StudioTokens.compactContentPadding,
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                localizedStringResource(Res.string.scenario_configuration, language),
-                Modifier.weight(1f),
-                fontWeight = FontWeight.SemiBold,
-            )
-            ProfilerCompactButton(
-                localizedStringResource(if (advanced) Res.string.collapse_configuration else Res.string.advanced_configuration, language),
-                modifier = Modifier.testTag("startup-advanced"),
-                onClick = { advanced = !advanced },
-            )
-        }
+        Text(
+            localizedStringResource(Res.string.scenario_configuration, language),
+            fontWeight = FontWeight.SemiBold,
+        )
+        // Every experiment parameter shares one horizontally scrollable row so the advanced
+        // configuration is visible by default instead of hiding behind a disclosure button.
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Bottom,
         ) {
-            ControlField(localizedStringResource(Res.string.application, language)) {
-                DropdownSelector(
-                    items = state.targets,
-                    searchable = true,
-                    searchLanguage = language,
-                    selectedItem = state.targets.firstOrNull { it.componentName == state.selectedComponentName },
-                    onItemSelected = {
-                        actions.onSelectTarget(it.componentName)
-                    },
-                    itemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
-                    selectedItemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
-                    itemSecondary = { it.componentName },
-                    placeholder = localizedStringResource(Res.string.application, language),
-                    modifier = Modifier.width(170.dp).testTag("startup-target"),
-                    fillWidth = true,
-                    enabled = !state.isRunning && state.selectedDeviceSerial != null,
-                )
-            }
-            ControlField(localizedStringResource(Res.string.device, language)) {
-                DropdownSelector(
-                    items = state.devices,
-                    selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
-                    onItemSelected = { actions.onSelectDevice(it.serial) },
-                    itemLabel = { it.name },
-                    itemEnabled = { it.online },
-                    placeholder = localizedStringResource(Res.string.device, language),
-                    modifier = Modifier.width(145.dp).testTag("startup-device"),
-                    enabled = !state.isRunning && !state.isRefreshing,
-                    fillWidth = true,
-                )
-            }
-            ControlField(localizedStringResource(Res.string.iterations, language)) {
-                DropdownSelector(
-                    items = (listOf(1, 3, 5, 10, 20, 30, 50, 100) + config.measuredRuns).distinct().sorted(),
-                    selectedItem = config.measuredRuns,
-                    onItemSelected = { actions.onUpdateCounts(config.warmupRuns, it) },
-                    itemLabel = Int::toString,
-                    placeholder = "",
-                    enabled = !state.isRunning,
-                    modifier = Modifier.testTag("startup-iterations"),
-                )
-            }
-            ControlField(localizedStringResource(Res.string.compilation, language)) {
-                DropdownSelector(
-                    items = CompilationMode.entries,
-                    selectedItem = config.compilationMode,
-                    onItemSelected = actions.onSelectCompilationMode,
-                    itemLabel = { it.localizedLabel(language) },
-                    placeholder = "",
-                    enabled = !state.isRunning,
-                    modifier = Modifier.testTag("startup-compilation"),
-                )
-            }
-            if (config.compilationMode == CompilationMode.SPEED_PROFILE) {
-                ControlField(localizedStringResource(Res.string.profile_source, language)) {
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                ControlField(localizedStringResource(Res.string.iterations, language)) {
                     DropdownSelector(
-                        items = StartupProfileSource.entries,
-                        selectedItem = config.profileSource,
-                        onItemSelected = actions.onSelectProfileSource,
+                        items = (listOf(1, 3, 5, 10, 20, 30, 50, 100) + config.measuredRuns).distinct().sorted(),
+                        selectedItem = config.measuredRuns,
+                        onItemSelected = { actions.onUpdateCounts(config.warmupRuns, it) },
+                        itemLabel = Int::toString,
+                        placeholder = "",
+                        enabled = !state.isRunning,
+                        modifier = Modifier.testTag("startup-iterations"),
+                    )
+                }
+                ControlField(localizedStringResource(Res.string.compilation, language)) {
+                    DropdownSelector(
+                        items = CompilationMode.entries,
+                        selectedItem = config.compilationMode,
+                        onItemSelected = actions.onSelectCompilationMode,
                         itemLabel = { it.localizedLabel(language) },
                         placeholder = "",
                         enabled = !state.isRunning,
-                        modifier = Modifier.testTag("startup-profile-source"),
+                        modifier = Modifier.testTag("startup-compilation"),
                     )
                 }
-            }
-            Button(
-                enabled =
-                    state.isRunning || (!state.isRefreshing && state.selectedComponentName != null && state.selectedDeviceSerial != null),
-                modifier = Modifier.height(36.dp).testTag("startup-start-stop"),
-                onClick = actions.onStartStop,
-                shape = RoundedCornerShape(StudioTokens.smallRadius),
-                contentPadding =
-                    androidx.compose.foundation.layout
-                        .PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            ) {
-                Text(
-                    "${if (state.isRunning) "■" else "▶"} ${localizedStringResource(
-                        if (state.isRunning) Res.string.stop_analysis else Res.string.start_analysis,
-                        language,
-                    )}",
-                )
-            }
-        }
-        if (advanced) {
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+                if (config.compilationMode == CompilationMode.SPEED_PROFILE) {
+                    ControlField(localizedStringResource(Res.string.profile_source, language)) {
+                        DropdownSelector(
+                            items = StartupProfileSource.entries,
+                            selectedItem = config.profileSource,
+                            onItemSelected = actions.onSelectProfileSource,
+                            itemLabel = { it.localizedLabel(language) },
+                            placeholder = "",
+                            enabled = !state.isRunning,
+                            modifier = Modifier.testTag("startup-profile-source"),
+                        )
+                    }
+                }
                 ControlField(localizedStringResource(Res.string.warmup_runs, language)) {
                     DropdownSelector(
                         items = ((0..10).toList() + listOf(20, 50, 100) + config.warmupRuns).distinct().sorted(),
@@ -275,7 +259,6 @@ internal fun StartupScenarioControls(
                         enabled = !state.isRunning && config.compilationMode == CompilationMode.SPEED_PROFILE,
                     )
                 }
-
                 ControlField(localizedStringResource(Res.string.run_timeout, language)) {
                     DropdownSelector(
                         items = (listOf(5, 10, 20, 30, 45, 60, 120, 300) + config.timeoutSeconds).distinct().sorted(),
@@ -307,20 +290,31 @@ internal fun StartupScenarioControls(
                     Text(localizedStringResource(Res.string.perfetto_capture, language), style = MaterialTheme.typography.bodySmall)
                 }
             }
-            if (config.compilationMode == CompilationMode.SPEED_PROFILE) {
-                ProfilerCompactTextField(
-                    label = localizedStringResource(Res.string.baseline_profile_artifact, language),
-                    value = config.baselineProfileArtifact.orEmpty(),
-                    onValueChange = actions.onUpdateBaselineProfileArtifact,
-                    enabled = !state.isRunning,
-                    modifier = Modifier.fillMaxWidth().testTag("startup-profile-artifact"),
-                )
-                Text(
-                    localizedStringResource(Res.string.profile_artifact_hint, language),
-                    color = LocalViewerColors.current.secondaryText,
-                    fontSize = ViewerTypography.secondary.fontSize,
-                )
-            }
+            ProfilerCompactButton(
+                text =
+                    localizedStringResource(
+                        if (state.isRunning) Res.string.stop_analysis else Res.string.start_analysis,
+                        language,
+                    ),
+                enabled =
+                    state.isRunning || (!state.isRefreshing && state.selectedComponentName != null && state.selectedDeviceSerial != null),
+                modifier = Modifier.padding(start = 14.dp).testTag("startup-start-stop"),
+                onClick = actions.onStartStop,
+            )
+        }
+        if (config.compilationMode == CompilationMode.SPEED_PROFILE) {
+            ProfilerCompactTextField(
+                label = localizedStringResource(Res.string.baseline_profile_artifact, language),
+                value = config.baselineProfileArtifact.orEmpty(),
+                onValueChange = actions.onUpdateBaselineProfileArtifact,
+                enabled = !state.isRunning,
+                modifier = Modifier.fillMaxWidth().testTag("startup-profile-artifact"),
+            )
+            Text(
+                localizedStringResource(Res.string.profile_artifact_hint, language),
+                color = LocalViewerColors.current.secondaryText,
+                fontSize = ViewerTypography.secondary.fontSize,
+            )
         }
     }
 }

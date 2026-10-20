@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.startup.presentation
 
+import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -77,6 +78,26 @@ class StartupProfilerWorkspaceTest {
         }
 
     @Test
+    fun `target selectors put the device before the application`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            setContent {
+                ViewerTheme(darkTheme = true) {
+                    Row {
+                        StartupTargetSelectors(
+                            startupVisualState(),
+                            StartupProfilerActions(),
+                            UiLanguage.ENGLISH,
+                        )
+                    }
+                }
+            }
+
+            val device = onNodeWithTag("startup-device").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val target = onNodeWithTag("startup-target").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(device.right <= target.left)
+        }
+
+    @Test
     fun `running workspace locks configuration but keeps cancellation available`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {
             var cancelled = false
@@ -90,7 +111,7 @@ class StartupProfilerWorkspaceTest {
                 }
             }
             onNodeWithTag("startup-type-HOT").assertIsNotEnabled()
-            onNodeWithTag("startup-start-stop").assertIsEnabled().performClick()
+            onNodeWithTag("startup-start-stop").performScrollTo().assertIsEnabled().performClick()
             assertTrue(cancelled)
             onNodeWithTag("startup-main").performMouseInput { scroll(1200f) }
             waitForIdle()
@@ -224,9 +245,8 @@ class StartupProfilerWorkspaceTest {
                     )
                 }
             }
-            onNodeWithTag("startup-advanced").performClick()
-            onNodeWithTag("startup-timeout").assertIsDisplayed()
-            onNodeWithTag("startup-perfetto").performClick()
+            onNodeWithTag("startup-timeout").performScrollTo().assertIsDisplayed()
+            onNodeWithTag("startup-perfetto").performScrollTo().performClick()
             assertEquals(true, tracing)
         }
 
@@ -274,11 +294,10 @@ class StartupProfilerWorkspaceTest {
                 }
             }
             onNodeWithTag("startup-waterfall-export").assertIsNotEnabled()
-            onNodeWithTag("startup-advanced").performClick()
             onNode(
                 hasAnyAncestor(hasTestTag("startup-profile-artifact")) and
                     SemanticsMatcher.keyIsDefined(SemanticsProperties.Disabled),
-            ).assertIsNotEnabled()
+            ).performScrollTo().assertIsNotEnabled()
             onNodeWithTag("startup-main").performMouseInput {
                 moveTo(center)
                 scroll(2000f)
@@ -373,8 +392,8 @@ class StartupProfilerWorkspaceTest {
                     )
                 }
             }
-            onNodeWithTag("startup-advanced").performClick()
             onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("startup-profile-artifact")))
+                .performScrollTo()
                 .performTextReplacement("sha256:build-supplied")
             assertEquals("sha256:build-supplied", artifact)
         }

@@ -127,8 +127,6 @@
     <string name="profile_build_variant">构建变体</string>
     <string name="start_analysis">开始分析</string>
     <string name="stop_analysis">停止分析</string>
-    <string name="advanced_configuration">高级配置</string>
-    <string name="collapse_configuration">收起配置</string>
     <string name="warmup_runs">编译预热次数</string>
     <string name="run_timeout">超时（秒）</string>
     <string name="practical_threshold">实际变化阈值（%）</string>

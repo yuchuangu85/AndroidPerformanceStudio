@@ -126,8 +126,6 @@
     <string name="profile_build_variant">Build Variant</string>
     <string name="start_analysis">Start Analysis</string>
     <string name="stop_analysis">Stop Analysis</string>
-    <string name="advanced_configuration">Advanced Configuration</string>
-    <string name="collapse_configuration">Collapse Configuration</string>
     <string name="warmup_runs">Compilation Warmups</string>
     <string name="run_timeout">Timeout (s)</string>
     <string name="practical_threshold">Practical Threshold (%)</string>

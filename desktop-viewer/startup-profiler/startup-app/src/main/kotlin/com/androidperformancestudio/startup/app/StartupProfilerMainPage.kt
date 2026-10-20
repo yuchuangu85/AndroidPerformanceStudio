@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.startup.presentation.StartupProfilerActions
 import com.androidperformancestudio.startup.presentation.StartupProfilerScreen
+import com.androidperformancestudio.startup.presentation.StartupTargetSelectors
 import com.androidperformancestudio.startup.startup_app.generated.resources.Res
 import com.androidperformancestudio.startup.startup_app.generated.resources.cancel
 import com.androidperformancestudio.startup.startup_app.generated.resources.compilation_change_message
@@ -188,6 +189,12 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                         .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                StartupTargetSelectors(
+                    state = state,
+                    actions = actions,
+                    language = language,
+                )
+                HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.refresh, language),
                     enabled = !state.isRunning && !state.isRefreshing,
