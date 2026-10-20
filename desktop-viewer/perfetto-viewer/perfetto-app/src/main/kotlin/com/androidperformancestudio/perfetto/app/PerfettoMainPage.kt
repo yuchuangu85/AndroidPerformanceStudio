@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,6 +57,7 @@ import com.androidperformancestudio.perfetto.presentation.PerfettoCapturePage
 import com.androidperformancestudio.perfetto.presentation.PerfettoCompactButton
 import com.androidperformancestudio.perfetto.presentation.PerfettoCompactTextField
 import com.androidperformancestudio.perfetto.presentation.PerfettoStatusDot
+import com.androidperformancestudio.perfetto.presentation.TraceAnalyzerHeaderActions
 import com.androidperformancestudio.perfetto.presentation.TraceAnalyzerWorkspace
 import com.androidperformancestudio.perfetto.presentation.TraceAnalyzerWorkspaceActions
 import com.androidperformancestudio.perfetto.presentation.TraceAnalyzerWorkspaceState
@@ -760,7 +760,6 @@ fun FrameWindowScope.PerfettoMainPage(
                 if (traceFile != null) openTrace(traceFile, activeArtifact, null)
             },
             onExport = { activeTraceFile?.let(exportRawTrace) },
-            onOpenTraceFile = chooseAndOpenTrace,
             onSelectPreset = { selectedPresetId = PerfettoDiagnosticPresets.byId(it).id },
             onRunPreset = runPreset,
             onInsightFilterChange = { insightFilter = it },
@@ -795,16 +794,27 @@ fun FrameWindowScope.PerfettoMainPage(
                 onNavigateHome = onNavigateHome,
                 onNavigateSettings = null,
             ) {
-                PerfettoToolbarContent(
-                    language = language,
-                    adbPath = adbPath,
-                    onAdbPathChange = { adbPath = it },
-                    devices = devices,
-                    selectedDeviceSerial = selectedDeviceSerial,
-                    onSelectDevice = { selectedDeviceSerial = it },
-                    deviceRefreshInProgress = deviceRefreshInProgress,
-                    onRefreshDevices = { coroutineScope.launch { refreshDevices() } },
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PerfettoToolbarContent(
+                        language = language,
+                        adbPath = adbPath,
+                        onAdbPathChange = { adbPath = it },
+                        devices = devices,
+                        selectedDeviceSerial = selectedDeviceSerial,
+                        onSelectDevice = { selectedDeviceSerial = it },
+                        deviceRefreshInProgress = deviceRefreshInProgress,
+                        onRefreshDevices = { coroutineScope.launch { refreshDevices() } },
+                    )
+                    HeaderSpacer()
+                    TraceAnalyzerHeaderActions(
+                        state = workspaceState,
+                        actions = workspaceActions,
+                        language = language,
+                    )
+                }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             deviceRefreshError?.let {
@@ -969,7 +979,6 @@ private fun RowScope.PerfettoToolbarContent(
         onClick = onRefreshDevices,
         enabled = !deviceRefreshInProgress,
     )
-    Spacer(Modifier.weight(1f))
 }
 
 @Composable

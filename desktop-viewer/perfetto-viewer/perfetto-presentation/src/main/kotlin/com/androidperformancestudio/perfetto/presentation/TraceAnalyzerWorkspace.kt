@@ -142,7 +142,6 @@ private fun WideTraceWorkspace(
         modifier = Modifier.fillMaxSize().padding(StudioTokens.compactContentPadding).testTag("trace-analyzer-wide"),
         verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
     ) {
-        TraceAnalyzerToolbar(state, actions, language)
         TraceSummaryGrid(summaries, language, wide = true)
         Row(
             modifier = Modifier.fillMaxWidth().weight(1f),
@@ -206,7 +205,6 @@ private fun NarrowTraceWorkspace(
                 .testTag("trace-analyzer-narrow"),
         verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
     ) {
-        TraceAnalyzerToolbar(state, actions, language)
         TraceSummaryGrid(summaries, language, wide = false)
         TraceSessionsPanel(
             state = state,

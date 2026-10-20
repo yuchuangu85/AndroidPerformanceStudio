@@ -67,7 +67,6 @@
     <string name="trace_workspace_summary_binder">Binder evidence</string>
     <string name="trace_workspace_summary_long_tasks">Long-task evidence</string>
     <string name="trace_workspace_summary_rendering">Render evidence</string>
-    <string name="trace_workspace_open_trace">Open trace</string>
     <string name="trace_workspace_search_trace">Search slices…</string>
     <string name="trace_workspace_search">Search</string>
     <string name="trace_workspace_preset">Analysis preset</string>

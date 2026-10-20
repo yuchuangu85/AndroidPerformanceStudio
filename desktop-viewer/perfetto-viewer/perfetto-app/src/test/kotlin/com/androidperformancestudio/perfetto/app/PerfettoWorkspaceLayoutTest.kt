@@ -20,6 +20,7 @@ class PerfettoWorkspaceLayoutTest {
         assertFalse(source.contains("HomeButton("))
         assertTrue(source.contains("DropdownSelector("))
         assertTrue(source.contains("onNavigateHome = onNavigateHome"))
+        assertTrue(source.contains("TraceAnalyzerHeaderActions("))
         assertTrue(source.contains("TraceAnalyzerWorkspace("))
         assertTrue(source.contains("state = workspaceState"))
         assertTrue(source.contains("actions = workspaceActions"))

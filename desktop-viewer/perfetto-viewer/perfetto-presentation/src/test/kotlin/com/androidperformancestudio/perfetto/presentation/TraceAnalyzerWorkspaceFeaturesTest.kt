@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.perfetto.presentation
 
+import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -15,62 +16,63 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class TraceAnalyzerWorkspaceFeaturesTest {
     @Test
-    fun `toolbar exposes open capture export search and preset actions`() =
+    fun `header exposes capture export search and preset actions without open trace`() =
         runDesktopComposeUiTest(width = 1440, height = 900) {
             val events = mutableListOf<String>()
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    TraceAnalyzerWorkspace(
-                        state = featureState().copy(traceSearchQuery = "Choreographer"),
-                        actions =
-                            TraceAnalyzerWorkspaceActions(
-                                onOpenTraceFile = { events += "open" },
-                                onToggleCapture = { events += "capture" },
-                                onExport = { events += "export:${it.artifactId}" },
-                                onOpenViewer = { events += "viewer:${it.artifactId}" },
-                                onRunTraceSearch = { events += "search" },
-                                onRunPreset = { events += "preset" },
-                            ),
-                    )
+                    Row {
+                        TraceAnalyzerHeaderActions(
+                            state = featureState().copy(traceSearchQuery = "Choreographer"),
+                            actions =
+                                TraceAnalyzerWorkspaceActions(
+                                    onToggleCapture = { events += "capture" },
+                                    onExport = { events += "export:${it.artifactId}" },
+                                    onOpenViewer = { events += "viewer:${it.artifactId}" },
+                                    onRunTraceSearch = { events += "search" },
+                                    onRunPreset = { events += "preset" },
+                                ),
+                            language = UiLanguage.ENGLISH,
+                        )
+                    }
                 }
             }
 
             listOf(
-                "toolbar-open-trace",
                 "toolbar-capture-trace",
                 "toolbar-export-trace",
                 "toolbar-open-perfetto",
                 "toolbar-run-search",
                 "toolbar-run-preset",
             ).forEach { tag -> onNodeWithTag(tag).performClick() }
-            assertEquals(listOf("open", "capture", "export:artifact-1", "viewer:artifact-1", "search", "preset"), events)
-            val toolbar = onNodeWithTag("trace-analyzer-toolbar").fetchSemanticsNode().boundsInRoot
-            val summary = onNodeWithTag("trace-summary-grid").fetchSemanticsNode().boundsInRoot
-            assertTrue(toolbar.bottom <= summary.top)
+            assertEquals(listOf("capture", "export:artifact-1", "viewer:artifact-1", "search", "preset"), events)
+            onNodeWithTag("toolbar-open-trace").assertDoesNotExist()
         }
 
     @Test
-    fun `trace-dependent toolbar actions are disabled without an active trace`() =
+    fun `trace-dependent header actions are disabled without an active trace`() =
         runDesktopComposeUiTest(width = 1440, height = 900) {
             setContent {
                 ViewerTheme(darkTheme = false) {
-                    TraceAnalyzerWorkspace(
-                        state = featureState().copy(activeTrace = null, traceSearchQuery = "main"),
-                        actions = TraceAnalyzerWorkspaceActions(),
-                    )
+                    Row {
+                        TraceAnalyzerHeaderActions(
+                            state = featureState().copy(activeTrace = null, traceSearchQuery = "main"),
+                            actions = TraceAnalyzerWorkspaceActions(),
+                            language = UiLanguage.ENGLISH,
+                        )
+                    }
                 }
             }
 
-            onNodeWithTag("toolbar-open-trace").assertIsEnabled()
             onNodeWithTag("toolbar-capture-trace").assertIsEnabled()
             listOf("toolbar-export-trace", "toolbar-open-perfetto", "toolbar-run-search", "toolbar-run-preset").forEach { tag ->
                 onNodeWithTag(tag).assertIsNotEnabled()
             }
+            onNodeWithTag("toolbar-open-trace").assertDoesNotExist()
         }
 
     @Test
@@ -190,7 +192,8 @@ class TraceAnalyzerWorkspaceFeaturesTest {
             onNodeWithTag("trace-viewer-panel").performScrollTo()
             onNodeWithTag("trace-anchor-frame-jank").performClick()
             assertEquals("frame-jank", anchor)
-            listOf("trace-analyzer-toolbar", "trace-bookmarks-panel", "trace-detail-panel", "trace-insights-panel").forEach { tag ->
+            onNodeWithTag("trace-analyzer-toolbar").assertDoesNotExist()
+            listOf("trace-bookmarks-panel", "trace-detail-panel", "trace-insights-panel").forEach { tag ->
                 onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
             }
         }

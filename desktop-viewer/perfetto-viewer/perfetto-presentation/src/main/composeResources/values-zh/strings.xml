@@ -67,7 +67,6 @@
     <string name="trace_workspace_summary_binder">Binder 证据</string>
     <string name="trace_workspace_summary_long_tasks">长任务证据</string>
     <string name="trace_workspace_summary_rendering">渲染证据</string>
-    <string name="trace_workspace_open_trace">打开 Trace</string>
     <string name="trace_workspace_search_trace">搜索 Slice…</string>
     <string name="trace_workspace_search">搜索</string>
     <string name="trace_workspace_preset">分析预设</string>

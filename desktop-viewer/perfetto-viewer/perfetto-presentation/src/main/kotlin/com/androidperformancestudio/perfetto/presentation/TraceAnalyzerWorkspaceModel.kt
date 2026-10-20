@@ -138,7 +138,6 @@ data class TraceAnalyzerWorkspaceActions(
     val onOpenInTimeline: (TraceInsightEvidence) -> Unit = {},
     val onOpenViewer: (TraceWorkspaceArtifact) -> Unit = {},
     val onExport: (TraceWorkspaceArtifact) -> Unit = {},
-    val onOpenTraceFile: () -> Unit = {},
     val onSelectPreset: (String) -> Unit = {},
     val onRunPreset: () -> Unit = {},
     val onInsightFilterChange: (TraceInsightFilter) -> Unit = {},
