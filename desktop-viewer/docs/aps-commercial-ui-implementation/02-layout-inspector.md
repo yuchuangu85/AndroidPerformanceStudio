@@ -104,7 +104,12 @@ presentation/workspace/
   FindingsPanel.kt
 ```
 
-## 7.5 验收
+## 7.5 当前落地与布局说明（2026-10-20）
+
+- 中间工作区（Hierarchy / Canvas / Properties / Findings）移除了左右和底部的 8dp 页面级外边距，内容直接贴齐窗口内容区边缘。
+- 顶部 Header、Correlation 提示和水平分隔线保持不变；各 pane 自身的边框、列表和 Canvas 绘制不变。
+
+## 7.6 验收
 
 - 所有现有 Layout Inspector 测试继续通过；
 - 树/Canvas/Properties/Findings selection 同步行为不变；

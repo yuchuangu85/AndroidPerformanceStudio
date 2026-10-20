@@ -2,7 +2,6 @@ package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
-import com.androidperformancestudio.ui.studio.StudioTokens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.HorizontalScrollbar
@@ -1186,12 +1185,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
             HorizontalDivider(color = colors.border)
             BoxWithConstraints(
-                modifier =
-                    Modifier.weight(1f).padding(
-                        start = StudioTokens.compactContentPadding,
-                        end = StudioTokens.compactContentPadding,
-                        bottom = StudioTokens.compactContentPadding,
-                    ),
+                modifier = Modifier.weight(1f),
             ) {
                 val availableHeightDp = maxHeight.value
                 val normalizedFindingsHeight = FindingsLayout.fit(findingsHeightDp, availableHeightDp)
