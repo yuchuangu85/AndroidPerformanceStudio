@@ -170,7 +170,10 @@ class ProfilerThemeSupportTest {
         // A page without a feature menu must not leave the native bar with zero menus.
         assertTrue(sharedMenuBar.contains("fallbackMenu"))
         assertTrue(shell.contains("fallbackMenu = {"))
-        assertTrue(sharedMenuBar.contains("pageContent.invoke(this)"))
+        assertTrue(sharedMenuBar.contains("pageContent.invoke(scope)"))
+        // Pages only declare menus; the host renders them into positional JMenus, so switching pages
+        // updates titles/items in place instead of deleting every top-level menu.
+        assertTrue(sharedMenuBar.contains("scope.menus.forEach { spec -> StableTopLevelMenu(spec) }"))
         assertFalse(sharedMenuBar.contains("JMenuBar()"))
         assertFalse(sharedMenuBar.contains("setContent("))
         assertFalse(sharedMenuBar.contains("window.jMenuBar = null"))

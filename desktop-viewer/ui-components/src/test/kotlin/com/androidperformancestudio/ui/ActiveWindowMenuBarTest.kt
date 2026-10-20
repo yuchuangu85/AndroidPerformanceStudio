@@ -1,6 +1,7 @@
 package com.androidperformancestudio.ui
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -10,6 +11,18 @@ import kotlin.test.assertTrue
  * disposing a menu composition would call `JMenuBar.removeAll()` and flash the macOS menu bar.
  */
 class ActiveWindowMenuBarTest {
+    @Test
+    fun `page menus are collected as positional specs instead of emitted nodes`() {
+        val scope = WindowMenuBarScope()
+
+        scope.Menu("File") {}
+        scope.Menu("Config", mnemonic = 'C', enabled = false) {}
+
+        assertEquals(listOf("File", "Config"), scope.menus.map { it.text })
+        assertEquals(listOf(null, 'C'), scope.menus.map { it.mnemonic })
+        assertEquals(listOf(true, false), scope.menus.map { it.enabled })
+    }
+
     @Test
     fun `menu readiness is reported once per destination`() {
         val state = MenuBarHostState()
