@@ -3,8 +3,9 @@
 package com.androidperformancestudio.gpu.app
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -13,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.adb.defaultAdbCommandExecutable
@@ -25,6 +27,7 @@ import com.androidperformancestudio.gpu.model.ArtifactOpenRoute
 import com.androidperformancestudio.gpu.model.GpuArtifact
 import com.androidperformancestudio.gpu.presentation.ArtifactPrimaryAction
 import com.androidperformancestudio.gpu.presentation.GpuAnalysisHubScreen
+import com.androidperformancestudio.gpu.presentation.GpuAnalysisToolbar
 import com.androidperformancestudio.gpu.presentation.GpuArtifactAvailability
 import com.androidperformancestudio.gpu.presentation.GpuIntegrationActions
 import com.androidperformancestudio.gpu.toolchain.AgiExecutablePreferenceStore
@@ -129,56 +132,70 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
         }
     }
 
+    val selectedArtifact = state.artifacts.firstOrNull { it.id == state.selectedArtifactId }
+    val gpuActions =
+        GpuIntegrationActions(
+            onOpenArtifact = ::open,
+            onVerifyArtifact = { artifact ->
+                scope.launch {
+                    controller.verifyArtifact(
+                        artifact,
+                        localizedStringResource(Res.string.artifact_hash_verified, language),
+                        localizedStringResource(Res.string.artifact_missing_or_changed, language),
+                    )
+                }
+            },
+            onRevealArtifact = ::reveal,
+            onRelocateArtifact = ::relocate,
+            onRefreshDevices = { scope.launch { controller.refreshDevices() } },
+            onSelectDevice = { serial ->
+                controller.selectDevice(serial)
+                scope.launch { controller.inspectSelectedDevice() }
+            },
+            onSelectArtifact = controller.selectArtifact,
+            onOpenTraceAnalyzer = onOpenTraceAnalyzer,
+            onSelectHubTab = controller.selectHubTab,
+            onFilterArtifacts = controller.filterArtifacts,
+            onLaunchAgi = ::launchAgi,
+            onImportArtifact = ::importArtifact,
+        )
+
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(language = language, onNavigateHome = onBack, onNavigateSettings = null) {
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh_agi, language),
-                enabled = !state.isBusy,
-                onClick = { scope.launch { controller.refreshAgi(message = localizedStringResource(Res.string.agi_capability_refreshed, language)) } },
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.configure_agi, language),
-                enabled = !state.isBusy,
-                onClick = {
-                    chooseExecutable(window, language)?.let { file ->
-                        scope.launch { controller.refreshAgi(file.toPath(), localizedStringResource(Res.string.configured_file, language, file.name)) }
-                    }
-                },
-            )
-            Spacer(Modifier.weight(1f))
-            ProfilerToolbarStatus(state.message, state.error)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                GpuAnalysisToolbar(
+                    state = state,
+                    actions = gpuActions,
+                    selectedArtifact = selectedArtifact,
+                    language = language,
+                    modifier = Modifier.weight(1f),
+                )
+                HeaderSpacer()
+                ProfilerToolbarStatus(state.message, state.error)
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.refresh_agi, language),
+                    enabled = !state.isBusy,
+                    onClick = { scope.launch { controller.refreshAgi(message = localizedStringResource(Res.string.agi_capability_refreshed, language)) } },
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.configure_agi, language),
+                    enabled = !state.isBusy,
+                    onClick = {
+                        chooseExecutable(window, language)?.let { file ->
+                            scope.launch { controller.refreshAgi(file.toPath(), localizedStringResource(Res.string.configured_file, language, file.name)) }
+                        }
+                    },
+                )
+            }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         GpuAnalysisHubScreen(
-            state,
-            GpuIntegrationActions(
-                onOpenArtifact = ::open,
-                onVerifyArtifact = { artifact ->
-                    scope.launch {
-                        controller.verifyArtifact(
-                            artifact,
-                            localizedStringResource(Res.string.artifact_hash_verified, language),
-                            localizedStringResource(Res.string.artifact_missing_or_changed, language),
-                        )
-                    }
-                },
-                onRevealArtifact = ::reveal,
-                onRelocateArtifact = ::relocate,
-                onRefreshDevices = { scope.launch { controller.refreshDevices() } },
-                onSelectDevice = { serial ->
-                    controller.selectDevice(serial)
-                    scope.launch { controller.inspectSelectedDevice() }
-                },
-                onSelectArtifact = controller.selectArtifact,
-                onOpenTraceAnalyzer = onOpenTraceAnalyzer,
-                onSelectHubTab = controller.selectHubTab,
-                onFilterArtifacts = controller.filterArtifacts,
-                onLaunchAgi = ::launchAgi,
-                onImportArtifact = ::importArtifact,
-            ),
-            language,
-            Modifier.weight(1f),
+            state = state,
+            actions = gpuActions,
+            language = language,
+            modifier = Modifier.weight(1f),
         )
     }
 }

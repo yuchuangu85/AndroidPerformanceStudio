@@ -1,6 +1,7 @@
 package com.androidperformancestudio.gpu.presentation
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,10 +38,20 @@ class GpuAnalysisHubVisualCaptureTest {
     @Test
     fun `workspace renders a dense dark gpu hub layout`() =
         runDesktopComposeUiTest(width = 1360, height = 900) {
+            val state = hubState()
+            val actions = GpuIntegrationActions({}, {}, {}, {})
             setContent {
                 ViewerTheme(darkTheme = true) {
                     Box(Modifier.fillMaxSize().testTag("gpu-hub-visual-capture")) {
-                        GpuAnalysisHubScreen(hubState(), GpuIntegrationActions({}, {}, {}, {}), UiLanguage.SIMPLIFIED_CHINESE)
+                        Column(Modifier.fillMaxSize()) {
+                            GpuAnalysisToolbar(
+                                state = state,
+                                actions = actions,
+                                selectedArtifact = state.artifacts.firstOrNull { it.id == state.selectedArtifactId },
+                                language = UiLanguage.SIMPLIFIED_CHINESE,
+                            )
+                            GpuAnalysisHubScreen(state, actions, UiLanguage.SIMPLIFIED_CHINESE, Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -65,10 +76,20 @@ class GpuAnalysisHubVisualCaptureTest {
     @Test
     fun `workspace renders a light english layout at the minimum window size`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {
+            val state = hubState()
+            val actions = GpuIntegrationActions({}, {}, {}, {})
             setContent {
                 ViewerTheme(darkTheme = false) {
                     Box(Modifier.fillMaxSize().testTag("gpu-hub-visual-capture-compact")) {
-                        GpuAnalysisHubScreen(hubState(), GpuIntegrationActions({}, {}, {}, {}), UiLanguage.ENGLISH)
+                        Column(Modifier.fillMaxSize()) {
+                            GpuAnalysisToolbar(
+                                state = state,
+                                actions = actions,
+                                selectedArtifact = state.artifacts.firstOrNull { it.id == state.selectedArtifactId },
+                                language = UiLanguage.ENGLISH,
+                            )
+                            GpuAnalysisHubScreen(state, actions, UiLanguage.ENGLISH, Modifier.weight(1f))
+                        }
                     }
                 }
             }

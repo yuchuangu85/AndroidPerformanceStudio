@@ -47,6 +47,17 @@ class GpuWorkspaceStyleTest {
     }
 
     @Test
+    fun `analysis toolbar is hosted by the page header instead of the hub body`() {
+        assertTrue(hub.contains("public fun GpuAnalysisToolbar("))
+        val hubBody =
+            hub
+                .substringAfter("public fun GpuAnalysisHubScreen(")
+                .substringBefore("public fun GpuAnalysisToolbar(")
+        assertFalse(hubBody.contains("GpuAnalysisToolbar("))
+        assertTrue(hubBody.contains("GpuSummaryRow("))
+    }
+
+    @Test
     fun `hub reuses shared studio controls instead of new card, table or tab styles`() {
         listOf(
             "StudioMetricCard(",

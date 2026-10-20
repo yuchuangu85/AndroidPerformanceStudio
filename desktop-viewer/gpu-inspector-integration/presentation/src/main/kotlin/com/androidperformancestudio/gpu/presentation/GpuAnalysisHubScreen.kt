@@ -86,7 +86,6 @@ public fun GpuAnalysisHubScreen(
         val wide = maxWidth >= GPU_WIDE_WORKSPACE_MIN_WIDTH
         val stackedSummary = maxWidth < GPU_TWO_ROW_SUMMARY_MAX_WIDTH
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
-            GpuAnalysisToolbar(state, actions, selectedArtifact, language)
             GpuSummaryRow(summary, state.capability, language, stackedSummary)
             if (wide) {
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
@@ -128,66 +127,68 @@ public fun GpuAnalysisHubScreen(
     }
 }
 
-/** Reference dashboard "analysis tools" strip: the three integration actions plus artifact choice. */
+/**
+ * Reference dashboard "analysis tools" strip: the three integration actions plus artifact choice.
+ *
+ * The desktop shell hosts this row in its top header, ahead of the Refresh AGI / Configure AGI
+ * actions, so the GPU workspace starts directly with its summary evidence.
+ */
 @Composable
-private fun GpuAnalysisToolbar(
+public fun GpuAnalysisToolbar(
     state: GpuIntegrationState,
     actions: GpuIntegrationActions,
     selectedArtifact: GpuArtifact?,
     language: UiLanguage,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalViewerColors.current
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("gpu-analysis-toolbar"),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
-        ) {
-            Text(
-                localizedStringResource(Res.string.analysis_tools, language),
-                color = colors.secondaryText,
-                style = ViewerTypography.subsectionTitle,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.launch_agi, language),
-                modifier = Modifier.testTag("gpu-action-launch-agi"),
-                enabled = !state.isBusy && state.capability?.launchSupported == true,
-                onClick = actions.onLaunchAgi,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_gpu_trace, language),
-                modifier = Modifier.testTag("gpu-action-import-artifact"),
-                enabled = !state.isBusy,
-                onClick = actions.onImportArtifact,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.open_trace_analyzer, language),
-                modifier = Modifier.testTag("gpu-action-open-trace-analyzer"),
-                enabled = !state.isBusy,
-                onClick = actions.onOpenTraceAnalyzer,
-            )
-            DropdownSelector(
-                items = state.artifacts,
-                selectedItem = selectedArtifact,
-                onItemSelected = { actions.onSelectArtifact(it.id) },
-                itemLabel = GpuArtifact::displayTitle,
-                selectedItemLabel = GpuArtifact::displayTitle,
-                placeholder = localizedStringResource(Res.string.select_analysis_artifact, language),
-                selectorDescription = localizedStringResource(Res.string.select_analysis_artifact, language),
-                modifier = Modifier.widthIn(min = 220.dp, max = 380.dp).testTag("gpu-artifact-selector"),
-                enabled = !state.isBusy && state.artifacts.isNotEmpty(),
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.show_in_files, language),
-                modifier = Modifier.testTag("gpu-action-reveal"),
-                enabled = !state.isBusy && selectedArtifact != null,
-                onClick = { selectedArtifact?.let(actions.onRevealArtifact) },
-            )
-        }
-        state.message?.let { Text(it, color = colors.success, style = ViewerTypography.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        state.error?.let { Text(it, color = colors.error, style = ViewerTypography.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    Row(
+        modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("gpu-analysis-toolbar"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+    ) {
+        Text(
+            localizedStringResource(Res.string.analysis_tools, language),
+            color = colors.secondaryText,
+            style = ViewerTypography.subsectionTitle,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.launch_agi, language),
+            modifier = Modifier.testTag("gpu-action-launch-agi"),
+            enabled = !state.isBusy && state.capability?.launchSupported == true,
+            onClick = actions.onLaunchAgi,
+        )
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.import_gpu_trace, language),
+            modifier = Modifier.testTag("gpu-action-import-artifact"),
+            enabled = !state.isBusy,
+            onClick = actions.onImportArtifact,
+        )
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.open_trace_analyzer, language),
+            modifier = Modifier.testTag("gpu-action-open-trace-analyzer"),
+            enabled = !state.isBusy,
+            onClick = actions.onOpenTraceAnalyzer,
+        )
+        DropdownSelector(
+            items = state.artifacts,
+            selectedItem = selectedArtifact,
+            onItemSelected = { actions.onSelectArtifact(it.id) },
+            itemLabel = GpuArtifact::displayTitle,
+            selectedItemLabel = GpuArtifact::displayTitle,
+            placeholder = localizedStringResource(Res.string.select_analysis_artifact, language),
+            selectorDescription = localizedStringResource(Res.string.select_analysis_artifact, language),
+            modifier = Modifier.widthIn(min = 220.dp, max = 380.dp).testTag("gpu-artifact-selector"),
+            enabled = !state.isBusy && state.artifacts.isNotEmpty(),
+        )
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.show_in_files, language),
+            modifier = Modifier.testTag("gpu-action-reveal"),
+            enabled = !state.isBusy && selectedArtifact != null,
+            onClick = { selectedArtifact?.let(actions.onRevealArtifact) },
+        )
     }
 }
 
