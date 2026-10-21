@@ -21,10 +21,6 @@ class MemoryProfilerFileMenuTest {
                 standardHprofExportEnabled = false,
                 csvExportEnabled = true,
             )
-
-        assertEquals("File", model.fileTitle)
-        assertEquals("Import HPROF…", model.importLabel)
-        assertEquals("Export", model.exportTitle)
         assertEquals("Export Raw HPROF", model.exportRawHprofLabel)
         assertEquals("Export Standard HPROF", model.exportStandardHprofLabel)
         assertEquals("Export CSV", model.exportCsvLabel)
@@ -44,10 +40,6 @@ class MemoryProfilerFileMenuTest {
                 standardHprofExportEnabled = true,
                 csvExportEnabled = true,
             )
-
-        assertEquals("文件", model.fileTitle)
-        assertEquals("导入 HPROF…", model.importLabel)
-        assertEquals("导出", model.exportTitle)
         assertEquals("导出原始 HPROF", model.exportRawHprofLabel)
         assertEquals("导出标准 HPROF", model.exportStandardHprofLabel)
         assertEquals("导出 CSV", model.exportCsvLabel)

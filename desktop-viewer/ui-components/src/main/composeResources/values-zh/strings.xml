@@ -16,4 +16,17 @@
     <string name="evidence_estimated">估算</string>
     <string name="evidence_unavailable">不可用</string>
     <string name="evidence_content_description">证据：%1$s</string>
+    <string name="menu_file">文件</string>
+    <string name="menu_view">视图</string>
+    <string name="menu_tools">工具</string>
+    <string name="menu_help">帮助</string>
+    <string name="menu_open">打开…</string>
+    <string name="menu_import">导入</string>
+    <string name="menu_open_recent">最近打开</string>
+    <string name="menu_no_recent">没有最近文件</string>
+    <string name="menu_clear_recent">清除菜单</string>
+    <string name="menu_export">导出</string>
+    <string name="menu_settings">设置…</string>
+    <string name="menu_open_file">打开文件…</string>
+    <string name="menu_open_folder">打开文件夹…</string>
 </resources>

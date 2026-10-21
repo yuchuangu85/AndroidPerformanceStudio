@@ -1,9 +1,15 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.LocalPageMenuHost
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
+import com.androidperformancestudio.ui.MenuCommand
+import com.androidperformancestudio.ui.MenuShortcuts
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.WindowMenuBarHost
+import com.androidperformancestudio.ui.WindowMenuBar
+import com.androidperformancestudio.ui.WindowMenuChrome
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.rememberPageMenuHost
 import com.androidperformancestudio.ui.rememberViewerThemeContext
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
@@ -62,7 +68,6 @@ import com.androidperformancestudio.source.ResolutionConfidence
 import java.util.Locale
 import java.nio.file.Files
 import java.nio.file.Path
-import javax.swing.JFileChooser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -83,7 +88,6 @@ fun FrameWindowScope.DesktopAppMainPage(
     var memoryHighlightClassName by remember { mutableStateOf<String?>(null) }
     var composeSourceCandidates by remember { mutableStateOf<List<ResolutionCandidate>>(emptyList()) }
     var archivedSourceToRebind by remember { mutableStateOf<AiSourceCandidateReference?>(null) }
-    var menuReadyDestination by remember { mutableStateOf<AppDestination?>(null) }
     val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
     val simpleperfPreferencesStore = remember { SimpleperfPreferencesStore.desktop() }
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
@@ -107,13 +111,15 @@ fun FrameWindowScope.DesktopAppMainPage(
         settingsPage = page
         navigator.open(AppDestination.SETTINGS)
     }
+    val language = applicationSettings.language.resolve(Locale.getDefault())
     val openTraceFile: () -> Unit = {
-        chooseHomeArtifact()?.let { navigator.openPerfettoTrace(it) }
+        chooseHomeArtifact(window, localizedStringResource(Res.string.open_trace_file, language))
+            ?.let { navigator.openPerfettoTrace(it) }
     }
     val analyzeHprof: () -> Unit = {
-        chooseHomeArtifact()?.let { navigator.openMemoryProfiler(it) }
+        chooseHomeArtifact(window, localizedStringResource(Res.string.analyze_hprof, language))
+            ?.let { navigator.openMemoryProfiler(it) }
     }
-    val language = applicationSettings.language.resolve(Locale.getDefault())
     val darkTheme = applicationSettings.theme.resolveDark(isSystemInDarkTheme())
     val simpleperfSettings =
         SimpleperfUiSettings(
@@ -123,37 +129,42 @@ fun FrameWindowScope.DesktopAppMainPage(
             simpleperfEngine = simpleperfPreferences.simpleperfEngine,
         )
 
-    // Install the native menu bar before composing any retained feature page. Preload the
-    // same first menu title that the feature will render so macOS never flashes the page title.
-    val preloadedMenuTitle =
-        when {
-            navigator.destination == AppDestination.METHOD_RECORDING ->
-                localizedStringResource(Res.string.native_method_recording_menu, language)
-            navigator.destination.hasNativeFeatureMenu() ->
-                localizedStringResource(Res.string.native_file_menu, language)
-            else -> null
+    val openUserGuide: () -> Unit = {
+        coroutineScope.launch(Dispatchers.IO) {
+            runCatching { userDocumentationLauncher.open(language) }
         }
-    WindowMenuBarHost(
-        preloadedMenuKey = navigator.destination,
-        preloadedMenuTitles = preloadedMenuTitle?.let(::listOf) ?: emptyList(),
-        onMenuBarReady = { menuReadyDestination = navigator.destination },
-        // Pages without a feature menu would otherwise leave the native bar with zero menus, which
-        // reads as a missing menu bar on macOS and flashes on every visit.
-        fallbackMenu = {
-            Menu(localizedStringResource(Res.string.native_file_menu, language)) {
-                Item(localizedStringResource(Res.string.open_trace_file, language)) { openTraceFile() }
-                Item(localizedStringResource(Res.string.analyze_hprof, language)) { analyzeHprof() }
-                Separator()
-                Item(localizedStringResource(Res.string.settings, language)) {
-                    openSettings(SettingsPage.GENERAL)
-                }
-            }
-        },
+    }
+
+    // The window owns one fixed menu skeleton; the active page only fills its slots, so switching
+    // destinations never adds or removes a top-level native menu.
+    val pageMenuHost = rememberPageMenuHost()
+    WindowMenuBar(
+        host = pageMenuHost,
+        chrome =
+            WindowMenuChrome(
+                language = language,
+                globalOpenItems =
+                    listOf(
+                        MenuCommand(localizedStringResource(Res.string.open_trace_file, language), onClick = openTraceFile),
+                        MenuCommand(localizedStringResource(Res.string.analyze_hprof, language), onClick = analyzeHprof),
+                    ),
+                // macOS reaches Settings through the application menu (ApplicationSettingsMenuInstaller).
+                onOpenSettings = { openSettings(SettingsPage.GENERAL) }.takeUnless { MenuShortcuts.isMacOs },
+                helpItems =
+                    listOf(
+                        MenuCommand(localizedStringResource(Res.string.user_guide, language), onClick = openUserGuide),
+                    ),
+            ),
     )
 
     LaunchedEffect(settingsRequest?.requestId) {
         if (shouldOpenSettingsForRequest(settingsRequest)) {
-            settingsRequest?.let { openSettings(it.page) }
+            settingsRequest?.let { request ->
+                // The macOS app-menu Preferences honors the active page's own settings section,
+                // matching File > Settings on other platforms.
+                val pageSettings = pageMenuHost.menu?.onOpenSettings
+                if (request.page == SettingsPage.GENERAL && pageSettings != null) pageSettings() else openSettings(request.page)
+            }
         }
     }
     DisposableEffect(userDocumentationLauncher) {
@@ -170,10 +181,8 @@ fun FrameWindowScope.DesktopAppMainPage(
             navigator.clearPerfettoTrace()
         }
     }
-    LaunchedEffect(menuReadyDestination, navigator.destination, language) {
-        if (menuReadyDestination == navigator.destination) {
-            windowTitle?.value = localizedStringResource(navigator.destination.titleResource, language)
-        }
+    LaunchedEffect(navigator.destination, language) {
+        windowTitle?.value = localizedStringResource(navigator.destination.titleResource, language)
     }
 
     val windowColors =
@@ -205,7 +214,10 @@ fun FrameWindowScope.DesktopAppMainPage(
                         navigator.retainedDestinations.forEach { destination ->
                             key(destination) {
                                 val active = destination == navigator.destination
-                                CompositionLocalProvider(LocalWindowMenuBarActive provides active) {
+                                CompositionLocalProvider(
+                                    LocalWindowMenuBarActive provides active,
+                                    LocalPageMenuHost provides pageMenuHost,
+                                ) {
                                     Box(
                                         modifier =
                                             Modifier
@@ -315,11 +327,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                         openSettings(SettingsPage.SIMPLEPERF)
                                     },
                                     onCaptureSettingsContextChanged = { simpleperfCaptureSettingsContext = it },
-                                    onOpenUserGuide = {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            runCatching { userDocumentationLauncher.open(language) }
-                                        }
-                                    },
+                                    onOpenUserGuide = openUserGuide,
                                     aiAnalysisClient = null,
                                     onOpenSourceCandidate = { candidateId ->
                                         sourceWorkspaceRuntime.candidate(candidateId)
@@ -341,11 +349,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     initialTraceRequestId = navigator.perfettoTraceRequestId,
                                     initialTraceNotice = navigator.perfettoTraceNotice,
                                     initialTraceTimestampNanos = navigator.perfettoTimestampNanos,
-                                    onOpenUserGuide = {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            runCatching { userDocumentationLauncher.open(language) }
-                                        }
-                                    },
+                                    onOpenUserGuide = openUserGuide,
                                 )
                             AppDestination.MEMORY_PROFILER ->
                                 MemoryProfilerMainPage(
@@ -471,11 +475,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     onApplicationSettingsChanged = updateApplicationSettings,
                                     onSimpleperfSettingsChanged = updateSimpleperfPreferences,
                                     onLayoutInspectorSettingsChanged = { layoutInspectorSettingsRevision += 1 },
-                                    onOpenUserGuide = {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            runCatching { userDocumentationLauncher.open(language) }
-                                        }
-                                    },
+                                    onOpenUserGuide = openUserGuide,
                                     persistenceErrorPage = settingsPersistenceErrorPage,
                                 )
                         }
@@ -555,15 +555,10 @@ fun FrameWindowScope.DesktopAppMainPage(
     }
 }
 
-private fun chooseHomeArtifact(): Path? =
-    JFileChooser().run {
-        fileSelectionMode = JFileChooser.FILES_ONLY
-        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-            selectedFile?.toPath()?.takeIf(Files::isRegularFile)
-        } else {
-            null
-        }
-    }
+private fun chooseHomeArtifact(
+    parent: java.awt.Window,
+    title: String,
+): Path? = chooseOpenFile(parent, title)?.toPath()?.takeIf(Files::isRegularFile)
 
 private fun Modifier.blockPointerInputWhenInactive(active: Boolean): Modifier =
     if (active) {

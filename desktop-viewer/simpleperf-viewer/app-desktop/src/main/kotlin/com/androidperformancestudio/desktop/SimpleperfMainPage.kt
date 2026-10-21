@@ -405,10 +405,10 @@ private fun FrameWindowScope.SimpleperfMenu(
                 language = language,
                 recentSessions = recentSessions,
                 exportEnabled = reportState.loadState is ReportLoadState.Ready,
-                isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
                 configurationEnabled = reportState.loadState == ReportLoadState.Closed,
             ),
-        onOpen = reportActions.onOpenSession,
+        onOpen = reportActions.onOpenSessionFile,
+        onOpenFolder = reportActions.onOpenSessionFolder,
         exportActions =
             SimpleperfExportMenuActions(
                 onSessionPackage = reportActions.onExportSession,

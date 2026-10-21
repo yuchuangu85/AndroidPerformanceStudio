@@ -281,4 +281,6 @@ Payload: %4$d bytes</string>
     <string name="detail_label_restartable">Restartable</string>
     <string name="detail_label_skippable">Skippable</string>
     <string name="detail_label_unstable_parameters">Unstable parameters</string>
+    <string name="menu_import_screenshot">Screenshot…</string>
+    <string name="menu_export_capture_archive">Capture Archive…</string>
 </resources>

@@ -56,7 +56,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 import java.io.File
-import javax.swing.JFileChooser
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
 import com.androidperformancestudio.ui.LocalViewerColors
@@ -799,18 +798,11 @@ private fun chooseAndroidSdkDirectory(
     title: String,
     currentPath: String,
 ): String? =
-    JFileChooser().run {
-        dialogTitle = title
-        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        currentPath.trim().takeIf(String::isNotEmpty)?.let { path ->
-            runCatching { File(path) }.getOrNull()?.takeIf(File::isDirectory)?.let { currentDirectory = it }
-        }
-        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-            selectedAndroidSdkDirectoryPath(selectedFile)
-        } else {
-            null
-        }
-    }
+    com.androidperformancestudio.ui.chooseDirectory(
+        parent = null,
+        title = title,
+        startDirectory = currentPath.trim().takeIf(String::isNotEmpty)?.let { path -> runCatching { File(path) }.getOrNull() },
+    )?.let(::selectedAndroidSdkDirectoryPath)
 
 internal fun selectedAndroidSdkDirectoryPath(selectedDirectory: File?): String? =
     selectedDirectory

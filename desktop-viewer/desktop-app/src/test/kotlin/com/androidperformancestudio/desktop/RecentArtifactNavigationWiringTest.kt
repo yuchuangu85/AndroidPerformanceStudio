@@ -2,6 +2,7 @@ package com.androidperformancestudio.desktop
 
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -31,8 +32,9 @@ class RecentArtifactNavigationWiringTest {
 
         assertTrue(home.contains("onClick = onOpenTraceFile"))
         assertTrue(home.contains("onClick = onAnalyzeHprof"))
-        assertTrue(app.contains("chooseHomeArtifact()?.let { navigator.openPerfettoTrace(it) }"))
-        assertTrue(app.contains("chooseHomeArtifact()?.let { navigator.openMemoryProfiler(it) }"))
+        assertTrue(app.contains("?.let { navigator.openPerfettoTrace(it) }"))
+        assertTrue(app.contains("?.let { navigator.openMemoryProfiler(it) }"))
+        assertEquals(2, Regex("chooseHomeArtifact\\(window, ").findAll(app).count())
         assertTrue(app.contains("initialTraceRequestId = navigator.perfettoTraceRequestId"))
         assertTrue(app.contains("initialImportRequestId = navigator.memoryImportRequestId"))
     }

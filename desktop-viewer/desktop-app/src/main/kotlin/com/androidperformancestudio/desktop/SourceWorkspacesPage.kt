@@ -88,7 +88,6 @@ import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.net.URI
 import java.nio.file.Path
-import javax.swing.JFileChooser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -913,14 +912,8 @@ private fun AddRemoteWorkspaceDialog(
     )
 }
 
-private fun chooseDirectory(title: String): Path? {
-    val chooser = JFileChooser().apply {
-        dialogTitle = title
-        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        isAcceptAllFileFilterUsed = false
-    }
-    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile.toPath() else null
-}
+private fun chooseDirectory(title: String): Path? =
+    com.androidperformancestudio.ui.chooseDirectory(parent = null, title = title)?.toPath()
 
 private fun SourceProviderKind.localizedLabel(language: UiLanguage): String =
     localizedStringResource(

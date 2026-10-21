@@ -65,4 +65,7 @@
     <string name="monitoring_leak_canary">正在监听 LeakCanary 事件…</string>
     <string name="inject_leak_canary_agent">注入 Agent</string>
     <string name="choose_android_project">选择 Android 工程</string>
+    <string name="menu_import_mapping">ProGuard/R8 映射…</string>
+    <string name="menu_import_native_heap">Native 堆追踪…</string>
+    <string name="menu_import_java_heap">Java 堆…</string>
 </resources>

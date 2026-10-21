@@ -16,10 +16,6 @@ class StartupProfilerFileMenuTest {
                 importEnabled = true,
                 exportEnabled = false,
             )
-
-        assertEquals("File", model.fileTitle)
-        assertEquals("Import…", model.importLabel)
-        assertEquals("Export", model.exportMenu.title)
         assertEquals("Export CSV", model.exportMenu.csvLabel)
         assertEquals("Export JSON", model.exportMenu.jsonLabel)
         assertTrue(model.importEnabled)
@@ -34,10 +30,6 @@ class StartupProfilerFileMenuTest {
                 importEnabled = false,
                 exportEnabled = true,
             )
-
-        assertEquals("文件", model.fileTitle)
-        assertEquals("导入…", model.importLabel)
-        assertEquals("导出", model.exportMenu.title)
         assertEquals("导出 CSV", model.exportMenu.csvLabel)
         assertEquals("导出 JSON", model.exportMenu.jsonLabel)
         assertFalse(model.importEnabled)

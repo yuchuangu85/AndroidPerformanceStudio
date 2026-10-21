@@ -33,6 +33,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.chooseSaveFile
 import javax.swing.JFileChooser
 import javax.swing.JOptionPane
 
@@ -53,6 +55,8 @@ internal class DesktopReportActionFactory(
     fun create(state: ReportState): ReportActions =
         ReportActions(
             onOpenSession = ::openSession,
+            onOpenSessionFile = { chooseFile(SESSION_FILE_DIALOG_TITLE)?.let(::openSession) },
+            onOpenSessionFolder = { chooseDirectory(SESSION_FOLDER_DIALOG_TITLE)?.let(::openSession) },
             onCloseSession = controller::closeSession,
             onSelectTab = controller::selectTab,
             onTimeRange = { start, end -> scope.launch { controller.commitRange(start, end) } },
@@ -106,67 +110,69 @@ internal class DesktopReportActionFactory(
         }
     }
 
-    @Suppress("LongMethod")
     private fun openSession() {
-        chooseSessionPath()?.let { selected ->
-            val format = detectDesktopProfileFormat(selected)
-            val configuredSimpleperf =
-                if (format == DesktopProfileFormat.PERF_DATA) chooseFile("Select host simpleperf") ?: return else null
-            val supplementalInputs =
-                if (format == DesktopProfileFormat.PERF_DATA || format == DesktopProfileFormat.SIMPLEPERF_PROTOBUF) {
-                    chooseSupplementalInputs()
-                } else {
-                    SupplementalInputs()
-                }
-            scope.launch {
-                try {
-                    when (format) {
-                        DesktopProfileFormat.SESSION_DIRECTORY -> sessionOpener(selected)
-                        DesktopProfileFormat.SESSION_PACKAGE -> {
-                            val directory =
-                                withContext(Dispatchers.IO) {
-                                    sessionPackages.import(selected, importedSessionRoot()).sessionDirectory
-                                }
-                            sessionOpener(directory)
-                        }
-                        DesktopProfileFormat.PERF_DATA ->
-                            importOffline(
-                                selected,
-                                OfflineProfileFormat.PERF_DATA,
-                                configuredSimpleperf,
-                                supplementalInputs,
-                            )
-                        DesktopProfileFormat.SIMPLEPERF_PROTOBUF ->
-                            importOffline(selected, OfflineProfileFormat.SIMPLEPERF_PROTOBUF, null, supplementalInputs)
-                        DesktopProfileFormat.GECKO_PROFILE_JSON_GZIP ->
-                            importOffline(
-                                selected,
-                                OfflineProfileFormat.GECKO_PROFILE_JSON_GZIP,
-                                null,
-                                SupplementalInputs(),
-                            )
-                        DesktopProfileFormat.UNSUPPORTED ->
-                            controller.showFailure(
-                                selected,
-                                StudioError(
-                                    ErrorCategory.DATA_VALIDATION,
-                                    "UNSUPPORTED_PROFILE_FORMAT",
-                                    "Select a session directory, .apsession.zip, perf.data, " +
-                                        "Simpleperf protobuf, or Gecko .json.gz",
-                                ),
-                            )
+        chooseSessionPath()?.let(::openSession)
+    }
+
+    @Suppress("LongMethod")
+    private fun openSession(selected: Path) {
+        val format = detectDesktopProfileFormat(selected)
+        val configuredSimpleperf =
+            if (format == DesktopProfileFormat.PERF_DATA) chooseFile("Select host simpleperf") ?: return else null
+        val supplementalInputs =
+            if (format == DesktopProfileFormat.PERF_DATA || format == DesktopProfileFormat.SIMPLEPERF_PROTOBUF) {
+                chooseSupplementalInputs()
+            } else {
+                SupplementalInputs()
+            }
+        scope.launch {
+            try {
+                when (format) {
+                    DesktopProfileFormat.SESSION_DIRECTORY -> sessionOpener(selected)
+                    DesktopProfileFormat.SESSION_PACKAGE -> {
+                        val directory =
+                            withContext(Dispatchers.IO) {
+                                sessionPackages.import(selected, importedSessionRoot()).sessionDirectory
+                            }
+                        sessionOpener(directory)
                     }
-                } catch (exception: IllegalArgumentException) {
-                    controller.showFailure(
-                        selected,
-                        StudioError(
-                            ErrorCategory.DATA_VALIDATION,
-                            "SESSION_OPEN_FAILED",
-                            exception.message ?: "Failed to open profiling session",
-                            exception,
-                        ),
-                    )
+                    DesktopProfileFormat.PERF_DATA ->
+                        importOffline(
+                            selected,
+                            OfflineProfileFormat.PERF_DATA,
+                            configuredSimpleperf,
+                            supplementalInputs,
+                        )
+                    DesktopProfileFormat.SIMPLEPERF_PROTOBUF ->
+                        importOffline(selected, OfflineProfileFormat.SIMPLEPERF_PROTOBUF, null, supplementalInputs)
+                    DesktopProfileFormat.GECKO_PROFILE_JSON_GZIP ->
+                        importOffline(
+                            selected,
+                            OfflineProfileFormat.GECKO_PROFILE_JSON_GZIP,
+                            null,
+                            SupplementalInputs(),
+                        )
+                    DesktopProfileFormat.UNSUPPORTED ->
+                        controller.showFailure(
+                            selected,
+                            StudioError(
+                                ErrorCategory.DATA_VALIDATION,
+                                "UNSUPPORTED_PROFILE_FORMAT",
+                                "Select a session directory, .apsession.zip, perf.data, " +
+                                    "Simpleperf protobuf, or Gecko .json.gz",
+                            ),
+                        )
                 }
+            } catch (exception: IllegalArgumentException) {
+                controller.showFailure(
+                    selected,
+                    StudioError(
+                        ErrorCategory.DATA_VALIDATION,
+                        "SESSION_OPEN_FAILED",
+                        exception.message ?: "Failed to open profiling session",
+                        exception,
+                    ),
+                )
             }
         }
     }
@@ -334,36 +340,30 @@ private fun chooseOptionalPath(
         JOptionPane.showConfirmDialog(null, prompt, "Optional symbols", JOptionPane.YES_NO_OPTION) ==
         JOptionPane.YES_OPTION
     ) {
-        choosePath(chooserTitle, selectionMode)
+        if (selectionMode == JFileChooser.DIRECTORIES_ONLY) chooseDirectory(chooserTitle) else chooseFile(chooserTitle)
     } else {
         null
     }
 
-private fun chooseSessionPath(): Path? = choosePath(SESSION_DIALOG_TITLE, JFileChooser.FILES_AND_DIRECTORIES)
-
-private fun chooseFile(title: String): Path? = choosePath(title, JFileChooser.FILES_ONLY)
-
-private fun chooseDirectory(title: String): Path? = choosePath(title, JFileChooser.DIRECTORIES_ONLY)
-
-private fun choosePath(
-    title: String,
-    selectionMode: Int,
-): Path? =
+// In-page buttons accept a file or a session directory in one chooser. The native macOS panel picks
+// one kind at a time, so this stays on Swing; the window menu offers separate native file and
+// folder choosers instead.
+private fun chooseSessionPath(): Path? =
     JFileChooser().run {
-        dialogTitle = title
-        fileSelectionMode = selectionMode
+        dialogTitle = SESSION_DIALOG_TITLE
+        fileSelectionMode = JFileChooser.FILES_AND_DIRECTORIES
         if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) selectedFile.toPath() else null
     }
+
+private fun chooseFile(title: String): Path? = chooseOpenFile(null, title)?.toPath()
+
+private fun chooseDirectory(title: String): Path? =
+    com.androidperformancestudio.ui.chooseDirectory(parent = null, title = title)?.toPath()
 
 private fun chooseSavePath(
     title: String,
     suggestedName: String,
-): Path? =
-    JFileChooser().run {
-        dialogTitle = title
-        selectedFile = java.io.File(suggestedName)
-        if (showSaveDialog(null) == JFileChooser.APPROVE_OPTION) selectedFile.toPath() else null
-    }
+): Path? = chooseSaveFile(null, title, suggestedName)?.toPath()
 
 private fun readyReport(state: ReportState): ReportData? = (state.loadState as? ReportLoadState.Ready)?.report
 
@@ -374,4 +374,7 @@ private fun importedSessionRoot(): Path = Path.of(System.getProperty("user.home"
 private const val RAW_PROTOBUF = "simpleperf.protobuf"
 private const val SESSION_DIALOG_TITLE =
     "Open session, .apsession.zip, perf.data, Simpleperf protobuf, or Gecko .json.gz"
+private const val SESSION_FILE_DIALOG_TITLE =
+    "Open .apsession.zip, perf.data, Simpleperf protobuf, or Gecko .json.gz"
+private const val SESSION_FOLDER_DIALOG_TITLE = "Open session folder"
 private const val APP_DIRECTORY = ".android-performance-studio"

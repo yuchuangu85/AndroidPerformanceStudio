@@ -62,11 +62,6 @@ class BatteryNetworkSplitTest {
 
         assertTrue(icons.contains("AppDestination.BATTERY_PROFILER -> UiComponentsRes.drawable.ic_nav_battery"))
         assertTrue(icons.contains("AppDestination.NETWORK_PROFILER -> UiComponentsRes.drawable.ic_nav_network"))
-        assertTrue(AppDestination.BATTERY_PROFILER.hasNativeFeatureMenu())
-        // The window title updates only after the active page reports its menu bar ready. The
-        // Network page publishes no ActiveWindowMenuBar, so it must use the host fallback menu;
-        // advertising a native menu here leaves the window title stuck on the previous page.
-        assertFalse(networkPage.contains("ActiveWindowMenuBar"))
-        assertFalse(AppDestination.NETWORK_PROFILER.hasNativeFeatureMenu())
+        assertFalse(networkPage.contains("ActivePageMenu"))
     }
 }

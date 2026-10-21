@@ -1,5 +1,8 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.chooseSaveFile
+import com.androidperformancestudio.ui.usesNativeFileDialogs
 import java.nio.file.Path
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -17,6 +20,10 @@ internal interface CaptureArchiveFileChooser {
 
 internal class SwingCaptureArchiveFileChooser : CaptureArchiveFileChooser {
     override fun chooseImport(title: String): Path? {
+        if (usesNativeFileDialogs) {
+            return chooseOpenFile(null, title, apinspectFilter.description, APINSPECT_EXTENSION, ZIP_EXTENSION, acceptAllFiles = false)
+                ?.toPath()
+        }
         val chooser = archiveChooser(title)
         return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
             chooser.selectedFile.toPath()
@@ -25,24 +32,20 @@ internal class SwingCaptureArchiveFileChooser : CaptureArchiveFileChooser {
         }
     }
 
-    override fun chooseScreenshotImport(title: String): Path? {
-        val chooser = JFileChooser().apply {
-            dialogTitle = title
-            fileSelectionMode = JFileChooser.FILES_ONLY
-            isAcceptAllFileFilterUsed = false
-            fileFilter = imageFilter
-        }
-        return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-            chooser.selectedFile.toPath()
-        } else {
-            null
-        }
-    }
+    override fun chooseScreenshotImport(title: String): Path? =
+        chooseOpenFile(null, title, imageFilter.description, *imageFilter.extensions, acceptAllFiles = false)?.toPath()
 
     override fun chooseExport(
         title: String,
         initialFileName: String,
     ): Path? {
+        if (usesNativeFileDialogs) {
+            // The native save panel has no filter picker; the typed suffix chooses the format.
+            val selected = chooseSaveFile(null, title, initialFileName)?.toPath() ?: return null
+            val extension =
+                if (selected.fileName.toString().endsWith(".$ZIP_EXTENSION", ignoreCase = true)) ZIP_EXTENSION else APINSPECT_EXTENSION
+            return normalizeCaptureArchiveExportPath(selected = selected, defaultExtension = extension)
+        }
         val chooser = archiveChooser(title).apply {
             selectedFile = Path.of(initialFileName).toFile()
             fileFilter = apinspectFilter

@@ -168,25 +168,3 @@ class AppNavigator(
         this.destination = destination
     }
 }
-
-/**
- * Destinations whose page publishes its own native menu through `ActiveWindowMenuBar`.
- *
- * The window title is only updated after the active page reports its menu bar ready. A destination
- * listed here but without an actual menu publisher therefore keeps the previous page's title, so
- * the list must stay in sync with the pages that call `ActiveWindowMenuBar`. Pages without a native
- * menu use the host fallback menu, which reports readiness immediately.
- */
-internal fun AppDestination.hasNativeFeatureMenu(): Boolean =
-    when (this) {
-        AppDestination.LAYOUT_INSPECTOR,
-        AppDestination.SIMPLEPERF,
-        AppDestination.PERFETTO,
-        AppDestination.MEMORY_PROFILER,
-        AppDestination.FRAME_PROFILER,
-        AppDestination.STARTUP_PROFILER,
-        AppDestination.BATTERY_PROFILER,
-        AppDestination.METHOD_RECORDING,
-        -> true
-        else -> false
-    }

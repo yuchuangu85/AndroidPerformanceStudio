@@ -21,16 +21,10 @@ class BatteryProfilerMenuTest {
                 rawEvidenceExportEnabled = false,
                 resetEnabled = true,
             )
-
-        assertEquals("File", model.fileTitle)
-        assertEquals("Import…", model.importLabel)
-        assertEquals("Export", model.exportMenu.title)
         assertEquals("Export JSON", model.exportMenu.jsonLabel)
         assertEquals("Export CSV", model.exportMenu.csvLabel)
         assertEquals("Export Raw Evidence", model.exportMenu.rawEvidenceLabel)
-        assertEquals("Open Recent", model.openRecentTitle)
         assertEquals(listOf("one.json"), model.recentItems.map { it.label })
-        assertEquals("Advanced", model.advancedTitle)
         assertEquals("Reset Statistics", model.resetStatisticsLabel)
         assertTrue(model.importEnabled)
         assertFalse(model.exportMenu.jsonEnabled)
@@ -55,16 +49,10 @@ class BatteryProfilerMenuTest {
                 rawEvidenceExportEnabled = true,
                 resetEnabled = false,
             )
-
-        assertEquals("文件", model.fileTitle)
-        assertEquals("导入…", model.importLabel)
-        assertEquals("导出", model.exportMenu.title)
         assertEquals("导出 JSON", model.exportMenu.jsonLabel)
         assertEquals("导出 CSV", model.exportMenu.csvLabel)
         assertEquals("导出原始证据", model.exportMenu.rawEvidenceLabel)
-        assertEquals("最近打开", model.openRecentTitle)
         assertTrue(model.recentItems.all { it.label == it.path.toString() })
-        assertEquals("高级", model.advancedTitle)
         assertEquals("重置统计", model.resetStatisticsLabel)
         assertFalse(model.importEnabled)
         assertFalse(model.resetEnabled)

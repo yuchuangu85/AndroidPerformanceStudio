@@ -281,4 +281,6 @@
     <string name="detail_label_restartable">可重启</string>
     <string name="detail_label_skippable">可跳过</string>
     <string name="detail_label_unstable_parameters">不稳定参数</string>
+    <string name="menu_import_screenshot">截图…</string>
+    <string name="menu_export_capture_archive">采集归档…</string>
 </resources>

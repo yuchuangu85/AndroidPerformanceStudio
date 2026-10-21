@@ -46,7 +46,7 @@ import java.awt.Desktop
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
-import javax.swing.JFileChooser
+import com.androidperformancestudio.ui.chooseOpenFile
 
 @Composable
 public fun FrameWindowScope.GpuIntegrationMainPage(
@@ -229,16 +229,10 @@ private fun chooseExecutable(
     parent: java.awt.Component,
     language: UiLanguage,
 ): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.select_android_gpu_inspector_executable, language)
-        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
-    }
+    chooseOpenFile(parent, localizedStringResource(Res.string.select_android_gpu_inspector_executable, language))
 
 private fun chooseArtifact(
     parent: java.awt.Component,
     language: UiLanguage,
 ): File? =
-    JFileChooser().run {
-        dialogTitle = localizedStringResource(Res.string.import_agi_perfetto_artifact, language)
-        if (showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) selectedFile else null
-    }
+    chooseOpenFile(parent, localizedStringResource(Res.string.import_agi_perfetto_artifact, language))

@@ -136,52 +136,40 @@ class ProfilerThemeSupportTest {
     }
 
     @Test
-    fun `only the active retained destination installs a window menu bar`() {
+    fun `the shell owns one fixed window menu that pages only fill`() {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         val shell =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"),
             )
-        val sharedMenuBar =
+        val sharedMenu =
             Files.readString(
                 desktopViewer.resolve(
-                    "ui-components/src/main/kotlin/com/androidperformancestudio/ui/ActiveWindowMenuBar.kt",
+                    "ui-components/src/main/kotlin/com/androidperformancestudio/ui/WindowMenu.kt",
                 ),
             )
 
-        assertTrue(shell.contains("WindowMenuBarHost("))
-        assertTrue(shell.contains("native_file_menu"))
-        assertTrue(shell.contains("native_method_recording_menu"))
-        assertTrue(shell.indexOf("    WindowMenuBarHost(") < shell.indexOf("    ViewerTheme("))
+        assertTrue(shell.contains("WindowMenuBar("))
+        assertTrue(shell.indexOf("    WindowMenuBar(") < shell.indexOf("    ViewerTheme("))
         assertTrue(shell.contains("LocalWindowMenuBarActive provides active"))
-        assertTrue(sharedMenuBar.contains("WindowMenuBarHost("))
-        assertTrue(sharedMenuBar.contains("preloadedMenuKey"))
-        assertTrue(sharedMenuBar.contains("onMenuBarReady"))
-        assertTrue(sharedMenuBar.contains("notifyNativeMenuBarReady()"))
-        assertTrue(sharedMenuBar.contains("if (!LocalWindowMenuBarActive.current) return"))
-        assertTrue(sharedMenuBar.contains("SideEffect {"))
-        // Compose's own MenuBar control owns the window bar: it creates the JMenuBar once for its
-        // composition and only clears it when the window is disposed. Composing a menu bar per page
-        // cleared every menu on navigation, because disposing a menu composition calls
-        // SwingApplier.onClear() -> JMenuBar.removeAll(); that is what made the macOS screen menu bar
-        // flash or stay empty.
-        assertTrue(sharedMenuBar.contains("import androidx.compose.ui.window.MenuBar"))
-        assertTrue(sharedMenuBar.contains("MenuBar {"))
-        // A page without a feature menu must not leave the native bar with zero menus.
-        assertTrue(sharedMenuBar.contains("fallbackMenu"))
-        assertTrue(shell.contains("fallbackMenu = {"))
-        assertTrue(sharedMenuBar.contains("pageContent.invoke(scope)"))
-        // Pages only declare menus; the host renders them into positional JMenus, so switching pages
-        // updates titles/items in place instead of deleting every top-level menu.
-        assertTrue(sharedMenuBar.contains("scope.menus.forEach { spec -> StableTopLevelMenu(spec) }"))
-        assertFalse(sharedMenuBar.contains("JMenuBar()"))
-        assertFalse(sharedMenuBar.contains("setContent("))
-        assertFalse(sharedMenuBar.contains("window.jMenuBar = null"))
-        assertFalse(sharedMenuBar.contains("val ownsMenuBar"))
+        assertTrue(shell.contains("LocalPageMenuHost provides pageMenuHost"))
+        // Top-level menus never change, so the title no longer waits for a page to report its menu.
+        assertFalse(shell.contains("menuReadyDestination"))
+        assertFalse(shell.contains("fallbackMenu"))
+        // Compose's own MenuBar creates the JMenuBar once and only clears it when the window is disposed.
+        assertTrue(sharedMenu.contains("import androidx.compose.ui.window.MenuBar"))
+        assertTrue(sharedMenu.contains("if (!LocalWindowMenuBarActive.current) return"))
+        // The window bar is owned by Compose; the only hand-built JMenuBar is the macOS app default
+        // shown before the first frame and while Swing dialogs are focused.
+        assertFalse(sharedMenu.contains("window.jMenuBar"))
+        assertTrue(sharedMenu.contains("desktop.setDefaultMenuBar(bar)"))
+        val main = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/Main.kt"))
+        assertTrue(main.indexOf("installDefaultWindowMenuBar(") < main.indexOf("application {"))
         profilerWindowMenuSources().forEach { source ->
             val content = Files.readString(source)
-            assertTrue(content.contains("ActiveWindowMenuBar {"), "$source must gate its window menu bar")
+            assertTrue(content.contains("ActivePageMenu("), "$source must publish through the shared window menu")
             assertFalse(content.contains("import androidx.compose.ui.window.MenuBar"))
+            assertFalse(content.contains("ActiveWindowMenuBar"))
         }
     }
 

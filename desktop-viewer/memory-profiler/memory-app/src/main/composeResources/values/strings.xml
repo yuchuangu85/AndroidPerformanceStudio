@@ -65,4 +65,7 @@
     <string name="monitoring_leak_canary">Monitoring LeakCanary events…</string>
     <string name="inject_leak_canary_agent">Inject Agent</string>
     <string name="choose_android_project">Choose Android project</string>
+    <string name="menu_import_mapping">ProGuard/R8 Mapping…</string>
+    <string name="menu_import_native_heap">Native Heap Trace…</string>
+    <string name="menu_import_java_heap">Java Heap…</string>
 </resources>

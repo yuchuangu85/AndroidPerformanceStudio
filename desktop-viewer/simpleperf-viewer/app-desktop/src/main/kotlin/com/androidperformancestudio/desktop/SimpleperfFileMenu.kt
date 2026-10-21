@@ -1,8 +1,6 @@
 package com.androidperformancestudio.desktop
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.app_desktop.generated.resources.Res
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_external_open
@@ -16,27 +14,18 @@ import com.androidperformancestudio.app_desktop.generated.resources.sp_export_sc
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_session_package
 import com.androidperformancestudio.app_desktop.generated.resources.sp_export_simpleperf_report
 import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_configuration
-import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_export
-import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_file
-import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_open
-import com.androidperformancestudio.app_desktop.generated.resources.sp_menu_settings
-import com.androidperformancestudio.app_desktop.generated.resources.sp_recent_clear_menu
-import com.androidperformancestudio.app_desktop.generated.resources.sp_recent_empty
-import com.androidperformancestudio.app_desktop.generated.resources.sp_recent_open
 import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_advanced_parameters
 import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_capture_configuration
 import com.androidperformancestudio.app_desktop.generated.resources.sp_settings_capture_templates
 import com.androidperformancestudio.presentation.CaptureSettingsSection
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.ActivePageMenu
+import com.androidperformancestudio.ui.MenuCommand
+import com.androidperformancestudio.ui.MenuShortcuts
+import com.androidperformancestudio.ui.PageMenu
+import com.androidperformancestudio.ui.RecentMenu
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path
-
-internal data class SimpleperfMenuShortcut(
-    val key: Key,
-    val ctrl: Boolean,
-    val meta: Boolean,
-)
 
 internal data class SimpleperfRecentMenuItem(
     val label: String,
@@ -44,7 +33,6 @@ internal data class SimpleperfRecentMenuItem(
 )
 
 internal data class SimpleperfExportMenuModel(
-    val title: String,
     val sessionPackageLabel: String,
     val reportLabel: String,
     val geckoProfileLabel: String,
@@ -79,35 +67,21 @@ internal data class SimpleperfConfigurationMenuModel(
 )
 
 internal data class SimpleperfFileMenuModel(
-    val fileTitle: String,
-    val openLabel: String,
-    val settingsLabel: String?,
     val exportMenu: SimpleperfExportMenuModel,
     val configurationMenu: SimpleperfConfigurationMenuModel,
-    val openRecentTitle: String,
-    val noRecentLabel: String,
-    val clearRecentLabel: String,
     val recentItems: List<SimpleperfRecentMenuItem>,
     val exportEnabled: Boolean,
-    val openShortcut: SimpleperfMenuShortcut,
-    val exportShortcut: SimpleperfMenuShortcut,
-    val settingsShortcut: SimpleperfMenuShortcut?,
 )
 
 internal fun simpleperfFileMenuModel(
     language: UiLanguage,
     recentSessions: List<Path>,
     exportEnabled: Boolean,
-    isMacOs: Boolean,
     configurationEnabled: Boolean = true,
 ): SimpleperfFileMenuModel =
     SimpleperfFileMenuModel(
-        fileTitle = localizedStringResource(Res.string.sp_menu_file, language),
-        openLabel = localizedStringResource(Res.string.sp_menu_open, language),
-        settingsLabel = localizedStringResource(Res.string.sp_menu_settings, language).takeUnless { isMacOs },
         exportMenu =
             SimpleperfExportMenuModel(
-                title = localizedStringResource(Res.string.sp_menu_export, language),
                 sessionPackageLabel = localizedStringResource(Res.string.sp_export_session_package, language),
                 reportLabel = localizedStringResource(Res.string.sp_export_json_csv, language),
                 geckoProfileLabel = localizedStringResource(Res.string.sp_export_firefox_profiler_json, language),
@@ -128,14 +102,8 @@ internal fun simpleperfFileMenuModel(
                 advancedParametersLabel = localizedStringResource(Res.string.sp_settings_advanced_parameters, language),
                 enabled = configurationEnabled,
             ),
-        openRecentTitle = localizedStringResource(Res.string.sp_recent_open, language),
-        noRecentLabel = localizedStringResource(Res.string.sp_recent_empty, language),
-        clearRecentLabel = localizedStringResource(Res.string.sp_recent_clear_menu, language),
         recentItems = recentSessions.toRecentMenuItems(),
         exportEnabled = exportEnabled,
-        openShortcut = primaryShortcut(Key.O, isMacOs),
-        exportShortcut = primaryShortcut(Key.E, isMacOs),
-        settingsShortcut = primaryShortcut(Key.Comma, isMacOs).takeUnless { isMacOs },
     )
 
 @Composable
@@ -148,109 +116,65 @@ internal fun simpleperfFileMenuModel(
 internal fun FrameWindowScope.SimpleperfFileMenuBar(
     model: SimpleperfFileMenuModel,
     onOpen: () -> Unit,
+    onOpenFolder: () -> Unit,
     exportActions: SimpleperfExportMenuActions,
     onOpenRecent: (Path) -> Unit,
     onClearRecent: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenCaptureSettings: (CaptureSettingsSection) -> Unit,
 ) {
-    ActiveWindowMenuBar {
-        Menu(model.fileTitle) {
-            Item(
-                text = model.openLabel,
-                shortcut = model.openShortcut.toKeyShortcut(),
-                onClick = onOpen,
-            )
-            Menu(model.exportMenu.title) {
-                Item(
-                    text = model.exportMenu.sessionPackageLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onSessionPackage,
-                )
-                Item(
-                    text = model.exportMenu.reportLabel,
-                    enabled = model.exportEnabled,
-                    shortcut = model.exportShortcut.toKeyShortcut(),
-                    onClick = exportActions.onReport,
-                )
-                Item(
-                    text = model.exportMenu.rawProtobufLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onRawProtobuf,
-                )
-                Item(
-                    text = model.exportMenu.geckoProfileLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onGeckoProfile,
-                )
-                Item(
-                    text = model.exportMenu.foldedStacksLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onFoldedStacks,
-                )
-                Item(
-                    text = model.exportMenu.pprofLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onPprof,
-                )
-                Item(
-                    text = model.exportMenu.screenshotLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onScreenshot,
-                )
-                Item(
-                    text = model.exportMenu.simpleperfReportLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onSimpleperfReport,
-                )
-                Item(
-                    text = model.exportMenu.htmlReportLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onHtmlReport,
-                )
-                Item(
-                    text = model.exportMenu.externalOpenLabel,
-                    enabled = model.exportEnabled,
-                    onClick = exportActions.onExternalOpen,
-                )
-            }
-            Menu(model.openRecentTitle) {
-                if (model.recentItems.isEmpty()) {
-                    Item(text = model.noRecentLabel, enabled = false, onClick = {})
-                } else {
-                    model.recentItems.forEach { item ->
-                        Item(text = item.label, onClick = { onOpenRecent(item.path) })
+    val export = model.exportMenu
+    val exportEnabled = model.exportEnabled
+    ActivePageMenu(
+        PageMenu(
+            onOpen = onOpen,
+            onOpenFolder = onOpenFolder,
+            recent =
+                RecentMenu(
+                    items = model.recentItems.map { item -> MenuCommand(item.label) { onOpenRecent(item.path) } },
+                    onClear = onClearRecent,
+                ),
+            exportGroups =
+                listOf(
+                    listOf(
+                        MenuCommand(
+                            export.reportLabel,
+                            enabled = exportEnabled,
+                            shortcut = MenuShortcuts.export(),
+                            onClick = exportActions.onReport,
+                        ),
+                        MenuCommand(export.sessionPackageLabel, enabled = exportEnabled, onClick = exportActions.onSessionPackage),
+                        MenuCommand(export.screenshotLabel, enabled = exportEnabled, onClick = exportActions.onScreenshot),
+                    ),
+                    listOf(
+                        MenuCommand(export.rawProtobufLabel, enabled = exportEnabled, onClick = exportActions.onRawProtobuf),
+                        MenuCommand(export.geckoProfileLabel, enabled = exportEnabled, onClick = exportActions.onGeckoProfile),
+                        MenuCommand(export.foldedStacksLabel, enabled = exportEnabled, onClick = exportActions.onFoldedStacks),
+                        MenuCommand(export.pprofLabel, enabled = exportEnabled, onClick = exportActions.onPprof),
+                    ),
+                    listOf(
+                        MenuCommand(export.simpleperfReportLabel, enabled = exportEnabled, onClick = exportActions.onSimpleperfReport),
+                        MenuCommand(export.htmlReportLabel, enabled = exportEnabled, onClick = exportActions.onHtmlReport),
+                        MenuCommand(export.externalOpenLabel, enabled = exportEnabled, onClick = exportActions.onExternalOpen),
+                    ),
+                ),
+            onOpenSettings = onOpenSettings,
+            tools = {
+                val configuration = model.configurationMenu
+                Menu(configuration.title, enabled = configuration.enabled) {
+                    Item(configuration.samplingTemplateLabel) {
+                        onOpenCaptureSettings(CaptureSettingsSection.SAMPLING_TEMPLATE)
                     }
-                    Separator()
-                    Item(text = model.clearRecentLabel, onClick = onClearRecent)
+                    Item(configuration.captureConfigurationLabel) {
+                        onOpenCaptureSettings(CaptureSettingsSection.CAPTURE_CONFIGURATION)
+                    }
+                    Item(configuration.advancedParametersLabel) {
+                        onOpenCaptureSettings(CaptureSettingsSection.ADVANCED_PARAMETERS)
+                    }
                 }
-            }
-            val settingsLabel = model.settingsLabel
-            val settingsShortcut = model.settingsShortcut
-            if (settingsLabel != null && settingsShortcut != null) {
-                Separator()
-                Item(
-                    text = settingsLabel,
-                    shortcut = settingsShortcut.toKeyShortcut(),
-                    onClick = onOpenSettings,
-                )
-            }
-        }
-        Menu(model.configurationMenu.title, enabled = model.configurationMenu.enabled) {
-            Item(
-                text = model.configurationMenu.samplingTemplateLabel,
-                onClick = { onOpenCaptureSettings(CaptureSettingsSection.SAMPLING_TEMPLATE) },
-            )
-            Item(
-                text = model.configurationMenu.captureConfigurationLabel,
-                onClick = { onOpenCaptureSettings(CaptureSettingsSection.CAPTURE_CONFIGURATION) },
-            )
-            Item(
-                text = model.configurationMenu.advancedParametersLabel,
-                onClick = { onOpenCaptureSettings(CaptureSettingsSection.ADVANCED_PARAMETERS) },
-            )
-        }
-    }
+            },
+        ),
+    )
 }
 
 internal fun List<Path>.toRecentMenuItems(): List<SimpleperfRecentMenuItem> {
@@ -269,20 +193,3 @@ internal fun List<Path>.toRecentMenuItems(): List<SimpleperfRecentMenuItem> {
         )
     }
 }
-
-internal fun primaryShortcut(
-    key: Key,
-    isMacOs: Boolean,
-): SimpleperfMenuShortcut =
-    SimpleperfMenuShortcut(
-        key = key,
-        ctrl = !isMacOs,
-        meta = isMacOs,
-    )
-
-private fun SimpleperfMenuShortcut.toKeyShortcut(): KeyShortcut =
-    KeyShortcut(
-        key = key,
-        ctrl = ctrl,
-        meta = meta,
-    )

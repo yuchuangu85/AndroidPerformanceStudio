@@ -40,14 +40,14 @@ import com.androidperformancestudio.methodrecording.app.generated.resources.devi
 import com.androidperformancestudio.methodrecording.app.generated.resources.devices_connected
 import com.androidperformancestudio.methodrecording.app.generated.resources.device_selector
 import com.androidperformancestudio.methodrecording.app.generated.resources.import_trace
-import com.androidperformancestudio.methodrecording.app.generated.resources.method_recording
 import com.androidperformancestudio.methodrecording.app.generated.resources.no_devices
 import com.androidperformancestudio.methodrecording.app.generated.resources.process_selector
 import com.androidperformancestudio.methodrecording.app.generated.resources.refresh_devices
 import com.androidperformancestudio.methodrecording.app.generated.resources.select_device
 import com.androidperformancestudio.methodrecording.app.generated.resources.select_process
 import com.androidperformancestudio.methodrecording.app.generated.resources.stop
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.ActivePageMenu
+import com.androidperformancestudio.ui.PageMenu
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
@@ -85,15 +85,7 @@ fun FrameWindowScope.MethodRecordingMainPage(
         initialTraceFile?.let { file -> controller.importTrace(file) }
     }
 
-    ActiveWindowMenuBar {
-        Menu(localizedStringResource(Res.string.method_recording, language)) {
-            Item(
-                text = localizedStringResource(Res.string.import_trace, language),
-                enabled = !state.isLoading,
-                onClick = { showTraceFileDialog = true },
-            )
-        }
-    }
+    ActivePageMenu(PageMenu(onOpen = { showTraceFileDialog = true }, openEnabled = !state.isLoading))
 
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(

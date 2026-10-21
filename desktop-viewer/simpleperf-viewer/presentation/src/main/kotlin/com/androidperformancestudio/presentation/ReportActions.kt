@@ -28,6 +28,10 @@ data class ReportActions(
     val onUndoFlameTransform: () -> Unit,
     val onClearFlameTransforms: () -> Unit,
     val onRetryFlameProjection: () -> Unit,
+    /** Opens a session file (.apsession.zip, perf.data, protobuf, Gecko); defaults to the combined chooser. */
+    val onOpenSessionFile: () -> Unit = onOpenSession,
+    /** Opens a session directory; defaults to the combined chooser. */
+    val onOpenSessionFolder: () -> Unit = onOpenSession,
     val onSelectCallNode: (FlameCallNodeId?) -> Unit,
     val onHoverFlameNode: (FlameCallNodeId?) -> Unit,
     val onOpenFlameContext: (FlameCallNodeId?) -> Unit,
