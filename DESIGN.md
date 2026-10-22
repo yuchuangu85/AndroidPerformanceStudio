@@ -2,10 +2,11 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-07-08
+- Last refreshed: 2026-10-22
 - Primary product surfaces:
   - Compose Desktop 主入口与打包：`desktop-viewer/desktop-app`
   - Layout Inspector 功能 UI：`desktop-viewer/layout-inspector/presentation`
+  - Memory Profiler 堆分析内容区：`desktop-viewer/memory-profiler/presentation`
   - 三栏检查器：左侧层级结构、中央截图画布、右侧属性、底部问题列表
   - 当前设计增量：已在“层级结构 / 画布命中测试”中支持候选排序切换、同点轮选、临时隐藏指定层级，使鼠标焦点可以穿透到下方层级
 - Evidence reviewed:
@@ -223,3 +224,33 @@ Adoption contract:
 
 Implementation plan and evidence are kept under `.omx/artifacts/startup-style-adoption/plan.md` and `.omx/artifacts/startup-style-adoption/evidence.md`.
 
+## Memory Analysis Content Cards (2026-10-22)
+
+This is a user-requested, Memory-only refinement of the Startup adoption contract above. Separate analysis regions use card boundaries; table rows and object fields do not become nested decorative cards.
+
+Evidence reviewed:
+- `desktop-viewer/docs/aps-commercial-ui-implementation/05-memory-profiler.md` for the heap-evidence and three-pane interaction boundaries.
+- `MemoryInvestigationWorkspace.kt`, `MemoryProfilerClassListView.kt`, `MemoryObjectInspector.kt`, and `MemoryProfilerScreen.kt` in the Memory presentation module.
+- Shared `StudioCard`, `StudioTokens`, and the existing English/Chinese, light/dark workspace screenshots.
+- Current user requirements: remove content-area import/export buttons, keep mapping/comparison at the end of the top toolbar, keep the summary compact, and present analysis regions as cards.
+
+Adoption contract:
+- Four compact metric cards, one heap-distribution card, and separate filters, classes, instances, and object-inspector cards define the class-list workspace. Dominators and snapshot comparison use the same card boundary for their central analysis pane.
+- Reuse `StudioCard` and its theme-owned panel/border colors and 8dp radius. Use `StudioTokens.cardGap` (4dp) between regions and `workspacePadding` (4dp) at the workspace boundary; do not add a local palette or shadows.
+- Metric label/value stacks remain content-sized, with 4dp card padding and no inter-line spacer; the summary must not regain its former 76dp fixed height.
+- Structural cards with their own internal layout use zero extra card padding/spacing to avoid doubling table and inspector insets. Existing row density, lazy lists, class/instance selection, filters, object navigation, and class-level-only diff semantics remain unchanged.
+- Keep the existing horizontally scrollable minimum-width three-pane workspace for narrower windows. Preserve independently scrollable filters/tables and the footer; do not stack constrained lazy lists into an unbounded outer vertical scroller.
+- The instance table fills its card's available width, with a 650dp minimum for horizontal scrolling in narrow panes. Header and row content retain aligned 8dp internal insets; a fixed-width centered table must not introduce extra side gutters.
+- Toolbar, snapshot tabs, provenance/evidence strip, and status bar remain chrome rather than analysis cards. Existing dedicated Bitmap, Native Heap, LeakCanary, and Dashboard surfaces are not redesigned by this refinement.
+- Validate compact metrics and card separation at 1280x720, horizontal reachability at 900x720, English/Chinese, and light/dark themes. Review generated screenshots, run affected tests/static checks and desktop integration compilation; native packaged-app acceptance remains a separate gate.
+
+
+## Compact Card Exterior Spacing (2026-10-22)
+
+User-requested refinement across every card-containing Desktop workspace, including Home, profiler pages, source-workspace cards, and settings. This supersedes earlier 8dp exterior spacing without changing card content density.
+
+- Shared ownership: `StudioTokens.workspacePadding = 4.dp` and `StudioTokens.cardGap = 4.dp` define the fixed 4dp exterior rhythm. Preserve `compactContentPadding` and `panelGap` at 8dp for card internals and non-card controls.
+- Latest user override: normalize all card exterior margins and gaps to exactly 4dp, including previously custom values. Do not stack wrapper padding and list padding into larger effective card gaps; structural non-card chrome and splitter hit regions remain unchanged.
+- Apply to horizontal/vertical card grids, nested card lists and card groups at the content area's four boundaries. Toolbars, navigation, footer chrome, table-row density, chart axes, splitter hit targets, and card internal text/control padding remain unchanged.
+- Reuse `StudioCard`, `StudioPanel`, existing theme/color/radius ownership and current responsive/scroll behavior. No new dependency or parallel styling layer.
+- Validate all four exterior edges and both card-gap directions with rendered geometry at 1280x720 and 900x720 in light/dark themes, preserve 8dp default content insets, inspect generated screenshots, run affected tests and integration compilation. Automated render checks do not imply native packaged-app acceptance.
