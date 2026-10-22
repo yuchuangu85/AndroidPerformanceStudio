@@ -14,10 +14,12 @@ class BenchmarkWorkspaceStyleTest {
         )
 
     @Test
-    fun `benchmark starts with its own toolbar and metrics without a decorative banner`() {
+    fun `baseline header actions are hosted above a workspace that starts with metrics`() {
         assertFalse(source.contains("StudioWorkspaceHeader("))
+        assertTrue(source.contains("public fun BenchmarkHeaderActions("))
         val workspace = source.substringAfter("public fun BenchmarkReportsScreen(")
-        assertTrue(workspace.indexOf("BenchmarkToolbar(state, language, actions)") >= 0)
+        assertFalse(workspace.contains("BenchmarkToolbar("))
+        assertTrue(workspace.indexOf("BenchmarkSummaryRow(state, language)") >= 0)
     }
 
     @Test

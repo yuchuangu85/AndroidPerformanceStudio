@@ -82,7 +82,13 @@ metric history by case + metric + comparable environment
 
 Trend 只能比较兼容环境或明确标识环境变化。
 
-## 15.6 验收
+## 15.6 当前落地与布局说明（2026-10-20）
+
+- 基线版本与当前版本选择器、开始对比、导入运行、编排运行、导出 PDF/CSV、分享报告、对比设置和打开 Perfetto Trace 全部移入页面顶部 Header。
+- 顶部 Header 支持横向滚动；基线版本选择器是该行的第一个控件。
+- 报告工作区不再渲染独立的工具条面板，直接从汇总卡片开始。
+
+## 15.7 验收
 
 - Gate 不使用魔法分数；
 - incompatibility 优先于 regression verdict；

@@ -74,8 +74,6 @@ public fun BenchmarkReportsScreen(
 ) {
     val colors = LocalViewerColors.current
     Column(modifier = modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.compactContentPadding)) {
-        BenchmarkToolbar(state, language, actions)
-        Spacer(Modifier.height(StudioTokens.panelGap))
         BenchmarkSummaryRow(state, language)
         Spacer(Modifier.height(StudioTokens.panelGap))
         Row(
@@ -113,99 +111,90 @@ public fun BenchmarkReportsScreen(
     }
 }
 
+/**
+ * Baseline/current build selectors and comparison actions hosted by the page header.
+ *
+ * Keeping this row in the shell header makes the baseline version row the first visible control
+ * while the reports workspace starts directly with its summary and comparison evidence.
+ */
 @Composable
-private fun BenchmarkToolbar(
+@Suppress("ktlint:standard:function-naming")
+public fun BenchmarkHeaderActions(
     state: BenchmarkReportsState,
     language: UiLanguage,
     actions: BenchmarkReportsActions,
 ) {
     val colors = LocalViewerColors.current
-    StudioPanel(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            val baseline = state.runOptions.firstOrNull { it.id == state.baselineId }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = localizedStringResource(Res.string.baseline_build, language),
-                    color = colors.mutedText,
-                    fontSize = ViewerTypography.label.fontSize,
-                    lineHeight = ViewerTypography.label.lineHeight,
-                )
-                DropdownSelector(
-                    items = state.runOptions,
-                    selectedItem = baseline,
-                    onItemSelected = { actions.onSelectBaseline(it.id) },
-                    itemLabel = { it.label },
-                    itemSecondary = { it.detail },
-                    selectedItemLabel = { it.label },
-                    placeholder = localizedStringResource(Res.string.select_run, language),
-                    modifier = Modifier.fillMaxWidth(),
-                    fillWidth = true,
-                )
-            }
-            Spacer(Modifier.width(StudioTokens.sectionGap))
-            val current = state.runOptions.firstOrNull { it.id == state.currentId }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = localizedStringResource(Res.string.current_build, language),
-                    color = colors.mutedText,
-                    fontSize = ViewerTypography.label.fontSize,
-                    lineHeight = ViewerTypography.label.lineHeight,
-                )
-                DropdownSelector(
-                    items = state.runOptions,
-                    selectedItem = current,
-                    onItemSelected = { actions.onSelectCurrent(it.id) },
-                    itemLabel = { it.label },
-                    itemSecondary = { it.detail },
-                    selectedItemLabel = { it.label },
-                    placeholder = localizedStringResource(Res.string.select_run, language),
-                    modifier = Modifier.fillMaxWidth(),
-                    fillWidth = true,
-                )
-            }
-            Spacer(Modifier.width(StudioTokens.sectionGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.compare, language),
-                onClick = actions.onCompare,
-                enabled = state.baselineId != null && state.currentId != null && !state.busy,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_run, language),
-                onClick = actions.onImportRun,
-                enabled = !state.busy,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.orchestrate_run, language),
-                onClick = actions.onOrchestrateRun,
-                enabled = !state.busy,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_pdf, language),
-                onClick = actions.onExportPdf,
-                enabled = state.report != null,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, language),
-                onClick = actions.onExportCsv,
-                enabled = state.report != null,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.share_report, language),
-                onClick = actions.onShareReport,
-                enabled = state.recentReports.isNotEmpty(),
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.compare_settings, language),
-                onClick = actions.onCompareSettings,
-            )
-        }
-    }
+    val baseline = state.runOptions.firstOrNull { it.id == state.baselineId }
+    val current = state.runOptions.firstOrNull { it.id == state.currentId }
+    Text(
+        text = localizedStringResource(Res.string.baseline_build, language),
+        color = colors.mutedText,
+        fontSize = ViewerTypography.label.fontSize,
+        lineHeight = ViewerTypography.label.lineHeight,
+    )
+    DropdownSelector(
+        items = state.runOptions,
+        selectedItem = baseline,
+        onItemSelected = { actions.onSelectBaseline(it.id) },
+        itemLabel = { it.label },
+        itemSecondary = { it.detail },
+        selectedItemLabel = { it.label },
+        placeholder = localizedStringResource(Res.string.select_run, language),
+        modifier = Modifier.width(220.dp),
+        fillWidth = true,
+    )
+    Text(
+        text = localizedStringResource(Res.string.current_build, language),
+        color = colors.mutedText,
+        fontSize = ViewerTypography.label.fontSize,
+        lineHeight = ViewerTypography.label.lineHeight,
+    )
+    DropdownSelector(
+        items = state.runOptions,
+        selectedItem = current,
+        onItemSelected = { actions.onSelectCurrent(it.id) },
+        itemLabel = { it.label },
+        itemSecondary = { it.detail },
+        selectedItemLabel = { it.label },
+        placeholder = localizedStringResource(Res.string.select_run, language),
+        modifier = Modifier.width(220.dp),
+        fillWidth = true,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.compare, language),
+        onClick = actions.onCompare,
+        enabled = state.baselineId != null && state.currentId != null && !state.busy,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.import_run, language),
+        onClick = actions.onImportRun,
+        enabled = !state.busy,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.orchestrate_run, language),
+        onClick = actions.onOrchestrateRun,
+        enabled = !state.busy,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.export_pdf, language),
+        onClick = actions.onExportPdf,
+        enabled = state.report != null,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.export_csv, language),
+        onClick = actions.onExportCsv,
+        enabled = state.report != null,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.share_report, language),
+        onClick = actions.onShareReport,
+        enabled = state.recentReports.isNotEmpty(),
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.compare_settings, language),
+        onClick = actions.onCompareSettings,
+    )
 }
 
 @Composable

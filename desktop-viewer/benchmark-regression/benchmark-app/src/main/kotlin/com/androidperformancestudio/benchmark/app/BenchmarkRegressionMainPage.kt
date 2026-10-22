@@ -2,9 +2,13 @@
 
 package com.androidperformancestudio.benchmark.app
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -13,23 +17,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.benchmark.analysis.RegressionAnalyzer
 import com.androidperformancestudio.benchmark.analysis.ReleaseGateEvaluator
 import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.*
 import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.Res
-import com.androidperformancestudio.benchmark.export.BenchmarkPdfExporter
-import com.androidperformancestudio.benchmark.export.BenchmarkReportExporter
 import com.androidperformancestudio.benchmark.cli.MacrobenchmarkCommandBuilder
 import com.androidperformancestudio.benchmark.cli.MacrobenchmarkProcessRunner
+import com.androidperformancestudio.benchmark.export.BenchmarkPdfExporter
+import com.androidperformancestudio.benchmark.export.BenchmarkReportExporter
 import com.androidperformancestudio.benchmark.export.BenchmarkReportIndexStore
 import com.androidperformancestudio.benchmark.model.BenchmarkReportEntry
 import com.androidperformancestudio.benchmark.model.BenchmarkRun
-import com.androidperformancestudio.benchmark.model.ReleaseGatePolicy
 import com.androidperformancestudio.benchmark.model.RegressionPolicy
+import com.androidperformancestudio.benchmark.model.ReleaseGatePolicy
 import com.androidperformancestudio.benchmark.parser.BenchmarkJsonParser
 import com.androidperformancestudio.benchmark.presentation.BenchmarkCompareSettingsDialog
+import com.androidperformancestudio.benchmark.presentation.BenchmarkHeaderActions
 import com.androidperformancestudio.benchmark.presentation.BenchmarkMetricOption
 import com.androidperformancestudio.benchmark.presentation.BenchmarkReportsActions
 import com.androidperformancestudio.benchmark.presentation.BenchmarkReportsScreen
@@ -246,78 +253,89 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
             .onFailure { failure -> state = state.copy(error = failure.message ?: "export failed") }
     }
 
+    val openCurrentTrace: () -> Unit = {
+        state.current
+            ?.cases
+            ?.flatMap { it.traceArtifacts }
+            ?.firstOrNull()
+            ?.let(onOpenTrace)
+    }
+    val benchmarkActions =
+        BenchmarkReportsActions(
+            onImportRun = { chooseBenchmarkJson(window, language)?.let { importRun(parser, storePath, it, language, scope) { refreshOptions() } } },
+            onOrchestrateRun = { orchestrationVisible = true },
+            onSelectBaseline = { id -> state.runOptions.firstOrNull { it.id == id }?.let { loadRun(it, asBaseline = true) } },
+            onSelectCurrent = { id -> state.runOptions.firstOrNull { it.id == id }?.let { loadRun(it, asBaseline = false) } },
+            onCompare = {
+                val baseline = state.baseline
+                val current = state.current
+                if (baseline != null && current != null) {
+                    compare(baseline, current, state.regressionPolicy, state.gatePolicy)
+                }
+            },
+            onExportPdf = {
+                exportReport("PDF", "pdf") { target ->
+                    pdfExporter.write(requireNotNull(state.report), requireNotNull(state.gate), target)
+                }
+            },
+            onExportCsv = {
+                exportReport("CSV", "csv") { target ->
+                    exporter.writeCsv(requireNotNull(state.report), requireNotNull(state.gate), target)
+                }
+            },
+            onShareReport = {
+                state.recentReports.firstOrNull()?.let { entry -> revealReport(entry) }
+            },
+            onCompareSettings = { settingsVisible = true },
+            onSelectMetric = { key ->
+                state = state.copy(selectedMetricKey = key)
+                refreshTrend(state)
+            },
+            onQueryChange = { query -> state = state.copy(query = query) },
+            onSeverityFilterChange = { severity -> state = state.copy(severityFilter = severity) },
+            onClassificationFilterChange = { classification -> state = state.copy(classificationFilter = classification) },
+            onSelectComparison = { key -> state = state.copy(selectedComparisonKey = key) },
+            onOpenReport = { path -> openReport(path) },
+            onGenerateReport = {
+                exportReport("PDF", "pdf") { target ->
+                    pdfExporter.write(requireNotNull(state.report), requireNotNull(state.gate), target)
+                }
+            },
+        )
+
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(
             language = language,
             onNavigateHome = onBack,
             onNavigateSettings = null,
         ) {
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_run, language),
-                onClick = { chooseBenchmarkJson(window, language)?.let { importRun(parser, storePath, it, language, scope) { refreshOptions() } } },
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
-                enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
-                onClick = {
-                    state.current
-                        ?.cases
-                        ?.flatMap { it.traceArtifacts }
-                        ?.firstOrNull()
-                        ?.let(onOpenTrace)
-                },
-            )
-            Spacer(Modifier.weight(1f))
-            ProfilerToolbarStatus(state.message, state.error)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BenchmarkHeaderActions(
+                        state = state,
+                        language = language,
+                        actions = benchmarkActions,
+                    )
+                    ProfilerCompactButton(
+                        text = localizedStringResource(Res.string.open_trace_in_perfetto, language),
+                        enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
+                        onClick = openCurrentTrace,
+                    )
+                }
+                HeaderSpacer()
+                ProfilerToolbarStatus(state.message, state.error)
+            }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         BenchmarkReportsScreen(
             state = state,
             language = language,
             modifier = Modifier.weight(1f),
-            actions =
-                BenchmarkReportsActions(
-                    onImportRun = { chooseBenchmarkJson(window, language)?.let { importRun(parser, storePath, it, language, scope) { refreshOptions() } } },
-                    onOrchestrateRun = { orchestrationVisible = true },
-                    onSelectBaseline = { id -> state.runOptions.firstOrNull { it.id == id }?.let { loadRun(it, asBaseline = true) } },
-                    onSelectCurrent = { id -> state.runOptions.firstOrNull { it.id == id }?.let { loadRun(it, asBaseline = false) } },
-                    onCompare = {
-                        val baseline = state.baseline
-                        val current = state.current
-                        if (baseline != null && current != null) {
-                            compare(baseline, current, state.regressionPolicy, state.gatePolicy)
-                        }
-                    },
-                    onExportPdf = {
-                        exportReport("PDF", "pdf") { target ->
-                            pdfExporter.write(requireNotNull(state.report), requireNotNull(state.gate), target)
-                        }
-                    },
-                    onExportCsv = {
-                        exportReport("CSV", "csv") { target ->
-                            exporter.writeCsv(requireNotNull(state.report), requireNotNull(state.gate), target)
-                        }
-                    },
-                    onShareReport = {
-                        state.recentReports.firstOrNull()?.let { entry -> revealReport(entry) }
-                    },
-                    onCompareSettings = { settingsVisible = true },
-                    onSelectMetric = { key ->
-                        state = state.copy(selectedMetricKey = key)
-                        refreshTrend(state)
-                    },
-                    onQueryChange = { query -> state = state.copy(query = query) },
-                    onSeverityFilterChange = { severity -> state = state.copy(severityFilter = severity) },
-                    onClassificationFilterChange = { classification -> state = state.copy(classificationFilter = classification) },
-                    onSelectComparison = { key -> state = state.copy(selectedComparisonKey = key) },
-                    onOpenReport = { path -> openReport(path) },
-                    onGenerateReport = {
-                        exportReport("PDF", "pdf") { target ->
-                            pdfExporter.write(requireNotNull(state.report), requireNotNull(state.gate), target)
-                        }
-                    },
-                ),
+            actions = benchmarkActions,
         )
     }
 
