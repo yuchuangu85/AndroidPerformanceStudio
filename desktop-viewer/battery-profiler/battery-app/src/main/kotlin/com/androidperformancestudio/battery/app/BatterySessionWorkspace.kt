@@ -68,21 +68,27 @@ internal fun BatterySessionWorkspace(
             BatterySessionsPane(state, language, onOpenSession, onNewExperiment, onRefreshSessions, sidebarModifier)
         }
         if (maxWidth >= 1000.dp) {
-            Row(
-                Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
-            ) {
+            // The content page owns the 4dp separation; adding a row gap would double it.
+            Row(Modifier.fillMaxSize()) {
                 sidebar(
                     Modifier.width(230.dp).padding(
-                        start = StudioTokens.compactContentPadding,
-                        top = StudioTokens.compactContentPadding,
+                        start = StudioTokens.workspacePadding,
+                        top = StudioTokens.workspacePadding,
+                        bottom = StudioTokens.workspacePadding,
                     ),
                 )
                 Box(Modifier.weight(1f)) { content() }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                sidebar(Modifier.fillMaxWidth().height(220.dp).padding(StudioTokens.compactContentPadding))
+                // The next page's top inset supplies the 4dp gap below the sessions card.
+                sidebar(
+                    Modifier.fillMaxWidth().height(220.dp).padding(
+                        start = StudioTokens.workspacePadding,
+                        top = StudioTokens.workspacePadding,
+                        end = StudioTokens.workspacePadding,
+                    ),
+                )
                 Box(Modifier.weight(1f)) { content() }
             }
         }

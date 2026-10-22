@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -77,7 +76,8 @@ internal fun GpuArtifactRail(
 ) {
     val colors = LocalViewerColors.current
     val visible = filterArtifacts(state.artifacts, state.artifactFilter)
-    StudioPanel(modifier.testTag("gpu-artifact-rail")) {
+    // This inset surrounds child artifact cards; their own content padding remains unchanged.
+    StudioPanel(modifier.testTag("gpu-artifact-rail"), contentPadding = StudioTokens.workspacePadding) {
         StudioPanelHeader(
             title = localizedStringResource(Res.string.gpu_artifacts, language),
             subtitle = localizedStringResource(Res.string.artifact_count, language, state.artifacts.size),
@@ -104,8 +104,7 @@ internal fun GpuArtifactRail(
             else ->
                 LazyColumn(
                     Modifier.fillMaxWidth().weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    contentPadding = PaddingValues(vertical = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     items(visible, key = GpuArtifact::id) { artifact ->
                         GpuArtifactCard(

@@ -31,6 +31,7 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioCard
+import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
 @Suppress("ktlint:standard:function-naming")
@@ -46,8 +47,8 @@ internal fun TraceBookmarksPanel(
         modifier = modifier.testTag("trace-bookmarks-panel"),
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(StudioTokens.workspacePadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             if (state.bookmarks.isEmpty()) {
                 EmptyMessage(localizedStringResource(Res.string.trace_workspace_empty_bookmarks, language))

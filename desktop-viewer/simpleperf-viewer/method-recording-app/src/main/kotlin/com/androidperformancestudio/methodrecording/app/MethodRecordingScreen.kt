@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphPanelState
@@ -58,8 +57,8 @@ fun MethodRecordingScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize().padding(StudioTokens.compactContentPadding),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+        modifier = modifier.fillMaxSize().padding(StudioTokens.workspacePadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         state.error?.let { message ->
             Text(

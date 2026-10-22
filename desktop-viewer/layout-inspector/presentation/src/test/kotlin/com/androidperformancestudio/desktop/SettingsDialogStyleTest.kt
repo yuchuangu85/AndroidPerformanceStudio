@@ -22,6 +22,8 @@ class SettingsDialogStyleTest {
         assertTrue(settingsContent.contains("containerColor = colors.sectionBackground"))
         assertTrue(settingsContent.contains("colors.accent.copy(alpha = SETTINGS_SECTION_ACCENT_ALPHA)"))
         assertTrue(settingsContent.contains("contentSpacing = 7.dp"))
+        assertTrue(settingsContent.contains("verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertFalse(settingsContent.contains("verticalScroll(rememberScrollState()).padding(end = 8.dp)"))
         val section = settingsContent.substringAfter("private fun SettingsSection(").substringBefore("private fun SettingsToggleRow(")
         assertFalse(section.contains(".background("))
         assertFalse(section.contains(".border("))

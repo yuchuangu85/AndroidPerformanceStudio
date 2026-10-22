@@ -26,6 +26,10 @@ public object StudioTokens {
     public val contentPadding: Dp = 16.dp
     public val compactContentPadding: Dp = 8.dp
     public val panelGap: Dp = 8.dp
+    /** External card-group insets; card content keeps its existing compact padding. */
+    public val workspacePadding: Dp = 4.dp
+    /** Space between separate cards, independent of their internal content rhythm. */
+    public val cardGap: Dp = 4.dp
     public val sectionGap: Dp = 12.dp
     public val smallRadius: Dp = 4.dp
     public val panelRadius: Dp = 6.dp

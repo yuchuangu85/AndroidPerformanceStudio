@@ -19,10 +19,8 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +41,8 @@ import com.androidperformancestudio.memory.presentation.generated.resources.unav
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.studio.StudioCard
+import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
 internal fun MemoryInvestigationWorkspace(
@@ -52,12 +52,19 @@ internal fun MemoryInvestigationWorkspace(
     modifier: Modifier = Modifier,
     content: @Composable (Modifier) -> Unit,
 ) {
-    Column(modifier.testTag("memory-investigation-workspace")) {
+    Column(
+        modifier.padding(StudioTokens.workspacePadding).testTag("memory-investigation-workspace"),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+    ) {
         MemorySnapshotSummary(state, language)
-        HorizontalDivider()
         if (state.summary.heapSegments.isNotEmpty() || state.classes.isNotEmpty()) {
-            MemoryHeapDistribution(state, language)
-            HorizontalDivider()
+            StudioCard(
+                modifier = Modifier.fillMaxWidth().testTag("memory-distribution-card"),
+                contentPadding = 0.dp,
+                contentSpacing = 0.dp,
+            ) {
+                MemoryHeapDistribution(state, language)
+            }
         }
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             val scroll = rememberScrollState()
@@ -68,17 +75,38 @@ internal fun MemoryInvestigationWorkspace(
                     .padding(bottom = 10.dp)
                     .horizontalScroll(scroll)
                     .requiredWidth(contentWidth),
+                horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
-                MemoryFiltersPane(
-                    state,
-                    actions,
-                    language,
-                    Modifier.width(190.dp).fillMaxHeight().testTag("memory-workspace-filters"),
-                )
-                VerticalDivider()
-                content(Modifier.weight(1f).fillMaxHeight())
-                VerticalDivider()
-                MemoryObjectInspector(state, actions, language, Modifier.width(330.dp).fillMaxHeight())
+                StudioCard(
+                    modifier = Modifier.width(190.dp).fillMaxHeight().testTag("memory-filters-card"),
+                    contentPadding = 0.dp,
+                    contentSpacing = 0.dp,
+                ) {
+                    MemoryFiltersPane(
+                        state,
+                        actions,
+                        language,
+                        Modifier.fillMaxSize().testTag("memory-workspace-filters"),
+                    )
+                }
+                if (state.viewMode == MemoryProfilerViewMode.ClassList) {
+                    content(Modifier.weight(1f).fillMaxHeight())
+                } else {
+                    StudioCard(
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("memory-analysis-card"),
+                        contentPadding = 0.dp,
+                        contentSpacing = 0.dp,
+                    ) {
+                        content(Modifier.fillMaxSize())
+                    }
+                }
+                StudioCard(
+                    modifier = Modifier.width(330.dp).fillMaxHeight().testTag("memory-inspector-card"),
+                    contentPadding = 0.dp,
+                    contentSpacing = 0.dp,
+                ) {
+                    MemoryObjectInspector(state, actions, language, Modifier.fillMaxSize())
+                }
             }
             HorizontalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.BottomStart).fillMaxWidth())
         }
@@ -93,16 +121,20 @@ private fun MemorySnapshotSummary(
     val loaded = state.snapshotSummary != null || state.classes.isNotEmpty()
     val missing = localizedStringResource(Res.string.unavailable, language)
     Row(
-        Modifier.fillMaxWidth().height(76.dp).padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        Modifier.fillMaxWidth().testTag("memory-snapshot-summary"),
+        horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         listOf(
             Res.string.heap_size to if (loaded) formatBytes(state.summary.shallowSize) else missing,
             Res.string.objects to if (loaded) integer(state.summary.objectCount) else missing,
             Res.string.classes to if (loaded) integer(state.summary.classCount) else missing,
             Res.string.leak_suspects to if (loaded) integer(state.leakSuspects.size) else missing,
-        ).forEach { (label, value) ->
-            Column(Modifier.weight(1f)) {
+        ).forEachIndexed { index, (label, value) ->
+            StudioCard(
+                modifier = Modifier.weight(1f).testTag("memory-metric-card-$index"),
+                contentPadding = 4.dp,
+                contentSpacing = 0.dp,
+            ) {
                 Text(
                     localizedStringResource(label, language),
                     style = ViewerTypography.secondary,
@@ -139,7 +171,7 @@ private fun MemoryHeapDistribution(
         }
     val total = if (segments.isNotEmpty()) segments.sumOf { it.size } else state.summary.shallowSize
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).testTag("memory-heap-distribution"),
+        Modifier.fillMaxWidth().padding(StudioTokens.compactContentPadding).testTag("memory-heap-distribution"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(

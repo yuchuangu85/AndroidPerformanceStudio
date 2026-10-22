@@ -28,6 +28,7 @@ import com.androidperformancestudio.gpu.presentation.generated.resources.Res
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioCard
+import com.androidperformancestudio.ui.studio.StudioTokens
 import java.nio.file.Path
 
 public enum class ArtifactPrimaryAction { OPEN_AGI, LAUNCH_AGI, OPEN_PERFETTO, OPEN_DESKTOP, NONE }
@@ -86,8 +87,8 @@ public fun GpuIntegrationScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier.fillMaxSize().padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier.fillMaxSize().padding(StudioTokens.workspacePadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         StudioCard(Modifier.fillMaxWidth(), contentPadding = 0.dp) {
             Column(
@@ -132,7 +133,7 @@ public fun GpuIntegrationScreen(
             localizedStringResource(Res.string.recent_gpu_artifacts, language),
             style = MaterialTheme.typography.titleLarge,
         )
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             items(state.artifacts) { artifact ->
                 val availability = state.availabilityByArtifactId[artifact.id]
                 StudioCard(Modifier.fillMaxWidth(), contentPadding = 0.dp) {

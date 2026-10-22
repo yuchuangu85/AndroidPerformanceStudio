@@ -38,6 +38,7 @@ import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
 import com.androidperformancestudio.ui.studio.StudioCard
+import com.androidperformancestudio.ui.studio.StudioTokens
 import com.androidperformancestudio.ui.switch.MacOSSwitch
 import kotlin.math.roundToInt
 
@@ -73,8 +74,8 @@ public fun LayoutInspectorSettingsContent(
     }
 
     Column(
-        modifier = modifier.verticalScroll(rememberScrollState()).padding(end = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         Text(
             text = localizedStringResource(Res.string.layout_inspector, language),
@@ -178,7 +179,6 @@ public fun LayoutInspectorSettingsContent(
                 language = language,
             ) { updateBorderColors(borderColors.copy(selected = it)) }
         }
-        Spacer(Modifier.height(4.dp))
     }
 }
 

@@ -2,6 +2,7 @@ package com.androidperformancestudio.presentation
 
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -33,6 +34,44 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class DeviceTargetPageBehaviorTest {
+    @Test
+    fun `device identity remains visible while details load and after a detail error`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            val state =
+                androidx.compose.runtime.mutableStateOf(
+                    DeviceTargetState(
+                        devices = listOf(DeviceOption("serial-1", "TCL T807D", true)),
+                        selectedSerial = "serial-1",
+                        isLoading = true,
+                    ),
+                )
+            setContent {
+                HomeScreen(
+                    state = state.value,
+                    captureState = CaptureState.Idle,
+                    reportState = ReportState(),
+                    actions = deviceActions(),
+                    reportActions = goldenActions(),
+                )
+            }
+
+            onNodeWithText("TCL T807D").assertIsDisplayed()
+            onNodeWithContentDescription("Device selector").assertIsNotEnabled()
+            onNodeWithText("Get data").assertIsNotEnabled()
+
+            runOnIdle {
+                state.value =
+                    state.value.copy(
+                        isLoading = false,
+                        error = StudioError(ErrorCategory.IO, "CAPABILITY_FAILED", "Device capability probe failed"),
+                    )
+            }
+
+            onNodeWithText("TCL T807D").assertIsDisplayed()
+            onNodeWithText("CAPABILITY_FAILED: Device capability probe failed").assertIsDisplayed()
+            onNodeWithText("Get data").assertIsNotEnabled()
+        }
+
     @Test
     fun `empty workspace opens the existing offline session workflow without a connected device`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {

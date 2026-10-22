@@ -87,7 +87,7 @@ public fun BatteryProfilerScreen(
         modifier
             .fillMaxSize()
             .background(LocalViewerColors.current.workspace)
-            .padding(StudioTokens.compactContentPadding)
+            .padding(StudioTokens.workspacePadding)
     when {
         state.errorMessage != null && analysis == null ->
             Box(workspaceModifier, contentAlignment = Alignment.Center) {
@@ -106,7 +106,7 @@ private fun EmptyPane(
 ) {
     Column(
         modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         StudioPanel(Modifier.fillMaxWidth()) {
             StudioPanelHeader(localizedStringResource(Res.string.energy_evidence, language))
@@ -138,7 +138,7 @@ private fun ResultsPane(
     val colors = LocalViewerColors.current
     Column(
         modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         val metrics =
             buildList {
@@ -195,11 +195,11 @@ private fun ResultsPane(
             }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val columnCount = ((maxWidth.value + 8) / 176).toInt().coerceIn(1, metrics.size)
-            Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding)) {
+            Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                 metrics.chunked(columnCount).forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
-                        horizontalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+                        horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                     ) {
                         row.forEach { metric ->
                             MetricCard(

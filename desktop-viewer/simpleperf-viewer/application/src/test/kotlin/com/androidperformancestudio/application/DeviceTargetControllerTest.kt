@@ -58,6 +58,84 @@ class DeviceTargetControllerTest {
         }
 
     @Test
+    fun `discovered device is selected while its details are still loading`() =
+        runBlocking {
+            val details = CompletableDeferred<StudioResult<DeviceSelection>>()
+            val gateway =
+                object : DeviceTargetGateway by FakeDeviceTargetGateway() {
+                    override suspend fun loadSelection(serial: String): StudioResult<DeviceSelection> = details.await()
+                }
+            val controller = DeviceTargetController(gateway)
+            val refresh = async(start = CoroutineStart.UNDISPATCHED) { controller.refreshDevices() }
+
+            try {
+                val loading = controller.state.value
+                assertEquals("serial-1", loading.selectedSerial)
+                assertEquals("Pixel 8", loading.devices.first().label)
+                assertTrue(loading.isLoading)
+                assertNull(loading.selection)
+            } finally {
+                details.complete(FakeDeviceTargetGateway().loadSelection("serial-1"))
+                refresh.await()
+            }
+
+            val loaded = controller.state.value
+            assertFalse(loaded.isLoading)
+            assertEquals("serial-1", loaded.selection?.serial)
+        }
+
+    @Test
+    fun `device detail failure preserves discovered device identity and error`() =
+        runBlocking {
+            val expected = StudioError(ErrorCategory.IO, "CAPABILITY_FAILED", "Device capability probe failed")
+            val gateway =
+                object : DeviceTargetGateway by FakeDeviceTargetGateway() {
+                    override suspend fun loadSelection(serial: String) = StudioResult.Failure(expected)
+                }
+            val controller = DeviceTargetController(gateway)
+
+            controller.refreshDevices()
+
+            val failed = controller.state.value
+            assertEquals("serial-1", failed.selectedSerial)
+            assertEquals("Pixel 8", failed.devices.first().label)
+            assertNull(failed.selection)
+            assertEquals(expected, failed.error)
+            assertFalse(failed.isLoading)
+            assertFalse(failed.canEnterCapture)
+        }
+
+    @Test
+    fun `switching to a device with failed details clears the previous capture target`() =
+        runBlocking {
+            val expected = StudioError(ErrorCategory.IO, "CAPABILITY_FAILED", "Device capability probe failed")
+            val delegate = FakeDeviceTargetGateway()
+            val gateway =
+                object : DeviceTargetGateway by delegate {
+                    override suspend fun loadSelection(serial: String): StudioResult<DeviceSelection> =
+                        if (serial == "serial-2") StudioResult.Failure(expected) else delegate.loadSelection(serial)
+                }
+            val controller = DeviceTargetController(gateway)
+            controller.refreshDevices()
+            controller.selectPackage("com.example.camera")
+            controller.selectProcess(321)
+            assertTrue(controller.state.value.canEnterCapture)
+
+            controller.selectDevice("serial-2")
+
+            val failed = controller.state.value
+            assertEquals("serial-2", failed.selectedSerial)
+            assertNull(failed.selection)
+            assertNull(failed.selectedPackageName)
+            assertNull(failed.selectedTarget)
+            assertNull(failed.captureSetup)
+            assertTrue(failed.threads.isEmpty())
+            assertEquals(expected, failed.error)
+            assertFalse(failed.isLoading)
+            assertFalse(failed.canEnterCapture)
+        }
+
+    @Test
     fun `searches targets locally without reloading the selected device`() =
         runBlocking {
             val gateway = FakeDeviceTargetGateway()

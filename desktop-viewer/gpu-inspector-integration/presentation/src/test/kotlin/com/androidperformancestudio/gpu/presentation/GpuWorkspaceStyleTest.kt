@@ -23,7 +23,31 @@ class GpuWorkspaceStyleTest {
         assertFalse(hub.contains("CompositionLocalProvider("))
         assertFalse(hub.contains("ViewerTheme("))
         assertTrue(hub.contains(".background(colors.workspace)"))
-        assertTrue(hub.contains(".padding(StudioTokens.compactContentPadding)"))
+        assertTrue(hub.contains(".padding(StudioTokens.workspacePadding)"))
+    }
+
+    @Test
+    fun `card boundaries use four dp spacing without shrinking content or toolbar controls`() {
+        val workspace = hub.substringAfter("public fun GpuAnalysisHubScreen(").substringBefore("public fun GpuAnalysisToolbar(")
+        assertEquals(4, Regex("Arrangement\\.spacedBy\\(StudioTokens\\.cardGap\\)").findAll(workspace).count())
+        assertFalse(workspace.contains("Arrangement.spacedBy(StudioTokens.panelGap)"))
+        val summary = hub.substringAfter("private fun GpuSummaryRow(").substringBefore("private fun GpuSummaryCard(")
+        assertEquals(4, Regex("Arrangement\\.spacedBy\\(StudioTokens\\.cardGap\\)").findAll(summary).count())
+        val toolbar = hub.substringAfter("public fun GpuAnalysisToolbar(").substringBefore("private fun GpuSummaryRow(")
+        assertTrue(toolbar.contains("Arrangement.spacedBy(StudioTokens.panelGap)"))
+        val rail = artifacts.substringAfter("internal fun GpuArtifactRail(").substringBefore("private fun GpuArtifactCard(")
+        assertTrue(rail.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(rail.contains("contentPadding = StudioTokens.workspacePadding"))
+        assertFalse(rail.contains("contentPadding = PaddingValues("))
+        val artifactCard = artifacts.substringAfter("private fun GpuArtifactCard(").substringBefore("private fun PanelBody(")
+        assertTrue(artifactCard.contains("contentPadding = 6.dp"))
+        assertTrue(artifactCard.contains("contentSpacing = 2.dp"))
+        assertTrue(artifactCard.contains("horizontalArrangement = Arrangement.spacedBy(6.dp)"))
+        val legacy = source("GpuIntegrationScreen.kt")
+        assertTrue(legacy.contains("modifier.fillMaxSize().padding(StudioTokens.workspacePadding)"))
+        assertTrue(legacy.contains("verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(legacy.contains("LazyColumn(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap))"))
+        assertTrue(legacy.contains("Modifier.fillMaxWidth().padding(8.dp)"))
     }
 
     @Test

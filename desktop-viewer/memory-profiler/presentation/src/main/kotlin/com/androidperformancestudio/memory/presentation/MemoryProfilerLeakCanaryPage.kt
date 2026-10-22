@@ -78,6 +78,7 @@ import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioCard
+import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
 public fun MemoryProfilerLeakCanaryPage(
@@ -94,8 +95,8 @@ public fun MemoryProfilerLeakCanaryPage(
         color = colors.workspace,
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxSize().padding(StudioTokens.workspacePadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -153,7 +154,7 @@ public fun MemoryProfilerLeakCanaryPage(
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxWidth().weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                             ) {
                                 if (report.applicationLeaks.isNotEmpty()) {
                                     item { LeakSectionTitle(localizedStringResource(Res.string.application_leaks, language)) }
@@ -269,7 +270,7 @@ private fun LeakCanarySummary(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         LeakMetricCard(
             label = localizedStringResource(Res.string.application_leaks, language),

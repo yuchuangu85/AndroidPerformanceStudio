@@ -139,17 +139,17 @@ private fun WideTraceWorkspace(
     captureContent: (@Composable () -> Unit)?,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(StudioTokens.compactContentPadding).testTag("trace-analyzer-wide"),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+        modifier = Modifier.fillMaxSize().padding(StudioTokens.workspacePadding).testTag("trace-analyzer-wide"),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         TraceSummaryGrid(summaries, language, wide = true)
         Row(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             Column(
                 modifier = Modifier.width(232.dp).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 TraceSessionsPanel(
                     state = state,
@@ -162,7 +162,7 @@ private fun WideTraceWorkspace(
             }
             Column(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 TraceViewerOrCapturePanel(
                     state = state,
@@ -201,9 +201,9 @@ private fun NarrowTraceWorkspace(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(StudioTokens.compactContentPadding)
+                .padding(StudioTokens.workspacePadding)
                 .testTag("trace-analyzer-narrow"),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         TraceSummaryGrid(summaries, language, wide = false)
         TraceSessionsPanel(
@@ -244,7 +244,7 @@ private fun TraceSummaryGrid(
     if (wide) {
         Row(
             modifier = Modifier.fillMaxWidth().testTag("trace-summary-grid"),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             summaries.forEach { summary ->
                 TraceSummaryCard(summary, language, Modifier.weight(1f))
@@ -253,10 +253,10 @@ private fun TraceSummaryGrid(
     } else {
         Column(
             modifier = Modifier.fillMaxWidth().testTag("trace-summary-grid"),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             summaries.chunked(2).forEach { rowSummaries ->
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     rowSummaries.forEach { summary ->
                         TraceSummaryCard(summary, language, Modifier.weight(1f))
                     }
@@ -339,7 +339,7 @@ private fun TraceSessionsPanel(
         title = localizedStringResource(Res.string.trace_workspace_sessions, language),
         modifier = modifier.testTag("trace-sessions-panel"),
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(StudioTokens.workspacePadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PerfettoCompactTextField(
                 value = state.searchQuery,
                 onValueChange = actions.onSearchChange,
@@ -353,7 +353,7 @@ private fun TraceSessionsPanel(
                         .weight(1f)
                         .verticalScroll(rememberScrollState())
                         .testTag("trace-session-list"),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 if (sessions.isEmpty()) {
                     EmptyMessage(localizedStringResource(Res.string.trace_workspace_empty_sessions, language))
@@ -506,7 +506,7 @@ private fun TraceViewerPanel(
             }
         } else {
             Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(StudioTokens.compactContentPadding),
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(StudioTokens.workspacePadding),
                 verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
             ) {
                 Text(
@@ -611,8 +611,8 @@ private fun TraceInsightsPanel(
         val counts = traceInsightCounts(presetInsights)
         val visible = visibleTraceInsights(state.insights, state.presets, state.selectedPresetId, state.insightFilter)
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(StudioTokens.workspacePadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("trace-insight-filters"),

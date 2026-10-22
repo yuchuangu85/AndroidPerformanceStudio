@@ -172,9 +172,9 @@ internal fun CpuProfilerKpiStrip(
     val kinds = kpis.visibleKinds
     BoxWithConstraints(modifier.fillMaxWidth().testTag("cpu-kpi-strip")) {
         val columns = cpuKpiColumns(maxWidth.value.toInt(), kinds.size)
-        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             kinds.chunked(columns).forEach { rowKinds ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     rowKinds.forEach { kind ->
                         CpuKpiTile(kind, kpis, language, style, Modifier.weight(1f))
                     }
@@ -198,9 +198,9 @@ internal fun CpuProfilerPendingKpiStrip(
     val language = currentSimpleperfLanguage()
     BoxWithConstraints(modifier.fillMaxWidth().testTag("cpu-kpi-strip-pending")) {
         val columns = cpuKpiColumns(maxWidth.value.toInt(), CPU_BASE_KPI_KINDS.size)
-        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             CPU_BASE_KPI_KINDS.chunked(columns).forEach { rowKinds ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     rowKinds.forEach { kind ->
                         CpuKpiTileFrame(
                             kind = kind,

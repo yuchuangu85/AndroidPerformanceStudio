@@ -38,7 +38,7 @@ class MethodRecordingWorkspaceSourceTest {
     fun `trace content omits the decorative workspace banner before all content states`() {
         val screen = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/methodrecording/app/MethodRecordingScreen.kt"))
         assertFalse(screen.contains("StudioWorkspaceHeader("))
-        assertTrue(screen.contains("StudioTokens.compactContentPadding"))
+        assertTrue(screen.contains("StudioTokens.workspacePadding"))
         assertFalse(source.contains("StudioWorkspaceHeader("))
     }
 

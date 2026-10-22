@@ -19,6 +19,8 @@ package com.androidperformancestudio.memory.presentation
 
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerTypography
+import com.androidperformancestudio.ui.studio.StudioCard
+import com.androidperformancestudio.ui.studio.StudioTokens
 
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.LocalScrollbarStyle
@@ -414,38 +416,55 @@ internal fun MemoryClassesPane(
         ) + MemoryClassifierColumn.TOTAL_COUNT
     val scroll = rememberScrollState()
     val listState = rememberLazyListState()
-    Column(modifier) {
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(0.62f)) {
-            val tableWidth = maxOf(maxWidth, (260 + (columns.size + 1) * 104).dp)
-            Box(Modifier.fillMaxSize().padding(end = 10.dp, bottom = 10.dp)) {
-                Column(Modifier.horizontalScroll(scroll).requiredWidth(tableWidth).fillMaxHeight()) {
-                    ClassTableHeader(
-                        language, state.arrangeBy, state.classifierSortColumn, state.classifierSortDirection,
-                        columns, actions.onClassifierSort, Modifier.height(32.dp), showHeap = true,
-                    )
-                    HorizontalDivider()
-                    ClassTable(
-                        state.classifierRows, state.selectedClassifierId, MemoryProfilerPresenter.leakClassNames(state),
-                        MemoryProfilerPresenter.duplicateBitmapClasses(state), columns, actions.onSelectClassifier, language,
-                        listState, Modifier.fillMaxWidth().weight(1f), showHeap = true,
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
+        StudioCard(
+            modifier = Modifier.fillMaxWidth().weight(0.62f).testTag("memory-classes-card"),
+            contentPadding = 0.dp,
+            contentSpacing = 0.dp,
+        ) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val tableWidth = maxOf(maxWidth, (260 + (columns.size + 1) * 104).dp)
+                Box(Modifier.fillMaxSize().padding(end = 10.dp, bottom = 10.dp)) {
+                    Column(Modifier.horizontalScroll(scroll).requiredWidth(tableWidth).fillMaxHeight()) {
+                        ClassTableHeader(
+                            language, state.arrangeBy, state.classifierSortColumn, state.classifierSortDirection,
+                            columns, actions.onClassifierSort, Modifier.height(32.dp), showHeap = true,
+                        )
+                        HorizontalDivider()
+                        ClassTable(
+                            state.classifierRows, state.selectedClassifierId, MemoryProfilerPresenter.leakClassNames(state),
+                            MemoryProfilerPresenter.duplicateBitmapClasses(state), columns, actions.onSelectClassifier, language,
+                            listState, Modifier.fillMaxWidth().weight(1f), showHeap = true,
+                        )
+                    }
+                }
+                HorizontalScrollbar(
+                    rememberScrollbarAdapter(scroll),
+                    Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
+                )
+                VerticalScrollbar(
+                    rememberScrollbarAdapter(listState),
+                    Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = 32.dp, bottom = 10.dp),
+                )
+            }
+        }
+        StudioCard(
+            modifier = Modifier.fillMaxWidth().weight(0.38f).testTag("memory-instances-card"),
+            contentPadding = 0.dp,
+            contentSpacing = 0.dp,
+        ) {
+            InstanceListTitle(state.selectedClassifierLabel ?: state.selectedClassName, language)
+            HorizontalDivider()
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                val tableWidth = maxOf(maxWidth, 650.dp)
+                Column(Modifier.fillMaxSize().horizontalScroll(rememberScrollState()).requiredWidth(tableWidth)) {
+                    InstanceTableHeader(language)
+                    InstanceTable(
+                        state.selectedClassifierLabel ?: state.selectedClassName, state.selectedClassInstances,
+                        state.selectedInstanceDetail, actions.onSelectInstance, language, Modifier.fillMaxWidth().weight(1f),
                     )
                 }
             }
-            HorizontalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp))
-            VerticalScrollbar(
-                rememberScrollbarAdapter(listState),
-                Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = 32.dp, bottom = 10.dp),
-            )
-        }
-        HorizontalDivider()
-        InstanceListTitle(state.selectedClassifierLabel ?: state.selectedClassName, language)
-        HorizontalDivider()
-        Column(Modifier.fillMaxWidth().weight(0.38f).horizontalScroll(rememberScrollState()).requiredWidth(650.dp)) {
-            InstanceTableHeader(language)
-            InstanceTable(
-                state.selectedClassifierLabel ?: state.selectedClassName, state.selectedClassInstances,
-                state.selectedInstanceDetail, actions.onSelectInstance, language, Modifier.fillMaxWidth().weight(1f),
-            )
         }
     }
 }

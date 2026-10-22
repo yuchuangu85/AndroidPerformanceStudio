@@ -257,9 +257,25 @@ class DeviceTargetController(
     }
 
     suspend fun selectDevice(serial: String) {
-        mutableState.value = mutableState.value.copy(isLoading = true, error = null)
+        val current = mutableState.value
+        val sameDevice = current.selectedSerial == serial
+        // Device discovery already established this identity; detail probes must not hide it.
         mutableState.value =
-            when (val result = gateway.loadSelection(serial)) {
+            current.copy(
+                selectedSerial = serial,
+                selection = current.selection.takeIf { sameDevice },
+                selectedPackageName = current.selectedPackageName.takeIf { sameDevice },
+                selectedTarget = current.selectedTarget.takeIf { sameDevice },
+                captureSetup = current.captureSetup.takeIf { sameDevice },
+                threads = current.threads.takeIf { sameDevice }.orEmpty(),
+                isLoading = true,
+                error = null,
+            )
+        if (!sameDevice) processSelection.selectDevice(serial)
+        val result = gateway.loadSelection(serial)
+        if (mutableState.value.selectedSerial != serial) return
+        mutableState.value =
+            when (result) {
                 is StudioResult.Success -> {
                     processSelection.selectDevice(serial)
                     mutableState.value.copy(

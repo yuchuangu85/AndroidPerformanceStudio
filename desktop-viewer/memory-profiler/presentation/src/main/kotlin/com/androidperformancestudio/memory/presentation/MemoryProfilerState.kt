@@ -79,8 +79,6 @@ public enum class MemoryClassifierColumn {
 
 public enum class MemorySortDirection { ASCENDING, DESCENDING }
 
-public enum class MemoryWorkspaceExport { REPORT, SNAPSHOT, HISTOGRAM, DIFF, OBJECT }
-
 /** One node in the classifier tree shown by the class list. Leaf nodes represent classes. */
 public data class MemoryClassifierRow(
     val id: String,

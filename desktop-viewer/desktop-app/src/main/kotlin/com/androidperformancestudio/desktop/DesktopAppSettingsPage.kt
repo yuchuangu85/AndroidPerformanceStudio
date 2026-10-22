@@ -122,7 +122,7 @@ internal fun DesktopAppSettingsPage(
                     )
                     VerticalDivider(color = MaterialTheme.colorScheme.outline)
                     Column(
-                        Modifier.weight(1f).padding(StudioTokens.compactContentPadding),
+                        Modifier.weight(1f).padding(StudioTokens.workspacePadding),
                         verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
                     ) {
                         if (persistenceErrorPage != null) {
@@ -589,11 +589,11 @@ private fun ThemeColorPresets(
     onSelect: (Color) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         ApplicationThemeColor.entries.chunked(THEME_SWATCH_COLUMNS).forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 row.forEach { preset ->
                     ThemeColorOption(
@@ -849,10 +849,10 @@ private fun CompleteSimpleperfSettingsContent(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxWidth().weight(1f),
-            verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             items(CaptureSettingsSection.entries, key = CaptureSettingsSection::name) { section ->
-                StudioPanel(modifier = Modifier.fillMaxWidth()) {
+                StudioPanel(modifier = Modifier.fillMaxWidth(), contentPadding = StudioTokens.workspacePadding) {
                     SimpleperfSettingsSectionContent(
                         section = section,
                         setup = context?.setup,

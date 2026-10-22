@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.close_snapshot
-import com.androidperformancestudio.memory.presentation.generated.resources.memory_add_snapshot
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_tab_capabilities
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_tab_counts
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_tab_loaded
@@ -51,9 +50,8 @@ public fun MemoryProfilerSnapshotTabs(
     onSelectSnapshot: (String) -> Unit,
     onCloseSnapshot: (String) -> Unit,
     language: UiLanguage,
-    onAddSnapshot: (() -> Unit)? = null,
 ) {
-    if (state.snapshotSummaries.isEmpty() && onAddSnapshot == null) return
+    if (state.snapshotSummaries.isEmpty()) return
     Row(
         modifier =
             Modifier
@@ -76,14 +74,6 @@ public fun MemoryProfilerSnapshotTabs(
                 selected = snapshot.id == state.activeSnapshotId,
                 onSelectSnapshot = onSelectSnapshot,
                 onCloseSnapshot = onCloseSnapshot,
-            )
-        }
-        onAddSnapshot?.let { add ->
-            MemoryToolButton(
-                "+",
-                localizedStringResource(Res.string.memory_add_snapshot, language),
-                !state.isDumping,
-                onClick = add,
             )
         }
     }

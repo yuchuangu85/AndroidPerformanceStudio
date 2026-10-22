@@ -83,13 +83,13 @@ public fun GpuAnalysisHubScreen(
     val colors = LocalViewerColors.current
     val selectedArtifact = state.artifacts.firstOrNull { it.id == state.selectedArtifactId }
     val summary = state.hubSummary()
-    BoxWithConstraints(modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.compactContentPadding)) {
+    BoxWithConstraints(modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.workspacePadding)) {
         val wide = maxWidth >= GPU_WIDE_WORKSPACE_MIN_WIDTH
         val stackedSummary = maxWidth < GPU_TWO_ROW_SUMMARY_MAX_WIDTH
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             GpuSummaryRow(summary, state.capability, language, stackedSummary)
             if (wide) {
-                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     GpuArtifactRail(state, actions, selectedArtifact, language, Modifier.width(GPU_ARTIFACT_RAIL_WIDTH).fillMaxHeight())
                     GpuHubWorkspace(
                         state,
@@ -101,7 +101,7 @@ public fun GpuAnalysisHubScreen(
                     )
                     Column(
                         Modifier.width(GPU_INSIGHT_RAIL_WIDTH).fillMaxHeight().verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                     ) {
                         GpuCapabilityRail(state.capability, language)
                         GpuOpenWithRail(state, actions, selectedArtifact, language)
@@ -110,7 +110,7 @@ public fun GpuAnalysisHubScreen(
             } else {
                 Column(
                     Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     GpuArtifactRail(
                         state,
@@ -270,17 +270,17 @@ private fun GpuSummaryRow(
     }
 
     if (!stacked) {
-        Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+        Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             // Compact cards wrap their supporting line instead of dropping evidence at narrow widths.
             firstRow(Modifier.weight(1f).fillMaxHeight())
             secondRow(Modifier.weight(1f).fillMaxHeight())
         }
     } else {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
-            Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
+            Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                 firstRow(Modifier.weight(1f).fillMaxHeight())
             }
-            Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+            Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                 secondRow(Modifier.weight(1f).fillMaxHeight())
             }
         }
@@ -323,7 +323,7 @@ private fun GpuHubWorkspace(
     modifier: Modifier,
     expandContent: Boolean,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         GpuDeviceContextPanel(state, actions, language)
         GpuHubTabStrip(state, actions, selectedArtifact, language)
         val contentModifier =

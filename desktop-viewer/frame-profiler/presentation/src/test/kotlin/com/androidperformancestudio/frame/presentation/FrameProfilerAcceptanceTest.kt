@@ -169,6 +169,14 @@ class FrameProfilerAcceptanceTest {
 
             val titleBounds = onNodeWithText("Frame Timeline").fetchSemanticsNode().boundsInRoot
             val panelBounds = onNodeWithTag("frame-clusters-panel").fetchSemanticsNode().boundsInRoot
+            val timelineBounds = onNodeWithTag("frame-timeline-panel").fetchSemanticsNode().boundsInRoot
+            val problemsBounds = onNodeWithTag("frame-problems-panel").fetchSemanticsNode().boundsInRoot
+            val detailBounds = onNodeWithTag("frame-detail-panel").fetchSemanticsNode().boundsInRoot
+            assertEquals(4f, timelineBounds.left)
+            assertEquals(1276f, timelineBounds.right)
+            assertEquals(4f, panelBounds.top - timelineBounds.bottom)
+            assertEquals(4f, problemsBounds.left - panelBounds.right)
+            assertEquals(4f, detailBounds.left - problemsBounds.right)
             assertEquals(8f, titleBounds.left - panelBounds.left)
             onNodeWithText("Frame time (ms)").assertExists()
             onNodeWithTag("frame-timeline-duration-axis")

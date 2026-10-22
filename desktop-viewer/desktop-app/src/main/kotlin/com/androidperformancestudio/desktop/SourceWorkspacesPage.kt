@@ -308,22 +308,27 @@ private fun WorkspaceListPane(
 ) {
     val listState = rememberLazyListState()
     val horizontalScrollState = rememberScrollState()
+    val scrollbarThickness = LocalScrollbarStyle.current.thickness
     BoxWithConstraints(modifier) {
         val contentWidthDp = maxOf(
-            maxWidth.value,
+            (maxWidth - scrollbarThickness).value,
             workspaces.maxOfOrNull { workspace -> workspace.displayName.length * 8f + 48f } ?: 0f,
         )
         Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) {
+            // Scrollbars own separate chrome space; card insets stay 4dp inside the viewport.
+            Box(
+                Modifier.fillMaxSize()
+                    .padding(end = scrollbarThickness, bottom = scrollbarThickness)
+                    .horizontalScroll(horizontalScrollState),
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier =
                         Modifier
                             .width(contentWidthDp.dp)
                             .fillMaxHeight()
-                            .padding(end = 12.dp, bottom = 12.dp)
-                            .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                            .padding(StudioTokens.workspacePadding),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     if (workspaces.isEmpty()) {
                         item {

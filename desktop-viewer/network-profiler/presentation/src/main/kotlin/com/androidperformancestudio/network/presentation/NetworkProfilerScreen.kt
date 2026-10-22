@@ -116,9 +116,9 @@ public fun NetworkProfilerScreen(
                 Modifier
                     .fillMaxSize()
                     .background(colors.workspace)
-                    .padding(StudioTokens.compactContentPadding)
+                    .padding(StudioTokens.workspacePadding)
                     .testTag("network-profiler-workspace"),
-            verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             SummaryCards(state, language)
             EvidenceCoverage(state, language)
@@ -156,12 +156,12 @@ public fun NetworkProfilerScreen(
                 }
             }
             if (narrow) {
-                Column(Modifier.weight(1f).testTag("network-stacked-panes"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f).testTag("network-stacked-panes"), verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     table(Modifier.weight(1f).fillMaxWidth())
                     RequestDetail(selectedCall, language, Modifier.weight(1.2f).fillMaxWidth())
                 }
             } else {
-                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding)) {
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     table(Modifier.weight(1.8f).fillMaxHeight())
                     RequestDetail(selectedCall, language, Modifier.weight(1f).fillMaxHeight())
                 }
@@ -182,7 +182,7 @@ private fun SummaryCards(state: NetworkProfilerState, language: UiLanguage) {
         ) {
             Row(
                 modifier = Modifier.width(cardsWidth).height(IntrinsicSize.Max),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 StudioMetricCard(
                     label = localizedStringResource(Res.string.calls, language),
@@ -466,7 +466,7 @@ private fun RequestDetail(
             HorizontalDivider(color = LocalViewerColors.current.border)
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 itemsIndexed(call.exchanges) { index, exchange ->
                     ExchangeDetail(exchange, index, language)

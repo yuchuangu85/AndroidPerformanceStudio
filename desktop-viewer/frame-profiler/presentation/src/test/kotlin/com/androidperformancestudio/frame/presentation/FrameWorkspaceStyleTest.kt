@@ -23,7 +23,7 @@ class FrameWorkspaceStyleTest {
 
     @Test
     fun `compact cards retain the three analysis panes and frame controls`() {
-        assertTrue(source.contains(".padding(StudioTokens.compactContentPadding)"))
+        assertTrue(source.contains(".padding(StudioTokens.workspacePadding)"))
         listOf(
             "frame-timeline-panel",
             "frame-clusters-panel",

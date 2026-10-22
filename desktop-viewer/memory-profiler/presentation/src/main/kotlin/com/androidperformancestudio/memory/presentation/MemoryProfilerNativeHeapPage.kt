@@ -48,6 +48,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.no_n
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
 public fun MemoryProfilerNativeHeapPage(
@@ -58,8 +59,12 @@ public fun MemoryProfilerNativeHeapPage(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize().padding(8.dp).testTag("memory-profiler-native-heap-page"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(StudioTokens.workspacePadding)
+                .testTag("memory-profiler-native-heap-page"),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         Text(localizedStringResource(Res.string.native_heap, language), fontWeight = FontWeight.Bold)
         when {

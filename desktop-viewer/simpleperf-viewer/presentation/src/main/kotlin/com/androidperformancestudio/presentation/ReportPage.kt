@@ -123,7 +123,7 @@ internal fun ReportWorkspace(
             state = state,
             actions = actions,
             style = style,
-            modifier = Modifier.fillMaxSize().padding(StudioTokens.compactContentPadding),
+            modifier = Modifier.fillMaxSize().padding(StudioTokens.workspacePadding),
             flameTooltipMode = flameTooltipMode,
             onRunAiAnalysis = onRunAiAnalysis,
             captureState = captureState,
@@ -277,7 +277,7 @@ internal fun OverviewReport(
     style: ViewerColors,
 ) {
     val language = currentSimpleperfLanguage()
-    LazyColumn(modifier = Modifier.testTag("overview-report-list"), verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+    LazyColumn(modifier = Modifier.testTag("overview-report-list"), verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         item {
             val metrics =
                 listOf(
@@ -288,9 +288,9 @@ internal fun OverviewReport(
                 )
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val columns = overviewMetricColumns(maxWidth.value.toInt())
-                Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     metrics.chunked(columns).forEach { rowMetrics ->
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                             rowMetrics.forEach { (title, value) ->
                                 MetricCard(title, value, Modifier.weight(1f))
                             }

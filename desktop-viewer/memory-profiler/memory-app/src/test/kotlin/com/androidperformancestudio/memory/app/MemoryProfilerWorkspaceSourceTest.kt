@@ -89,6 +89,20 @@ class MemoryProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `mapping and compare are the final actions in the top toolbar`() {
+        val toolbar =
+            workspace
+                .substringAfter("HeaderToolbar(")
+                .substringBefore("        }\n        HorizontalDivider")
+        val actions = toolbar.indexOf("MemoryWorkspaceActions(")
+        assertTrue(actions > toolbar.indexOf("MemoryProfilerDumpBitmapsButton("))
+        assertTrue(toolbar.substring(actions).contains("onMapping = { showMappingFileDialog = true }"))
+        val compareAction = "onCompare = { controller.changeViewMode(MemoryProfilerViewMode.Diff) }"
+        assertTrue(toolbar.substring(actions).contains(compareAction))
+        assertEquals(1, Regex("MemoryWorkspaceActions\\(").findAll(workspace).count())
+    }
+
+    @Test
     fun `workspace moves import and export actions into the file menu`() {
         assertTrue(workspace.contains("MemoryProfilerFileMenuBar("))
         assertTrue(workspace.contains("onImportHprof = { showHprofFileDialog = true }"))
@@ -100,6 +114,9 @@ class MemoryProfilerWorkspaceSourceTest {
         assertFalse(workspace.contains("text = localizedStringResource(Res.string.export_csv"))
         assertTrue(workspace.contains("MemoryWorkspaceActions("))
         assertTrue(workspace.contains("onCompareSnapshots = controller::compareSnapshots"))
-        assertTrue(workspace.contains("onAddSnapshot = { showHprofFileDialog = true }"))
+        assertFalse(workspace.contains("onAddSnapshot ="))
+        val workspaceActions = workspace.substringAfter("MemoryWorkspaceActions(").substringBefore("HorizontalDivider(")
+        assertFalse(workspaceActions.contains("onImport ="))
+        assertFalse(workspaceActions.contains("onExport ="))
     }
 }

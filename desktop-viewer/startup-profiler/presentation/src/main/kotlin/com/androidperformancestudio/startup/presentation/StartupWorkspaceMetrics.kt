@@ -51,7 +51,7 @@ internal fun StartupMetricOverview(
     val colors = LocalViewerColors.current
     StudioPanel(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = StudioTokens.compactContentPadding,
+        contentPadding = StudioTokens.workspacePadding,
     ) {
         Text(localizedStringResource(Res.string.startup_metrics, language), fontWeight = FontWeight.SemiBold)
         run {
@@ -95,7 +95,10 @@ internal fun StartupMetricOverview(
                     modifier,
                 )
             }
-            Row(Modifier.fillMaxWidth().height(104.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth().height(104.dp),
+                horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+            ) {
                 // Compact text wraps within weighted cards instead of dropping metrics at smaller widths.
                 metrics(Modifier.weight(1f).fillMaxHeight())
             }

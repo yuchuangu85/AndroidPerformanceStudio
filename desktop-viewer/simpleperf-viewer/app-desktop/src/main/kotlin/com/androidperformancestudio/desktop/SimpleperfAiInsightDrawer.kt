@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -44,6 +45,7 @@ import com.androidperformancestudio.ui.studio.StudioPanel
 import com.androidperformancestudio.ui.studio.StudioPanelHeader
 import com.androidperformancestudio.ui.studio.StudioStatusChip
 import com.androidperformancestudio.ui.studio.StudioStatusTone
+import com.androidperformancestudio.ui.studio.StudioTokens
 import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.ui.viewerMaterialColorScheme
 
@@ -110,52 +112,77 @@ internal fun SimpleperfAiInsightDrawer(
     onOpenSourceCandidate: ((String) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val colors = LocalViewerColors.current
-    StudioPanel(modifier.testTag("simpleperf-ai-insight-drawer")) {
+    StudioPanel(modifier.testTag("simpleperf-ai-insight-drawer"), contentPadding = 0.dp) {
         StudioPanelHeader(
             title = localizedStringResource(Res.string.sp_ai_result_title, language, insight.result.model),
+            modifier = Modifier.padding(start = 8.dp, top = 8.dp, end = 8.dp),
         ) {
             TextButton(onClick = onClose) {
                 Text(localizedStringResource(Res.string.sp_ai_close, language))
             }
         }
         Column(
-            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = if (insight.result.findings.isEmpty()) 8.dp else StudioTokens.workspacePadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
-            Text(
-                text = localizedStringResource(Res.string.sp_ai_session_label, language, insight.sessionName),
-                color = colors.secondaryText,
-                fontSize = ViewerTypography.bodyCompact.fontSize,
-            )
-            Text(
-                text = localizedStringResource(Res.string.sp_ai_evidence_scope_label, language, insight.evidenceScope),
-                color = colors.secondaryText,
-                fontSize = ViewerTypography.bodyCompact.fontSize,
-            )
-            Text(
-                text =
-                    localizedStringResource(
-                        Res.string.sp_ai_evidence_summary,
-                        language,
-                        insight.evidenceCount,
-                        insight.sampleCount,
-                    ),
-                color = colors.secondaryText,
-                fontSize = ViewerTypography.bodyCompact.fontSize,
-            )
-            Text(insight.result.summary, color = colors.primaryText, fontSize = ViewerTypography.body.fontSize)
-            Text(
-                localizedStringResource(Res.string.sp_ai_findings, language),
-                color = colors.primaryText,
-                fontSize = ViewerTypography.subsectionTitle.fontSize,
-            )
-            if (insight.result.findings.isEmpty()) {
-                Text(localizedStringResource(Res.string.sp_ai_no_findings, language), color = colors.secondaryText)
+            SimpleperfAiInsightMetadata(insight, language)
+            if (insight.result.findings.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = StudioTokens.workspacePadding),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+                ) {
+                    insight.result.findings.forEach { finding ->
+                        SimpleperfAiFindingCard(finding, language, onOpenSourceCandidate)
+                    }
+                }
             }
-            insight.result.findings.forEach { finding ->
-                SimpleperfAiFindingCard(finding, language, onOpenSourceCandidate)
-            }
+        }
+    }
+}
+
+@Composable
+private fun SimpleperfAiInsightMetadata(
+    insight: SimpleperfAiInsight,
+    language: UiLanguage,
+) {
+    val colors = LocalViewerColors.current
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = localizedStringResource(Res.string.sp_ai_session_label, language, insight.sessionName),
+            color = colors.secondaryText,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
+        )
+        Text(
+            text = localizedStringResource(Res.string.sp_ai_evidence_scope_label, language, insight.evidenceScope),
+            color = colors.secondaryText,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
+        )
+        Text(
+            text =
+                localizedStringResource(
+                    Res.string.sp_ai_evidence_summary,
+                    language,
+                    insight.evidenceCount,
+                    insight.sampleCount,
+                ),
+            color = colors.secondaryText,
+            fontSize = ViewerTypography.bodyCompact.fontSize,
+        )
+        Text(insight.result.summary, color = colors.primaryText, fontSize = ViewerTypography.body.fontSize)
+        Text(
+            localizedStringResource(Res.string.sp_ai_findings, language),
+            color = colors.primaryText,
+            fontSize = ViewerTypography.subsectionTitle.fontSize,
+        )
+        if (insight.result.findings.isEmpty()) {
+            Text(localizedStringResource(Res.string.sp_ai_no_findings, language), color = colors.secondaryText)
         }
     }
 }

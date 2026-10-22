@@ -195,7 +195,17 @@ class StartupProfilerWorkspaceTest {
             onNodeWithTag("startup-waterfall-run-5").assertIsDisplayed()
             val main = onNodeWithTag("startup-main").fetchSemanticsNode().boundsInRoot
             val rail = onNodeWithTag("startup-evidence-rail").fetchSemanticsNode().boundsInRoot
-            assertTrue(main.right <= rail.left)
+            assertEquals(4f, main.left)
+            assertEquals(4f, main.top)
+            assertEquals(1332f, rail.right)
+            assertEquals(4f, rail.left - main.right)
+            val metrics =
+                listOf("TTID", "TTFD", "FIRST_FRAME", "P95").map {
+                    onNodeWithTag("startup-metric-$it").fetchSemanticsNode().boundsInRoot
+                }
+            assertEquals(4f, metrics.first().left - main.left)
+            assertEquals(4f, main.right - metrics.last().right)
+            metrics.zipWithNext().forEach { (left, right) -> assertEquals(4f, right.left - left.right) }
             assertTrue(rail.width >= 280f)
             onNodeWithTag("startup-date").assertDoesNotExist()
         }

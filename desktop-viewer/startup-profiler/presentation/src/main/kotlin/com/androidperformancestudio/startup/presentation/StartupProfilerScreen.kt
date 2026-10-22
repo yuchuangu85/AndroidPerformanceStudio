@@ -162,18 +162,18 @@ public fun StartupProfilerScreen(
 ) {
     val selected = state.analysis?.runs?.let { runs -> runs.firstOrNull { it.id == state.selectedRunId } ?: runs.firstOrNull() }
     val colors = LocalViewerColors.current
-    BoxWithConstraints(modifier.fillMaxSize().background(colors.workspace).padding(8.dp)) {
+    BoxWithConstraints(modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.workspacePadding)) {
         if (maxWidth >= 1100.dp) {
-            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                 Column(
                     Modifier.weight(1f).testTag("startup-main").verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     StartupMainWorkspace(state, selected, actions, language)
                 }
                 Column(
                     Modifier.width(300.dp).testTag("startup-evidence-rail").verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     StartupEvidenceRail(state, selected, actions, language)
                 }
@@ -181,12 +181,18 @@ public fun StartupProfilerScreen(
         } else {
             Column(
                 Modifier.fillMaxSize().testTag("startup-stacked-workspace").verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
-                Column(Modifier.fillMaxWidth().testTag("startup-main"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    Modifier.fillMaxWidth().testTag("startup-main"),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+                ) {
                     StartupMainWorkspace(state, selected, actions, language)
                 }
-                Column(Modifier.fillMaxWidth().testTag("startup-evidence-rail"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    Modifier.fillMaxWidth().testTag("startup-evidence-rail"),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+                ) {
                     StartupEvidenceRail(state, selected, actions, language)
                 }
             }

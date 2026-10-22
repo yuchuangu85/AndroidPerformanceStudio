@@ -33,7 +33,9 @@ class SimpleperfAiInsightDrawerTest {
 
         assertTrue(finding.contains("StudioCard(Modifier.fillMaxWidth())"))
         assertTrue(finding.contains("onOpenSourceCandidate(candidateId)"))
-        assertTrue(drawer.contains("StudioPanel(modifier.testTag(\"simpleperf-ai-insight-drawer\"))"))
+        assertTrue(drawer.contains("modifier.testTag(\"simpleperf-ai-insight-drawer\")"))
+        assertTrue(drawer.contains("contentPadding = 0.dp"))
+        assertTrue(drawer.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
         assertTrue(drawer.contains(".verticalScroll(rememberScrollState())"))
     }
 

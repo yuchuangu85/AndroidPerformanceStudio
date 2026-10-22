@@ -73,16 +73,16 @@ public fun BenchmarkReportsScreen(
     actions: BenchmarkReportsActions = BenchmarkReportsActions(),
 ) {
     val colors = LocalViewerColors.current
-    Column(modifier = modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.compactContentPadding)) {
+    Column(modifier = modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.workspacePadding)) {
         BenchmarkSummaryRow(state, language)
-        Spacer(Modifier.height(StudioTokens.panelGap))
+        Spacer(Modifier.height(StudioTokens.cardGap))
         Row(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 BenchmarkComparisonTable(
                     state = state,
@@ -206,7 +206,7 @@ private fun BenchmarkSummaryRow(
     val gate = state.gate
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+        horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         StudioMetricCard(
             label = localizedStringResource(Res.string.compared_benchmarks, language),
@@ -254,7 +254,7 @@ private fun BenchmarkReportColumn(
     val colors = LocalViewerColors.current
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         StudioPanel(Modifier.fillMaxWidth()) {
             StudioPanelHeader(localizedStringResource(Res.string.report_summary, language))
@@ -520,7 +520,7 @@ private fun StatusLine(state: BenchmarkReportsState, colors: ViewerColors) {
     val status = state.error ?: state.message ?: return
     Text(
         text = status,
-        modifier = Modifier.padding(top = StudioTokens.panelGap),
+        modifier = Modifier.padding(top = StudioTokens.cardGap),
         color = if (state.error != null) MaterialTheme.colorScheme.error else colors.secondaryText,
         fontSize = ViewerTypography.label.fontSize,
         lineHeight = ViewerTypography.label.lineHeight,

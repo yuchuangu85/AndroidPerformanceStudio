@@ -275,9 +275,9 @@ public fun MemoryProfilerScreen(
                         Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .padding(StudioTokens.compactContentPadding)
+                            .padding(StudioTokens.workspacePadding)
                             .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     Overview(summary = presentedState.summary, activityCount = presentedState.activityCount, language = language)
                     Histogram(
@@ -519,10 +519,10 @@ private fun Overview(
     activityCount: Int,
     language: UiLanguage,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         Text(localizedStringResource(Res.string.overview, language), fontWeight = FontWeight.Bold)
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             modifier = Modifier.fillMaxWidth(),
         ) {
             MetricCard(localizedStringResource(Res.string.heap_size, language), formatBytes(summary.shallowSize), Modifier.weight(1f))
@@ -677,9 +677,8 @@ private fun LeakSuspectsPhaseTwo(
     Column(
         modifier =
             Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+                .fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         Text(localizedStringResource(Res.string.leak_suspects, language), fontWeight = FontWeight.Bold)
         if (state.leakSuspects.isEmpty()) {

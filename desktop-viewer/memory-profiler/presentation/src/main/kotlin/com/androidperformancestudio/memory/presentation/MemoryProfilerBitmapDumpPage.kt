@@ -57,6 +57,7 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioCard
+import com.androidperformancestudio.ui.studio.StudioTokens
 import java.nio.file.Files
 import org.jetbrains.skia.Image as SkiaImage
 
@@ -72,9 +73,9 @@ public fun MemoryProfilerBitmapDumpPage(
         modifier =
             modifier
                 .fillMaxSize()
-                .padding(8.dp)
+                .padding(StudioTokens.workspacePadding)
                 .testTag("memory-profiler-bitmap-dump-page"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -126,14 +127,14 @@ private fun BitmapDumpGalleryContent(
             modifier
                 .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
                 .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
-                .padding(8.dp),
+                .padding(StudioTokens.workspacePadding),
     ) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 180.dp),
             modifier = Modifier.fillMaxSize().testTag("memory-profiler-bitmap-grid"),
             contentPadding = PaddingValues(0.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 BitmapDumpSummaryMetrics(session = session, language = language)
@@ -236,7 +237,7 @@ private fun BitmapDumpSummaryMetrics(
                 )
             }
         }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         androidx.compose.material3.Text(
             localizedStringResource(
                 Res.string.bitmap_dump_summary,
@@ -250,8 +251,8 @@ private fun BitmapDumpSummaryMetrics(
         )
         FlowRow(
             modifier = Modifier.fillMaxWidth().testTag("memory-profiler-bitmap-summary-metrics"),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             metrics.forEach { (label, value) ->
                 BitmapSummaryMetricCard(label = label, value = value)

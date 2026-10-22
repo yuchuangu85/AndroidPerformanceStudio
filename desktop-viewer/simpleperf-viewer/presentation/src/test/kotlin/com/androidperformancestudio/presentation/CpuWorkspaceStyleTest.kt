@@ -13,7 +13,7 @@ class CpuWorkspaceStyleTest {
         assertFalse(source.contains("StudioWorkspaceHeader("))
         assertTrue(source.indexOf("HeaderToolbar(") < source.indexOf("ReportWorkspace("))
         assertTrue(source.indexOf("ReportWorkspace(") < source.indexOf("WorkspaceFooter("))
-        assertTrue(source("ReportPage.kt").contains("StudioTokens.compactContentPadding"))
+        assertTrue(source("ReportPage.kt").contains("StudioTokens.workspacePadding"))
     }
 
     @Test

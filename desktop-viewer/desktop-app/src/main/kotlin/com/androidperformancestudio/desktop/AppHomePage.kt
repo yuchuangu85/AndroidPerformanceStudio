@@ -300,14 +300,14 @@ internal fun AppHomePage(
                 Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(StudioTokens.compactContentPadding),
-            verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+                    .padding(StudioTokens.workspacePadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 if (maxWidth.value >= HOME_TWO_COLUMN_MIN_WIDTH_DP) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+                        horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                         verticalAlignment = Alignment.Top,
                     ) {
                         HomeMainColumn(
@@ -330,7 +330,7 @@ internal fun AppHomePage(
                 } else {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+                        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                     ) {
                         HomeMainColumn(
                             entries = entries,
@@ -368,7 +368,7 @@ private fun HomeMainColumn(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         HomeMetrics(
             deviceOverview = deviceOverview,
@@ -400,7 +400,7 @@ private fun HomeRailColumn(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         HomeDateCard(language)
         HomeDeviceSummary(
@@ -429,7 +429,7 @@ private fun HomeMetrics(
             ?: "—"
     Row(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
-        horizontalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+        horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         StudioMetricCard(
             label = localizedStringResource(Res.string.connected_devices, language),
@@ -455,7 +455,7 @@ private fun HomeSection(
     content: @Composable () -> Unit,
 ) {
     val colors = LocalViewerColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         Text(
             text = title,
             color = colors.primaryText,
@@ -471,11 +471,11 @@ private fun HomeSection(
 private fun HomeQuickActionGrid(actions: List<HomeQuickAction>) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columnCount = homeQuickActionColumnCount(maxWidth.value.toInt())
-        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding)) {
+        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             actions.chunked(columnCount).forEach { rowActions ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+                    horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     rowActions.forEach { action ->
                         QuickActionCard(action = action, modifier = Modifier.weight(1f))
@@ -496,11 +496,11 @@ private fun HomeModuleGrid(
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columnCount = homeGridColumnCount(maxWidth.value.toInt())
-        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding)) {
+        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             entries.chunked(columnCount).forEach { rowEntries ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+                    horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     rowEntries.forEach { entry ->
                         FeatureEntryCard(entry = entry, modifier = Modifier.weight(1f))

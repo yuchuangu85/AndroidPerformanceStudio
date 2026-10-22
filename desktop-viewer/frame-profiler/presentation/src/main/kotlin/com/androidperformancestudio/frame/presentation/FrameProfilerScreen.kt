@@ -181,8 +181,8 @@ public fun FrameProfilerScreen(
             Modifier
                 .fillMaxSize()
                 .then(if (compactHeight) Modifier.verticalScroll(workspaceScroll) else Modifier)
-                .padding(StudioTokens.compactContentPadding),
-            verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                .padding(StudioTokens.workspacePadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             Box(if (compactHeight) Modifier.fillMaxWidth() else Modifier.weight(1f).fillMaxWidth()) {
                 AnalysisContent(
@@ -246,7 +246,7 @@ private fun AnalysisContent(
 
     Column(
         modifier = if (compactHeight) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         SummaryCards(filteredAnalysis, state.observedRefreshRatesHz, language)
         StudioPanel(modifier = Modifier.fillMaxWidth().testTag("frame-timeline-panel")) {
@@ -320,7 +320,7 @@ private fun AnalysisContent(
         }
         Row(
             modifier = if (compactHeight) Modifier.fillMaxWidth().height(280.dp) else Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             ClusterList(
                 analysis = filteredAnalysis,
@@ -493,7 +493,7 @@ private fun SummaryCards(
             1 -> "%.0f Hz".format(refreshRates.single())
             else -> "%.0f–%.0f Hz".format(refreshRates.first(), refreshRates.last())
         }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         FrameMetricCard(
             localizedStringResource(Res.string.frames, language),
             summary.totalFrames.toString(),

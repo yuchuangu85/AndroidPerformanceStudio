@@ -46,7 +46,6 @@ import com.androidperformancestudio.memory.presentation.MemoryProfilerSnapshotTa
 import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSelectors
 import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
 import com.androidperformancestudio.memory.presentation.MemoryWorkspaceActions
-import com.androidperformancestudio.memory.presentation.MemoryWorkspaceExport
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
@@ -348,46 +347,19 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 language = language,
             )
             HeaderSpacer()
+            MemoryWorkspaceActions(
+                state = state,
+                language = language,
+                onMapping = { showMappingFileDialog = true },
+                onCompare = { controller.changeViewMode(MemoryProfilerViewMode.Diff) },
+            )
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        MemoryWorkspaceActions(
-            state = state,
-            language = language,
-            onImport = { showHprofFileDialog = true },
-            onMapping = { showMappingFileDialog = true },
-            onCompare = { controller.changeViewMode(MemoryProfilerViewMode.Diff) },
-            onExport = { kind ->
-                val fileName =
-                    when (kind) {
-                        MemoryWorkspaceExport.REPORT -> "memory-investigation.md"
-                        MemoryWorkspaceExport.SNAPSHOT -> "heap-snapshot.json"
-                        MemoryWorkspaceExport.HISTOGRAM -> "class-histogram.csv"
-                        MemoryWorkspaceExport.DIFF -> "class-diff.csv"
-                        MemoryWorkspaceExport.OBJECT -> "object-investigation.json"
-                    }
-                chooseSaveFile(
-                    window,
-                    localizedStringResource(Res.string.export_memory_profiler_data, language),
-                    fileName,
-                )?.toPath()
-                    ?.let { output ->
-                        when (kind) {
-                            MemoryWorkspaceExport.REPORT -> controller.exportInvestigationReport(output)
-                            MemoryWorkspaceExport.SNAPSHOT -> controller.exportHeapSnapshotJson(output)
-                            MemoryWorkspaceExport.HISTOGRAM -> controller.exportHistogram(output)
-                            MemoryWorkspaceExport.DIFF -> controller.exportHeapDiff(output)
-                            MemoryWorkspaceExport.OBJECT -> controller.exportObjectInvestigation(output)
-                        }
-                    }
-            },
-        )
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         MemoryProfilerSnapshotTabs(
             state = state,
             onSelectSnapshot = controller::selectSnapshot,
             onCloseSnapshot = controller::closeSnapshot,
             language = language,
-            onAddSnapshot = { showHprofFileDialog = true },
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         MemoryProfilerScreen(

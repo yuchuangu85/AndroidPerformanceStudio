@@ -158,10 +158,10 @@ internal fun BatteryRunWorkspace(
     val names = items.associate { it.id to itemName(it, language) }
     val visible = items.filter { it.matches(query, names.getValue(it.id)) }
     val selected = visible.firstOrNull { it.id == selectedId } ?: visible.firstOrNull()
-    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             if (maxWidth >= 860.dp) {
-                Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     BatterySnapshotChart(capturedRun, language, Modifier.weight(1f))
                     BatteryHistoryChart(run.history, language, Modifier.weight(1f)) { index ->
                         tab = BatteryResourceTab.HISTORY
@@ -170,7 +170,7 @@ internal fun BatteryRunWorkspace(
                     }
                 }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     BatterySnapshotChart(capturedRun, language, Modifier.fillMaxWidth())
                     BatteryHistoryChart(run.history, language, Modifier.fillMaxWidth()) { index ->
                         tab = BatteryResourceTab.HISTORY
@@ -216,7 +216,7 @@ internal fun BatteryRunWorkspace(
             )
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 if (maxWidth >= 860.dp) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                         BatteryEvidenceTable(
                             visible,
                             names,
@@ -227,7 +227,7 @@ internal fun BatteryRunWorkspace(
                         BatteryEvidenceInspector(selected, language, Modifier.width(290.dp))
                     }
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                         BatteryEvidenceTable(
                             visible,
                             names,
