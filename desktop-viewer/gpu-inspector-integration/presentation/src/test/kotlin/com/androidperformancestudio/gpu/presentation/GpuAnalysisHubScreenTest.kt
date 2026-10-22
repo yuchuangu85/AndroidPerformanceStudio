@@ -15,6 +15,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -188,7 +191,7 @@ class GpuAnalysisHubScreenTest {
             onNodeWithTag("segmented-selector-item-1").performClick()
             onNodeWithTag("gpu-artifact-table").assertExists()
             listOf("Kind", "File", "Device", "Package", "API", "Captured", "Status", "Action").forEach { column ->
-                onNodeWithText(column).assertExists()
+                onNode(hasText(column) and hasAnyAncestor(hasTestTag("gpu-artifact-table"))).assertExists()
             }
 
             onNodeWithTag("segmented-selector-item-2").performClick()
@@ -290,7 +293,7 @@ class GpuAnalysisHubScreenTest {
                 }
             }
 
-            onNodeWithContentDescription("Device / Graphics Context").performClick()
+            onNodeWithContentDescription("Device selector").performClick()
             onNodeWithText("Test Phone · serial-1").performClick()
 
             assertEquals("serial-1", selectedSerial)

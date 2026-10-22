@@ -40,7 +40,6 @@ import com.androidperformancestudio.frame.frame_app.generated.resources.capture_
 import com.androidperformancestudio.frame.frame_app.generated.resources.capture_stopped_without_frames
 import com.androidperformancestudio.frame.frame_app.generated.resources.capturing_frame_count
 import com.androidperformancestudio.frame.frame_app.generated.resources.capturing_via
-import com.androidperformancestudio.frame.frame_app.generated.resources.device
 import com.androidperformancestudio.frame.frame_app.generated.resources.export_frame_profiler_report
 import com.androidperformancestudio.frame.frame_app.generated.resources.exported
 import com.androidperformancestudio.frame.frame_app.generated.resources.import_gfxinfo_framestats
@@ -59,6 +58,7 @@ import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
@@ -162,12 +162,12 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                DropdownSelector(
+                DeviceDropdownSelector(
+                    language = language,
                     items = state.devices,
                     selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
                     onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
                     itemLabel = { it.name },
-                    placeholder = localizedStringResource(Res.string.device, language),
                     enabled = !state.isCapturing && !state.isLoading,
                     itemEnabled = { it.online },
                 )

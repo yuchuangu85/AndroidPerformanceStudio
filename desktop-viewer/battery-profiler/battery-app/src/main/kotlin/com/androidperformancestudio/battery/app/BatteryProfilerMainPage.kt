@@ -58,7 +58,6 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.choo
 import com.androidperformancestudio.battery.battery_app.generated.resources.configuration_done
 import com.androidperformancestudio.battery.battery_app.generated.resources.cooldown
 import com.androidperformancestudio.battery.battery_app.generated.resources.cooldown_value
-import com.androidperformancestudio.battery.battery_app.generated.resources.device
 import com.androidperformancestudio.battery.battery_app.generated.resources.duration
 import com.androidperformancestudio.battery.battery_app.generated.resources.duration_value
 import com.androidperformancestudio.battery.battery_app.generated.resources.experiment_configuration
@@ -87,6 +86,7 @@ import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
 import com.androidperformancestudio.battery.presentation.BatteryProfilerScreen
 import com.androidperformancestudio.platform.toolchain.RecentPathStore
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
@@ -208,12 +208,12 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                     modifier = Modifier.horizontalScroll(rememberScrollState()).widthIn(min = minimumToolbarWidth),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    DropdownSelector(
+                    DeviceDropdownSelector(
+                        language = language,
                         items = state.devices,
                         selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
                         onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
                         itemLabel = { it.name },
-                        placeholder = localizedStringResource(Res.string.device, language),
                         enabled = !state.isRunning,
                         itemEnabled = { it.online },
                     )

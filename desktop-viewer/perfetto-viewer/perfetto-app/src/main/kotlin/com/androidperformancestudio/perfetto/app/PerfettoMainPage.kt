@@ -120,7 +120,6 @@ import com.androidperformancestudio.perfetto_app.generated.resources.open
 import com.androidperformancestudio.perfetto_app.generated.resources.open_perfetto_trace
 import com.androidperformancestudio.perfetto_app.generated.resources.perfetto_traces
 import com.androidperformancestudio.perfetto_app.generated.resources.refresh
-import com.androidperformancestudio.perfetto_app.generated.resources.select_device
 import com.androidperformancestudio.perfetto_app.generated.resources.trace_preset_completed
 import com.androidperformancestudio.perfetto_app.generated.resources.trace_severity_heuristic
 import com.androidperformancestudio.platform.adb.AdbCommandFailedException
@@ -131,7 +130,7 @@ import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContext
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContexts
 import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
-import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
@@ -990,16 +989,14 @@ private fun DeviceSelector(
     language: UiLanguage,
 ) {
     val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
-    val selectDeviceLabel = localizedStringResource(Res.string.select_device, language)
-    DropdownSelector(
+    DeviceDropdownSelector(
+        language = language,
         items = devices,
         selectedItem = selectedDevice,
         onItemSelected = { onSelectDevice(it.serial) },
         itemLabel = PerfettoDevice::displayName,
         selectedItemLabel = PerfettoDevice::displayName,
-        placeholder = selectDeviceLabel,
         modifier = Modifier.width(170.dp),
-        selectorDescription = selectDeviceLabel,
         itemEnabled = PerfettoDevice::online,
         fillWidth = true,
     )

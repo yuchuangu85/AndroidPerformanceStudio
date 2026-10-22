@@ -76,6 +76,7 @@ public fun <T> DropdownSelector(
     searchable: Boolean = false,
     searchLanguage: UiLanguage = UiLanguage.ENGLISH,
     itemSearchText: (T) -> String = itemLabel,
+    placeholderMenuLabel: String = placeholder,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -148,7 +149,7 @@ public fun <T> DropdownSelector(
             if (searchQuery.isBlank()) {
                 onPlaceholderSelected?.let { selectPlaceholder ->
                     DropdownSelectorMenuItem(
-                        label = placeholder,
+                        label = placeholderMenuLabel,
                         secondary = null,
                         selected = selectedItem == null,
                         enabled = enabled,

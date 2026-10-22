@@ -1,5 +1,6 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 
@@ -1735,16 +1736,15 @@ private fun DeviceSelector(
     onSelectDevice: (String?) -> Unit,
 ) {
     val language = LocalLayoutInspectorLanguage.current
-    val autoDeviceLabel = localizedStringResource(Res.string.auto_device, language)
     val selectedDevice = devices.firstOrNull { it.serial == selectedSerial }
 
-    DropdownSelector(
+    DeviceDropdownSelector(
+        language = language,
         items = devices,
         selectedItem = selectedDevice,
         onItemSelected = { device -> onSelectDevice(device.serial) },
         itemLabel = DeviceChoiceModel::label,
-        placeholder = autoDeviceLabel,
-        onPlaceholderSelected = { onSelectDevice(null) },
+        onAutomaticSelection = { onSelectDevice(null) },
     )
 }
 

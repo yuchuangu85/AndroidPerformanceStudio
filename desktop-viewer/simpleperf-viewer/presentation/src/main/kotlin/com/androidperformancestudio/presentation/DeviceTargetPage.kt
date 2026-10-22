@@ -49,6 +49,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
@@ -245,15 +246,14 @@ private fun DeviceSelector(
     enabled: Boolean,
 ) {
     val language = currentSimpleperfLanguage()
-    DropdownSelector(
+    DeviceDropdownSelector(
+        language = language,
         items = devices,
         selectedItem = selected,
         onItemSelected = { onSelect(it.serial) },
         itemLabel = DeviceOption::label,
-        placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_device, language),
         modifier = modifier,
         enabled = enabled,
-        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_device_selector, language),
         colors = style,
         itemSecondary = { device ->
             val status =

@@ -38,21 +38,20 @@ import com.androidperformancestudio.methodrecording.app.generated.resources.devi
 import com.androidperformancestudio.methodrecording.app.generated.resources.device_offline
 import com.androidperformancestudio.methodrecording.app.generated.resources.device_status
 import com.androidperformancestudio.methodrecording.app.generated.resources.devices_connected
-import com.androidperformancestudio.methodrecording.app.generated.resources.device_selector
 import com.androidperformancestudio.methodrecording.app.generated.resources.import_trace
 import com.androidperformancestudio.methodrecording.app.generated.resources.no_devices
 import com.androidperformancestudio.methodrecording.app.generated.resources.process_selector
 import com.androidperformancestudio.methodrecording.app.generated.resources.refresh_devices
-import com.androidperformancestudio.methodrecording.app.generated.resources.select_device
 import com.androidperformancestudio.methodrecording.app.generated.resources.select_process
 import com.androidperformancestudio.methodrecording.app.generated.resources.stop
 import com.androidperformancestudio.ui.ActivePageMenu
-import com.androidperformancestudio.ui.PageMenu
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.PageMenu
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -93,13 +92,12 @@ fun FrameWindowScope.MethodRecordingMainPage(
             onNavigateHome = onBack,
             onNavigateSettings = null,
         ) {
-            DropdownSelector(
+            DeviceDropdownSelector(
+                language = language,
                 items = state.devices,
                 selectedItem = state.devices.firstOrNull { it.serial == state.selectedSerial },
                 onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
                 itemLabel = { device -> device.name },
-                placeholder = localizedStringResource(Res.string.select_device, language),
-                selectorDescription = localizedStringResource(Res.string.device_selector, language),
                 enabled = !state.isLoading,
             )
             HeaderSpacer()

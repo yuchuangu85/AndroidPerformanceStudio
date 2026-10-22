@@ -102,6 +102,7 @@
   - 首版优先文本按钮，避免新增图标资产和主题适配成本。
 
 ## Components
+- Shared device selection across workspaces uses `DeviceDropdownSelector`: empty/automatic controls display `设备` / `Device`, selected controls retain the caller's actual device label, and accessibility uses `设备选择器` / `Device selector`. Layout Inspector keeps an explicit automatic-selection menu action. Serial-number input fields are not device dropdowns and retain their distinct purpose.
 - Existing components to reuse:
   - `HierarchyPane` / 树行 Row：增加行内隐藏/恢复操作。
   - `PreviewPane`：接收隐藏节点集合，命中测试与 overlay 绘制过滤隐藏子树。

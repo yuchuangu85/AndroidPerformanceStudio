@@ -54,7 +54,6 @@ import com.androidperformancestudio.startup.presentation.generated.resources.com
 import com.androidperformancestudio.startup.presentation.generated.resources.compilation_speed
 import com.androidperformancestudio.startup.presentation.generated.resources.compilation_speed_profile
 import com.androidperformancestudio.startup.presentation.generated.resources.compilation_verify
-import com.androidperformancestudio.startup.presentation.generated.resources.device
 import com.androidperformancestudio.startup.presentation.generated.resources.hot_start_description
 import com.androidperformancestudio.startup.presentation.generated.resources.iterations
 import com.androidperformancestudio.startup.presentation.generated.resources.perfetto_capture
@@ -74,6 +73,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.sta
 import com.androidperformancestudio.startup.presentation.generated.resources.stop_analysis
 import com.androidperformancestudio.startup.presentation.generated.resources.warm_start_description
 import com.androidperformancestudio.startup.presentation.generated.resources.warmup_runs
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.LocalViewerColors
@@ -156,14 +156,13 @@ public fun StartupTargetSelectors(
     actions: StartupProfilerActions,
     language: UiLanguage,
 ) {
-    DropdownSelector(
+    DeviceDropdownSelector(
+        language = language,
         items = state.devices,
         selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
         onItemSelected = { actions.onSelectDevice(it.serial) },
         itemLabel = { it.name },
         itemEnabled = { it.online },
-        placeholder = localizedStringResource(Res.string.device, language),
-        selectorDescription = localizedStringResource(Res.string.device, language),
         modifier = Modifier.width(160.dp).testTag("startup-device"),
         fillWidth = true,
         enabled = !state.isRunning && !state.isRefreshing,

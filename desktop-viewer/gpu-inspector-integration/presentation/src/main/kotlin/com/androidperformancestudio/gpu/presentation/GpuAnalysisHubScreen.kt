@@ -34,6 +34,7 @@ import com.androidperformancestudio.gpu.model.GpuDeviceContext
 import com.androidperformancestudio.gpu.model.GraphicsApi
 import com.androidperformancestudio.gpu.presentation.generated.resources.*
 import com.androidperformancestudio.gpu.presentation.generated.resources.Res
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -386,16 +387,15 @@ private fun GpuDeviceContextPanel(
         StudioPanelHeader(
             title = localizedStringResource(Res.string.device_graphics_context, language),
             actions = {
-                DropdownSelector(
+                DeviceDropdownSelector(
+                    language = language,
                     items = state.devices,
                     selectedItem = selectedDevice,
                     onItemSelected = { it.serial?.let(actions.onSelectDevice) },
                     itemLabel = GpuDeviceContext::selectorLabel,
                     selectedItemLabel = GpuDeviceContext::selectorLabel,
-                    placeholder = localizedStringResource(Res.string.select_connected_device, language),
                     modifier = Modifier.widthIn(min = 200.dp, max = 360.dp),
                     enabled = !state.isRefreshingDevices && state.devices.isNotEmpty(),
-                    selectorDescription = localizedStringResource(Res.string.device_graphics_context, language),
                 )
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.refresh_devices, language),

@@ -5,11 +5,10 @@ package com.androidperformancestudio.memory.presentation
 import androidx.compose.runtime.Composable
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.device_offline
-import com.androidperformancestudio.memory.presentation.generated.resources.device_selector
 import com.androidperformancestudio.memory.presentation.generated.resources.process_selector
-import com.androidperformancestudio.memory.presentation.generated.resources.select_device
 import com.androidperformancestudio.memory.presentation.generated.resources.select_process
 import com.androidperformancestudio.memory.presentation.generated.resources.text
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.UiLanguage
@@ -34,8 +33,8 @@ private fun MemoryProfilerDeviceSelector(
     language: UiLanguage,
 ) {
     val selected = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }
-    val selectDeviceLabel = localizedStringResource(Res.string.select_device, language)
-    DropdownSelector(
+    DeviceDropdownSelector(
+        language = language,
         items = state.devices,
         selectedItem = selected,
         onItemSelected = { onSelectDevice(it.serial) },
@@ -47,8 +46,6 @@ private fun MemoryProfilerDeviceSelector(
             }
         },
         selectedItemLabel = MemoryDeviceOption::name,
-        placeholder = selectDeviceLabel,
-        selectorDescription = localizedStringResource(Res.string.device_selector, language),
         itemEnabled = MemoryDeviceOption::online,
     )
 }

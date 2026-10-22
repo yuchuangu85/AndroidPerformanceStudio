@@ -148,8 +148,9 @@ class FrameProfilerWorkspaceSourceTest {
     @Test
     fun `selectors preserve controller callbacks and capture enabled predicates`() {
         assertBlockContains(
-            "localizedStringResource(Res.string.device, language)",
-            "enabled = !state.isCapturing",
+            "DeviceDropdownSelector(",
+            "enabled = !state.isCapturing && !state.isLoading",
+            "itemEnabled = { it.online }",
             "controller.selectDevice(device.serial)",
         )
         assertBlockContains(
@@ -169,6 +170,7 @@ class FrameProfilerWorkspaceSourceTest {
             maxOf(
                 source.lastIndexOf("ProfilerCompactButton(", anchorIndex),
                 source.lastIndexOf("DropdownSelector(", anchorIndex),
+                source.lastIndexOf("DeviceDropdownSelector(", anchorIndex),
             )
         val nextButton = source.indexOf("ProfilerCompactButton(", anchorIndex + anchor.length)
         val nextSelector = source.indexOf("DropdownSelector(", anchorIndex + anchor.length)
